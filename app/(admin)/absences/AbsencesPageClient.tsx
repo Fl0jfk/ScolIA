@@ -1256,7 +1256,11 @@ export default function AbsencesPageClient({
               <div key={item.id} className="bg-white border border-slate-200 rounded-2xl p-4">
                 <div className="flex flex-wrap gap-2 items-center justify-between mb-2">
                   <p className="font-bold text-slate-800">
-                    {item.data.scope === "ogec" ? "Personnel OGEC" : `Professeur (${item.data.etablissement})`}
+                    {item.data.scope === "ogec"
+                      ? item.data.ogecValidator?.label
+                        ? `Personnel OGEC → ${item.data.ogecValidator.label}`
+                        : "Personnel OGEC"
+                      : `Professeur (${item.data.etablissement})`}
                   </p>
                   <span className={`text-xs font-black px-3 py-1 rounded-xl border ${decisionStyle(itemDecision(item))}`}>
                     {itemDecision(item) === "VALIDEE"

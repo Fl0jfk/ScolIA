@@ -2,6 +2,12 @@ import type { AbsenceHoursTreatment } from "@/app/lib/absence-hours-treatment";
 import type { AbsencePeriodType } from "@/app/lib/absence-period";
 import type { Establishment, NotificationsConfig } from "@/app/lib/app-config-schemas";
 import {
+  normalizeOgecValidatorRef,
+  resolveOgecValidatorsForAbsence,
+  viewerMatchesOgecValidators,
+  type OgecAbsenceValidatorRef,
+} from "@/app/lib/absences-ogec-validators-shared";
+import {
   directionRolesMatchEstablishmentRef,
   isAnyDirectionRole,
 } from "@/app/lib/establishment-catalog";
@@ -46,6 +52,11 @@ export type AbsenceRecord = {
   data: {
     scope: AbsenceScope;
     etablissement: Etablissement | null;
+    /**
+     * Validateur nominatif OGEC (snapshot à la création).
+     * Si absent : défaut = liste globale ou directrice du lycée.
+     */
+    ogecValidator?: OgecAbsenceValidatorRef | null;
     periodType?: AbsencePeriodType | null;
     startDate: string;
     endDate: string;
@@ -336,26 +347,21 @@ export function canViewAbsence(
 
 export function canManageAbsence(abs: AbsenceRecord, roles: string[], ctx?: DirectionAuthCtx) {
   if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
-  const flags = getRoleFlags(roles);
   const scope = resolveAbsenceScope(abs);
   if (scope === "ogec") {
-    const validators = ctx?.notifications?.absencesValidatorsOgec;
-    const configured =
-      Array.isArray(validators) &&
-      validators.some((p) => String(p?.email || "").trim());
-    if (configured) {
-      const email = String(ctx?.email || "")
-        .trim()
-        .toLowerCase();
-      const userId = String(ctx?.userId || "").trim();
-      return validators!.some((p) => {
-        if (!p) return false;
-        if (email && p.email && p.email.trim().toLowerCase() === email) return true;
-        if (userId && p.userId && p.userId === userId) return true;
-        return false;
-      });
+    const validators = resolveOgecValidatorsForAbsence(
+      abs,
+      ctx?.notifications,
+      ctx?.establishments || [],
+    );
+    if (validators.length === 0) {
+      // Aucun destinataire configuré : repli historique = toute direction.
+      return getRoleFlags(roles).isDirection;
     }
-    return flags.isDirection;
+    return viewerMatchesOgecValidators(validators, {
+      email: ctx?.email,
+      userId: ctx?.userId,
+    });
   }
   return directionRolesMatchEstablishmentRef(
     roles,
@@ -480,6 +486,7 @@ export function normalizeAbsenceRecord(raw: AbsenceRecord): AbsenceRecord {
       ...data,
       scope,
       etablissement: scope === "ogec" ? null : data.etablissement ?? null,
+      ogecValidator: scope === "ogec" ? normalizeOgecValidatorRef(data.ogecValidator) : null,
       reason,
       details: data.details ?? "",
       startAt,

@@ -10,6 +10,7 @@ import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
 import { saveAbsenceRecord } from "@/app/lib/absences-storage";
 import { computeStartEndAt, type AbsenceRecord, type AbsenceScope } from "@/app/lib/absences-types";
+import { resolveOgecValidatorForNewAbsence } from "@/app/lib/absences-ogec-validators";
 import { notifyAbsenceCreated } from "@/app/lib/absences-workflow-mail";
 import { getAbsenceSyncPort } from "@/app/lib/absences-sync/port";
 import { listMembersFromDb } from "@/app/lib/members-db";
@@ -205,6 +206,19 @@ async function createRhAccueilAbsence(input: {
   });
   const now = new Date().toISOString();
   const id = `accueil_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  let ogecValidator: AbsenceRecord["data"]["ogecValidator"] = null;
+  if (input.scope === "ogec") {
+    const bundle = await loadAppConfig();
+    ogecValidator = await resolveOgecValidatorForNewAbsence({
+      personnelId: input.personnelId,
+      subjectUserId: input.subjectUserId,
+      subjectEmail: input.subjectEmail,
+      notifications: bundle.notifications,
+      establishments: bundle.establishments,
+    });
+  }
+
   const record: AbsenceRecord = {
     id,
     createdAt: now,
@@ -229,6 +243,7 @@ async function createRhAccueilAbsence(input: {
     data: {
       scope: input.scope,
       etablissement: input.scope === "ogec" ? null : input.siteLabel,
+      ...(input.scope === "ogec" && ogecValidator ? { ogecValidator } : {}),
       periodType: input.period.periodType,
       startDate: input.period.startDate,
       endDate: input.period.endDate,

@@ -36,7 +36,9 @@ import {
   type AbsenceScope,
   type Etablissement,
 } from "@/app/lib/absences-types";
+import { resolveOgecValidatorForNewAbsence } from "@/app/lib/absences-ogec-validators";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
+import { findPersonnelByEmail, findPersonnelByExternalId } from "@/app/lib/personnel-storage";
 import { getAbsenceDocumentKeys, isDocumentKeyReferenced } from "@/app/lib/absences-documents";
 import {
   notifyAbsenceCreated,
@@ -315,6 +317,23 @@ export async function POST(req: Request) {
       endTime: period.endTime,
     });
 
+    const bundle = await loadAppConfig();
+    let personnelId: string | null = null;
+    let ogecValidator: AbsenceRecord["data"]["ogecValidator"] = null;
+    if (scope === "ogec") {
+      const subjectPersonnel =
+        (subjectUserId ? await findPersonnelByExternalId(subjectUserId) : null) ||
+        (subjectEmail ? await findPersonnelByEmail(subjectEmail) : null);
+      personnelId = subjectPersonnel?.id || null;
+      ogecValidator = await resolveOgecValidatorForNewAbsence({
+        personnel: subjectPersonnel,
+        subjectUserId,
+        subjectEmail,
+        notifications: bundle.notifications,
+        establishments: bundle.establishments,
+      });
+    }
+
     const record: AbsenceRecord = {
       id,
       createdAt: now,
@@ -329,9 +348,11 @@ export async function POST(req: Request) {
         roles: subjectRoles,
       },
       ...(submittedBy ? { submittedBy } : {}),
+      ...(personnelId ? { personnelId } : {}),
       data: {
         scope,
         etablissement: scope === "ogec" ? null : etablissement,
+        ...(scope === "ogec" && ogecValidator ? { ogecValidator } : {}),
         periodType: period.periodType,
         startDate: period.startDate,
         endDate: period.endDate,

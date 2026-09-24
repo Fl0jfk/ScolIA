@@ -276,6 +276,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         record.offboarding.status = "termine";
         record.active = false;
       }
+    } else if (action === "update-absence-validator") {
+      record.managerId =
+        body.managerId === null || body.managerId === undefined || body.managerId === ""
+          ? null
+          : String(body.managerId);
     } else if (action === "update-profile") {
       if (body.firstName) record.firstName = String(body.firstName);
       if (body.lastName) record.lastName = String(body.lastName);
@@ -285,6 +290,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (body.externalUserId !== undefined) record.externalUserId = body.externalUserId;
       if (body.active !== undefined) record.active = !!body.active;
       if (body.email) record.email = String(body.email).trim().toLowerCase();
+      if (body.managerId !== undefined) {
+        record.managerId =
+          body.managerId === null || body.managerId === "" ? null : String(body.managerId);
+      }
       if (body.profile && typeof body.profile === "object") {
         record.profile = normalizePersonnelProfile({
           ...(record.profile || {}),

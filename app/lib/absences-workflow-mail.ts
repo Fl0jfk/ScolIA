@@ -10,6 +10,7 @@ import {
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import type { AbsenceRecord, AbsenceScope, Etablissement } from "@/app/lib/absences-types";
 import { resolveAbsenceScope } from "@/app/lib/absences-types";
+import { resolveOgecAbsenceDecisionPeople } from "@/app/lib/absences-ogec-validators";
 import { collectAbsenceValidationEmails } from "@/app/lib/absences-validation-recipients";
 import {
   formatHoursTreatmentCreatorMailLine,
@@ -32,30 +33,27 @@ export type AbsenceDecisionTarget = {
 export async function resolveAbsenceDecisionTargets(
   scope: AbsenceScope,
   etablissement: Etablissement | null,
+  opts?: {
+    record?: Pick<AbsenceRecord, "personnelId" | "createdBy" | "data"> | null;
+  },
 ): Promise<AbsenceDecisionTarget[]> {
   const bundle = await loadAppConfig();
   if (scope === "ogec") {
-    const validators = (bundle.notifications.absencesValidatorsOgec || []).filter((p) =>
-      String(p.email || "").trim(),
-    );
-    if (validators.length > 0) {
-      return validators.map((p) => ({
-        roleLabel: "Validation absences OGEC",
+    const people = await resolveOgecAbsenceDecisionPeople({
+      record: opts?.record || null,
+      notifications: bundle.notifications,
+      establishments: bundle.establishments,
+    });
+    return people
+      .filter((p) => String(p.email || "").trim())
+      .map((p) => ({
+        roleLabel:
+          p.label && !p.label.toLowerCase().includes("ogec")
+            ? `Validation absences — ${p.label}`
+            : "Validation absences OGEC",
         name: p.label || p.email,
         email: p.email.trim(),
       }));
-    }
-    const dirs = bundle.establishments.filter((e) => e.active !== false);
-    const fallback = dirs[dirs.length - 1];
-    const email = fallback?.directorEmail || "";
-    if (!email.trim()) return [];
-    return [
-      {
-        roleLabel: fallback ? `Direction ${fallback.label}` : "Direction",
-        name: fallback?.directorName || bundle.identity.name,
-        email,
-      },
-    ];
   }
   const est = etablissement ? matchEstablishment(bundle.establishments, etablissement) : null;
   if (est?.directorEmail?.trim()) {
@@ -73,8 +71,11 @@ export async function resolveAbsenceDecisionTargets(
 export async function resolveAbsenceDecisionTarget(
   scope: AbsenceScope,
   etablissement: Etablissement | null,
+  opts?: {
+    record?: Pick<AbsenceRecord, "personnelId" | "createdBy" | "data"> | null;
+  },
 ): Promise<AbsenceDecisionTarget> {
-  const targets = await resolveAbsenceDecisionTargets(scope, etablissement);
+  const targets = await resolveAbsenceDecisionTargets(scope, etablissement, opts);
   if (targets[0]) return targets[0];
   const bundle = await loadAppConfig();
   return { roleLabel: "Direction", name: bundle.identity.name, email: "" };
@@ -106,12 +107,15 @@ export async function notifyAbsenceCreated(input: {
 }): Promise<void> {
   const scope = input.record.data.scope;
   const etablissement = input.record.data.etablissement;
-  const targets = await resolveAbsenceDecisionTargets(scope, scope === "ogec" ? null : etablissement);
+  const targets = await resolveAbsenceDecisionTargets(scope, scope === "ogec" ? null : etablissement, {
+    record: input.record,
+  });
   if (targets.length === 0) return;
   const mail = await getMailer();
   if (!mail) return;
   const absencesLink = await absenceAppLink("a-traiter");
   const origin = input.fromAccueil ? "saisie à l'accueil (standard)" : "demande d'autorisation";
+  const ogecValidatorLabel = input.record.data.ogecValidator?.label;
   for (const target of targets) {
     if (!target.email.trim()) continue;
     await mail.transporter.sendMail({
@@ -127,6 +131,7 @@ export async function notifyAbsenceCreated(input: {
         ``,
         `Type : ${scope === "ogec" ? "Personnel OGEC" : "Professeur"}`,
         `Établissement : ${scope === "ogec" ? "OGEC" : etablissement || "—"}`,
+        ogecValidatorLabel ? `Validateur : ${ogecValidatorLabel}` : "",
         `Personne concernée : ${input.record.displayName}`,
         `Saisie par : ${input.actorName}`,
         `Période : ${formatAbsencePeriod(input.record.data)}`,
@@ -391,7 +396,9 @@ export async function notifyAbsenceMakeupSlotsRequested(input: {
 export async function notifyAbsenceMakeupSlotsProvided(record: AbsenceRecord): Promise<void> {
   const scope = resolveAbsenceScope(record);
   const etablissement = record.data.etablissement;
-  const targets = await resolveAbsenceDecisionTargets(scope, scope === "ogec" ? null : etablissement);
+  const targets = await resolveAbsenceDecisionTargets(scope, scope === "ogec" ? null : etablissement, {
+    record,
+  });
   if (targets.length === 0) return;
   const mail = await getMailer();
   if (!mail) return;
@@ -510,6 +517,7 @@ export async function notifyAbsenceThreadMessage(input: {
     const targets = await resolveAbsenceDecisionTargets(
       scope,
       scope === "ogec" ? null : input.record.data.etablissement,
+      { record: input.record },
     );
     if (targets.length === 0) return;
     const link = await absenceAppLink(

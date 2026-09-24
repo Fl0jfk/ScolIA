@@ -17,6 +17,7 @@ import {
   listAbsencesFromDb,
   upsertAbsenceInDb,
 } from "@/app/lib/absence-db";
+import { attachOgecValidatorsFromPersonnel } from "@/app/lib/absences-ogec-validators";
 import type { AbsenceRecord, AbsenceThreadMessage } from "@/app/lib/absences-types";
 import {
   normalizeAbsenceRecord,
@@ -30,7 +31,8 @@ import { resolveTravelsS3ObjectKey } from "@/app/lib/travels-s3";
 export async function getAbsenceIndex(): Promise<AbsenceRecord[]> {
   const etabId = await absencesDbReady();
   if (!etabId) return [];
-  return listAbsencesFromDb(etabId);
+  const rows = await listAbsencesFromDb(etabId);
+  return attachOgecValidatorsFromPersonnel(rows);
 }
 
 /** @deprecated Interdit — risque de wipe. Utiliser saveAbsenceRecord (upsert unitaire). */
@@ -43,7 +45,10 @@ export async function saveAbsenceIndex(_index: AbsenceRecord[]): Promise<never> 
 export async function getAbsenceRecord(id: string): Promise<AbsenceRecord | null> {
   const etabId = await absencesDbReady();
   if (!etabId) return null;
-  return getAbsenceFromDb(etabId, id);
+  const row = await getAbsenceFromDb(etabId, id);
+  if (!row) return null;
+  const [enriched] = await attachOgecValidatorsFromPersonnel([row]);
+  return enriched ?? row;
 }
 
 export async function appendAbsenceThreadMessage(
