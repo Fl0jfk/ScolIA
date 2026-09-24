@@ -178,10 +178,12 @@ export default function StagesBoardPanel({
   board,
   permissions,
   onLoadDetail,
+  onCreateOffline,
 }: {
   board: StagesHubBoard;
   permissions: StagesHubPermissions | undefined;
   onLoadDetail: (id: string) => void;
+  onCreateOffline?: () => void;
 }) {
   const seeDeposits = Boolean(permissions?.canSeeAdminDepositQueue);
   const [secteur, setSecteur] = useState<SecteurFilter>("all");
@@ -320,6 +322,15 @@ export default function StagesBoardPanel({
             Réinitialiser les filtres
           </button>
         )}
+        {permissions?.canReviewPreconvention && onCreateOffline ? (
+          <button
+            type="button"
+            onClick={onCreateOffline}
+            className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#275a3e] sm:ml-auto"
+          >
+            Stage hors plateforme
+          </button>
+        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

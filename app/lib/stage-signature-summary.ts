@@ -111,7 +111,9 @@ export function buildSignatureSummary(convention: StageConvention): StageSignatu
     signed: units.signed,
     pending: units.pending,
     refused: units.refused,
-    complete: conventionAllSignaturesValidated(signatures),
+    // Import hors plateforme (PDF déjà signé, aucune signature e-sign) : complet.
+    complete:
+      convention.status === "signed" || conventionAllSignaturesValidated(signatures),
     items,
   };
 }

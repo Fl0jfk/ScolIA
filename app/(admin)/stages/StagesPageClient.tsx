@@ -9,6 +9,7 @@ import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
 import StageConventionDetail from "@/app/components/stages/StageConventionDetail";
 import StagesBoardPanel from "@/app/components/stages/StagesBoardPanel";
+import StageOfflineCreateModal from "@/app/components/stages/StageOfflineCreateModal";
 import type {
   StageTab,
   StagesHubBoard,
@@ -95,6 +96,13 @@ function StagesContent() {
   const [filingConventionId, setFilingConventionId] = useState<string | null>(null);
   const [adminReviewNote, setAdminReviewNote] = useState("");
   const [adminEditing, setAdminEditing] = useState(false);
+  const [offlineModalOpen, setOfflineModalOpen] = useState(false);
+  const [offlinePreset, setOfflinePreset] = useState<{
+    firstName: string;
+    lastName: string;
+    className: string;
+    ine?: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -620,6 +628,11 @@ function StagesContent() {
           oneDriveConnected={od.connected}
           onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
           filingConventionId={filingConventionId}
+          canCreateOffline={Boolean(permissions?.canReviewPreconvention)}
+          onCreateOffline={(preset) => {
+            setOfflinePreset(preset);
+            setOfflineModalOpen(true);
+          }}
           detailSlot={
             detail && detail.convention.id === selectedId ? (
               <StageConventionDetail
@@ -666,8 +679,31 @@ function StagesContent() {
           board={board}
           permissions={permissions}
           onLoadDetail={(id) => void loadDetail(id)}
+          onCreateOffline={
+            permissions?.canReviewPreconvention
+              ? () => {
+                  setOfflinePreset(null);
+                  setOfflineModalOpen(true);
+                }
+              : undefined
+          }
         />
       )}
+
+      <StageOfflineCreateModal
+        open={offlineModalOpen}
+        presetStudent={offlinePreset}
+        onClose={() => {
+          setOfflineModalOpen(false);
+          setOfflinePreset(null);
+        }}
+        onCreated={(conventionId) => {
+          setMsg("Stage hors plateforme enregistré — convention signée (PDF papier).");
+          void load();
+          void loadDetail(conventionId);
+          setTab("classe");
+        }}
+      />
 
       {tab === "repas" && permissions?.canViewRepasAbsences && (
         <section className="mb-8 rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">

@@ -6,6 +6,7 @@ import {
   STAGE_CONVENTION_STATUS_LABELS,
   STAGE_OFFER_KIND_LABELS,
   formatCompanyAddress,
+  isOfflinePaperConvention,
   stageCompanyRhDisplayName,
 } from "@/app/lib/stage-types";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
@@ -94,6 +95,7 @@ export default function StageConventionDetail({
   onReviewScheduleChange: (approved: boolean) => void;
 }) {
   const c = detail.convention;
+  const offlinePaper = isOfflinePaperConvention(c);
   const canShowOneDriveFiling = permissions?.canFileToOneDrive && c.status === "signed";
   const canShowEleveDossierFiling = permissions?.canReviewPreconvention && c.status === "signed";
 
@@ -107,6 +109,7 @@ export default function StageConventionDetail({
           </p>
           <p className="text-xs text-stone-600">
             {STAGE_CONVENTION_STATUS_LABELS[c.status]}
+            {offlinePaper ? " · hors plateforme" : ""}
           </p>
         </div>
         <button
@@ -117,6 +120,13 @@ export default function StageConventionDetail({
           Fermer
         </button>
       </div>
+
+      {offlinePaper && (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+          Convention enregistrée hors plateforme (PDF déjà signé sur papier). Aucun circuit de
+          signatures électroniques n&apos;a été lancé.
+        </p>
+      )}
 
       <div className="max-w-md">
         <StageSignatureProgress summary={buildSignatureSummary(c)} />
@@ -267,7 +277,9 @@ export default function StageConventionDetail({
         >
           Télécharger PDF à jour
         </a>
-        {permissions?.canReviewPreconvention && c.status === "signatures_pending" && (
+        {permissions?.canReviewPreconvention &&
+          !offlinePaper &&
+          c.status === "signatures_pending" && (
           <button
             type="button"
             onClick={onResendSignatures}
@@ -278,6 +290,7 @@ export default function StageConventionDetail({
           </button>
         )}
         {permissions?.canReviewPreconvention &&
+          !offlinePaper &&
           (c.status === "signatures_pending" || c.status === "signed") && (
             <button
               type="button"

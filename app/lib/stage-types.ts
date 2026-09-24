@@ -347,7 +347,7 @@ export type StageConvention = {
     /**
      * Origine du fichier principal :
      * - scolia_generated : PDF reconstruit depuis la préconvention
-     * - paper_signed : scan papier (signature manuscrite conservée) + annexe e-sign
+     * - paper_signed : scan papier (signature manuscrite conservée) ou import admin hors plateforme
      * - external_upload : dépôt élève / OCR
      */
     source?: "scolia_generated" | "paper_signed" | "external_upload";
@@ -468,6 +468,17 @@ export function isStageSignatureFullyValidated(sig: StageSignature): boolean {
 /** Seuls les tuteurs / RH entreprise peuvent signer en imprimant papier. */
 export function canStageSignerUsePaperUpload(role: StageSignerRole): boolean {
   return role === "tuteur_entreprise" || role === "rh_entreprise";
+}
+
+/**
+ * Convention créée / importée par l'admin alors que le PDF était déjà entièrement
+ * signé hors ScolIA (papier) — aucun circuit de signatures électroniques.
+ */
+export function isOfflinePaperConvention(convention: StageConvention): boolean {
+  if (convention.status !== "signed") return false;
+  if (convention.signatures.length > 0) return false;
+  if (convention.uploadedPdf?.source === "paper_signed") return true;
+  return convention.history.some((h) => h.action === "IMPORT_HORS_PLATEFORME");
 }
 
 export function isParentStageSignerRole(role: StageSignerRole): boolean {

@@ -51,9 +51,13 @@ export default function StageSignatureProgress({
   if (summary.total === 0) {
     return (
       <p className="text-xs text-stone-500">
-        {compact
-          ? "Signatures : pas encore lancées"
-          : "Les signatures seront lancées après validation administrative."}
+        {summary.complete
+          ? compact
+            ? "Signé hors plateforme"
+            : "Convention déjà signée hors plateforme (PDF papier) — pas de circuit de signatures."
+          : compact
+            ? "Signatures : pas encore lancées"
+            : "Les signatures seront lancées après validation administrative."}
       </p>
     );
   }

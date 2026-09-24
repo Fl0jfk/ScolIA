@@ -113,6 +113,8 @@ export default function StageClassRosterPanel({
   oneDriveConnected,
   onFileOneDrive,
   filingConventionId,
+  canCreateOffline,
+  onCreateOffline,
 }: {
   onOpenConvention: (conventionId: string) => void;
   selectedConventionId?: string | null;
@@ -122,6 +124,13 @@ export default function StageClassRosterPanel({
   oneDriveConnected?: boolean;
   onFileOneDrive?: (conventionId: string) => void;
   filingConventionId?: string | null;
+  canCreateOffline?: boolean;
+  onCreateOffline?: (preset: {
+    firstName: string;
+    lastName: string;
+    className: string;
+    ine?: string;
+  }) => void;
 }) {
   const [data, setData] = useState<RosterResponse | null>(null);
   const [selectedClass, setSelectedClass] = useState("");
@@ -445,11 +454,30 @@ export default function StageClassRosterPanel({
               {open ? (
                 <div className="space-y-3 border-t border-stone-100 bg-gradient-to-b from-[#f6faf8] to-white px-3.5 py-4">
                   {student.conventions.length === 0 ? (
-                    <p className="text-sm text-stone-500">
-                      Aucun stage déposé pour cet élève pour le moment.
-                    </p>
+                    <div className="space-y-3">
+                      <p className="text-sm text-stone-500">
+                        Aucun stage déposé pour cet élève pour le moment.
+                      </p>
+                      {canCreateOffline && onCreateOffline ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onCreateOffline({
+                              firstName: student.prenom,
+                              lastName: student.nom,
+                              className: roster?.className || selectedClass,
+                              ine: student.ine,
+                            })
+                          }
+                          className="rounded-xl border border-[#2F6B4A]/30 bg-white px-3 py-1.5 text-xs font-bold text-[#2F6B4A] shadow-sm hover:bg-[#f6faf8]"
+                        >
+                          Enregistrer un stage hors plateforme
+                        </button>
+                      ) : null}
+                    </div>
                   ) : (
-                    student.conventions.map((c) => {
+                    <>
+                    {student.conventions.map((c) => {
                       const selected = selectedConventionId === c.id;
                       return (
                         <div
@@ -540,7 +568,24 @@ export default function StageClassRosterPanel({
                           ) : null}
                         </div>
                       );
-                    })
+                    })}
+                    {canCreateOffline && onCreateOffline ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onCreateOffline({
+                            firstName: student.prenom,
+                            lastName: student.nom,
+                            className: roster?.className || selectedClass,
+                            ine: student.ine,
+                          })
+                        }
+                        className="rounded-xl border border-dashed border-[#2F6B4A]/35 bg-white px-3 py-1.5 text-xs font-semibold text-[#2F6B4A] hover:bg-[#f6faf8]"
+                      >
+                        + Ajouter un stage hors plateforme
+                      </button>
+                    ) : null}
+                    </>
                   )}
                 </div>
               ) : null}

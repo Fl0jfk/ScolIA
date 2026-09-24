@@ -12,6 +12,8 @@ export default function StagesClassePanel({
   oneDriveConnected,
   onFileOneDrive,
   filingConventionId,
+  canCreateOffline,
+  onCreateOffline,
 }: {
   onOpenConvention: (id: string) => void;
   selectedConventionId?: string | null;
@@ -21,6 +23,13 @@ export default function StagesClassePanel({
   oneDriveConnected: boolean;
   onFileOneDrive: (id: string) => void;
   filingConventionId: string | null;
+  canCreateOffline?: boolean;
+  onCreateOffline?: (preset: {
+    firstName: string;
+    lastName: string;
+    className: string;
+    ine?: string;
+  }) => void;
 }) {
   return (
     <section data-tour="stages-classe" className="space-y-6">
@@ -40,6 +49,8 @@ export default function StagesClassePanel({
             oneDriveConnected={oneDriveConnected}
             onFileOneDrive={onFileOneDrive}
             filingConventionId={filingConventionId}
+            canCreateOffline={canCreateOffline}
+            onCreateOffline={onCreateOffline}
           />
         </div>
       </div>

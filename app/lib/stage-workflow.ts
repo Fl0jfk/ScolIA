@@ -27,6 +27,7 @@ import {
   normalizePaperUploadToPdf,
 } from "@/app/lib/stage-external-signature-store";
 import {
+  STAGE_S3,
   STAGE_SIGNER_ROLE_LABELS,
   canStageSignerUsePaperUpload,
   conventionAllSignaturesValidated,
@@ -37,6 +38,7 @@ import {
   stageCompanyWantsRhSigner,
   stageUid,
   type StageConvention,
+  type StageInternshipKind,
   type StageSchedule,
   type StageSignMethod,
   type StageSignature,
@@ -1865,6 +1867,221 @@ export async function createPublicPreconventionDraft(student: {
   await saveStageConvention(convention);
   const studentLink = `/stages/eleve?token=${encodeURIComponent(convention.studentAccessToken!)}`;
   return { convention, studentLink };
+}
+
+/**
+ * Enregistrement administratif d'une convention entièrement réalisée hors ScolIA
+ * (papier déjà signé). Statut `signed` immédiat, PDF stocké tel quel, aucun circuit
+ * de signatures électroniques ni e-mail de demande de signature.
+ */
+export async function createAdminOfflineSignedConvention(params: {
+  by: string;
+  byName: string;
+  student: {
+    firstName: string;
+    lastName: string;
+    className: string;
+    level?: string;
+    dateNaissance?: string;
+    email?: string;
+    matchedEleveIne?: string;
+  };
+  company: {
+    name: string;
+    address: string;
+    postalCode?: string;
+    city?: string;
+    siret?: string;
+    activity?: string;
+    tutorName?: string;
+    tutorEmail?: string;
+    tutorPhone?: string;
+  };
+  periodStart: string;
+  periodEnd: string;
+  internshipKind?: StageInternshipKind;
+  stageLabel?: string;
+  note?: string;
+  pdfBytes: Uint8Array;
+  pdfFileName: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const firstName = params.student.firstName.trim();
+  const lastName = params.student.lastName.trim();
+  const className = params.student.className.trim();
+  const companyName = params.company.name.trim();
+  const companyAddress = params.company.address.trim();
+  const periodStart = params.periodStart.trim().slice(0, 10);
+  const periodEnd = params.periodEnd.trim().slice(0, 10);
+
+  if (!firstName || !lastName) {
+    return { ok: false, error: "Nom et prénom de l'élève requis." };
+  }
+  if (!className) {
+    return { ok: false, error: "Classe de l'élève requise." };
+  }
+  if (!companyName) {
+    return { ok: false, error: "Raison sociale de l'entreprise requise." };
+  }
+  if (!companyAddress) {
+    return { ok: false, error: "Adresse de l'entreprise requise." };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+    return { ok: false, error: "Période de stage invalide (format AAAA-MM-JJ)." };
+  }
+  if (periodEnd < periodStart) {
+    return { ok: false, error: "La date de fin doit être postérieure au début." };
+  }
+  if (!params.pdfBytes?.length) {
+    return { ok: false, error: "PDF de la convention signée requis." };
+  }
+  if (params.pdfBytes.length > 15 * 1024 * 1024) {
+    return { ok: false, error: "Le PDF dépasse 15 Mo." };
+  }
+
+  const header = Buffer.from(params.pdfBytes.slice(0, 5)).toString("ascii");
+  if (!header.startsWith("%PDF")) {
+    return { ok: false, error: "Le fichier n'est pas un PDF valide." };
+  }
+
+  const now = new Date().toISOString();
+  const conventionId = stageUid("conv");
+  const safeFileName = (params.pdfFileName || "convention-signee.pdf")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 120) || "convention-signee.pdf";
+  const s3Key = STAGE_S3.conventionUpload(conventionId, safeFileName);
+
+  const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+  const { getTenantDataS3Client } = await import("@/app/lib/s3-clients");
+  const { getBucketName } = await import("@/app/lib/s3-storage");
+  const s3Client = await getTenantDataS3Client();
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: await getBucketName(),
+      Key: s3Key,
+      Body: Buffer.from(params.pdfBytes),
+      ContentType: "application/pdf",
+    }),
+  );
+
+  const dateNaissance =
+    normalizeEleveDateNaissance(params.student.dateNaissance ?? "") || undefined;
+  let schedule = defaultStageSchedule("uniform_week");
+  schedule = {
+    ...schedule,
+    periodStart,
+    periodEnd,
+  };
+  if (dateNaissance) {
+    const age = ageInYearsAt(dateNaissance, periodStart);
+    if (age != null && age < 15) {
+      const under15Template = {
+        hasLunchBreak: true as const,
+        morningStart: "08:00",
+        morningEnd: "12:00",
+        afternoonStart: "13:00",
+        afternoonEnd: "15:00",
+      };
+      schedule = {
+        ...schedule,
+        presenceWeekdays: [...STAGE_DEFAULT_WEEKDAYS],
+        days: buildUniformWeekDays(under15Template, STAGE_DEFAULT_WEEKDAYS),
+      };
+    }
+  }
+
+  const internshipKind: StageInternshipKind =
+    params.internshipKind === "pfmp" ||
+    params.internshipKind === "job_ete" ||
+    params.internshipKind === "autre"
+      ? params.internshipKind
+      : "stage_observation";
+
+  let convention: StageConvention = {
+    id: conventionId,
+    schoolYear: currentStageSchoolYear(),
+    status: "signed",
+    internshipKind,
+    stageLabel: params.stageLabel?.trim() || undefined,
+    student: {
+      firstName,
+      lastName,
+      className,
+      level: params.student.level?.trim() || inferStudentLevelFromClass(className),
+      dateNaissance,
+      email: sanitizeElevePersonalEmail(params.student.email),
+    },
+    company: {
+      name: companyName,
+      address: companyAddress,
+      postalCode: params.company.postalCode?.trim() || undefined,
+      city: params.company.city?.trim() || undefined,
+      siret: normalizeSiret(params.company.siret) || undefined,
+      activity: params.company.activity?.trim() || "—",
+      tutorName: params.company.tutorName?.trim() || "—",
+      tutorEmail: params.company.tutorEmail?.trim() || "",
+      tutorPhone: params.company.tutorPhone?.trim() || undefined,
+    },
+    schedule,
+    teacherReferent: { name: "", email: "" },
+    signatures: [],
+    createdAt: now,
+    updatedAt: now,
+    createdBy: {
+      role: "staff",
+      userId: params.by,
+      name: params.byName,
+    },
+    history: [
+      {
+        at: now,
+        by: params.byName,
+        action: "IMPORT_HORS_PLATEFORME",
+        note:
+          params.note?.trim() ||
+          "Convention déjà signée hors plateforme (PDF papier) — aucun circuit de signatures.",
+      },
+    ],
+    uploadedPdf: {
+      s3Key,
+      fileName: safeFileName,
+      uploadedAt: now,
+      source: "paper_signed",
+    },
+    ocrMeta: params.student.matchedEleveIne
+      ? {
+          extractedAt: now,
+          matchedEleveIne: params.student.matchedEleveIne.trim().toUpperCase(),
+          matchScore: 100,
+          raw: { offlineImport: true },
+        }
+      : {
+          extractedAt: now,
+          matchScore: 0,
+          raw: { offlineImport: true },
+        },
+    adminReview: {
+      at: now,
+      by: params.by,
+      byName: params.byName,
+      approved: true,
+      note: "Import hors plateforme — PDF déjà signé",
+    },
+  };
+
+  convention = await ensureClassRegisteredForStages(
+    convention.student.className,
+    convention.schoolYear,
+  ).then(async () => ensureConventionReferent(convention));
+  convention = await ensureStudentAccessToken(convention);
+  await saveStageConvention(convention);
+
+  void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
+    m.finalizeSignedConventionDestinations(convention).catch((e) =>
+      console.error("[stages] finalize offline import:", e),
+    ),
+  );
+
+  return { ok: true, convention };
 }
 
 export async function resolveConventionByStudentToken(token: string) {
