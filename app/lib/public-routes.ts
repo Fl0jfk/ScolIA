@@ -53,6 +53,8 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/tenant/public",
   "/api/tenants/public",
   "/connexion",
+  "/demo",
+  "/api/demo(.*)",
   "/plateforme",
   "/sign-in(.*)",
   "/sign-up(.*)",
@@ -98,6 +100,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
 
 const VISITOR_EXACT = new Set([
   "/connexion",
+  "/demo",
   "/plateforme",
   "/mentions-legales",
   "/tarifs",

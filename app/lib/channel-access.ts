@@ -26,6 +26,8 @@ export const APP_ONLY_ALLOWED_PREFIXES = [
   "/sso-callback",
   "/auth",
   "/connexion",
+  "/demo",
+  "/api/demo",
 ] as const;
 
 export function isFamilyOnlyRoleSet(roles: string[]): boolean {
