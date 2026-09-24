@@ -1,29 +1,25 @@
 # Démo one-click — ENT du matin (25 %)
 
-Pour Florian : **voir** le matin sans taper de mot de passe.
+## URL publique (maintenant)
 
-## Ouvrir (Cursor Desktop)
+**https://lecture-settled-invitations-heated.trycloudflare.com/demo?dev_tenant=default**
 
-1. Ouvre cet agent : [Continuer plan ScolIA](https://cursor.com/agents/bc-69846bf6-a5b9-5ec7-aedf-a8b98676b9f3) (Cloud Agent en cours).
-2. Dans la fenêtre Agents → menu **Forwarded Ports** (éditeur).
-3. Port **3000** (Next.js) → **Open in internal browser**.
-4. Tu arrives sur **`/demo`** (redirect auto en labo).
+Un clic parent ou staff. Tunnel Cloudflare → Cloud Agent (tant que l’agent tourne).
 
-Sinon : `http://localhost:3000/demo` une fois le port forwardé.
+## Ouvrir (Cursor Desktop, sans tunnel)
+
+1. Agents Window → **Forwarded Ports** → **3000** → Open in internal browser.
+2. Page **`/demo`**.
 
 ## Un clic
 
 | Bouton | Destination |
 |--------|-------------|
 | **Entrer comme parent** | Portail quotidien (`/quotidien`) — Leo JUSTIF 4B |
-| **Entrer comme staff** | Intranet (`/dashboard`) — TOTP géré auto |
-
-À balader côté parent : EDT, notes, cahier, messages, carnet, sanctions.  
-Côté staff : vie scolaire / appel, notes, cahier.
+| **Entrer comme staff** | Intranet (`/dashboard`) — TOTP auto |
 
 ## Technique
 
 - Runtime `SCOLA_ENV=lab` (bandeau ambre).
 - `GET /api/demo/enter?as=parent|staff` — **refusé en prod**.
-- Seed : `npm run seed:labo` / `seed:dev`.
-- Commit démo : à jour sur `dev`.
+- Tunnels `*.trycloudflare.com` = hostname labo (comme localhost).
