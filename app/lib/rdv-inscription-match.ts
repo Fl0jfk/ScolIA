@@ -144,7 +144,7 @@ export function matchRdvInscriptionCandidates(opts: {
     prenom: e.prenom,
     nom: e.nom,
     classe: e.classe?.trim() || null,
-    status: e.status || "inscrit",
+    status: e.status || "preinscrit",
     parents: [],
   }));
 }
@@ -212,7 +212,7 @@ export function matchRdvInscriptionByIdentity(opts: {
     prenom: e.prenom,
     nom: e.nom,
     classe: e.classe?.trim() || null,
-    status: e.status || "inscrit",
+    status: e.status || "preinscrit",
     parents: [],
   }));
 }

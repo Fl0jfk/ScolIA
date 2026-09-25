@@ -487,8 +487,13 @@ export default function RdvInscriptionPublicClient({
     });
     setStudentFirstName(c.prenom);
     setStudentLastName(c.nom);
-    if (homeEtablissement) {
+    // Réinscription réelle uniquement : élève déjà « inscrit » chez nous.
+    // Les préinscrits (souvent externes) doivent choisir l’établissement d’origine.
+    if (c.status === "inscrit" && homeEtablissement) {
       setOrigineSelected(homeEtablissement);
+      setOrigineResults([]);
+    } else {
+      setOrigineSelected(null);
       setOrigineResults([]);
     }
     setRdvAttendee("");
@@ -1224,18 +1229,38 @@ export default function RdvInscriptionPublicClient({
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
                 3 · Établissement d’origine
               </h2>
-              {matchChoice?.kind === "eleve" &&
-              homeEtablissement &&
-              origineSelected?.codeRne === homeEtablissement.codeRne ? (
-                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                  Élève déjà scolarisé chez nous : établissement d’origine renseigné
-                  automatiquement — <strong>{origineSelected.label}</strong>
-                </div>
-              ) : (
-                <>
               <p className="mt-2 text-sm text-slate-500">
-                Filtrez par code postal (recommandé) ou département, puis choisissez l’établissement.
+                Indiquez l’établissement actuel de l’élève (école / collège d’où il vient). Filtrez
+                par code postal (recommandé) ou département, puis choisissez dans la liste.
               </p>
+              {homeEtablissement ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    disabled={!matchReady}
+                    onClick={() => {
+                      setOrigineSelected(homeEtablissement);
+                      setOrigineResults([]);
+                    }}
+                    className={`w-full rounded-xl px-4 py-3 text-left text-sm transition disabled:opacity-50 ${
+                      origineSelected?.codeRne === homeEtablissement.codeRne
+                        ? "bg-emerald-700 text-white shadow-sm"
+                        : "bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                    }`}
+                  >
+                    <span className="font-semibold">Déjà scolarisé dans le groupe scolaire</span>
+                    <span
+                      className={`mt-0.5 block text-xs ${
+                        origineSelected?.codeRne === homeEtablissement.codeRne
+                          ? "text-emerald-100"
+                          : "text-emerald-800/80"
+                      }`}
+                    >
+                      {homeEtablissement.label}
+                    </span>
+                  </button>
+                </div>
+              ) : null}
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <label className="block text-sm">
                   <span className="font-semibold text-slate-800">Code postal</span>
@@ -1311,9 +1336,21 @@ export default function RdvInscriptionPublicClient({
               {origineSelected ? (
                 <p className="mt-3 text-sm text-emerald-700">
                   Sélection : <strong>{origineSelected.label}</strong>
+                  {homeEtablissement &&
+                  origineSelected.codeRne === homeEtablissement.codeRne ? (
+                    <button
+                      type="button"
+                      className="ml-2 text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
+                      onClick={() => setOrigineSelected(null)}
+                    >
+                      Changer
+                    </button>
+                  ) : null}
                 </p>
-              ) : null}
-                </>
+              ) : (
+                <p className="mt-3 text-sm text-amber-800">
+                  Choisissez un établissement d’origine pour pouvoir réserver.
+                </p>
               )}
             </section>
 

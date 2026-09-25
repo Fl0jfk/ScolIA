@@ -57,7 +57,8 @@ export async function listChildrenForVerifiedParentEmail(opts: {
       prenom: e.prenom,
       nom: e.nom,
       classe: e.classe?.trim() || null,
-      status: e.status || "inscrit",
+      // Défaut préinscrit : n’auto-remplit pas « déjà chez nous » côté formulaire RDV.
+      status: e.status || "preinscrit",
       parents: [],
     }));
   if (!base.length) return [];
