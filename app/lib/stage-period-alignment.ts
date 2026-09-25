@@ -1,9 +1,6 @@
-import {
-  getStagePeriodsForClass,
-  type StageClassPeriod,
-} from "@/app/lib/stage-periods-config";
+import type { StageClassPeriod } from "@/app/lib/stage-periods-types";
 import { formatPeriodRangeFr } from "@/app/lib/stage-schedule";
-import type { StageConvention, StageSchedule } from "@/app/lib/stage-types";
+import type { StageSchedule } from "@/app/lib/stage-types";
 
 export type StagePeriodAlignmentStatus =
   | "no_official_periods"
@@ -197,22 +194,6 @@ export function assessScheduleAgainstOfficialPeriods(params: {
     message: parts.join(" "),
     shortMessage: "HORS PÉRIODE OFFICIELLE",
   };
-}
-
-export async function assessConventionPeriodAlignment(
-  convention: Pick<StageConvention, "student" | "schedule" | "stagePeriodId" | "stageLabel" | "schoolYear">,
-): Promise<StagePeriodAlignment> {
-  const officialPeriods = await getStagePeriodsForClass(
-    convention.student.className,
-    convention.schoolYear,
-  );
-  return assessScheduleAgainstOfficialPeriods({
-    className: convention.student.className,
-    schedule: convention.schedule,
-    officialPeriods,
-    stagePeriodId: convention.stagePeriodId,
-    stageLabel: convention.stageLabel,
-  });
 }
 
 /** Propose un planning calé sur une période officielle (conserve jours / horaires). */

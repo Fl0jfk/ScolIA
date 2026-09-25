@@ -5,7 +5,7 @@ import type {
   StageClassPeriod,
   StageClassStageConfig,
   StagePeriodReminder,
-} from "@/app/lib/stage-periods-config";
+} from "@/app/lib/stage-periods-types";
 import {
   STAGE_LEVEL_OPTIONS,
   inferStudentLevelFromClass,

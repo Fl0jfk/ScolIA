@@ -5,7 +5,7 @@ import {
   stageCompanyWantsRhSigner,
   type StageConvention,
 } from "@/app/lib/stage-types";
-import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-config";
+import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-types";
 import type {
   StageBlockedPeriod,
   StageCycleConstraints,

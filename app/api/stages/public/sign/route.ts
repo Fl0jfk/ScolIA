@@ -24,7 +24,7 @@ import {
 } from "@/app/lib/stage-types";
 import { getStageConstraintsPublicContext } from "@/app/lib/stage-constraints-config";
 import { stageCycleLabel } from "@/app/lib/stage-config";
-import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment";
+import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment-server";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
 const signPublicLimiter = createMemoryRateLimiter({

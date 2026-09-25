@@ -36,7 +36,7 @@ import {
   resolveOneDriveProfileForConvention,
 } from "@/app/lib/stage-eleve-match";
 import { resolveOneDriveProfileForUserServer } from "@/app/lib/onedrive-user-profiles.server";
-import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment";
+import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment-server";
 
 import { stageActorFirstName } from "@/app/lib/stage-actor-name";
 

@@ -6,7 +6,7 @@ import {
   resolveStagesDirectionEmail,
   stageCycleKindFromStudent,
 } from "@/app/lib/stage-config";
-import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment";
+import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment-server";
 
 export type PendingStageSignature = {
   conventionId: string;

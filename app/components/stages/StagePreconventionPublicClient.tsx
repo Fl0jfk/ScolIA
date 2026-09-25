@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { StageConvention } from "@/app/lib/stage-types";
-import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-config";
+import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-types";
 import type { StageConventionCard } from "@/app/lib/stage-signature-summary";
 import { STAGE_CONVENTION_STATUS_LABELS, formatCompanyAddress } from "@/app/lib/stage-types";
 import { formatPeriodRangeFr } from "@/app/lib/stage-schedule";
