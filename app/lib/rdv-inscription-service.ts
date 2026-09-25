@@ -19,6 +19,7 @@ import {
   markRdvInscriptionReconfirm,
   listBookingsDueForReconfirmMail,
   markRdvInscriptionReconfirmMailSent,
+  updateRdvInscriptionBookingSlot,
 } from "@/app/lib/rdv-inscription-db";
 import {
   confirmInscriptionCalendarEvent,
@@ -35,6 +36,7 @@ import {
   sendRdvInscriptionReconfirmMail,
   sendRdvInscriptionCreatedPreinscritNotify,
   sendRdvInscriptionRescheduleRequestMail,
+  sendRdvInscriptionSlotChangedByAdminMail,
 } from "@/app/lib/rdv-inscription-mail";
 import {
   RDV_EMAIL_GATE_TTL_MS,
@@ -559,6 +561,202 @@ export async function requestRdvInscriptionRescheduleAsAdmin(opts: {
   return {
     ok: true,
     booking: cancelled,
+    mailWarning: mail.error,
+  };
+}
+
+/**
+ * Admin : change le créneau d’une réservation active (après appel téléphone, etc.).
+ * - googleMode `update` : remet l’ancien créneau libre et réserve le nouveau sur Google.
+ * - googleMode `already_done` : ne touche pas à l’ancien événement Google (déjà géré à la main).
+ * Dans les deux cas : maj BDD + mail parent avec ICS.
+ */
+export async function changeRdvInscriptionSlotAsAdmin(opts: {
+  bookingId: string;
+  /** Nouvel eventId Google, ou l’actuel pour resynchroniser les horaires. */
+  newEventId: string;
+  googleMode: "update" | "already_done";
+  note?: string | null;
+}): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow; mailWarning?: string }
+  | { ok: false; status: number; error: string }
+> {
+  const found = await findRdvInscriptionBookingById({ bookingId: opts.bookingId });
+  if (!found) {
+    return { ok: false, status: 404, error: "Réservation introuvable." };
+  }
+  if (found.status !== "pending" && found.status !== "confirmed") {
+    return {
+      ok: false,
+      status: 400,
+      error: "Cette réservation n’est plus active (déjà annulée ou expirée).",
+    };
+  }
+
+  const newEventId = opts.newEventId.trim();
+  if (!newEventId) {
+    return { ok: false, status: 400, error: "Créneau cible requis." };
+  }
+  if (opts.googleMode !== "update" && opts.googleMode !== "already_done") {
+    return { ok: false, status: 400, error: "Mode Google invalide." };
+  }
+
+  const direction = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+    etablissementId: found.etablissementId,
+  });
+  if (!direction) {
+    return { ok: false, status: 404, error: "Direction introuvable." };
+  }
+
+  const previousStartAt = found.startAt;
+  const previousEndAt = found.endAt;
+  const sameEvent = newEventId === found.googleEventId;
+  const note = String(opts.note || "").trim().slice(0, 1000) || null;
+
+  if (!sameEvent) {
+    const taken = await findActiveBookingByGoogleEvent({
+      calendarId: found.googleCalendarId,
+      eventId: newEventId,
+    });
+    if (taken && taken.id !== found.id) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Ce créneau est déjà réservé par une autre famille.",
+      };
+    }
+  }
+
+  const dossierInscriptionUrl = found.eleveId
+    ? await tenantAbsolutePath(
+        `/eleves/dossier/${encodeURIComponent(found.eleveId)}/inscription`,
+      )
+    : null;
+
+  // Ancien créneau Google : libérer seulement si on gère Google et qu’on change d’événement.
+  if (!sameEvent && opts.googleMode === "update") {
+    const restoreTitle = restoreTitleForDirection(direction.eventTitlePattern);
+    try {
+      if (found.status === "pending") {
+        await releaseInscriptionCalendarHold({
+          calendarId: found.googleCalendarId,
+          eventId: found.googleEventId,
+          bookingId: found.id,
+        });
+      } else {
+        const restored = await restoreInscriptionCalendarSlot({
+          calendarId: found.googleCalendarId,
+          eventId: found.googleEventId,
+          bookingId: found.id,
+          restoreTitle,
+        });
+        if (!restored.ok) {
+          return { ok: false, status: 502, error: restored.message };
+        }
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        status: 502,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+
+  const gcal = await confirmInscriptionCalendarEvent({
+    calendarId: found.googleCalendarId,
+    eventId: newEventId,
+    bookingId: found.id,
+    studentFirstName: found.studentFirstName,
+    studentLastName: found.studentLastName,
+    parentEmail: found.parentEmail,
+    parentPhone: found.parentPhone,
+    parentFirstName: found.parentFirstName,
+    parentLastName: found.parentLastName,
+    rdvAttendee: found.rdvAttendee,
+    niveauLabel: found.niveauLabel,
+    regime: found.regime,
+    dossierInscriptionUrl,
+    hasPap: found.hasPap,
+    papBringToRdv: found.papBringToRdv,
+    papUploaded: Boolean(found.papS3Key),
+    etablissementOrigineLabel: found.etablissementOrigineLabel,
+  });
+
+  if (!gcal.ok) {
+    if (!sameEvent && opts.googleMode === "update" && found.status === "confirmed") {
+      try {
+        await confirmInscriptionCalendarEvent({
+          calendarId: found.googleCalendarId,
+          eventId: found.googleEventId,
+          bookingId: found.id,
+          studentFirstName: found.studentFirstName,
+          studentLastName: found.studentLastName,
+          parentEmail: found.parentEmail,
+          parentPhone: found.parentPhone,
+          parentFirstName: found.parentFirstName,
+          parentLastName: found.parentLastName,
+          rdvAttendee: found.rdvAttendee,
+          niveauLabel: found.niveauLabel,
+          regime: found.regime,
+          dossierInscriptionUrl,
+          hasPap: found.hasPap,
+          papBringToRdv: found.papBringToRdv,
+          papUploaded: Boolean(found.papS3Key),
+          etablissementOrigineLabel: found.etablissementOrigineLabel,
+        });
+      } catch (rollbackErr) {
+        console.error("[rdv-inscription] change-slot rollback:", rollbackErr);
+      }
+    }
+    const status =
+      gcal.reason === "already_booked"
+        ? 409
+        : gcal.reason === "not_found" || gcal.reason === "past" || gcal.reason === "title_mismatch"
+          ? 410
+          : 502;
+    return { ok: false, status, error: gcal.message };
+  }
+
+  if (
+    previousStartAt === gcal.startAt &&
+    previousEndAt === gcal.endAt &&
+    sameEvent
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        "Les horaires Google sont identiques à ceux déjà enregistrés. Déplacez l’événement dans Agenda, ou choisissez un autre créneau libre.",
+    };
+  }
+
+  const updated = await updateRdvInscriptionBookingSlot({
+    bookingId: found.id,
+    etablissementId: found.etablissementId,
+    googleEventId: newEventId,
+    googleHtmlLink: gcal.htmlLink,
+    startAt: new Date(gcal.startAt),
+    endAt: new Date(gcal.endAt),
+    forceConfirmed: true,
+  });
+  if (!updated) {
+    return { ok: false, status: 500, error: "Mise à jour impossible en base." };
+  }
+
+  const mail = await sendRdvInscriptionSlotChangedByAdminMail({
+    page: directionPageSettings(direction),
+    booking: updated,
+    previousStartAt,
+    previousEndAt,
+    directionLabel: direction.label,
+    directriceName: direction.directriceDisplayName,
+    adminNote: note,
+  });
+
+  return {
+    ok: true,
+    booking: updated,
     mailWarning: mail.error,
   };
 }

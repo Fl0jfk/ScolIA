@@ -153,6 +153,73 @@ export async function PUT(req: Request) {
       });
     }
 
+    if (action === "list-booking-slots") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const { findRdvInscriptionBookingById, getRdvInscriptionDirectionBySlug } = await import(
+        "@/app/lib/rdv-inscription-db"
+      );
+      const found = await findRdvInscriptionBookingById({ bookingId });
+      if (!found) {
+        return NextResponse.json({ error: "Réservation introuvable." }, { status: 404 });
+      }
+      const dir = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+        etablissementId: found.etablissementId,
+      });
+      if (!dir?.googleCalendarId.trim()) {
+        return NextResponse.json({ error: "Agenda de la direction non configuré." }, { status: 503 });
+      }
+      const { listAvailableInscriptionSlots } = await import("@/app/lib/rdv-inscription-gcal");
+      const slots = await listAvailableInscriptionSlots({
+        calendarId: dir.googleCalendarId,
+        titlePattern: dir.eventTitlePattern,
+        horizonDays: dir.horizonDays,
+      });
+      return NextResponse.json({
+        success: true,
+        bookingId: found.id,
+        currentEventId: found.googleEventId,
+        currentStartAt: found.startAt,
+        currentEndAt: found.endAt,
+        slots,
+      });
+    }
+
+    if (action === "change-slot") {
+      const bookingId = String(body.bookingId || "").trim();
+      const newEventId = String(body.newEventId || "").trim();
+      const googleModeRaw = String(body.googleMode || "").trim();
+      const googleMode =
+        googleModeRaw === "already_done" ? "already_done" : googleModeRaw === "update" ? "update" : null;
+      if (!bookingId || !newEventId || !googleMode) {
+        return NextResponse.json(
+          { error: "bookingId, newEventId et googleMode (update|already_done) requis." },
+          { status: 400 },
+        );
+      }
+      const note =
+        typeof body.note === "string" ? body.note.trim().slice(0, 1000) : "";
+      const { changeRdvInscriptionSlotAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await changeRdvInscriptionSlotAsAdmin({
+        bookingId,
+        newEventId,
+        googleMode,
+        note: note || null,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
     if (action === "test-slots") {
       const directionId = String(body.directionId || "").trim();
       const dir = await getRdvInscriptionDirectionById(directionId);

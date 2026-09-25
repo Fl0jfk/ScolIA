@@ -80,6 +80,19 @@ export default function RdvInscriptionAdminClient() {
     slotLabel: string;
   } | null>(null);
   const [rescheduleNote, setRescheduleNote] = useState("");
+  const [changeSlotTarget, setChangeSlotTarget] = useState<{
+    id: string;
+    studentLabel: string;
+    slotLabel: string;
+    currentEventId: string;
+  } | null>(null);
+  const [changeSlotNote, setChangeSlotNote] = useState("");
+  const [changeSlotGoogleMode, setChangeSlotGoogleMode] = useState<"update" | "already_done">(
+    "already_done",
+  );
+  const [changeSlotSelectedEventId, setChangeSlotSelectedEventId] = useState("");
+  const [changeSlotOptions, setChangeSlotOptions] = useState<RdvInscriptionSlot[]>([]);
+  const [changeSlotLoading, setChangeSlotLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -202,6 +215,16 @@ export default function RdvInscriptionAdminClient() {
         );
         setRescheduleTarget(null);
         setRescheduleNote("");
+      } else if (body.action === "change-slot") {
+        setMessage(
+          json.mailWarning
+            ? `Créneau modifié (attention mail : ${json.mailWarning})`
+            : "Créneau modifié — mail + ICS envoyés au parent.",
+        );
+        setChangeSlotTarget(null);
+        setChangeSlotNote("");
+        setChangeSlotSelectedEventId("");
+        setChangeSlotOptions([]);
       } else {
         setMessage("Enregistré.");
       }
@@ -241,6 +264,53 @@ export default function RdvInscriptionAdminClient() {
       action: "request-reschedule",
       bookingId: rescheduleTarget.id,
       note: rescheduleNote.trim() || undefined,
+    });
+  }
+
+  async function openChangeSlot(booking: RdvInscriptionBookingRow) {
+    setChangeSlotTarget({
+      id: booking.id,
+      studentLabel: `${booking.studentFirstName} ${booking.studentLastName}`,
+      slotLabel: formatSlot(booking.startAt, booking.endAt),
+      currentEventId: booking.googleEventId,
+    });
+    setChangeSlotNote("");
+    setChangeSlotGoogleMode("already_done");
+    setChangeSlotSelectedEventId(booking.googleEventId);
+    setChangeSlotOptions([]);
+    setChangeSlotLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/rdv-inscription/admin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "list-booking-slots", bookingId: booking.id }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        slots?: RdvInscriptionSlot[];
+        currentEventId?: string;
+      };
+      if (!res.ok) throw new Error(json.error || "Impossible de charger les créneaux.");
+      setChangeSlotOptions(json.slots || []);
+      if (json.currentEventId) {
+        setChangeSlotSelectedEventId(json.currentEventId);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChangeSlotLoading(false);
+    }
+  }
+
+  async function submitChangeSlot() {
+    if (!changeSlotTarget || !changeSlotSelectedEventId) return;
+    await put({
+      action: "change-slot",
+      bookingId: changeSlotTarget.id,
+      newEventId: changeSlotSelectedEventId,
+      googleMode: changeSlotGoogleMode,
+      note: changeSlotNote.trim() || undefined,
     });
   }
 
@@ -852,6 +922,14 @@ export default function RdvInscriptionAdminClient() {
                             <>
                               <button
                                 type="button"
+                                disabled={busy || changeSlotLoading}
+                                onClick={() => void openChangeSlot(b)}
+                                className="mt-1.5 block text-xs font-semibold text-sky-800 hover:underline disabled:opacity-50"
+                              >
+                                Modifier le créneau
+                              </button>
+                              <button
+                                type="button"
                                 disabled={busy}
                                 onClick={() => {
                                   setRescheduleNote("");
@@ -968,6 +1046,175 @@ export default function RdvInscriptionAdminClient() {
                 className="rounded-md bg-amber-700 px-3 py-1.5 text-sm font-bold text-white hover:bg-amber-800 disabled:opacity-50"
               >
                 {busy ? "Envoi…" : "Retirer et prévenir le parent"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {changeSlotTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="change-slot-title"
+          onClick={() => {
+            if (!busy && !changeSlotLoading) {
+              setChangeSlotTarget(null);
+              setChangeSlotNote("");
+              setChangeSlotOptions([]);
+            }
+          }}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="change-slot-title" className="text-lg font-bold text-slate-900">
+              Modifier le créneau
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              {changeSlotTarget.studentLabel} — actuel : {changeSlotTarget.slotLabel}
+            </p>
+            <p className="mt-3 text-sm text-slate-600">
+              Après un appel téléphone : choisissez le nouveau créneau (ou resynchronisez si vous
+              avez déjà déplacé l’événement dans Google Agenda). Le parent reçoit un mail avec le
+              nouvel horaire et un fichier calendrier (.ics).
+            </p>
+
+            <fieldset className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <legend className="px-1 text-sm font-semibold text-slate-800">
+                Google Agenda
+              </legend>
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-800">
+                <input
+                  type="radio"
+                  className="mt-1"
+                  name="change-slot-google"
+                  checked={changeSlotGoogleMode === "already_done"}
+                  onChange={() => setChangeSlotGoogleMode("already_done")}
+                />
+                <span>
+                  <strong>Déjà fait sur Google Agenda</strong>
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    Vous avez déjà déplacé / modifié l’événement. On met à jour ScolIA et on
+                    prévient le parent, sans toucher à l’ancien créneau libre.
+                  </span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-800">
+                <input
+                  type="radio"
+                  className="mt-1"
+                  name="change-slot-google"
+                  checked={changeSlotGoogleMode === "update"}
+                  onChange={() => setChangeSlotGoogleMode("update")}
+                />
+                <span>
+                  <strong>Mettre aussi à jour Google Agenda</strong>
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    Remet l’ancien créneau libre et réserve le nouveau (titre élève + détails).
+                  </span>
+                </span>
+              </label>
+            </fieldset>
+
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-slate-800">Nouveau créneau</p>
+              {changeSlotLoading ? (
+                <p className="mt-2 text-sm text-slate-500">Chargement des créneaux libres…</p>
+              ) : (
+                <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setChangeSlotSelectedEventId(changeSlotTarget.currentEventId)
+                      }
+                      className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                        changeSlotSelectedEventId === changeSlotTarget.currentEventId
+                          ? "bg-sky-700 text-white"
+                          : "bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                      }`}
+                    >
+                      <span className="font-semibold">
+                        Resynchroniser l’événement Google actuel
+                      </span>
+                      <span
+                        className={`mt-0.5 block text-xs ${
+                          changeSlotSelectedEventId === changeSlotTarget.currentEventId
+                            ? "text-sky-100"
+                            : "text-emerald-800/80"
+                        }`}
+                      >
+                        Si vous avez déjà déplacé le même rendez-vous dans Agenda
+                      </span>
+                    </button>
+                  </li>
+                  {changeSlotOptions.map((s) => {
+                    const selected = changeSlotSelectedEventId === s.eventId;
+                    return (
+                      <li key={s.eventId}>
+                        <button
+                          type="button"
+                          onClick={() => setChangeSlotSelectedEventId(s.eventId)}
+                          className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                            selected
+                              ? "bg-sky-700 text-white"
+                              : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
+                          }`}
+                        >
+                          <span className="font-semibold">
+                            {formatSlot(s.startAt, s.endAt)}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {!changeSlotLoading && changeSlotOptions.length === 0 ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  Aucun autre créneau libre dans l’horizon — utilisez la resynchronisation si
+                  l’horaire a déjà changé dans Agenda.
+                </p>
+              ) : null}
+            </div>
+
+            <label className="mt-4 block text-sm">
+              <span className="font-semibold text-slate-800">
+                Précision optionnelle (ajoutée au mail)
+              </span>
+              <textarea
+                rows={2}
+                value={changeSlotNote}
+                onChange={(e) => setChangeSlotNote(e.target.value)}
+                maxLength={1000}
+                placeholder="Ex. créneau décalé suite à notre échange téléphonique…"
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setChangeSlotTarget(null);
+                  setChangeSlotNote("");
+                  setChangeSlotOptions([]);
+                }}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={busy || changeSlotLoading || !changeSlotSelectedEventId}
+                onClick={() => void submitChangeSlot()}
+                className="rounded-md bg-sky-700 px-3 py-1.5 text-sm font-bold text-white hover:bg-sky-800 disabled:opacity-50"
+              >
+                {busy ? "Enregistrement…" : "Enregistrer et prévenir le parent"}
               </button>
             </div>
           </div>

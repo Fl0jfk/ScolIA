@@ -710,6 +710,68 @@ export async function markRdvInscriptionBookingConfirmed(opts: {
   return rows[0] ? mapBooking(rows[0]) : null;
 }
 
+/** Déplace une réservation active vers un autre événement Google (ou resynchronise les horaires). */
+export async function updateRdvInscriptionBookingSlot(opts: {
+  bookingId: string;
+  etablissementId: string;
+  googleEventId: string;
+  googleCalendarId?: string;
+  googleHtmlLink?: string | null;
+  startAt: Date;
+  endAt: Date;
+  /** Si true, force le statut confirmé (ex. modification admin). */
+  forceConfirmed?: boolean;
+}): Promise<RdvInscriptionBookingRow | null> {
+  const db = requireDb();
+  const patch: {
+    googleEventId: string;
+    googleCalendarId?: string;
+    googleHtmlLink: string | null;
+    startAt: Date;
+    endAt: Date;
+    updatedAt: Date;
+    status?: string;
+    confirmedAt?: Date;
+    confirmToken?: null;
+    confirmExpiresAt?: null;
+  } = {
+    googleEventId: opts.googleEventId.trim(),
+    googleHtmlLink: opts.googleHtmlLink ?? null,
+    startAt: opts.startAt,
+    endAt: opts.endAt,
+    updatedAt: new Date(),
+  };
+  if (opts.googleCalendarId?.trim()) {
+    patch.googleCalendarId = opts.googleCalendarId.trim();
+  }
+  if (opts.forceConfirmed) {
+    patch.status = "confirmed";
+    patch.confirmedAt = new Date();
+    patch.confirmToken = null;
+    patch.confirmExpiresAt = null;
+  }
+  await db
+    .update(rdvInscriptionBooking)
+    .set(patch)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? mapBooking(rows[0]) : null;
+}
+
 export async function findBookingByReconfirmToken(
   token: string,
 ): Promise<(RdvInscriptionBookingRow & { etablissementId: string; reconfirmToken: string | null }) | null> {
