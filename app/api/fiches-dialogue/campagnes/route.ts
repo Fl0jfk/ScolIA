@@ -98,7 +98,7 @@ const CreateSchema = z
       .optional(),
     appelConfig: z
       .object({
-        enabled: z.boolean(),
+        enabled: z.boolean().optional(),
         dateLimite: z.string().optional(),
         procedureHtml: z.string().optional(),
         documentsLabels: z.array(z.string()).optional(),

@@ -49,7 +49,13 @@ type Campagne = {
     destinations: Array<{ id: string; label: string }>;
     options: Array<{ id: string; label: string }>;
   };
-  appelConfig: { enabled: boolean; dateLimite?: string; procedureHtml?: string };
+  appelConfig: {
+    enabled: boolean;
+    dateLimite?: string;
+    procedureHtml?: string;
+    documentsLabels?: string[];
+    contactPpLabel?: string;
+  };
 };
 
 const STATUT_LABELS: Record<string, string> = {
@@ -92,6 +98,13 @@ export default function FichesDialogueCampagnePage() {
     ppName: "",
     directionName: "",
   });
+  const [appelForm, setAppelForm] = useState({
+    dateLimite: "",
+    procedureHtml: "",
+    documentsText: "",
+    contactPpLabel: "",
+  });
+  const [appelDirty, setAppelDirty] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -101,6 +114,15 @@ export default function FichesDialogueCampagnePage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Erreur");
       setCampagne(json.campagne);
+      if (!appelDirty && json.campagne?.appelConfig) {
+        const ac = json.campagne.appelConfig as Campagne["appelConfig"];
+        setAppelForm({
+          dateLimite: ac.dateLimite || "",
+          procedureHtml: ac.procedureHtml || "",
+          documentsText: (ac.documentsLabels || []).join("\n"),
+          contactPpLabel: ac.contactPpLabel || json.campagne.contactPpLabel || "",
+        });
+      }
       setEtapes(json.etapes || []);
       setFiches(json.fiches || []);
       setStats(json.stats || null);
@@ -360,9 +382,10 @@ export default function FichesDialogueCampagnePage() {
           {campagne.contactPpLabel ? ` · Contact PP : ${campagne.contactPpLabel}` : ""} ·
           Classes cibles :{" "}
           {campagne.classesCibles?.length ? campagne.classesCibles.join(", ") : "toutes"}
-          {campagne.appelConfig?.enabled
-            ? ` · Appel activé${campagne.appelConfig.dateLimite ? ` (limite ${campagne.appelConfig.dateLimite})` : ""}`
-            : " · Appel désactivé"}
+          {" · Appel obligatoire"}
+          {campagne.appelConfig?.dateLimite
+            ? ` (limite ${campagne.appelConfig.dateLimite})`
+            : " (détails à compléter)"}
         </p>
         <div className="pt-2">
           <ModuleButton
@@ -394,6 +417,103 @@ export default function FichesDialogueCampagnePage() {
             Supprimer la campagne
           </ModuleButton>
         </div>
+      </ModuleCard>
+
+      <ModuleCard bodyClassName="space-y-3 p-5">
+        <h2 className={`text-lg font-semibold ${dash.ink}`}>
+          Procédure d’appel (obligatoire — complétable en fin d’année)
+        </h2>
+        <p className={`text-sm ${dash.textMid}`}>
+          Date limite, documents et modalités sont souvent connus en mai–juin. Vous pouvez
+          les renseigner ici à tout moment ; l’appel reste toujours actif.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm sm:col-span-2">
+            Date limite d’appel
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+              placeholder="Ex. 15 juin 2026"
+              value={appelForm.dateLimite}
+              onChange={(e) => {
+                setAppelDirty(true);
+                setAppelForm({ ...appelForm, dateLimite: e.target.value });
+              }}
+            />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            Contact PP affiché aux familles
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+              value={appelForm.contactPpLabel}
+              onChange={(e) => {
+                setAppelDirty(true);
+                setAppelForm({ ...appelForm, contactPpLabel: e.target.value });
+              }}
+            />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            Documents à fournir (un par ligne)
+            <textarea
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+              rows={3}
+              value={appelForm.documentsText}
+              onChange={(e) => {
+                setAppelDirty(true);
+                setAppelForm({ ...appelForm, documentsText: e.target.value });
+              }}
+            />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            Texte / procédure
+            <textarea
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+              rows={4}
+              placeholder="Modalités d’appel communiquées par le rectorat / l’établissement…"
+              value={appelForm.procedureHtml}
+              onChange={(e) => {
+                setAppelDirty(true);
+                setAppelForm({ ...appelForm, procedureHtml: e.target.value });
+              }}
+            />
+          </label>
+        </div>
+        <ModuleButton
+          disabled={!!busy || !appelDirty}
+          onClick={async () => {
+            setBusy("appel");
+            setError(null);
+            try {
+              const res = await fetch(`/api/fiches-dialogue/campagnes/${id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contactPpLabel: appelForm.contactPpLabel.trim() || null,
+                  appelConfig: {
+                    enabled: true,
+                    dateLimite: appelForm.dateLimite.trim() || undefined,
+                    procedureHtml: appelForm.procedureHtml.trim() || undefined,
+                    contactPpLabel: appelForm.contactPpLabel.trim() || undefined,
+                    documentsLabels: appelForm.documentsText
+                      .split("\n")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  },
+                }),
+              });
+              const json = await res.json();
+              if (!res.ok) throw new Error(json.error || "Enregistrement impossible");
+              setCampagne(json.campagne);
+              setAppelDirty(false);
+              setMessage("Procédure d’appel enregistrée.");
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Erreur");
+            } finally {
+              setBusy(null);
+            }
+          }}
+        >
+          Enregistrer la procédure d’appel
+        </ModuleButton>
       </ModuleCard>
 
       <ModuleCard bodyClassName="space-y-3 p-5">

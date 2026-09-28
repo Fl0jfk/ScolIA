@@ -154,7 +154,9 @@ export async function createFdCampagneFromTemplate(params: {
       niveauActuel: niveau ?? params.niveauActuel ?? null,
       statut: "brouillon",
       catalogue,
-      appelConfig: params.appelConfig ?? { enabled: true },
+      appelConfig: params.appelConfig
+        ? { ...params.appelConfig, enabled: true }
+        : { enabled: true },
       contactPpLabel: params.contactPpLabel ?? null,
       delaiFamilleJours: params.delaiFamilleJours ?? 7,
       classesCibles: params.classesCibles ?? [],
@@ -227,9 +229,13 @@ export async function updateFdCampagne(
   }>,
 ): Promise<FdCampagneRow> {
   const db = getDb();
+  const safePatch = { ...patch, updatedAt: now() };
+  if (safePatch.appelConfig) {
+    safePatch.appelConfig = { ...safePatch.appelConfig, enabled: true };
+  }
   const [row] = await db
     .update(fdCampagne)
-    .set({ ...patch, updatedAt: now() })
+    .set(safePatch)
     .where(and(eq(fdCampagne.etablissementId, etablissementId), eq(fdCampagne.id, campagneId)))
     .returning();
   if (!row) throw new Error("CAMPAGNE_NOT_FOUND");
@@ -1188,7 +1194,8 @@ export async function submitFdAcceptation(params: {
       intro:
         "Voici le document final constatant la décision du conseil de classe et votre position.",
     });
-    if (campagne.appelConfig?.enabled) {
+    if (campagne.appelConfig) {
+      // Appel toujours actif (obligation légale), même si details encore incomplets.
       await notifyFdAppelProcedure({
         to: emails,
         elevePrenom: fiche.elevePrenom,

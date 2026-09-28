@@ -85,10 +85,11 @@ const PatchSchema = z.object({
     .optional(),
   appelConfig: z
     .object({
-      enabled: z.boolean(),
+      enabled: z.boolean().optional(),
       dateLimite: z.string().optional(),
       procedureHtml: z.string().optional(),
       documentsLabels: z.array(z.string()).optional(),
+      contactPpLabel: z.string().optional(),
     })
     .optional(),
   etapes: z
@@ -132,7 +133,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
       starterMode: body.data.starterMode,
       contactPpLabel: body.data.contactPpLabel,
       catalogue: body.data.catalogue,
-      appelConfig: body.data.appelConfig,
+      appelConfig: body.data.appelConfig
+        ? { ...body.data.appelConfig, enabled: true }
+        : undefined,
     });
 
     if (body.data.etapes?.length) {

@@ -141,7 +141,12 @@ export type FdParentAccordPayload = {
 };
 
 export type FdAppelConfig = {
+  /**
+   * Toujours true (obligation légale). Conservé pour compat ;
+   * on ne désactive plus l’appel en UI.
+   */
   enabled: boolean;
+  /** Souvent renseigné tard (mai–juin) — optionnel à la création. */
   dateLimite?: string;
   procedureHtml?: string;
   documentsLabels?: string[];

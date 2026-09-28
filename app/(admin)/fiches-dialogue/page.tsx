@@ -63,9 +63,11 @@ export default function FichesDialogueHubPage() {
   const [label, setLabel] = useState("");
   const [anneeLabel, setAnneeLabel] = useState("2025-2026");
   const [contactPpLabel, setContactPpLabel] = useState("via École Directe");
-  const [appelEnabled, setAppelEnabled] = useState(true);
   const [appelDateLimite, setAppelDateLimite] = useState("");
   const [appelProcedure, setAppelProcedure] = useState("");
+  const [appelDocuments, setAppelDocuments] = useState(
+    "Formulaire d’appel\nDécision du conseil de classe (fiche de dialogue)",
+  );
 
   const [catalogue, setCatalogue] = useState<FdCatalogueChoix | null>(null);
   const [enabledDestIds, setEnabledDestIds] = useState<Set<string>>(new Set());
@@ -304,14 +306,14 @@ export default function FichesDialogueHubPage() {
             conseilDate: e.conseilDate || null,
           })),
           appelConfig: {
-            enabled: appelEnabled,
+            enabled: true,
             dateLimite: appelDateLimite || undefined,
             procedureHtml: appelProcedure || undefined,
             contactPpLabel: contactPpLabel.trim() || undefined,
-            documentsLabels: [
-              "Formulaire d’appel",
-              "Décision du conseil de classe (fiche de dialogue)",
-            ],
+            documentsLabels: appelDocuments
+              .split("\n")
+              .map((s) => s.trim())
+              .filter(Boolean),
           },
         }),
       });
@@ -663,32 +665,35 @@ export default function FichesDialogueHubPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-2">
-              <label className="flex items-center gap-2 text-sm font-semibold">
-                <input
-                  type="checkbox"
-                  checked={appelEnabled}
-                  onChange={(e) => setAppelEnabled(e.target.checked)}
-                />
-                Activer la procédure d’appel
-              </label>
-              {appelEnabled ? (
-                <>
-                  <input
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                    placeholder="Date limite d’appel (libellé)"
-                    value={appelDateLimite}
-                    onChange={(e) => setAppelDateLimite(e.target.value)}
-                  />
-                  <textarea
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                    rows={2}
-                    placeholder="Procédure (texte libre)"
-                    value={appelProcedure}
-                    onChange={(e) => setAppelProcedure(e.target.value)}
-                  />
-                </>
-              ) : null}
+            <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-4 space-y-2">
+              <p className="text-sm font-semibold text-amber-950">
+                Procédure d’appel (obligation légale — toujours active)
+              </p>
+              <p className="text-xs text-amber-900/80">
+                Date limite, documents et texte de procédure sont souvent connus seulement en
+                mai–juin. Vous pouvez laisser vide à la création et les compléter plus tard sur
+                la fiche campagne.
+              </p>
+              <input
+                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+                placeholder="Date limite d’appel (optionnel pour l’instant)"
+                value={appelDateLimite}
+                onChange={(e) => setAppelDateLimite(e.target.value)}
+              />
+              <textarea
+                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+                rows={2}
+                placeholder="Procédure (optionnel — à compléter plus tard)"
+                value={appelProcedure}
+                onChange={(e) => setAppelProcedure(e.target.value)}
+              />
+              <textarea
+                className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+                rows={2}
+                placeholder="Documents requis (un par ligne, optionnel)"
+                value={appelDocuments}
+                onChange={(e) => setAppelDocuments(e.target.value)}
+              />
             </div>
 
             <div className="flex flex-wrap gap-2">
