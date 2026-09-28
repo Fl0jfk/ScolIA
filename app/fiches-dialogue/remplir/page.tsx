@@ -152,20 +152,18 @@ function applyFamillePrefill(
       }
       if (typeof payload.comment === "string") setters.setComment(payload.comment);
       if (Array.isArray(payload.etablissementsVoeux)) {
-        setters.setVoeuxEtab(
-          payload.etablissementsVoeux
-            .map((v) => {
-              if (!v || typeof v !== "object") return null;
-              const row = v as { codeRne?: string; label?: string; chezNous?: boolean };
-              if (!row.codeRne || !row.label) return null;
-              return {
-                codeRne: String(row.codeRne),
-                label: String(row.label),
-                chezNous: Boolean(row.chezNous),
-              };
-            })
-            .filter((v): v is { codeRne: string; label: string; chezNous?: boolean } => Boolean(v)),
-        );
+        const voeux: Array<{ codeRne: string; label: string; chezNous?: boolean }> = [];
+        for (const v of payload.etablissementsVoeux) {
+          if (!v || typeof v !== "object") continue;
+          const row = v as { codeRne?: string; label?: string; chezNous?: boolean };
+          if (!row.codeRne || !row.label) continue;
+          voeux.push({
+            codeRne: String(row.codeRne),
+            label: String(row.label),
+            chezNous: Boolean(row.chezNous),
+          });
+        }
+        setters.setVoeuxEtab(voeux);
       }
     }
     if (fam.auteurLabel?.trim()) setters.setSignerName(fam.auteurLabel.trim());
