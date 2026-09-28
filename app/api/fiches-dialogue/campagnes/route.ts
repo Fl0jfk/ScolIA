@@ -159,7 +159,9 @@ export async function POST(req: Request) {
       starterMode: body.data.starterMode,
       contactPpLabel: body.data.contactPpLabel,
       catalogueOverride,
-      appelConfig: body.data.appelConfig,
+      appelConfig: body.data.appelConfig
+        ? { ...body.data.appelConfig, enabled: true }
+        : { enabled: true },
       etapesDates: body.data.etapesDates,
       createdByUserId: scope.ctx.authUserId,
     });
