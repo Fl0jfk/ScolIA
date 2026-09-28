@@ -171,6 +171,89 @@ function isRosterVisibleConvention(c: StageConvention, schoolYear: string): bool
  * Classes disponibles dans le suivi : config stages activée + classes
  * ayant déjà un dossier (stages volontaires hors config, ex. terminale).
  */
+function normalizeSearchBlob(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+export type StageGlobalSearchHit = {
+  conventionId: string;
+  className: string;
+  studentFirstName: string;
+  studentLastName: string;
+  companyName: string;
+  status: StageConventionStatus;
+  statusLabel: string;
+  stageLabel?: string;
+};
+
+/**
+ * Recherche globale (toutes classes ayant déjà un dossier / suivies) :
+ * nom élève, entreprise, classe, libellé de période.
+ */
+export async function searchStageConventionsGlobal(
+  query: string,
+  opts?: {
+    schoolYear?: string;
+    /** Si fourni, limite aux classes autorisées (référents). */
+    allowedClasses?: string[] | null;
+  },
+): Promise<StageGlobalSearchHit[]> {
+  const q = normalizeSearchBlob(query);
+  if (q.length < 2) return [];
+
+  const year = opts?.schoolYear?.trim() || currentStageSchoolYear();
+  const allowed = opts?.allowedClasses?.length
+    ? opts.allowedClasses.map((c) => c.trim()).filter(Boolean)
+    : null;
+
+  const index = await getConventionsIndex();
+  const hits: StageGlobalSearchHit[] = [];
+
+  for (const entry of index) {
+    const indexBlob = normalizeSearchBlob(
+      [entry.studentName, entry.companyName, entry.className, entry.stageLabel]
+        .filter(Boolean)
+        .join(" "),
+    );
+    if (!indexBlob.includes(q)) continue;
+
+    const c = await getStageConvention(entry.id);
+    if (!c || !isRosterVisibleConvention(c, year)) continue;
+
+    if (allowed) {
+      const className = String(c.student.className ?? "").trim();
+      const ok = allowed.some((a) => schoolClassesMatch(className, a));
+      if (!ok) continue;
+    }
+
+    hits.push({
+      conventionId: c.id,
+      className: String(c.student.className ?? "").trim(),
+      studentFirstName: c.student.firstName,
+      studentLastName: c.student.lastName,
+      companyName: c.company.name || "—",
+      status: c.status,
+      statusLabel: STAGE_CONVENTION_STATUS_LABELS[c.status] || c.status,
+      stageLabel: c.stageLabel?.trim() || undefined,
+    });
+    if (hits.length >= 40) break;
+  }
+
+  hits.sort((a, b) => {
+    const ln = a.studentLastName.localeCompare(b.studentLastName, "fr", { sensitivity: "base" });
+    if (ln !== 0) return ln;
+    const fn = a.studentFirstName.localeCompare(b.studentFirstName, "fr", { sensitivity: "base" });
+    if (fn !== 0) return fn;
+    return a.className.localeCompare(b.className, "fr", { sensitivity: "base" });
+  });
+
+  return hits;
+}
+
 export async function listStageRosterClassNames(schoolYear?: string): Promise<string[]> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
   const [enabled, index] = await Promise.all([

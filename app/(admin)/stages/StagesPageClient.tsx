@@ -104,6 +104,7 @@ function StagesContent() {
     className: string;
     ine?: string;
   } | null>(null);
+  const [classeRefreshToken, setClasseRefreshToken] = useState(0);
 
   const load = useCallback(async () => {
     setError(null);
@@ -512,6 +513,32 @@ function StagesContent() {
     }
   }
 
+  async function deleteStage(confirmWord: string) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "cancel",
+          confirm: confirmWord,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      closeDetail();
+      setMsg("Stage supprimé — liens de signature invalidés.");
+      setClasseRefreshToken((n) => n + 1);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function markSignatureManual(signatureId: string) {
     if (!detail) return;
     const note =
@@ -682,6 +709,7 @@ function StagesContent() {
           }}
           selectedConventionId={selectedId}
           focusClassName={focusClassName}
+          refreshToken={classeRefreshToken}
           canFileOneDrive={Boolean(permissions?.canFileToOneDrive && od.oneDriveEnabled)}
           oneDriveConnected={od.connected}
           onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
@@ -727,6 +755,11 @@ function StagesContent() {
                 onReviewTutorEmailChange={(approved) => void reviewTutorEmailChange(approved)}
                 onReviewScheduleChange={(approved) => void reviewScheduleChange(approved)}
                 onProposeAmendment={(payload) => void proposeAmendment(payload)}
+                onDeleteStage={
+                  permissions?.canReviewPreconvention
+                    ? (confirmWord) => void deleteStage(confirmWord)
+                    : undefined
+                }
               />
             ) : null
           }

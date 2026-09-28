@@ -572,22 +572,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (!canReviewPreconvention(roles)) {
         return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
       }
-      convention = {
-        ...convention,
-        status: "cancelled",
-        updatedAt: new Date().toISOString(),
-        history: [
-          ...convention.history,
-          {
-            at: new Date().toISOString(),
-            by: displayName(user),
-            action: "ANNULEE",
-            note: String(body.note ?? "").trim() || undefined,
-          },
-        ],
-      };
-      await saveStageConvention(convention);
-      return NextResponse.json({ success: true, convention });
+      const { cancelStageConvention } = await import("@/app/lib/stage-workflow");
+      const result = await cancelStageConvention({
+        conventionId: id,
+        byName: displayName(user),
+        note: String(body.note ?? "").trim() || undefined,
+        confirmWord: String(body.confirm ?? body.confirmWord ?? ""),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, convention: result.convention });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

@@ -475,6 +475,19 @@ export const STAGE_CONVENTION_STATUS_LABELS: Record<StageConventionStatus, strin
   archived: "Archivée",
 };
 
+/** Confirmation obligatoire pour supprimer un stage (admin). */
+export const STAGE_CANCEL_CONFIRM_WORD = "supprimer";
+
+/** Message affiché sur les liens publics après annulation. */
+export const STAGE_CANCELLED_PUBLIC_MESSAGE =
+  "Cette demande de stage a été annulée. Les liens de signature ne sont plus valides.";
+
+export function isStageConventionCancelled(
+  convention: { status: StageConventionStatus } | null | undefined,
+): boolean {
+  return convention?.status === "cancelled" || convention?.status === "archived";
+}
+
 export const STAGE_SIGNER_ROLE_LABELS: Record<StageSignerRole, string> = {
   eleve: "Élève",
   parent: "Responsable légal 1",

@@ -116,7 +116,7 @@ export async function GET() {
     }
 
     const activeConventions = conventions.filter(
-      (c) => c.status !== "archived" && c.status !== "draft",
+      (c) => c.status !== "archived" && c.status !== "draft" && c.status !== "cancelled",
     );
     const pendingOffers = 0;
     const adminQueue = activeConventions.filter(

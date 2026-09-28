@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import StageCancelledPublicPage from "@/app/components/stages/StageCancelledPublicPage";
 import StageConventionPdfPreview from "@/app/components/stages/StageConventionPdfPreview";
 import StageOtpCodeInput from "@/app/components/stages/StageOtpCodeInput";
 import StageScheduleEditor from "@/app/components/stages/StageScheduleEditor";
@@ -9,6 +10,7 @@ import StageOutOfPeriodAlert from "@/app/components/stages/StageOutOfPeriodAlert
 import StageDiscussionChat from "@/app/components/stages/StageDiscussionChat";
 import type { StageDiscussionMessage, StageSchedule } from "@/app/lib/stage-types";
 import type { StagePeriodAlignment } from "@/app/lib/stage-period-alignment";
+import { STAGE_CANCELLED_PUBLIC_MESSAGE } from "@/app/lib/stage-types";
 
 type SignMethod = "code_confirm" | "touch" | "paper_upload";
 
@@ -166,6 +168,7 @@ export default function StagePublicSignerClient() {
   const [token, setToken] = useState(initialToken);
   const [view, setView] = useState<SignView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelled, setCancelled] = useState(false);
   const [signerName, setSignerName] = useState("");
   const [signaturePng, setSignaturePng] = useState<string | null>(null);
   const [paperFile, setPaperFile] = useState<File | null>(null);
@@ -190,7 +193,14 @@ export default function StagePublicSignerClient() {
       cache: "no-store",
     });
     const data = await res.json();
+    if (res.status === 410 || data?.cancelled === true) {
+      setCancelled(true);
+      setView(null);
+      setError(data?.message || data?.error || STAGE_CANCELLED_PUBLIC_MESSAGE);
+      return;
+    }
     if (!res.ok) throw new Error(data?.error || "Lien invalide");
+    setCancelled(false);
     setView(data);
     if (data.signature?.status === "signe") {
       setDone(true);
@@ -353,6 +363,14 @@ export default function StagePublicSignerClient() {
 
   if (!view && !error) {
     return <main className="flex min-h-screen items-center justify-center p-6">Chargement…</main>;
+  }
+
+  if (cancelled) {
+    return (
+      <StageCancelledPublicPage
+        message={error || STAGE_CANCELLED_PUBLIC_MESSAGE}
+      />
+    );
   }
 
   if (error && !view) {

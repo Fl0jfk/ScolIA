@@ -1,18 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { StageClassRoster, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
+import type { StageClassRoster, StageGlobalSearchHit, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 
 type RosterStatusFilter = "all" | StageRosterStudentStatus;
-
-function normalizeSearch(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
 
 function formatIsoDateFr(iso: string): string {
   const raw = iso.trim().slice(0, 10);
@@ -115,6 +107,7 @@ export default function StageClassRosterPanel({
   filingConventionId,
   canCreateOffline,
   onCreateOffline,
+  refreshToken,
 }: {
   onOpenConvention: (conventionId: string) => void;
   selectedConventionId?: string | null;
@@ -131,6 +124,7 @@ export default function StageClassRosterPanel({
     className: string;
     ine?: string;
   }) => void;
+  refreshToken?: number;
 }) {
   const [data, setData] = useState<RosterResponse | null>(null);
   const [selectedClass, setSelectedClass] = useState("");
@@ -138,7 +132,9 @@ export default function StageClassRosterPanel({
   const [error, setError] = useState<string | null>(null);
   const [assignBusyId, setAssignBusyId] = useState<string | null>(null);
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+  const [globalQuery, setGlobalQuery] = useState("");
+  const [globalResults, setGlobalResults] = useState<StageGlobalSearchHit[]>([]);
+  const [globalSearching, setGlobalSearching] = useState(false);
   const [statusFilter, setStatusFilter] = useState<RosterStatusFilter>("all");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const detailAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -170,7 +166,7 @@ export default function StageClassRosterPanel({
       return;
     }
     void load();
-  }, [load, focusClassName]);
+  }, [load, focusClassName, refreshToken]);
 
   useEffect(() => {
     if (!selectedConventionId || !data?.roster) return;
@@ -188,9 +184,45 @@ export default function StageClassRosterPanel({
     return () => window.clearTimeout(t);
   }, [selectedConventionId, detailSlot, expandedKey]);
 
+  useEffect(() => {
+    const q = globalQuery.trim();
+    if (q.length < 2) {
+      setGlobalResults([]);
+      setGlobalSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setGlobalSearching(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const params = new URLSearchParams({ q });
+          const res = await fetch(`/api/stages/class-roster?${params}`, { cache: "no-store" });
+          const json = (await res.json()) as {
+            globalResults?: StageGlobalSearchHit[];
+            error?: string;
+          };
+          if (cancelled) return;
+          if (!res.ok) throw new Error(json.error || "Recherche impossible");
+          setGlobalResults(json.globalResults ?? []);
+        } catch (e: unknown) {
+          if (!cancelled) {
+            setGlobalResults([]);
+            setError(e instanceof Error ? e.message : "Erreur recherche");
+          }
+        } finally {
+          if (!cancelled) setGlobalSearching(false);
+        }
+      })();
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [globalQuery]);
+
   const onClassChange = (className: string) => {
     setSelectedClass(className);
-    setQuery("");
     setStatusFilter("all");
     setExpandedKey(null);
     void load(className);
@@ -239,23 +271,70 @@ export default function StageClassRosterPanel({
 
   const filteredStudents = useMemo(() => {
     if (!roster) return [];
-    const q = normalizeSearch(query);
     return roster.students.filter((student) => {
       if (statusFilter !== "all" && student.rosterStatus !== statusFilter) return false;
-      if (!q) return true;
-      const blob = normalizeSearch(
-        [
-          student.prenom,
-          student.nom,
-          student.ine,
-          ...student.conventions.flatMap((c) => [c.companyName, c.stageLabel, c.statusLabel]),
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
-      return blob.includes(q);
+      return true;
     });
-  }, [roster, query, statusFilter]);
+  }, [roster, statusFilter]);
+
+  const globalSearchBlock = (
+    <>
+      <label className="block text-sm font-semibold text-stone-700">
+        Recherche globale
+        <input
+          type="search"
+          value={globalQuery}
+          onChange={(e) => setGlobalQuery(e.target.value)}
+          placeholder="Nom, entreprise, classe… (toutes les classes)"
+          className="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-normal shadow-sm sm:max-w-xl"
+        />
+        <span className="mt-1 block text-[11px] font-normal text-stone-500">
+          Cherche dans tous les stages déclarés, toutes classes confondues.
+        </span>
+      </label>
+
+      {globalQuery.trim().length >= 2 ? (
+        <div className="rounded-2xl border border-[#2F6B4A]/25 bg-[#f7faf8] px-4 py-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-[#1F3D2B]">
+            Résultats{globalSearching ? "…" : ` · ${globalResults.length}`}
+          </p>
+          {globalSearching && globalResults.length === 0 ? (
+            <p className="mt-2 text-sm text-stone-500">Recherche en cours…</p>
+          ) : globalResults.length === 0 ? (
+            <p className="mt-2 text-sm text-stone-500">
+              Aucun stage ne correspond à « {globalQuery.trim()} ».
+            </p>
+          ) : (
+            <ul className="mt-2 divide-y divide-stone-200/80">
+              {globalResults.map((hit) => (
+                <li key={hit.conventionId} className="flex flex-wrap items-center gap-2 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-[#1F3D2B]">
+                      {hit.studentFirstName} {hit.studentLastName}
+                      <span className="ml-2 font-normal text-stone-500">{hit.className}</span>
+                    </p>
+                    <p className="truncate text-xs text-stone-600">
+                      {hit.companyName}
+                      {hit.stageLabel ? ` · ${hit.stageLabel}` : ""}
+                      {" · "}
+                      {hit.statusLabel}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenConvention(hit.conventionId)}
+                    className="shrink-0 rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1F3D2B]"
+                  >
+                    Ouvrir
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+    </>
+  );
 
   if (loading && !data) {
     return <p className="text-sm text-stone-500">Chargement du suivi classe…</p>;
@@ -271,13 +350,18 @@ export default function StageClassRosterPanel({
 
   if (data?.message && !data.roster) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
-        {data.message}
+      <div className="space-y-5">
+        {globalSearchBlock}
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+          {data.message}
+        </div>
       </div>
     );
   }
 
-  if (!data || !roster) return null;
+  if (!data || !roster) {
+    return <div className="space-y-5">{globalSearchBlock}</div>;
+  }
 
   const mandatory = roster.expectsMandatoryStage === true;
   const sansStageLabel = mandatory ? "Sans stage" : "Aucun";
@@ -305,6 +389,8 @@ export default function StageClassRosterPanel({
 
   return (
     <div className="space-y-5">
+      {globalSearchBlock}
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
           {classOptions.length >= 1 ? (
@@ -335,16 +421,6 @@ export default function StageClassRosterPanel({
             </p>
           ) : null}
         </div>
-        <label className="block min-w-[200px] flex-1 text-sm font-semibold text-stone-700 sm:max-w-xs">
-          Rechercher
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Nom, entreprise…"
-            className="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-normal shadow-sm"
-          />
-        </label>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -598,7 +674,7 @@ export default function StageClassRosterPanel({
         <p className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">
           {roster.students.length === 0
             ? "Aucun élève pour cette classe."
-            : "Aucun élève ne correspond à cette recherche ou à ce filtre."}
+            : "Aucun élève pour ce filtre."}
         </p>
       ) : null}
     </div>

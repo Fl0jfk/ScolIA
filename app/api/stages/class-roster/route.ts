@@ -5,7 +5,7 @@ import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canReviewPreconvention, canViewAllConventions, canViewReferentConventions } from "@/app/lib/stage-access";
-import { buildStageClassRoster, listStageRosterClassNames } from "@/app/lib/stage-class-roster";
+import { buildStageClassRoster, listStageRosterClassNames, searchStageConventionsGlobal } from "@/app/lib/stage-class-roster";
 import {
   classNameMatchesStageSecteurs,
   resolveStageViewerSecteurs,
@@ -36,6 +36,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const schoolYear = searchParams.get("schoolYear")?.trim() || currentStageSchoolYear();
     const requestedClass = searchParams.get("className")?.trim() || "";
+    const globalQuery = searchParams.get("q")?.trim() || "";
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
 
     const referentClasses = user
@@ -56,6 +57,19 @@ export async function GET(req: Request) {
       availableClasses = availableClasses.filter((c) =>
         classNameMatchesStageSecteurs(c, viewerSecteurs),
       );
+    }
+
+    if (globalQuery.length >= 2) {
+      const globalResults = await searchStageConventionsGlobal(globalQuery, {
+        schoolYear,
+        allowedClasses: isAdmin ? null : availableClasses,
+      });
+      return NextResponse.json({
+        schoolYear,
+        availableClasses,
+        globalResults,
+        roster: null,
+      });
     }
 
     if (availableClasses.length === 0 && !isAdmin) {

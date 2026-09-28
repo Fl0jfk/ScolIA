@@ -120,6 +120,11 @@ export async function deleteSignTokenRef(token: string): Promise<void> {
   await deleteJson(STAGE_S3.signToken(token));
 }
 
+export async function deleteStudentTokenRef(token: string): Promise<void> {
+  if (!token.trim()) return;
+  await deleteJson(STAGE_S3.studentToken(token));
+}
+
 export async function saveSignTokenRef(token: string, ref: StageSignTokenRef) {
   await putJson(STAGE_S3.signToken(token), ref);
 }

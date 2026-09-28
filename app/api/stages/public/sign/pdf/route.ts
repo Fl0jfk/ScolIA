@@ -7,6 +7,10 @@ import {
   isScoliaGeneratedConventionPdf,
 } from "@/app/lib/stage-pdf-store";
 import { getSignTokenRef, getStageConvention } from "@/app/lib/stage-storage";
+import {
+  isStageConventionCancelled,
+  STAGE_CANCELLED_PUBLIC_MESSAGE,
+} from "@/app/lib/stage-workflow";
 
 export async function GET(req: Request) {
   try {
@@ -19,6 +23,12 @@ export async function GET(req: Request) {
     const convention = await getStageConvention(ref.conventionId);
     if (!convention) {
       return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
+    }
+    if (isStageConventionCancelled(convention)) {
+      return NextResponse.json(
+        { cancelled: true, error: STAGE_CANCELLED_PUBLIC_MESSAGE },
+        { status: 410 },
+      );
     }
 
     const download = new URL(req.url).searchParams.get("download") === "1";

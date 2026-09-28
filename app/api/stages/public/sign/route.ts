@@ -3,10 +3,12 @@ import {
   applyConventionSignature,
   canAccessStageDiscussionViaLink,
   canRequestScheduleChange,
+  isStageConventionCancelled,
   postStageDiscussionMessageViaToken,
   requestScheduleChange,
   requestSignConfirmCode,
   resolveSignTokenBySecureCode,
+  STAGE_CANCELLED_PUBLIC_MESSAGE,
 } from "@/app/lib/stage-workflow";
 import { roleStampsPdf } from "@/app/lib/stage-pdf-sign";
 import { loadReferentSignatureBytes } from "@/app/lib/stage-signature-store";
@@ -79,6 +81,16 @@ export async function GET(req: Request) {
 
     const convention = await getStageConvention(ref.conventionId);
     if (!convention) return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
+    if (isStageConventionCancelled(convention)) {
+      return NextResponse.json(
+        {
+          cancelled: true,
+          error: STAGE_CANCELLED_PUBLIC_MESSAGE,
+          message: STAGE_CANCELLED_PUBLIC_MESSAGE,
+        },
+        { status: 410 },
+      );
+    }
 
     const signature = convention.signatures.find((s) => s.id === ref.signatureId);
     if (!signature) return NextResponse.json({ error: "Signature introuvable." }, { status: 404 });

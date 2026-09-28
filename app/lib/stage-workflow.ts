@@ -29,10 +29,13 @@ import {
 import {
   STAGE_S3,
   STAGE_SIGNER_ROLE_LABELS,
+  STAGE_CANCEL_CONFIRM_WORD,
+  STAGE_CANCELLED_PUBLIC_MESSAGE,
   canStageSignerUsePaperUpload,
   conventionAllSignaturesValidated,
   currentStageSchoolYear,
   isExternalStageSignerRole,
+  isStageConventionCancelled,
   isStageSignatureFullyValidated,
   stageCompanyRhDisplayName,
   STAGE_AMENDMENT_LINK_ROLES,
@@ -1166,6 +1169,9 @@ export async function applyConventionSignature(params: {
 
   const convention = await getStageConvention(ref.conventionId);
   if (!convention) return { ok: false, error: "Convention introuvable." };
+  if (isStageConventionCancelled(convention)) {
+    return { ok: false, error: STAGE_CANCELLED_PUBLIC_MESSAGE };
+  }
 
   const sig = convention.signatures.find((s) => s.id === ref.signatureId);
   if (!sig) return { ok: false, error: "Signature introuvable." };
@@ -2246,6 +2252,77 @@ export async function resolveConventionByStudentToken(token: string) {
   const ref = await getStudentTokenRef(token);
   if (!ref) return null;
   return getStageConvention(ref.conventionId);
+}
+
+/** Phrase de confirmation obligatoire côté UI + API pour supprimer un stage. */
+export { STAGE_CANCEL_CONFIRM_WORD, STAGE_CANCELLED_PUBLIC_MESSAGE, isStageConventionCancelled };
+
+/**
+ * Annule / supprime un stage de A à Z : statut cancelled, signatures neutralisées.
+ * Les anciens liens publics affichent une page d'annulation.
+ */
+export async function cancelStageConvention(params: {
+  conventionId: string;
+  byName: string;
+  note?: string;
+  confirmWord: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const confirm = params.confirmWord.trim().toLowerCase();
+  if (confirm !== STAGE_CANCEL_CONFIRM_WORD) {
+    return {
+      ok: false,
+      error: `Pour confirmer, tapez exactement « ${STAGE_CANCEL_CONFIRM_WORD} ».`,
+    };
+  }
+
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+  if (convention.status === "cancelled") {
+    return { ok: false, error: "Ce stage est déjà annulé." };
+  }
+  if (convention.status === "archived") {
+    return { ok: false, error: "Ce stage est archivé et ne peut plus être modifié." };
+  }
+
+  const now = new Date().toISOString();
+  // Les jetons restent consultables pour afficher « stage annulé » sur les anciens liens,
+  // mais les signatures sont neutralisées (plus de signToken côté convention).
+  const signatures = convention.signatures.map((sig) => ({
+    ...sig,
+    status: "en_attente" as const,
+    signedAt: undefined,
+    signedBy: undefined,
+    signMethod: undefined,
+    signaturePngS3Key: undefined,
+    paperUploadS3Key: undefined,
+    paperUploadFileName: undefined,
+    reviewStatus: undefined,
+    reviewNote: undefined,
+    reviewedAt: undefined,
+    reviewedBy: undefined,
+    signConfirmCode: undefined,
+    signConfirmCodeSentAt: undefined,
+    signToken: undefined,
+    signSecureCode: undefined,
+    signSentAt: undefined,
+  }));
+
+  let next: StageConvention = {
+    ...convention,
+    status: "cancelled",
+    signatures,
+    scheduleChangeRequest: undefined,
+    tutorEmailChangeRequest: undefined,
+    updatedAt: now,
+  };
+  next = pushHistory(
+    next,
+    params.byName,
+    "ANNULEE",
+    params.note?.trim() || "Stage supprimé par l'administratif — liens de signature invalidés.",
+  );
+  await saveStageConvention(next);
+  return { ok: true, convention: next };
 }
 
 export function normalizeConventionInput(raw: unknown, base?: StageConvention): StageConvention {

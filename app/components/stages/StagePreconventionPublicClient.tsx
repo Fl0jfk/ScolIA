@@ -5,13 +5,18 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { StageConvention } from "@/app/lib/stage-types";
 import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-types";
 import type { StageConventionCard } from "@/app/lib/stage-signature-summary";
-import { STAGE_CONVENTION_STATUS_LABELS, formatCompanyAddress } from "@/app/lib/stage-types";
+import {
+  STAGE_CANCELLED_PUBLIC_MESSAGE,
+  STAGE_CONVENTION_STATUS_LABELS,
+  formatCompanyAddress,
+} from "@/app/lib/stage-types";
 import { formatPeriodRangeFr } from "@/app/lib/stage-schedule";
 import {
   clearPreconventionDeviceMemory,
   readPreconventionDeviceMemory,
   writePreconventionDeviceMemory,
 } from "@/app/lib/stage-preconvention-device-memory";
+import StageCancelledPublicPage from "@/app/components/stages/StageCancelledPublicPage";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 import StageOtpCodeInput from "@/app/components/stages/StageOtpCodeInput";
@@ -97,6 +102,7 @@ function StagePreconventionPublicContent() {
     previousEmail: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelled, setCancelled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [reminders, setReminders] = useState<StagePeriodReminder[]>([]);
@@ -247,7 +253,13 @@ function StagePreconventionPublicContent() {
       cache: "no-store",
     });
     const data = await res.json();
+    if (res.status === 410 || data?.cancelled === true) {
+      setCancelled(true);
+      setError(data?.message || data?.error || STAGE_CANCELLED_PUBLIC_MESSAGE);
+      return;
+    }
     if (!res.ok) throw new Error(data?.error || "Lien invalide");
+    setCancelled(false);
     setConvention(data.convention);
     setReadOnly(data.readOnly === true);
     setCanRequestTutorEmailChange(data.canRequestTutorEmailChange === true);
@@ -727,6 +739,12 @@ function StagePreconventionPublicContent() {
         setError(e instanceof Error ? e.message : "Erreur");
       })
       .finally(() => setBusy(false));
+  }
+
+  if (cancelled) {
+    return (
+      <StageCancelledPublicPage message={error || STAGE_CANCELLED_PUBLIC_MESSAGE} />
+    );
   }
 
   if (restoringDevice) {

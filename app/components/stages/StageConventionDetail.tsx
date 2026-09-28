@@ -3,6 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { StageConvention, StageSchedule } from "@/app/lib/stage-types";
 import {
+  STAGE_CANCEL_CONFIRM_WORD,
   STAGE_CONVENTION_STATUS_LABELS,
   STAGE_OFFER_KIND_LABELS,
   formatCompanyAddress,
@@ -75,6 +76,7 @@ export default function StageConventionDetail({
   onReviewTutorEmailChange,
   onReviewScheduleChange,
   onProposeAmendment,
+  onDeleteStage,
 }: {
   detail: StageConventionDetailData;
   permissions: StagesHubPermissions | undefined;
@@ -106,6 +108,7 @@ export default function StageConventionDetail({
     stagePeriodId?: string;
     stageLabel?: string;
   }) => void;
+  onDeleteStage?: (confirmWord: string) => void;
 }) {
   const c = detail.convention;
   const offlinePaper = isOfflinePaperConvention(c);
@@ -119,6 +122,11 @@ export default function StageConventionDetail({
       c.status === "convention_deposited" ||
       c.status === "signatures_pending" ||
       c.status === "signed");
+  const canDeleteStage =
+    Boolean(permissions?.canReviewPreconvention) &&
+    Boolean(onDeleteStage) &&
+    c.status !== "cancelled" &&
+    c.status !== "archived";
 
   const [amendOpen, setAmendOpen] = useState(false);
   const [amendNote, setAmendNote] = useState(
@@ -130,6 +138,8 @@ export default function StageConventionDetail({
     return c.schedule;
   }, [alignment?.referencePeriod, c.schedule]);
   const [amendSchedule, setAmendSchedule] = useState<StageSchedule>(suggestedSchedule);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   return (
     <div className="mt-3 space-y-4 rounded-xl border border-[#2F6B4A]/25 bg-[#f7faf8] p-4">
@@ -695,6 +705,70 @@ export default function StageConventionDetail({
           </ul>
         </div>
       )}
+
+      {canDeleteStage ? (
+        <div className="rounded-xl border border-rose-300 bg-rose-50/80 px-4 py-3 space-y-3">
+          <div>
+            <p className="text-sm font-bold text-rose-950">Supprimer ce stage</p>
+            <p className="mt-1 text-xs leading-relaxed text-rose-900/90">
+              Action réservée à l&apos;administratif. Le dossier est annulé de A à Z : signatures,
+              liens envoyés et préconvention deviennent inutilisables. Irréversible.
+            </p>
+          </div>
+          {!deleteOpen ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setDeleteConfirm("");
+                setDeleteOpen(true);
+              }}
+              className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+            >
+              Supprimer le stage…
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-rose-950">
+                Pour confirmer, tapez{" "}
+                <span className="font-mono text-rose-700">{STAGE_CANCEL_CONFIRM_WORD}</span>
+                <input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder={STAGE_CANCEL_CONFIRM_WORD}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="mt-1 w-full max-w-xs rounded-lg border border-rose-300 bg-white px-3 py-2 font-mono text-sm"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeleteConfirm("");
+                  }}
+                  className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    deleteConfirm.trim().toLowerCase() !== STAGE_CANCEL_CONFIRM_WORD
+                  }
+                  onClick={() => onDeleteStage?.(deleteConfirm.trim())}
+                  className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  {busy ? "Suppression…" : "Confirmer la suppression"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

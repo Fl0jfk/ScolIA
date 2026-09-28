@@ -14,6 +14,7 @@ export default function StagesClassePanel({
   filingConventionId,
   canCreateOffline,
   onCreateOffline,
+  refreshToken,
 }: {
   onOpenConvention: (id: string) => void;
   selectedConventionId?: string | null;
@@ -30,6 +31,7 @@ export default function StagesClassePanel({
     className: string;
     ine?: string;
   }) => void;
+  refreshToken?: number;
 }) {
   return (
     <section data-tour="stages-classe" className="space-y-6">
@@ -51,6 +53,7 @@ export default function StagesClassePanel({
             filingConventionId={filingConventionId}
             canCreateOffline={canCreateOffline}
             onCreateOffline={onCreateOffline}
+            refreshToken={refreshToken}
           />
         </div>
       </div>
