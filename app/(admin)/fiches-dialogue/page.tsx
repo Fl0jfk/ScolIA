@@ -51,6 +51,24 @@ function slugOptionId(label: string): string {
   );
 }
 
+function compareElevesByNomPrenom(a: PickerEleve, b: PickerEleve): number {
+  const nom = String(a.nom || "").localeCompare(String(b.nom || ""), "fr", {
+    sensitivity: "base",
+  });
+  if (nom !== 0) return nom;
+  return String(a.prenom || "").localeCompare(String(b.prenom || ""), "fr", {
+    sensitivity: "base",
+  });
+}
+
+function elevesOfClasse(eleves: PickerEleve[], classe: string): PickerEleve[] {
+  const key = classe.trim().toLowerCase();
+  return eleves
+    .filter((e) => String(e.classe || "").trim().toLowerCase() === key)
+    .slice()
+    .sort(compareElevesByNomPrenom);
+}
+
 export default function FichesDialogueHubPage() {
   const [campagnes, setCampagnes] = useState<Campagne[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,6 +107,8 @@ export default function FichesDialogueHubPage() {
   const [pickerEleves, setPickerEleves] = useState<PickerEleve[]>([]);
   const [pickerClasses, setPickerClasses] = useState<string[]>([]);
   const [selectedClasses, setSelectedClasses] = useState<Set<string>>(new Set());
+  /** Ordre d’apparition dans « Parcourir » = ordre de sélection. */
+  const [selectedClassOrder, setSelectedClassOrder] = useState<string[]>([]);
   const [selectedEleveIds, setSelectedEleveIds] = useState<Set<string>>(new Set());
   const [browseClass, setBrowseClass] = useState<string>("");
 
@@ -169,13 +189,19 @@ export default function FichesDialogueHubPage() {
       );
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Chargement élèves impossible");
-      const classes: string[] = json.classes || [];
-      const eleves: PickerEleve[] = json.eleves || [];
+      const classes: string[] = (json.classes || []).slice().sort((a: string, b: string) =>
+        a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" }),
+      );
+      const eleves: PickerEleve[] = (json.eleves || [])
+        .slice()
+        .sort(compareElevesByNomPrenom);
       setPickerClasses(classes);
       setPickerEleves(eleves);
-      setSelectedClasses(new Set(classes));
-      setSelectedEleveIds(new Set(eleves.map((e) => e.id).filter(Boolean)));
-      setBrowseClass(classes[0] || "");
+      // Aucune sélection initiale : l’admin coche classe par classe (apparaissent dans Parcourir).
+      setSelectedClasses(new Set());
+      setSelectedClassOrder([]);
+      setSelectedEleveIds(new Set());
+      setBrowseClass("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -190,37 +216,49 @@ export default function FichesDialogueHubPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recharge au passage étape 4 / niveau
   }, [step, niveau]);
 
-  const elevesInBrowse = useMemo(() => {
-    if (!browseClass) return pickerEleves;
-    return pickerEleves.filter(
-      (e) => String(e.classe || "").trim().toLowerCase() === browseClass.trim().toLowerCase(),
-    );
-  }, [browseClass, pickerEleves]);
+  const orderedSelectedClasses = useMemo(() => {
+    const fromOrder = selectedClassOrder.filter((c) => selectedClasses.has(c));
+    const missing = [...selectedClasses].filter((c) => !fromOrder.includes(c));
+    missing.sort((a, b) => a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" }));
+    return [...fromOrder, ...missing];
+  }, [selectedClassOrder, selectedClasses]);
 
   const elevesInSelectedClasses = useMemo(() => {
     if (!selectedClasses.size) return [];
-    return pickerEleves.filter((e) => selectedClasses.has(String(e.classe || "").trim()));
+    return pickerEleves
+      .filter((e) => selectedClasses.has(String(e.classe || "").trim()))
+      .slice()
+      .sort(compareElevesByNomPrenom);
   }, [pickerEleves, selectedClasses]);
 
   function toggleClass(classe: string) {
+    const wasOn = selectedClasses.has(classe);
     setSelectedClasses((prev) => {
       const next = new Set(prev);
-      if (next.has(classe)) next.delete(classe);
+      if (wasOn) next.delete(classe);
       else next.add(classe);
       return next;
     });
+    setSelectedClassOrder((prev) => {
+      if (wasOn) return prev.filter((c) => c !== classe);
+      if (prev.includes(classe)) return prev;
+      return [...prev, classe];
+    });
     setSelectedEleveIds((prev) => {
       const next = new Set(prev);
-      const inClass = pickerEleves.filter(
-        (e) => String(e.classe || "").trim() === classe,
-      );
-      const wasOn = selectedClasses.has(classe);
+      const inClass = elevesOfClasse(pickerEleves, classe);
       for (const e of inClass) {
         if (!e.id) continue;
         if (wasOn) next.delete(e.id);
         else next.add(e.id);
       }
       return next;
+    });
+    setBrowseClass((prev) => {
+      if (!wasOn) return classe;
+      if (prev !== classe) return prev;
+      const remaining = selectedClassOrder.filter((c) => c !== classe);
+      return remaining[remaining.length - 1] || "";
     });
   }
 
@@ -233,10 +271,11 @@ export default function FichesDialogueHubPage() {
     });
   }
 
-  function selectAllInBrowse(on: boolean) {
+  function selectAllInClass(classe: string, on: boolean) {
+    const inClass = elevesOfClasse(pickerEleves, classe);
     setSelectedEleveIds((prev) => {
       const next = new Set(prev);
-      for (const e of elevesInBrowse) {
+      for (const e of inClass) {
         if (!e.id) continue;
         if (on) next.add(e.id);
         else next.delete(e.id);
@@ -757,66 +796,99 @@ export default function FichesDialogueHubPage() {
                 <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
                   <div className="space-y-1">
                     <p className="text-xs font-bold uppercase text-slate-500">Parcourir</p>
-                    {pickerClasses
-                      .filter((c) => selectedClasses.has(c))
-                      .map((c) => (
+                    {!orderedSelectedClasses.length ? (
+                      <p className="text-xs text-slate-500">Cochez une classe ci-dessus.</p>
+                    ) : (
+                      orderedSelectedClasses.map((c) => (
                         <button
                           key={c}
                           type="button"
-                          onClick={() => setBrowseClass(c)}
+                          onClick={() => {
+                            setBrowseClass(c);
+                            document
+                              .getElementById(`fd-cible-classe-${encodeURIComponent(c)}`)
+                              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }}
                           className={`block w-full rounded-lg px-2 py-1.5 text-left text-sm ${
                             browseClass === c ? "bg-slate-900 text-white" : "hover:bg-slate-100"
                           }`}
                         >
                           {c}
                         </button>
-                      ))}
+                      ))
+                    )}
                   </div>
-                  <div className="rounded-xl border border-slate-200 p-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold">
-                        Élèves — {browseClass || "toutes"} (
-                        {elevesInBrowse.filter((e) => e.id && selectedEleveIds.has(e.id)).length}/
-                        {elevesInBrowse.length})
+                  <div className="max-h-[28rem] space-y-4 overflow-y-auto rounded-xl border border-slate-200 p-3">
+                    {!orderedSelectedClasses.length ? (
+                      <p className="text-sm text-slate-500">
+                        Sélectionnez une ou plusieurs classes : elles s’empilent ici dans l’ordre
+                        choisi, élèves triés par nom puis prénom.
                       </p>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="text-xs font-bold text-teal-700"
-                          onClick={() => selectAllInBrowse(true)}
-                        >
-                          Tout
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs font-bold text-slate-500"
-                          onClick={() => selectAllInBrowse(false)}
-                        >
-                          Aucun
-                        </button>
-                      </div>
-                    </div>
-                    <ul className="max-h-64 space-y-1 overflow-y-auto">
-                      {elevesInBrowse.map((e) => (
-                        <li key={e.id || `${e.nom}-${e.prenom}`}>
-                          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-slate-50">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(e.id && selectedEleveIds.has(e.id))}
-                              disabled={!e.id}
-                              onChange={() => e.id && toggleEleve(e.id)}
-                            />
-                            <span>
-                              {e.nom} {e.prenom}
-                              {e.ine ? (
-                                <span className="ml-2 text-xs text-slate-400">INE {e.ine}</span>
-                              ) : null}
-                            </span>
-                          </label>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="mt-2 text-xs text-slate-500">
+                    ) : (
+                      orderedSelectedClasses.map((classe) => {
+                        const elevesClasse = elevesOfClasse(pickerEleves, classe);
+                        const selectedCount = elevesClasse.filter(
+                          (e) => e.id && selectedEleveIds.has(e.id),
+                        ).length;
+                        return (
+                          <section
+                            key={classe}
+                            id={`fd-cible-classe-${encodeURIComponent(classe)}`}
+                            className="scroll-mt-2 rounded-lg border border-slate-100 bg-slate-50/60 p-3"
+                          >
+                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm font-semibold text-slate-900">
+                                {classe}{" "}
+                                <span className="font-normal text-slate-500">
+                                  ({selectedCount}/{elevesClasse.length})
+                                </span>
+                              </p>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  className="text-xs font-bold text-teal-700"
+                                  onClick={() => selectAllInClass(classe, true)}
+                                >
+                                  Tout
+                                </button>
+                                <button
+                                  type="button"
+                                  className="text-xs font-bold text-slate-500"
+                                  onClick={() => selectAllInClass(classe, false)}
+                                >
+                                  Aucun
+                                </button>
+                              </div>
+                            </div>
+                            <ul className="space-y-1">
+                              {elevesClasse.map((e) => (
+                                <li key={e.id || `${e.nom}-${e.prenom}-${classe}`}>
+                                  <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-white">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(e.id && selectedEleveIds.has(e.id))}
+                                      disabled={!e.id}
+                                      onChange={() => e.id && toggleEleve(e.id)}
+                                    />
+                                    <span>
+                                      <span className="font-medium">
+                                        {e.nom} {e.prenom}
+                                      </span>
+                                      {e.ine ? (
+                                        <span className="ml-2 text-xs text-slate-400">
+                                          INE {e.ine}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </label>
+                                </li>
+                              ))}
+                            </ul>
+                          </section>
+                        );
+                      })
+                    )}
+                    <p className="text-xs text-slate-500">
                       {selectedEleveIds.size} élève(s) sélectionné(s) au total
                     </p>
                   </div>
