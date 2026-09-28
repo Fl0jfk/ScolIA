@@ -42,6 +42,7 @@ type Campagne = {
   statut: string;
   delaiFamilleJours: number;
   starterMode?: string;
+  niveauActuel?: string | null;
   contactPpLabel?: string | null;
   classesCibles: string[];
   catalogue: {
@@ -280,7 +281,7 @@ export default function FichesDialogueCampagnePage() {
     <ModulePageShell maxWidthClass="max-w-[1200px]">
       <ModulePageHeader
         title={campagne.label}
-        description={`${campagne.anneeLabel} · mode ${campagne.calendrierMode} · statut ${campagne.statut}`}
+        description={`${campagne.anneeLabel}${campagne.niveauActuel ? ` · ${campagne.niveauActuel}` : ""} · mode ${campagne.calendrierMode} · statut ${campagne.statut}`}
         actions={
           <Link href="/fiches-dialogue">
             <ModuleButton variant="secondary">← Campagnes</ModuleButton>

@@ -98,6 +98,11 @@ const CATALOGUE_4E = catalogueCollege("3e", "3ᵉ", [
   { id: "odp", label: "ODP (Option découverte professionnelle)", kind: "option_interne" },
   { id: "3e_prepa", label: "3ᵉ prépa-métiers", kind: "autre" },
 ]);
+const CATALOGUE_3E = catalogueCollege("2nde", "2ⁿᵈᵉ", [
+  { id: "latin", label: "Latin", kind: "option_interne" },
+  { id: "lce_anglais", label: "LCE Anglais", kind: "option_interne" },
+  { id: "ebep", label: "EBEP", kind: "option_interne" },
+]);
 
 const CATALOGUE_2NDE: FdCatalogueChoix = {
   destinations: [
@@ -425,6 +430,15 @@ export const FD_CAMPAGNE_TEMPLATES: FdCampagneTemplate[] = [
     etapes: ETAPES_COLLEGE,
   },
   {
+    key: "college_3e",
+    label: "Collège — après 3ᵉ",
+    calendrierMode: "trimestre",
+    starterMode: "conseil_dabord",
+    description: "Orientation vers la 2ⁿᵈᵉ — conseil puis famille.",
+    catalogue: CATALOGUE_3E,
+    etapes: ETAPES_COLLEGE,
+  },
+  {
     key: "college_trimestriel",
     label: "Collège — générique (trimestres)",
     calendrierMode: "trimestre",
@@ -496,6 +510,156 @@ export const FD_CAMPAGNE_TEMPLATES: FdCampagneTemplate[] = [
 
 export function getFdTemplate(key: string): FdCampagneTemplate | undefined {
   return FD_CAMPAGNE_TEMPLATES.find((t) => t.key === key);
+}
+
+/** Niveaux collège / lycée pour le wizard. */
+export const FD_NIVEAUX = ["6e", "5e", "4e", "3e", "2nde", "1re", "Tle"] as const;
+export type FdNiveau = (typeof FD_NIVEAUX)[number];
+
+export const FD_NIVEAU_LABELS: Record<FdNiveau, string> = {
+  "6e": "6ᵉ",
+  "5e": "5ᵉ",
+  "4e": "4ᵉ",
+  "3e": "3ᵉ",
+  "2nde": "2ⁿᵈᵉ",
+  "1re": "1ʳᵉ",
+  Tle: "Terminale",
+};
+
+export function isFdNiveau(value: string): value is FdNiveau {
+  return (FD_NIVEAUX as readonly string[]).includes(value);
+}
+
+export function templateKeyForNiveau(niveau: FdNiveau): string {
+  switch (niveau) {
+    case "6e":
+      return "college_6e";
+    case "5e":
+      return "college_5e";
+    case "4e":
+      return "college_4e";
+    case "3e":
+      return "college_3e";
+    case "2nde":
+      return "lycee_2nde";
+    case "1re":
+      return "lycee_1ere_gen";
+    case "Tle":
+      return "terminale_intentions";
+  }
+}
+
+function etapesForStarter(
+  niveau: FdNiveau,
+  starterMode: FdStarterMode,
+): FdTemplateEtapeDef[] {
+  const college = niveau === "6e" || niveau === "5e" || niveau === "4e" || niveau === "3e";
+  if (niveau === "Tle") return ETAPES_TERMINALE;
+  if (starterMode === "conseil_dabord") {
+    return college ? ETAPES_COLLEGE : [
+      {
+        kind: "conseil",
+        label: "1ᵉʳ semestre — proposition du conseil (provisoire)",
+        description: "Le conseil propose ; signatures PP puis direction.",
+      },
+      {
+        kind: "saisie_famille",
+        label: "1ᵉʳ semestre — réponse de la famille",
+        description: "La famille répond à la proposition provisoire.",
+      },
+      {
+        kind: "decision_finale_conseil",
+        label: "2ⁿᵈ semestre — avis définitif du conseil",
+        description: "Décision définitive ; signatures PP puis direction.",
+      },
+      {
+        kind: "acceptation_famille",
+        label: "2ⁿᵈ semestre — réponse définitive de la famille",
+        description: "Acceptation ou refus (appel si refus).",
+      },
+      {
+        kind: "appel",
+        label: "Procédure d’appel",
+        description: "Activée uniquement si la famille refuse.",
+        optionnelle: true,
+      },
+    ];
+  }
+  return college
+    ? [
+        {
+          kind: "saisie_famille",
+          label: "2ᵉ trimestre — demande de la famille",
+          description: "La famille formule ses vœux.",
+        },
+        {
+          kind: "conseil",
+          label: "2ᵉ trimestre — avis provisoire du conseil",
+          description: "Avis du conseil ; signatures PP puis direction.",
+        },
+        {
+          kind: "choix_definitifs",
+          label: "3ᵉ trimestre — demande définitive de la famille",
+          description: "La famille confirme ou ajuste.",
+        },
+        {
+          kind: "decision_finale_conseil",
+          label: "3ᵉ trimestre — proposition du conseil",
+          description: "Proposition définitive ; signatures PP puis direction.",
+        },
+        {
+          kind: "acceptation_famille",
+          label: "3ᵉ trimestre — réponse définitive de la famille",
+          description: "Acceptation ou refus (appel si refus).",
+        },
+        {
+          kind: "appel",
+          label: "Procédure d’appel",
+          description: "Activée uniquement en cas de refus.",
+          optionnelle: true,
+        },
+      ]
+    : ETAPES_LYCEE;
+}
+
+function catalogueForNiveau(niveau: FdNiveau): FdCatalogueChoix {
+  switch (niveau) {
+    case "6e":
+      return structuredClone(CATALOGUE_6E);
+    case "5e":
+      return structuredClone(CATALOGUE_5E);
+    case "4e":
+      return structuredClone(CATALOGUE_4E);
+    case "3e":
+      return structuredClone(CATALOGUE_3E);
+    case "2nde":
+      return structuredClone(CATALOGUE_2NDE);
+    case "1re":
+      return structuredClone(CATALOGUE_1ERE_GEN);
+    case "Tle":
+      return structuredClone(CATALOGUE_TERMINALE);
+  }
+}
+
+/** Preset dérivé du niveau + qui commence (plus de choix « modèle » UI). */
+export function presetForNiveau(
+  niveau: FdNiveau,
+  starterMode: FdStarterMode,
+): {
+  templateKey: string;
+  calendrierMode: "trimestre" | "semestre" | "personnalise";
+  catalogue: FdCatalogueChoix;
+  etapes: FdTemplateEtapeDef[];
+  labelSuggest: string;
+} {
+  const college = niveau === "6e" || niveau === "5e" || niveau === "4e" || niveau === "3e";
+  return {
+    templateKey: templateKeyForNiveau(niveau),
+    calendrierMode: college ? "trimestre" : "semestre",
+    catalogue: catalogueForNiveau(niveau),
+    etapes: etapesForStarter(niveau, starterMode),
+    labelSuggest: `Fiches de dialogue — ${FD_NIVEAU_LABELS[niveau]}`,
+  };
 }
 
 export const FD_ETAPE_KIND_LABELS: Record<FdEtapeKind, string> = {

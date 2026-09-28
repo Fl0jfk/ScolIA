@@ -48,11 +48,13 @@ import { currentStageSchoolYear } from "@/app/lib/stage-types";
 import type { FdStarterMode } from "@/db/schema-fiches-dialogue";
 import {
   buildFicheDialoguePdf,
+  identityFromFiche,
   sectionsFromAcceptation,
   sectionsFromConseil,
   sectionsFromFamilleReponse,
 } from "@/app/lib/fiches-dialogue-pdf";
-import { getFdTemplate } from "@/app/lib/fiches-dialogue-templates";
+import { getFdTemplate, presetForNiveau, isFdNiveau, type FdNiveau } from "@/app/lib/fiches-dialogue-templates";
+import { niveauFromClasse } from "@/app/lib/internat-level";
 import {
   createFdAccessToken,
   revokeFdTokensForFiche,
@@ -98,12 +100,15 @@ export async function listFdEtapes(
 
 export async function createFdCampagneFromTemplate(params: {
   etablissementId: string;
-  templateKey: string;
+  /** @deprecated préférer niveauActuel + starterMode */
+  templateKey?: string;
+  niveauActuel?: string;
   label: string;
   anneeLabel: string;
   anneeScolaireId?: string | null;
   siteKey?: string | null;
   classesCibles?: string[];
+  eleveIdsCibles?: string[];
   delaiFamilleJours?: number;
   appelConfig?: FdAppelConfig;
   catalogueOverride?: FdCatalogueChoix;
@@ -111,8 +116,21 @@ export async function createFdCampagneFromTemplate(params: {
   contactPpLabel?: string | null;
   createdByUserId?: string | null;
 }): Promise<{ campagne: FdCampagneRow; etapes: FdEtapeRow[] }> {
-  const template = getFdTemplate(params.templateKey);
-  if (!template) throw new Error("TEMPLATE_UNKNOWN");
+  const starterMode = params.starterMode ?? "conseil_dabord";
+  const niveau =
+    params.niveauActuel && isFdNiveau(params.niveauActuel)
+      ? (params.niveauActuel as FdNiveau)
+      : null;
+
+  const preset = niveau ? presetForNiveau(niveau, starterMode) : null;
+  const template = getFdTemplate(params.templateKey || preset?.templateKey || "");
+  if (!preset && !template) throw new Error("TEMPLATE_UNKNOWN");
+
+  const calendrierMode = (preset?.calendrierMode ??
+    template!.calendrierMode) as FdCalendrierMode;
+  const catalogue = params.catalogueOverride ?? preset?.catalogue ?? template!.catalogue;
+  const etapeDefs = preset?.etapes ?? template!.etapes;
+  const templateKey = preset?.templateKey ?? template!.key;
 
   const db = getDb();
   const [campagne] = await db
@@ -123,22 +141,24 @@ export async function createFdCampagneFromTemplate(params: {
       label: params.label.trim(),
       anneeLabel: params.anneeLabel.trim(),
       siteKey: params.siteKey ?? null,
-      calendrierMode: template.calendrierMode as FdCalendrierMode,
-      templateKey: template.key,
-      starterMode: params.starterMode ?? template.starterMode ?? "famille_dabord",
+      calendrierMode,
+      templateKey,
+      starterMode,
+      niveauActuel: niveau ?? params.niveauActuel ?? null,
       statut: "brouillon",
-      catalogue: params.catalogueOverride ?? template.catalogue,
+      catalogue,
       appelConfig: params.appelConfig ?? { enabled: true },
       contactPpLabel: params.contactPpLabel ?? null,
       delaiFamilleJours: params.delaiFamilleJours ?? 7,
       classesCibles: params.classesCibles ?? [],
+      eleveIdsCibles: params.eleveIdsCibles ?? [],
       createdByUserId: params.createdByUserId ?? null,
     })
     .returning();
 
   const etapes: FdEtapeRow[] = [];
-  for (let i = 0; i < template.etapes.length; i++) {
-    const def = template.etapes[i];
+  for (let i = 0; i < etapeDefs.length; i++) {
+    const def = etapeDefs[i];
     const [etape] = await db
       .insert(fdEtape)
       .values({
@@ -167,6 +187,8 @@ export async function updateFdCampagne(
     appelConfig: FdAppelConfig;
     delaiFamilleJours: number;
     classesCibles: string[];
+    eleveIdsCibles: string[];
+    niveauActuel: string | null;
     calendrierMode: FdCalendrierMode;
     starterMode: FdStarterMode;
     contactPpLabel: string | null;
@@ -233,15 +255,15 @@ export async function generateFdFichesForCampagne(
   const byIne = new Map(elevesDb.map((e) => [e.ine?.toUpperCase() ?? "", e]));
   const byId = new Map(elevesDb.map((e) => [e.id, e]));
 
+  const cibleIds = new Set((campagne.eleveIdsCibles ?? []).filter(Boolean));
+  const hasEleveCibles = cibleIds.size > 0;
+  const niveauCampagne = campagne.niveauActuel?.trim() || null;
+
   let created = 0;
   let skipped = 0;
 
   for (const reg of registry) {
     const classe = String(reg.classe || "");
-    if (!matchClasse(classe, campagne.classesCibles ?? [])) {
-      skipped += 1;
-      continue;
-    }
     const row =
       (reg.id && byId.get(reg.id)) ||
       (reg.ine ? byIne.get(reg.ine.toUpperCase()) : undefined);
@@ -250,12 +272,32 @@ export async function generateFdFichesForCampagne(
       continue;
     }
 
+    if (hasEleveCibles) {
+      if (!cibleIds.has(row.id)) {
+        skipped += 1;
+        continue;
+      }
+    } else {
+      if (niveauCampagne) {
+        const niv = niveauFromClasse(classe || row.classe);
+        if (niv !== niveauCampagne) {
+          skipped += 1;
+          continue;
+        }
+      }
+      if (!matchClasse(classe || row.classe || "", campagne.classesCibles ?? [])) {
+        skipped += 1;
+        continue;
+      }
+    }
+
     const emails = collectEleveParentEmails(reg).filter(isValidParentEmail);
     const optionsActuelles = [
       ...new Set([
-        ...(reg.lv1 ? [`LV1 ${reg.lv1}`] : []),
-        ...(reg.lv2 ? [`LV2 ${reg.lv2}`] : []),
+        ...(reg.lv1 ? [`LV1 ${reg.lv1}`] : row.lv1 ? [`LV1 ${row.lv1}`] : []),
+        ...(reg.lv2 ? [`LV2 ${reg.lv2}`] : row.lv2 ? [`LV2 ${row.lv2}`] : []),
         ...(reg.options ?? []),
+        ...((row.options as string[] | null) ?? []),
       ]),
     ];
     try {
@@ -267,6 +309,8 @@ export async function generateFdFichesForCampagne(
         elevePrenom: row.prenom || reg.prenom,
         classeActuelle: classe || row.classe || "",
         eleveDateNaissance: reg.dateNaissance || row.dateNaissance || null,
+        eleveIne: row.ine || reg.ine || null,
+        eleveMef: row.mef || null,
         elevePhotoKey: reg.photoKey || row.photoKey || null,
         optionsActuelles,
         parentEmails: emails,
@@ -527,6 +571,7 @@ export async function submitFdFamilleReponse(params: {
     elevePrenom: fiche.elevePrenom,
     classeActuelle: fiche.classeActuelle,
     etapeLabel: etape.label,
+    identity: identityFromFiche(fiche),
     sections,
     signatures: params.signature?.name
       ? [{ role: "Famille", name: params.signature.name }]
@@ -823,6 +868,7 @@ export async function submitFdConseilDecision(params: {
     elevePrenom: fiche.elevePrenom,
     classeActuelle: fiche.classeActuelle,
     etapeLabel: etape.label,
+    identity: identityFromFiche(fiche),
     sections,
     signatures: params.signatures.map((s) => ({
       role: s.role === "direction" ? "Direction" : "Professeur principal",
@@ -1023,6 +1069,7 @@ export async function submitFdAcceptation(params: {
     elevePrenom: fiche.elevePrenom,
     classeActuelle: fiche.classeActuelle,
     etapeLabel: etape.label,
+    identity: identityFromFiche(fiche),
     sections,
     signatures: params.signature?.name
       ? [{ role: "Famille", name: params.signature.name }]

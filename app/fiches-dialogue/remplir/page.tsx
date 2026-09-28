@@ -30,6 +30,8 @@ type PublicCtx = {
     elevePrenom: string;
     classeActuelle: string;
     eleveDateNaissance?: string | null;
+    eleveIne?: string | null;
+    eleveMef?: string | null;
     elevePhotoKey?: string | null;
     optionsActuelles: string[];
     statut: string;
@@ -657,29 +659,48 @@ function RemplirInner() {
 
       {step === "form" && ctx && (
         <form onSubmit={onSubmit} className="space-y-6">
-          <div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
-            <div className="h-20 w-20 overflow-hidden rounded-2xl bg-slate-100">
-              <div className="flex h-full w-full items-center justify-center text-2xl font-black text-sky-800">
-                {ctx.fiche.elevePrenom.slice(0, 1)}
-                {ctx.fiche.eleveNom.slice(0, 1)}
+          <div className="flex items-start gap-4 rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
+            <div className="h-24 w-20 shrink-0 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-slate-100">
+              <div className="flex h-full w-full flex-col items-center justify-center text-center text-xs font-bold text-sky-800">
+                <span className="text-2xl">
+                  {ctx.fiche.elevePrenom.slice(0, 1)}
+                  {ctx.fiche.eleveNom.slice(0, 1)}
+                </span>
+                <span className="mt-1 text-[10px] uppercase text-slate-400">Photo</span>
               </div>
             </div>
-            <div>
+            <div className="min-w-0 flex-1 space-y-1">
               <p className="text-xs font-bold uppercase tracking-wide text-sky-700">
-                Fiche de {ctx.fiche.elevePrenom}
+                Fiche de dialogue
               </p>
               <p className="text-xl font-black text-slate-900">
-                {ctx.fiche.elevePrenom} {ctx.fiche.eleveNom}
+                {ctx.fiche.eleveNom} {ctx.fiche.elevePrenom}
               </p>
-              <p className="text-sm text-slate-600">
-                {ctx.fiche.classeActuelle}
-                {ctx.fiche.eleveDateNaissance
-                  ? ` · ${String(ctx.fiche.eleveDateNaissance).slice(0, 10)}`
-                  : ""}
-              </p>
+              <dl className="grid gap-1 text-sm text-slate-700 sm:grid-cols-2">
+                <div>
+                  <dt className="inline text-slate-500">Classe : </dt>
+                  <dd className="inline font-semibold">{ctx.fiche.classeActuelle || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="inline text-slate-500">Naissance : </dt>
+                  <dd className="inline font-semibold">
+                    {ctx.fiche.eleveDateNaissance
+                      ? String(ctx.fiche.eleveDateNaissance).slice(0, 10)
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline text-slate-500">INE : </dt>
+                  <dd className="inline font-semibold">{ctx.fiche.eleveIne || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="inline text-slate-500">MEF : </dt>
+                  <dd className="inline font-semibold">{ctx.fiche.eleveMef || "—"}</dd>
+                </div>
+              </dl>
               {ctx.fiche.optionsActuelles?.length > 0 && (
                 <p className="mt-1 text-xs text-slate-500">
-                  Actuellement : {ctx.fiche.optionsActuelles.join(" · ")}
+                  LVA / LVB / options : {ctx.fiche.optionsActuelles.join(" · ")}
                 </p>
               )}
             </div>

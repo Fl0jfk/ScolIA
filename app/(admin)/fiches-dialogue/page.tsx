@@ -1,21 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { dash } from "@/app/lib/dashboard-brand";
-
-type Template = {
-  key: string;
-  label: string;
-  calendrierMode: string;
-  starterMode?: string;
-  description: string;
-  etapesCount: number;
-};
+import {
+  FD_NIVEAU_LABELS,
+  FD_NIVEAUX,
+  presetForNiveau,
+  type FdNiveau,
+} from "@/app/lib/fiches-dialogue-templates";
+import type { FdCatalogueChoix, FdStarterMode } from "@/db/schema-fiches-dialogue";
 
 type Campagne = {
   id: string;
@@ -24,27 +22,62 @@ type Campagne = {
   calendrierMode: string;
   statut: string;
   templateKey: string | null;
+  niveauActuel?: string | null;
+  starterMode?: string;
   createdAt: string;
 };
 
+type PickerEleve = {
+  id: string;
+  nom: string;
+  prenom: string;
+  classe?: string;
+  ine?: string | null;
+};
+
+type WizardStep = 1 | 2 | 3 | 4;
+
+function slugOptionId(label: string): string {
+  return (
+    "opt_" +
+    label
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 40)
+  );
+}
+
 export default function FichesDialogueHubPage() {
   const [campagnes, setCampagnes] = useState<Campagne[]>([]);
-  const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    templateKey: "college_6e",
-    label: "",
-    anneeLabel: "2025-2026",
-    classesCibles: "",
-    delaiFamilleJours: 7,
-    starterMode: "" as "" | "conseil_dabord" | "famille_dabord",
-    contactPpLabel: "via École Directe",
-    appelEnabled: true,
-    appelDateLimite: "",
-    appelProcedure: "",
-  });
+  const [step, setStep] = useState<WizardStep>(1);
+
+  const [niveau, setNiveau] = useState<FdNiveau | null>(null);
+  const [starterMode, setStarterMode] = useState<FdStarterMode>("conseil_dabord");
+  const [label, setLabel] = useState("");
+  const [anneeLabel, setAnneeLabel] = useState("2025-2026");
+  const [delaiFamilleJours, setDelaiFamilleJours] = useState(7);
+  const [contactPpLabel, setContactPpLabel] = useState("via École Directe");
+  const [appelEnabled, setAppelEnabled] = useState(true);
+  const [appelDateLimite, setAppelDateLimite] = useState("");
+  const [appelProcedure, setAppelProcedure] = useState("");
+
+  const [catalogue, setCatalogue] = useState<FdCatalogueChoix | null>(null);
+  const [enabledDestIds, setEnabledDestIds] = useState<Set<string>>(new Set());
+  const [enabledOptIds, setEnabledOptIds] = useState<Set<string>>(new Set());
+  const [newOptionLabel, setNewOptionLabel] = useState("");
+
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerEleves, setPickerEleves] = useState<PickerEleve[]>([]);
+  const [pickerClasses, setPickerClasses] = useState<string[]>([]);
+  const [selectedClasses, setSelectedClasses] = useState<Set<string>>(new Set());
+  const [selectedEleveIds, setSelectedEleveIds] = useState<Set<string>>(new Set());
+  const [browseClass, setBrowseClass] = useState<string>("");
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -54,10 +87,6 @@ export default function FichesDialogueHubPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Erreur de chargement");
       setCampagnes(json.campagnes || []);
-      setTemplates(json.templates || []);
-      if (json.templates?.[0]?.key) {
-        setForm((f) => ({ ...f, templateKey: f.templateKey || json.templates[0].key }));
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -69,29 +98,178 @@ export default function FichesDialogueHubPage() {
     void reload();
   }, [reload]);
 
+  function applyNiveau(n: FdNiveau) {
+    setNiveau(n);
+    const preset = presetForNiveau(n, starterMode);
+    setCatalogue(preset.catalogue);
+    setEnabledDestIds(new Set(preset.catalogue.destinations.map((d) => d.id)));
+    setEnabledOptIds(new Set(preset.catalogue.options.map((o) => o.id)));
+    setLabel(preset.labelSuggest);
+    setStep(2);
+  }
+
+  function applyStarter(mode: FdStarterMode) {
+    setStarterMode(mode);
+    if (niveau) {
+      const preset = presetForNiveau(niveau, mode);
+      setCatalogue((prev) => {
+        if (!prev) return preset.catalogue;
+        return {
+          ...preset.catalogue,
+          destinations: prev.destinations.length ? prev.destinations : preset.catalogue.destinations,
+          options: prev.options.length ? prev.options : preset.catalogue.options,
+        };
+      });
+    }
+    setStep(3);
+  }
+
+  async function loadPicker(n: FdNiveau) {
+    setPickerLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/fiches-dialogue/eleves-picker?niveau=${encodeURIComponent(n)}`,
+        { cache: "no-store" },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Chargement élèves impossible");
+      const classes: string[] = json.classes || [];
+      const eleves: PickerEleve[] = json.eleves || [];
+      setPickerClasses(classes);
+      setPickerEleves(eleves);
+      setSelectedClasses(new Set(classes));
+      setSelectedEleveIds(new Set(eleves.map((e) => e.id).filter(Boolean)));
+      setBrowseClass(classes[0] || "");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setPickerLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (step === 4 && niveau) {
+      void loadPicker(niveau);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recharge au passage étape 4 / niveau
+  }, [step, niveau]);
+
+  const elevesInBrowse = useMemo(() => {
+    if (!browseClass) return pickerEleves;
+    return pickerEleves.filter(
+      (e) => String(e.classe || "").trim().toLowerCase() === browseClass.trim().toLowerCase(),
+    );
+  }, [browseClass, pickerEleves]);
+
+  const elevesInSelectedClasses = useMemo(() => {
+    if (!selectedClasses.size) return [];
+    return pickerEleves.filter((e) => selectedClasses.has(String(e.classe || "").trim()));
+  }, [pickerEleves, selectedClasses]);
+
+  function toggleClass(classe: string) {
+    setSelectedClasses((prev) => {
+      const next = new Set(prev);
+      if (next.has(classe)) next.delete(classe);
+      else next.add(classe);
+      return next;
+    });
+    setSelectedEleveIds((prev) => {
+      const next = new Set(prev);
+      const inClass = pickerEleves.filter(
+        (e) => String(e.classe || "").trim() === classe,
+      );
+      const wasOn = selectedClasses.has(classe);
+      for (const e of inClass) {
+        if (!e.id) continue;
+        if (wasOn) next.delete(e.id);
+        else next.add(e.id);
+      }
+      return next;
+    });
+  }
+
+  function toggleEleve(id: string) {
+    setSelectedEleveIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllInBrowse(on: boolean) {
+    setSelectedEleveIds((prev) => {
+      const next = new Set(prev);
+      for (const e of elevesInBrowse) {
+        if (!e.id) continue;
+        if (on) next.add(e.id);
+        else next.delete(e.id);
+      }
+      return next;
+    });
+  }
+
+  function addCustomOption() {
+    const lab = newOptionLabel.trim();
+    if (!lab || !catalogue) return;
+    const id = slugOptionId(lab);
+    if (catalogue.options.some((o) => o.id === id)) {
+      setEnabledOptIds((prev) => new Set(prev).add(id));
+      setNewOptionLabel("");
+      return;
+    }
+    setCatalogue({
+      ...catalogue,
+      options: [...catalogue.options, { id, label: lab, kind: "autre" }],
+    });
+    setEnabledOptIds((prev) => new Set(prev).add(id));
+    setNewOptionLabel("");
+  }
+
   async function createCampagne() {
+    if (!niveau || !catalogue) {
+      setError("Choisissez un niveau.");
+      return;
+    }
+    if (!selectedEleveIds.size && !selectedClasses.size) {
+      setError("Sélectionnez au moins une classe ou un élève.");
+      return;
+    }
     setCreating(true);
     setError(null);
     try {
+      const filteredCatalogue: FdCatalogueChoix = {
+        ...catalogue,
+        destinations: catalogue.destinations.filter((d) => enabledDestIds.has(d.id)),
+        options: catalogue.options.filter((o) => enabledOptIds.has(o.id)),
+      };
+      const allSelectedInClasses =
+        elevesInSelectedClasses.length > 0 &&
+        elevesInSelectedClasses.every((e) => e.id && selectedEleveIds.has(e.id));
+      const eleveIdsCibles =
+        allSelectedInClasses && selectedClasses.size > 0
+          ? []
+          : Array.from(selectedEleveIds);
+
       const res = await fetch("/api/fiches-dialogue/campagnes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          templateKey: form.templateKey,
-          label: form.label.trim() || `Fiches de dialogue ${form.anneeLabel}`,
-          anneeLabel: form.anneeLabel.trim(),
-          classesCibles: form.classesCibles
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean),
-          delaiFamilleJours: form.delaiFamilleJours,
-          ...(form.starterMode ? { starterMode: form.starterMode } : {}),
-          contactPpLabel: form.contactPpLabel.trim() || undefined,
+          niveauActuel: niveau,
+          starterMode,
+          label: label.trim() || `Fiches de dialogue — ${FD_NIVEAU_LABELS[niveau]}`,
+          anneeLabel: anneeLabel.trim(),
+          classesCibles: Array.from(selectedClasses),
+          eleveIdsCibles,
+          delaiFamilleJours,
+          contactPpLabel: contactPpLabel.trim() || undefined,
+          catalogue: filteredCatalogue,
           appelConfig: {
-            enabled: form.appelEnabled,
-            dateLimite: form.appelDateLimite || undefined,
-            procedureHtml: form.appelProcedure || undefined,
-            contactPpLabel: form.contactPpLabel.trim() || undefined,
+            enabled: appelEnabled,
+            dateLimite: appelDateLimite || undefined,
+            procedureHtml: appelProcedure || undefined,
+            contactPpLabel: contactPpLabel.trim() || undefined,
             documentsLabels: [
               "Formulaire d’appel",
               "Décision du conseil de classe (fiche de dialogue)",
@@ -101,7 +279,18 @@ export default function FichesDialogueHubPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Création impossible");
-      window.location.href = `/fiches-dialogue/${json.campagne.id}`;
+
+      const campagneId = json.campagne.id as string;
+      const gen = await fetch(`/api/fiches-dialogue/campagnes/${campagneId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate" }),
+      });
+      const genJson = await gen.json().catch(() => ({}));
+      if (!gen.ok) {
+        console.warn("[fiches-dialogue] generate:", genJson);
+      }
+      window.location.href = `/fiches-dialogue/${campagneId}`;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
       setCreating(false);
@@ -120,7 +309,7 @@ export default function FichesDialogueHubPage() {
     <ModulePageShell maxWidthClass="max-w-[1100px]">
       <ModulePageHeader
         title="Fiches de dialogue"
-        description="Orientation année suivante — campagnes configurables (trimestre / semestre), vœux familles, conseils, acceptation et appel."
+        description="Orientation année suivante — un niveau, qui commence, options à cocher, ciblage classes / élèves."
       />
 
       {error && (
@@ -129,158 +318,421 @@ export default function FichesDialogueHubPage() {
         </p>
       )}
 
-      <ModuleCard bodyClassName="space-y-4 p-5">
-        <h2 className={`text-lg font-semibold ${dash.ink}`}>Nouvelle campagne</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm">
-            <span className={dash.textMid}>Modèle</span>
-            <select
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              value={form.templateKey}
-              onChange={(e) => setForm({ ...form, templateKey: e.target.value })}
+      <ModuleCard bodyClassName="space-y-5 p-5">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {([1, 2, 3, 4] as WizardStep[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => {
+                if (s === 1) setStep(1);
+                else if (s === 2 && niveau) setStep(2);
+                else if (s === 3 && niveau) setStep(3);
+                else if (s === 4 && niveau && catalogue) setStep(4);
+              }}
+              className={`rounded-full px-3 py-1 ${
+                step === s ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"
+              }`}
             >
-              {templates.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.label} ({t.etapesCount} étapes)
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm">
-            <span className={dash.textMid}>Année scolaire</span>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              value={form.anneeLabel}
-              onChange={(e) => setForm({ ...form, anneeLabel: e.target.value })}
-            />
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className={dash.textMid}>Libellé</span>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              placeholder="Ex. Orientation collège 2025-2026"
-              value={form.label}
-              onChange={(e) => setForm({ ...form, label: e.target.value })}
-            />
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className={dash.textMid}>
-              Classes cibles (séparées par des virgules — vide = toutes)
-            </span>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              placeholder="5e, 4e, 3e…"
-              value={form.classesCibles}
-              onChange={(e) => setForm({ ...form, classesCibles: e.target.value })}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className={dash.textMid}>Délai famille (jours)</span>
-            <input
-              type="number"
-              min={1}
-              max={60}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              value={form.delaiFamilleJours}
-              onChange={(e) =>
-                setForm({ ...form, delaiFamilleJours: Number(e.target.value) || 7 })
-              }
-            />
-          </label>
-          <label className="block text-sm">
-            <span className={dash.textMid}>Qui commence</span>
-            <select
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              value={form.starterMode}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  starterMode: e.target.value as typeof form.starterMode,
-                })
-              }
-            >
-              <option value="">Selon le modèle</option>
-              <option value="conseil_dabord">Conseil d’abord</option>
-              <option value="famille_dabord">Famille d’abord</option>
-            </select>
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className={dash.textMid}>Canal contact PP (affiché aux familles)</span>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              value={form.contactPpLabel}
-              onChange={(e) => setForm({ ...form, contactPpLabel: e.target.value })}
-              placeholder="via École Directe"
-            />
-          </label>
-          <label className="flex items-end gap-2 pb-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.appelEnabled}
-              onChange={(e) => setForm({ ...form, appelEnabled: e.target.checked })}
-            />
-            <span>Activer la procédure d’appel (si refus famille)</span>
-          </label>
-          <label className="block text-sm">
-            <span className={dash.textMid}>Date limite d’appel</span>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              placeholder="Ex. 15 juin 2026"
-              value={form.appelDateLimite}
-              onChange={(e) => setForm({ ...form, appelDateLimite: e.target.value })}
-            />
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className={dash.textMid}>Texte procédure d’appel</span>
-            <textarea
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-              rows={3}
-              placeholder="Expliquez comment constituer le dossier d’appel…"
-              value={form.appelProcedure}
-              onChange={(e) => setForm({ ...form, appelProcedure: e.target.value })}
-            />
-          </label>
+              {s === 1
+                ? "1. Niveau"
+                : s === 2
+                  ? "2. Qui commence"
+                  : s === 3
+                    ? "3. Formulaire"
+                    : "4. Ciblage"}
+            </button>
+          ))}
         </div>
-        {templates.find((t) => t.key === form.templateKey)?.description && (
-          <p className={`text-sm ${dash.textMid}`}>
-            {templates.find((t) => t.key === form.templateKey)?.description}
-            {templates.find((t) => t.key === form.templateKey)?.starterMode
-              ? ` · Qui commence (modèle) : ${
-                  templates.find((t) => t.key === form.templateKey)?.starterMode ===
-                  "conseil_dabord"
-                    ? "conseil"
-                    : "famille"
-                }`
-              : ""}
-          </p>
-        )}
-        <ModuleButton disabled={creating} onClick={() => void createCampagne()}>
-          {creating ? "Création…" : "Créer la campagne"}
-        </ModuleButton>
+
+        {step === 1 ? (
+          <div className="space-y-4">
+            <h2 className={`text-lg font-semibold ${dash.ink}`}>Choisir un niveau</h2>
+            <p className={`text-sm ${dash.textMid}`}>
+              Une campagne = un seul niveau (collège ou lycée).
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase text-slate-500">Collège</p>
+                <div className="flex flex-wrap gap-2">
+                  {(["6e", "5e", "4e", "3e"] as FdNiveau[]).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => applyNiveau(n)}
+                      className={`rounded-xl border px-4 py-3 text-sm font-bold ${
+                        niveau === n
+                          ? "border-teal-600 bg-teal-50 text-teal-900"
+                          : "border-slate-200 bg-white hover:border-slate-400"
+                      }`}
+                    >
+                      {FD_NIVEAU_LABELS[n]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase text-slate-500">Lycée</p>
+                <div className="flex flex-wrap gap-2">
+                  {(["2nde", "1re", "Tle"] as FdNiveau[]).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => applyNiveau(n)}
+                      className={`rounded-xl border px-4 py-3 text-sm font-bold ${
+                        niveau === n
+                          ? "border-teal-600 bg-teal-50 text-teal-900"
+                          : "border-slate-200 bg-white hover:border-slate-400"
+                      }`}
+                    >
+                      {FD_NIVEAU_LABELS[n]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {step === 2 ? (
+          <div className="space-y-4">
+            <h2 className={`text-lg font-semibold ${dash.ink}`}>Qui commence ?</h2>
+            <p className={`text-sm ${dash.textMid}`}>
+              Niveau sélectionné : <strong>{niveau ? FD_NIVEAU_LABELS[niveau] : "—"}</strong>
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => applyStarter("conseil_dabord")}
+                className={`rounded-2xl border p-5 text-left ${
+                  starterMode === "conseil_dabord"
+                    ? "border-teal-600 bg-teal-50"
+                    : "border-slate-200 hover:border-slate-400"
+                }`}
+              >
+                <p className="font-bold text-slate-900">Conseil de classe d’abord</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Proposition du conseil, puis réponse de la famille (ex. collège 6ᵉ).
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => applyStarter("famille_dabord")}
+                className={`rounded-2xl border p-5 text-left ${
+                  starterMode === "famille_dabord"
+                    ? "border-teal-600 bg-teal-50"
+                    : "border-slate-200 hover:border-slate-400"
+                }`}
+              >
+                <p className="font-bold text-slate-900">Famille d’abord</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  La famille formule ses vœux, puis avis du conseil (ex. lycée).
+                </p>
+              </button>
+            </div>
+            <ModuleButton type="button" variant="secondary" onClick={() => setStep(1)}>
+              Retour
+            </ModuleButton>
+          </div>
+        ) : null}
+
+        {step === 3 && catalogue ? (
+          <div className="space-y-5">
+            <h2 className={`text-lg font-semibold ${dash.ink}`}>Configurer le formulaire</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm">
+                <span className={dash.textMid}>Libellé campagne</span>
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className={dash.textMid}>Année scolaire</span>
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                  value={anneeLabel}
+                  onChange={(e) => setAnneeLabel(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className={dash.textMid}>Délai famille (jours)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                  value={delaiFamilleJours}
+                  onChange={(e) => setDelaiFamilleJours(Number(e.target.value) || 7)}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className={dash.textMid}>Canal contact PP</span>
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+                  value={contactPpLabel}
+                  onChange={(e) => setContactPpLabel(e.target.value)}
+                />
+              </label>
+            </div>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold text-slate-800">
+                Destinations à faire apparaître
+              </p>
+              <div className="flex flex-col gap-2">
+                {catalogue.destinations.map((d) => (
+                  <label key={d.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={enabledDestIds.has(d.id)}
+                      onChange={() => {
+                        setEnabledDestIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(d.id)) next.delete(d.id);
+                          else next.add(d.id);
+                          return next;
+                        });
+                      }}
+                    />
+                    {d.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold text-slate-800">
+                Options / langues / spécialités
+              </p>
+              <div className="flex flex-col gap-2">
+                {catalogue.options.map((o) => (
+                  <label key={o.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={enabledOptIds.has(o.id)}
+                      onChange={() => {
+                        setEnabledOptIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(o.id)) next.delete(o.id);
+                          else next.add(o.id);
+                          return next;
+                        });
+                      }}
+                    />
+                    <span>
+                      {o.label}{" "}
+                      <span className="text-xs text-slate-400">({o.kind})</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input
+                  className="min-w-[200px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Ajouter une option…"
+                  value={newOptionLabel}
+                  onChange={(e) => setNewOptionLabel(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addCustomOption();
+                    }
+                  }}
+                />
+                <ModuleButton type="button" variant="secondary" onClick={addCustomOption}>
+                  Ajouter
+                </ModuleButton>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-2">
+              <label className="flex items-center gap-2 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={appelEnabled}
+                  onChange={(e) => setAppelEnabled(e.target.checked)}
+                />
+                Activer la procédure d’appel
+              </label>
+              {appelEnabled ? (
+                <>
+                  <input
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Date limite d’appel (libellé)"
+                    value={appelDateLimite}
+                    onChange={(e) => setAppelDateLimite(e.target.value)}
+                  />
+                  <textarea
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    rows={2}
+                    placeholder="Procédure (texte libre)"
+                    value={appelProcedure}
+                    onChange={(e) => setAppelProcedure(e.target.value)}
+                  />
+                </>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <ModuleButton type="button" variant="secondary" onClick={() => setStep(2)}>
+                Retour
+              </ModuleButton>
+              <ModuleButton
+                type="button"
+                onClick={() => {
+                  if (!enabledDestIds.size) {
+                    setError("Cochez au moins une destination.");
+                    return;
+                  }
+                  setError(null);
+                  setStep(4);
+                }}
+              >
+                Continuer — ciblage
+              </ModuleButton>
+            </div>
+          </div>
+        ) : null}
+
+        {step === 4 ? (
+          <div className="space-y-4">
+            <h2 className={`text-lg font-semibold ${dash.ink}`}>
+              Ciblage — {niveau ? FD_NIVEAU_LABELS[niveau] : ""}
+            </h2>
+            <p className={`text-sm ${dash.textMid}`}>
+              Cochez les classes, puis les élèves (utile pour un test sur un seul élève).
+            </p>
+            {pickerLoading ? (
+              <p className="text-sm text-slate-500">Chargement des élèves…</p>
+            ) : (
+              <>
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase text-slate-500">Classes</p>
+                  <div className="flex flex-wrap gap-2">
+                    {pickerClasses.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => toggleClass(c)}
+                        className={`rounded-lg border px-3 py-1.5 text-xs font-bold ${
+                          selectedClasses.has(c)
+                            ? "border-teal-600 bg-teal-50 text-teal-900"
+                            : "border-slate-200 bg-white"
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                    {!pickerClasses.length ? (
+                      <p className="text-sm text-amber-700">
+                        Aucune classe trouvée pour ce niveau.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold uppercase text-slate-500">Parcourir</p>
+                    {pickerClasses
+                      .filter((c) => selectedClasses.has(c))
+                      .map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setBrowseClass(c)}
+                          className={`block w-full rounded-lg px-2 py-1.5 text-left text-sm ${
+                            browseClass === c ? "bg-slate-900 text-white" : "hover:bg-slate-100"
+                          }`}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                  </div>
+                  <div className="rounded-xl border border-slate-200 p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold">
+                        Élèves — {browseClass || "toutes"} (
+                        {elevesInBrowse.filter((e) => e.id && selectedEleveIds.has(e.id)).length}/
+                        {elevesInBrowse.length})
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="text-xs font-bold text-teal-700"
+                          onClick={() => selectAllInBrowse(true)}
+                        >
+                          Tout
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs font-bold text-slate-500"
+                          onClick={() => selectAllInBrowse(false)}
+                        >
+                          Aucun
+                        </button>
+                      </div>
+                    </div>
+                    <ul className="max-h-64 space-y-1 overflow-y-auto">
+                      {elevesInBrowse.map((e) => (
+                        <li key={e.id || `${e.nom}-${e.prenom}`}>
+                          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(e.id && selectedEleveIds.has(e.id))}
+                              disabled={!e.id}
+                              onChange={() => e.id && toggleEleve(e.id)}
+                            />
+                            <span>
+                              {e.nom} {e.prenom}
+                              {e.ine ? (
+                                <span className="ml-2 text-xs text-slate-400">INE {e.ine}</span>
+                              ) : null}
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {selectedEleveIds.size} élève(s) sélectionné(s) au total
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <ModuleButton type="button" variant="secondary" onClick={() => setStep(3)}>
+                Retour
+              </ModuleButton>
+              <ModuleButton type="button" onClick={() => void createCampagne()} disabled={creating}>
+                {creating ? "Création…" : "Créer la campagne et générer les fiches"}
+              </ModuleButton>
+            </div>
+          </div>
+        ) : null}
       </ModuleCard>
 
       <section className="space-y-3">
         <h2 className={`text-lg font-semibold ${dash.ink}`}>Campagnes</h2>
-        {campagnes.length === 0 ? (
-          <p className={`text-sm ${dash.textMid}`}>Aucune campagne pour l’instant.</p>
+        {!campagnes.length ? (
+          <p className={`text-sm ${dash.textMid}`}>Aucune campagne pour le moment.</p>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {campagnes.map((c) => (
-              <Link key={c.id} href={`/fiches-dialogue/${c.id}`}>
-                <ModuleCard
-                  bodyClassName={`p-4 transition hover:-translate-y-0.5 ${dash.hoverBorder}`}
-                  className="block"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className={`font-semibold ${dash.ink}`}>{c.label}</p>
-                      <p className={`text-sm ${dash.textMid}`}>
-                        {c.anneeLabel} · {c.calendrierMode} · {c.statut}
-                      </p>
-                    </div>
-                    <span className="text-sm text-emerald-700">Ouvrir →</span>
-                  </div>
-                </ModuleCard>
+              <Link
+                key={c.id}
+                href={`/fiches-dialogue/${c.id}`}
+                className="rounded-2xl border border-slate-200 bg-white p-4 hover:border-teal-300"
+              >
+                <p className="font-bold text-slate-900">{c.label}</p>
+                <p className="text-sm text-slate-600">
+                  {c.anneeLabel}
+                  {c.niveauActuel ? ` · ${c.niveauActuel}` : ""}
+                  {c.starterMode ? ` · ${c.starterMode}` : ""} · {c.statut}
+                </p>
               </Link>
             ))}
           </div>

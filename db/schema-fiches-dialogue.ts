@@ -176,7 +176,11 @@ export const fdCampagne = pgTable(
     /** Libellé canal contact PP (École Directe, Pronote…). */
     contactPpLabel: text("contact_pp_label"),
     delaiFamilleJours: integer("delai_famille_jours").notNull().default(7),
+    /** Niveau unique de la campagne (6e, 5e, … Tle). */
+    niveauActuel: text("niveau_actuel"),
     classesCibles: jsonb("classes_cibles").$type<string[]>().notNull().default([]),
+    /** Si non vide : génération limitée à ces élèves (test / ciblage fin). */
+    eleveIdsCibles: jsonb("eleve_ids_cibles").$type<string[]>().notNull().default([]),
     createdByUserId: text("created_by_user_id"),
     openedAt: timestamp("opened_at", { withTimezone: true }),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -239,6 +243,8 @@ export const fdFiche = pgTable(
     elevePrenom: text("eleve_prenom").notNull(),
     classeActuelle: text("classe_actuelle").notNull().default(""),
     eleveDateNaissance: date("eleve_date_naissance"),
+    eleveIne: text("eleve_ine"),
+    eleveMef: text("eleve_mef"),
     elevePhotoKey: text("eleve_photo_key"),
     optionsActuelles: jsonb("options_actuelles").$type<string[]>().notNull().default([]),
     parentEmails: jsonb("parent_emails").$type<string[]>().notNull().default([]),
