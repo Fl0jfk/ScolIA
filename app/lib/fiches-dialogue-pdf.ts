@@ -181,7 +181,7 @@ export function sectionsFromAcceptation(
   if (!payload.accepte && payload.motifRefus?.trim()) {
     lines.push(`Motif du refus : ${payload.motifRefus.trim()}`);
   }
-  if (!payload.accepte && appel?.enabled) {
+  if (!payload.accepte && appel) {
     lines.push("Une procédure d’appel peut être engagée selon les modalités communiquées.");
     if (appel.dateLimite) lines.push(`Date limite d’appel : ${appel.dateLimite}`);
   }
