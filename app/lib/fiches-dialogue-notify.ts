@@ -120,6 +120,55 @@ export async function notifyFdDecisionPdf(params: {
   return { sent: true };
 }
 
+/** Rectification après publication : avenant explicite, pas de modification silencieuse. */
+export async function notifyFdAvenantConseil(params: {
+  to: string[];
+  elevePrenom: string;
+  eleveNom: string;
+  etapeLabel: string;
+  motif?: string;
+  pdfBytes: Uint8Array;
+  fileName: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+  if (!params.to.length) return { sent: false, reason: "no_recipients" };
+
+  const school = await schoolName();
+  const text = [
+    "Bonjour,",
+    "",
+    `AVENANT — Une rectification a été apportée à la fiche de dialogue de ${params.elevePrenom} ${params.eleveNom}.`,
+    "",
+    `Étape concernée : ${params.etapeLabel}`,
+    params.motif?.trim()
+      ? `Motif / commentaire de la rectification : ${params.motif.trim()}`
+      : "Le conseil de classe a corrigé une erreur matérielle sur la décision précédemment communiquée.",
+    "",
+    "Le document PDF joint remplace la version précédente pour cette étape. Aucune modification n’a été faite sans vous en informer.",
+    "",
+    "Cordialement,",
+    school,
+  ].join("\n");
+
+  for (const to of params.to) {
+    await sendMailWithTimeout(m.transporter, {
+      from: `"Fiches de dialogue — ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[Avenant] Fiche de dialogue — ${params.elevePrenom} ${params.eleveNom}`,
+      text,
+      attachments: [
+        {
+          filename: params.fileName,
+          content: Buffer.from(params.pdfBytes),
+          contentType: "application/pdf",
+        },
+      ],
+    });
+  }
+  return { sent: true };
+}
+
 export async function notifyFdAcceptationRequest(params: {
   to: string[];
   elevePrenom: string;

@@ -86,6 +86,16 @@ const CreateSchema = z
     starterMode: z.enum(["conseil_dabord", "famille_dabord"]),
     contactPpLabel: z.string().max(120).optional().nullable(),
     catalogue: CatalogueSchema.optional(),
+    etapesDates: z
+      .array(
+        z.object({
+          ordre: z.number().int().min(1),
+          opensAt: z.string().nullable().optional(),
+          closesAt: z.string().nullable().optional(),
+          conseilDate: z.string().nullable().optional(),
+        }),
+      )
+      .optional(),
     appelConfig: z
       .object({
         enabled: z.boolean(),
@@ -150,6 +160,7 @@ export async function POST(req: Request) {
       contactPpLabel: body.data.contactPpLabel,
       catalogueOverride,
       appelConfig: body.data.appelConfig,
+      etapesDates: body.data.etapesDates,
       createdByUserId: scope.ctx.authUserId,
     });
     return NextResponse.json(result, { status: 201 });

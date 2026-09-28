@@ -31,6 +31,7 @@ import { fileFicheDialoguePdfToDossier } from "@/app/lib/fiches-dialogue-filing"
 import {
   notifyFdAcceptationRequest,
   notifyFdAppelProcedure,
+  notifyFdAvenantConseil,
   notifyFdDecisionPdf,
   notifyFdFamilleSaisie,
   notifyFdParent2Accord,
@@ -115,6 +116,12 @@ export async function createFdCampagneFromTemplate(params: {
   starterMode?: FdStarterMode;
   contactPpLabel?: string | null;
   createdByUserId?: string | null;
+  etapesDates?: Array<{
+    ordre: number;
+    opensAt?: string | Date | null;
+    closesAt?: string | Date | null;
+    conseilDate?: string | null;
+  }>;
 }): Promise<{ campagne: FdCampagneRow; etapes: FdEtapeRow[] }> {
   const starterMode = params.starterMode ?? "conseil_dabord";
   const niveau =
@@ -159,6 +166,7 @@ export async function createFdCampagneFromTemplate(params: {
   const etapes: FdEtapeRow[] = [];
   for (let i = 0; i < etapeDefs.length; i++) {
     const def = etapeDefs[i];
+    const datePatch = params.etapesDates?.find((d) => d.ordre === i + 1);
     const [etape] = await db
       .insert(fdEtape)
       .values({
@@ -169,12 +177,36 @@ export async function createFdCampagneFromTemplate(params: {
         label: def.label,
         description: def.description ?? null,
         optionnelle: Boolean(def.optionnelle),
+        opensAt: datePatch?.opensAt
+          ? datePatch.opensAt instanceof Date
+            ? datePatch.opensAt
+            : new Date(datePatch.opensAt)
+          : null,
+        closesAt: datePatch?.closesAt
+          ? datePatch.closesAt instanceof Date
+            ? datePatch.closesAt
+            : new Date(datePatch.closesAt)
+          : null,
+        conseilDate: datePatch?.conseilDate || null,
       })
       .returning();
     etapes.push(etape);
   }
 
   return { campagne, etapes };
+}
+
+export async function deleteFdCampagne(
+  etablissementId: string,
+  campagneId: string,
+): Promise<{ ok: true }> {
+  const db = getDb();
+  const deleted = await db
+    .delete(fdCampagne)
+    .where(and(eq(fdCampagne.etablissementId, etablissementId), eq(fdCampagne.id, campagneId)))
+    .returning({ id: fdCampagne.id });
+  if (!deleted.length) throw new Error("CAMPAGNE_NOT_FOUND");
+  return { ok: true };
 }
 
 export async function updateFdCampagne(
@@ -793,14 +825,28 @@ export async function submitFdConseilDecision(params: {
   const campagne = await getFdCampagne(params.etablissementId, fiche.campagneId);
   if (!campagne) return { ok: false, error: "Campagne introuvable." };
 
+  const db = getDb();
   const publish = params.publish !== false;
+  const existingConseil = await db
+    .select()
+    .from(fdReponse)
+    .where(
+      and(
+        eq(fdReponse.ficheId, fiche.id),
+        eq(fdReponse.etapeId, etape.id),
+        eq(fdReponse.auteurRole, "conseil"),
+      ),
+    )
+    .limit(1);
+  const prevPayload = existingConseil[0]?.payload as FdConseilDecisionPayload | undefined;
+  const isAvenant = Boolean(publish && prevPayload?.publiee);
+
   const payload: FdConseilDecisionPayload = {
     ...params.payload,
     publiee: publish,
     publishedAt: publish ? now().toISOString() : undefined,
   };
 
-  const db = getDb();
   await db
     .insert(fdReponse)
     .values({
@@ -858,10 +904,14 @@ export async function submitFdConseilDecision(params: {
     ...sectionsFromConseil(campagne.catalogue, payload),
   ];
   const pdfBytes = await buildFicheDialoguePdf({
-    title:
-      etape.kind === "decision_finale_conseil"
+    title: isAvenant
+      ? "AVENANT — Rectification du conseil de classe"
+      : etape.kind === "decision_finale_conseil"
         ? "Décision définitive du conseil de classe"
         : "Avis du conseil de classe",
+    subtitle: isAvenant
+      ? "Document de rectification — remplace la version précédemment communiquée"
+      : undefined,
     campagneLabel: campagne.label,
     anneeLabel: campagne.anneeLabel,
     eleveNom: fiche.eleveNom,
@@ -881,26 +931,40 @@ export async function submitFdConseilDecision(params: {
     ficheId: fiche.id,
     eleveId: fiche.eleveId,
     etapeId: etape.id,
-    kind: etape.kind,
-    title: `Fiche de dialogue — ${etape.label}`,
+    kind: isAvenant ? `${etape.kind}_avenant` : etape.kind,
+    title: isAvenant
+      ? `Avenant — fiche de dialogue — ${etape.label}`
+      : `Fiche de dialogue — ${etape.label}`,
     pdfBytes,
     anneeLabel: campagne.anneeLabel,
     filedByUserId: params.auteurUserId,
   });
 
   const emails = (fiche.parentEmails ?? []).filter(isValidParentEmail);
-  await notifyFdDecisionPdf({
-    to: emails,
-    elevePrenom: fiche.elevePrenom,
-    eleveNom: fiche.eleveNom,
-    etapeLabel: etape.label,
-    pdfBytes,
-    fileName: `fiche-dialogue-${etape.kind}.pdf`,
-    intro:
-      etape.kind === "decision_finale_conseil"
-        ? "Voici la décision définitive du conseil de classe concernant votre enfant."
-        : "Voici l’avis du conseil de classe concernant la fiche de dialogue de votre enfant.",
-  });
+  if (isAvenant) {
+    await notifyFdAvenantConseil({
+      to: emails,
+      elevePrenom: fiche.elevePrenom,
+      eleveNom: fiche.eleveNom,
+      etapeLabel: etape.label,
+      motif: params.payload.motif || params.payload.commentaire || undefined,
+      pdfBytes,
+      fileName: `avenant-fiche-dialogue-${etape.kind}.pdf`,
+    });
+  } else {
+    await notifyFdDecisionPdf({
+      to: emails,
+      elevePrenom: fiche.elevePrenom,
+      eleveNom: fiche.eleveNom,
+      etapeLabel: etape.label,
+      pdfBytes,
+      fileName: `fiche-dialogue-${etape.kind}.pdf`,
+      intro:
+        etape.kind === "decision_finale_conseil"
+          ? "Voici la décision définitive du conseil de classe concernant votre enfant."
+          : "Voici l’avis du conseil de classe concernant la fiche de dialogue de votre enfant.",
+    });
+  }
 
   const etapes = await listFdEtapes(params.etablissementId, fiche.campagneId);
   const next = findNextEtape(etapes, etape, { activateAppel: false });

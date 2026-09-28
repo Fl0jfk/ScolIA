@@ -6,6 +6,7 @@ import {
   canViewFichesDialogue,
 } from "@/app/lib/fiches-dialogue-access";
 import {
+  deleteFdCampagne,
   getFdCampagne,
   getFdCampagneStats,
   listFdEtapes,
@@ -148,6 +149,25 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
     const etapes = await listFdEtapes(scope.ctx.etablissementId, id);
     return NextResponse.json({ campagne, etapes });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Erreur";
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+}
+
+export async function DELETE(_req: Request, ctx: Ctx) {
+  const scope = await requireTenantId();
+  if (!scope.ok) return scope.response;
+  const appUser = await requireAppUser();
+  if (!appUser.ok) return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
+  if (!canManageFichesDialogue(appUser.user.roles, { orgAdmin: appUser.user.orgAdmin })) {
+    return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+  }
+
+  const { id } = await ctx.params;
+  try {
+    await deleteFdCampagne(scope.ctx.etablissementId, id);
+    return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erreur";
     return NextResponse.json({ error: msg }, { status: 400 });

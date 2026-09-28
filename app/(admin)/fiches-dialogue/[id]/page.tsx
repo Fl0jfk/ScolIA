@@ -355,7 +355,7 @@ export default function FichesDialogueCampagnePage() {
             )}
         </div>
         <p className={`text-sm ${dash.textMid}`}>
-          Délai famille : {campagne.delaiFamilleJours} j · Qui commence :{" "}
+          Qui commence :{" "}
           {campagne.starterMode === "conseil_dabord" ? "conseil" : "famille"}
           {campagne.contactPpLabel ? ` · Contact PP : ${campagne.contactPpLabel}` : ""} ·
           Classes cibles :{" "}
@@ -364,6 +364,36 @@ export default function FichesDialogueCampagnePage() {
             ? ` · Appel activé${campagne.appelConfig.dateLimite ? ` (limite ${campagne.appelConfig.dateLimite})` : ""}`
             : " · Appel désactivé"}
         </p>
+        <div className="pt-2">
+          <ModuleButton
+            variant="secondary"
+            disabled={!!busy}
+            onClick={async () => {
+              if (
+                !confirm(
+                  `Supprimer définitivement « ${campagne.label} » et toutes les fiches associées ?`,
+                )
+              ) {
+                return;
+              }
+              setBusy("delete");
+              setError(null);
+              try {
+                const res = await fetch(`/api/fiches-dialogue/campagnes/${id}`, {
+                  method: "DELETE",
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(json.error || "Suppression impossible");
+                window.location.href = "/fiches-dialogue";
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Erreur");
+                setBusy(null);
+              }
+            }}
+          >
+            Supprimer la campagne
+          </ModuleButton>
+        </div>
       </ModuleCard>
 
       <ModuleCard bodyClassName="space-y-3 p-5">
@@ -387,17 +417,34 @@ export default function FichesDialogueCampagnePage() {
               </div>
               <div className="flex flex-col gap-2 text-sm">
                 {(e.kind === "conseil" || e.kind === "decision_finale_conseil") && (
-                  <label>
-                    Date conseil
-                    <input
-                      type="date"
-                      className="ml-2 rounded border border-slate-200 px-2 py-1"
-                      value={e.conseilDate ?? ""}
-                      onChange={(ev) =>
-                        void saveEtapeWindow(e.id, { conseilDate: ev.target.value })
-                      }
-                    />
-                  </label>
+                  <>
+                    <label>
+                      Date conseil
+                      <input
+                        type="date"
+                        className="ml-2 rounded border border-slate-200 px-2 py-1"
+                        value={e.conseilDate ?? ""}
+                        onChange={(ev) =>
+                          void saveEtapeWindow(e.id, { conseilDate: ev.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Publication résultats
+                      <input
+                        type="datetime-local"
+                        className="ml-2 rounded border border-slate-200 px-2 py-1"
+                        value={
+                          e.opensAt
+                            ? new Date(e.opensAt).toISOString().slice(0, 16)
+                            : ""
+                        }
+                        onChange={(ev) =>
+                          void saveEtapeWindow(e.id, { opensAt: ev.target.value })
+                        }
+                      />
+                    </label>
+                  </>
                 )}
                 {(e.kind === "saisie_famille" ||
                   e.kind === "choix_definitifs" ||
@@ -419,7 +466,7 @@ export default function FichesDialogueCampagnePage() {
                       />
                     </label>
                     <label>
-                      Clôture
+                      Dernier jour (clôture)
                       <input
                         type="datetime-local"
                         className="ml-2 rounded border border-slate-200 px-2 py-1"

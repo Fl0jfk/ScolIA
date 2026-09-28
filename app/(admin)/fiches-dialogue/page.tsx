@@ -10,10 +10,11 @@ import { dash } from "@/app/lib/dashboard-brand";
 import {
   FD_NIVEAU_LABELS,
   FD_NIVEAUX,
+  FD_OPTIONS_MASTER,
   presetForNiveau,
   type FdNiveau,
 } from "@/app/lib/fiches-dialogue-templates";
-import type { FdCatalogueChoix, FdStarterMode } from "@/db/schema-fiches-dialogue";
+import type { FdCatalogueChoix, FdEtapeKind, FdStarterMode } from "@/db/schema-fiches-dialogue";
 
 type Campagne = {
   id: string;
@@ -61,7 +62,6 @@ export default function FichesDialogueHubPage() {
   const [starterMode, setStarterMode] = useState<FdStarterMode>("conseil_dabord");
   const [label, setLabel] = useState("");
   const [anneeLabel, setAnneeLabel] = useState("2025-2026");
-  const [delaiFamilleJours, setDelaiFamilleJours] = useState(7);
   const [contactPpLabel, setContactPpLabel] = useState("via École Directe");
   const [appelEnabled, setAppelEnabled] = useState(true);
   const [appelDateLimite, setAppelDateLimite] = useState("");
@@ -71,6 +71,17 @@ export default function FichesDialogueHubPage() {
   const [enabledDestIds, setEnabledDestIds] = useState<Set<string>>(new Set());
   const [enabledOptIds, setEnabledOptIds] = useState<Set<string>>(new Set());
   const [newOptionLabel, setNewOptionLabel] = useState("");
+  const [etapeDates, setEtapeDates] = useState<
+    Array<{
+      ordre: number;
+      kind: FdEtapeKind | string;
+      label: string;
+      optionnelle?: boolean;
+      opensAt: string;
+      closesAt: string;
+      conseilDate: string;
+    }>
+  >([]);
 
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerEleves, setPickerEleves] = useState<PickerEleve[]>([]);
@@ -103,8 +114,19 @@ export default function FichesDialogueHubPage() {
     const preset = presetForNiveau(n, starterMode);
     setCatalogue(preset.catalogue);
     setEnabledDestIds(new Set(preset.catalogue.destinations.map((d) => d.id)));
-    setEnabledOptIds(new Set(preset.catalogue.options.map((o) => o.id)));
+    setEnabledOptIds(new Set(preset.defaultEnabledOptionIds));
     setLabel(preset.labelSuggest);
+    setEtapeDates(
+      preset.etapes.map((e, i) => ({
+        ordre: i + 1,
+        kind: e.kind,
+        label: e.label,
+        optionnelle: Boolean(e.optionnelle),
+        opensAt: "",
+        closesAt: "",
+        conseilDate: "",
+      })),
+    );
     setStep(2);
   }
 
@@ -117,9 +139,20 @@ export default function FichesDialogueHubPage() {
         return {
           ...preset.catalogue,
           destinations: prev.destinations.length ? prev.destinations : preset.catalogue.destinations,
-          options: prev.options.length ? prev.options : preset.catalogue.options,
+          options: [...FD_OPTIONS_MASTER],
         };
       });
+      setEtapeDates(
+        preset.etapes.map((e, i) => ({
+          ordre: i + 1,
+          kind: e.kind,
+          label: e.label,
+          optionnelle: Boolean(e.optionnelle),
+          opensAt: "",
+          closesAt: "",
+          conseilDate: "",
+        })),
+      );
     }
     setStep(3);
   }
@@ -262,9 +295,14 @@ export default function FichesDialogueHubPage() {
           anneeLabel: anneeLabel.trim(),
           classesCibles: Array.from(selectedClasses),
           eleveIdsCibles,
-          delaiFamilleJours,
           contactPpLabel: contactPpLabel.trim() || undefined,
           catalogue: filteredCatalogue,
+          etapesDates: etapeDates.map((e) => ({
+            ordre: e.ordre,
+            opensAt: e.opensAt || null,
+            closesAt: e.closesAt || null,
+            conseilDate: e.conseilDate || null,
+          })),
           appelConfig: {
             enabled: appelEnabled,
             dateLimite: appelDateLimite || undefined,
@@ -457,17 +495,6 @@ export default function FichesDialogueHubPage() {
                 />
               </label>
               <label className="block text-sm">
-                <span className={dash.textMid}>Délai famille (jours)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-                  value={delaiFamilleJours}
-                  onChange={(e) => setDelaiFamilleJours(Number(e.target.value) || 7)}
-                />
-              </label>
-              <label className="block text-sm">
                 <span className={dash.textMid}>Canal contact PP</span>
                 <input
                   className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
@@ -475,6 +502,95 @@ export default function FichesDialogueHubPage() {
                   onChange={(e) => setContactPpLabel(e.target.value)}
                 />
               </label>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+              <p className="text-sm font-semibold text-slate-800">
+                Dates par étape (ouverture / clôture famille, conseil, publication)
+              </p>
+              <p className={`text-xs ${dash.textMid}`}>
+                Pour chaque étape famille : dernier jour de réponse. Pour le conseil : date de
+                réunion + date de publication des résultats.
+              </p>
+              {etapeDates.map((e, idx) => {
+                const isFamille =
+                  e.kind === "saisie_famille" ||
+                  e.kind === "choix_definitifs" ||
+                  e.kind === "acceptation_famille";
+                const isConseil =
+                  e.kind === "conseil" || e.kind === "decision_finale_conseil";
+                if (!isFamille && !isConseil) return null;
+                return (
+                  <div
+                    key={`${e.ordre}-${e.kind}`}
+                    className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2"
+                  >
+                    <p className="sm:col-span-2 text-sm font-medium text-slate-900">
+                      {e.ordre}. {e.label}
+                      {e.optionnelle ? " (optionnelle)" : ""}
+                    </p>
+                    {isConseil ? (
+                      <>
+                        <label className="block text-xs">
+                          Date du conseil
+                          <input
+                            type="date"
+                            className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            value={e.conseilDate}
+                            onChange={(ev) => {
+                              const next = [...etapeDates];
+                              next[idx] = { ...e, conseilDate: ev.target.value };
+                              setEtapeDates(next);
+                            }}
+                          />
+                        </label>
+                        <label className="block text-xs">
+                          Publication des résultats
+                          <input
+                            type="datetime-local"
+                            className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            value={e.opensAt}
+                            onChange={(ev) => {
+                              const next = [...etapeDates];
+                              next[idx] = { ...e, opensAt: ev.target.value };
+                              setEtapeDates(next);
+                            }}
+                          />
+                        </label>
+                      </>
+                    ) : (
+                      <>
+                        <label className="block text-xs">
+                          Ouverture saisie
+                          <input
+                            type="datetime-local"
+                            className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            value={e.opensAt}
+                            onChange={(ev) => {
+                              const next = [...etapeDates];
+                              next[idx] = { ...e, opensAt: ev.target.value };
+                              setEtapeDates(next);
+                            }}
+                          />
+                        </label>
+                        <label className="block text-xs">
+                          Dernier jour (clôture)
+                          <input
+                            type="datetime-local"
+                            className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                            value={e.closesAt}
+                            onChange={(ev) => {
+                              const next = [...etapeDates];
+                              next[idx] = { ...e, closesAt: ev.target.value };
+                              setEtapeDates(next);
+                            }}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             <div>
@@ -504,10 +620,10 @@ export default function FichesDialogueHubPage() {
 
             <div>
               <p className="mb-2 text-sm font-semibold text-slate-800">
-                Options / langues / spécialités
+                Options / langues / spécialités (cochez selon le niveau)
               </p>
-              <div className="flex flex-col gap-2">
-                {catalogue.options.map((o) => (
+              <div className="flex max-h-64 flex-col gap-2 overflow-y-auto rounded-lg border border-slate-100 p-3">
+                {(catalogue.options.length ? catalogue.options : FD_OPTIONS_MASTER).map((o) => (
                   <label key={o.id} className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -722,18 +838,45 @@ export default function FichesDialogueHubPage() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {campagnes.map((c) => (
-              <Link
+              <div
                 key={c.id}
-                href={`/fiches-dialogue/${c.id}`}
                 className="rounded-2xl border border-slate-200 bg-white p-4 hover:border-teal-300"
               >
-                <p className="font-bold text-slate-900">{c.label}</p>
-                <p className="text-sm text-slate-600">
-                  {c.anneeLabel}
-                  {c.niveauActuel ? ` · ${c.niveauActuel}` : ""}
-                  {c.starterMode ? ` · ${c.starterMode}` : ""} · {c.statut}
-                </p>
-              </Link>
+                <Link href={`/fiches-dialogue/${c.id}`} className="block">
+                  <p className="font-bold text-slate-900">{c.label}</p>
+                  <p className="text-sm text-slate-600">
+                    {c.anneeLabel}
+                    {c.niveauActuel ? ` · ${c.niveauActuel}` : ""}
+                    {c.starterMode ? ` · ${c.starterMode}` : ""} · {c.statut}
+                  </p>
+                </Link>
+                <button
+                  type="button"
+                  className="mt-3 text-xs font-bold text-rose-700 hover:underline"
+                  onClick={async () => {
+                    if (
+                      !confirm(
+                        `Supprimer définitivement la campagne « ${c.label} » et toutes ses fiches ?`,
+                      )
+                    ) {
+                      return;
+                    }
+                    setError(null);
+                    try {
+                      const res = await fetch(`/api/fiches-dialogue/campagnes/${c.id}`, {
+                        method: "DELETE",
+                      });
+                      const json = await res.json().catch(() => ({}));
+                      if (!res.ok) throw new Error(json.error || "Suppression impossible");
+                      await reload();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Erreur");
+                    }
+                  }}
+                >
+                  Supprimer
+                </button>
+              </div>
             ))}
           </div>
         )}

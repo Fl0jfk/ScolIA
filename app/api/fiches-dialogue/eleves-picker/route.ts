@@ -14,7 +14,9 @@ import { requireTenantId } from "@/app/lib/tenant-scope";
 
 /**
  * Élèves scolarisés filtrables par niveau pour le wizard fiches de dialogue.
- * Query: ?niveau=6e
+ * Classes = Siècle (toutes les divisions du niveau) ∪ observées, pas seulement
+ * celles déjà présentes dans le registry filtré trop strictement.
+ * Query: ?niveau=3e
  */
 export async function GET(req: Request) {
   const scope = await requireTenantId();
@@ -45,9 +47,23 @@ export async function GET(req: Request) {
     const observedClasses = eleves
       .map((e) => String(e.classe || "").trim())
       .filter(Boolean);
-    const classes = filterObservedClassesForCurrentYearUi(observedClasses, official).sort(
-      (a, b) => a.localeCompare(b, "fr"),
+
+    const siecleForNiveau = (official.lockedClasses || []).filter(
+      (c) => !niveau || niveauFromClasse(c) === niveau,
     );
+
+    const mergedRaw = [...siecleForNiveau, ...observedClasses];
+    const classes = filterObservedClassesForCurrentYearUi(mergedRaw, official).filter(
+      (c) => !niveau || niveauFromClasse(c) === niveau,
+    );
+
+    // Si le filtre Siècle a tout mangé, repli : classes observées du niveau
+    const finalClasses =
+      classes.length > 0
+        ? classes
+        : [...new Set(observedClasses)]
+            .filter((c) => !niveau || niveauFromClasse(c) === niveau)
+            .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
 
     await writeDataAccessAudit({
       etablissementId: scope.ctx.etablissementId,
@@ -55,7 +71,12 @@ export async function GET(req: Request) {
       resourceType: "eleves_registry",
       action: "list",
       req,
-      metadata: { count: eleves.length, source: "fiches-dialogue-eleves-picker", niveau },
+      metadata: {
+        count: eleves.length,
+        classes: finalClasses.length,
+        source: "fiches-dialogue-eleves-picker",
+        niveau,
+      },
     });
 
     return NextResponse.json({
@@ -70,7 +91,7 @@ export async function GET(req: Request) {
         lv1: e.lv1,
         lv2: e.lv2,
       })),
-      classes,
+      classes: finalClasses,
       niveau,
       count: eleves.length,
     });

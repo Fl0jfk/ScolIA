@@ -22,7 +22,42 @@ export type FdCampagneTemplate = {
   catalogue: FdCatalogueChoix;
 };
 
-const SPE_GEN: FdCatalogueChoix["options"] = [
+type FdOptionDef = FdCatalogueChoix["options"][number];
+
+function uniqueOptionsById(options: FdOptionDef[]): FdOptionDef[] {
+  const seen = new Set<string>();
+  const out: FdOptionDef[] = [];
+  for (const o of options) {
+    if (seen.has(o.id)) continue;
+    seen.add(o.id);
+    out.push(o);
+  }
+  return out;
+}
+
+/** Catalogue maître unique — coché/décoché par niveau dans le wizard (pas de doublons). */
+export const FD_OPTIONS_MASTER: FdOptionDef[] = uniqueOptionsById([
+  // Langues
+  { id: "lv1_anglais", label: "LV1 Anglais", kind: "lv" },
+  { id: "lv1_allemand", label: "Option LV1 Allemand", kind: "lv" },
+  { id: "lv1_espagnol", label: "LV1 Espagnol", kind: "lv" },
+  { id: "lv2_allemand", label: "LV2 Allemand", kind: "lv" },
+  { id: "lv2_espagnol", label: "LV2 Espagnol", kind: "lv" },
+  { id: "lv2_italien", label: "LV2 Italien", kind: "lv" },
+  { id: "lv2_chinois", label: "LV2 Chinois", kind: "lv" },
+  { id: "lv3_italien", label: "LV3 Italien", kind: "lv" },
+  { id: "lv3_chinois", label: "LV3 Chinois", kind: "lv" },
+  // Options collège
+  { id: "latin", label: "Latin", kind: "option_interne" },
+  { id: "grec", label: "Grec", kind: "option_interne" },
+  { id: "lce_anglais", label: "LCE Anglais", kind: "option_interne" },
+  { id: "ebep", label: "EBEP", kind: "option_interne" },
+  { id: "ose", label: "OSE (Options sciences expérimentales)", kind: "option_interne" },
+  { id: "odp", label: "ODP (Option découverte professionnelle)", kind: "option_interne" },
+  { id: "3e_prepa", label: "3ᵉ prépa-métiers", kind: "autre" },
+  { id: "chorale", label: "Chorale", kind: "option_interne" },
+  { id: "eps_complementaire", label: "EPS complémentaire", kind: "option_interne" },
+  // Spécialités lycée générale
   { id: "spe_hggsp", label: "Hist-géo, géopolitique et sciences politiques", kind: "specialite" },
   { id: "spe_hlp", label: "Humanités, littérature et philosophie", kind: "specialite" },
   { id: "spe_llce", label: "Langues, littératures et cultures étrangères (AGL)", kind: "specialite" },
@@ -31,19 +66,46 @@ const SPE_GEN: FdCatalogueChoix["options"] = [
   { id: "spe_svt", label: "Sciences de la Vie et de la Terre", kind: "specialite" },
   { id: "spe_si", label: "Sciences de l’Ingénieur", kind: "specialite" },
   { id: "spe_ses", label: "Sciences Economiques et Sociales", kind: "specialite" },
-];
+  { id: "spe_nsi", label: "Numérique et sciences informatiques", kind: "specialite" },
+  { id: "spe_arts", label: "Arts", kind: "specialite" },
+  // Options terminale
+  { id: "opt_dgemc", label: "Droits et grands enjeux du monde contemporain", kind: "autre" },
+  { id: "opt_maths_exp", label: "Mathématiques expertes", kind: "autre" },
+  { id: "opt_maths_comp", label: "Mathématiques complémentaires", kind: "autre" },
+]);
 
-const OPT_COLLEGE_BASE: FdCatalogueChoix["options"] = [
-  { id: "lv1_anglais", label: "LV1 Anglais", kind: "lv" },
-  { id: "lv1_allemand", label: "Option LV1 Allemand", kind: "lv" },
-  { id: "lv2_allemand", label: "LV2 Allemand", kind: "lv" },
-  { id: "lv2_espagnol", label: "LV2 Espagnol", kind: "lv" },
-  { id: "latin", label: "Latin", kind: "option_interne" },
-  { id: "lce_anglais", label: "LCE Anglais", kind: "option_interne" },
-  { id: "ebep", label: "EBEP", kind: "option_interne" },
-];
+const SPE_GEN = FD_OPTIONS_MASTER.filter((o) => o.kind === "specialite");
 
-function catalogueCollege(destId: string, destLabel: string, extraOptions: FdCatalogueChoix["options"] = []): FdCatalogueChoix {
+/** Options cochées par défaut selon le niveau (tout le master reste proposé). */
+export function defaultEnabledOptionIds(niveau: FdNiveau): string[] {
+  const collegeBase = [
+    "lv1_anglais",
+    "lv1_allemand",
+    "lv2_allemand",
+    "lv2_espagnol",
+    "latin",
+    "lce_anglais",
+    "ebep",
+  ];
+  switch (niveau) {
+    case "6e":
+      return collegeBase;
+    case "5e":
+      return [...collegeBase, "ose"];
+    case "4e":
+      return [...collegeBase, "ose", "odp", "3e_prepa"];
+    case "3e":
+      return collegeBase;
+    case "2nde":
+      return SPE_GEN.map((o) => o.id);
+    case "1re":
+      return [...SPE_GEN.map((o) => o.id), "opt_dgemc", "opt_maths_exp", "opt_maths_comp"];
+    case "Tle":
+      return [];
+  }
+}
+
+function catalogueCollege(destId: string, destLabel: string): FdCatalogueChoix {
   return {
     destinations: [
       { id: destId, label: destLabel, niveauCible: destId, interne: true },
@@ -51,7 +113,7 @@ function catalogueCollege(destId: string, destLabel: string, extraOptions: FdCat
       { id: "ailleurs", label: "Autre établissement", interne: false },
       { id: "autre_parcours", label: "Autre parcours", interne: false },
     ],
-    options: [...OPT_COLLEGE_BASE, ...extraOptions],
+    options: [...FD_OPTIONS_MASTER],
     fields: [
       {
         id: "destination",
@@ -85,24 +147,19 @@ function catalogueCollege(destId: string, destLabel: string, extraOptions: FdCat
         helpText: "Compagnons du devoir, arrêt de scolarité, etc.",
       },
     ],
-    voiesOuverture: [{ niveauActuel: destId.replace(/e$/, "e"), destinationsIds: [destId, "maintien", "ailleurs", "autre_parcours"] }],
+    voiesOuverture: [
+      {
+        niveauActuel: destId.replace(/e$/, "e"),
+        destinationsIds: [destId, "maintien", "ailleurs", "autre_parcours"],
+      },
+    ],
   };
 }
 
-const CATALOGUE_6E = catalogueCollege("5e", "5ᵉ", []);
-const CATALOGUE_5E = catalogueCollege("4e", "4ᵉ", [
-  { id: "ose", label: "OSE (Options sciences expérimentales)", kind: "option_interne" },
-]);
-const CATALOGUE_4E = catalogueCollege("3e", "3ᵉ", [
-  { id: "ose", label: "OSE (Options sciences expérimentales)", kind: "option_interne" },
-  { id: "odp", label: "ODP (Option découverte professionnelle)", kind: "option_interne" },
-  { id: "3e_prepa", label: "3ᵉ prépa-métiers", kind: "autre" },
-]);
-const CATALOGUE_3E = catalogueCollege("2nde", "2ⁿᵈᵉ", [
-  { id: "latin", label: "Latin", kind: "option_interne" },
-  { id: "lce_anglais", label: "LCE Anglais", kind: "option_interne" },
-  { id: "ebep", label: "EBEP", kind: "option_interne" },
-]);
+const CATALOGUE_6E = catalogueCollege("5e", "5ᵉ");
+const CATALOGUE_5E = catalogueCollege("4e", "4ᵉ");
+const CATALOGUE_4E = catalogueCollege("3e", "3ᵉ");
+const CATALOGUE_3E = catalogueCollege("2nde", "2ⁿᵈᵉ");
 
 const CATALOGUE_2NDE: FdCatalogueChoix = {
   destinations: [
@@ -113,7 +170,7 @@ const CATALOGUE_2NDE: FdCatalogueChoix = {
     { id: "ailleurs", label: "Autre établissement", interne: false },
     { id: "autre_parcours", label: "Autre parcours", interne: false },
   ],
-  options: SPE_GEN,
+  options: [...FD_OPTIONS_MASTER],
   fields: [
     {
       id: "destination",
@@ -167,12 +224,7 @@ const CATALOGUE_1ERE_GEN: FdCatalogueChoix = {
     { id: "ailleurs", label: "Autre établissement", interne: false },
     { id: "autre_parcours", label: "Autre parcours", interne: false },
   ],
-  options: [
-    ...SPE_GEN,
-    { id: "opt_dgemc", label: "Droits et grands enjeux du monde contemporain", kind: "autre" },
-    { id: "opt_maths_exp", label: "Mathématiques expertes", kind: "autre" },
-    { id: "opt_maths_comp", label: "Mathématiques complémentaires", kind: "autre" },
-  ],
+  options: [...FD_OPTIONS_MASTER],
   fields: [
     {
       id: "destination",
@@ -651,14 +703,18 @@ export function presetForNiveau(
   catalogue: FdCatalogueChoix;
   etapes: FdTemplateEtapeDef[];
   labelSuggest: string;
+  defaultEnabledOptionIds: string[];
 } {
   const college = niveau === "6e" || niveau === "5e" || niveau === "4e" || niveau === "3e";
+  const catalogue = catalogueForNiveau(niveau);
+  catalogue.options = [...FD_OPTIONS_MASTER];
   return {
     templateKey: templateKeyForNiveau(niveau),
     calendrierMode: college ? "trimestre" : "semestre",
-    catalogue: catalogueForNiveau(niveau),
+    catalogue,
     etapes: etapesForStarter(niveau, starterMode),
     labelSuggest: `Fiches de dialogue — ${FD_NIVEAU_LABELS[niveau]}`,
+    defaultEnabledOptionIds: defaultEnabledOptionIds(niveau),
   };
 }
 
