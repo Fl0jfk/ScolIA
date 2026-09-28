@@ -85,6 +85,7 @@ export async function GET(req: Request) {
     reponses: ctx.reponses.map((r) => ({
       etapeId: r.etapeId,
       auteurRole: r.auteurRole,
+      auteurLabel: r.auteurLabel,
       payload: r.payload,
       submittedAt: r.submittedAt,
     })),

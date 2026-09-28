@@ -70,6 +70,7 @@ type PublicCtx = {
   reponses: Array<{
     etapeId: string;
     auteurRole: string;
+    auteurLabel?: string | null;
     payload: Record<string, unknown>;
     submittedAt: string;
   }>;
@@ -94,6 +95,87 @@ function fieldVisible(field: Field, values: Record<string, string | string[] | b
   const curStr = Array.isArray(current) ? current.join(",") : String(current ?? "");
   if (Array.isArray(expected)) return expected.map(String).includes(curStr);
   return curStr === String(expected);
+}
+
+function emptyFieldValues(fields: Field[]): Record<string, string | string[] | boolean> {
+  const init: Record<string, string | string[] | boolean> = {};
+  for (const field of fields) {
+    if (field.type === "multiselect" || field.type === "etablissement_multi") {
+      init[field.id] = [];
+    } else if (field.type === "checkbox") init[field.id] = false;
+    else init[field.id] = "";
+  }
+  return init;
+}
+
+function applyFamillePrefill(
+  json: PublicCtx,
+  setters: {
+    setValues: (v: Record<string, string | string[] | boolean>) => void;
+    setComment: (v: string) => void;
+    setVoeuxEtab: (
+      v: Array<{ codeRne: string; label: string; chezNous?: boolean }>,
+    ) => void;
+    setAccepte: (v: boolean | null) => void;
+    setMotifRefus: (v: string) => void;
+    setSignerName: (v: string) => void;
+  },
+): boolean {
+  const fields = json.campagne.catalogue.fields as Field[];
+  const init = emptyFieldValues(fields);
+  const fam = [...json.reponses]
+    .filter((r) => r.auteurRole === "famille" && r.etapeId === json.etape.id)
+    .sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)))[0];
+
+  let hasPrefill = false;
+  if (fam?.payload && typeof fam.payload === "object") {
+    hasPrefill = true;
+    const payload = fam.payload;
+    if (json.etape.kind === "acceptation_famille") {
+      if (typeof payload.accepte === "boolean") setters.setAccepte(payload.accepte);
+      if (typeof payload.motifRefus === "string") setters.setMotifRefus(payload.motifRefus);
+    } else {
+      const rawValues =
+        payload.values && typeof payload.values === "object"
+          ? (payload.values as Record<string, unknown>)
+          : payload;
+      for (const field of fields) {
+        const raw = rawValues[field.id];
+        if (raw === undefined || raw === null) continue;
+        if (field.type === "multiselect" || field.type === "etablissement_multi") {
+          init[field.id] = Array.isArray(raw) ? (raw as string[]) : [String(raw)];
+        } else if (field.type === "checkbox") {
+          init[field.id] = Boolean(raw);
+        } else {
+          init[field.id] = String(raw);
+        }
+      }
+      if (typeof payload.comment === "string") setters.setComment(payload.comment);
+      if (Array.isArray(payload.etablissementsVoeux)) {
+        setters.setVoeuxEtab(
+          payload.etablissementsVoeux
+            .map((v) => {
+              if (!v || typeof v !== "object") return null;
+              const row = v as { codeRne?: string; label?: string; chezNous?: boolean };
+              if (!row.codeRne || !row.label) return null;
+              return {
+                codeRne: String(row.codeRne),
+                label: String(row.label),
+                chezNous: Boolean(row.chezNous),
+              };
+            })
+            .filter((v): v is { codeRne: string; label: string; chezNous?: boolean } => Boolean(v)),
+        );
+      }
+    }
+    if (fam.auteurLabel?.trim()) setters.setSignerName(fam.auteurLabel.trim());
+  }
+
+  setters.setValues(init);
+  if (!fam?.auteurLabel?.trim()) {
+    setters.setSignerName(`${json.fiche.elevePrenom} ${json.fiche.eleveNom}`.trim());
+  }
+  return hasPrefill;
 }
 
 function RemplirInner() {
@@ -146,20 +228,30 @@ function RemplirInner() {
         `/api/fiches-dialogue/public?token=${encodeURIComponent(tok)}`,
         { cache: "no-store" },
       );
-      const json = await res.json();
+      const json = (await res.json()) as PublicCtx & { error?: string };
       if (!res.ok) throw new Error(json.error || "Lien invalide");
       setCtx(json);
       setToken(tok);
       setStep("form");
-      const init: Record<string, string | string[] | boolean> = {};
-      for (const field of json.campagne.catalogue.fields as Field[]) {
-        if (field.type === "multiselect" || field.type === "etablissement_multi") {
-          init[field.id] = [];
-        } else if (field.type === "checkbox") init[field.id] = false;
-        else init[field.id] = "";
+      setDone(false);
+      setRefused(false);
+      setNeedsParent2(false);
+      setConflictDone(false);
+      setComment("");
+      setVoeuxEtab([]);
+      setAccepte(null);
+      setMotifRefus("");
+      const hasPrefill = applyFamillePrefill(json, {
+        setValues,
+        setComment,
+        setVoeuxEtab,
+        setAccepte,
+        setMotifRefus,
+        setSignerName,
+      });
+      if (hasPrefill && json.etape.openForFamille) {
+        setInfo("Votre réponse précédente a été rechargée. Vous pouvez la modifier jusqu’à la date limite.");
       }
-      setValues(init);
-      setSignerName(`${json.fiche.elevePrenom} ${json.fiche.eleveNom}`.trim());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
       setStep("identify");
@@ -188,10 +280,12 @@ function RemplirInner() {
   const familleReponse = useMemo(() => {
     if (!ctx) return null;
     const fam = [...ctx.reponses]
-      .reverse()
-      .find((r) => r.auteurRole === "famille");
+      .filter((r) => r.auteurRole === "famille" && r.etapeId === ctx.etape.id)
+      .sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)))[0];
     return fam?.payload ?? null;
   }, [ctx]);
+
+  const hasExistingFamilleReponse = Boolean(familleReponse);
 
   async function onIdentify(e: React.FormEvent) {
     e.preventDefault();
@@ -456,6 +550,21 @@ function RemplirInner() {
               Date limite : {new Date(ctx.etape.closesAt).toLocaleString("fr-FR")}
             </p>
           )}
+          {ctx.etape.openForFamille ? (
+            <button
+              type="button"
+              className="mt-6 w-full rounded-2xl bg-emerald-800 px-4 py-3 font-bold text-white hover:bg-emerald-900"
+              onClick={() => {
+                setDone(false);
+                setInfo(
+                  "Formulaire rechargé avec votre dernière réponse. Modifiez puis validez à nouveau.",
+                );
+                if (token) void load(token);
+              }}
+            >
+              Modifier ma réponse
+            </button>
+          ) : null}
         </div>
       </main>
     );
@@ -714,6 +823,11 @@ function RemplirInner() {
                 Date limite : {new Date(ctx.etape.closesAt).toLocaleString("fr-FR")}
               </p>
             )}
+            {hasExistingFamilleReponse && ctx.etape.openForFamille ? (
+              <p className="mt-2 text-sm font-semibold text-sky-800">
+                Réponse déjà enregistrée — vous pouvez la rectifier ci-dessous.
+              </p>
+            ) : null}
             {!ctx.etape.openForFamille && (
               <p className="mt-2 text-sm font-semibold text-rose-700">
                 Cette étape n’est plus modifiable.
@@ -1058,7 +1172,11 @@ function RemplirInner() {
                 disabled={submitting || !ctx.etape.openForFamille}
                 className="w-full rounded-2xl bg-sky-700 px-4 py-3 font-bold text-white disabled:opacity-60"
               >
-                {submitting ? "Envoi…" : "Valider et signer"}
+                {submitting
+                  ? "Envoi…"
+                  : hasExistingFamilleReponse
+                    ? "Enregistrer les modifications"
+                    : "Valider et signer"}
               </button>
             </>
           )}
