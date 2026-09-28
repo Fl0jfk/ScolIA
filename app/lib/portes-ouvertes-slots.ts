@@ -1,10 +1,12 @@
-import { parseParisDateTime } from "@/app/lib/paris-time";
+import { formatParisHm, parisDateKey, parseParisDateTime } from "@/app/lib/paris-time";
 import type { PortesOuvertesCycle } from "@/app/lib/portes-ouvertes-types";
 import type { PortesOuvertesSlot } from "@/app/lib/toolbox-types";
 
 /**
  * Créneau « jumeau » pour un autre établissement (école / collège / lycée)
  * à la même heure de début (et fin si fournie).
+ * Compare d’abord l’ISO exact, puis le jour + HH:mm Paris (plus robuste si les
+ * créneaux ont été régénérés avec des timestamps légèrement différents).
  */
 export function findPortesOuvertesParallelSlot(
   slots: ReadonlyArray<PortesOuvertesSlot>,
@@ -17,13 +19,28 @@ export function findPortesOuvertesParallelSlot(
   const startAt = params.startAt.trim();
   if (!startAt) return undefined;
   const endAt = params.endAt?.trim();
-  const compatible = slots.filter(
-    (s) => (!s.cycle || s.cycle === params.targetCycle) && s.startAt === startAt,
-  );
+  const day = parisDateKey(startAt);
+  const startHm = formatParisHm(startAt);
+  const endHm = endAt ? formatParisHm(endAt) : undefined;
+
+  const forCycle = slots.filter((s) => !s.cycle || s.cycle === params.targetCycle);
+  if (forCycle.length === 0) return undefined;
+
+  let compatible = forCycle.filter((s) => s.startAt === startAt);
+  if (compatible.length === 0) {
+    compatible = forCycle.filter(
+      (s) => parisDateKey(s.startAt) === day && formatParisHm(s.startAt) === startHm,
+    );
+  }
   if (compatible.length === 0) return undefined;
+
   if (endAt) {
-    const exact = compatible.find((s) => s.endAt === endAt);
-    if (exact) return exact;
+    const exactEnd = compatible.find((s) => s.endAt === endAt);
+    if (exactEnd) return exactEnd;
+  }
+  if (endHm) {
+    const byEndHm = compatible.find((s) => formatParisHm(s.endAt) === endHm);
+    if (byEndHm) return byEndHm;
   }
   return compatible[0];
 }

@@ -338,6 +338,11 @@ export type UpdatePortesOuvertesInput = {
   actor: { userId: string; name: string };
   /** Si false, ne pas envoyer le mail de confirmation au visiteur (défaut : true). */
   notifyVisitor?: boolean;
+  /**
+   * Accueil uniquement : autorise le dépassement de `maxPlaces`
+   * (requalification / déplacement interne). Jamais pour l’inscription publique.
+   */
+  allowOverCapacity?: boolean;
 };
 
 export async function updatePortesOuvertesVisitor(
@@ -369,15 +374,23 @@ export async function updatePortesOuvertesVisitor(
   let nextSlotId = input.slotId || current.slotId;
   let slot = po.slots.find((s) => s.id === nextSlotId);
 
+  const needsRequalify =
+    Boolean(nextCycle) &&
+    (!slot || (Boolean(slot.cycle) && slot.cycle !== nextCycle));
+
   // Requalification d’établissement : bascule vers le créneau jumeau (même horaire).
-  if (slot && nextCycle && slot.cycle && slot.cycle !== nextCycle) {
-    const startAt = currentWithSnap.slotStartAt || slot.startAt;
-    const endAt = currentWithSnap.slotEndAt || slot.endAt;
-    const parallel = findPortesOuvertesParallelSlot(po.slots, {
-      targetCycle: nextCycle,
-      startAt,
-      endAt,
-    });
+  if (needsRequalify && nextCycle) {
+    const startAt =
+      currentWithSnap.slotStartAt || slot?.startAt || currentConfigSlot?.startAt || "";
+    const endAt =
+      currentWithSnap.slotEndAt || slot?.endAt || currentConfigSlot?.endAt || undefined;
+    const parallel = startAt
+      ? findPortesOuvertesParallelSlot(po.slots, {
+          targetCycle: nextCycle,
+          startAt,
+          endAt,
+        })
+      : undefined;
     if (!parallel) {
       return {
         ok: false,
@@ -402,7 +415,10 @@ export async function updatePortesOuvertesVisitor(
     return { ok: false, status: 400, error: "Ce créneau n’est pas proposé pour cet établissement." };
   }
 
-  if (slot.maxPlaces && nextSlotId !== current.slotId) {
+  const cycleChanged = Boolean(input.cycle && current.cycle && input.cycle !== current.cycle);
+  const allowOverCapacity = input.allowOverCapacity === true || cycleChanged || needsRequalify;
+
+  if (slot.maxPlaces && nextSlotId !== current.slotId && !allowOverCapacity) {
     const used = await countRegistrationsForSlot(nextSlotId);
     if (used >= slot.maxPlaces) {
       return {

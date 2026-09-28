@@ -329,8 +329,9 @@ export default function AccueilPortesOuvertesClient({
   function applyEditCycle(nextCycle: PortesOuvertesCycle) {
     if (!edit || !board) return;
     const currentSlot = board.slots.find((s) => s.id === edit.slotId);
-    const startAt = currentSlot?.startAt;
-    const endAt = currentSlot?.endAt;
+    const reg = board.registrations.find((r) => r.id === edit.id);
+    const startAt = currentSlot?.startAt || reg?.slotStartAt;
+    const endAt = currentSlot?.endAt || reg?.slotEndAt;
     const parallel =
       startAt
         ? findPortesOuvertesParallelSlot(board.slots, {
@@ -352,6 +353,13 @@ export default function AccueilPortesOuvertesClient({
       // Requalification interne : pas d’e-mail parents par défaut.
       notifyVisitor: cycleChanged ? false : edit.notifyVisitor,
     });
+    if (cycleChanged && !parallel) {
+      setError(
+        "Aucun créneau à la même heure pour cet établissement. Choisissez un horaire dans la liste ou créez les créneaux manquants.",
+      );
+    } else {
+      setError(null);
+    }
   }
 
   async function submitEdit(e: React.FormEvent) {
@@ -360,6 +368,8 @@ export default function AccueilPortesOuvertesClient({
     setBusy(true);
     setError(null);
     setMessage(null);
+    const requalified = edit.cycle !== edit.originalCycle;
+    const phoneTrimmed = edit.phone.trim();
     try {
       const res = await fetch("/api/accueil/portes-ouvertes", {
         method: "PATCH",
@@ -369,18 +379,19 @@ export default function AccueilPortesOuvertesClient({
           firstName: edit.firstName,
           lastName: edit.lastName,
           email: edit.email,
-          phone: edit.phone,
+          ...(phoneTrimmed ? { phone: phoneTrimmed } : {}),
           childFirstName: edit.childFirstName,
           childLastName: edit.childLastName,
           cycle: edit.cycle,
           classeSouhaitee: edit.classeSouhaitee,
           slotId: edit.slotId,
           notifyVisitor: edit.notifyVisitor,
+          // Déplacement interne accueil : on peut dépasser le plafond de places.
+          allowOverCapacity: requalified,
         }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error || "Modification impossible");
-      const requalified = edit.cycle !== edit.originalCycle;
       setMessage(
         requalified
           ? `Inscription requalifiée vers ${board?.cycleLabels[edit.cycle] || PORTES_OUVERTES_CYCLE_LABELS[edit.cycle]} (même horaire).`
@@ -1223,6 +1234,17 @@ export default function AccueilPortesOuvertesClient({
                 Fermer
               </button>
             </div>
+            {error ? (
+              <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {error}
+              </p>
+            ) : null}
+            {edit.cycle !== edit.originalCycle ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Requalification interne : même horaire conservé, parents non prévenus par défaut,
+                et dépassement du plafond de places autorisé si le créneau cible est complet.
+              </p>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="text-xs font-bold uppercase text-slate-500">Prénom</span>

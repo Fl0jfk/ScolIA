@@ -44,13 +44,19 @@ const UpdateSchema = z.object({
   firstName: z.string().min(1).max(80).optional(),
   lastName: z.string().min(1).max(80).optional(),
   email: z.string().email().max(200).optional(),
-  phone: z.string().min(6).max(40).optional(),
+  // "" ou espaces → undefined (évite un 400 silencieux sur formulaire d’édition).
+  phone: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(6).max(40).optional(),
+  ),
   childFirstName: z.string().max(80).optional(),
   childLastName: z.string().max(80).optional(),
   cycle: z.enum(["ecole", "college", "lycee"]).optional(),
   classeSouhaitee: z.string().min(1).max(80).optional(),
   /** Si false, pas d’e-mail au visiteur (requalification interne). Défaut : true. */
   notifyVisitor: z.boolean().optional(),
+  /** Accueil : autorise le dépassement de capacité (requalification). */
+  allowOverCapacity: z.boolean().optional(),
 });
 
 const CancelSchema = z.object({
@@ -282,6 +288,7 @@ export async function PATCH(req: Request) {
     cycle: body.cycle,
     classeSouhaitee: body.classeSouhaitee,
     notifyVisitor: body.notifyVisitor,
+    allowOverCapacity: body.allowOverCapacity,
     actor: actorFromGate(gate),
   });
 
