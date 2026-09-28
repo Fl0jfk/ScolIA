@@ -6,6 +6,7 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import { formatParisHm, formatParisTimeLabel, parisDateKey, parisWallTimeToDate } from "@/app/lib/paris-time";
+import { findPortesOuvertesParallelSlot } from "@/app/lib/portes-ouvertes-slots";
 import type { PortesOuvertesRegistration } from "@/app/lib/portes-ouvertes-types";
 import {
   PORTES_OUVERTES_CYCLE_LABELS,
@@ -13,6 +14,7 @@ import {
   PORTES_OUVERTES_MAX_AMBASSADEURS,
   PORTES_OUVERTES_MAX_ENCADRANTS,
   PORTES_OUVERTES_STAFF_ROLE_LABELS,
+  portesOuvertesRegistrationFingerprint,
   type PortesOuvertesCycle,
   type PortesOuvertesStaffRole,
 } from "@/app/lib/portes-ouvertes-types";
@@ -84,8 +86,11 @@ type EditDraft = {
   childFirstName: string;
   childLastName: string;
   cycle: PortesOuvertesCycle;
+  /** Cycle d’origine à l’ouverture du formulaire (pour détecter une requalification). */
+  originalCycle: PortesOuvertesCycle;
   classeSouhaitee: string;
   slotId: string;
+  notifyVisitor: boolean;
 };
 
 const ROLE_LABELS = PORTES_OUVERTES_STAFF_ROLE_LABELS;
@@ -208,6 +213,24 @@ export default function AccueilPortesOuvertesClient({
 
   const daySlotIds = useMemo(() => new Set(daySlots.map((s) => s.id)), [daySlots]);
 
+  /** Ids d’inscriptions qui partagent la même empreinte qu’au moins une autre (doublons). */
+  const duplicateRegistrationIds = useMemo(() => {
+    const regs = board?.registrations || [];
+    const byFp = new Map<string, string[]>();
+    for (const r of regs) {
+      const fp = portesOuvertesRegistrationFingerprint(r);
+      const list = byFp.get(fp) || [];
+      list.push(r.id);
+      byFp.set(fp, list);
+    }
+    const ids = new Set<string>();
+    for (const list of byFp.values()) {
+      if (list.length < 2) continue;
+      for (const id of list) ids.add(id);
+    }
+    return ids;
+  }, [board?.registrations]);
+
   const dayReservationsCount = useMemo(() => {
     const regs = board?.registrations || [];
     return regs.filter((r) => {
@@ -285,6 +308,8 @@ export default function AccueilPortesOuvertesClient({
   }
 
   function openEdit(r: RegistrationRow) {
+    const cycle =
+      r.cycle && PORTES_OUVERTES_CYCLES.includes(r.cycle) ? r.cycle : availableCycles[0];
     setEdit({
       id: r.id,
       firstName: r.firstName,
@@ -293,9 +318,39 @@ export default function AccueilPortesOuvertesClient({
       phone: r.phone || "",
       childFirstName: r.childFirstName || "",
       childLastName: r.childLastName || "",
-      cycle: r.cycle && PORTES_OUVERTES_CYCLES.includes(r.cycle) ? r.cycle : availableCycles[0],
+      cycle,
+      originalCycle: cycle,
       classeSouhaitee: r.classeSouhaitee || "",
       slotId: r.slotId,
+      notifyVisitor: true,
+    });
+  }
+
+  function applyEditCycle(nextCycle: PortesOuvertesCycle) {
+    if (!edit || !board) return;
+    const currentSlot = board.slots.find((s) => s.id === edit.slotId);
+    const startAt = currentSlot?.startAt;
+    const endAt = currentSlot?.endAt;
+    const parallel =
+      startAt
+        ? findPortesOuvertesParallelSlot(board.slots, {
+            targetCycle: nextCycle,
+            startAt,
+            endAt,
+          })
+        : undefined;
+    const classes = board.classesByCycle[nextCycle] || [];
+    const classeSouhaitee = classes.includes(edit.classeSouhaitee)
+      ? edit.classeSouhaitee
+      : classes[0] || edit.classeSouhaitee;
+    const cycleChanged = nextCycle !== edit.originalCycle;
+    setEdit({
+      ...edit,
+      cycle: nextCycle,
+      slotId: parallel?.id || edit.slotId,
+      classeSouhaitee,
+      // Requalification interne : pas d’e-mail parents par défaut.
+      notifyVisitor: cycleChanged ? false : edit.notifyVisitor,
     });
   }
 
@@ -309,11 +364,28 @@ export default function AccueilPortesOuvertesClient({
       const res = await fetch("/api/accueil/portes-ouvertes", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(edit),
+        body: JSON.stringify({
+          id: edit.id,
+          firstName: edit.firstName,
+          lastName: edit.lastName,
+          email: edit.email,
+          phone: edit.phone,
+          childFirstName: edit.childFirstName,
+          childLastName: edit.childLastName,
+          cycle: edit.cycle,
+          classeSouhaitee: edit.classeSouhaitee,
+          slotId: edit.slotId,
+          notifyVisitor: edit.notifyVisitor,
+        }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error || "Modification impossible");
-      setMessage("Inscription mise à jour.");
+      const requalified = edit.cycle !== edit.originalCycle;
+      setMessage(
+        requalified
+          ? `Inscription requalifiée vers ${board?.cycleLabels[edit.cycle] || PORTES_OUVERTES_CYCLE_LABELS[edit.cycle]} (même horaire).`
+          : "Inscription mise à jour.",
+      );
       setEdit(null);
       await load();
     } catch (err: unknown) {
@@ -323,19 +395,39 @@ export default function AccueilPortesOuvertesClient({
     }
   }
 
-  async function removeRegistration(r: RegistrationRow) {
-    if (!window.confirm(`Supprimer l’inscription de ${visitorLabel(r)} ?`)) return;
+  async function removeRegistration(
+    r: RegistrationRow,
+    opts?: { silent?: boolean; reason?: "duplicate" | "cancel" },
+  ) {
+    const silent = opts?.silent === true || opts?.reason === "duplicate";
+    const isDuplicate = opts?.reason === "duplicate";
+    const confirmMsg = isDuplicate
+      ? `Supprimer ce doublon de ${visitorLabel(r)} ?\n\nAucun e-mail ne sera envoyé aux parents.`
+      : `Supprimer l’inscription de ${visitorLabel(r)} ?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    let notifyVisitor = !silent;
+    if (!silent) {
+      notifyVisitor = window.confirm(
+        `Envoyer un e-mail d’annulation au visiteur ?\n\nOK = oui, prévenir les parents\nAnnuler = non, suppression silencieuse`,
+      );
+    }
+
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/accueil/portes-ouvertes", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: r.id, notifyVisitor: true }),
+        body: JSON.stringify({ id: r.id, notifyVisitor }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error || "Suppression impossible");
-      setMessage("Inscription annulée.");
+      setMessage(
+        isDuplicate || !notifyVisitor
+          ? "Inscription supprimée (parents non prévenus)."
+          : "Inscription annulée.",
+      );
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -690,10 +782,16 @@ export default function AccueilPortesOuvertesClient({
                             <p className="text-xs text-slate-400">Aucun visiteur</p>
                           ) : (
                             <ul className="space-y-2">
-                              {regs.map((r) => (
+                              {regs.map((r) => {
+                                const isDuplicate = duplicateRegistrationIds.has(r.id);
+                                return (
                                 <li
                                   key={r.id}
-                                  className="rounded-lg border border-slate-100 bg-slate-50/80 px-2.5 py-2"
+                                  className={`rounded-lg border px-2.5 py-2 ${
+                                    isDuplicate
+                                      ? "border-amber-300 bg-amber-50/90"
+                                      : "border-slate-100 bg-slate-50/80"
+                                  }`}
                                 >
                                   <div className="flex flex-wrap items-start justify-between gap-2">
                                     <div>
@@ -701,6 +799,11 @@ export default function AccueilPortesOuvertesClient({
                                         {visitorLabel(r)}
                                         {r.visitedAt ? (
                                           <span className="ml-1 text-emerald-700">✓</span>
+                                        ) : null}
+                                        {isDuplicate ? (
+                                          <span className="ml-2 rounded-md bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                            Doublon
+                                          </span>
                                         ) : null}
                                       </div>
                                       <div className="text-[11px] text-slate-500">
@@ -736,20 +839,37 @@ export default function AccueilPortesOuvertesClient({
                                           >
                                             Modifier
                                           </button>
-                                          <button
-                                            type="button"
-                                            disabled={busy}
-                                            className="text-[11px] font-bold text-rose-700 underline disabled:opacity-50"
-                                            onClick={() => void removeRegistration(r)}
-                                          >
-                                            Supprimer
-                                          </button>
+                                          {isDuplicate ? (
+                                            <button
+                                              type="button"
+                                              disabled={busy}
+                                              className="text-[11px] font-bold text-amber-800 underline disabled:opacity-50"
+                                              onClick={() =>
+                                                void removeRegistration(r, {
+                                                  silent: true,
+                                                  reason: "duplicate",
+                                                })
+                                              }
+                                            >
+                                              Supprimer doublon
+                                            </button>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              disabled={busy}
+                                              className="text-[11px] font-bold text-rose-700 underline disabled:opacity-50"
+                                              onClick={() => void removeRegistration(r)}
+                                            >
+                                              Supprimer
+                                            </button>
+                                          )}
                                         </>
                                       ) : null}
                                     </div>
                                   </div>
                                 </li>
-                              ))}
+                                );
+                              })}
                             </ul>
                           )}
                         </td>
@@ -1145,9 +1265,7 @@ export default function AccueilPortesOuvertesClient({
                 <select
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold"
                   value={edit.cycle}
-                  onChange={(e) =>
-                    setEdit({ ...edit, cycle: e.target.value as PortesOuvertesCycle })
-                  }
+                  onChange={(e) => applyEditCycle(e.target.value as PortesOuvertesCycle)}
                 >
                   {availableCycles.map((c) => (
                     <option key={c} value={c}>
@@ -1155,6 +1273,15 @@ export default function AccueilPortesOuvertesClient({
                     </option>
                   ))}
                 </select>
+                {edit.cycle !== edit.originalCycle ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    L’horaire est conservé : bascule automatique vers le créneau équivalent
+                    {board.cycleLabels[edit.cycle] || PORTES_OUVERTES_CYCLE_LABELS[edit.cycle]
+                      ? ` (${board.cycleLabels[edit.cycle] || PORTES_OUVERTES_CYCLE_LABELS[edit.cycle]})`
+                      : ""}
+                    .
+                  </p>
+                ) : null}
               </label>
               <label className="block">
                 <span className="text-xs font-bold uppercase text-slate-500">Classe</span>
@@ -1191,6 +1318,22 @@ export default function AccueilPortesOuvertesClient({
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="flex items-start gap-2 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={edit.notifyVisitor}
+                  onChange={(e) => setEdit({ ...edit, notifyVisitor: e.target.checked })}
+                />
+                <span className="text-sm text-slate-700">
+                  Envoyer un e-mail de confirmation au visiteur
+                  {edit.cycle !== edit.originalCycle ? (
+                    <span className="block text-xs text-slate-500">
+                      Décoché par défaut pour une requalification interne (parents non prévenus).
+                    </span>
+                  ) : null}
+                </span>
               </label>
             </div>
             <div className="flex justify-end gap-2">

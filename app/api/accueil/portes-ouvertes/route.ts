@@ -49,6 +49,8 @@ const UpdateSchema = z.object({
   childLastName: z.string().max(80).optional(),
   cycle: z.enum(["ecole", "college", "lycee"]).optional(),
   classeSouhaitee: z.string().min(1).max(80).optional(),
+  /** Si false, pas d’e-mail au visiteur (requalification interne). Défaut : true. */
+  notifyVisitor: z.boolean().optional(),
 });
 
 const CancelSchema = z.object({
@@ -279,6 +281,7 @@ export async function PATCH(req: Request) {
     childLastName: body.childLastName,
     cycle: body.cycle,
     classeSouhaitee: body.classeSouhaitee,
+    notifyVisitor: body.notifyVisitor,
     actor: actorFromGate(gate),
   });
 

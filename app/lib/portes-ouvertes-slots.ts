@@ -1,5 +1,32 @@
 import { parseParisDateTime } from "@/app/lib/paris-time";
+import type { PortesOuvertesCycle } from "@/app/lib/portes-ouvertes-types";
 import type { PortesOuvertesSlot } from "@/app/lib/toolbox-types";
+
+/**
+ * Créneau « jumeau » pour un autre établissement (école / collège / lycée)
+ * à la même heure de début (et fin si fournie).
+ */
+export function findPortesOuvertesParallelSlot(
+  slots: ReadonlyArray<PortesOuvertesSlot>,
+  params: {
+    targetCycle: PortesOuvertesCycle;
+    startAt: string;
+    endAt?: string;
+  },
+): PortesOuvertesSlot | undefined {
+  const startAt = params.startAt.trim();
+  if (!startAt) return undefined;
+  const endAt = params.endAt?.trim();
+  const compatible = slots.filter(
+    (s) => (!s.cycle || s.cycle === params.targetCycle) && s.startAt === startAt,
+  );
+  if (compatible.length === 0) return undefined;
+  if (endAt) {
+    const exact = compatible.find((s) => s.endAt === endAt);
+    if (exact) return exact;
+  }
+  return compatible[0];
+}
 
 /** Fréquence des départs de groupes (toutes les X minutes). */
 export type PortesOuvertesDepartureIntervalMinutes = 15 | 30 | 60;
