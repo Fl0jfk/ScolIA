@@ -30,6 +30,7 @@ import {
 } from "@/app/lib/module-tour-actions";
 import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
+import { hasRole } from "@/app/lib/intranet-role-utils";
 
 type TravelsMainTab = "dossiers" | "settings";
 
@@ -44,7 +45,16 @@ function TripDashboardContent() {
   const isOrgAdmin = useIsOrgAdmin();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const roles = useMemo(() => rolesFromUserLike(user), [user]);
+  const roles = useMemo(() => {
+    const fromContext = appCtx?.session?.intranetRoles;
+    if (Array.isArray(fromContext) && fromContext.length > 0) return fromContext;
+    return rolesFromUserLike(user);
+  }, [appCtx?.session?.intranetRoles, user]);
+  /** Passés visibles (grisés) uniquement pour la compta — facturation. */
+  const isCompta = useMemo(
+    () => roles.includes("comptabilité") || hasRole(roles, "comptabilite"),
+    [roles],
+  );
   const canOpenTrip = useMemo(
     () =>
       canEnterTravelsDetail({
@@ -152,14 +162,23 @@ function TripDashboardContent() {
 
   const filteredTrips = useMemo(() => {
     const defaultLabel = etabFilterOptions.showGroupe ? GROUPE_SCOLAIRE_LABEL : etabFilterOptions.labels[0] || "";
-    return trips.filter((t) => {
-      // Séjours terminés / annulés : plus affichés dans la liste opérationnelle.
-      if (isTripTravelDatePast(t)) return false;
+    const list = trips.filter((t) => {
+      // Annulés / rejetés : hors liste pour tout le monde.
       if (t.status === "ANNULE" || t.status === "SEANCE_ANNULEE" || t.status === "REJETE") return false;
+      // Passés : hors liste opérationnelle, sauf pour la compta (grisés, facturation).
+      if (isTripTravelDatePast(t) && !isCompta) return false;
       if (filterEtab && (t.data?.etablissement || defaultLabel) !== filterEtab) return false;
       return travelsTripMatchesSearch(t, searchQuery);
     });
-  }, [trips, filterEtab, searchQuery, etabFilterOptions]);
+    if (!isCompta) return list;
+    // Compta : actifs d'abord, passés ensuite (grisés en bas).
+    return [...list].sort((a, b) => {
+      const aPast = isTripTravelDatePast(a);
+      const bPast = isTripTravelDatePast(b);
+      if (aPast !== bPast) return aPast ? 1 : -1;
+      return 0;
+    });
+  }, [trips, filterEtab, searchQuery, etabFilterOptions, isCompta]);
 
   if (!isLoaded || !isSignedIn) return null;
 
@@ -352,6 +371,11 @@ function TripDashboardContent() {
                     </div>
                   )}
                   <div className="absolute top-4 left-4 flex gap-2">
+                    {isPast ? (
+                      <span className="text-[10px] font-black px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-sm bg-slate-200/95 text-slate-600 border-slate-300">
+                        Terminée
+                      </span>
+                    ) : null}
                     <span className={`text-[10px] font-black px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-sm ${getStatusStyle(trip.status)}`}>
                       {TRAVELS_STATUS_LABELS[trip.status] ||
                         (trip.status === "SEANCE_ANNULEE"
@@ -446,9 +470,17 @@ function TripDashboardContent() {
                       </div>
                       <span className="text-sm font-bold text-slate-600">{trip.ownerName}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm">
-                      <span className="opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">Gérer le dossier</span>
-                      <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
+                    <div className={`flex items-center gap-2 font-bold text-sm ${isPast ? "text-slate-500" : "text-indigo-600"}`}>
+                      <span className="opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
+                        {isPast ? "Facturation / dossier" : "Gérer le dossier"}
+                      </span>
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-sm ${
+                          isPast
+                            ? "bg-slate-200 group-hover:bg-slate-500 group-hover:text-white"
+                            : "bg-slate-100 group-hover:bg-indigo-600 group-hover:text-white"
+                        }`}
+                      >
                         →
                       </div>
                     </div>

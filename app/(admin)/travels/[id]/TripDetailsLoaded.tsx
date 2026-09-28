@@ -25,6 +25,7 @@ import {
   isValidEmailLoose,
   getModificationRequestNote,
   tripEffectifTotal,
+  isTripTravelDatePast,
   travelsListBudget,
   travelsListNbEleves,
 } from "@/app/lib/travels-trip-helpers";
@@ -1532,6 +1533,16 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         </TripAlert>
       )}
 
+      {isTripTravelDatePast(trip) &&
+        trip.status !== "ANNULE" &&
+        trip.status !== "SEANCE_ANNULEE" && (
+          <TripAlert tone="muted" icon="📅" title="Séjour terminé">
+            {isCompta
+              ? "La sortie est passée : la fiche comptabilité reste modifiable pour finaliser la facturation."
+              : "La sortie est passée. La comptabilité peut encore travailler sur la fiche budget pour la facturation."}
+          </TripAlert>
+        )}
+
       {trip.status === "BESOIN_MODIFICATION" && !isEditing && (
         <TripAlert
           tone="warning"
@@ -1854,7 +1865,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         <TravelsComptaSheetForm
           tripId={trip.id}
           documentsRevision={comptaDocumentsFingerprint(trip)}
+          // Toujours éditable pour la compta (y compris séjours passés / validés) — facturation.
           readOnly={!isCompta}
+          tripEnded={isTripTravelDatePast(trip)}
           canValidateBudget={isCompta && trip.status === "EN_ATTENTE_COMPTA"}
           budgetValidated={Boolean(trip.data.comptaSheet?.budgetValidatedAt || trip.data.finalTotalCost)}
           onSaved={onComptaSheetSaved}
