@@ -19,6 +19,16 @@ export const EVENEMENTS_RDV_INSCRIPTION_CARD = {
   accent: "border-sky-200 bg-sky-50/80 text-sky-900",
 } as const;
 
+/** Carte fixe (hors toolbox) — Fiches de dialogue (orientation année suivante). */
+export const EVENEMENTS_FICHES_DIALOGUE_CARD = {
+  title: "Fiches de dialogue",
+  description:
+    "Orientation année suivante — campagnes par niveau, vœux familles, avis conseil, acceptation et appel.",
+  season: "2ᵉ–3ᵉ trim. / 2ᵉ sem.",
+  adminHref: "/fiches-dialogue",
+  accent: "border-teal-200 bg-teal-50/80 text-teal-900",
+} as const;
+
 export const EVENEMENTS_TOOLS_META: {
   id: EvenementToolId;
   title: string;

@@ -396,7 +396,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/etablissement/evenements",
       external: false,
-      description: "Portes ouvertes, rentrée digitale (dont fournitures) et Secret Santa.",
+      description:
+        "Portes ouvertes, rentrée, Secret Santa, RDV inscription et fiches de dialogue.",
     },
   },
   {
