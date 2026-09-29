@@ -561,7 +561,10 @@ export async function valkeyDeleteByPrefix(prefix: string): Promise<number> {
 }
 
 /** Statut léger pour diagnostic UI (pas de secret dans la réponse). */
-export async function getValkeyRuntimeStatus(): Promise<{
+export async function getValkeyRuntimeStatus(opts?: {
+  /** Probes TCP/TLS/AUTH — lent, réservé au debug (?debug=valkey). */
+  detailed?: boolean;
+}): Promise<{
   configured: boolean;
   ready: boolean;
   pingOk: boolean;
@@ -583,6 +586,7 @@ export async function getValkeyRuntimeStatus(): Promise<{
     hasCaCert: boolean;
   } | null;
 }> {
+  const detailed = Boolean(opts?.detailed);
   const configured = isValkeyConfigured();
   const url = resolveValkeyUrl();
   const urlInfo = url ? describeValkeyUrl(url) : null;
@@ -611,8 +615,77 @@ export async function getValkeyRuntimeStatus(): Promise<{
       ready: false,
       pingOk: false,
       status: "url_invalid",
-      circuitOpen: false,
+      circuitOpen: circuitOpen(),
       lastError: error instanceof Error ? error.message : "url parse",
+      probeTcp: null,
+      probeTls: null,
+      probeAuth: null,
+      url: urlInfo,
+    };
+  }
+
+  // Chemin chaud : un PING sur le client partagé, sans refermer ni sonder le réseau.
+  if (!detailed) {
+    if (circuitOpen()) {
+      return {
+        configured: true,
+        ready: false,
+        pingOk: false,
+        status: "circuit_open",
+        circuitOpen: true,
+        lastError: lastError,
+        probeTcp: null,
+        probeTls: null,
+        probeAuth: null,
+        url: urlInfo,
+      };
+    }
+    const v = getValkey();
+    if (!v) {
+      return {
+        configured: true,
+        ready: false,
+        pingOk: false,
+        status: "null",
+        circuitOpen: false,
+        lastError: lastError,
+        probeTcp: null,
+        probeTls: null,
+        probeAuth: null,
+        url: urlInfo,
+      };
+    }
+    if (v.status !== "ready") {
+      try {
+        await withTimeout(v.connect(), CONNECT_TIMEOUT_MS);
+      } catch (error) {
+        rememberError(error instanceof Error ? error.message : "connect failed");
+      }
+    }
+    const status = v.status;
+    if (status !== "ready") {
+      return {
+        configured: true,
+        ready: false,
+        pingOk: false,
+        status,
+        circuitOpen: circuitOpen(),
+        lastError: lastError,
+        probeTcp: null,
+        probeTls: null,
+        probeAuth: null,
+        url: urlInfo,
+      };
+    }
+    const pong = await runCommand((c) => c.ping());
+    const pingOk = pong === "PONG";
+    return {
+      configured: true,
+      ready: true,
+      pingOk,
+      status,
+      circuitOpen: false,
+      lastError: pingOk ? null : lastError,
       probeTcp: null,
       probeTls: null,
       probeAuth: null,
@@ -628,7 +701,7 @@ export async function getValkeyRuntimeStatus(): Promise<{
     probeRedisAuth(parsed),
   ]);
 
-  // Diagnostic : on force une tentative même si le coupe-circuit est ouvert.
+  // Mode debug uniquement : on force une tentative même si le coupe-circuit est ouvert.
   const wasCircuitOpen = circuitOpen();
   if (wasCircuitOpen) {
     circuitOpenUntil = 0;

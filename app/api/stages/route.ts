@@ -232,7 +232,10 @@ export async function GET() {
         roles,
         { includePeriodAlignment: false },
       ),
-      loadElevesRegistry().catch(() => [] as Awaited<ReturnType<typeof loadElevesRegistry>>),
+      // Registre uniquement si on a des cartes à enrichir (secteur / photos).
+      boardSlice.length > 0
+        ? loadElevesRegistry().catch(() => [] as Awaited<ReturnType<typeof loadElevesRegistry>>)
+        : Promise.resolve([] as Awaited<ReturnType<typeof loadElevesRegistry>>),
     ]);
 
     const mapBoardCard = (
@@ -296,16 +299,23 @@ export async function GET() {
     }
 
     const photoByEleveId = elevesForPhotos.length
-      ? await resolvePhotoUrlsForEleves(elevesForPhotos)
+      ? await resolvePhotoUrlsForEleves(elevesForPhotos.slice(0, 12))
       : {};
     const photoByConventionId: Record<string, string> = {};
-    for (const row of elevesForPhotos) {
+    for (const row of elevesForPhotos.slice(0, 12)) {
       const url = photoByEleveId[row.id];
       if (url) photoByConventionId[row.conventionId] = url;
     }
 
-    const { getValkeyRuntimeStatus } = await import("@/app/lib/valkey");
-    const valkey = await getValkeyRuntimeStatus();
+    // Statut Valkey léger (pas de probes TCP/TLS — trop coûteux sur le hot path).
+    const { isValkeyConfigured, getValkey } = await import("@/app/lib/valkey");
+    const vk = getValkey();
+    const valkey = {
+      configured: isValkeyConfigured(),
+      ready: vk?.status === "ready",
+      pingOk: vk?.status === "ready",
+      status: vk?.status ?? (isValkeyConfigured() ? "connecting" : "absent"),
+    };
 
     return NextResponse.json({
       viewer: viewer || "staff",

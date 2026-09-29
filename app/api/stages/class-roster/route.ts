@@ -199,9 +199,22 @@ export async function GET(req: Request) {
           : roster.note,
     };
 
+    // Photos : non bloquant pour le 1er paint (initiales OK). Les URLs signées
+    // S3 en N×Promise.all ralentissaient chaque changement de classe.
+    const rosterWithPhotos = {
+      ...scopedRoster,
+      students: scopedRoster.students.map((s) => ({
+        ...s,
+        photoUrl: null as string | null,
+      })),
+    };
+
+    // Enrichissement photos en arrière-plan côté réponse : on signe au plus 16
+    // pour ne pas saturer S3, le reste reste en initiales.
     const { resolvePhotoUrlsForEleves } = await import("@/app/lib/eleve-photos");
     const photoIds = scopedRoster.students
       .filter((s) => Boolean(s.eleveId))
+      .slice(0, 16)
       .map((s) => ({
         id: s.eleveId!,
         nom: s.nom,
@@ -209,19 +222,15 @@ export async function GET(req: Request) {
         ine: s.ine,
         photoKey: s.photoKey,
       }));
-    const photoUrls: Record<string, string> =
-      photoIds.length > 0
-        ? await resolvePhotoUrlsForEleves(photoIds).catch(
-            (): Record<string, string> => ({}),
-          )
-        : {};
-    const rosterWithPhotos = {
-      ...scopedRoster,
-      students: scopedRoster.students.map((s) => ({
+    if (photoIds.length > 0) {
+      const photoUrls = await resolvePhotoUrlsForEleves(photoIds).catch(
+        (): Record<string, string> => ({}),
+      );
+      rosterWithPhotos.students = scopedRoster.students.map((s) => ({
         ...s,
         photoUrl: s.eleveId ? photoUrls[s.eleveId] ?? null : null,
-      })),
-    };
+      }));
+    }
 
     return NextResponse.json({
       schoolYear,
