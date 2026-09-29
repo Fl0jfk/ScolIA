@@ -6,6 +6,7 @@ import { eleve, eleveScolarite } from "@/db/schema";
 import { buildEleveFolderName } from "@/app/lib/eleves-config";
 import { ensureEleveFoyerFromParentContacts } from "@/app/lib/ent-core-db";
 import { isValidParentEmail } from "@/app/lib/eleves-parent-emails";
+import { cacheInvalidateElevesDossiers } from "@/app/lib/valkey-cache";
 
 export const MAX_PREINSCRIT_PARENTS = 4;
 
@@ -160,6 +161,12 @@ export async function createElevePreinscrit(
   } catch (e) {
     console.error("[createElevePreinscrit] foyer:", e);
   }
+
+  // Liste dossiers mise en cache Valkey : invalider dès la création
+  // (sinon un rafraîchissement dans les ~30 s peut « faire disparaître » le nouveau).
+  void cacheInvalidateElevesDossiers(input.etablissementId).catch((e) =>
+    console.warn("[createElevePreinscrit] cache invalidate:", e),
+  );
 
   return { id, nom, prenom };
 }

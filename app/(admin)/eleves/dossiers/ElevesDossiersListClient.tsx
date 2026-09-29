@@ -486,9 +486,15 @@ export default function ElevesDossiersListClient() {
         classe: "",
         siteId: "",
       });
+      // Les nouveaux dossiers sont `preinscrit` : le filtre défaut « Scolarisé »
+      // les masque. On force le filtre dans l’URL de retour pour le retrouver.
+      const retour = "?status=preinscrit";
       setStatusFilter("preinscrit");
       await loadDossiers();
-      router.push(j.inscriptionDocsUrl || dossierHref(j.eleve.id));
+      const base =
+        j.inscriptionDocsUrl || `/eleves/dossier/${j.eleve.id}`;
+      const sep = base.includes("?") ? "&" : "?";
+      router.push(`${base}${sep}retour=${encodeURIComponent(retour)}`);
     } catch {
       setError("Erreur réseau — réessayez.");
     } finally {
@@ -848,9 +854,11 @@ export default function ElevesDossiersListClient() {
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center">
               <p className="text-base font-semibold text-slate-800">Affinez la recherche</p>
               <p className="mt-2 text-sm text-slate-500">
-                Tapez un nom, choisissez un établissement ou une classe. Les anciens élèves
-                (sortis) sont exclus par défaut — choisissez « Ancien » ou « Tous statuts » pour
-                les inclure.
+                Tapez un nom, choisissez un établissement ou une classe. Les dossiers créés
+                manuellement sont en « Préinscription » — changez le statut ci-dessus pour les
+                voir (le filtre « Scolarisé » ne les affiche pas). Les anciens élèves (sortis)
+                sont exclus par défaut — choisissez « Ancien » ou « Tous statuts » pour les
+                inclure.
               </p>
             </div>
           ) : listLoading ? (

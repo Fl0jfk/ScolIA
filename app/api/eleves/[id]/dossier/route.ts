@@ -636,6 +636,10 @@ export async function GET(req: Request, ctx: Ctx) {
         orgAdmin,
         platformAdmin,
       }),
+      canDeleteElevePermanent: (await import("@/app/lib/eleve-delete-permanent")).canDeleteElevePermanently(
+        roles,
+        { orgAdmin, platformAdmin },
+      ),
       profRestrictedView,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
@@ -705,6 +709,8 @@ type DossierBody = {
   /** Identité élève (date / lieu de naissance). */
   dateNaissance?: string | null;
   lieuNaissance?: string | null;
+  /** Confirmation textuelle pour delete_eleve_permanent. */
+  confirmation?: string;
 };
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -1469,6 +1475,85 @@ export async function POST(req: Request, ctx: Ctx) {
         lieuNaissance: updated?.lieuNaissance ?? null,
       },
     });
+  }
+
+  if (action === "delete_eleve_permanent") {
+    const {
+      canDeleteElevePermanently,
+      deleteElevePermanently,
+      EleveDeleteNotFoundError,
+      ELEVE_DELETE_PERMANENT_CONFIRM_WORD,
+      isEleveDeletePermanentConfirmation,
+    } = await import("@/app/lib/eleve-delete-permanent");
+
+    if (!canDeleteElevePermanently(roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json(
+        {
+          error:
+            "Suppression définitive réservée à la direction et à l’administration.",
+        },
+        { status: 403 },
+      );
+    }
+    if (!isEleveDeletePermanentConfirmation(body.confirmation)) {
+      return NextResponse.json(
+        {
+          error: `Pour confirmer, tapez exactement « ${ELEVE_DELETE_PERMANENT_CONFIRM_WORD} ».`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const [before] = await db
+      .select({ id: eleve.id, nom: eleve.nom, prenom: eleve.prenom, status: eleve.status })
+      .from(eleve)
+      .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, id)))
+      .limit(1);
+    if (!before) {
+      return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+    }
+
+    try {
+      const result = await deleteElevePermanently({
+        etablissementId: etabId,
+        eleveId: id,
+      });
+
+      await recordEleveAccessAudit({
+        etablissementId: etabId,
+        actorUserId: authUserId,
+        resourceType: "fiche_eleve",
+        resourceId: id,
+        eleveId: null,
+        action: "delete_permanent",
+        metadata: {
+          nom: result.nom,
+          prenom: result.prenom,
+          statusAvant: before.status,
+          documentsRemoved: result.documentsRemoved,
+          s3ObjectsRemoved: result.s3ObjectsRemoved,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        deleted: true,
+        deletedId: result.deletedId,
+        redirectTo: "/eleves/dossiers",
+      });
+    } catch (err) {
+      if (err instanceof EleveDeleteNotFoundError) {
+        return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+      }
+      console.error("[eleves/dossier] delete_eleve_permanent", err);
+      return NextResponse.json(
+        {
+          error: "Impossible de supprimer définitivement cet élève.",
+          detail: err instanceof Error ? err.message : String(err),
+        },
+        { status: 500 },
+      );
+    }
   }
 
   return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

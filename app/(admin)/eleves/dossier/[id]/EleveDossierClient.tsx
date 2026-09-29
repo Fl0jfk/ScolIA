@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import {
@@ -20,6 +20,7 @@ import {
   type AccompagnementKind,
 } from "@/app/lib/eleve-pap";
 import { DOCUMENT_ACCESS_DURATION_OPTIONS } from "@/app/lib/eleve-document-access-duration";
+import { ELEVE_DELETE_PERMANENT_CONFIRM_WORD } from "@/app/lib/eleve-delete-permanent-confirm";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import EleveDossierSidebar from "@/app/components/eleves/EleveDossierSidebar";
 import ElevePhotoLazy from "@/app/components/eleves/ElevePhotoLazy";
@@ -206,6 +207,7 @@ type DossierPayload = {
     canUploadAccompagnement?: boolean;
     canDeleteAccompagnement?: boolean;
     canDeleteDocuments?: boolean;
+    canDeleteElevePermanent?: boolean;
     profRestrictedView?: boolean;
     tiroirs: string[];
     docCategories?: EleveDocCategorie[];
@@ -324,6 +326,7 @@ const emptyResp = {
 export default function EleveDossierClient() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const id = String(params.id || "");
   const listHref = dossiersListHrefFromRetour(
     searchParams.get("retour"),
@@ -338,6 +341,8 @@ export default function EleveDossierClient() {
   const [accompagnementDragOver, setAccompagnementDragOver] = useState(false);
   const [staleCache, setStaleCache] = useState(false);
   const [extrasReady, setExtrasReady] = useState(false);
+  const [deleteEleveOpen, setDeleteEleveOpen] = useState(false);
+  const [deleteEleveConfirm, setDeleteEleveConfirm] = useState("");
   const dataRef = useRef<DossierPayload | null>(null);
   dataRef.current = data;
 
@@ -606,8 +611,16 @@ export default function EleveDossierClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        deleted?: boolean;
+        redirectTo?: string;
+      };
       if (!res.ok) throw new Error(j.error || `Erreur ${res.status}`);
+      if (j.deleted && j.redirectTo) {
+        router.push(j.redirectTo);
+        return true;
+      }
       await load();
       return true;
     } catch (e) {
@@ -616,6 +629,19 @@ export default function EleveDossierClient() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function confirmDeleteElevePermanent() {
+    if (
+      deleteEleveConfirm.trim().toLowerCase().normalize("NFC") !==
+      ELEVE_DELETE_PERMANENT_CONFIRM_WORD
+    ) {
+      return;
+    }
+    await postAction({
+      action: "delete_eleve_permanent",
+      confirmation: deleteEleveConfirm.trim(),
+    });
   }
 
   async function ensureFoyerFromContacts() {
@@ -828,6 +854,7 @@ export default function EleveDossierClient() {
   const e = data.eleve;
   const classeListHref = dossiersListHrefForClasse(e.classe);
   const canEdit = data.meta.canEditStructure;
+  const canDeletePermanent = Boolean(data.meta.canDeleteElevePermanent);
   const synth = data.synthese;
   const liveNow = data.enCoursMaintenant;
   const statusLabel = synth?.statusLabel || e.status;
@@ -1537,6 +1564,74 @@ export default function EleveDossierClient() {
               </ul>
             )}
           </div>
+
+          {canDeletePermanent ? (
+            <div className="rounded-3xl border border-rose-300 bg-rose-50/80 p-6 shadow-sm space-y-3">
+              <div>
+                <h2 className="text-sm font-bold text-rose-950">Zone danger</h2>
+                <p className="mt-1 text-xs leading-relaxed text-rose-900/90">
+                  Supprimer définitivement cet élève efface la fiche et ses traces (documents,
+                  scolarité, absences, notes, etc.). Ce n’est pas une sortie d’établissement :
+                  l’élève disparaît comme s’il n’avait jamais existé. Irréversible.
+                </p>
+              </div>
+              {!deleteEleveOpen ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setDeleteEleveConfirm("");
+                    setDeleteEleveOpen(true);
+                  }}
+                  className="rounded-xl border border-rose-400 bg-white px-4 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                >
+                  Supprimer définitivement l’élève…
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold text-rose-950">
+                    Pour confirmer, tapez{" "}
+                    <span className="font-mono text-rose-700">
+                      {ELEVE_DELETE_PERMANENT_CONFIRM_WORD}
+                    </span>
+                    <input
+                      value={deleteEleveConfirm}
+                      onChange={(ev) => setDeleteEleveConfirm(ev.target.value)}
+                      placeholder={ELEVE_DELETE_PERMANENT_CONFIRM_WORD}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="mt-1 w-full max-w-md rounded-xl border border-rose-300 bg-white px-3 py-2 font-mono text-sm"
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setDeleteEleveOpen(false);
+                        setDeleteEleveConfirm("");
+                      }}
+                      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        deleteEleveConfirm.trim().toLowerCase().normalize("NFC") !==
+                          ELEVE_DELETE_PERMANENT_CONFIRM_WORD
+                      }
+                      onClick={() => void confirmDeleteElevePermanent()}
+                      className="rounded-xl bg-rose-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                    >
+                      {busy ? "Suppression…" : "Confirmer la suppression définitive"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
         </section>
       ) : null}
 

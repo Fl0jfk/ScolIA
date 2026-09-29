@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DocumentFileIcon } from "@/app/components/documents/DocumentSystemIcons";
 import InscriptionDocsDropZone from "@/app/components/eleves/InscriptionDocsDropZone";
 import { uploadInscriptionDocuments } from "@/app/lib/inscription-docs-upload-client";
@@ -58,9 +58,32 @@ function kindLabel(ext: string): string {
   return ext.toUpperCase() || "Fichier";
 }
 
+function dossiersListHrefFromRetour(retour: string | null): string {
+  if (retour) {
+    const decoded = (() => {
+      try {
+        return decodeURIComponent(retour);
+      } catch {
+        return retour;
+      }
+    })();
+    if (decoded.startsWith("/eleves/dossiers")) return decoded;
+    if (decoded.startsWith("?")) return `/eleves/dossiers${decoded}`;
+  }
+  return "/eleves/dossiers?status=preinscrit";
+}
+
 export default function EleveInscriptionDocsClient() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = String(params?.id || "").trim();
+  const retour = searchParams.get("retour");
+  const listHref = useMemo(() => dossiersListHrefFromRetour(retour), [retour]);
+  const dossierHref = useMemo(() => {
+    const base = `/eleves/dossier/${encodeURIComponent(id)}`;
+    if (!retour) return base;
+    return `${base}?retour=${encodeURIComponent(retour)}`;
+  }, [id, retour]);
   const [data, setData] = useState<DossierPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -171,7 +194,7 @@ export default function EleveInscriptionDocsClient() {
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
         </p>
-        <Link href="/eleves/dossiers" className="mt-4 inline-block text-sm text-sky-700 underline">
+        <Link href={listHref} className="mt-4 inline-block text-sm text-sky-700 underline">
           Retour aux dossiers
         </Link>
       </div>
@@ -200,7 +223,7 @@ export default function EleveInscriptionDocsClient() {
           ) : null}
         </div>
         <Link
-          href={`/eleves/dossier/${encodeURIComponent(id)}`}
+          href={dossierHref}
           className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
           Dossier complet
