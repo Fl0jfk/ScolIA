@@ -103,21 +103,21 @@ function describeValkeyUrl(url: string): {
   port: string;
   hasUser: boolean;
   hasPassword: boolean;
+  passwordLen: number;
+  userLen: number;
   urlParseOk: boolean;
   hasCaCert: boolean;
 } {
   try {
-    const u = new URL(url);
+    const parsed = parseValkeyConnection(url);
     return {
-      scheme: u.protocol.replace(/:$/, ""),
-      host: u.hostname,
-      port: u.port || "6379",
-      hasUser: Boolean(u.username || process.env.VALKEY_USER?.trim()),
-      hasPassword: Boolean(
-        u.password ||
-          process.env.VALKEY_PASSWORD?.length ||
-          process.env.VALKEY_PASS?.length,
-      ),
+      scheme: url.startsWith("rediss://") ? "rediss" : "redis",
+      host: parsed.host,
+      port: String(parsed.port),
+      hasUser: Boolean(parsed.username),
+      hasPassword: Boolean(parsed.password),
+      passwordLen: parsed.password?.length ?? 0,
+      userLen: parsed.username?.length ?? 0,
       urlParseOk: true,
       hasCaCert: Boolean(
         process.env.VALKEY_CA_CERT?.trim() ||
@@ -132,6 +132,8 @@ function describeValkeyUrl(url: string): {
       port: "",
       hasUser: false,
       hasPassword: false,
+      passwordLen: 0,
+      userLen: 0,
       urlParseOk: false,
       hasCaCert: false,
     };
@@ -201,7 +203,8 @@ function createRedisClient(url: string): Redis {
     enableReadyCheck: false,
     lazyConnect: true,
     connectTimeout: CONNECT_TIMEOUT_MS,
-    enableOfflineQueue: false,
+    // true le temps du handshake AUTH — false faisait parfois fermer trop tôt.
+    enableOfflineQueue: true,
     keepAlive: 10_000,
     family: 4,
     ...(parsed.useTls
@@ -293,6 +296,71 @@ async function probeSocket(
     socket.setTimeout(CONNECT_TIMEOUT_MS);
     socket.on("timeout", () => done("tls_timeout", socket));
     socket.on("error", (e) => done(`tls_err:${e.message}`, socket));
+  });
+}
+
+function respArray(parts: string[]): string {
+  return (
+    `*${parts.length}\r\n` +
+    parts
+      .map((part) => {
+        const b = Buffer.from(part, "utf8");
+        return `$${b.length}\r\n${part}\r\n`;
+      })
+      .join("")
+  );
+}
+
+/** AUTH Redis en RESP brut (sans ioredis) pour isoler un souci client. */
+async function probeRedisAuth(parsed: ParsedValkey): Promise<string> {
+  if (!parsed.useTls) return "auth_skipped";
+  const servername =
+    process.env.VALKEY_TLS_SERVERNAME?.trim() ||
+    (netIsIp(parsed.host) ? "scolia-cache" : parsed.host);
+  const ca = resolveCaCert();
+  const options: tls.ConnectionOptions = {
+    host: parsed.host,
+    port: parsed.port,
+    servername,
+    rejectUnauthorized: process.env.VALKEY_TLS_REJECT_UNAUTHORIZED !== "0",
+  };
+  if (ca) options.ca = ca;
+
+  return new Promise((resolve) => {
+    let buf = "";
+    let settled = false;
+    const finish = (msg: string, socket?: tls.TLSSocket) => {
+      if (settled) return;
+      settled = true;
+      try {
+        socket?.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve(msg);
+    };
+    const socket = tls.connect(options, () => {
+      const auth = parsed.username
+        ? respArray(["AUTH", parsed.username, parsed.password || ""])
+        : respArray(["AUTH", parsed.password || ""]);
+      socket.write(auth);
+      socket.write(respArray(["PING"]));
+    });
+    socket.setTimeout(CONNECT_TIMEOUT_MS);
+    socket.on("timeout", () => finish("auth_timeout", socket));
+    socket.on("error", (e) => finish(`auth_sock_err:${e.message}`, socket));
+    socket.on("data", (chunk) => {
+      buf += chunk.toString("utf8");
+      const lines = buf.split("\r\n").filter(Boolean);
+      if (lines.length === 0) return;
+      const first = lines[0]!.slice(0, 100);
+      if (first.startsWith("+OK")) finish("auth_ok", socket);
+      else if (first.startsWith("-")) finish(`auth_denied:${first}`, socket);
+      else finish(`auth_raw:${first}`, socket);
+    });
+    socket.on("close", () => {
+      if (!buf) finish("auth_closed_empty", socket);
+    });
   });
 }
 
@@ -502,12 +570,15 @@ export async function getValkeyRuntimeStatus(): Promise<{
   lastError: string | null;
   probeTcp: string | null;
   probeTls: string | null;
+  probeAuth: string | null;
   url: {
     scheme: string;
     host: string;
     port: string;
     hasUser: boolean;
     hasPassword: boolean;
+    passwordLen: number;
+    userLen: number;
     urlParseOk: boolean;
     hasCaCert: boolean;
   } | null;
@@ -526,6 +597,7 @@ export async function getValkeyRuntimeStatus(): Promise<{
       lastError: null,
       probeTcp: null,
       probeTls: null,
+      probeAuth: null,
       url: null,
     };
   }
@@ -543,15 +615,17 @@ export async function getValkeyRuntimeStatus(): Promise<{
       lastError: error instanceof Error ? error.message : "url parse",
       probeTcp: null,
       probeTls: null,
+      probeAuth: null,
       url: urlInfo,
     };
   }
 
-  const [probeTcp, probeTls] = await Promise.all([
+  const [probeTcp, probeTls, probeAuth] = await Promise.all([
     probeSocket(parsed.host, parsed.port, false),
     parsed.useTls
       ? probeSocket(parsed.host, parsed.port, true)
       : Promise.resolve("tls_skipped"),
+    probeRedisAuth(parsed),
   ]);
 
   // Diagnostic : on force une tentative même si le coupe-circuit est ouvert.
@@ -579,6 +653,7 @@ export async function getValkeyRuntimeStatus(): Promise<{
       lastError: lastError,
       probeTcp,
       probeTls,
+      probeAuth,
       url: urlInfo,
     };
   }
@@ -597,6 +672,7 @@ export async function getValkeyRuntimeStatus(): Promise<{
       lastError: lastError,
       probeTcp,
       probeTls,
+      probeAuth,
       url: urlInfo,
     };
   }
@@ -615,6 +691,7 @@ export async function getValkeyRuntimeStatus(): Promise<{
       lastError: pingOk ? null : lastError,
       probeTcp,
       probeTls,
+      probeAuth,
       url: urlInfo,
     };
   } catch (error) {
@@ -631,6 +708,7 @@ export async function getValkeyRuntimeStatus(): Promise<{
       lastError: lastError,
       probeTcp,
       probeTls,
+      probeAuth,
       url: urlInfo,
     };
   }
