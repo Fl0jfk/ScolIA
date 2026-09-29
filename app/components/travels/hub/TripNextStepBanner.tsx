@@ -9,35 +9,23 @@ type Props = {
   onOpenTab?: (tab: TravelsHubTab) => void;
 };
 
-function waitingTitle(guidance: TripNextGuidance): string {
-  const who = guidance.who.toLowerCase();
-  if (who.includes("compta")) return "En attente de comptabilité";
-  if (who.includes("direction")) return "En attente de la direction";
-  if (who.includes("transporteur")) return "En attente du transporteur";
-  if (who.includes("créateur") || who.includes("professeur")) {
-    return "En attente du créateur";
-  }
-  return `En attente — ${guidance.who}`;
-}
-
-/** Encart sous le stepper : qui agit maintenant (sans checklist d’aide). */
+/**
+ * Affiché uniquement quand c’est à l’utilisateur d’agir.
+ * Les états « en attente » sont déjà portés par le stepper / badge de statut.
+ */
 export function TripNextStepBanner({ guidance, onOpenTab }: Props) {
-  const tone = guidance.youMustAct ? "warning" : "info";
-  const icon = guidance.youMustAct ? "👉" : "⏳";
-  const title = guidance.youMustAct
-    ? `À vous de jouer — ${guidance.who}`
-    : waitingTitle(guidance);
+  if (!guidance.youMustAct) return null;
 
   return (
     <div className="mt-3">
       <TripAlert
-        tone={tone}
-        icon={icon}
-        title={title}
+        tone="warning"
+        icon="👉"
+        title={`À vous de jouer — ${guidance.who}`}
         action={
           guidance.ctaTab && guidance.ctaLabel && onOpenTab ? (
             <TripButton
-              variant={guidance.youMustAct ? "warning" : "secondary"}
+              variant="warning"
               size="sm"
               onClick={() => onOpenTab(guidance.ctaTab!)}
             >
@@ -46,17 +34,8 @@ export function TripNextStepBanner({ guidance, onOpenTab }: Props) {
           ) : undefined
         }
       >
-        <p className="text-[11px] font-bold uppercase tracking-wide opacity-70 mb-1">
-          Étape : {guidance.stepLabel}
-        </p>
-        {guidance.youMustAct ? (
-          <>
-            <p className="font-semibold">{guidance.headline}</p>
-            <p className="mt-1">{guidance.what}</p>
-          </>
-        ) : (
-          <p className="font-semibold">{guidance.headline}</p>
-        )}
+        <p className="font-semibold">{guidance.headline}</p>
+        {guidance.what ? <p className="mt-1 text-sm opacity-90">{guidance.what}</p> : null}
       </TripAlert>
     </div>
   );

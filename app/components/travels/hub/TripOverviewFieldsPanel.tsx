@@ -10,7 +10,6 @@ import { emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-fo
 import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import {
-  TripFieldActions,
   TripInput,
   TripSection,
   TripTextarea,
@@ -57,55 +56,64 @@ type TripOverviewFieldsPanelProps = {
   documentCount: number;
 };
 
-function InfoTile({
+/** Tuile légère — demi-largeur desktop, zéro décoration. */
+function Tile({
   icon,
   label,
-  tone = "slate",
   children,
   action,
-  span = 1,
 }: {
   icon: string;
   label: string;
-  tone?: "slate" | "indigo" | "emerald" | "amber" | "sky";
   children: ReactNode;
   action?: ReactNode;
-  span?: 1 | 2;
 }) {
-  const tones = {
-    slate: "border-slate-200/90 bg-white",
-    indigo: "border-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white",
-    emerald: "border-emerald-100 bg-gradient-to-br from-emerald-50/70 to-white",
-    amber: "border-amber-100 bg-gradient-to-br from-amber-50/70 to-white",
-    sky: "border-sky-100 bg-gradient-to-br from-sky-50/70 to-white",
-  };
-  const iconBg = {
-    slate: "bg-slate-100",
-    indigo: "bg-indigo-100",
-    emerald: "bg-emerald-100",
-    amber: "bg-amber-100",
-    sky: "bg-sky-100",
-  };
   return (
-    <div
-      className={`rounded-2xl border p-4 shadow-sm ${tones[tone]} ${span === 2 ? "sm:col-span-2" : ""}`}
-    >
-      <div className="flex items-center gap-2.5 mb-2.5">
-        <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base ${iconBg[tone]}`}
-        >
+    <div className="rounded-xl border border-slate-100 bg-white px-4 py-3">
+      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <span aria-hidden className="opacity-80">
           {icon}
         </span>
-        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+        {label}
+      </p>
+      <div className="mt-1.5 text-sm font-medium text-slate-800 leading-snug min-w-0">
+        {children}
       </div>
-      <div className="text-sm text-slate-800 font-medium leading-snug">{children}</div>
-      {action}
+      {action ? <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">{action}</div> : null}
     </div>
   );
 }
 
+function LinkBtn({
+  onClick,
+  disabled,
+  children,
+  tone = "indigo",
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+  tone?: "indigo" | "amber" | "emerald";
+}) {
+  const tones = {
+    indigo: "text-indigo-600",
+    amber: "text-amber-700",
+    emerald: "text-emerald-700",
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`text-xs font-semibold hover:underline disabled:opacity-50 ${tones[tone]}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function EmptyValue() {
-  return <span className="text-slate-400 italic font-normal">—</span>;
+  return <span className="text-slate-400 font-normal">—</span>;
 }
 
 export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
@@ -133,7 +141,6 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
     openBudgetModal,
     openCuisineModalFromEdit,
     openCuisineModalForOwner,
-    documentCount,
   } = p;
 
   const cuisineActive = Boolean(trip.data.piqueNiqueDetails?.active);
@@ -145,29 +152,25 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
     : 0;
 
   const accompagnateursLabel = trip.data.nomsAccompagnateurs
-    ? `${trip.data.nbAccompagnateurs || 0} — ${trip.data.nomsAccompagnateurs}`
-    : `${trip.data.nbAccompagnateurs || 0} accompagnateur(s)${
-        Number(trip.data.nbAccompagnateurs || 0) > 0 ? " (noms à préciser)" : ""
-      }`;
+    ? String(trip.data.nomsAccompagnateurs)
+    : Number(trip.data.nbAccompagnateurs || 0) > 0
+      ? `${trip.data.nbAccompagnateurs} (noms à préciser)`
+      : "Aucun";
 
   return (
-    <TripSection
-      title="Détails du dossier"
-      subtitle="Repères rapides — logistique et pédagogie"
-      icon="📋"
-    >
+    <TripSection title="Détails du dossier" icon="📋">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <InfoTile icon="📍" label="Destination" tone="indigo" span={2}>
+        <Tile icon="📍" label="Destination">
           {trip.data.destination ? (
-            <span className="whitespace-pre-wrap leading-relaxed text-base font-bold text-slate-900">
+            <span className="line-clamp-2" title={trip.data.destination}>
               {trip.data.destination}
             </span>
           ) : (
             <EmptyValue />
           )}
-        </InfoTile>
+        </Tile>
 
-        <InfoTile icon="🏫" label="Classes concernées" tone="sky">
+        <Tile icon="🏫" label="Classes">
           {isEditing ? (
             <TripClassesMultiSelect
               value={String(editedData.classes || "")}
@@ -175,57 +178,47 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
               onChange={(classes) => setEditedData({ ...editedData, classes })}
             />
           ) : trip.data.classes ? (
-            <span className="font-bold text-slate-900">{trip.data.classes}</span>
+            <span className="line-clamp-2" title={trip.data.classes}>
+              {trip.data.classes}
+            </span>
           ) : (
             <EmptyValue />
           )}
-        </InfoTile>
+        </Tile>
 
-        <InfoTile
+        <Tile
           icon="👥"
           label="Effectifs"
-          tone="indigo"
           action={
-            !isEditing &&
-            (canEditEffectif ||
-              (withBusLogistics && effectifChanged) ||
-              (cuisineOrderSent && cuisineActive && cuisineChanged)) ? (
-              <TripFieldActions>
+            !isEditing ? (
+              <>
                 {canEditEffectif && (
-                  <button
-                    type="button"
-                    onClick={openEffectifModal}
-                    className="text-xs font-bold text-indigo-600 hover:underline"
-                  >
-                    Modifier l&apos;effectif
-                  </button>
+                  <LinkBtn onClick={openEffectifModal}>Modifier</LinkBtn>
                 )}
                 {withBusLogistics && effectifChanged && (
-                  <button
-                    type="button"
-                    onClick={() => requestAmendedBusQuote()}
+                  <LinkBtn
+                    tone="amber"
                     disabled={loadingAction === "amendment-quote"}
-                    className="text-xs font-bold text-amber-700 hover:underline disabled:opacity-50"
+                    onClick={() => requestAmendedBusQuote()}
                   >
-                    Demander un devis rectifié (transport)
-                  </button>
+                    Devis transport rectifié
+                  </LinkBtn>
                 )}
                 {cuisineOrderSent && cuisineActive && cuisineChanged && (
-                  <button
-                    type="button"
-                    onClick={() => sendCuisineAmendment()}
+                  <LinkBtn
+                    tone="emerald"
                     disabled={loadingAction === "cuisine-amendment"}
-                    className="text-xs font-bold text-emerald-700 hover:underline disabled:opacity-50"
+                    onClick={() => sendCuisineAmendment()}
                   >
-                    Renvoyer commande cuisine
-                  </button>
+                    Renvoyer cuisine
+                  </LinkBtn>
                 )}
-              </TripFieldActions>
+              </>
             ) : undefined
           }
         >
           {isEditing ? (
-            <div className="flex gap-3">
+            <div className="flex gap-2">
               <div className="flex-1">
                 <span className="text-[9px] text-slate-400">Élèves</span>
                 <TripInput
@@ -240,7 +233,6 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
                   type="number"
                   min={0}
                   value={editedData.nbAccompagnateurs}
-                  title="Nombre déclaré pour le transport — les noms peuvent être ajoutés ensuite"
                   onChange={(e) => {
                     const raw = e.target.value;
                     const named = formFieldsToAccompagnateurs({
@@ -256,54 +248,39 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
               </div>
             </div>
           ) : (
-            <p className="text-base font-bold text-slate-900">
-              {trip.data.nbEleves} élèves
-              <span className="text-slate-400 font-semibold mx-1.5">·</span>
-              {trip.data.nbAccompagnateurs || "0"} accompagnateurs
-            </p>
+            <span>
+              {trip.data.nbEleves ?? 0} él. · {trip.data.nbAccompagnateurs || 0} acc.
+            </span>
           )}
-        </InfoTile>
+        </Tile>
 
-        <InfoTile
+        <Tile
           icon="🧑‍🏫"
           label="Accompagnateurs"
-          tone="slate"
-          span={2}
           action={
             !isEditing && canEditEffectif ? (
-              <TripFieldActions>
-                <button
-                  type="button"
-                  onClick={openEffectifModal}
-                  className="text-xs font-bold text-indigo-600 hover:underline"
-                >
-                  Modifier effectifs &amp; accompagnateurs
-                </button>
-              </TripFieldActions>
+              <LinkBtn onClick={openEffectifModal}>Modifier</LinkBtn>
             ) : undefined
           }
         >
           {isEditing ? (
-            <div className="space-y-3">
-              <div>
-                <span className="text-[9px] text-slate-400">Nombre (noms optionnels)</span>
-                <TripInput
-                  type="number"
-                  min={0}
-                  value={editedData.nbAccompagnateurs}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    const named = formFieldsToAccompagnateurs({
-                      nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
-                      accompagnateurs: editedData.accompagnateurs,
-                    }).length;
-                    const n = Number(raw);
-                    const safe =
-                      Number.isFinite(n) && n >= 0 ? Math.max(Math.floor(n), named) : named;
-                    setEditedData({ ...editedData, nbAccompagnateurs: safe });
-                  }}
-                />
-              </div>
+            <div className="space-y-2">
+              <TripInput
+                type="number"
+                min={0}
+                value={editedData.nbAccompagnateurs}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const named = formFieldsToAccompagnateurs({
+                    nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
+                    accompagnateurs: editedData.accompagnateurs,
+                  }).length;
+                  const n = Number(raw);
+                  const safe =
+                    Number.isFinite(n) && n >= 0 ? Math.max(Math.floor(n), named) : named;
+                  setEditedData({ ...editedData, nbAccompagnateurs: safe });
+                }}
+              />
               <TripAccompagnateursSelect
                 value={formFieldsToAccompagnateurs({
                   nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
@@ -320,32 +297,25 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
               />
             </div>
           ) : (
-            <span className="leading-relaxed">{accompagnateursLabel}</span>
+            <span className="line-clamp-2 font-normal text-slate-700" title={accompagnateursLabel}>
+              {accompagnateursLabel}
+            </span>
           )}
-        </InfoTile>
+        </Tile>
 
-        <InfoTile
+        <Tile
           icon="📅"
           label="Dates"
-          tone="amber"
           action={
-            !isEditing && (canEditDates || datesChanged) ? (
-              <TripFieldActions>
-                {canEditDates && (
-                  <button
-                    type="button"
-                    onClick={openDateModal}
-                    className="text-xs font-bold text-indigo-600 hover:underline"
-                  >
-                    Modifier dates &amp; horaires
-                  </button>
-                )}
+            !isEditing ? (
+              <>
+                {canEditDates && <LinkBtn onClick={openDateModal}>Modifier</LinkBtn>}
                 {datesChanged && (
-                  <p className="text-[10px] text-amber-700 font-semibold">
-                    Dates modifiées depuis le dernier envoi transport
-                  </p>
+                  <span className="text-[10px] font-semibold text-amber-700">
+                    Modifiées depuis l’envoi transport
+                  </span>
                 )}
-              </TripFieldActions>
+              </>
             ) : undefined
           }
         >
@@ -371,11 +341,11 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
               )}
             </div>
           ) : (
-            <span className="font-bold text-slate-900">{dateLabel || <EmptyValue />}</span>
+            <span>{dateLabel || <EmptyValue />}</span>
           )}
-        </InfoTile>
+        </Tile>
 
-        <InfoTile icon="🕐" label="Horaires" tone="amber">
+        <Tile icon="🕐" label="Horaires">
           {isEditing ? (
             <div className="flex gap-2">
               <TripInput
@@ -391,39 +361,24 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
             </div>
           ) : (
             <span>
-              Départ <strong>{trip.data.startTime || "—"}</strong>
-              <span className="text-slate-400 mx-1.5">·</span>
-              Retour <strong>{trip.data.endTime || "—"}</strong>
+              {trip.data.startTime || "—"} → {trip.data.endTime || "—"}
             </span>
           )}
-        </InfoTile>
+        </Tile>
 
-        <InfoTile
+        <Tile
           icon="💶"
           label="Budget"
-          tone="emerald"
           action={
             !isEditing ? (
-              <div className="mt-3 flex flex-col items-start gap-1.5">
-                {canAccessComptaTab && (
-                  <button
-                    type="button"
-                    onClick={() => setHubTab("compta")}
-                    className="text-xs font-bold text-indigo-600 hover:underline"
-                  >
-                    Ouvrir l&apos;onglet Compta
-                  </button>
-                )}
+              <>
                 {canEditEffectif && (
-                  <button
-                    type="button"
-                    onClick={openBudgetModal}
-                    className="text-xs font-bold text-indigo-600 hover:underline"
-                  >
-                    Modifier le budget prévisionnel
-                  </button>
+                  <LinkBtn onClick={openBudgetModal}>Modifier</LinkBtn>
                 )}
-              </div>
+                {canAccessComptaTab && (
+                  <LinkBtn onClick={() => setHubTab("compta")}>Compta</LinkBtn>
+                )}
+              </>
             ) : undefined
           }
         >
@@ -437,51 +392,40 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
                   setEditedData({ ...editedData, coutTotal: Number(e.target.value) })
                 }
               />
-              <span className="text-xs font-bold text-slate-500">€ total</span>
+              <span className="text-xs text-slate-500">€</span>
             </div>
           ) : (
-            <div>
-              <p className="text-base font-bold text-slate-900">
-                {Math.round(Number(trip.data.coutTotal))} €{" "}
-                <span className="text-xs font-semibold text-slate-500">prévisionnel</span>
-              </p>
-              {trip.data.finalTotalCost && (
-                <p className="text-emerald-700 font-bold text-sm mt-1">
-                  Validé compta : {trip.data.finalTotalCost} € ({trip.data.costPerStudent} €/élève)
-                </p>
+            <span>
+              {Math.round(Number(trip.data.coutTotal) || 0)} €
+              {trip.data.finalTotalCost ? (
+                <span className="text-emerald-700 font-semibold">
+                  {" "}
+                  · validé {trip.data.finalTotalCost} €
+                </span>
+              ) : (
+                <span className="text-slate-400 font-normal"> prév.</span>
               )}
-            </div>
+            </span>
           )}
-        </InfoTile>
+        </Tile>
 
-        <InfoTile
+        <Tile
           icon="🥪"
           label="Restauration"
-          tone={cuisineActive || editedData?.piqueNiqueDetails?.active ? "emerald" : "slate"}
           action={
             !isEditing ? (
-              <div className="mt-3 flex flex-col items-start gap-1.5">
+              <>
                 {cuisineActive && (
-                  <button
-                    type="button"
-                    onClick={() => setHubTab("cuisine")}
-                    className="text-xs font-bold text-emerald-700 hover:underline"
-                  >
-                    Voir le détail restauration →
-                  </button>
+                  <LinkBtn tone="emerald" onClick={() => setHubTab("cuisine")}>
+                    Détail
+                  </LinkBtn>
                 )}
                 {canEditEffectif && (
-                  <button
-                    type="button"
-                    onClick={openCuisineModalForOwner}
-                    className="text-xs font-bold text-indigo-600 hover:underline"
-                  >
-                    {cuisineActive
-                      ? "Modifier la commande cuisine"
-                      : "Configurer une commande cuisine"}
-                  </button>
+                  <LinkBtn onClick={openCuisineModalForOwner}>
+                    {cuisineActive ? "Modifier" : "Configurer"}
+                  </LinkBtn>
                 )}
-              </div>
+              </>
             ) : undefined
           }
         >
@@ -489,70 +433,39 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
             <button
               type="button"
               onClick={openCuisineModalFromEdit}
-              className={`w-full p-3 rounded-xl border-2 flex items-center justify-between transition-all text-left ${
-                editedData?.piqueNiqueDetails?.active
-                  ? "border-emerald-400 bg-emerald-50"
-                  : "border-slate-200 bg-slate-50"
-              }`}
+              className="text-left text-sm font-semibold text-indigo-600 hover:underline"
             >
-              <div>
-                <p className="font-bold text-slate-900 text-sm">Commande restauration</p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {editedData?.piqueNiqueDetails?.active
-                    ? `${getTotalMeals(editedData.piqueNiqueDetails)} repas configurés`
-                    : "Configurer"}
-                </p>
-              </div>
-              <span className="text-xl">🥪</span>
+              {editedData?.piqueNiqueDetails?.active
+                ? `${getTotalMeals(editedData.piqueNiqueDetails)} repas — modifier`
+                : "Configurer la commande"}
             </button>
           ) : cuisineActive ? (
-            <div>
-              <p className="font-bold text-emerald-800">Commande cuisine configurée</p>
-              <span className="inline-block mt-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">
-                {mealCount} repas · {cuisineDays} jour(s)
-              </span>
-            </div>
+            <span>
+              {mealCount} repas · {cuisineDays} j.
+            </span>
           ) : (
-            <span className="text-slate-500">Pas de commande cuisine</span>
+            <span className="text-slate-400 font-normal">Aucune</span>
           )}
-        </InfoTile>
+        </Tile>
 
-        <InfoTile icon="🎯" label="Objectifs pédagogiques" tone="slate" span={2}>
+        <Tile icon="🎯" label="Objectifs">
           {isEditing ? (
             <TripTextarea
               value={editedData.objectifs}
               onChange={(e) => setEditedData({ ...editedData, objectifs: e.target.value })}
             />
           ) : trip.data.objectifs ? (
-            <span className="whitespace-pre-wrap leading-relaxed font-normal text-slate-700">
+            <span
+              className="line-clamp-3 font-normal text-slate-700 whitespace-pre-wrap"
+              title={trip.data.objectifs}
+            >
               {trip.data.objectifs}
             </span>
           ) : (
-            <span className="text-slate-400 italic font-normal">Aucun objectif renseigné.</span>
+            <EmptyValue />
           )}
-        </InfoTile>
+        </Tile>
       </div>
-
-      {documentCount > 0 && (
-        <div className="mt-4 flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-sm shadow-sm">
-            📎
-          </span>
-          <p className="text-xs text-slate-600">
-            <strong className="text-slate-800">
-              {documentCount} document{documentCount > 1 ? "s" : ""}
-            </strong>{" "}
-            dans le dossier —{" "}
-            <button
-              type="button"
-              onClick={() => setHubTab("documents")}
-              className="font-bold text-indigo-600 hover:underline"
-            >
-              voir l&apos;onglet Documents
-            </button>
-          </p>
-        </div>
-      )}
     </TripSection>
   );
 }
