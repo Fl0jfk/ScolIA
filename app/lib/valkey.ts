@@ -24,8 +24,8 @@ const CIRCUIT_COOLDOWN_HARD_MS = 600_000;
 /** Commandes cache (GET/SET) : court, ne pas freiner le hot path. */
 const CMD_TIMEOUT_MS = 150;
 /** Connect initial Serverless → Redis public : un peu plus large. */
-const CONNECT_TIMEOUT_MS = 3_000;
-const DIAG_PING_TIMEOUT_MS = 1_500;
+const CONNECT_TIMEOUT_MS = 5_000;
+const DIAG_PING_TIMEOUT_MS = 2_000;
 
 export function isValkeyConfigured(): boolean {
   if (process.env.VALKEY_DISABLED === "1") return false;
@@ -102,6 +102,7 @@ function describeValkeyUrl(url: string): {
   hasUser: boolean;
   hasPassword: boolean;
   urlParseOk: boolean;
+  hasCaCert: boolean;
 } {
   try {
     const u = new URL(url);
@@ -109,9 +110,18 @@ function describeValkeyUrl(url: string): {
       scheme: u.protocol.replace(/:$/, ""),
       host: u.hostname,
       port: u.port || "6379",
-      hasUser: Boolean(u.username),
-      hasPassword: Boolean(u.password),
+      hasUser: Boolean(u.username || process.env.VALKEY_USER?.trim()),
+      hasPassword: Boolean(
+        u.password ||
+          process.env.VALKEY_PASSWORD?.length ||
+          process.env.VALKEY_PASS?.length,
+      ),
       urlParseOk: true,
+      hasCaCert: Boolean(
+        process.env.VALKEY_CA_CERT?.trim() ||
+          process.env.VALKEY_TLS_CA?.trim() ||
+          process.env.VALKEY_CA_CERT_B64?.trim(),
+      ),
     };
   } catch {
     return {
@@ -121,27 +131,79 @@ function describeValkeyUrl(url: string): {
       hasUser: false,
       hasPassword: false,
       urlParseOk: false,
+      hasCaCert: false,
     };
   }
 }
 
+function resolveCaCert(): string | undefined {
+  const raw =
+    process.env.VALKEY_CA_CERT?.trim() || process.env.VALKEY_TLS_CA?.trim();
+  if (raw) return raw.replace(/\\n/g, "\n");
+  const b64 = process.env.VALKEY_CA_CERT_B64?.trim();
+  if (b64) {
+    try {
+      return Buffer.from(b64, "base64").toString("utf8");
+    } catch {
+      rememberError("VALKEY_CA_CERT_B64 invalide");
+    }
+  }
+  return undefined;
+}
+
+type ParsedValkey = {
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+  useTls: boolean;
+};
+
+function parseValkeyConnection(url: string): ParsedValkey {
+  const u = new URL(url);
+  const userEnv = process.env.VALKEY_USER?.trim();
+  const passEnv = process.env.VALKEY_PASSWORD ?? process.env.VALKEY_PASS;
+  const username = userEnv || (u.username ? decodeURIComponent(u.username) : "");
+  const password =
+    passEnv !== undefined && passEnv !== null
+      ? String(passEnv)
+      : u.password
+        ? decodeURIComponent(u.password)
+        : "";
+  return {
+    host: u.hostname,
+    port: Number(u.port || 6379),
+    ...(username ? { username } : {}),
+    ...(password ? { password } : {}),
+    useTls: u.protocol === "rediss:",
+  };
+}
+
 function createRedisClient(url: string): Redis {
-  const useTls = url.startsWith("rediss://");
-  const redis = new Redis(url, {
+  const parsed = parseValkeyConnection(url);
+  const ca = resolveCaCert();
+
+  // Options explicites (pas seulement l’URL) : plus fiable avec ACL Redis 6+ / Scaleway.
+  const redis = new Redis({
+    host: parsed.host,
+    port: parsed.port,
+    ...(parsed.username ? { username: parsed.username } : {}),
+    ...(parsed.password ? { password: parsed.password } : {}),
     maxRetriesPerRequest: 0,
-    enableReadyCheck: true,
+    // INFO du ready-check peut être refusé selon l’ACL Scaleway → handshake coupé.
+    enableReadyCheck: false,
     lazyConnect: true,
     connectTimeout: CONNECT_TIMEOUT_MS,
-    // Ne PAS poser commandTimeout ici : ioredis l’applique aussi au handshake
-    // (AUTH / ready check). 150 ms vers un Redis public Scaleway = "Connection is closed."
     enableOfflineQueue: false,
     keepAlive: 10_000,
     family: 4,
-    ...(useTls
+    ...(parsed.useTls
       ? {
           tls: {
+            // Conteneur → IP publique Scaleway : flag=0 désactive la vérif cert.
             rejectUnauthorized:
               process.env.VALKEY_TLS_REJECT_UNAUTHORIZED !== "0",
+            ...(ca ? { ca } : {}),
           },
         }
       : {}),
@@ -161,10 +223,8 @@ function createRedisClient(url: string): Redis {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[valkey]", msg);
     rememberError(msg);
-    if (/closed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|timeout|NOAUTH|WRONGPASS|invalid|CERT/i.test(msg)) {
-      tripCircuit(msg);
-      discardClient(redis);
-    }
+    // Ne pas discard ici pendant le connect : ça transforme toute erreur TLS/AUTH
+    // en "Connection is closed." trompeur.
   });
   redis.on("ready", () => {
     if (!loggedReady) {
@@ -173,10 +233,8 @@ function createRedisClient(url: string): Redis {
     }
   });
   redis.on("end", () => {
-    // Évite de traiter un disconnect volontaire (discardClient) comme une panne.
     if (client !== redis) return;
     rememberError("connexion fermée");
-    tripCircuit("connexion fermée");
     client = undefined;
     loggedReady = false;
   });
