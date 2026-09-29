@@ -260,7 +260,7 @@ export default function StageSignaturesDrawer({
                             : item.status === "refuse"
                               ? "Refusé"
                               : item.nonBlocking
-                                ? "Non requis (autre parent déjà signé)"
+                                ? "Optionnel — dernière signature (l'autre responsable suffit)"
                                 : "En attente de signature"}
                         </p>
                       </div>

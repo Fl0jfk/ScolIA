@@ -18,8 +18,9 @@ export type StageSignatureProgressItem = {
   reviewStatus?: StageSignature["reviewStatus"];
   signMethod?: StageSignature["signMethod"];
   /**
-   * Parent encore en attente alors que l'autre responsable a déjà signé :
-   * n'empêche pas la clôture du circuit.
+   * Parent encore en attente alors que l'autre a déjà signé ET que tous les
+   * autres signataires ont validé : dernière signature optionnelle (skippable).
+   * Tant que d'autres signataires sont en cours, les deux parents restent actifs.
    */
   nonBlocking?: boolean;
 };
@@ -59,14 +60,24 @@ function parentSiblingAlreadySigned(
   );
 }
 
+/** True si tous les signataires hors parents ont déjà validé. */
+function allNonParentSignaturesValidated(all: StageSignature[]): boolean {
+  const others = all.filter((s) => !isParentStageSignerRole(s.role));
+  if (others.length === 0) return true;
+  return others.every(isStageSignatureFullyValidated);
+}
+
 function mapSignature(
   sig: StageSignature,
   all: StageSignature[],
 ): StageSignatureProgressItem {
+  // Skip du 2ᵉ parent uniquement quand il serait la dernière signature attendue
+  // (l'autre parent a signé + tout le reste est OK). Sinon les deux restent actifs.
   const nonBlocking =
     !isStageSignatureFullyValidated(sig) &&
     sig.status !== "refuse" &&
-    parentSiblingAlreadySigned(sig, all);
+    parentSiblingAlreadySigned(sig, all) &&
+    allNonParentSignaturesValidated(all);
 
   return {
     id: sig.id,

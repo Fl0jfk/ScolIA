@@ -540,8 +540,10 @@ export function isParentStageSignerRole(role: StageSignerRole): boolean {
 
 /**
  * Convention complète quand tous les signataires requis ont validé.
- * Parents : les deux peuvent être invités et signer ; dès qu'un des deux a signé,
- * l'exigence « responsable légal » est satisfaite (l'autre n'est pas bloquant).
+ * Parents : les deux restent invitables et peuvent signer tant que d'autres
+ * signataires sont en cours. Dès qu'un parent a signé et que tous les
+ * non-parents ont validé, l'exigence « responsable légal » est satisfaite
+ * (le second parent n'est plus bloquant — dernière signature skippable).
  */
 export function conventionAllSignaturesValidated(signatures: StageSignature[]): boolean {
   if (signatures.length === 0) return false;

@@ -653,7 +653,7 @@ export default function StageConventionDetail({
                       <span aria-hidden className="text-sm font-black leading-none">
                         ×
                       </span>
-                      Non requis
+                      Optionnel
                     </span>
                   ) : (
                     <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">

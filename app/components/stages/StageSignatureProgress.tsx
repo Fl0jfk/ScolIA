@@ -103,7 +103,7 @@ export default function StageSignatureProgress({
                   : item.status === "refuse"
                     ? "Refusé"
                     : item.nonBlocking
-                      ? "Non requis — l'autre responsable a déjà signé"
+                      ? "Optionnel — dernière signature (l'autre responsable suffit)"
                       : "En attente"
               }`}
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
@@ -148,7 +148,7 @@ export default function StageSignatureProgress({
                             <span aria-hidden className="text-sm font-black leading-none">
                               ×
                             </span>
-                            Non requis
+                            Optionnel
                           </span>
                         )
                       : "En attente"}
