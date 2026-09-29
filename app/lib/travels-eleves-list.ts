@@ -62,6 +62,24 @@ export function toParticipantEleve(
   };
 }
 
+/** Tri listes nominatives : classe d’abord, puis nom / prénom. */
+export function compareParticipantsByClasseThenName(
+  a: { nom: string; prenom: string; classe?: string | null },
+  b: { nom: string; prenom: string; classe?: string | null },
+): number {
+  const ca = String(a.classe || "").trim();
+  const cb = String(b.classe || "").trim();
+  const classCmp = ca.localeCompare(cb, "fr", { sensitivity: "base", numeric: true });
+  if (classCmp !== 0) return classCmp;
+  const nomCmp = String(a.nom || "").localeCompare(String(b.nom || ""), "fr", {
+    sensitivity: "base",
+  });
+  if (nomCmp !== 0) return nomCmp;
+  return String(a.prenom || "").localeCompare(String(b.prenom || ""), "fr", {
+    sensitivity: "base",
+  });
+}
+
 /** Nombre de paniers attribués dans la liste nominative. */
 export function countPanierRepasAssigned(participants: TravelsParticipantEleve[]): number {
   return participants.filter((p) => p.panierRepas === true).length;
@@ -91,9 +109,7 @@ export function buildPanierRepasListCsv(participants: TravelsParticipantEleve[])
   const header = "Nom;Prénom;Classe;INE";
   const rows = withPanier
     .slice()
-    .sort((a, b) =>
-      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
-    )
+    .sort(compareParticipantsByClasseThenName)
     .map((p) =>
       [p.nom, p.prenom, p.classe || "", p.ine.startsWith("local:") ? "" : p.ine]
         .map((c) => csvCell(String(c)))
@@ -148,9 +164,7 @@ function buildElevesListCsv(participants: TravelsParticipantEleve[]): string {
   const header = "Nom;Prénom;Classe;INE";
   const rows = participants
     .slice()
-    .sort((a, b) =>
-      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
-    )
+    .sort(compareParticipantsByClasseThenName)
     .map((p) =>
       [p.nom, p.prenom, p.classe || "", p.ine.startsWith("local:") ? "" : p.ine]
         .map((c) => csvCell(String(c)))
@@ -167,9 +181,7 @@ export function buildElevesListCsvForTransporter(
   const header = "Nom;Prénom;Classe;Email parent;Tél. parent";
   const rows = participants
     .slice()
-    .sort((a, b) =>
-      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
-    )
+    .sort(compareParticipantsByClasseThenName)
     .map((p) => {
       const full = elevesByKey.get(eleveParticipantKey(p)) || elevesByKey.get(p.ine);
       const emails = full ? collectParticipantParentEmails(full) : [];

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import {
   applyParticipantElevesToTripData,
+  compareParticipantsByClasseThenName,
   countPanierRepasAssigned,
   cuisineWhoEatsMissingMessage,
   eleveParticipantKey,
@@ -178,22 +179,28 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         if (snap) list.push({ key, eleve: snap });
       }
     }
-    return list.sort((a, b) =>
-      `${a.eleve.nom} ${a.eleve.prenom}`.localeCompare(
-        `${b.eleve.nom} ${b.eleve.prenom}`,
-        "fr",
-        { sensitivity: "base" },
-      ),
-    );
+    return list.sort((a, b) => compareParticipantsByClasseThenName(a.eleve, b.eleve));
   }, [selectedKeys, elevesByKey, trip.data.participantEleves]);
 
-  const classesInList = useMemo(() => {
-    const set = new Set<string>();
-    for (const { eleve } of selectedParticipants) {
-      if (eleve.classe?.trim()) set.add(eleve.classe.trim());
+  /** Groupes classe → élèves (classe d’abord, puis nom / prénom). */
+  const selectedByClass = useMemo(() => {
+    const groups: Array<{
+      classe: string;
+      items: Array<{ key: string; eleve: EleveConfig | TravelsParticipantEleve }>;
+    }> = [];
+    for (const item of selectedParticipants) {
+      const classe = item.eleve.classe?.trim() || "Sans classe";
+      const last = groups[groups.length - 1];
+      if (last && last.classe === classe) last.items.push(item);
+      else groups.push({ classe, items: [item] });
     }
-    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+    return groups;
   }, [selectedParticipants]);
+
+  const classesInList = useMemo(
+    () => selectedByClass.map((g) => g.classe).filter((c) => c !== "Sans classe"),
+    [selectedByClass],
+  );
 
   const buildParticipants = useCallback((): TravelsParticipantEleve[] => {
     const list: TravelsParticipantEleve[] = [];
@@ -750,38 +757,52 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                   vous pouvez enchaîner plusieurs classes.
                 </p>
               ) : (
-                <ul className="max-h-72 divide-y divide-indigo-100 overflow-y-auto rounded-xl border border-indigo-100 bg-white">
-                  {selectedParticipants.map(({ key, eleve }) => (
-                    <li key={key} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
-                      <span className="min-w-0 flex-1">
-                        <span className="font-medium text-slate-800">
-                          {eleve.nom} {eleve.prenom}
-                        </span>
-                        <span className="ml-2 text-xs text-slate-400">{eleve.classe}</span>
-                      </span>
-                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
-                        <input
-                          type="checkbox"
-                          checked={droitByKey[key] !== false}
-                          disabled={!canEdit}
-                          onChange={(ev) =>
-                            setDroitByKey((d) => ({ ...d, [key]: ev.target.checked }))
-                          }
-                        />
-                        Droit image OK
-                      </label>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => removeEleveFromList(key)}
-                          className="text-xs font-bold text-rose-600 hover:underline"
-                        >
-                          Retirer
-                        </button>
-                      )}
-                    </li>
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-indigo-100 bg-white">
+                  {selectedByClass.map(({ classe, items }) => (
+                    <div key={classe}>
+                      <div className="sticky top-0 z-[1] border-b border-indigo-200/80 bg-indigo-100/90 px-3 py-1.5 backdrop-blur-sm">
+                        <p className="text-[11px] font-black uppercase tracking-wide text-indigo-900">
+                          {classe}
+                          <span className="ml-2 font-semibold normal-case tracking-normal text-indigo-700/70">
+                            {items.length} élève{items.length > 1 ? "s" : ""}
+                          </span>
+                        </p>
+                      </div>
+                      <ul className="divide-y divide-indigo-50">
+                        {items.map(({ key, eleve }) => (
+                          <li
+                            key={key}
+                            className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm"
+                          >
+                            <span className="min-w-0 flex-1 font-medium text-slate-800">
+                              {eleve.nom} {eleve.prenom}
+                            </span>
+                            <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={droitByKey[key] !== false}
+                                disabled={!canEdit}
+                                onChange={(ev) =>
+                                  setDroitByKey((d) => ({ ...d, [key]: ev.target.checked }))
+                                }
+                              />
+                              Droit image OK
+                            </label>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => removeEleveFromList(key)}
+                                className="text-xs font-bold text-rose-600 hover:underline"
+                              >
+                                Retirer
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </div>
 
@@ -814,39 +835,50 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                     Ajoutez d’abord des élèves à la liste (étape 2).
                   </p>
                 ) : (
-                  <ul className="max-h-64 divide-y divide-amber-100 overflow-y-auto rounded-xl border border-amber-100 bg-white">
-                    {selectedParticipants.map(({ key, eleve }) => {
-                      const on = panierByKey[key] === true;
-                      const disableAdd = !on && panierRemaining <= 0;
-                      return (
-                        <li key={key} className="flex items-center gap-3 px-3 py-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={on}
-                            disabled={!canEdit || disableAdd}
-                            onChange={() => togglePanierRepas(key)}
-                            className="rounded border-amber-300"
-                            title={
-                              disableAdd
-                                ? "Tous les paniers commandés sont déjà attribués"
-                                : undefined
-                            }
-                          />
-                          <span className="min-w-0 flex-1 font-medium text-slate-800">
-                            {eleve.nom} {eleve.prenom}
-                            <span className="ml-2 text-xs font-normal text-slate-400">
-                              {eleve.classe}
+                  <div className="max-h-64 overflow-y-auto rounded-xl border border-amber-100 bg-white">
+                    {selectedByClass.map(({ classe, items }) => (
+                      <div key={classe}>
+                        <div className="sticky top-0 z-[1] border-b border-amber-200/80 bg-amber-100/90 px-3 py-1.5 backdrop-blur-sm">
+                          <p className="text-[11px] font-black uppercase tracking-wide text-amber-950">
+                            {classe}
+                            <span className="ml-2 font-semibold normal-case tracking-normal text-amber-800/70">
+                              {items.length} élève{items.length > 1 ? "s" : ""}
                             </span>
-                          </span>
-                          {on ? (
-                            <span className="text-[10px] font-bold uppercase text-amber-800">
-                              Panier
-                            </span>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ul>
+                          </p>
+                        </div>
+                        <ul className="divide-y divide-amber-50">
+                          {items.map(({ key, eleve }) => {
+                            const on = panierByKey[key] === true;
+                            const disableAdd = !on && panierRemaining <= 0;
+                            return (
+                              <li key={key} className="flex items-center gap-3 px-3 py-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  disabled={!canEdit || disableAdd}
+                                  onChange={() => togglePanierRepas(key)}
+                                  className="rounded border-amber-300"
+                                  title={
+                                    disableAdd
+                                      ? "Tous les paniers commandés sont déjà attribués"
+                                      : undefined
+                                  }
+                                />
+                                <span className="min-w-0 flex-1 font-medium text-slate-800">
+                                  {eleve.nom} {eleve.prenom}
+                                </span>
+                                {on ? (
+                                  <span className="text-[10px] font-bold uppercase text-amber-800">
+                                    Panier
+                                  </span>
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
                 )}
 
                 {trip.data.panierRepasListSentAt && (

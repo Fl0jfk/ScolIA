@@ -10,6 +10,7 @@ import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   buildPanierRepasListCsv,
   clampPanierRepasAssignments,
+  compareParticipantsByClasseThenName,
   countPanierRepasAssigned,
   getCuisineMealsOrdered,
 } from "@/app/lib/travels-eleves-list";
@@ -127,9 +128,7 @@ export async function sendPanierRepasListForTrip(
 
   const lines = withPanier
     .slice()
-    .sort((a, b) =>
-      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
-    )
+    .sort(compareParticipantsByClasseThenName)
     .map(
       (p, i) => `${i + 1}. ${p.nom} ${p.prenom}${p.classe ? ` (${p.classe})` : ""}`,
     );
