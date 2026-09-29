@@ -306,7 +306,7 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
         : "En attente de la comptabilité.",
       what: isCompta
         ? "Sans validation budget, la direction ne pourra pas faire la validation finale."
-        : "Le transport (si besoin) est passé. Seule la compta peut valider les finances pour débloquer la suite.",
+        : "Seule la comptabilité peut valider le budget pour débloquer la suite.",
       steps: isCompta
         ? [
             "Ouvrez l’onglet Compta.",

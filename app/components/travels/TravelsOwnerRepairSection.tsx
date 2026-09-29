@@ -89,14 +89,19 @@ export default function TravelsOwnerRepairSection({ trip, onRepaired }: Props) {
   }
 
   return (
-    <div className="mx-4 md:mx-0 mb-6 rounded-2xl border border-amber-300 bg-amber-50 p-4 space-y-3">
-      <div>
-        <p className="text-sm font-black text-amber-900">Correction du créateur du dossier</p>
-        <p className="text-xs text-amber-800 mt-1">
-          Créateur actuellement enregistré : <strong>{trip.ownerName || "—"}</strong>
-          {trip.ownerId ? ` (${trip.ownerId})` : ""}. Sélectionnez le vrai créateur si le nom a été
-          écrasé par une modification antérieure.
-        </p>
+    <div className="mb-6 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/60 p-5 space-y-3 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-lg">
+          👤
+        </span>
+        <div>
+          <p className="text-sm font-black text-amber-950">Correction du créateur du dossier</p>
+          <p className="text-xs text-amber-800/90 mt-1 leading-relaxed">
+            Créateur actuel : <strong>{trip.ownerName || "—"}</strong>
+            {trip.ownerId ? ` (${trip.ownerId})` : ""}. À utiliser si le nom a été écrasé par une
+            modification antérieure.
+          </p>
+        </div>
       </div>
       <TravelsTeacherPicker
         users={users}

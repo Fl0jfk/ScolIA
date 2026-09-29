@@ -33,6 +33,7 @@ import type { TravelsHubTab, TravelsTrip } from "@/app/lib/travels-types";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 import { TRAVELS_HUB_TABS, TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types";
 import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
+import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
@@ -43,7 +44,6 @@ import { TripInternalThreadPanel } from "@/app/components/travels/hub/TripIntern
 import { TripOverviewFieldsPanel } from "@/app/components/travels/hub/TripOverviewFieldsPanel";
 import { TripRemindersBanner } from "@/app/components/travels/hub/TripRemindersBanner";
 import { TripNextStepBanner } from "@/app/components/travels/hub/TripNextStepBanner";
-import TravelsOwnerRepairSection from "@/app/components/travels/TravelsOwnerRepairSection";
 import TravelsComptaSheetForm from "@/app/components/travels/TravelsComptaSheetForm";
 import type { TravelsComptaSheet } from "@/app/lib/travels-compta-sheet";
 import { comptaDocumentsFingerprint, comptaDefinitiveCostPerStudent, computeComptaSheetDerived } from "@/app/lib/travels-compta-sheet";
@@ -1583,17 +1583,11 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         }
         status={trip.status}
         statusPulse={trip.status === "BESOIN_MODIFICATION"}
+        coverImageUrl={normalizeTravelImageUrl(
+          (typeof trip.imageUrl === "string" && trip.imageUrl) ||
+            (typeof trip.data?.imageUrl === "string" ? trip.data.imageUrl : undefined),
+        )}
       />
-
-      {canReassignTripOwner && (
-        <TravelsOwnerRepairSection
-          trip={trip}
-          onRepaired={(updated) => {
-            setTrip(updated);
-            setEditedData(updated.data);
-          }}
-        />
-      )}
 
       <TripQuickStats
         items={[
@@ -1845,6 +1839,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           canManage={isOwner || canSign || isGlobalAdmin || isAdministratif}
           canRequalify={canRequalifyToBus}
           isGlobalAdmin={isGlobalAdmin}
+          canReassignOwner={canReassignTripOwner}
           onTripUpdated={(t) => {
             setTrip(t);
             setEditedData(t.data);

@@ -8,6 +8,7 @@ import type { TravelsTrip } from "@/app/lib/travels-types";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { TripButton, TripSection } from "@/app/components/travels/TripDetailUI";
 import { TripMailPreviewModal } from "@/app/components/travels/hub/TripMailPreviewModal";
+import TravelsOwnerRepairSection from "@/app/components/travels/TravelsOwnerRepairSection";
 
 function existingTransportRequest(trip: TravelsTrip) {
   const tr = trip.data.transportRequest;
@@ -27,12 +28,14 @@ export function TripActionsPanel({
   /** Requalification SIMPLE/COMPLEX → bus : direction, admin général, administratif (pas le seul demandeur). */
   canRequalify = false,
   isGlobalAdmin = false,
+  canReassignOwner = false,
   onTripUpdated,
 }: {
   trip: TravelsTrip;
   canManage: boolean;
   canRequalify?: boolean;
   isGlobalAdmin?: boolean;
+  canReassignOwner?: boolean;
   onTripUpdated: (trip: TravelsTrip) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -181,6 +184,10 @@ export function TripActionsPanel({
 
   return (
     <>
+      {canReassignOwner && (
+        <TravelsOwnerRepairSection trip={trip} onRepaired={onTripUpdated} />
+      )}
+
       <TripSection title="Actions du sas voyage" subtitle="Export, annulation, aperçus mails" icon="⚡">
         <div className="grid gap-4 sm:grid-cols-2">
           {canRequalifyToBus && (
