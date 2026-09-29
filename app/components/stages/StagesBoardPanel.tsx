@@ -180,13 +180,24 @@ export default function StagesBoardPanel({
   permissions,
   onLoadDetail,
   onCreateOffline,
+  onBulkResendSignatures,
+  bulkResendBusy,
 }: {
   board: StagesHubBoard;
   permissions: StagesHubPermissions | undefined;
   onLoadDetail: (id: string) => void;
   onCreateOffline?: () => void;
+  onBulkResendSignatures?: (filters: {
+    secteur: SecteurFilter;
+    className: string;
+    pendingConventionCount: number;
+  }) => void;
+  bulkResendBusy?: boolean;
 }) {
   const seeDeposits = Boolean(permissions?.canSeeAdminDepositQueue);
+  const canBulkResend = Boolean(
+    permissions?.canReviewPreconvention && onBulkResendSignatures,
+  );
   const [secteur, setSecteur] = useState<SecteurFilter>("all");
   const [className, setClassName] = useState("all");
 
@@ -242,6 +253,11 @@ export default function StagesBoardPanel({
   );
 
   const signedCount = board.counts.signed ?? 0;
+  const signaturesPendingTotal = board.counts.signaturesPending ?? 0;
+  const bulkTargetCount =
+    secteur === "all" && className === "all"
+      ? signaturesPendingTotal
+      : filteredSignatures.length;
   const kpiCards: Array<[string, number]> = seeDeposits
     ? [
         ["Dépôts à valider", filteredAdminQueue.length],
@@ -323,15 +339,40 @@ export default function StagesBoardPanel({
             Réinitialiser les filtres
           </button>
         )}
-        {permissions?.canReviewPreconvention && onCreateOffline ? (
-          <button
-            type="button"
-            onClick={onCreateOffline}
-            className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#275a3e] sm:ml-auto"
-          >
-            Stage hors plateforme
-          </button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          {canBulkResend ? (
+            <button
+              type="button"
+              disabled={bulkResendBusy || bulkTargetCount === 0}
+              title={
+                bulkTargetCount === 0
+                  ? "Aucune convention en cours de signature pour ce filtre."
+                  : "Envoie une relance à tous les signataires qui n’ont pas encore signé."
+              }
+              onClick={() =>
+                onBulkResendSignatures?.({
+                  secteur,
+                  className,
+                  pendingConventionCount: bulkTargetCount,
+                })
+              }
+              className="rounded-lg border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-950 shadow-sm hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkResendBusy
+                ? "Relance en cours…"
+                : `Relancer les signataires (${bulkTargetCount})`}
+            </button>
+          ) : null}
+          {permissions?.canReviewPreconvention && onCreateOffline ? (
+            <button
+              type="button"
+              onClick={onCreateOffline}
+              className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#275a3e]"
+            >
+              Stage hors plateforme
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -299,6 +299,63 @@ function StagesContent() {
     }
   }
 
+  async function bulkResendSignatures(filters: {
+    secteur: "all" | "ecole" | "college" | "lycee";
+    className: string;
+    pendingConventionCount: number;
+  }) {
+    const scopeParts: string[] = [];
+    if (filters.secteur !== "all") {
+      const labels = { ecole: "École", college: "Collège", lycee: "Lycée" } as const;
+      scopeParts.push(labels[filters.secteur]);
+    }
+    if (filters.className && filters.className !== "all") {
+      scopeParts.push(`classe ${filters.className}`);
+    }
+    const scopeLabel = scopeParts.length > 0 ? ` (${scopeParts.join(" · ")})` : "";
+    const ok = window.confirm(
+      `Relancer tous les signataires qui n’ont pas encore signé pour les ${filters.pendingConventionCount} convention(s) en cours${scopeLabel} ?\n\nChaque personne encore en attente recevra un e-mail avec son lien de signature.`,
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/conventions/resend-signatures-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secteur: filters.secteur === "all" ? undefined : filters.secteur,
+          className:
+            !filters.className || filters.className === "all"
+              ? undefined
+              : filters.className,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        conventionsWithPending?: number;
+        pendingTotal?: number;
+        sentCount?: number;
+        failedCount?: number;
+      };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      const sent = data.sentCount ?? 0;
+      const pending = data.pendingTotal ?? 0;
+      const conventions = data.conventionsWithPending ?? 0;
+      const failed = data.failedCount ?? 0;
+      setMsg(
+        failed > 0
+          ? `Relance groupée : ${sent} e-mail(s) envoyé(s) sur ${pending} signataire(s) en attente (${conventions} convention(s)) — ${failed} convention(s) avec échec partiel.`
+          : `Relance groupée : ${sent} e-mail(s) envoyé(s) à ${pending} signataire(s) en attente sur ${conventions} convention(s).`,
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function reviewTutorEmailChange(approved: boolean) {
     if (!detail) return;
     setBusy(true);
@@ -779,6 +836,12 @@ function StagesContent() {
                 }
               : undefined
           }
+          onBulkResendSignatures={
+            permissions?.canReviewPreconvention
+              ? (filters) => void bulkResendSignatures(filters)
+              : undefined
+          }
+          bulkResendBusy={busy}
         />
       )}
 
