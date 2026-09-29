@@ -47,10 +47,10 @@ export const VALKEY_TTL = {
   stagesConvention: 60,
   /** Roster suivi classe (invalidé à la sauvegarde convention) */
   stagesClassRoster: 90,
-  /** Index liste séjours / voyages */
-  travelsIndex: 30,
+  /** Index liste séjours / voyages (payload complet — miss = batch Postgres) */
+  travelsIndex: 90,
   /** Dossier séjour individuel */
-  travelsTrip: 45,
+  travelsTrip: 60,
 } as const;
 
 const NS = "scola";

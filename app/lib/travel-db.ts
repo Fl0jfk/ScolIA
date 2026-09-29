@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   travel,
@@ -15,6 +15,12 @@ import {
   resolveCurrentEtablissementId,
 } from "@/app/lib/ent-core-db";
 import type { TravelsTrip } from "@/app/lib/travels-types";
+
+type TravelMain = typeof travel.$inferSelect;
+type TravelAttrRow = typeof travelAttr.$inferSelect;
+type TravelParticipantRow = typeof travelParticipant.$inferSelect;
+type TravelHistoryRow = typeof travelHistory.$inferSelect;
+type TravelMessageRow = typeof travelMessage.$inferSelect;
 
 const SKIP_ROOT = new Set([
   "id",
@@ -58,15 +64,66 @@ export async function travelsDbReady(): Promise<string | null> {
   return resolveCurrentEtablissementId();
 }
 
+/**
+ * Liste complète des séjours.
+ * Important perf : 1 requête mains + 4 requêtes enfants en batch (pas de N+1).
+ * Avec Postgres distant, l’ancien hydrate séquentiel par dossier coûtait souvent 10–30s.
+ */
 export async function listTravelsFromDb(etablissementId: string): Promise<TravelsTrip[]> {
   const db = getDb();
   const mains = await db.select().from(travel).where(eq(travel.etablissementId, etablissementId));
-  const result: TravelsTrip[] = [];
-  for (const m of mains) {
-    const trip = await hydrateTravel(etablissementId, m);
-    result.push(trip);
-  }
-  return result;
+  if (mains.length === 0) return [];
+
+  const ids = mains.map((m) => m.id);
+  const [allAttrs, allParticipants, allHistory, allMessages] = await Promise.all([
+    db
+      .select()
+      .from(travelAttr)
+      .where(
+        and(eq(travelAttr.etablissementId, etablissementId), inArray(travelAttr.travelId, ids)),
+      ),
+    db
+      .select()
+      .from(travelParticipant)
+      .where(
+        and(
+          eq(travelParticipant.etablissementId, etablissementId),
+          inArray(travelParticipant.travelId, ids),
+        ),
+      ),
+    db
+      .select()
+      .from(travelHistory)
+      .where(
+        and(
+          eq(travelHistory.etablissementId, etablissementId),
+          inArray(travelHistory.travelId, ids),
+        ),
+      ),
+    db
+      .select()
+      .from(travelMessage)
+      .where(
+        and(
+          eq(travelMessage.etablissementId, etablissementId),
+          inArray(travelMessage.travelId, ids),
+        ),
+      ),
+  ]);
+
+  const attrsByTrip = groupByTravelId(allAttrs);
+  const participantsByTrip = groupByTravelId(allParticipants);
+  const historyByTrip = groupByTravelId(allHistory);
+  const messagesByTrip = groupByTravelId(allMessages);
+
+  return mains.map((m) =>
+    assembleTravel(m, {
+      attrs: attrsByTrip.get(m.id) ?? [],
+      participants: participantsByTrip.get(m.id) ?? [],
+      history: historyByTrip.get(m.id) ?? [],
+      messages: messagesByTrip.get(m.id) ?? [],
+    }),
+  );
 }
 
 export async function getTravelFromDb(
@@ -83,40 +140,26 @@ export async function getTravelFromDb(
   return hydrateTravel(etablissementId, m);
 }
 
-async function hydrateTravel(
-  etablissementId: string,
-  m: typeof travel.$inferSelect,
-): Promise<TravelsTrip> {
-  const db = getDb();
-  const [attrs, participants, history, messages] = await Promise.all([
-    db
-      .select()
-      .from(travelAttr)
-      .where(and(eq(travelAttr.etablissementId, etablissementId), eq(travelAttr.travelId, m.id))),
-    db
-      .select()
-      .from(travelParticipant)
-      .where(
-        and(
-          eq(travelParticipant.etablissementId, etablissementId),
-          eq(travelParticipant.travelId, m.id),
-        ),
-      ),
-    db
-      .select()
-      .from(travelHistory)
-      .where(
-        and(eq(travelHistory.etablissementId, etablissementId), eq(travelHistory.travelId, m.id)),
-      ),
-    db
-      .select()
-      .from(travelMessage)
-      .where(
-        and(eq(travelMessage.etablissementId, etablissementId), eq(travelMessage.travelId, m.id)),
-      ),
-  ]);
+function groupByTravelId<T extends { travelId: string }>(rows: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const list = map.get(row.travelId);
+    if (list) list.push(row);
+    else map.set(row.travelId, [row]);
+  }
+  return map;
+}
 
-  const inflated = inflateFromAttrs(attrs.map((a) => ({ path: a.path, value: a.value })));
+function assembleTravel(
+  m: TravelMain,
+  parts: {
+    attrs: TravelAttrRow[];
+    participants: TravelParticipantRow[];
+    history: TravelHistoryRow[];
+    messages: TravelMessageRow[];
+  },
+): TravelsTrip {
+  const inflated = inflateFromAttrs(parts.attrs.map((a) => ({ path: a.path, value: a.value })));
   const dataFromAttrs =
     inflated.data && typeof inflated.data === "object"
       ? (inflated.data as Record<string, unknown>)
@@ -124,7 +167,7 @@ async function hydrateTravel(
   const rootExtras = { ...inflated };
   delete rootExtras.data;
 
-  const participantEleves = [...participants]
+  const participantEleves = [...parts.participants]
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((p) => ({
       ine: p.eleveKey,
@@ -163,7 +206,7 @@ async function hydrateTravel(
     imageUrl: m.imageUrl ?? undefined,
     imageConfigId: m.imageConfigId ?? undefined,
     data,
-    history: [...history]
+    history: [...parts.history]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((h) => ({
         date: h.at,
@@ -171,7 +214,7 @@ async function hydrateTravel(
         action: h.action,
         ...(h.note ? { note: h.note } : {}),
       })),
-    messages: [...messages]
+    messages: [...parts.messages]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((msg) => ({
         id: msg.id,
@@ -184,6 +227,39 @@ async function hydrateTravel(
       ? { receivedDevis: rootExtras.receivedDevis as TravelsTrip["receivedDevis"] }
       : {}),
   };
+}
+
+async function hydrateTravel(etablissementId: string, m: TravelMain): Promise<TravelsTrip> {
+  const db = getDb();
+  const [attrs, participants, history, messages] = await Promise.all([
+    db
+      .select()
+      .from(travelAttr)
+      .where(and(eq(travelAttr.etablissementId, etablissementId), eq(travelAttr.travelId, m.id))),
+    db
+      .select()
+      .from(travelParticipant)
+      .where(
+        and(
+          eq(travelParticipant.etablissementId, etablissementId),
+          eq(travelParticipant.travelId, m.id),
+        ),
+      ),
+    db
+      .select()
+      .from(travelHistory)
+      .where(
+        and(eq(travelHistory.etablissementId, etablissementId), eq(travelHistory.travelId, m.id)),
+      ),
+    db
+      .select()
+      .from(travelMessage)
+      .where(
+        and(eq(travelMessage.etablissementId, etablissementId), eq(travelMessage.travelId, m.id)),
+      ),
+  ]);
+
+  return assembleTravel(m, { attrs, participants, history, messages });
 }
 
 export async function upsertTravelInDb(

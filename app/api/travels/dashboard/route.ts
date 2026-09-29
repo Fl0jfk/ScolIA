@@ -4,12 +4,11 @@ import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { getJson } from "@/app/lib/s3-storage";
 import {
   buildTravelsDirectionDashboard,
   resolveDirectionEtab,
-  type TripDashboardRow,
 } from "@/app/lib/travels-direction-dashboard";
+import { listTravelsIndex } from "@/app/lib/travels-storage";
 
 export async function GET() {
   const gate = await requireAuth();
@@ -25,8 +24,7 @@ export async function GET() {
   }
 
   try {
-    const hit = await getJson<TripDashboardRow[]>("travels/index.json");
-    const trips = Array.isArray(hit?.data) ? hit.data : [];
+    const trips = await listTravelsIndex();
     const dashboard = buildTravelsDirectionDashboard(trips, etab);
     return NextResponse.json({ isDirection: true, dashboard });
   } catch (e) {
