@@ -46,6 +46,7 @@ import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
 import { inferSecteurFromFolderName } from "@/app/lib/onedrive-eleves";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
+import { createPerfTimer } from "@/app/lib/perf-timer";
 
 function normalizePersonPart(value: string): string {
   return value
@@ -117,9 +118,11 @@ function filterIndexForViewer(
 }
 
 export async function GET() {
+  const perf = createPerfTimer();
   try {
     const gate = await requireAuth();
     if (!gate.ok) return gate.response;
+    perf.mark("auth");
 
     // Ne pas bloquer le hub sur la purge annuelle (1ère fois de l’année seulement).
     void ensureStageYearAutoPurge().catch(() => undefined);
@@ -132,14 +135,17 @@ export async function GET() {
     if (!viewer && watcherAssignments.length === 0) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
+    perf.mark("session_watchers");
 
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
     const principalClassNames = canViewReferentConventions(roles)
       ? await listPrincipalClassesForUser(gate.ctx.userId)
       : [];
+    perf.mark("secteurs_pp");
 
     const index = await getConventionsIndex();
+    perf.mark("conventions_index");
     const watcherOnlyPath =
       watcherAssignments.length > 0 &&
       !canBrowseStageConventions(roles) &&
@@ -194,6 +200,7 @@ export async function GET() {
         ),
       );
     }
+    perf.mark("board_conventions");
 
     const signedCount = visibleIndex.filter((e) => e.status === "signed").length;
     const activeCount = visibleIndex.length;
@@ -237,6 +244,7 @@ export async function GET() {
         ? loadElevesRegistry().catch(() => [] as Awaited<ReturnType<typeof loadElevesRegistry>>)
         : Promise.resolve([] as Awaited<ReturnType<typeof loadElevesRegistry>>),
     ]);
+    perf.mark("pending_sigs_eleves");
 
     const mapBoardCard = (
       c: StageConvention,
@@ -306,6 +314,7 @@ export async function GET() {
       const url = photoByEleveId[row.id];
       if (url) photoByConventionId[row.conventionId] = url;
     }
+    perf.mark("photos");
 
     // Statut Valkey léger (pas de probes TCP/TLS — trop coûteux sur le hot path).
     const { isValkeyConfigured, getValkey } = await import("@/app/lib/valkey");
@@ -316,11 +325,19 @@ export async function GET() {
       pingOk: vk?.status === "ready",
       status: vk?.status ?? (isValkeyConfigured() ? "connecting" : "absent"),
     };
+    perf.mark("valkey_status");
+    const perfSnapshot = perf.snapshot();
 
     return NextResponse.json({
       viewer: viewer || "staff",
       viewerSecteurLabel: stageViewerSecteurSummary(viewerSecteurs),
       cache: { valkey },
+      perf: {
+        ...perfSnapshot,
+        boardLoaded: boardConventions.length,
+        indexSize: index.length,
+        visibleIndex: visibleIndex.length,
+      },
       permissions: {
         canModerateOffers: canModerateOffers(roles),
         canReviewPreconvention: canReviewPreconvention(roles),

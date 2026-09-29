@@ -160,11 +160,16 @@ export default function StageClassRosterPanel({
     }
 
     const seq = ++loadSeqRef.current;
+    const t0 = performance.now();
     try {
       const params = new URLSearchParams();
       if (wanted) params.set("className", wanted);
       const res = await fetch(`/api/stages/class-roster?${params}`, { cache: "no-store" });
-      const json = (await res.json()) as RosterResponse & { error?: string };
+      const json = (await res.json()) as RosterResponse & {
+        error?: string;
+        perf?: unknown;
+        cache?: unknown;
+      };
       if (!res.ok) throw new Error(json.error || "Erreur chargement");
       if (seq !== loadSeqRef.current) return;
 
@@ -176,6 +181,14 @@ export default function StageClassRosterPanel({
       if (json.roster?.className) setSelectedClass(json.roster.className);
       else if (wanted) setSelectedClass(wanted);
       else if (json.availableClasses[0]) setSelectedClass(json.availableClasses[0]);
+
+      console.info("[ScolIA][stages/roster]", {
+        className: resolvedClass || wanted || "(défaut)",
+        fromMemoryCache: Boolean(cached),
+        clientMs: Math.round(performance.now() - t0),
+        server: json.perf ?? null,
+        valkey: json.cache ?? null,
+      });
     } catch (e: unknown) {
       if (seq !== loadSeqRef.current) return;
       if (!cached) setError(e instanceof Error ? e.message : "Erreur");

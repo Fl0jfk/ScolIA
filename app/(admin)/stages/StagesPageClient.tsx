@@ -118,14 +118,18 @@ function StagesContent() {
 
   const load = useCallback(async () => {
     setError(null);
+    const t0 = performance.now();
     try {
       const bRes = await fetch("/api/stages", { cache: "no-store" });
       const b = await bRes.json();
       if (!bRes.ok) throw new Error(b?.error || "Erreur");
       setBoard(b);
-      if (process.env.NODE_ENV === "development") {
-        console.info("[ScolIA] Cache Valkey", b?.cache?.valkey ?? "(absent)");
-      }
+      const clientMs = Math.round(performance.now() - t0);
+      console.info("[ScolIA][stages/hub]", {
+        clientMs,
+        server: b?.perf ?? null,
+        valkey: b?.cache?.valkey ?? null,
+      });
       // Préchauffe le suivi classe (Valkey) pendant que l’utilisateur lit le tableau de bord.
       if (b?.permissions?.canViewClassRoster) {
         void fetch("/api/stages/class-roster", { cache: "no-store" }).catch(() => undefined);

@@ -19,11 +19,14 @@ import {
   userCanAssignStageReferentForClass,
 } from "@/app/lib/stage-referents-config";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
+import { createPerfTimer } from "@/app/lib/perf-timer";
 
 export async function GET(req: Request) {
+  const perf = createPerfTimer();
   try {
     const gate = await requireAuth();
     if (!gate.ok) return gate.response;
+    perf.mark("auth");
 
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
@@ -39,6 +42,7 @@ export async function GET(req: Request) {
     const requestedClass = searchParams.get("className")?.trim() || "";
     const globalQuery = searchParams.get("q")?.trim() || "";
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
+    perf.mark("secteurs");
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
     const [referentClasses, principalClasses] = user
@@ -47,6 +51,7 @@ export async function GET(req: Request) {
           listPrincipalClassesForUser(gate.ctx.userId, schoolYear),
         ])
       : [[], []];
+    perf.mark("referent_classes");
 
     let availableClasses: string[];
     if (canBrowseAll) {
@@ -57,6 +62,7 @@ export async function GET(req: Request) {
     } else {
       availableClasses = referentClasses;
     }
+    perf.mark("available_classes");
 
     if (viewerSecteurs.length > 0) {
       availableClasses = availableClasses.filter((c) =>
@@ -69,11 +75,13 @@ export async function GET(req: Request) {
         schoolYear,
         allowedClasses: canBrowseAll ? null : availableClasses,
       });
+      perf.mark("global_search");
       return NextResponse.json({
         schoolYear,
         availableClasses,
         globalResults,
         roster: null,
+        perf: perf.snapshot(),
       });
     }
 
@@ -86,6 +94,7 @@ export async function GET(req: Request) {
         teachers: [],
         message:
           "Aucune classe ne vous est assignée. L'administratif doit vous désigner comme professeur principal / référent dans Stages → Réglages.",
+        perf: perf.snapshot(),
       });
     }
 
@@ -97,6 +106,7 @@ export async function GET(req: Request) {
         roster: null,
         canAssignReferent: false,
         teachers: [],
+        perf: perf.snapshot(),
       });
     }
 
@@ -107,12 +117,14 @@ export async function GET(req: Request) {
     const canAssignReferent =
       canReviewPreconvention(roles) ||
       (await userCanAssignStageReferentForClass(gate.ctx.userId, className, schoolYear));
+    perf.mark("can_assign");
 
     const [config, roster, members] = await Promise.all([
       getStageReferentsConfig(schoolYear),
       buildStageClassRoster(className, schoolYear),
       canAssignReferent ? listDirectoryMembers() : Promise.resolve(null),
     ]);
+    perf.mark("roster_build");
 
     const assignments = findReferentAssignments(config, className);
 
@@ -199,8 +211,6 @@ export async function GET(req: Request) {
           : roster.note,
     };
 
-    // Photos : non bloquant pour le 1er paint (initiales OK). Les URLs signées
-    // S3 en N×Promise.all ralentissaient chaque changement de classe.
     const rosterWithPhotos = {
       ...scopedRoster,
       students: scopedRoster.students.map((s) => ({
@@ -209,8 +219,6 @@ export async function GET(req: Request) {
       })),
     };
 
-    // Enrichissement photos en arrière-plan côté réponse : on signe au plus 16
-    // pour ne pas saturer S3, le reste reste en initiales.
     const { resolvePhotoUrlsForEleves } = await import("@/app/lib/eleve-photos");
     const photoIds = scopedRoster.students
       .filter((s) => Boolean(s.eleveId))
@@ -231,6 +239,10 @@ export async function GET(req: Request) {
         photoUrl: s.eleveId ? photoUrls[s.eleveId] ?? null : null,
       }));
     }
+    perf.mark("photos");
+
+    const { isValkeyConfigured, getValkey } = await import("@/app/lib/valkey");
+    const vk = getValkey();
 
     return NextResponse.json({
       schoolYear,
@@ -248,6 +260,18 @@ export async function GET(req: Request) {
         : isPrincipalForClass
           ? "principal"
           : "referent",
+      cache: {
+        valkey: {
+          configured: isValkeyConfigured(),
+          ready: vk?.status === "ready",
+          status: vk?.status ?? (isValkeyConfigured() ? "connecting" : "absent"),
+        },
+      },
+      perf: {
+        ...perf.snapshot(),
+        className,
+        students: scopedStudents.length,
+      },
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
