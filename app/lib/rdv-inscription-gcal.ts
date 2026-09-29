@@ -42,19 +42,81 @@ function encodeCalendarId(calendarId: string): string {
   return encodeURIComponent(calendarId);
 }
 
+const GCAL_FETCH_TIMEOUT_MS = 20_000;
+const GCAL_FETCH_MAX_ATTEMPTS = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Cause réseau undici souvent cachée dans `error.cause` (ex. ECONNRESET). */
+function describeNetworkError(err: unknown): string {
+  const parts: string[] = [];
+  let cur: unknown = err;
+  for (let depth = 0; depth < 4 && cur; depth += 1) {
+    if (cur instanceof Error) {
+      const code =
+        "code" in cur && typeof (cur as { code?: unknown }).code === "string"
+          ? (cur as { code: string }).code
+          : null;
+      parts.push(code ? `${cur.message} (${code})` : cur.message);
+      cur = cur.cause;
+      continue;
+    }
+    parts.push(String(cur));
+    break;
+  }
+  return parts.filter(Boolean).join(" ← ") || "erreur réseau";
+}
+
+function isTransientGoogleNetworkError(err: unknown): boolean {
+  const blob = describeNetworkError(err);
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR|socket|network|aborted|timeout/i.test(
+    blob,
+  );
+}
+
+function googleNetworkError(err: unknown): Error {
+  const detail = describeNetworkError(err);
+  return new Error(
+    `Google Calendar inaccessible (réseau). Réessayez dans un instant. Détail : ${detail}`,
+  );
+}
+
 async function gcalFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  return fetch(`${GCAL_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
+  const url = `${GCAL_BASE}${path}`;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= GCAL_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const externalSignal = init?.signal;
+      const timeoutSignal = AbortSignal.timeout(GCAL_FETCH_TIMEOUT_MS);
+      const signal =
+        externalSignal && typeof AbortSignal.any === "function"
+          ? AbortSignal.any([externalSignal, timeoutSignal])
+          : timeoutSignal;
+
+      return await fetch(url, {
+        ...init,
+        signal,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          ...(init?.headers || {}),
+        },
+      });
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientGoogleNetworkError(e) || attempt === GCAL_FETCH_MAX_ATTEMPTS) {
+        throw googleNetworkError(e);
+      }
+      await sleep(300 * 2 ** (attempt - 1));
+    }
+  }
+  throw googleNetworkError(lastErr);
 }
 
 function eventStartEnd(ev: GCalEvent): { startAt: string; endAt: string } | null {
@@ -217,12 +279,25 @@ export async function holdInscriptionCalendarEvent(opts: {
   bookingId: string;
   accessToken?: string;
 }): Promise<HoldCalendarEventResult> {
-  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
-  const current = await getCalendarEvent({
-    calendarId: opts.calendarId,
-    eventId: opts.eventId,
-    accessToken,
-  });
+  let accessToken: string;
+  let current: GCalEvent | null;
+  try {
+    accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+    current = await getCalendarEvent({
+      calendarId: opts.calendarId,
+      eventId: opts.eventId,
+      accessToken,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      reason: "error",
+      message: /réseau|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|UND_ERR/i.test(msg)
+        ? "Impossible de joindre Google Agenda (réseau). Réessayez dans un instant."
+        : msg || "Impossible de réserver le créneau.",
+    };
+  }
   if (!current?.id) {
     return { ok: false, reason: "not_found", message: "Créneau introuvable." };
   }
@@ -255,20 +330,32 @@ export async function holdInscriptionCalendarEvent(opts: {
   };
 
   const ifMatch = current.etag?.trim();
-  const res = await gcalFetch(
-    accessToken,
-    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}`,
-    {
-      method: "PATCH",
-      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
-      body: JSON.stringify({
-        extendedProperties: {
-          private: priv,
-          shared: current.extendedProperties?.shared || undefined,
-        },
-      }),
-    },
-  );
+  let res: Response;
+  try {
+    res = await gcalFetch(
+      accessToken,
+      `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}`,
+      {
+        method: "PATCH",
+        headers: ifMatch ? { "If-Match": ifMatch } : undefined,
+        body: JSON.stringify({
+          extendedProperties: {
+            private: priv,
+            shared: current.extendedProperties?.shared || undefined,
+          },
+        }),
+      },
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      reason: "error",
+      message: /réseau|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|UND_ERR/i.test(msg)
+        ? "Impossible de joindre Google Agenda (réseau). Réessayez dans un instant."
+        : msg || "Impossible de réserver le créneau.",
+    };
+  }
 
   if (res.status === 412) {
     return {

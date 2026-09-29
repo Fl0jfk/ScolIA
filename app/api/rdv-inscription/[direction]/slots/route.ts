@@ -46,6 +46,18 @@ export async function GET(req: Request, ctx: Ctx) {
       })),
     });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const raw = e instanceof Error ? e.message : String(e);
+    const isNetwork =
+      /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|network|UND_ERR|inaccessible \(réseau\)/i.test(
+        raw,
+      );
+    return NextResponse.json(
+      {
+        error: isNetwork
+          ? "Impossible de joindre Google Agenda (réseau). Réessayez dans un instant."
+          : raw || "Impossible de charger les créneaux.",
+      },
+      { status: 502 },
+    );
   }
 }

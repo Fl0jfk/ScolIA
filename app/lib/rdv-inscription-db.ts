@@ -8,7 +8,6 @@ import {
   rdvInscriptionConfig,
   rdvInscriptionDirection,
 } from "@/db/schema";
-import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   DEFAULT_RDV_DIRECTIONS,
   DEFAULT_RDV_INSCRIPTION_CONSENT,
@@ -22,9 +21,37 @@ import {
 } from "@/app/lib/rdv-inscription-types";
 
 async function requireEtabId(explicit?: string): Promise<string> {
-  const id = explicit || (await resolveCurrentEtablissementId());
-  if (!id) throw new Error("Établissement introuvable (tenant).");
-  return id;
+  if (explicit?.trim()) return explicit.trim();
+  try {
+    const { getTenant } = await import("@/app/lib/tenant-context");
+    const { ensureEtablissementFromTenant } = await import("@/app/lib/etablissement-db");
+    const tenant = await getTenant();
+    return await ensureEtablissementFromTenant(tenant);
+  } catch (e) {
+    const parts: string[] = [];
+    let cur: unknown = e;
+    for (let i = 0; i < 4 && cur; i += 1) {
+      if (cur instanceof Error) {
+        parts.push(cur.message);
+        cur = (cur as Error & { cause?: unknown }).cause;
+      } else {
+        parts.push(String(cur));
+        break;
+      }
+    }
+    const msg = parts.join(" | ");
+    if (/CONNECT_TIMEOUT|ECONNRESET|ECONNREFUSED|too many clients|53300|connection/i.test(msg)) {
+      throw new Error(
+        "Base de données injoignable (délai dépassé). Réessayez dans un instant.",
+      );
+    }
+    if (/Tenant introuvable/i.test(msg)) {
+      throw new Error(parts[0] || msg);
+    }
+    throw new Error(
+      "Établissement introuvable (tenant). Vérifiez la connexion base / le tenant local.",
+    );
+  }
 }
 
 function requireDb() {

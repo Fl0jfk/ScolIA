@@ -29,14 +29,48 @@ export function buildGoogleAuthorizeUrl(opts: {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
+function describeOAuthNetworkError(err: unknown): string {
+  const parts: string[] = [];
+  let cur: unknown = err;
+  for (let depth = 0; depth < 4 && cur; depth += 1) {
+    if (cur instanceof Error) {
+      const code =
+        "code" in cur && typeof (cur as { code?: unknown }).code === "string"
+          ? (cur as { code: string }).code
+          : null;
+      parts.push(code ? `${cur.message} (${code})` : cur.message);
+      cur = cur.cause;
+      continue;
+    }
+    parts.push(String(cur));
+    break;
+  }
+  return parts.filter(Boolean).join(" ← ") || "erreur réseau";
+}
+
 export async function postGoogleOAuthToken(
   params: URLSearchParams,
 ): Promise<{ ok: true; tokens: GoogleOAuthTokens } | { ok: false; status: number; body: string }> {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params,
-  });
+  let res: Response;
+  try {
+    res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params,
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (e) {
+    const detail = describeOAuthNetworkError(e);
+    return {
+      ok: false,
+      status: 502,
+      body: /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR|network|timeout/i.test(
+        detail,
+      )
+        ? `Impossible de joindre Google OAuth (réseau) : ${detail}`
+        : detail,
+    };
+  }
   const body = await res.text();
   if (!res.ok) return { ok: false, status: res.status, body };
   let parsed: {

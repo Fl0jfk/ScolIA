@@ -124,32 +124,32 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
   levels: Array<{ id: string; label: string }>;
   slots: RdvInscriptionSlot[];
 } | { ok: false; status: number; error: string }> {
-  const config = await getRdvInscriptionConfig();
-  const direction = await getRdvInscriptionDirectionBySlug(slug, { activeOnly: true });
-  if (!direction) {
-    return { ok: false, status: 404, error: "Direction introuvable." };
-  }
-  if (!config.googleLinked) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Agenda non connecté — contactez l’établissement.",
-    };
-  }
-  if (!direction.googleCalendarId.trim()) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Agenda de cette direction non configuré.",
-    };
-  }
-
-  const levels = inscriptionLevelsForDirectionSlug(slug).map((l) => ({
-    id: l.id,
-    label: l.label,
-  }));
-
   try {
+    const config = await getRdvInscriptionConfig();
+    const direction = await getRdvInscriptionDirectionBySlug(slug, { activeOnly: true });
+    if (!direction) {
+      return { ok: false, status: 404, error: "Direction introuvable." };
+    }
+    if (!config.googleLinked) {
+      return {
+        ok: false,
+        status: 503,
+        error: "Agenda non connecté — contactez l’établissement.",
+      };
+    }
+    if (!direction.googleCalendarId.trim()) {
+      return {
+        ok: false,
+        status: 503,
+        error: "Agenda de cette direction non configuré.",
+      };
+    }
+
+    const levels = inscriptionLevelsForDirectionSlug(slug).map((l) => ({
+      id: l.id,
+      label: l.label,
+    }));
+
     await releaseExpiredPendings();
     const slots = await listAvailableInscriptionSlots({
       calendarId: direction.googleCalendarId,
@@ -168,10 +168,23 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
       slots,
     };
   } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    const isGoogleNetwork =
+      /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|network|UND_ERR|inaccessible \(réseau\)/i.test(
+        raw,
+      );
+    const isDbNetwork =
+      /CONNECT_TIMEOUT|injoignable|Base de données|too many clients|53300/i.test(raw);
     return {
       ok: false,
       status: 502,
-      error: e instanceof Error ? e.message : "Impossible de lire Google Agenda.",
+      error: isDbNetwork
+        ? raw.includes("Base de données")
+          ? raw
+          : "Base de données injoignable (délai dépassé). Réessayez dans un instant."
+        : isGoogleNetwork
+          ? "Impossible de joindre Google Agenda (réseau). Réessayez dans un instant, ou reconnectez Google dans le paramétrage RDV."
+          : raw || "Impossible de lire Google Agenda.",
     };
   }
 }

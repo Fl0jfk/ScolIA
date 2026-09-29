@@ -295,9 +295,18 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });
   } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    const isNetwork =
+      /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|network|UND_ERR|inaccessible \(réseau\)/i.test(
+        raw,
+      );
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
+      {
+        error: isNetwork
+          ? "Impossible de joindre Google Agenda (réseau). Réessayez, ou reconnectez Google dans le paramétrage RDV."
+          : raw || "Échec.",
+      },
+      { status: 502 },
     );
   }
 }

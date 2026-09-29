@@ -122,6 +122,18 @@ export async function POST(req: Request, ctx: Ctx) {
         "Rendez-vous confirmé. Un e-mail de confirmation avec fichier calendrier (.ics) vous a été envoyé.",
     });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const raw = e instanceof Error ? e.message : String(e);
+    const isNetwork =
+      /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|network|UND_ERR|inaccessible \(réseau\)/i.test(
+        raw,
+      );
+    return NextResponse.json(
+      {
+        error: isNetwork
+          ? "Impossible de joindre Google Agenda pour réserver (réseau). Réessayez dans un instant."
+          : raw || "Réservation impossible.",
+      },
+      { status: 502 },
+    );
   }
 }
