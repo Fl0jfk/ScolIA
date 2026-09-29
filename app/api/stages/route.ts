@@ -43,7 +43,6 @@ import {
   type StageConventionStatus,
 } from "@/app/lib/stage-types";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
-import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
 import { inferSecteurFromFolderName } from "@/app/lib/onedrive-eleves";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { createPerfTimer } from "@/app/lib/perf-timer";
@@ -274,14 +273,6 @@ export async function GET() {
       if (!byName.has(key)) byName.set(key, e);
     }
 
-    const elevesForPhotos: Array<{
-      id: string;
-      nom: string;
-      prenom: string;
-      ine?: string | null;
-      photoKey?: string | null;
-      conventionId: string;
-    }> = [];
     const secteurByConventionId: Record<string, Secteur | null> = {};
     for (const c of boardSlice) {
       const ine = c.ocrMeta?.matchedEleveIne?.trim().toUpperCase() || "";
@@ -295,25 +286,11 @@ export async function GET() {
         level: c.student.level,
         eleveSecteur: eleve?.secteur,
       });
-      if (!eleve?.id) continue;
-      elevesForPhotos.push({
-        id: eleve.id,
-        nom: eleve.nom,
-        prenom: eleve.prenom,
-        ine: eleve.ine,
-        photoKey: eleve.photoKey,
-        conventionId: c.id,
-      });
     }
 
-    const photoByEleveId = elevesForPhotos.length
-      ? await resolvePhotoUrlsForEleves(elevesForPhotos.slice(0, 12))
-      : {};
+    // Photos hors chemin critique : les URLs signées S3 (~400 ms) bloquaient le hub.
+    // Les cartes affichent les initiales.
     const photoByConventionId: Record<string, string> = {};
-    for (const row of elevesForPhotos.slice(0, 12)) {
-      const url = photoByEleveId[row.id];
-      if (url) photoByConventionId[row.conventionId] = url;
-    }
     perf.mark("photos");
 
     // Statut Valkey léger (pas de probes TCP/TLS — trop coûteux sur le hot path).
