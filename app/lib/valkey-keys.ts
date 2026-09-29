@@ -45,8 +45,8 @@ export const VALKEY_TTL = {
   stagesConventionsIndex: 45,
   /** Convention de stage individuelle */
   stagesConvention: 60,
-  /** Roster suivi classe (court — change souvent à la validation) */
-  stagesClassRoster: 25,
+  /** Roster suivi classe (invalidé à la sauvegarde convention) */
+  stagesClassRoster: 90,
   /** Index liste séjours / voyages */
   travelsIndex: 30,
   /** Dossier séjour individuel */

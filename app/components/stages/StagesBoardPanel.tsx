@@ -10,12 +10,28 @@ import type {
 
 type SecteurFilter = "all" | "ecole" | "college" | "lycee";
 
+export type BoardQuickReviewKind = "deposit" | "tutor_email" | "schedule";
+
 const SECTEUR_OPTIONS: Array<{ value: SecteurFilter; label: string }> = [
   { value: "all", label: "Tous les établissements" },
   { value: "ecole", label: "École" },
   { value: "college", label: "Collège" },
   { value: "lycee", label: "Lycée" },
 ];
+
+const SECTEUR_GROUP_ORDER: Array<"college" | "lycee" | "ecole" | "autre"> = [
+  "college",
+  "lycee",
+  "ecole",
+  "autre",
+];
+
+const SECTEUR_GROUP_LABEL: Record<(typeof SECTEUR_GROUP_ORDER)[number], string> = {
+  college: "Collège",
+  lycee: "Lycée",
+  ecole: "École",
+  autre: "Autre",
+};
 
 function studentLabel(c: StagesHubBoardCard): string {
   return (
@@ -71,6 +87,49 @@ function matchesClass(c: StagesHubBoardCard, className: string): boolean {
   return String(c.className || "").trim() === className;
 }
 
+function secteurGroupKey(c: StagesHubBoardCard): (typeof SECTEUR_GROUP_ORDER)[number] {
+  if (c.secteur === "college" || c.secteur === "lycee" || c.secteur === "ecole") {
+    return c.secteur;
+  }
+  return "autre";
+}
+
+function depositKindLabel(c: StagesHubBoardCard): string | null {
+  return (
+    c.depositKind ||
+    (c.scheduleChangePending
+      ? "Avenant"
+      : c.tutorEmailChangePending
+        ? "E-mail tuteur"
+        : "Stage")
+  );
+}
+
+export function resolveBoardQuickReviewKind(c: StagesHubBoardCard): BoardQuickReviewKind {
+  if (c.scheduleChangePending) return "schedule";
+  if (c.tutorEmailChangePending) return "tutor_email";
+  return "deposit";
+}
+
+function groupCardsBySecteur(items: StagesHubBoardCard[]): Array<{
+  key: (typeof SECTEUR_GROUP_ORDER)[number];
+  label: string;
+  items: StagesHubBoardCard[];
+}> {
+  const buckets = new Map<(typeof SECTEUR_GROUP_ORDER)[number], StagesHubBoardCard[]>();
+  for (const c of items) {
+    const key = secteurGroupKey(c);
+    const list = buckets.get(key);
+    if (list) list.push(c);
+    else buckets.set(key, [c]);
+  }
+  return SECTEUR_GROUP_ORDER.filter((key) => (buckets.get(key)?.length ?? 0) > 0).map((key) => ({
+    key,
+    label: SECTEUR_GROUP_LABEL[key],
+    items: buckets.get(key)!,
+  }));
+}
+
 function BoardAvatar({ name, photoUrl }: { name: string; photoUrl?: string | null }) {
   const [failed, setFailed] = useState(false);
   const showPhoto = Boolean(photoUrl?.trim()) && !failed;
@@ -93,6 +152,17 @@ function BoardAvatar({ name, photoUrl }: { name: string; photoUrl?: string | nul
   );
 }
 
+function SecteurDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 py-2 first:pt-0">
+      <span className="shrink-0 text-[11px] font-bold uppercase tracking-wider text-stone-500">
+        {label}
+      </span>
+      <div className="h-px flex-1 bg-stone-300/80" aria-hidden />
+    </div>
+  );
+}
+
 function BoardList({
   title,
   empty,
@@ -102,6 +172,9 @@ function BoardList({
   statusOverride,
   showDepositKind,
   layout = "list",
+  canQuickReview,
+  quickReviewBusyId,
+  onQuickReview,
 }: {
   title: string;
   empty: string;
@@ -112,6 +185,9 @@ function BoardList({
   showDepositKind?: boolean;
   /** list = une ligne ; grid = 1 / 2 / 3 colonnes selon la largeur. */
   layout?: "list" | "grid";
+  canQuickReview?: boolean;
+  quickReviewBusyId?: string | null;
+  onQuickReview?: (card: StagesHubBoardCard, approved: boolean) => void;
 }) {
   const shell =
     tone === "amber"
@@ -126,96 +202,128 @@ function BoardList({
         ? "text-sky-950"
         : "text-emerald-900";
 
+  const groups = useMemo(() => groupCardsBySecteur(items), [items]);
+  const showSecteurBars = groups.length > 1;
+
   return (
     <section className={`rounded-2xl border p-5 ${shell}`}>
       <h2 className={`text-sm font-bold ${titleCls}`}>{title}</h2>
       {items.length === 0 ? (
         <p className="mt-3 text-sm text-stone-500">{empty}</p>
       ) : layout === "grid" ? (
-        <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {items.map((c) => {
-            const name = studentLabel(c);
-            const kind = showDepositKind
-              ? c.depositKind ||
-                (c.scheduleChangePending
-                  ? "Avenant"
-                  : c.tutorEmailChangePending
-                    ? "E-mail tuteur"
-                    : "Stage")
-              : null;
-            return (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(c.id)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-sky-200/80 bg-white/80 px-3 py-3 text-left shadow-sm transition hover:border-sky-400 hover:bg-white hover:shadow"
-                >
-                  <BoardAvatar name={name} photoUrl={c.photoUrl} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-sm font-semibold text-[#2F6B4A]">{name}</span>
-                      {kind && (
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${kindBadgeClass(kind)}`}
-                        >
-                          {kind}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-stone-600">
-                      {[c.className, companyLabel(c)].filter(Boolean).join(" · ")}
-                    </p>
-                    <p className="mt-0.5 truncate text-[11px] font-medium text-sky-900">
-                      {statusLabel(c, statusOverride)}
-                    </p>
-                  </div>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <ul className="mt-3 divide-y divide-stone-200/80">
-          {items.map((c) => {
-            const name = studentLabel(c);
-            const kind = showDepositKind
-              ? c.depositKind ||
-                (c.scheduleChangePending
-                  ? "Avenant"
-                  : c.tutorEmailChangePending
-                    ? "E-mail tuteur"
-                    : "Stage")
-              : null;
-            return (
-              <li key={c.id} className="flex items-center gap-3 py-3 first:pt-1 last:pb-1">
-                <BoardAvatar name={name} photoUrl={c.photoUrl} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      className="truncate text-sm font-semibold text-[#2F6B4A] underline decoration-[#2F6B4A]/40 underline-offset-2 hover:decoration-[#2F6B4A]"
-                      onClick={() => onSelect(c.id)}
-                    >
-                      {name}
-                    </button>
-                    {kind && (
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${kindBadgeClass(kind)}`}
+        <div className="mt-3 space-y-4">
+          {groups.map((group) => (
+            <div key={group.key}>
+              {showSecteurBars ? <SecteurDivider label={group.label} /> : null}
+              <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {group.items.map((c) => {
+                  const name = studentLabel(c);
+                  const kind = showDepositKind ? depositKindLabel(c) : null;
+                  return (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => onSelect(c.id)}
+                        className="flex w-full items-center gap-3 rounded-xl border border-sky-200/80 bg-white/80 px-3 py-3 text-left shadow-sm transition hover:border-sky-400 hover:bg-white hover:shadow"
                       >
-                        {kind}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-0.5 truncate text-xs text-stone-600">
-                    {[c.className, companyLabel(c)].filter(Boolean).join(" · ")}
-                    {" · "}
-                    {statusLabel(c, statusOverride)}
-                  </p>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                        <BoardAvatar name={name} photoUrl={c.photoUrl} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-semibold text-[#2F6B4A]">
+                              {name}
+                            </span>
+                            {kind && (
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${kindBadgeClass(kind)}`}
+                              >
+                                {kind}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-stone-600">
+                            {[c.className, companyLabel(c)].filter(Boolean).join(" · ")}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11px] font-medium text-sky-900">
+                            {statusLabel(c, statusOverride)}
+                          </p>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 space-y-1">
+          {groups.map((group) => (
+            <div key={group.key}>
+              {showSecteurBars ? <SecteurDivider label={group.label} /> : null}
+              <ul className="divide-y divide-stone-200/80">
+                {group.items.map((c) => {
+                  const name = studentLabel(c);
+                  const kind = showDepositKind ? depositKindLabel(c) : null;
+                  const busy = quickReviewBusyId === c.id;
+                  const reviewKind = resolveBoardQuickReviewKind(c);
+                  const approveLabel =
+                    reviewKind === "deposit" ? "Valider" : "Accepter";
+                  return (
+                    <li
+                      key={c.id}
+                      className="flex flex-wrap items-center gap-3 py-3 first:pt-1 last:pb-1"
+                    >
+                      <BoardAvatar name={name} photoUrl={c.photoUrl} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="truncate text-sm font-semibold text-[#2F6B4A] underline decoration-[#2F6B4A]/40 underline-offset-2 hover:decoration-[#2F6B4A]"
+                            onClick={() => onSelect(c.id)}
+                          >
+                            {name}
+                          </button>
+                          {kind && (
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${kindBadgeClass(kind)}`}
+                            >
+                              {kind}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-stone-600">
+                          {[c.className, companyLabel(c)].filter(Boolean).join(" · ")}
+                          {" · "}
+                          {statusLabel(c, statusOverride)}
+                        </p>
+                      </div>
+                      {canQuickReview && onQuickReview ? (
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => onQuickReview(c, true)}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            {busy ? "…" : approveLabel}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => onQuickReview(c, false)}
+                            className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+                          >
+                            Refuser
+                          </button>
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );
@@ -226,6 +334,8 @@ export default function StagesBoardPanel({
   permissions,
   onLoadDetail,
   onOpenSignaturesPanel,
+  onQuickReview,
+  quickReviewBusyId,
   onCreateOffline,
   onBulkResendSignatures,
   bulkResendBusy,
@@ -235,6 +345,9 @@ export default function StagesBoardPanel({
   onLoadDetail: (id: string) => void;
   /** Clic sur une ligne « Signatures en cours » — volet léger (pas le suivi classe). */
   onOpenSignaturesPanel?: (card: StagesHubBoardCard) => void;
+  /** Validation / refus depuis la file dépôts, sans ouvrir le suivi classe. */
+  onQuickReview?: (card: StagesHubBoardCard, approved: boolean) => void;
+  quickReviewBusyId?: string | null;
   onCreateOffline?: () => void;
   onBulkResendSignatures?: (filters: {
     secteur: SecteurFilter;
@@ -244,6 +357,9 @@ export default function StagesBoardPanel({
   bulkResendBusy?: boolean;
 }) {
   const seeDeposits = Boolean(permissions?.canSeeAdminDepositQueue);
+  const canQuickReview = Boolean(
+    permissions?.canReviewPreconvention && onQuickReview,
+  );
   const canBulkResend = Boolean(
     permissions?.canReviewPreconvention && onBulkResendSignatures,
   );
@@ -446,6 +562,9 @@ export default function StagesBoardPanel({
             tone="amber"
             onSelect={onLoadDetail}
             showDepositKind
+            canQuickReview={canQuickReview}
+            quickReviewBusyId={quickReviewBusyId}
+            onQuickReview={onQuickReview}
             statusOverride={(c) =>
               c.scheduleChangePending
                 ? "Avenant à valider"

@@ -8,7 +8,9 @@ import { useOneDriveConnection } from "@/app/hooks/useOneDriveConnection";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
 import StageConventionDetail from "@/app/components/stages/StageConventionDetail";
-import StagesBoardPanel from "@/app/components/stages/StagesBoardPanel";
+import StagesBoardPanel, {
+  resolveBoardQuickReviewKind,
+} from "@/app/components/stages/StagesBoardPanel";
 import StageOfflineCreateModal from "@/app/components/stages/StageOfflineCreateModal";
 import StageSignaturesDrawer, {
   type StageSignaturePanelData,
@@ -115,6 +117,7 @@ function StagesContent() {
   const [signaturesDrawerData, setSignaturesDrawerData] =
     useState<StageSignaturePanelData | null>(null);
   const [signaturesDrawerBusyId, setSignaturesDrawerBusyId] = useState<string | null>(null);
+  const [boardQuickReviewBusyId, setBoardQuickReviewBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -340,6 +343,84 @@ function StagesContent() {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Valider / refuser depuis le tableau de bord sans ouvrir le suivi classe. */
+  async function boardQuickReview(card: StagesHubBoardCard, approved: boolean) {
+    const kind = resolveBoardQuickReviewKind(card);
+    if (
+      kind === "schedule" &&
+      approved &&
+      !window.confirm(
+        "Appliquer cet avenant ? Si des signatures sont en cours ou déjà déposées, elles seront annulées et chaque signataire devra re-signer.",
+      )
+    ) {
+      return;
+    }
+    if (
+      kind === "deposit" &&
+      approved &&
+      !window.confirm(
+        `Valider le dépôt de ${
+          card.studentName ||
+          (card.student
+            ? `${card.student.firstName} ${card.student.lastName}`.trim()
+            : "cet élève")
+        } et lancer les signatures ?`,
+      )
+    ) {
+      return;
+    }
+
+    const action =
+      kind === "tutor_email"
+        ? "review_tutor_email_change"
+        : kind === "schedule"
+          ? "review_schedule_change"
+          : "admin_review";
+
+    setBoardQuickReviewBusyId(card.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${card.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, approved }),
+      });
+      const data = (await res.json()) as { error?: string; message?: string };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      if (kind === "tutor_email") {
+        setMsg(
+          data.message ||
+            (approved
+              ? "E-mail tuteur mis à jour — demande de signature renvoyée."
+              : "Demande d’e-mail tuteur refusée."),
+        );
+      } else if (kind === "schedule") {
+        setMsg(
+          data.message ||
+            (approved
+              ? "Avenant appliqué — signatures réinitialisées si nécessaire."
+              : "Demande d’avenant refusée."),
+        );
+      } else {
+        setMsg(
+          approved
+            ? card.status === "convention_deposited"
+              ? "Dépôt validé — e-mails de signature envoyés."
+              : "Convention validée — signatures lancées."
+            : card.status === "convention_deposited"
+              ? "Dépôt refusé."
+              : "Renvoyé pour correction.",
+        );
+      }
+      setClasseRefreshToken((n) => n + 1);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBoardQuickReviewBusyId(null);
     }
   }
 
@@ -951,6 +1032,8 @@ function StagesContent() {
           permissions={permissions}
           onLoadDetail={(id) => void loadDetail(id)}
           onOpenSignaturesPanel={(card) => void openSignaturesPanel(card)}
+          onQuickReview={(card, approved) => void boardQuickReview(card, approved)}
+          quickReviewBusyId={boardQuickReviewBusyId}
           onCreateOffline={
             permissions?.canReviewPreconvention
               ? () => {

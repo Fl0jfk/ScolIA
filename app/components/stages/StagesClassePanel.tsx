@@ -34,29 +34,27 @@ export default function StagesClassePanel({
   refreshToken?: number;
 }) {
   return (
-    <section data-tour="stages-classe" className="space-y-6">
-      <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+    <section data-tour="stages-classe" className="space-y-3">
+      <div>
         <h2 className="text-lg font-bold text-[#1F3D2B]">Suivi des stages par classe</h2>
-        <p className="mt-2 text-sm text-stone-600 max-w-3xl">
-          Vue classe avec photo, statut et avancement des signatures. Ouvrez un élève puis son
-          dossier pour valider, relancer ou suivre chaque signataire.
+        <p className="mt-1 text-sm text-stone-600">
+          Liste des élèves, statut et signatures. Ouvrez un dossier pour valider ou relancer.
+          Les validations quotidiennes se font aussi depuis le tableau de bord.
         </p>
-        <div className="mt-6">
-          <StageClassRosterPanel
-            onOpenConvention={onOpenConvention}
-            selectedConventionId={selectedConventionId}
-            focusClassName={focusClassName}
-            detailSlot={detailSlot}
-            canFileOneDrive={canFileOneDrive}
-            oneDriveConnected={oneDriveConnected}
-            onFileOneDrive={onFileOneDrive}
-            filingConventionId={filingConventionId}
-            canCreateOffline={canCreateOffline}
-            onCreateOffline={onCreateOffline}
-            refreshToken={refreshToken}
-          />
-        </div>
       </div>
+      <StageClassRosterPanel
+        onOpenConvention={onOpenConvention}
+        selectedConventionId={selectedConventionId}
+        focusClassName={focusClassName}
+        detailSlot={detailSlot}
+        canFileOneDrive={canFileOneDrive}
+        oneDriveConnected={oneDriveConnected}
+        onFileOneDrive={onFileOneDrive}
+        filingConventionId={filingConventionId}
+        canCreateOffline={canCreateOffline}
+        onCreateOffline={onCreateOffline}
+        refreshToken={refreshToken}
+      />
     </section>
   );
 }

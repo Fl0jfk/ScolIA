@@ -48,15 +48,12 @@ function StudentAvatar({
   prenom,
   nom,
   photoUrl,
-  size = "md",
 }: {
   prenom: string;
   nom: string;
   photoUrl?: string | null;
-  size?: "md" | "lg";
 }) {
   const [failed, setFailed] = useState(false);
-  const dim = size === "lg" ? "h-14 w-14 text-base" : "h-11 w-11 text-sm";
   const initials = studentInitials(prenom, nom);
 
   if (photoUrl && !failed) {
@@ -65,14 +62,14 @@ function StudentAvatar({
         src={photoUrl}
         alt=""
         onError={() => setFailed(true)}
-        className={`${dim} shrink-0 rounded-2xl object-cover ring-2 ring-white shadow-sm`}
+        className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-stone-200"
       />
     );
   }
 
   return (
     <div
-      className={`${dim} flex shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2F6B4A] to-[#1F3D2B] font-bold text-white shadow-sm ring-2 ring-white`}
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2F6B4A] text-xs font-bold text-white"
       aria-hidden
     >
       {initials}
@@ -95,6 +92,28 @@ type RosterResponse = {
   roster: StageClassRoster | null;
   message?: string;
 };
+
+/** Cache module : survit au changement d’onglet (démontage du panel). */
+const ROSTER_MEMORY_TTL_MS = 90_000;
+const rosterMemoryCache = new Map<string, { at: number; data: RosterResponse }>();
+
+function readRosterMemory(key: string): RosterResponse | undefined {
+  const hit = rosterMemoryCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > ROSTER_MEMORY_TTL_MS) {
+    rosterMemoryCache.delete(key);
+    return undefined;
+  }
+  return hit.data;
+}
+
+function writeRosterMemory(key: string, data: RosterResponse): void {
+  rosterMemoryCache.set(key, { at: Date.now(), data });
+}
+
+function clearRosterMemory(): void {
+  rosterMemoryCache.clear();
+}
 
 export default function StageClassRosterPanel({
   onOpenConvention,
@@ -136,30 +155,33 @@ export default function StageClassRosterPanel({
   const [globalResults, setGlobalResults] = useState<StageGlobalSearchHit[]>([]);
   const [globalSearching, setGlobalSearching] = useState(false);
   const [statusFilter, setStatusFilter] = useState<RosterStatusFilter>("all");
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [selectedStudentKey, setSelectedStudentKey] = useState<string | null>(null);
   const detailAnchorRef = useRef<HTMLDivElement | null>(null);
-  /** Cache mémoire : retour instantané au changement de classe (sans attendre le réseau). */
-  const rosterCacheRef = useRef<Map<string, RosterResponse>>(new Map());
   const loadSeqRef = useRef(0);
+  const availableClassesRef = useRef<string[]>([]);
+  const prefetchDoneRef = useRef<Set<string>>(new Set());
 
   const cacheKeyFor = (className: string) => className.trim().toLowerCase() || "__default__";
 
-  const load = useCallback(async (className?: string, opts?: { force?: boolean }) => {
+  const load = useCallback(async (className?: string, opts?: { force?: boolean; silent?: boolean }) => {
     const wanted = className?.trim() || "";
     const cacheKey = cacheKeyFor(wanted);
-    const cached = !opts?.force ? rosterCacheRef.current.get(cacheKey) : undefined;
+    const cached = !opts?.force ? readRosterMemory(cacheKey) : undefined;
     if (cached) {
-      setData(cached);
-      if (cached.roster?.className) setSelectedClass(cached.roster.className);
-      else if (wanted) setSelectedClass(wanted);
-      setLoading(false);
-      setError(null);
-    } else {
+      if (!opts?.silent) {
+        setData(cached);
+        if (cached.roster?.className) setSelectedClass(cached.roster.className);
+        else if (wanted) setSelectedClass(wanted);
+        setLoading(false);
+        setError(null);
+      }
+    } else if (!opts?.silent) {
       setLoading(true);
       setError(null);
     }
 
-    const seq = ++loadSeqRef.current;
+    // Prefetch silencieux : ne pas incrémenter le seq (sinon on annule le chargement visible).
+    const seq = opts?.silent ? loadSeqRef.current : ++loadSeqRef.current;
     const t0 = performance.now();
     try {
       const params = new URLSearchParams();
@@ -171,48 +193,84 @@ export default function StageClassRosterPanel({
         cache?: unknown;
       };
       if (!res.ok) throw new Error(json.error || "Erreur chargement");
-      if (seq !== loadSeqRef.current) return;
+      if (!opts?.silent && seq !== loadSeqRef.current) return;
 
       const resolvedClass = json.roster?.className || wanted || json.availableClasses[0] || "";
-      rosterCacheRef.current.set(cacheKeyFor(resolvedClass), json);
-      if (!wanted) rosterCacheRef.current.set("__default__", json);
+      writeRosterMemory(cacheKeyFor(resolvedClass), json);
+      if (!wanted) writeRosterMemory("__default__", json);
+      if (json.availableClasses?.length) {
+        availableClassesRef.current = json.availableClasses;
+      }
 
-      setData(json);
-      if (json.roster?.className) setSelectedClass(json.roster.className);
-      else if (wanted) setSelectedClass(wanted);
-      else if (json.availableClasses[0]) setSelectedClass(json.availableClasses[0]);
+      if (!opts?.silent) {
+        setData(json);
+        if (json.roster?.className) setSelectedClass(json.roster.className);
+        else if (wanted) setSelectedClass(wanted);
+        else if (json.availableClasses[0]) setSelectedClass(json.availableClasses[0]);
+      }
 
       console.info("[ScolIA][stages/roster]", {
         className: resolvedClass || wanted || "(défaut)",
         fromMemoryCache: Boolean(cached),
+        silent: Boolean(opts?.silent),
         clientMs: Math.round(performance.now() - t0),
         server: json.perf ?? null,
         valkey: json.cache ?? null,
       });
     } catch (e: unknown) {
-      if (seq !== loadSeqRef.current) return;
-      if (!cached) setError(e instanceof Error ? e.message : "Erreur");
+      if (!opts?.silent && seq !== loadSeqRef.current) return;
+      if (!cached && !opts?.silent) setError(e instanceof Error ? e.message : "Erreur");
     } finally {
-      if (seq === loadSeqRef.current) setLoading(false);
+      if (!opts?.silent && seq === loadSeqRef.current) setLoading(false);
     }
   }, []);
 
+  /** Prefetch des classes voisines en arrière-plan (Valkey + cache mémoire). */
+  const prefetchNeighbors = useCallback(
+    (currentClass: string, classes: string[]) => {
+      if (!classes.length) return;
+      const idx = classes.findIndex(
+        (c) => c.localeCompare(currentClass, "fr", { sensitivity: "base" }) === 0,
+      );
+      const neighbors = [classes[idx - 1], classes[idx + 1], classes[idx + 2]].filter(
+        (c): c is string => Boolean(c?.trim()),
+      );
+      for (const cls of neighbors) {
+        const key = cacheKeyFor(cls);
+        if (readRosterMemory(key) || prefetchDoneRef.current.has(key)) continue;
+        prefetchDoneRef.current.add(key);
+        void load(cls, { silent: true });
+      }
+    },
+    [load],
+  );
+
+  // Premier chargement / focus classe : utiliser le cache si possible (pas de wipe).
   useEffect(() => {
-    rosterCacheRef.current.clear();
     const wanted = focusClassName?.trim() || "";
-    if (wanted) {
-      void load(wanted, { force: true });
-      return;
-    }
-    void load(undefined, { force: true });
-  }, [load, focusClassName, refreshToken]);
+    void load(wanted || undefined).then(() => {
+      const classes = availableClassesRef.current;
+      const current = wanted || selectedClass || classes[0] || "";
+      if (current) prefetchNeighbors(current, classes);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focusClassName only
+  }, [load, focusClassName, prefetchNeighbors]);
+
+  // Refresh explicite (après mutation) : invalider le cache mémoire.
+  useEffect(() => {
+    if (refreshToken == null || refreshToken === 0) return;
+    clearRosterMemory();
+    prefetchDoneRef.current.clear();
+    void load(selectedClass || focusClassName || undefined, { force: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
 
   useEffect(() => {
     if (!selectedConventionId || !data?.roster) return;
     const match = data.roster.students.find((s) =>
       s.conventions.some((c) => c.id === selectedConventionId),
     );
-    if (match) setExpandedKey(match.key);
+    if (match) setSelectedStudentKey(match.key);
   }, [selectedConventionId, data]);
 
   useEffect(() => {
@@ -221,7 +279,7 @@ export default function StageClassRosterPanel({
       detailAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }, 80);
     return () => window.clearTimeout(t);
-  }, [selectedConventionId, detailSlot, expandedKey]);
+  }, [selectedConventionId, detailSlot, selectedStudentKey]);
 
   useEffect(() => {
     const q = globalQuery.trim();
@@ -263,8 +321,10 @@ export default function StageClassRosterPanel({
   const onClassChange = (className: string) => {
     setSelectedClass(className);
     setStatusFilter("all");
-    setExpandedKey(null);
-    void load(className);
+    setSelectedStudentKey(null);
+    void load(className).then(() => {
+      prefetchNeighbors(className, availableClassesRef.current);
+    });
   };
 
   async function assignReferent(conventionId: string, teacherId: string) {
@@ -288,7 +348,8 @@ export default function StageClassRosterPanel({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Erreur délégation");
       setAssignMsg(`Référent stage : ${teacher.displayName}`);
-      await load(selectedClass);
+      clearRosterMemory();
+      await load(selectedClass, { force: true });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -316,63 +377,22 @@ export default function StageClassRosterPanel({
     });
   }, [roster, statusFilter]);
 
-  const globalSearchBlock = (
-    <>
-      <label className="block text-sm font-semibold text-stone-700">
-        Recherche globale
-        <input
-          type="search"
-          value={globalQuery}
-          onChange={(e) => setGlobalQuery(e.target.value)}
-          placeholder="Nom, entreprise, classe… (toutes les classes)"
-          className="mt-1 w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-normal shadow-sm sm:max-w-xl"
-        />
-        <span className="mt-1 block text-[11px] font-normal text-stone-500">
-          Cherche dans tous les stages déclarés, toutes classes confondues.
-        </span>
-      </label>
+  const selectedStudent = useMemo(() => {
+    if (!roster || !selectedStudentKey) return null;
+    return roster.students.find((s) => s.key === selectedStudentKey) ?? null;
+  }, [roster, selectedStudentKey]);
 
-      {globalQuery.trim().length >= 2 ? (
-        <div className="rounded-2xl border border-[#2F6B4A]/25 bg-[#f7faf8] px-4 py-3">
-          <p className="text-xs font-bold uppercase tracking-wide text-[#1F3D2B]">
-            Résultats{globalSearching ? "…" : ` · ${globalResults.length}`}
-          </p>
-          {globalSearching && globalResults.length === 0 ? (
-            <p className="mt-2 text-sm text-stone-500">Recherche en cours…</p>
-          ) : globalResults.length === 0 ? (
-            <p className="mt-2 text-sm text-stone-500">
-              Aucun stage ne correspond à « {globalQuery.trim()} ».
-            </p>
-          ) : (
-            <ul className="mt-2 divide-y divide-stone-200/80">
-              {globalResults.map((hit) => (
-                <li key={hit.conventionId} className="flex flex-wrap items-center gap-2 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[#1F3D2B]">
-                      {hit.studentFirstName} {hit.studentLastName}
-                      <span className="ml-2 font-normal text-stone-500">{hit.className}</span>
-                    </p>
-                    <p className="truncate text-xs text-stone-600">
-                      {hit.companyName}
-                      {hit.stageLabel ? ` · ${hit.stageLabel}` : ""}
-                      {" · "}
-                      {hit.statusLabel}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onOpenConvention(hit.conventionId)}
-                    className="shrink-0 rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1F3D2B]"
-                  >
-                    Ouvrir
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ) : null}
-    </>
+  const globalSearchBlock = (
+    <label className="block text-sm font-medium text-stone-700">
+      Recherche
+      <input
+        type="search"
+        value={globalQuery}
+        onChange={(e) => setGlobalQuery(e.target.value)}
+        placeholder="Nom, entreprise, classe…"
+        className="mt-1 w-full max-w-md rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-normal shadow-sm"
+      />
+    </label>
   );
 
   if (loading && !data) {
@@ -389,9 +409,9 @@ export default function StageClassRosterPanel({
 
   if (data?.message && !data.roster) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-4">
         {globalSearchBlock}
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           {data.message}
         </div>
       </div>
@@ -399,7 +419,7 @@ export default function StageClassRosterPanel({
   }
 
   if (!data || !roster) {
-    return <div className="space-y-5">{globalSearchBlock}</div>;
+    return <div className="space-y-4">{globalSearchBlock}</div>;
   }
 
   const mandatory = roster.expectsMandatoryStage === true;
@@ -407,62 +427,90 @@ export default function StageClassRosterPanel({
   const canAssign = data.canAssignReferent === true;
   const teachers = data.teachers ?? [];
 
-  const statusFilters: Array<{ id: RosterStatusFilter; label: string; count: number; tone: string }> =
-    [
-      { id: "all", label: "Tous", count: roster.summary.total, tone: "text-[#1F3D2B]" },
-      { id: "valide", label: "Validés", count: roster.summary.valide, tone: "text-emerald-800" },
-      { id: "en_cours", label: "En cours", count: roster.summary.enCours, tone: "text-amber-800" },
-      {
-        id: "sans_stage",
-        label: sansStageLabel,
-        count: roster.summary.sansStage,
-        tone: mandatory ? "text-rose-700" : "text-stone-600",
-      },
-      {
-        id: "plusieurs",
-        label: "Plusieurs",
-        count: roster.summary.plusieurs,
-        tone: "text-violet-800",
-      },
-    ];
+  const statusFilters: Array<{ id: RosterStatusFilter; label: string; count: number }> = [
+    { id: "all", label: "Tous", count: roster.summary.total },
+    { id: "valide", label: "Validés", count: roster.summary.valide },
+    { id: "en_cours", label: "En cours", count: roster.summary.enCours },
+    { id: "sans_stage", label: sansStageLabel, count: roster.summary.sansStage },
+    { id: "plusieurs", label: "Plusieurs", count: roster.summary.plusieurs },
+  ];
 
   return (
-    <div className="space-y-5">
-      {globalSearchBlock}
-
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-wrap items-end gap-3">
-          {classOptions.length >= 1 ? (
-            <label className="text-sm font-semibold text-stone-700">
-              Classe
-              <select
-                className="mt-1 block min-w-[140px] rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm shadow-sm"
-                value={selectedClass}
-                onChange={(e) => onClassChange(e.target.value)}
-              >
-                {classOptions.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <p className="text-lg font-bold text-[#1F3D2B]">Classe {roster.className}</p>
-          )}
-          {data.referents.length > 0 ? (
-            <p className="pb-2 text-xs text-stone-500">
-              {data.referents
-                .map((r) =>
-                  r.role === "professeur_principal" ? `PP ${r.name}` : `Réf. ${r.name}`,
-                )
-                .join(" · ")}
-            </p>
-          ) : null}
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-4">
+        {globalSearchBlock}
+        {classOptions.length >= 1 ? (
+          <label className="text-sm font-medium text-stone-700">
+            Classe
+            <select
+              className="mt-1 block min-w-[140px] rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm"
+              value={selectedClass}
+              onChange={(e) => onClassChange(e.target.value)}
+            >
+              {classOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p className="pb-2 text-base font-bold text-[#1F3D2B]">Classe {roster.className}</p>
+        )}
+        {data.referents.length > 0 ? (
+          <p className="pb-2 text-xs text-stone-500">
+            {data.referents
+              .map((r) =>
+                r.role === "professeur_principal" ? `PP ${r.name}` : `Réf. ${r.name}`,
+              )
+              .join(" · ")}
+          </p>
+        ) : null}
+        {loading ? (
+          <p className="pb-2 text-xs text-stone-400">Mise à jour…</p>
+        ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      {globalQuery.trim().length >= 2 ? (
+        <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
+          <p className="text-xs font-semibold text-stone-600">
+            Résultats{globalSearching ? "…" : ` · ${globalResults.length}`}
+          </p>
+          {globalSearching && globalResults.length === 0 ? (
+            <p className="mt-1 text-sm text-stone-500">Recherche…</p>
+          ) : globalResults.length === 0 ? (
+            <p className="mt-1 text-sm text-stone-500">Aucun résultat.</p>
+          ) : (
+            <ul className="mt-1 divide-y divide-stone-200">
+              {globalResults.map((hit) => (
+                <li key={hit.conventionId} className="flex items-center gap-2 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-[#1F3D2B]">
+                      {hit.studentFirstName} {hit.studentLastName}
+                      <span className="ml-2 font-normal text-stone-500">{hit.className}</span>
+                    </p>
+                    <p className="truncate text-xs text-stone-600">
+                      {hit.companyName}
+                      {hit.stageLabel ? ` · ${hit.stageLabel}` : ""}
+                      {" · "}
+                      {hit.statusLabel}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenConvention(hit.conventionId)}
+                    className="shrink-0 rounded-lg bg-[#2F6B4A] px-2.5 py-1 text-xs font-bold text-white"
+                  >
+                    Ouvrir
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-1.5">
         {statusFilters.map((f) => {
           const active = statusFilter === f.id;
           return (
@@ -470,251 +518,233 @@ export default function StageClassRosterPanel({
               key={f.id}
               type="button"
               onClick={() => setStatusFilter(f.id)}
-              className={`rounded-2xl border px-3 py-3 text-left transition ${
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                 active
-                  ? "border-[#2F6B4A] bg-[#2F6B4A]/08 ring-1 ring-[#2F6B4A]/25"
-                  : "border-stone-200 bg-white hover:border-[#2F6B4A]/35"
+                  ? "bg-[#2F6B4A] text-white"
+                  : "bg-stone-100 text-stone-700 hover:bg-stone-200"
               }`}
             >
-              <p className="text-[11px] font-medium text-stone-500">{f.label}</p>
-              <p className={`mt-0.5 text-xl font-black tabular-nums ${f.tone}`}>{f.count}</p>
+              {f.label}
+              <span className={`ml-1 tabular-nums ${active ? "text-white/80" : "text-stone-500"}`}>
+                {f.count}
+              </span>
             </button>
           );
         })}
       </div>
 
       {canAssign ? (
-        <p className="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
-          Professeur principal : vous pouvez déléguer un <strong>référent stage</strong> par dossier.
+        <p className="text-xs text-stone-500">
+          Professeur principal : vous pouvez déléguer un référent stage par dossier.
         </p>
       ) : null}
-
       {assignMsg ? (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
           {assignMsg}
         </p>
       ) : null}
       {error ? (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
           {error}
         </p>
       ) : null}
 
       {mandatory && roster.officialPeriods.length > 0 ? (
-        <div className="rounded-2xl border border-sky-100 bg-gradient-to-r from-sky-50 to-white px-4 py-3 text-sm text-sky-950">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-sky-700">
-            Périodes officielles
-          </p>
-          <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            {roster.officialPeriods.map((p) => (
-              <li key={p.id}>
-                <strong>{p.label}</strong> · {formatIsoDateFr(p.periodStart)} →{" "}
-                {formatIsoDateFr(p.periodEnd)}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <p className="text-xs text-stone-600">
+          <span className="font-semibold text-sky-800">Périodes : </span>
+          {roster.officialPeriods
+            .map((p) => `${p.label} (${formatIsoDateFr(p.periodStart)} → ${formatIsoDateFr(p.periodEnd)})`)
+            .join(" · ")}
+        </p>
       ) : null}
 
       {roster.note ? (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {roster.note}
         </p>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {filteredStudents.map((student) => {
-          const open = expandedKey === student.key;
-          const mainConvention = student.conventions[0];
-          return (
-            <div
-              key={student.key}
-              className={`overflow-hidden rounded-3xl border bg-white shadow-sm transition ${
-                open
-                  ? "border-[#2F6B4A]/45 ring-2 ring-[#2F6B4A]/15 sm:col-span-2 xl:col-span-3"
-                  : "border-stone-200/90 hover:border-[#2F6B4A]/30 hover:shadow-md"
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => setExpandedKey(open ? null : student.key)}
-                className="flex w-full items-center gap-3 px-3.5 py-3 text-left"
-              >
-                <StudentAvatar
-                  prenom={student.prenom}
-                  nom={student.nom}
-                  photoUrl={student.photoUrl}
-                  size={open ? "lg" : "md"}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-bold text-[#1F3D2B]">
-                    {student.prenom} {student.nom}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-stone-500">
-                    {mainConvention
-                      ? mainConvention.companyName || mainConvention.statusLabel
-                      : "Aucune convention"}
-                    {mainConvention?.signatureSummary.total
-                      ? ` · ${mainConvention.signatureSummary.signed}/${mainConvention.signatureSummary.total} sig.`
-                      : ""}
-                  </p>
-                </div>
-                <span
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${statusChipClass(student.rosterStatus, mandatory)}`}
+      {/* Liste élèves — plate, sans cartes imbriquées */}
+      <div className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+        <ul className="divide-y divide-stone-100">
+          {filteredStudents.map((student) => {
+            const selected = selectedStudentKey === student.key;
+            const mainConvention = student.conventions[0];
+            const hasSelectedConv = student.conventions.some(
+              (c) => c.id === selectedConventionId,
+            );
+            return (
+              <li key={student.key}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedStudentKey(selected ? null : student.key);
+                    if (!selected && student.conventions.length === 1) {
+                      onOpenConvention(student.conventions[0]!.id);
+                    }
+                  }}
+                  className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
+                    selected || hasSelectedConv
+                      ? "bg-[#2F6B4A]/06"
+                      : "hover:bg-stone-50"
+                  }`}
                 >
-                  {statusLabel(student.rosterStatus, mandatory)}
-                </span>
-              </button>
-
-              {open ? (
-                <div className="space-y-3 border-t border-stone-100 bg-gradient-to-b from-[#f6faf8] to-white px-3.5 py-4">
-                  {student.conventions.length === 0 ? (
-                    <div className="space-y-3">
-                      <p className="text-sm text-stone-500">
-                        Aucun stage déposé pour cet élève pour le moment.
-                      </p>
-                      {canCreateOffline && onCreateOffline ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onCreateOffline({
-                              firstName: student.prenom,
-                              lastName: student.nom,
-                              className: roster?.className || selectedClass,
-                              ine: student.ine,
-                            })
-                          }
-                          className="rounded-xl border border-[#2F6B4A]/30 bg-white px-3 py-1.5 text-xs font-bold text-[#2F6B4A] shadow-sm hover:bg-[#f6faf8]"
-                        >
-                          Enregistrer un stage hors plateforme
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <>
-                    {student.conventions.map((c) => {
-                      const selected = selectedConventionId === c.id;
-                      return (
-                        <div
-                          key={c.id}
-                          className={`rounded-2xl border bg-white p-4 space-y-3 shadow-sm ${
-                            selected
-                              ? "border-[#2F6B4A] ring-1 ring-[#2F6B4A]/20"
-                              : "border-stone-200"
-                          }`}
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-[#1F3D2B]">
-                                {c.stageLabel ? `${c.stageLabel} — ` : ""}
-                                {c.companyName}
-                              </p>
-                              <p className="mt-0.5 text-xs text-stone-500">
-                                {formatIsoDateFr(c.periodStart)} → {formatIsoDateFr(c.periodEnd)} ·{" "}
-                                {c.statusLabel}
-                              </p>
-                              <p className="mt-1 text-xs text-stone-600">
-                                Référent :{" "}
-                                {c.teacherReferentName ? (
-                                  <span className="font-medium">{c.teacherReferentName}</span>
-                                ) : (
-                                  <span className="italic text-stone-400">Non assigné</span>
-                                )}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => onOpenConvention(c.id)}
-                              className="shrink-0 rounded-xl bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#275a3e]"
-                            >
-                              {selected && detailSlot ? "Dossier ouvert" : "Ouvrir le dossier"}
-                            </button>
-                          </div>
-
-                          <StageSignatureProgress summary={c.signatureSummary} compact />
-
-                          <div className="flex flex-wrap items-center gap-3">
-                            {canAssign && teachers.length > 0 ? (
-                              <select
-                                className="rounded-lg border border-stone-300 px-2 py-1 text-xs"
-                                disabled={assignBusyId === c.id}
-                                defaultValue=""
-                                onChange={(e) => {
-                                  const id = e.target.value;
-                                  if (id) void assignReferent(c.id, id);
-                                  e.target.value = "";
-                                }}
-                              >
-                                <option value="">
-                                  {assignBusyId === c.id
-                                    ? "Enregistrement…"
-                                    : "Déléguer un référent…"}
-                                </option>
-                                {teachers.map((t) => (
-                                  <option key={t.externalUserId} value={t.externalUserId}>
-                                    {t.displayName}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : null}
-
-                            {canFileOneDrive ? (
-                              c.oneDriveFiled ? (
-                                <span className="text-xs font-semibold text-emerald-700">
-                                  OneDrive : déposé
-                                </span>
-                              ) : c.canFileOneDrive ? (
-                                <button
-                                  type="button"
-                                  disabled={!oneDriveConnected || filingConventionId === c.id}
-                                  onClick={() => onFileOneDrive?.(c.id)}
-                                  className="text-xs font-semibold text-[#2F6B4A] underline disabled:opacity-50"
-                                >
-                                  {filingConventionId === c.id ? "Envoi…" : "→ OneDrive"}
-                                </button>
-                              ) : null
-                            ) : null}
-                          </div>
-
-                          {selected && detailSlot ? (
-                            <div ref={detailAnchorRef} className="border-t border-stone-100 pt-3">
-                              {detailSlot}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                    {canCreateOffline && onCreateOffline ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onCreateOffline({
-                            firstName: student.prenom,
-                            lastName: student.nom,
-                            className: roster?.className || selectedClass,
-                            ine: student.ine,
-                          })
-                        }
-                        className="rounded-xl border border-dashed border-[#2F6B4A]/35 bg-white px-3 py-1.5 text-xs font-semibold text-[#2F6B4A] hover:bg-[#f6faf8]"
-                      >
-                        + Ajouter un stage hors plateforme
-                      </button>
-                    ) : null}
-                    </>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+                  <StudentAvatar
+                    prenom={student.prenom}
+                    nom={student.nom}
+                    photoUrl={student.photoUrl}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-[#1F3D2B]">
+                      {student.prenom} {student.nom}
+                    </p>
+                    <p className="truncate text-xs text-stone-500">
+                      {mainConvention
+                        ? `${mainConvention.companyName || mainConvention.statusLabel}${
+                            mainConvention.signatureSummary.total
+                              ? ` · ${mainConvention.signatureSummary.signed}/${mainConvention.signatureSummary.total} sig.`
+                              : ""
+                          }`
+                        : "Aucune convention"}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${statusChipClass(student.rosterStatus, mandatory)}`}
+                  >
+                    {statusLabel(student.rosterStatus, mandatory)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {filteredStudents.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-stone-500">
+            {roster.students.length === 0
+              ? "Aucun élève pour cette classe."
+              : "Aucun élève pour ce filtre."}
+          </p>
+        ) : null}
       </div>
 
-      {filteredStudents.length === 0 ? (
-        <p className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">
-          {roster.students.length === 0
-            ? "Aucun élève pour cette classe."
-            : "Aucun élève pour ce filtre."}
-        </p>
+      {/* Fiche élève sélectionné — un seul panneau, pas de nesting */}
+      {selectedStudent ? (
+        <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-[#1F3D2B]">
+              {selectedStudent.prenom} {selectedStudent.nom}
+            </h3>
+            {canCreateOffline && onCreateOffline ? (
+              <button
+                type="button"
+                onClick={() =>
+                  onCreateOffline({
+                    firstName: selectedStudent.prenom,
+                    lastName: selectedStudent.nom,
+                    className: roster.className || selectedClass,
+                    ine: selectedStudent.ine,
+                  })
+                }
+                className="text-xs font-semibold text-[#2F6B4A] underline"
+              >
+                + Stage hors plateforme
+              </button>
+            ) : null}
+          </div>
+
+          {selectedStudent.conventions.length === 0 ? (
+            <p className="text-sm text-stone-500">Aucun stage déposé pour cet élève.</p>
+          ) : (
+            <ul className="space-y-2">
+              {selectedStudent.conventions.map((c) => {
+                const active = selectedConventionId === c.id;
+                return (
+                  <li
+                    key={c.id}
+                    className={`rounded-lg border px-3 py-2.5 ${
+                      active ? "border-[#2F6B4A] bg-[#2F6B4A]/05" : "border-stone-200"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-[#1F3D2B]">
+                          {c.stageLabel ? `${c.stageLabel} — ` : ""}
+                          {c.companyName}
+                        </p>
+                        <p className="mt-0.5 text-xs text-stone-500">
+                          {formatIsoDateFr(c.periodStart)} → {formatIsoDateFr(c.periodEnd)} ·{" "}
+                          {c.statusLabel}
+                          {c.teacherReferentName
+                            ? ` · Réf. ${c.teacherReferentName}`
+                            : " · Référent non assigné"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenConvention(c.id)}
+                        className="shrink-0 rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#275a3e]"
+                      >
+                        {active && detailSlot ? "Dossier ouvert" : "Ouvrir le dossier"}
+                      </button>
+                    </div>
+                    <div className="mt-2">
+                      <StageSignatureProgress summary={c.signatureSummary} compact />
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      {canAssign && teachers.length > 0 ? (
+                        <select
+                          className="rounded-md border border-stone-300 px-2 py-1 text-xs"
+                          disabled={assignBusyId === c.id}
+                          defaultValue=""
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            if (id) void assignReferent(c.id, id);
+                            e.target.value = "";
+                          }}
+                        >
+                          <option value="">
+                            {assignBusyId === c.id ? "Enregistrement…" : "Déléguer un référent…"}
+                          </option>
+                          {teachers.map((t) => (
+                            <option key={t.externalUserId} value={t.externalUserId}>
+                              {t.displayName}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                      {canFileOneDrive ? (
+                        c.oneDriveFiled ? (
+                          <span className="text-xs font-semibold text-emerald-700">
+                            OneDrive : déposé
+                          </span>
+                        ) : c.canFileOneDrive ? (
+                          <button
+                            type="button"
+                            disabled={!oneDriveConnected || filingConventionId === c.id}
+                            onClick={() => onFileOneDrive?.(c.id)}
+                            className="text-xs font-semibold text-[#2F6B4A] underline disabled:opacity-50"
+                          >
+                            {filingConventionId === c.id ? "Envoi…" : "→ OneDrive"}
+                          </button>
+                        ) : null
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {/* Dossier détail — sous la liste, plus de nesting dans les cartes */}
+      {detailSlot ? (
+        <div
+          ref={detailAnchorRef}
+          className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm"
+        >
+          {detailSlot}
+        </div>
       ) : null}
     </div>
   );
