@@ -129,18 +129,17 @@ export default function StageSignaturesDrawer({
     summary?.items.filter((i) => i.status === "en_attente" && !i.nonBlocking) ?? [];
 
   return (
-    <div className="fixed inset-0 z-[60] flex justify-end" role="presentation">
-      <button
-        type="button"
-        aria-label="Fermer le volet signatures"
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px] transition-opacity"
-        onClick={onClose}
-      />
-      <aside
+    <div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/45 p-3 backdrop-blur-[2px] sm:items-center sm:p-6"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative flex h-full w-full max-w-md flex-col bg-white shadow-2xl animate-in slide-in-from-right duration-200"
+        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
       >
         <header className="shrink-0 border-b border-stone-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50/40 px-5 pb-4 pt-5">
           <div className="flex items-start justify-between gap-3">
@@ -240,9 +239,7 @@ export default function StageSignaturesDrawer({
                   <li
                     key={item.id}
                     className={`rounded-xl border px-3.5 py-3 transition ${rowCls} ${
-                      canClickResend
-                        ? "hover:border-sky-400 hover:shadow-sm"
-                        : ""
+                      canClickResend ? "hover:border-sky-400 hover:shadow-sm" : ""
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -318,7 +315,7 @@ export default function StageSignaturesDrawer({
             Ouvrir le dossier complet
           </button>
         </footer>
-      </aside>
+      </div>
     </div>
   );
 }
