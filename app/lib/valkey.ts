@@ -279,16 +279,16 @@ async function probeSocket(
     const servername =
       process.env.VALKEY_TLS_SERVERNAME?.trim() ||
       (netIsIp(host) ? "scolia-cache" : host);
-    const socket = tls.connect(
-      {
-        host,
-        port,
-        family: 4,
-        servername,
-        rejectUnauthorized: process.env.VALKEY_TLS_REJECT_UNAUTHORIZED !== "0",
-        ...(resolveCaCert() ? { ca: resolveCaCert() } : {}),
-      },
-      () => done(`tls_ok:${socket.getProtocol() || "?"}`, socket),
+    const ca = resolveCaCert();
+    const options: tls.ConnectionOptions = {
+      host,
+      port,
+      servername,
+      rejectUnauthorized: process.env.VALKEY_TLS_REJECT_UNAUTHORIZED !== "0",
+    };
+    if (ca) options.ca = ca;
+    const socket = tls.connect(options, () =>
+      done(`tls_ok:${socket.getProtocol() || "?"}`, socket),
     );
     socket.setTimeout(CONNECT_TIMEOUT_MS);
     socket.on("timeout", () => done("tls_timeout", socket));
