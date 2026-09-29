@@ -41,6 +41,10 @@ export const VALKEY_TTL = {
   siecleExports: 45,
   /** Roster internat (S3, partagé entre instances) */
   internatStudents: 45,
+  /** Index conventions de stage (liste légère) */
+  stagesConventionsIndex: 45,
+  /** Convention de stage individuelle */
+  stagesConvention: 60,
 } as const;
 
 const NS = "scola";
@@ -161,4 +165,15 @@ export function valkeyKeySiecleExports(etablissementId: string): string {
 
 export function valkeyKeyInternatStudents(etablissementId: string): string {
   return `${NS}:internat:students:${etablissementId}`;
+}
+
+export function valkeyKeyStagesConventionsIndex(etablissementId: string): string {
+  return `${NS}:stages:conv-index:${etablissementId}`;
+}
+
+export function valkeyKeyStagesConvention(
+  etablissementId: string,
+  conventionId: string,
+): string {
+  return `${NS}:stages:conv:${etablissementId}:${conventionId}`;
 }
