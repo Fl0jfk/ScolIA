@@ -37,6 +37,22 @@ export type StagesHubBoardCard = {
   depositKind?: string | null;
   tutorEmailChangePending?: boolean;
   scheduleChangePending?: boolean;
+  /** Dates du stage (ISO). */
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  /** Libellé FR des dates, ex. « du lundi 12 mai au vendredi 23 mai ». */
+  periodLabel?: string | null;
+  /** Résumé des horaires (jours + plages). */
+  hoursSummary?: string | null;
+  /** Alignement vs périodes officielles de la classe (file dépôts). */
+  periodAlignment?: {
+    status: "no_official_periods" | "aligned" | "outside";
+    outside: boolean;
+    shortMessage: string;
+    referencePeriodLabel?: string | null;
+  } | null;
+  /** Avenant : dates demandées (si différentes). */
+  requestedPeriodLabel?: string | null;
 };
 
 export type StagesHubBoard = {

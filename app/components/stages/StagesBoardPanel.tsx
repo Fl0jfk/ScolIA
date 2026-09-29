@@ -105,6 +105,57 @@ function depositKindLabel(c: StagesHubBoardCard): string | null {
   );
 }
 
+function DepositReviewMeta({ c }: { c: StagesHubBoardCard }) {
+  const company = companyLabel(c);
+  const alignment = c.periodAlignment;
+  const alignmentTone =
+    alignment?.outside
+      ? "text-rose-800"
+      : alignment?.status === "aligned"
+        ? "text-emerald-800"
+        : "text-stone-600";
+
+  return (
+    <div className="mt-1.5 space-y-0.5 text-xs leading-snug text-stone-600">
+      {company && company !== "—" ? (
+        <p>
+          <span className="font-semibold text-stone-700">Entreprise :</span> {company}
+        </p>
+      ) : null}
+      {c.requestedPeriodLabel ? (
+        <p>
+          <span className="font-semibold text-stone-700">Avenant dates :</span>{" "}
+          {c.requestedPeriodLabel}
+        </p>
+      ) : c.periodLabel ? (
+        <p>
+          <span className="font-semibold text-stone-700">Dates :</span> {c.periodLabel}
+        </p>
+      ) : c.periodStart && c.periodEnd ? (
+        <p>
+          <span className="font-semibold text-stone-700">Dates :</span> {c.periodStart} →{" "}
+          {c.periodEnd}
+        </p>
+      ) : null}
+      {alignment ? (
+        <p className={alignmentTone}>
+          <span className="font-semibold">Période officielle :</span>{" "}
+          {alignment.outside
+            ? `⚠ Hors période — ${alignment.shortMessage}`
+            : alignment.status === "aligned"
+              ? `✓ ${alignment.referencePeriodLabel || alignment.shortMessage}`
+              : alignment.shortMessage}
+        </p>
+      ) : null}
+      {c.hoursSummary ? (
+        <p>
+          <span className="font-semibold text-stone-700">Horaires :</span> {c.hoursSummary}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function resolveBoardQuickReviewKind(c: StagesHubBoardCard): BoardQuickReviewKind {
   if (c.scheduleChangePending) return "schedule";
   if (c.tutorEmailChangePending) return "tutor_email";
@@ -268,10 +319,13 @@ function BoardList({
                   const reviewKind = resolveBoardQuickReviewKind(c);
                   const approveLabel =
                     reviewKind === "deposit" ? "Valider" : "Accepter";
+                  const outside = Boolean(c.periodAlignment?.outside);
                   return (
                     <li
                       key={c.id}
-                      className="flex flex-wrap items-center gap-3 py-3 first:pt-1 last:pb-1"
+                      className={`flex flex-wrap items-start gap-3 py-3 first:pt-1 last:pb-1 ${
+                        outside ? "rounded-xl bg-rose-50/70 px-2 -mx-1" : ""
+                      }`}
                     >
                       <BoardAvatar name={name} photoUrl={c.photoUrl} />
                       <div className="min-w-0 flex-1">
@@ -283,6 +337,11 @@ function BoardList({
                           >
                             {name}
                           </button>
+                          {c.className ? (
+                            <span className="text-xs font-medium text-stone-500">
+                              {c.className}
+                            </span>
+                          ) : null}
                           {kind && (
                             <span
                               className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${kindBadgeClass(kind)}`}
@@ -291,30 +350,44 @@ function BoardList({
                             </span>
                           )}
                         </div>
-                        <p className="mt-0.5 truncate text-xs text-stone-600">
-                          {[c.className, companyLabel(c)].filter(Boolean).join(" · ")}
-                          {" · "}
+                        <p className="mt-0.5 text-[11px] font-medium text-amber-900/90">
                           {statusLabel(c, statusOverride)}
                         </p>
+                        {showDepositKind ? <DepositReviewMeta c={c} /> : (
+                          <p className="mt-0.5 truncate text-xs text-stone-600">
+                            {[c.className, companyLabel(c)].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
                       </div>
                       {canQuickReview && onQuickReview ? (
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => onQuickReview(c, true)}
-                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-                          >
-                            {busy ? "…" : approveLabel}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => onQuickReview(c, false)}
-                            className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
-                          >
-                            Refuser
-                          </button>
+                        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => onQuickReview(c, true)}
+                              className={`rounded-lg px-3 py-1.5 text-xs font-bold text-white shadow-sm disabled:opacity-50 ${
+                                outside
+                                  ? "bg-rose-700 hover:bg-rose-800"
+                                  : "bg-emerald-600 hover:bg-emerald-700"
+                              }`}
+                              title={
+                                outside
+                                  ? "Attention : stage hors période officielle"
+                                  : undefined
+                              }
+                            >
+                              {busy ? "…" : outside ? `${approveLabel} (hors période)` : approveLabel}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => onQuickReview(c, false)}
+                              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+                            >
+                              Refuser
+                            </button>
+                          </div>
                         </div>
                       ) : null}
                     </li>

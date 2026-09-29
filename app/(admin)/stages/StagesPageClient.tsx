@@ -349,28 +349,63 @@ function StagesContent() {
   /** Valider / refuser depuis le tableau de bord sans ouvrir le suivi classe. */
   async function boardQuickReview(card: StagesHubBoardCard, approved: boolean) {
     const kind = resolveBoardQuickReviewKind(card);
+    const student =
+      card.studentName ||
+      (card.student
+        ? `${card.student.firstName} ${card.student.lastName}`.trim()
+        : "cet élève");
+    const company = card.companyName || card.company?.name || "—";
+    const dates =
+      card.periodLabel ||
+      (card.periodStart && card.periodEnd
+        ? `${card.periodStart} → ${card.periodEnd}`
+        : "non renseignées");
+    const hours = card.hoursSummary || "non renseignés";
+    const periodLine = card.periodAlignment
+      ? card.periodAlignment.outside
+        ? `⚠ HORS PÉRIODE OFFICIELLE — ${card.periodAlignment.shortMessage}`
+        : card.periodAlignment.status === "aligned"
+          ? `✓ ${card.periodAlignment.referencePeriodLabel || card.periodAlignment.shortMessage}`
+          : card.periodAlignment.shortMessage
+      : null;
+
     if (
       kind === "schedule" &&
       approved &&
       !window.confirm(
-        "Appliquer cet avenant ? Si des signatures sont en cours ou déjà déposées, elles seront annulées et chaque signataire devra re-signer.",
+        [
+          `Appliquer l’avenant pour ${student} ?`,
+          `Entreprise : ${company}`,
+          card.requestedPeriodLabel
+            ? `Dates : ${card.requestedPeriodLabel}`
+            : `Dates : ${dates}`,
+          `Horaires : ${hours}`,
+          periodLine || "",
+          "",
+          "Si des signatures sont en cours ou déjà déposées, elles seront annulées et chaque signataire devra re-signer.",
+        ]
+          .filter((line) => line !== "")
+          .join("\n"),
       )
     ) {
       return;
     }
-    if (
-      kind === "deposit" &&
-      approved &&
-      !window.confirm(
-        `Valider le dépôt de ${
-          card.studentName ||
-          (card.student
-            ? `${card.student.firstName} ${card.student.lastName}`.trim()
-            : "cet élève")
-        } et lancer les signatures ?`,
-      )
-    ) {
-      return;
+    if (kind === "deposit" && approved) {
+      const confirmLines = [
+        `Valider le dépôt de ${student} et lancer les signatures ?`,
+        "",
+        `Entreprise : ${company}`,
+        `Dates : ${dates}`,
+        `Horaires : ${hours}`,
+      ];
+      if (periodLine) confirmLines.push(`Période officielle : ${periodLine}`);
+      if (card.periodAlignment?.outside) {
+        confirmLines.push(
+          "",
+          "ATTENTION — ce stage est hors des périodes définies pour la classe.",
+        );
+      }
+      if (!window.confirm(confirmLines.join("\n"))) return;
     }
 
     const action =

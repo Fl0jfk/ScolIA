@@ -41,6 +41,7 @@ import {
   type StageConvention,
   type StageConventionIndexEntry,
   type StageConventionStatus,
+  type StageSchedule,
 } from "@/app/lib/stage-types";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import {
@@ -50,9 +51,31 @@ import {
 import { inferSecteurFromFolderName } from "@/app/lib/onedrive-eleves";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { createPerfTimer } from "@/app/lib/perf-timer";
+import { getStagePeriodsForClass } from "@/app/lib/stage-periods-config";
+import { assessScheduleAgainstOfficialPeriods } from "@/app/lib/stage-period-alignment";
+import {
+  formatDaySlotLabel,
+  formatPeriodRangeFr,
+} from "@/app/lib/stage-schedule";
 
 function stageElevePhotoPath(eleveId: string): string {
   return `/api/stages/eleve-photo?eleveId=${encodeURIComponent(eleveId)}`;
+}
+
+function boardHoursSummary(schedule: StageSchedule | null | undefined): string | null {
+  if (!schedule?.days?.length) return null;
+  const labels = schedule.days.map(formatDaySlotLabel).filter(Boolean);
+  if (!labels.length) return null;
+  // Garde le board lisible : plafonner à 4 plages + « … ».
+  if (labels.length <= 4) return labels.join(" · ");
+  return `${labels.slice(0, 4).join(" · ")} · +${labels.length - 4}`;
+}
+
+function boardScheduleForCard(c: StageConvention): StageSchedule {
+  if (c.scheduleChangeRequest?.requestedSchedule) {
+    return c.scheduleChangeRequest.requestedSchedule;
+  }
+  return c.schedule;
 }
 
 function normalizePersonPart(value: string): string {
@@ -257,18 +280,81 @@ export async function GET() {
       c: StageConvention,
       photoByConventionId: Record<string, string>,
       secteurByConventionId: Record<string, Secteur | null>,
-    ) => ({
-      id: c.id,
-      studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
-      companyName: c.company.name,
-      className: c.student.className,
-      secteur: secteurByConventionId[c.id] ?? null,
-      status: c.status,
-      photoUrl: photoByConventionId[c.id] || null,
-      depositKind: depositKindForConvention(c),
-      tutorEmailChangePending: Boolean(c.tutorEmailChangeRequest),
-      scheduleChangePending: Boolean(c.scheduleChangeRequest),
-    });
+      opts?: {
+        includePeriodAlignment?: boolean;
+        periodsByClass?: Map<string, Awaited<ReturnType<typeof getStagePeriodsForClass>>>;
+      },
+    ) => {
+      const schedule = boardScheduleForCard(c);
+      const periodStart = String(schedule?.periodStart || "").slice(0, 10) || null;
+      const periodEnd = String(schedule?.periodEnd || "").slice(0, 10) || null;
+      const periodLabel =
+        periodStart && periodEnd
+          ? formatPeriodRangeFr(periodStart, periodEnd) || `${periodStart} → ${periodEnd}`
+          : null;
+      const hoursSummary = boardHoursSummary(schedule);
+
+      let periodAlignment: {
+        status: "no_official_periods" | "aligned" | "outside";
+        outside: boolean;
+        shortMessage: string;
+        referencePeriodLabel?: string | null;
+      } | null = null;
+
+      if (opts?.includePeriodAlignment && schedule && opts.periodsByClass) {
+        const className = String(c.student.className || "").trim();
+        const officialPeriods = opts.periodsByClass.get(className) ?? [];
+        const alignment = assessScheduleAgainstOfficialPeriods({
+          className,
+          schedule,
+          officialPeriods,
+          stagePeriodId: c.stagePeriodId,
+          stageLabel: c.stageLabel,
+        });
+        periodAlignment = {
+          status: alignment.status,
+          outside: alignment.outside,
+          shortMessage: alignment.shortMessage,
+          referencePeriodLabel: alignment.referencePeriod
+            ? `${alignment.referencePeriod.label} (${formatPeriodRangeFr(alignment.referencePeriod.periodStart, alignment.referencePeriod.periodEnd) || `${alignment.referencePeriod.periodStart} → ${alignment.referencePeriod.periodEnd}`})`
+            : null,
+        };
+      }
+
+      const requestedPeriodLabel =
+        c.scheduleChangeRequest?.requestedSchedule && c.scheduleChangeRequest?.previousSchedule
+          ? (() => {
+              const prev = c.scheduleChangeRequest!.previousSchedule;
+              const next = c.scheduleChangeRequest!.requestedSchedule;
+              const prevLabel =
+                formatPeriodRangeFr(prev.periodStart, prev.periodEnd) ||
+                `${prev.periodStart} → ${prev.periodEnd}`;
+              const nextLabel =
+                formatPeriodRangeFr(next.periodStart, next.periodEnd) ||
+                `${next.periodStart} → ${next.periodEnd}`;
+              return `${prevLabel} → ${nextLabel}`;
+            })()
+          : null;
+
+      return {
+        id: c.id,
+        studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
+        companyName: c.company.name,
+        className: c.student.className,
+        secteur: secteurByConventionId[c.id] ?? null,
+        status: c.status,
+        photoUrl: photoByConventionId[c.id] || null,
+        depositKind: depositKindForConvention(c),
+        tutorEmailChangePending: Boolean(c.tutorEmailChangeRequest),
+        scheduleChangePending: Boolean(c.scheduleChangeRequest),
+        periodStart,
+        periodEnd,
+        periodLabel,
+        hoursSummary,
+        periodAlignment,
+        requestedPeriodLabel,
+      };
+    };
 
     const byIne = new Map(
       eleves
@@ -324,6 +410,32 @@ export async function GET() {
       if (key) photoByConventionId[e.conventionId] = stageElevePhotoPath(e.id);
     }
     perf.mark("photos");
+
+    // Périodes officielles par classe (file dépôts uniquement) — pour alerte hors période.
+    const adminQueueSlice = adminQueue.slice(0, 30);
+    const classNamesForAlignment = [
+      ...new Set(
+        adminQueueSlice
+          .map((c) => String(c.student.className || "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    const periodsByClass = new Map<
+      string,
+      Awaited<ReturnType<typeof getStagePeriodsForClass>>
+    >();
+    if (classNamesForAlignment.length > 0) {
+      await Promise.all(
+        classNamesForAlignment.map(async (className) => {
+          const year =
+            adminQueueSlice.find((c) => c.student.className === className)?.schoolYear ||
+            currentStageSchoolYear();
+          const periods = await getStagePeriodsForClass(className, year).catch(() => []);
+          periodsByClass.set(className, periods);
+        }),
+      );
+    }
+    perf.mark("period_alignment");
 
     // Statut Valkey léger (pas de probes TCP/TLS — trop coûteux sur le hot path).
     const { isValkeyConfigured, getValkey } = await import("@/app/lib/valkey");
@@ -383,9 +495,12 @@ export async function GET() {
       },
       myPendingSignatures,
       pendingOffers: [],
-      adminQueue: adminQueue
-        .slice(0, 30)
-        .map((c) => mapBoardCard(c, photoByConventionId, secteurByConventionId)),
+      adminQueue: adminQueueSlice.map((c) =>
+        mapBoardCard(c, photoByConventionId, secteurByConventionId, {
+          includePeriodAlignment: true,
+          periodsByClass,
+        }),
+      ),
       signaturesPending: signaturesPending
         .slice(0, 30)
         .map((c) => mapBoardCard(c, photoByConventionId, secteurByConventionId)),
