@@ -161,25 +161,37 @@ async function listCalendarEventsInHorizon(opts: {
   if (!calendarId) return { now, items: [] };
 
   const horizon = new Date(now.getTime() + Math.max(1, opts.horizonDays) * 24 * 60 * 60 * 1000);
-  const params = new URLSearchParams({
-    timeMin: now.toISOString(),
-    timeMax: horizon.toISOString(),
-    singleEvents: "true",
-    orderBy: "startTime",
-    maxResults: "250",
-  });
+  const items: GCalEvent[] = [];
+  let pageToken: string | undefined;
 
-  const res = await gcalFetch(
-    opts.accessToken,
-    `/calendars/${encodeCalendarId(calendarId)}/events?${params.toString()}`,
-  );
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Google Calendar list events (${res.status}) : ${body.slice(0, 400)}`);
+  // Sans pagination, maxResults=250 coupe les créneaux lointains sur un agenda chargé
+  // (réunions / cours avant décembre → les RDV de décembre n’apparaissent jamais).
+  for (let page = 0; page < 20; page += 1) {
+    const params = new URLSearchParams({
+      timeMin: now.toISOString(),
+      timeMax: horizon.toISOString(),
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const res = await gcalFetch(
+      opts.accessToken,
+      `/calendars/${encodeCalendarId(calendarId)}/events?${params.toString()}`,
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Google Calendar list events (${res.status}) : ${body.slice(0, 400)}`);
+    }
+
+    const data = (await res.json()) as { items?: GCalEvent[]; nextPageToken?: string };
+    if (data.items?.length) items.push(...data.items);
+    pageToken = data.nextPageToken?.trim() || undefined;
+    if (!pageToken) break;
   }
 
-  const data = (await res.json()) as { items?: GCalEvent[] };
-  return { now, items: data.items || [] };
+  return { now, items };
 }
 
 export async function listAvailableInscriptionSlots(opts: {
