@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { canReviewPreconvention, canViewAllConventions, canViewReferentConventions } from "@/app/lib/stage-access";
+import { canReviewPreconvention, canBrowseStageConventions, canViewReferentConventions } from "@/app/lib/stage-access";
 import { buildStageClassRoster, listStageRosterClassNames, searchStageConventionsGlobal } from "@/app/lib/stage-class-roster";
 import {
   classNameMatchesStageSecteurs,
@@ -26,10 +26,10 @@ export async function GET(req: Request) {
 
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
-    const isAdmin = canViewAllConventions(roles);
+    const canBrowseAll = canBrowseStageConventions(roles);
     const isReferent = canViewReferentConventions(roles);
 
-    if (!isAdmin && !isReferent) {
+    if (!canBrowseAll && !isReferent) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
@@ -44,7 +44,7 @@ export async function GET(req: Request) {
       : [];
 
     let availableClasses: string[];
-    if (isAdmin) {
+    if (canBrowseAll) {
       const fromRoster = await listStageRosterClassNames(schoolYear);
       availableClasses = [...new Set([...fromRoster, ...referentClasses])].sort((a, b) =>
         a.localeCompare(b, "fr", { sensitivity: "base" }),
@@ -62,7 +62,7 @@ export async function GET(req: Request) {
     if (globalQuery.length >= 2) {
       const globalResults = await searchStageConventionsGlobal(globalQuery, {
         schoolYear,
-        allowedClasses: isAdmin ? null : availableClasses,
+        allowedClasses: canBrowseAll ? null : availableClasses,
       });
       return NextResponse.json({
         schoolYear,
@@ -72,7 +72,7 @@ export async function GET(req: Request) {
       });
     }
 
-    if (availableClasses.length === 0 && !isAdmin) {
+    if (availableClasses.length === 0 && !canBrowseAll) {
       return NextResponse.json({
         schoolYear,
         availableClasses: [],
@@ -95,7 +95,7 @@ export async function GET(req: Request) {
       });
     }
 
-    if (!isAdmin && !referentClasses.some((c) => classKey(c) === classKey(className))) {
+    if (!canBrowseAll && !referentClasses.some((c) => classKey(c) === classKey(className))) {
       return NextResponse.json({ error: "Classe non autorisée." }, { status: 403 });
     }
 

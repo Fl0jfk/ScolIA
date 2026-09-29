@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { canViewAllConventions } from "@/app/lib/stage-access";
+import { canBrowseStageConventions } from "@/app/lib/stage-access";
 import { buildFreshConventionPdfDownload } from "@/app/lib/stage-pdf-store";
 import { getStageConvention } from "@/app/lib/stage-storage";
 
@@ -14,7 +14,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
-    if (!canViewAllConventions(roles) && !roles.includes("parent")) {
+    if (!canBrowseStageConventions(roles) && !roles.includes("parent")) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 

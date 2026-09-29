@@ -8,6 +8,7 @@ import {
 } from "@/app/lib/stage-periods-config";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
+import { loadStageConventionsByIds } from "@/app/lib/stage-convention-load";
 import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
 import {
   currentStageSchoolYear,
@@ -260,14 +261,19 @@ export async function listStageRosterClassNames(schoolYear?: string): Promise<st
     listStageEnabledClassNames(year),
     getConventionsIndex(),
   ]);
-  const conventionRows = (
-    await Promise.all(index.map((e) => getStageConvention(e.id)))
-  ).filter((c): c is StageConvention => {
-    if (!c) return false;
-    return isRosterVisibleConvention(c, year);
-  });
-  const fromConventions = conventionRows
-    .map((c) => String(c.student.className ?? "").trim())
+  const fromConventions = index
+    .filter((e) => {
+      if (e.status === "archived" || e.status === "cancelled" || e.status === "draft") {
+        return false;
+      }
+      if (e.schoolYear === year) return true;
+      return (
+        e.status === "signed" ||
+        e.status === "signatures_pending" ||
+        e.status === "convention_ready"
+      );
+    })
+    .map((e) => String(e.className ?? "").trim())
     .filter(Boolean);
   return [...new Set([...enabled, ...fromConventions])].sort((a, b) =>
     a.localeCompare(b, "fr", { sensitivity: "base" }),
@@ -291,15 +297,24 @@ export async function buildStageClassRoster(
   const listFullClassRoster = expectsMandatoryStage || classEnabledInConfig;
   const classEleves = eleves.filter((e) => eleveMatchesClass(e, className));
 
-  const conventions = (
-    await Promise.all(index.map((e) => getStageConvention(e.id)))
-  ).filter((c): c is StageConvention => {
-    if (!c) return false;
-    return (
-      isRosterVisibleConvention(c, year) &&
-      schoolClassesMatch(c.student.className, className)
-    );
-  });
+  const candidateIds = index
+    .filter((e) => {
+      if (e.status === "archived" || e.status === "cancelled" || e.status === "draft") {
+        return false;
+      }
+      if (!schoolClassesMatch(String(e.className ?? ""), className)) return false;
+      if (e.schoolYear === year) return true;
+      return (
+        e.status === "signed" ||
+        e.status === "signatures_pending" ||
+        e.status === "convention_ready"
+      );
+    })
+    .map((e) => e.id);
+
+  const conventions = (await loadStageConventionsByIds(candidateIds)).filter((c) =>
+    isRosterVisibleConvention(c, year),
+  );
 
   const studentMap = new Map<string, StageRosterStudent>();
 

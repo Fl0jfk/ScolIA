@@ -84,12 +84,16 @@ export async function listPendingSignaturesForUser(
   userEmail: string,
   userId?: string,
   roles: string[] = [],
+  opts?: { includePeriodAlignment?: boolean },
 ): Promise<PendingStageSignature[]> {
   const out: PendingStageSignature[] = [];
+  const includePeriodAlignment = opts?.includePeriodAlignment !== false;
 
   for (const c of conventions) {
     if (c.status !== "signatures_pending") continue;
-    const alignment = await assessConventionPeriodAlignment(c);
+    const alignment = includePeriodAlignment
+      ? await assessConventionPeriodAlignment(c)
+      : null;
     for (const sig of c.signatures) {
       if (!(await signatureAwaitingUser(sig, c, userEmail, userId, roles))) continue;
       out.push({
@@ -104,8 +108,8 @@ export async function listPendingSignaturesForUser(
         periodEnd: c.schedule.periodEnd,
         signLink: `/stages/signer?token=${encodeURIComponent(sig.signToken!)}`,
         validatedAt: c.adminReview?.at,
-        outsideOfficialPeriod: alignment.outside,
-        outsideOfficialPeriodMessage: alignment.outside ? alignment.shortMessage : undefined,
+        outsideOfficialPeriod: alignment?.outside,
+        outsideOfficialPeriodMessage: alignment?.outside ? alignment.shortMessage : undefined,
       });
     }
   }

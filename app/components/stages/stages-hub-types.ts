@@ -15,6 +15,8 @@ export type StagesHubPermissions = {
   canManageReferents: boolean;
   canViewRepasAbsences?: boolean;
   referentOnly: boolean;
+  /** Prof / staff en consultation seule (pas de validation ni relance). */
+  consultOnly?: boolean;
   watcherOnly?: boolean;
   canViewClassRoster: boolean;
 };

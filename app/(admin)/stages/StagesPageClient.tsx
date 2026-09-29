@@ -826,6 +826,17 @@ function StagesContent() {
         </div>
       )}
 
+      {permissions?.consultOnly && !permissions?.referentOnly && (
+        <div className="mb-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          <p className="font-semibold">Consultation stages</p>
+          <p className="mt-1 text-sky-900">
+            Vous pouvez parcourir le tableau de bord et le suivi classe pour voir où en sont les
+            signatures. Les validations et relances restent réservées à l&apos;administratif /
+            direction.
+          </p>
+        </div>
+      )}
+
 
       <ModuleTabNav
         className="mb-6"

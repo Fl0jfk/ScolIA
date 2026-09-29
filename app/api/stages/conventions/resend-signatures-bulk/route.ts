@@ -10,7 +10,7 @@ import {
   inferStageSecteurFromClass,
   resolveStageViewerSecteurs,
 } from "@/app/lib/stage-sector-scope";
-import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
+import { loadSignaturesPendingStageConventions } from "@/app/lib/stage-convention-load";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 
 const SECTEUR_VALUES = new Set<Secteur>(["ecole", "college", "lycee"]);
@@ -51,13 +51,7 @@ export async function POST(req: Request) {
     const filterClassName = String(body.className ?? "").trim();
 
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
-    const index = await getConventionsIndex();
-    const loaded = await Promise.all(index.map((e) => getStageConvention(e.id)));
-
-    let targets = loaded.filter(
-      (c): c is NonNullable<typeof c> =>
-        Boolean(c) && c!.status === "signatures_pending",
-    );
+    let targets = await loadSignaturesPendingStageConventions();
 
     if (viewerSecteurs.length > 0) {
       targets = targets.filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));

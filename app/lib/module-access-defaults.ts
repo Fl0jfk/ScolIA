@@ -70,6 +70,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
   professeur: [
     // Pas de boîte à outils ni vie scolaire (appels / absences élèves / carnet) par défaut.
     "eleve-dossier",
+    "stages",
     "certificates",
     "organigramme",
     "documents",

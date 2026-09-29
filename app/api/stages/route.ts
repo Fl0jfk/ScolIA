@@ -8,6 +8,7 @@ import {
   canModerateOffers,
   canReviewPreconvention,
   canViewAllConventions,
+  canBrowseStageConventions,
   canViewReferentConventions,
   canFileConventionToOneDrive,
   resolveStageViewerRole,
@@ -25,10 +26,7 @@ import {
   resolveStageViewerSecteurs,
   stageViewerSecteurSummary,
 } from "@/app/lib/stage-sector-scope";
-import {
-  getConventionsIndex,
-  getStageConvention,
-} from "@/app/lib/stage-storage";
+import { loadActiveStageConventions } from "@/app/lib/stage-convention-load";
 import { STAGE_CONVENTION_STATUS_LABELS, currentStageSchoolYear } from "@/app/lib/stage-types";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
@@ -91,10 +89,7 @@ export async function GET() {
 
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
 
-    const [conventionsIndex] = await Promise.all([getConventionsIndex()]);
-    const allConventions = (
-      await Promise.all(conventionsIndex.map((e) => getStageConvention(e.id)))
-    ).filter((c): c is NonNullable<typeof c> => Boolean(c));
+    const allConventions = await loadActiveStageConventions();
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
     const referentClassNames = canViewReferentConventions(roles)
@@ -115,9 +110,7 @@ export async function GET() {
       conventions = conventions.filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));
     }
 
-    const activeConventions = conventions.filter(
-      (c) => c.status !== "archived" && c.status !== "draft" && c.status !== "cancelled",
-    );
+    const activeConventions = conventions;
     const pendingOffers = 0;
     const adminQueue = activeConventions.filter(
       (c) =>
@@ -129,9 +122,10 @@ export async function GET() {
     );
     const signaturesPending = activeConventions.filter((c) => c.status === "signatures_pending");
     const signedConventions = activeConventions.filter((c) => c.status === "signed");
-    const referentOnly = canViewReferentConventions(roles) && !canViewAllConventions(roles);
+    const referentOnly =
+      canViewReferentConventions(roles) && !canBrowseStageConventions(roles);
     const watcherOnly =
-      !canViewAllConventions(roles) &&
+      !canBrowseStageConventions(roles) &&
       !canViewReferentConventions(roles) &&
       !canReviewPreconvention(roles) &&
       watcherAssignments.length > 0;
@@ -237,7 +231,14 @@ export async function GET() {
           watcherAssignments.some((a) => a.kind === "restauration" || a.kind === "cpe"),
         referentOnly,
         watcherOnly,
-        canViewClassRoster: canViewReferentConventions(roles) || canViewAllConventions(roles),
+        canViewClassRoster:
+          canViewReferentConventions(roles) ||
+          canBrowseStageConventions(roles) ||
+          canViewAllConventions(roles),
+        consultOnly:
+          canBrowseStageConventions(roles) &&
+          !canReviewPreconvention(roles) &&
+          roles.includes("professeur"),
       },
       counts: {
         pendingOffers,

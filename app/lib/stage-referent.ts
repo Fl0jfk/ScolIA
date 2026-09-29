@@ -1,6 +1,6 @@
 import {
   canReviewPreconvention,
-  canViewAllConventions,
+  canBrowseStageConventions,
 } from "@/app/lib/stage-access";
 import { classKey } from "@/app/lib/stage-referents-config";
 import type { StageWatcherAssignment } from "@/app/lib/stage-watchers-config";
@@ -40,7 +40,7 @@ export function conventionVisibleToUser(
   referentClassNames?: string[],
   watcherAssignments?: StageWatcherAssignment[],
 ): boolean {
-  if (canViewAllConventions(roles)) return true;
+  if (canBrowseStageConventions(roles)) return true;
   if (canReviewPreconvention(roles)) return true;
   if (watcherAssignments && watcherAssignments.length > 0) {
     if (conventionMatchesWatcherAssignments(convention, watcherAssignments)) return true;

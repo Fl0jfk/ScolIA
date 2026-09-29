@@ -39,6 +39,14 @@ export function canViewAllConventions(roles: string[]) {
   return canReviewPreconvention(roles) || roles.includes("surveillant");
 }
 
+/**
+ * Consultation lecture seule des conventions (tableau de bord, suivi classe, PDF, volet).
+ * Les actions (validation, relances, import hors plateforme) restent sur canReviewPreconvention.
+ */
+export function canBrowseStageConventions(roles: string[]) {
+  return canViewAllConventions(roles) || roles.includes("professeur");
+}
+
 /** Visu stages sans signature — CPE (et restauration pour les repas). */
 export function canViewStageWatchScope(roles: string[]) {
   return roles.includes("cpe") || roles.includes("accueil") || roles.includes("administratif");
