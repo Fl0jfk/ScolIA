@@ -43,9 +43,17 @@ import {
   type StageConventionStatus,
 } from "@/app/lib/stage-types";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import {
+  loadElevePhotoIndex,
+  resolveElevePhotoS3Key,
+} from "@/app/lib/eleve-photos";
 import { inferSecteurFromFolderName } from "@/app/lib/onedrive-eleves";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { createPerfTimer } from "@/app/lib/perf-timer";
+
+function stageElevePhotoPath(eleveId: string): string {
+  return `/api/stages/eleve-photo?eleveId=${encodeURIComponent(eleveId)}`;
+}
 
 function normalizePersonPart(value: string): string {
   return value
@@ -274,6 +282,14 @@ export async function GET() {
     }
 
     const secteurByConventionId: Record<string, Secteur | null> = {};
+    const elevesForPhotos: Array<{
+      id: string;
+      nom: string;
+      prenom: string;
+      ine?: string | null;
+      photoKey?: string | null;
+      conventionId: string;
+    }> = [];
     for (const c of boardSlice) {
       const ine = c.ocrMeta?.matchedEleveIne?.trim().toUpperCase() || "";
       const fromIne = ine ? byIne.get(ine) : undefined;
@@ -286,11 +302,27 @@ export async function GET() {
         level: c.student.level,
         eleveSecteur: eleve?.secteur,
       });
+      if (!eleve?.id) continue;
+      elevesForPhotos.push({
+        id: eleve.id,
+        nom: eleve.nom,
+        prenom: eleve.prenom,
+        ine: eleve.ine,
+        photoKey: eleve.photoKey,
+        conventionId: c.id,
+      });
     }
 
-    // Photos hors chemin critique : les URLs signées S3 (~400 ms) bloquaient le hub.
-    // Les cartes affichent les initiales.
+    // Proxy auth Stages (pas de pré-signature S3 en masse) — le navigateur charge en parallèle.
+    const photoIndex =
+      elevesForPhotos.length > 0
+        ? await loadElevePhotoIndex().catch(() => ({} as Awaited<ReturnType<typeof loadElevePhotoIndex>>))
+        : ({} as Awaited<ReturnType<typeof loadElevePhotoIndex>>);
     const photoByConventionId: Record<string, string> = {};
+    for (const e of elevesForPhotos) {
+      const key = resolveElevePhotoS3Key(photoIndex, e);
+      if (key) photoByConventionId[e.conventionId] = stageElevePhotoPath(e.id);
+    }
     perf.mark("photos");
 
     // Statut Valkey léger (pas de probes TCP/TLS — trop coûteux sur le hot path).

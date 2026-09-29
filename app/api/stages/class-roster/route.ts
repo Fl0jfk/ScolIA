@@ -211,34 +211,30 @@ export async function GET(req: Request) {
           : roster.note,
     };
 
+    const { loadElevePhotoIndex, resolveElevePhotoS3Key } = await import(
+      "@/app/lib/eleve-photos"
+    );
+    const photoIndex = await loadElevePhotoIndex().catch(
+      (): Awaited<ReturnType<typeof loadElevePhotoIndex>> => ({}),
+    );
     const rosterWithPhotos = {
       ...scopedRoster,
-      students: scopedRoster.students.map((s) => ({
-        ...s,
-        photoUrl: null as string | null,
-      })),
+      students: scopedRoster.students.map((s) => {
+        if (!s.eleveId) return { ...s, photoUrl: null as string | null };
+        const key = resolveElevePhotoS3Key(photoIndex, {
+          nom: s.nom,
+          prenom: s.prenom,
+          ine: s.ine,
+          photoKey: s.photoKey,
+        });
+        return {
+          ...s,
+          photoUrl: key
+            ? `/api/stages/eleve-photo?eleveId=${encodeURIComponent(s.eleveId)}`
+            : null,
+        };
+      }),
     };
-
-    const { resolvePhotoUrlsForEleves } = await import("@/app/lib/eleve-photos");
-    const photoIds = scopedRoster.students
-      .filter((s) => Boolean(s.eleveId))
-      .slice(0, 16)
-      .map((s) => ({
-        id: s.eleveId!,
-        nom: s.nom,
-        prenom: s.prenom,
-        ine: s.ine,
-        photoKey: s.photoKey,
-      }));
-    if (photoIds.length > 0) {
-      const photoUrls = await resolvePhotoUrlsForEleves(photoIds).catch(
-        (): Record<string, string> => ({}),
-      );
-      rosterWithPhotos.students = scopedRoster.students.map((s) => ({
-        ...s,
-        photoUrl: s.eleveId ? photoUrls[s.eleveId] ?? null : null,
-      }));
-    }
     perf.mark("photos");
 
     const { isValkeyConfigured, getValkey } = await import("@/app/lib/valkey");
