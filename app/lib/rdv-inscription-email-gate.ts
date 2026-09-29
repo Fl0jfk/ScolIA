@@ -180,7 +180,7 @@ export async function startRdvEmailGate(opts: {
   });
 
   const verifyUrl = await tenantAbsolutePath(
-    `/api/rdv-inscription/email-verify?token=${encodeURIComponent(token)}`,
+    `/api/rdv-inscription/email-verify?token=${encodeURIComponent(token)}&direction=${encodeURIComponent(slug)}`,
   );
 
   const smtp = await getTenantSmtpConfig();

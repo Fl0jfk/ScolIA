@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
-import { verifyRdvEmailGateToken } from "@/app/lib/rdv-inscription-email-gate";
-import { rdvInscriptionErrorRedirectPath } from "@/app/lib/rdv-inscription-service";
+import { setRdvEmailGateCookie } from "@/app/lib/rdv-inscription-email-gate";
+import {
+  consumeRdvRescheduleToken,
+  rdvInscriptionErrorRedirectPath,
+} from "@/app/lib/rdv-inscription-service";
 import { isValidDirectionSlug } from "@/app/lib/rdv-inscription-types";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
@@ -16,7 +19,10 @@ function directionHintFromRequest(req: Request): string | undefined {
   return slug && isValidDirectionSlug(slug) ? slug : undefined;
 }
 
-/** Valide le lien reçu par e-mail et pose le cookie de session gate. */
+/**
+ * Lien mail « choisir un autre créneau » :
+ * pose le cookie gate (Route Handler) puis redirige vers la bonne direction.
+ */
 export async function GET(req: Request) {
   try {
     const ip = clientIpFromRequest(req);
@@ -30,7 +36,7 @@ export async function GET(req: Request) {
     }
 
     const token = new URL(req.url).searchParams.get("token") || "";
-    const result = await verifyRdvEmailGateToken(token);
+    const result = await consumeRdvRescheduleToken(token);
     if (!result.ok) {
       return NextResponse.redirect(
         await tenantAbsolutePath(
@@ -39,15 +45,16 @@ export async function GET(req: Request) {
       );
     }
 
+    await setRdvEmailGateCookie(result.gateSession);
     return NextResponse.redirect(await tenantAbsolutePath(result.redirectPath));
   } catch (e) {
-    console.error("[rdv-inscription/email-verify]", e);
+    console.error("[rdv-inscription/rebook]", e);
     const hint = directionHintFromRequest(req);
     return NextResponse.redirect(
       await tenantAbsolutePath(
         rdvInscriptionErrorRedirectPath(
           hint,
-          "Lien de confirmation invalide. Demandez un nouvel e-mail.",
+          "Lien de rechoix indisponible. Contactez l’établissement.",
         ),
       ),
     );

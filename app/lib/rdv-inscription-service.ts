@@ -40,7 +40,6 @@ import {
 } from "@/app/lib/rdv-inscription-mail";
 import {
   RDV_EMAIL_GATE_TTL_MS,
-  setRdvEmailGateCookie,
 } from "@/app/lib/rdv-inscription-email-gate";
 import { normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
 import {
@@ -63,6 +62,7 @@ import type {
   RdvInscriptionBookingRow,
   RdvInscriptionSlot,
 } from "@/app/lib/rdv-inscription-types";
+import { isValidDirectionSlug } from "@/app/lib/rdv-inscription-types";
 import {
   DEFAULT_RDV_INSCRIPTION_TITLE,
   RDV_BOOK_CONFIRM_PHRASE,
@@ -560,8 +560,14 @@ export async function requestRdvInscriptionRescheduleAsAdmin(opts: {
     return { ok: false, status: 500, error: "Annulation impossible en base." };
   }
 
+  // Inclure la direction dans l’URL : fallback d’erreur correct + lecture parent claire.
+  // Consommation via Route Handler (pose du cookie gate — impossible en Server Component).
+  const rebookParams = new URLSearchParams({
+    token: rescheduleToken,
+    direction: cancelled.directionSlug,
+  });
   const rebookUrl = await tenantAbsolutePath(
-    `/rdv-inscription/rebook?token=${encodeURIComponent(rescheduleToken)}`,
+    `/api/rdv-inscription/rebook?${rebookParams.toString()}`,
   );
   const mail = await sendRdvInscriptionRescheduleRequestMail({
     page: directionPageSettings(direction),
@@ -774,11 +780,38 @@ export async function changeRdvInscriptionSlotAsAdmin(opts: {
   };
 }
 
-/** Parent ouvre le lien mail : pose le cookie gate et redirige vers la page direction. */
+/** Chemin d’erreur public sans forcer une direction (ex. lycée). */
+export function rdvInscriptionErrorRedirectPath(
+  directionSlug: string | null | undefined,
+  error: string,
+): string {
+  const slug = String(directionSlug || "")
+    .trim()
+    .toLowerCase();
+  if (slug && isValidDirectionSlug(slug)) {
+    return `/rdv-inscription/${encodeURIComponent(slug)}?email_error=${encodeURIComponent(error)}`;
+  }
+  return `/rdv-inscription/confirme?ok=0&reason=invalid`;
+}
+
+/**
+ * Parent ouvre le lien mail « autre créneau ».
+ * Ne pose pas le cookie ici : à faire dans une Route Handler (Next 16).
+ */
 export async function consumeRdvRescheduleToken(
   tokenRaw: string,
 ): Promise<
-  | { ok: true; redirectPath: string }
+  | {
+      ok: true;
+      redirectPath: string;
+      directionSlug: string;
+      gateSession: {
+        email: string;
+        etablissementId: string;
+        directionSlug: string;
+        exp: number;
+      };
+    }
   | { ok: false; error: string; directionSlug?: string }
 > {
   const token = String(tokenRaw || "").trim();
@@ -802,13 +835,7 @@ export async function consumeRdvRescheduleToken(
     };
   }
 
-  await setRdvEmailGateCookie({
-    email: normalizeParentEmail(found.parentEmail),
-    etablissementId: found.etablissementId,
-    directionSlug: found.directionSlug,
-    exp: Date.now() + RDV_EMAIL_GATE_TTL_MS,
-  });
-
+  const directionSlug = found.directionSlug.trim().toLowerCase();
   const params = new URLSearchParams();
   params.set("rebook", "1");
   if (found.eleveId) params.set("eleveId", found.eleveId);
@@ -817,7 +844,14 @@ export async function consumeRdvRescheduleToken(
 
   return {
     ok: true,
-    redirectPath: `/rdv-inscription/${encodeURIComponent(found.directionSlug)}?${params.toString()}`,
+    directionSlug,
+    redirectPath: `/rdv-inscription/${encodeURIComponent(directionSlug)}?${params.toString()}`,
+    gateSession: {
+      email: normalizeParentEmail(found.parentEmail),
+      etablissementId: found.etablissementId,
+      directionSlug,
+      exp: Date.now() + RDV_EMAIL_GATE_TTL_MS,
+    },
   };
 }
 

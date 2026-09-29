@@ -1,29 +1,24 @@
 import { redirect } from "next/navigation";
-import { consumeRdvRescheduleToken } from "@/app/lib/rdv-inscription-service";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
 type PageProps = {
-  searchParams: Promise<{ token?: string }>;
+  searchParams: Promise<{ token?: string; direction?: string }>;
 };
 
-/** Lien mail « choisir un autre créneau » : pose le cookie gate et redirige. */
+/**
+ * Anciens mails pointaient ici. On renvoie vers la Route Handler
+ * (seule surface autorisée à poser le cookie gate sous Next 16).
+ */
 export default async function RdvInscriptionRebookPage({ searchParams }: PageProps) {
   const sp = await searchParams;
+  const params = new URLSearchParams();
   const token = String(sp.token || "").trim();
-
-  if (!token) {
-    redirect(await tenantAbsolutePath("/rdv-inscription/lycee?email_error=invalid"));
-  }
-
-  const result = await consumeRdvRescheduleToken(token);
-  if (!result.ok) {
-    const slug = result.directionSlug || "lycee";
-    redirect(
-      await tenantAbsolutePath(
-        `/rdv-inscription/${encodeURIComponent(slug)}?email_error=${encodeURIComponent(result.error)}`,
-      ),
-    );
-  }
-
-  redirect(await tenantAbsolutePath(result.redirectPath));
+  const direction = String(sp.direction || "").trim().toLowerCase();
+  if (token) params.set("token", token);
+  if (direction) params.set("direction", direction);
+  redirect(
+    await tenantAbsolutePath(
+      `/api/rdv-inscription/rebook${params.toString() ? `?${params.toString()}` : ""}`,
+    ),
+  );
 }
