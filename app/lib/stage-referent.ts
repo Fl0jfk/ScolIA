@@ -6,7 +6,7 @@ import {
 import { classKey } from "@/app/lib/stage-referents-config";
 import type { StageWatcherAssignment } from "@/app/lib/stage-watchers-config";
 import { conventionMatchesWatcherAssignments } from "@/app/lib/stage-watchers-config";
-import type { StageConvention } from "@/app/lib/stage-types";
+import type { StageConvention, StageConventionIndexEntry } from "@/app/lib/stage-types";
 
 function conventionMatchesReferent(
   convention: StageConvention,
@@ -27,6 +27,28 @@ function conventionMatchesPrincipalClass(
   if (principalClassNames.length === 0) return false;
   const classK = classKey(convention.student.className);
   return principalClassNames.some((c) => classKey(c) === classK);
+}
+
+/**
+ * Filtre rapide sur l’index (sans charger la convention) — PP / référent / admin.
+ * Les watchers (CPE…) doivent passer par `conventionVisibleToUser` après chargement.
+ */
+export function indexEntryVisibleToUser(
+  entry: StageConventionIndexEntry,
+  roles: string[],
+  userEmail: string,
+  principalClassNames?: string[],
+): boolean {
+  if (canViewAllConventions(roles) || canReviewPreconvention(roles)) return true;
+  if (!canViewReferentConventions(roles)) return false;
+  const email = userEmail.trim().toLowerCase();
+  const refEmail = entry.teacherReferentEmail?.trim().toLowerCase();
+  if (refEmail && email && refEmail === email) return true;
+  if (principalClassNames?.length) {
+    const classK = classKey(entry.className);
+    return principalClassNames.some((c) => classKey(c) === classK);
+  }
+  return false;
 }
 
 /**

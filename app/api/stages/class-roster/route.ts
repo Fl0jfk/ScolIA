@@ -104,44 +104,44 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Classe non autorisée." }, { status: 403 });
     }
 
-    const config = await getStageReferentsConfig(schoolYear);
-    const assignments = findReferentAssignments(config, className);
     const canAssignReferent =
       canReviewPreconvention(roles) ||
       (await userCanAssignStageReferentForClass(gate.ctx.userId, className, schoolYear));
 
-    let teachers: Array<{
-      externalUserId: string;
-      email: string;
-      displayName: string;
-    }> = [];
-    if (canAssignReferent) {
-      const members = await listDirectoryMembers();
-      teachers = members
-        .filter((m) => m.externalUserId && !m.pending)
-        .filter((m) => m.roles.includes("professeur"))
-        .map((m) => {
-          const lastName = String(m.lastName ?? "").trim();
-          const firstName = String(m.firstName ?? "").trim();
-          const byLastName = [lastName, firstName].filter(Boolean).join(" ");
-          return {
-            externalUserId: m.externalUserId,
-            email: m.email,
-            displayName: byLastName || m.displayName || m.email,
-            sortKey: `${lastName} ${firstName} ${m.email}`.trim(),
-          };
-        })
-        .sort((a, b) =>
-          a.sortKey.localeCompare(b.sortKey, "fr", { sensitivity: "base" }),
-        )
-        .map(({ externalUserId, email, displayName }) => ({
-          externalUserId,
-          email,
-          displayName,
-        }));
-    }
+    const [config, roster, members] = await Promise.all([
+      getStageReferentsConfig(schoolYear),
+      buildStageClassRoster(className, schoolYear),
+      canAssignReferent ? listDirectoryMembers() : Promise.resolve(null),
+    ]);
 
-    const roster = await buildStageClassRoster(className, schoolYear);
+    const assignments = findReferentAssignments(config, className);
+
+    const teachers =
+      members == null
+        ? []
+        : members
+            .filter((m) => m.externalUserId && !m.pending)
+            .filter((m) => m.roles.includes("professeur"))
+            .map((m) => {
+              const lastName = String(m.lastName ?? "").trim();
+              const firstName = String(m.firstName ?? "").trim();
+              const byLastName = [lastName, firstName].filter(Boolean).join(" ");
+              return {
+                externalUserId: m.externalUserId,
+                email: m.email,
+                displayName: byLastName || m.displayName || m.email,
+                sortKey: `${lastName} ${firstName} ${m.email}`.trim(),
+              };
+            })
+            .sort((a, b) =>
+              a.sortKey.localeCompare(b.sortKey, "fr", { sensitivity: "base" }),
+            )
+            .map(({ externalUserId, email, displayName }) => ({
+              externalUserId,
+              email,
+              displayName,
+            }));
+
     const isPrincipalForClass = principalClasses.some(
       (c) => classKey(c) === classKey(className),
     );

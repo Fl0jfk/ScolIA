@@ -3,7 +3,7 @@ import "server-only";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import type { StageConvention, StageConventionStatus } from "@/app/lib/stage-types";
 
-const DEFAULT_CONCURRENCY = 8;
+const DEFAULT_CONCURRENCY = 16;
 
 /**
  * Charge des conventions par id avec un plafond de parallélisme.
@@ -47,6 +47,27 @@ export async function loadActiveStageConventions(
 ): Promise<StageConvention[]> {
   const index = await getConventionsIndex();
   const ids = index.filter((e) => !SKIP_STATUSES.has(e.status)).map((e) => e.id);
+  return loadStageConventionsByIds(ids, concurrency);
+}
+
+/** Statuts utiles au tableau de bord (pas les conventions déjà signées). */
+const HUB_BOARD_STATUSES: ReadonlySet<StageConventionStatus> = new Set([
+  "admin_review",
+  "preconvention_submitted",
+  "convention_deposited",
+  "convention_ready",
+  "signatures_pending",
+]);
+
+/**
+ * Charge uniquement les conventions encore « actives » pour le hub
+ * (file admin + signatures), pas tout l’historique signé.
+ */
+export async function loadHubBoardStageConventions(
+  concurrency = DEFAULT_CONCURRENCY,
+): Promise<StageConvention[]> {
+  const index = await getConventionsIndex();
+  const ids = index.filter((e) => HUB_BOARD_STATUSES.has(e.status)).map((e) => e.id);
   return loadStageConventionsByIds(ids, concurrency);
 }
 

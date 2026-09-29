@@ -1,11 +1,12 @@
 import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
 import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
-import { valkeyCached, valkeyDel, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
+import { valkeyCached, valkeyDel, valkeyDeleteByPrefix, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
 import {
   VALKEY_TTL,
   valkeyKeyStagesConvention,
   valkeyKeyStagesConventionsIndex,
+  valkeyPrefixStagesClassRoster,
 } from "@/app/lib/valkey-keys";
 import {
   STAGE_S3,
@@ -51,6 +52,11 @@ async function invalidateStageConventionCache(
 ): Promise<void> {
   if (!etabId || !conventionId.trim()) return;
   await valkeyDel(valkeyKeyStagesConvention(etabId, conventionId.trim()));
+}
+
+async function invalidateStagesClassRosterCaches(etabId: string | null): Promise<void> {
+  if (!etabId) return;
+  await valkeyDeleteByPrefix(valkeyPrefixStagesClassRoster(etabId));
 }
 
 export async function getOffersIndex(): Promise<StageOfferIndexEntry[]> {
@@ -168,6 +174,8 @@ export async function saveStageConvention(convention: StageConvention) {
       sanitized,
       VALKEY_TTL.stagesConvention,
     );
+    // Le roster agrège plusieurs conventions : on invalide toutes les classes.
+    void invalidateStagesClassRosterCaches(etabId);
   }
 }
 
@@ -176,6 +184,7 @@ export async function invalidateStageConventionCaches(conventionId?: string): Pr
   const etabId = await stagesEtabId();
   await invalidateStagesConventionsIndexCache(etabId);
   if (conventionId) await invalidateStageConventionCache(etabId, conventionId);
+  await invalidateStagesClassRosterCaches(etabId);
 }
 
 export async function listConventionsForDossier(

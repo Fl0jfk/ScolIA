@@ -123,6 +123,11 @@ function StagesContent() {
       const b = await bRes.json();
       if (!bRes.ok) throw new Error(b?.error || "Erreur");
       setBoard(b);
+      console.info("[ScolIA] Cache Valkey", b?.cache?.valkey ?? "(absent de la réponse)");
+      // Préchauffe le suivi classe (Valkey) pendant que l’utilisateur lit le tableau de bord.
+      if (b?.permissions?.canViewClassRoster) {
+        void fetch("/api/stages/class-roster", { cache: "no-store" }).catch(() => undefined);
+      }
       if ((b.myPendingSignatures?.length ?? 0) > 0) {
         try {
           const sigRes = await fetch("/api/stages/my-signature", { cache: "no-store" });

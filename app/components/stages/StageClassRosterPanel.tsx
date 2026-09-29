@@ -138,34 +138,60 @@ export default function StageClassRosterPanel({
   const [statusFilter, setStatusFilter] = useState<RosterStatusFilter>("all");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const detailAnchorRef = useRef<HTMLDivElement | null>(null);
+  /** Cache mémoire : retour instantané au changement de classe (sans attendre le réseau). */
+  const rosterCacheRef = useRef<Map<string, RosterResponse>>(new Map());
+  const loadSeqRef = useRef(0);
 
-  const load = useCallback(async (className?: string) => {
-    setLoading(true);
-    setError(null);
+  const cacheKeyFor = (className: string) => className.trim().toLowerCase() || "__default__";
+
+  const load = useCallback(async (className?: string, opts?: { force?: boolean }) => {
+    const wanted = className?.trim() || "";
+    const cacheKey = cacheKeyFor(wanted);
+    const cached = !opts?.force ? rosterCacheRef.current.get(cacheKey) : undefined;
+    if (cached) {
+      setData(cached);
+      if (cached.roster?.className) setSelectedClass(cached.roster.className);
+      else if (wanted) setSelectedClass(wanted);
+      setLoading(false);
+      setError(null);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
+
+    const seq = ++loadSeqRef.current;
     try {
       const params = new URLSearchParams();
-      if (className) params.set("className", className);
+      if (wanted) params.set("className", wanted);
       const res = await fetch(`/api/stages/class-roster?${params}`, { cache: "no-store" });
       const json = (await res.json()) as RosterResponse & { error?: string };
       if (!res.ok) throw new Error(json.error || "Erreur chargement");
+      if (seq !== loadSeqRef.current) return;
+
+      const resolvedClass = json.roster?.className || wanted || json.availableClasses[0] || "";
+      rosterCacheRef.current.set(cacheKeyFor(resolvedClass), json);
+      if (!wanted) rosterCacheRef.current.set("__default__", json);
+
       setData(json);
       if (json.roster?.className) setSelectedClass(json.roster.className);
-      else if (className) setSelectedClass(className);
+      else if (wanted) setSelectedClass(wanted);
       else if (json.availableClasses[0]) setSelectedClass(json.availableClasses[0]);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      if (seq !== loadSeqRef.current) return;
+      if (!cached) setError(e instanceof Error ? e.message : "Erreur");
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    rosterCacheRef.current.clear();
     const wanted = focusClassName?.trim() || "";
     if (wanted) {
-      void load(wanted);
+      void load(wanted, { force: true });
       return;
     }
-    void load();
+    void load(undefined, { force: true });
   }, [load, focusClassName, refreshToken]);
 
   useEffect(() => {

@@ -14,7 +14,10 @@ import {
   resolveStageViewerRole,
 } from "@/app/lib/stage-access";
 import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
-import { conventionVisibleToUser } from "@/app/lib/stage-referent";
+import {
+  conventionVisibleToUser,
+  indexEntryVisibleToUser,
+} from "@/app/lib/stage-referent";
 import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures";
 import { listPrincipalClassesForUser } from "@/app/lib/stage-referents-config";
 import {
@@ -22,12 +25,23 @@ import {
   listWatcherAssignmentsForUser,
 } from "@/app/lib/stage-watchers-config";
 import {
+  classNameMatchesStageSecteurs,
   conventionMatchesStageSecteurs,
   resolveStageViewerSecteurs,
   stageViewerSecteurSummary,
 } from "@/app/lib/stage-sector-scope";
-import { loadActiveStageConventions } from "@/app/lib/stage-convention-load";
-import { STAGE_CONVENTION_STATUS_LABELS, currentStageSchoolYear } from "@/app/lib/stage-types";
+import {
+  loadHubBoardStageConventions,
+  loadStageConventionsByIds,
+} from "@/app/lib/stage-convention-load";
+import { getConventionsIndex } from "@/app/lib/stage-storage";
+import {
+  STAGE_CONVENTION_STATUS_LABELS,
+  currentStageSchoolYear,
+  type StageConvention,
+  type StageConventionIndexEntry,
+  type StageConventionStatus,
+} from "@/app/lib/stage-types";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
 import { inferSecteurFromFolderName } from "@/app/lib/onedrive-eleves";
@@ -71,12 +85,44 @@ function resolveConventionSecteur(params: {
   );
 }
 
+const SKIP_INDEX: ReadonlySet<StageConventionStatus> = new Set([
+  "archived",
+  "draft",
+  "cancelled",
+]);
+
+const HUB_BOARD_STATUSES: ReadonlySet<StageConventionStatus> = new Set([
+  "admin_review",
+  "preconvention_submitted",
+  "convention_deposited",
+  "convention_ready",
+  "signatures_pending",
+]);
+
+function filterIndexForViewer(
+  index: StageConventionIndexEntry[],
+  roles: string[],
+  userEmail: string,
+  principalClassNames: string[],
+  viewerSecteurs: Secteur[],
+): StageConventionIndexEntry[] {
+  return index.filter((e) => {
+    if (SKIP_INDEX.has(e.status)) return false;
+    if (!indexEntryVisibleToUser(e, roles, userEmail, principalClassNames)) return false;
+    if (viewerSecteurs.length > 0 && !classNameMatchesStageSecteurs(e.className, viewerSecteurs)) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export async function GET() {
   try {
     const gate = await requireAuth();
     if (!gate.ok) return gate.response;
 
-    await ensureStageYearAutoPurge();
+    // Ne pas bloquer le hub sur la purge annuelle (1ère fois de l’année seulement).
+    void ensureStageYearAutoPurge().catch(() => undefined);
 
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
@@ -88,31 +134,70 @@ export async function GET() {
     }
 
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
-
-    const allConventions = await loadActiveStageConventions();
-
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
     const principalClassNames = canViewReferentConventions(roles)
       ? await listPrincipalClassesForUser(gate.ctx.userId)
       : [];
-    let conventions = allConventions.filter((c) =>
-      conventionVisibleToUser(
-        c,
-        roles,
-        userEmail,
-        gate.ctx.userId,
-        principalClassNames,
-        watcherAssignments,
-      ),
+
+    const index = await getConventionsIndex();
+    const watcherOnlyPath =
+      watcherAssignments.length > 0 &&
+      !canBrowseStageConventions(roles) &&
+      !canViewReferentConventions(roles);
+
+    /** Compteurs depuis l’index (pas besoin de charger toutes les conventions signées). */
+    let visibleIndex = filterIndexForViewer(
+      index,
+      roles,
+      userEmail,
+      principalClassNames,
+      viewerSecteurs,
     );
 
-    if (viewerSecteurs.length > 0) {
-      conventions = conventions.filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));
+    let boardConventions: StageConvention[];
+
+    if (watcherOnlyPath) {
+      // Watchers : matching élève/classe nécessite les objets complets du hub.
+      boardConventions = await loadHubBoardStageConventions();
+      boardConventions = boardConventions.filter((c) =>
+        conventionVisibleToUser(
+          c,
+          roles,
+          userEmail,
+          gate.ctx.userId,
+          principalClassNames,
+          watcherAssignments,
+        ),
+      );
+      if (viewerSecteurs.length > 0) {
+        boardConventions = boardConventions.filter((c) =>
+          conventionMatchesStageSecteurs(c, viewerSecteurs),
+        );
+      }
+      const visibleIds = new Set(boardConventions.map((c) => c.id));
+      visibleIndex = index.filter(
+        (e) => !SKIP_INDEX.has(e.status) && visibleIds.has(e.id),
+      );
+    } else {
+      const boardIds = visibleIndex
+        .filter((e) => HUB_BOARD_STATUSES.has(e.status))
+        .map((e) => e.id);
+      boardConventions = await loadStageConventionsByIds(boardIds);
+      boardConventions = boardConventions.filter((c) =>
+        conventionVisibleToUser(
+          c,
+          roles,
+          userEmail,
+          gate.ctx.userId,
+          principalClassNames,
+          watcherAssignments,
+        ),
+      );
     }
 
-    const activeConventions = conventions;
-    const pendingOffers = 0;
-    const adminQueue = activeConventions.filter(
+    const signedCount = visibleIndex.filter((e) => e.status === "signed").length;
+    const activeCount = visibleIndex.length;
+    const adminQueue = boardConventions.filter(
       (c) =>
         c.status === "admin_review" ||
         c.status === "preconvention_submitted" ||
@@ -120,8 +205,11 @@ export async function GET() {
         Boolean(c.tutorEmailChangeRequest) ||
         Boolean(c.scheduleChangeRequest),
     );
-    const signaturesPending = activeConventions.filter((c) => c.status === "signatures_pending");
-    const signedConventions = activeConventions.filter((c) => c.status === "signed");
+    const signaturesPending = boardConventions.filter((c) => c.status === "signatures_pending");
+    const signaturesPendingCount = visibleIndex.filter(
+      (e) => e.status === "signatures_pending",
+    ).length;
+
     const referentOnly =
       canViewReferentConventions(roles) && !canBrowseStageConventions(roles);
     const watcherOnly =
@@ -130,15 +218,25 @@ export async function GET() {
       !canReviewPreconvention(roles) &&
       watcherAssignments.length > 0;
     const canSeeAdminDepositQueue = roles.includes("administratif");
-    const myPendingSignatures = await listPendingSignaturesForUser(
-      conventions,
-      userEmail,
-      gate.ctx.userId,
-      roles,
-    );
+
+    const boardSlice = [
+      ...adminQueue.slice(0, 30),
+      ...signaturesPending.slice(0, 30),
+    ];
+
+    const [myPendingSignatures, eleves] = await Promise.all([
+      listPendingSignaturesForUser(
+        signaturesPending,
+        userEmail,
+        gate.ctx.userId,
+        roles,
+        { includePeriodAlignment: false },
+      ),
+      loadElevesRegistry().catch(() => [] as Awaited<ReturnType<typeof loadElevesRegistry>>),
+    ]);
 
     const mapBoardCard = (
-      c: (typeof activeConventions)[number],
+      c: StageConvention,
       photoByConventionId: Record<string, string>,
       secteurByConventionId: Record<string, Secteur | null>,
     ) => ({
@@ -154,11 +252,6 @@ export async function GET() {
       scheduleChangePending: Boolean(c.scheduleChangeRequest),
     });
 
-    const boardSlice = [
-      ...adminQueue.slice(0, 30),
-      ...signaturesPending.slice(0, 30),
-    ];
-    const eleves = await loadElevesRegistry().catch(() => []);
     const byIne = new Map(
       eleves
         .filter((e) => e.ine?.trim())
@@ -211,9 +304,13 @@ export async function GET() {
       if (url) photoByConventionId[row.conventionId] = url;
     }
 
+    const { getValkeyRuntimeStatus } = await import("@/app/lib/valkey");
+    const valkey = await getValkeyRuntimeStatus();
+
     return NextResponse.json({
       viewer: viewer || "staff",
       viewerSecteurLabel: stageViewerSecteurSummary(viewerSecteurs),
+      cache: { valkey },
       permissions: {
         canModerateOffers: canModerateOffers(roles),
         canReviewPreconvention: canReviewPreconvention(roles),
@@ -241,11 +338,11 @@ export async function GET() {
           !canViewAllConventions(roles),
       },
       counts: {
-        pendingOffers,
-        conventions: activeConventions.length,
-        signed: signedConventions.length,
+        pendingOffers: 0,
+        conventions: activeCount,
+        signed: signedCount,
         adminQueue: adminQueue.length,
-        signaturesPending: signaturesPending.length,
+        signaturesPending: signaturesPendingCount,
         myPendingSignatures: myPendingSignatures.length,
       },
       myPendingSignatures,
@@ -256,14 +353,14 @@ export async function GET() {
       signaturesPending: signaturesPending
         .slice(0, 30)
         .map((c) => mapBoardCard(c, photoByConventionId, secteurByConventionId)),
-      conventions: activeConventions.slice(0, 100).map((c) => ({
-        id: c.id,
-        studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
-        className: c.student.className,
-        companyName: c.company.name,
-        status: c.status,
-        periodStart: c.schedule.periodStart,
-        periodEnd: c.schedule.periodEnd,
+      conventions: visibleIndex.slice(0, 100).map((e) => ({
+        id: e.id,
+        studentName: e.studentName,
+        className: e.className,
+        companyName: e.companyName,
+        status: e.status,
+        periodStart: e.periodStart,
+        periodEnd: e.periodEnd,
       })),
       labels: {
         conventionStatuses: STAGE_CONVENTION_STATUS_LABELS,

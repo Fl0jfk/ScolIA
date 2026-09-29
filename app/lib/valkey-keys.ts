@@ -45,6 +45,8 @@ export const VALKEY_TTL = {
   stagesConventionsIndex: 45,
   /** Convention de stage individuelle */
   stagesConvention: 60,
+  /** Roster suivi classe (court — change souvent à la validation) */
+  stagesClassRoster: 25,
 } as const;
 
 const NS = "scola";
@@ -176,4 +178,16 @@ export function valkeyKeyStagesConvention(
   conventionId: string,
 ): string {
   return `${NS}:stages:conv:${etablissementId}:${conventionId}`;
+}
+
+export function valkeyKeyStagesClassRoster(
+  etablissementId: string,
+  schoolYear: string,
+  classNameKey: string,
+): string {
+  return `${NS}:stages:roster:${etablissementId}:${schoolYear}:${classNameKey}`;
+}
+
+export function valkeyPrefixStagesClassRoster(etablissementId: string): string {
+  return `${NS}:stages:roster:${etablissementId}:`;
 }

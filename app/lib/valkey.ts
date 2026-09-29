@@ -317,6 +317,46 @@ export async function valkeyDeleteByPrefix(prefix: string): Promise<number> {
   return deleted;
 }
 
+/** Statut léger pour diagnostic UI (pas de secret dans la réponse). */
+export async function getValkeyRuntimeStatus(): Promise<{
+  configured: boolean;
+  ready: boolean;
+  pingOk: boolean;
+  status: string;
+}> {
+  const configured = isValkeyConfigured();
+  if (!configured) {
+    return { configured: false, ready: false, pingOk: false, status: "absent" };
+  }
+
+  const v = getValkey();
+  if (!v) {
+    return { configured: true, ready: false, pingOk: false, status: "null" };
+  }
+
+  if (v.status !== "ready") {
+    try {
+      await withTimeout(v.connect(), CONNECT_TIMEOUT_MS);
+    } catch {
+      /* connect déjà en cours ou échec — on lit le status ci-dessous */
+    }
+  }
+
+  const status = v.status;
+  const ready = status === "ready";
+  if (!ready) {
+    return { configured: true, ready: false, pingOk: false, status };
+  }
+
+  const pong = await runCommand((client) => client.ping());
+  return {
+    configured: true,
+    ready: true,
+    pingOk: pong === "PONG",
+    status,
+  };
+}
+
 export async function closeValkey(): Promise<void> {
   if (client) {
     try {

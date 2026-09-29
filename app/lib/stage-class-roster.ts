@@ -1,5 +1,6 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   getStagePeriodsForClass,
   isClassEnabledInStagePeriods,
@@ -7,7 +8,8 @@ import {
   type StageClassPeriod,
 } from "@/app/lib/stage-periods-config";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
-import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
+import { classKey } from "@/app/lib/stage-referents-config";
+import { getConventionsIndex } from "@/app/lib/stage-storage";
 import { loadStageConventionsByIds } from "@/app/lib/stage-convention-load";
 import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
 import {
@@ -16,6 +18,8 @@ import {
   type StageConvention,
   type StageConventionStatus,
 } from "@/app/lib/stage-types";
+import { valkeyCached } from "@/app/lib/valkey";
+import { VALKEY_TTL, valkeyKeyStagesClassRoster } from "@/app/lib/valkey-keys";
 
 export type StageRosterStudentStatus = "sans_stage" | "en_cours" | "valide" | "plusieurs";
 
@@ -195,6 +199,32 @@ export type StageGlobalSearchHit = {
  * Recherche globale (toutes classes ayant déjà un dossier / suivies) :
  * nom élève, entreprise, classe, libellé de période.
  */
+function isRosterVisibleIndexEntry(
+  entry: { status: StageConventionStatus; schoolYear: string },
+  schoolYear: string,
+): boolean {
+  if (entry.status === "archived" || entry.status === "cancelled" || entry.status === "draft") {
+    return false;
+  }
+  if (entry.schoolYear === schoolYear) return true;
+  return (
+    entry.status === "signed" ||
+    entry.status === "signatures_pending" ||
+    entry.status === "convention_ready"
+  );
+}
+
+function splitStudentName(studentName: string): { firstName: string; lastName: string } {
+  const parts = studentName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0]!, lastName: "" };
+  // Index : `${firstName} ${lastName}` — le 1er token = prénom, le reste = nom.
+  return {
+    firstName: parts[0]!,
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
 export async function searchStageConventionsGlobal(
   query: string,
   opts?: {
@@ -215,6 +245,13 @@ export async function searchStageConventionsGlobal(
   const hits: StageGlobalSearchHit[] = [];
 
   for (const entry of index) {
+    if (!isRosterVisibleIndexEntry(entry, year)) continue;
+    if (allowed) {
+      const className = String(entry.className ?? "").trim();
+      const ok = allowed.some((a) => schoolClassesMatch(className, a));
+      if (!ok) continue;
+    }
+
     const indexBlob = normalizeSearchBlob(
       [entry.studentName, entry.companyName, entry.className, entry.stageLabel]
         .filter(Boolean)
@@ -222,24 +259,16 @@ export async function searchStageConventionsGlobal(
     );
     if (!indexBlob.includes(q)) continue;
 
-    const c = await getStageConvention(entry.id);
-    if (!c || !isRosterVisibleConvention(c, year)) continue;
-
-    if (allowed) {
-      const className = String(c.student.className ?? "").trim();
-      const ok = allowed.some((a) => schoolClassesMatch(className, a));
-      if (!ok) continue;
-    }
-
+    const { firstName, lastName } = splitStudentName(entry.studentName);
     hits.push({
-      conventionId: c.id,
-      className: String(c.student.className ?? "").trim(),
-      studentFirstName: c.student.firstName,
-      studentLastName: c.student.lastName,
-      companyName: c.company.name || "—",
-      status: c.status,
-      statusLabel: STAGE_CONVENTION_STATUS_LABELS[c.status] || c.status,
-      stageLabel: c.stageLabel?.trim() || undefined,
+      conventionId: entry.id,
+      className: String(entry.className ?? "").trim(),
+      studentFirstName: firstName,
+      studentLastName: lastName,
+      companyName: entry.companyName || "—",
+      status: entry.status,
+      statusLabel: STAGE_CONVENTION_STATUS_LABELS[entry.status] || entry.status,
+      stageLabel: entry.stageLabel?.trim() || undefined,
     });
     if (hits.length >= 40) break;
   }
@@ -262,17 +291,7 @@ export async function listStageRosterClassNames(schoolYear?: string): Promise<st
     getConventionsIndex(),
   ]);
   const fromConventions = index
-    .filter((e) => {
-      if (e.status === "archived" || e.status === "cancelled" || e.status === "draft") {
-        return false;
-      }
-      if (e.schoolYear === year) return true;
-      return (
-        e.status === "signed" ||
-        e.status === "signatures_pending" ||
-        e.status === "convention_ready"
-      );
-    })
+    .filter((e) => isRosterVisibleIndexEntry(e, year))
     .map((e) => String(e.className ?? "").trim())
     .filter(Boolean);
   return [...new Set([...enabled, ...fromConventions])].sort((a, b) =>
@@ -280,12 +299,10 @@ export async function listStageRosterClassNames(schoolYear?: string): Promise<st
   );
 }
 
-export async function buildStageClassRoster(
+async function buildStageClassRosterUncached(
   className: string,
-  schoolYear?: string,
+  year: string,
 ): Promise<StageClassRoster> {
-  const year = schoolYear?.trim() || currentStageSchoolYear();
-
   const [eleves, index, officialPeriods, classEnabledInConfig] = await Promise.all([
     loadEleves(),
     getConventionsIndex(),
@@ -299,16 +316,8 @@ export async function buildStageClassRoster(
 
   const candidateIds = index
     .filter((e) => {
-      if (e.status === "archived" || e.status === "cancelled" || e.status === "draft") {
-        return false;
-      }
-      if (!schoolClassesMatch(String(e.className ?? ""), className)) return false;
-      if (e.schoolYear === year) return true;
-      return (
-        e.status === "signed" ||
-        e.status === "signatures_pending" ||
-        e.status === "convention_ready"
-      );
+      if (!isRosterVisibleIndexEntry(e, year)) return false;
+      return schoolClassesMatch(String(e.className ?? ""), className);
     })
     .map((e) => e.id);
 
@@ -419,4 +428,19 @@ export async function buildStageClassRoster(
     rosterSource,
     ...(notes.length ? { note: notes.join(" ") } : {}),
   };
+}
+
+export async function buildStageClassRoster(
+  className: string,
+  schoolYear?: string,
+): Promise<StageClassRoster> {
+  const year = schoolYear?.trim() || currentStageSchoolYear();
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  if (!etabId) return buildStageClassRosterUncached(className, year);
+
+  return valkeyCached({
+    key: valkeyKeyStagesClassRoster(etabId, year, classKey(className)),
+    ttlSeconds: VALKEY_TTL.stagesClassRoster,
+    loader: () => buildStageClassRosterUncached(className, year),
+  });
 }
