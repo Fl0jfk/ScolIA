@@ -10,9 +10,13 @@ import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSig
 import StageConventionDetail from "@/app/components/stages/StageConventionDetail";
 import StagesBoardPanel from "@/app/components/stages/StagesBoardPanel";
 import StageOfflineCreateModal from "@/app/components/stages/StageOfflineCreateModal";
+import StageSignaturesDrawer, {
+  type StageSignaturePanelData,
+} from "@/app/components/stages/StageSignaturesDrawer";
 import type {
   StageTab,
   StagesHubBoard,
+  StagesHubBoardCard,
 } from "@/app/components/stages/stages-hub-types";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -105,6 +109,12 @@ function StagesContent() {
     ine?: string;
   } | null>(null);
   const [classeRefreshToken, setClasseRefreshToken] = useState(0);
+  const [signaturesDrawerOpen, setSignaturesDrawerOpen] = useState(false);
+  const [signaturesDrawerLoading, setSignaturesDrawerLoading] = useState(false);
+  const [signaturesDrawerError, setSignaturesDrawerError] = useState<string | null>(null);
+  const [signaturesDrawerData, setSignaturesDrawerData] =
+    useState<StageSignaturePanelData | null>(null);
+  const [signaturesDrawerBusyId, setSignaturesDrawerBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -160,6 +170,96 @@ function StagesContent() {
     setDetail(null);
     setSelectedId(null);
   }, []);
+
+  const closeSignaturesDrawer = useCallback(() => {
+    setSignaturesDrawerOpen(false);
+    setSignaturesDrawerError(null);
+    setSignaturesDrawerBusyId(null);
+  }, []);
+
+  const openSignaturesPanel = useCallback(async (card: StagesHubBoardCard) => {
+    setSignaturesDrawerOpen(true);
+    setSignaturesDrawerLoading(true);
+    setSignaturesDrawerError(null);
+    setSignaturesDrawerData({
+      id: card.id,
+      status: card.status,
+      statusLabel: "Signatures en cours",
+      studentName:
+        card.studentName ||
+        (card.student
+          ? `${card.student.firstName} ${card.student.lastName}`.trim()
+          : "Élève"),
+      className: card.className || "",
+      companyName: card.companyName || card.company?.name || "—",
+      periodStart: "",
+      periodEnd: "",
+      canResend: false,
+      photoUrl: card.photoUrl,
+      signatureSummary: {
+        total: 0,
+        signed: 0,
+        pending: 0,
+        refused: 0,
+        complete: false,
+        items: [],
+      },
+    });
+    try {
+      const res = await fetch(`/api/stages/conventions/${card.id}/signature-panel`, {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as StageSignaturePanelData & { error?: string };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setSignaturesDrawerData({
+        ...data,
+        photoUrl: card.photoUrl ?? data.photoUrl,
+      });
+    } catch (e: unknown) {
+      setSignaturesDrawerError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSignaturesDrawerLoading(false);
+    }
+  }, []);
+
+  async function resendSignatureFromDrawer(signatureId: string) {
+    if (!signaturesDrawerData) return;
+    const conventionId = signaturesDrawerData.id;
+    setSignaturesDrawerBusyId(signatureId);
+    setSignaturesDrawerError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${conventionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resend_signature", signatureId }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        mail?: { sent?: boolean; reason?: string };
+        email?: string;
+      };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setMsg(
+        data.mail?.sent
+          ? `Relance envoyée à ${data.email || "le signataire"}.`
+          : `Relance non envoyée (${data.mail?.reason || "erreur"}).`,
+      );
+      const refresh = await fetch(`/api/stages/conventions/${conventionId}/signature-panel`, {
+        cache: "no-store",
+      });
+      const refreshed = (await refresh.json()) as StageSignaturePanelData & { error?: string };
+      if (refresh.ok) {
+        setSignaturesDrawerData((prev) => ({
+          ...refreshed,
+          photoUrl: prev?.photoUrl ?? refreshed.photoUrl,
+        }));
+      }
+    } catch (e: unknown) {
+      setSignaturesDrawerError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSignaturesDrawerBusyId(null);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -828,6 +928,7 @@ function StagesContent() {
           board={board}
           permissions={permissions}
           onLoadDetail={(id) => void loadDetail(id)}
+          onOpenSignaturesPanel={(card) => void openSignaturesPanel(card)}
           onCreateOffline={
             permissions?.canReviewPreconvention
               ? () => {
@@ -844,6 +945,21 @@ function StagesContent() {
           bulkResendBusy={busy}
         />
       )}
+
+      <StageSignaturesDrawer
+        open={signaturesDrawerOpen}
+        loading={signaturesDrawerLoading}
+        error={signaturesDrawerError}
+        data={signaturesDrawerData}
+        busySignatureId={signaturesDrawerBusyId}
+        onClose={closeSignaturesDrawer}
+        onResend={(signatureId) => void resendSignatureFromDrawer(signatureId)}
+        onOpenFull={() => {
+          const id = signaturesDrawerData?.id;
+          closeSignaturesDrawer();
+          if (id) void loadDetail(id);
+        }}
+      />
 
       <StageOfflineCreateModal
         open={offlineModalOpen}

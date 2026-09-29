@@ -98,7 +98,7 @@ function BoardList({
   empty,
   items,
   tone,
-  onLoadDetail,
+  onSelect,
   statusOverride,
   showDepositKind,
 }: {
@@ -106,7 +106,7 @@ function BoardList({
   empty: string;
   items: StagesHubBoardCard[];
   tone: "amber" | "sky" | "emerald";
-  onLoadDetail: (id: string) => void;
+  onSelect: (id: string) => void;
   statusOverride?: (c: StagesHubBoardCard) => string | null;
   showDepositKind?: boolean;
 }) {
@@ -148,7 +148,7 @@ function BoardList({
                     <button
                       type="button"
                       className="truncate text-sm font-semibold text-[#2F6B4A] underline decoration-[#2F6B4A]/40 underline-offset-2 hover:decoration-[#2F6B4A]"
-                      onClick={() => onLoadDetail(c.id)}
+                      onClick={() => onSelect(c.id)}
                     >
                       {name}
                     </button>
@@ -179,6 +179,7 @@ export default function StagesBoardPanel({
   board,
   permissions,
   onLoadDetail,
+  onOpenSignaturesPanel,
   onCreateOffline,
   onBulkResendSignatures,
   bulkResendBusy,
@@ -186,6 +187,8 @@ export default function StagesBoardPanel({
   board: StagesHubBoard;
   permissions: StagesHubPermissions | undefined;
   onLoadDetail: (id: string) => void;
+  /** Clic sur une ligne « Signatures en cours » — volet léger (pas le suivi classe). */
+  onOpenSignaturesPanel?: (card: StagesHubBoardCard) => void;
   onCreateOffline?: () => void;
   onBulkResendSignatures?: (filters: {
     secteur: SecteurFilter;
@@ -395,7 +398,7 @@ export default function StagesBoardPanel({
             }
             items={filteredAdminQueue}
             tone="amber"
-            onLoadDetail={onLoadDetail}
+            onSelect={onLoadDetail}
             showDepositKind
             statusOverride={(c) =>
               c.scheduleChangePending
@@ -416,7 +419,14 @@ export default function StagesBoardPanel({
           }
           items={filteredSignatures}
           tone="sky"
-          onLoadDetail={onLoadDetail}
+          onSelect={(id) => {
+            const card = filteredSignatures.find((c) => c.id === id);
+            if (card && onOpenSignaturesPanel) {
+              onOpenSignaturesPanel(card);
+              return;
+            }
+            onLoadDetail(id);
+          }}
         />
       </div>
     </div>
