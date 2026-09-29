@@ -100,6 +100,11 @@ export type RdvInscriptionBookingRow = {
   reconfirmedAt: string | null;
   /** Note libre admin (demande de rechoix). */
   adminCancelNote: string | null;
+  /**
+   * true si le RDV a été annulé avec demande de rechoix (token présent) :
+   * l’admin peut renvoyer le mail avec le bon lien.
+   */
+  rescheduleLinkAvailable: boolean;
   createdAt: string;
 };
 

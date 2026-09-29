@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
@@ -156,6 +156,8 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
     reconfirmMailSentAt: toIso(row.reconfirmMailSentAt),
     reconfirmedAt: toIso(row.reconfirmedAt),
     adminCancelNote: row.adminCancelNote?.trim() || null,
+    rescheduleLinkAvailable:
+      mapBookingStatus(row.status) === "cancelled" && Boolean(row.rescheduleToken?.trim()),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -1108,6 +1110,55 @@ export async function markRdvInscriptionBookingCancelledForReschedule(opts: {
     )
     .limit(1);
   return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+/**
+ * Renouvelle le token de rechoix sur un RDV déjà annulé avec demande de rechoix.
+ * Ne crée pas de token sur une simple suppression (sans reschedule_token).
+ */
+export async function refreshRdvInscriptionRescheduleToken(opts: {
+  bookingId: string;
+  etablissementId: string;
+  rescheduleToken: string;
+  rescheduleTokenExpiresAt: Date;
+  adminCancelNote?: string | null;
+}): Promise<(RdvInscriptionBookingRow & { rescheduleToken: string }) | null> {
+  const db = requireDb();
+  const patch: Partial<typeof rdvInscriptionBooking.$inferInsert> = {
+    rescheduleToken: opts.rescheduleToken,
+    rescheduleTokenExpiresAt: opts.rescheduleTokenExpiresAt,
+    updatedAt: new Date(),
+  };
+  if (opts.adminCancelNote !== undefined) {
+    patch.adminCancelNote = opts.adminCancelNote?.trim() || null;
+  }
+  await db
+    .update(rdvInscriptionBooking)
+    .set(patch)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+        eq(rdvInscriptionBooking.status, "cancelled"),
+        isNotNull(rdvInscriptionBooking.rescheduleToken),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  if (!row?.rescheduleToken) return null;
+  return {
+    ...mapBooking(row),
+    rescheduleToken: row.rescheduleToken,
+  };
 }
 
 export async function findBookingByRescheduleToken(

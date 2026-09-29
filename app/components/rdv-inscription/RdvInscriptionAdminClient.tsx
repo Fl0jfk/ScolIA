@@ -215,6 +215,12 @@ export default function RdvInscriptionAdminClient() {
         );
         setRescheduleTarget(null);
         setRescheduleNote("");
+      } else if (body.action === "resend-reschedule") {
+        setMessage(
+          json.mailWarning
+            ? `Lien de rechoix renvoyé (attention mail : ${json.mailWarning})`
+            : "Mail de rechoix renvoyé au parent (lien corrigé, valable 14 jours).",
+        );
       } else if (body.action === "change-slot") {
         setMessage(
           json.mailWarning
@@ -265,6 +271,17 @@ export default function RdvInscriptionAdminClient() {
       bookingId: rescheduleTarget.id,
       note: rescheduleNote.trim() || undefined,
     });
+  }
+
+  async function resendRescheduleMail(
+    bookingId: string,
+    studentLabel: string,
+  ) {
+    const ok = window.confirm(
+      `Renvoyer le mail de rechoix à ${studentLabel} ?\n\nLe parent recevra un nouveau lien (direction correcte, valable 14 jours). L’ancien lien ne fonctionnera plus.`,
+    );
+    if (!ok) return;
+    await put({ action: "resend-reschedule", bookingId });
   }
 
   async function openChangeSlot(booking: RdvInscriptionBookingRow) {
@@ -958,6 +975,21 @@ export default function RdvInscriptionAdminClient() {
                                 Supprimer
                               </button>
                             </>
+                          ) : null}
+                          {b.rescheduleLinkAvailable ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                void resendRescheduleMail(
+                                  b.id,
+                                  `${b.studentFirstName} ${b.studentLastName}`,
+                                )
+                              }
+                              className="mt-1.5 block text-xs font-semibold text-amber-800 hover:underline disabled:opacity-50"
+                            >
+                              Renvoyer le lien de rechoix
+                            </button>
                           ) : null}
                         </td>
                         <td className="py-2">

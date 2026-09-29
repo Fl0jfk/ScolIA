@@ -153,6 +153,30 @@ export async function PUT(req: Request) {
       });
     }
 
+    if (action === "resend-reschedule") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const note =
+        typeof body.note === "string" ? body.note.trim().slice(0, 1000) : undefined;
+      const { resendRdvInscriptionRescheduleMailAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await resendRdvInscriptionRescheduleMailAsAdmin({
+        bookingId,
+        note,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
     if (action === "list-booking-slots") {
       const bookingId = String(body.bookingId || "").trim();
       if (!bookingId) {

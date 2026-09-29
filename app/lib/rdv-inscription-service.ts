@@ -19,6 +19,7 @@ import {
   markRdvInscriptionReconfirm,
   listBookingsDueForReconfirmMail,
   markRdvInscriptionReconfirmMailSent,
+  refreshRdvInscriptionRescheduleToken,
   updateRdvInscriptionBookingSlot,
 } from "@/app/lib/rdv-inscription-db";
 import {
@@ -580,6 +581,81 @@ export async function requestRdvInscriptionRescheduleAsAdmin(opts: {
   return {
     ok: true,
     booking: cancelled,
+    mailWarning: mail.error,
+  };
+}
+
+/**
+ * Renvoie le mail de rechoix (bon lien direction) pour un RDV déjà annulé
+ * avec demande d’autre créneau. Renouvelle le token (TTL 14 j).
+ */
+export async function resendRdvInscriptionRescheduleMailAsAdmin(opts: {
+  bookingId: string;
+  note?: string | null;
+}): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow; mailWarning?: string }
+  | { ok: false; status: number; error: string }
+> {
+  const found = await findRdvInscriptionBookingById({ bookingId: opts.bookingId });
+  if (!found) {
+    return { ok: false, status: 404, error: "Réservation introuvable." };
+  }
+  if (found.status !== "cancelled" || !found.rescheduleLinkAvailable) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        "Renvoi possible uniquement pour un RDV annulé avec demande de rechoix (pas une simple suppression).",
+    };
+  }
+
+  const direction = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+    etablissementId: found.etablissementId,
+  });
+  if (!direction) {
+    return { ok: false, status: 404, error: "Direction introuvable." };
+  }
+
+  const noteRaw = opts.note !== undefined ? String(opts.note || "").trim().slice(0, 1000) : null;
+  const note =
+    opts.note !== undefined ? noteRaw || null : found.adminCancelNote;
+
+  const rescheduleToken = randomBytes(32).toString("hex");
+  const rescheduleTokenExpiresAt = new Date(Date.now() + RDV_RESCHEDULE_TOKEN_TTL_MS);
+
+  const refreshed = await refreshRdvInscriptionRescheduleToken({
+    bookingId: found.id,
+    etablissementId: found.etablissementId,
+    rescheduleToken,
+    rescheduleTokenExpiresAt,
+    adminCancelNote: opts.note !== undefined ? note : undefined,
+  });
+  if (!refreshed) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Impossible de renouveler le lien de rechoix.",
+    };
+  }
+
+  const rebookParams = new URLSearchParams({
+    token: refreshed.rescheduleToken,
+    direction: refreshed.directionSlug,
+  });
+  const rebookUrl = await tenantAbsolutePath(
+    `/api/rdv-inscription/rebook?${rebookParams.toString()}`,
+  );
+  const mail = await sendRdvInscriptionRescheduleRequestMail({
+    page: directionPageSettings(direction),
+    booking: refreshed,
+    directionLabel: direction.label,
+    rebookUrl,
+    adminNote: refreshed.adminCancelNote,
+  });
+
+  return {
+    ok: true,
+    booking: refreshed,
     mailWarning: mail.error,
   };
 }
