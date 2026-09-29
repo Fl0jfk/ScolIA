@@ -101,6 +101,7 @@ function BoardList({
   onSelect,
   statusOverride,
   showDepositKind,
+  layout = "list",
 }: {
   title: string;
   empty: string;
@@ -109,6 +110,8 @@ function BoardList({
   onSelect: (id: string) => void;
   statusOverride?: (c: StagesHubBoardCard) => string | null;
   showDepositKind?: boolean;
+  /** list = une ligne ; grid = 1 / 2 / 3 colonnes selon la largeur. */
+  layout?: "list" | "grid";
 }) {
   const shell =
     tone === "amber"
@@ -128,6 +131,49 @@ function BoardList({
       <h2 className={`text-sm font-bold ${titleCls}`}>{title}</h2>
       {items.length === 0 ? (
         <p className="mt-3 text-sm text-stone-500">{empty}</p>
+      ) : layout === "grid" ? (
+        <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {items.map((c) => {
+            const name = studentLabel(c);
+            const kind = showDepositKind
+              ? c.depositKind ||
+                (c.scheduleChangePending
+                  ? "Avenant"
+                  : c.tutorEmailChangePending
+                    ? "E-mail tuteur"
+                    : "Stage")
+              : null;
+            return (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(c.id)}
+                  className="flex w-full items-center gap-3 rounded-xl border border-sky-200/80 bg-white/80 px-3 py-3 text-left shadow-sm transition hover:border-sky-400 hover:bg-white hover:shadow"
+                >
+                  <BoardAvatar name={name} photoUrl={c.photoUrl} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-[#2F6B4A]">{name}</span>
+                      {kind && (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${kindBadgeClass(kind)}`}
+                        >
+                          {kind}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-stone-600">
+                      {[c.className, companyLabel(c)].filter(Boolean).join(" · ")}
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] font-medium text-sky-900">
+                      {statusLabel(c, statusOverride)}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       ) : (
         <ul className="mt-3 divide-y divide-stone-200/80">
           {items.map((c) => {
@@ -419,6 +465,7 @@ export default function StagesBoardPanel({
           }
           items={filteredSignatures}
           tone="sky"
+          layout="grid"
           onSelect={(id) => {
             const card = filteredSignatures.find((c) => c.id === id);
             if (card && onOpenSignaturesPanel) {

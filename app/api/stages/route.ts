@@ -16,7 +16,7 @@ import {
 import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures";
-import { listClassesForReferentUser } from "@/app/lib/stage-referents-config";
+import { listPrincipalClassesForUser } from "@/app/lib/stage-referents-config";
 import {
   getStageWatchersConfig,
   listWatcherAssignmentsForUser,
@@ -92,8 +92,8 @@ export async function GET() {
     const allConventions = await loadActiveStageConventions();
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
-    const referentClassNames = canViewReferentConventions(roles)
-      ? await listClassesForReferentUser(gate.ctx.userId)
+    const principalClassNames = canViewReferentConventions(roles)
+      ? await listPrincipalClassesForUser(gate.ctx.userId)
       : [];
     let conventions = allConventions.filter((c) =>
       conventionVisibleToUser(
@@ -101,7 +101,7 @@ export async function GET() {
         roles,
         userEmail,
         gate.ctx.userId,
-        referentClassNames,
+        principalClassNames,
         watcherAssignments,
       ),
     );
@@ -236,9 +236,9 @@ export async function GET() {
           canBrowseStageConventions(roles) ||
           canViewAllConventions(roles),
         consultOnly:
-          canBrowseStageConventions(roles) &&
+          canViewReferentConventions(roles) &&
           !canReviewPreconvention(roles) &&
-          roles.includes("professeur"),
+          !canViewAllConventions(roles),
       },
       counts: {
         pendingOffers,

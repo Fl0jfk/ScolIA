@@ -7,7 +7,7 @@ import {
   canViewReferentConventions,
 } from "@/app/lib/stage-access";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
-import { listClassesForReferentUser } from "@/app/lib/stage-referents-config";
+import { listPrincipalClassesForUser } from "@/app/lib/stage-referents-config";
 import {
   getStageWatchersConfig,
   listWatcherAssignmentsForUser,
@@ -37,8 +37,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
-    const referentClassNames = canViewReferentConventions(roles)
-      ? await listClassesForReferentUser(gate.ctx.userId)
+    const principalClassNames = canViewReferentConventions(roles)
+      ? await listPrincipalClassesForUser(gate.ctx.userId)
       : [];
     const watchers = await getStageWatchersConfig(
       convention.schoolYear || currentStageSchoolYear(),
@@ -50,7 +50,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         roles,
         userEmail,
         gate.ctx.userId,
-        referentClassNames,
+        principalClassNames,
         watcherAssignments,
       )
     ) {

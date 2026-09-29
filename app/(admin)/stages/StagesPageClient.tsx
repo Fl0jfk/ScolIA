@@ -819,9 +819,9 @@ function StagesContent() {
         <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <p className="font-semibold">Vue professeur principal / référent</p>
           <p className="mt-1 text-blue-800">
-            Consultez l&apos;onglet <strong>Suivi classe</strong> : ouvrez un élève pour voir ses
-            conventions, validez et suivez les signatures. Votre paraphe sera ajouté directement sur
-            le PDF.
+            Professeur principal : toute votre classe. Référent stage : uniquement les
+            stagiaires dont vous êtes le référent. Consultez l&apos;onglet{" "}
+            <strong>Suivi classe</strong> et le tableau de bord pour suivre les signatures.
           </p>
         </div>
       )}
@@ -830,9 +830,9 @@ function StagesContent() {
         <div className="mb-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
           <p className="font-semibold">Consultation stages</p>
           <p className="mt-1 text-sky-900">
-            Vous pouvez parcourir le tableau de bord et le suivi classe pour voir où en sont les
-            signatures. Les validations et relances restent réservées à l&apos;administratif /
-            direction.
+            Vous voyez les classes dont vous êtes professeur principal, et les stagiaires
+            dont vous êtes le référent. Les validations et relances restent réservées à
+            l&apos;administratif / direction.
           </p>
         </div>
       )}

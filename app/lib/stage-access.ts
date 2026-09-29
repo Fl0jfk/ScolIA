@@ -40,11 +40,11 @@ export function canViewAllConventions(roles: string[]) {
 }
 
 /**
- * Consultation lecture seule des conventions (tableau de bord, suivi classe, PDF, volet).
- * Les actions (validation, relances, import hors plateforme) restent sur canReviewPreconvention.
+ * Consultation large (admin / direction / surveillant).
+ * Les professeurs restent scopés PP / référent via conventionVisibleToUser.
  */
 export function canBrowseStageConventions(roles: string[]) {
-  return canViewAllConventions(roles) || roles.includes("professeur");
+  return canViewAllConventions(roles);
 }
 
 /** Visu stages sans signature — CPE (et restauration pour les repas). */

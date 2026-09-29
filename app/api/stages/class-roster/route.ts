@@ -15,6 +15,7 @@ import {
   findReferentAssignments,
   getStageReferentsConfig,
   listClassesForReferentUser,
+  listPrincipalClassesForUser,
   userCanAssignStageReferentForClass,
 } from "@/app/lib/stage-referents-config";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
@@ -39,9 +40,13 @@ export async function GET(req: Request) {
     const globalQuery = searchParams.get("q")?.trim() || "";
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
 
-    const referentClasses = user
-      ? await listClassesForReferentUser(gate.ctx.userId, schoolYear)
-      : [];
+    const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    const [referentClasses, principalClasses] = user
+      ? await Promise.all([
+          listClassesForReferentUser(gate.ctx.userId, schoolYear),
+          listPrincipalClassesForUser(gate.ctx.userId, schoolYear),
+        ])
+      : [[], []];
 
     let availableClasses: string[];
     if (canBrowseAll) {
@@ -137,9 +142,65 @@ export async function GET(req: Request) {
     }
 
     const roster = await buildStageClassRoster(className, schoolYear);
+    const isPrincipalForClass = principalClasses.some(
+      (c) => classKey(c) === classKey(className),
+    );
+
+    /** Référent (non PP) : uniquement les élèves dont il est teacherReferent. */
+    const scopedStudents =
+      canBrowseAll || isPrincipalForClass
+        ? roster.students
+        : roster.students
+            .map((s) => ({
+              ...s,
+              conventions: s.conventions.filter((conv) => {
+                const refEmail = String(conv.teacherReferentEmail || "")
+                  .trim()
+                  .toLowerCase();
+                if (userEmail && refEmail && refEmail === userEmail) return true;
+                return false;
+              }),
+            }))
+            .filter((s) => s.conventions.length > 0)
+            .map((s) => {
+              const hasValide = s.conventions.some((c) => c.status === "signed");
+              const hasEnCours = s.conventions.some(
+                (c) =>
+                  c.status === "signatures_pending" ||
+                  c.status === "convention_ready" ||
+                  c.status === "admin_review" ||
+                  c.status === "preconvention_submitted" ||
+                  c.status === "convention_deposited",
+              );
+              const rosterStatus =
+                s.conventions.length > 1
+                  ? ("plusieurs" as const)
+                  : hasValide && !hasEnCours
+                    ? ("valide" as const)
+                    : hasEnCours
+                      ? ("en_cours" as const)
+                      : ("sans_stage" as const);
+              return { ...s, rosterStatus };
+            });
+
+    const scopedRoster = {
+      ...roster,
+      students: scopedStudents,
+      summary: {
+        total: scopedStudents.length,
+        sansStage: scopedStudents.filter((s) => s.rosterStatus === "sans_stage").length,
+        enCours: scopedStudents.filter((s) => s.rosterStatus === "en_cours").length,
+        valide: scopedStudents.filter((s) => s.rosterStatus === "valide").length,
+        plusieurs: scopedStudents.filter((s) => s.rosterStatus === "plusieurs").length,
+      },
+      note:
+        !canBrowseAll && !isPrincipalForClass
+          ? "Vue référent : uniquement les stagiaires dont vous êtes le professeur référent."
+          : roster.note,
+    };
 
     const { resolvePhotoUrlsForEleves } = await import("@/app/lib/eleve-photos");
-    const photoIds = roster.students
+    const photoIds = scopedRoster.students
       .filter((s) => Boolean(s.eleveId))
       .map((s) => ({
         id: s.eleveId!,
@@ -155,8 +216,8 @@ export async function GET(req: Request) {
           )
         : {};
     const rosterWithPhotos = {
-      ...roster,
-      students: roster.students.map((s) => ({
+      ...scopedRoster,
+      students: scopedRoster.students.map((s) => ({
         ...s,
         photoUrl: s.eleveId ? photoUrls[s.eleveId] ?? null : null,
       })),
@@ -173,6 +234,11 @@ export async function GET(req: Request) {
       canAssignReferent,
       teachers,
       roster: rosterWithPhotos,
+      viewerScope: canBrowseAll
+        ? "all"
+        : isPrincipalForClass
+          ? "principal"
+          : "referent",
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

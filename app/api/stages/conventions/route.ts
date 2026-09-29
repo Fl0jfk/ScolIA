@@ -14,7 +14,7 @@ import {
 import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { conventionMatchesStageSecteurs, resolveStageViewerSecteurs } from "@/app/lib/stage-sector-scope";
-import { ensureConventionReferent, listClassesForReferentUser } from "@/app/lib/stage-referents-config";
+import { ensureConventionReferent, listPrincipalClassesForUser } from "@/app/lib/stage-referents-config";
 import {
   getStageWatchersConfig,
   listWatcherAssignmentsForUser,
@@ -88,8 +88,8 @@ export async function GET(req: Request) {
     const all = await loadActiveStageConventions();
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
-    const referentClassNames = canViewReferentConventions(roles)
-      ? await listClassesForReferentUser(gate.ctx.userId)
+    const principalClassNames = canViewReferentConventions(roles)
+      ? await listPrincipalClassesForUser(gate.ctx.userId)
       : [];
     const conventions = all
       .filter((c) =>
@@ -98,7 +98,7 @@ export async function GET(req: Request) {
           roles,
           userEmail,
           gate.ctx.userId,
-          referentClassNames,
+          principalClassNames,
           watcherAssignments,
         ),
       )

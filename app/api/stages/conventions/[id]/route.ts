@@ -21,7 +21,7 @@ import {
   syncProfReferentSignatory,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
-import { ensureConventionReferent, listClassesForReferentUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
+import { ensureConventionReferent, listPrincipalClassesForUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
 import {
   getStageWatchersConfig,
   listWatcherAssignmentsForUser,
@@ -56,8 +56,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     if (!convention) return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
-    const referentClassNames = canViewReferentConventions(roles)
-      ? await listClassesForReferentUser(gate.ctx.userId)
+    const principalClassNames = canViewReferentConventions(roles)
+      ? await listPrincipalClassesForUser(gate.ctx.userId)
       : [];
     const watchers = await getStageWatchersConfig(convention.schoolYear || currentStageSchoolYear());
     const watcherAssignments = listWatcherAssignmentsForUser(watchers, gate.ctx.userId);
@@ -67,7 +67,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         roles,
         userEmail,
         gate.ctx.userId,
-        referentClassNames,
+        principalClassNames,
         watcherAssignments,
       ) &&
       !roles.includes("parent")

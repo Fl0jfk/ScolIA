@@ -400,8 +400,15 @@ export async function GET() {
         // avec parallélisme plafonné — évite de saturer Postgres au chargement du dashboard.
         const pendingConventions = await loadSignaturesPendingStageConventions();
         const userEmail = email.trim().toLowerCase();
+        const { listPrincipalClassesForUser } = await import(
+          "@/app/lib/stage-referents-config"
+        );
+        const { canViewReferentConventions } = await import("@/app/lib/stage-access");
+        const principalClassNames = canViewReferentConventions(roles)
+          ? await listPrincipalClassesForUser(userId)
+          : [];
         const conventions = pendingConventions.filter((c) =>
-          conventionVisibleToUser(c, roles, userEmail, userId),
+          conventionVisibleToUser(c, roles, userEmail, userId, principalClassNames),
         );
         stagesPendingSignatures = (
           await listPendingSignaturesForUser(conventions, userEmail, userId, roles, {

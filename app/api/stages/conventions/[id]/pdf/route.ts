@@ -3,7 +3,12 @@ import { NextResponse } from "next/server";
 
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { canBrowseStageConventions } from "@/app/lib/stage-access";
+import {
+  canBrowseStageConventions,
+  canViewReferentConventions,
+} from "@/app/lib/stage-access";
+import { conventionVisibleToUser } from "@/app/lib/stage-referent";
+import { listPrincipalClassesForUser } from "@/app/lib/stage-referents-config";
 import { buildFreshConventionPdfDownload } from "@/app/lib/stage-pdf-store";
 import { getStageConvention } from "@/app/lib/stage-storage";
 
@@ -14,13 +19,35 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
-    if (!canBrowseStageConventions(roles) && !roles.includes("parent")) {
+    if (
+      !canBrowseStageConventions(roles) &&
+      !canViewReferentConventions(roles) &&
+      !roles.includes("parent")
+    ) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
     const { id } = await ctx.params;
     const convention = await getStageConvention(id);
     if (!convention) return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
+
+    if (!roles.includes("parent") && !canBrowseStageConventions(roles)) {
+      const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+      const principalClassNames = canViewReferentConventions(roles)
+        ? await listPrincipalClassesForUser(gate.ctx.userId)
+        : [];
+      if (
+        !conventionVisibleToUser(
+          convention,
+          roles,
+          userEmail,
+          gate.ctx.userId,
+          principalClassNames,
+        )
+      ) {
+        return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
+      }
+    }
 
     const { bytes, fileName } = await buildFreshConventionPdfDownload(convention);
 
