@@ -339,6 +339,18 @@ export async function upsertTravelInDb(
       })),
     );
   }
+
+  void import("@/app/lib/valkey")
+    .then(async ({ valkeyDel }) => {
+      const { valkeyKeyTravelsIndex, valkeyKeyTravelTrip } = await import(
+        "@/app/lib/valkey-keys"
+      );
+      await valkeyDel(
+        valkeyKeyTravelsIndex(etablissementId),
+        valkeyKeyTravelTrip(etablissementId, main.id),
+      );
+    })
+    .catch(() => undefined);
 }
 
 /** Remplacement complet — script de migration uniquement (efface les dossiers absents de la liste). */
@@ -349,6 +361,12 @@ export async function replaceTravelsInDb(
   const db = getDb();
   await db.delete(travel).where(eq(travel.etablissementId, etablissementId));
   for (const t of trips) await upsertTravelInDb(etablissementId, t);
+  void import("@/app/lib/valkey")
+    .then(async ({ valkeyDel }) => {
+      const { valkeyKeyTravelsIndex } = await import("@/app/lib/valkey-keys");
+      await valkeyDel(valkeyKeyTravelsIndex(etablissementId));
+    })
+    .catch(() => undefined);
   return trips.length;
 }
 
@@ -357,4 +375,15 @@ export async function deleteTravelFromDb(etablissementId: string, id: string): P
   await db
     .delete(travel)
     .where(and(eq(travel.etablissementId, etablissementId), eq(travel.id, id)));
+  void import("@/app/lib/valkey")
+    .then(async ({ valkeyDel }) => {
+      const { valkeyKeyTravelsIndex, valkeyKeyTravelTrip } = await import(
+        "@/app/lib/valkey-keys"
+      );
+      await valkeyDel(
+        valkeyKeyTravelsIndex(etablissementId),
+        valkeyKeyTravelTrip(etablissementId, id),
+      );
+    })
+    .catch(() => undefined);
 }

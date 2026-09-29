@@ -47,6 +47,10 @@ export const VALKEY_TTL = {
   stagesConvention: 60,
   /** Roster suivi classe (court — change souvent à la validation) */
   stagesClassRoster: 25,
+  /** Index liste séjours / voyages */
+  travelsIndex: 30,
+  /** Dossier séjour individuel */
+  travelsTrip: 45,
 } as const;
 
 const NS = "scola";
@@ -190,4 +194,15 @@ export function valkeyKeyStagesClassRoster(
 
 export function valkeyPrefixStagesClassRoster(etablissementId: string): string {
   return `${NS}:stages:roster:${etablissementId}:`;
+}
+
+export function valkeyKeyTravelsIndex(etablissementId: string): string {
+  return `${NS}:travels:index:${etablissementId}`;
+}
+
+export function valkeyKeyTravelTrip(
+  etablissementId: string,
+  tripId: string,
+): string {
+  return `${NS}:travels:trip:${etablissementId}:${tripId}`;
 }
