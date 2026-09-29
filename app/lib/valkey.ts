@@ -132,7 +132,8 @@ function createRedisClient(url: string): Redis {
     enableReadyCheck: true,
     lazyConnect: true,
     connectTimeout: CONNECT_TIMEOUT_MS,
-    commandTimeout: CMD_TIMEOUT_MS,
+    // Ne PAS poser commandTimeout ici : ioredis l’applique aussi au handshake
+    // (AUTH / ready check). 150 ms vers un Redis public Scaleway = "Connection is closed."
     enableOfflineQueue: false,
     keepAlive: 10_000,
     family: 4,
@@ -172,9 +173,11 @@ function createRedisClient(url: string): Redis {
     }
   });
   redis.on("end", () => {
+    // Évite de traiter un disconnect volontaire (discardClient) comme une panne.
+    if (client !== redis) return;
     rememberError("connexion fermée");
     tripCircuit("connexion fermée");
-    if (client === redis) client = undefined;
+    client = undefined;
     loggedReady = false;
   });
 
