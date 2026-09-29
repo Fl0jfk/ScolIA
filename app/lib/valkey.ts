@@ -182,6 +182,11 @@ function parseValkeyConnection(url: string): ParsedValkey {
 function createRedisClient(url: string): Redis {
   const parsed = parseValkeyConnection(url);
   const ca = resolveCaCert();
+  // Vers une IP publique, Node envoie souvent l’IP en SNI → Scaleway ferme le TLS.
+  // Forcer un hostname (même factice) ou VALKEY_TLS_SERVERNAME.
+  const tlsServername =
+    process.env.VALKEY_TLS_SERVERNAME?.trim() ||
+    (netIsIp(parsed.host) ? "scolia-cache" : parsed.host);
 
   // Options explicites (pas seulement l’URL) : plus fiable avec ACL Redis 6+ / Scaleway.
   const redis = new Redis({
@@ -200,9 +205,9 @@ function createRedisClient(url: string): Redis {
     ...(parsed.useTls
       ? {
           tls: {
-            // Conteneur → IP publique Scaleway : flag=0 désactive la vérif cert.
             rejectUnauthorized:
               process.env.VALKEY_TLS_REJECT_UNAUTHORIZED !== "0",
+            servername: tlsServername,
             ...(ca ? { ca } : {}),
           },
         }
@@ -240,6 +245,55 @@ function createRedisClient(url: string): Redis {
   });
 
   return redis;
+}
+
+function netIsIp(host: string): boolean {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":");
+}
+
+async function probeSocket(
+  host: string,
+  port: number,
+  useTls: boolean,
+): Promise<string> {
+  const net = await import("node:net");
+  const tls = await import("node:tls");
+  return new Promise((resolve) => {
+    const done = (msg: string, socket?: { destroy: () => void }) => {
+      try {
+        socket?.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve(msg);
+    };
+    if (!useTls) {
+      const socket = net.connect({ host, port, family: 4 }, () =>
+        done("tcp_ok", socket),
+      );
+      socket.setTimeout(CONNECT_TIMEOUT_MS);
+      socket.on("timeout", () => done("tcp_timeout", socket));
+      socket.on("error", (e) => done(`tcp_err:${e.message}`, socket));
+      return;
+    }
+    const servername =
+      process.env.VALKEY_TLS_SERVERNAME?.trim() ||
+      (netIsIp(host) ? "scolia-cache" : host);
+    const socket = tls.connect(
+      {
+        host,
+        port,
+        family: 4,
+        servername,
+        rejectUnauthorized: process.env.VALKEY_TLS_REJECT_UNAUTHORIZED !== "0",
+        ...(resolveCaCert() ? { ca: resolveCaCert() } : {}),
+      },
+      () => done(`tls_ok:${socket.getProtocol() || "?"}`, socket),
+    );
+    socket.setTimeout(CONNECT_TIMEOUT_MS);
+    socket.on("timeout", () => done("tls_timeout", socket));
+    socket.on("error", (e) => done(`tls_err:${e.message}`, socket));
+  });
 }
 
 export function getValkey(): Redis | null {
@@ -446,6 +500,8 @@ export async function getValkeyRuntimeStatus(): Promise<{
   status: string;
   circuitOpen: boolean;
   lastError: string | null;
+  probeTcp: string | null;
+  probeTls: string | null;
   url: {
     scheme: string;
     host: string;
@@ -453,6 +509,7 @@ export async function getValkeyRuntimeStatus(): Promise<{
     hasUser: boolean;
     hasPassword: boolean;
     urlParseOk: boolean;
+    hasCaCert: boolean;
   } | null;
 }> {
   const configured = isValkeyConfigured();
@@ -467,9 +524,35 @@ export async function getValkeyRuntimeStatus(): Promise<{
       status: "absent",
       circuitOpen: false,
       lastError: null,
+      probeTcp: null,
+      probeTls: null,
       url: null,
     };
   }
+
+  let parsed: ParsedValkey;
+  try {
+    parsed = parseValkeyConnection(url);
+  } catch (error) {
+    return {
+      configured: true,
+      ready: false,
+      pingOk: false,
+      status: "url_invalid",
+      circuitOpen: false,
+      lastError: error instanceof Error ? error.message : "url parse",
+      probeTcp: null,
+      probeTls: null,
+      url: urlInfo,
+    };
+  }
+
+  const [probeTcp, probeTls] = await Promise.all([
+    probeSocket(parsed.host, parsed.port, false),
+    parsed.useTls
+      ? probeSocket(parsed.host, parsed.port, true)
+      : Promise.resolve("tls_skipped"),
+  ]);
 
   // Diagnostic : on force une tentative même si le coupe-circuit est ouvert.
   const wasCircuitOpen = circuitOpen();
@@ -494,6 +577,8 @@ export async function getValkeyRuntimeStatus(): Promise<{
       status: "connect_failed",
       circuitOpen: wasCircuitOpen,
       lastError: lastError,
+      probeTcp,
+      probeTls,
       url: urlInfo,
     };
   }
@@ -510,6 +595,8 @@ export async function getValkeyRuntimeStatus(): Promise<{
       status,
       circuitOpen: wasCircuitOpen,
       lastError: lastError,
+      probeTcp,
+      probeTls,
       url: urlInfo,
     };
   }
@@ -526,6 +613,8 @@ export async function getValkeyRuntimeStatus(): Promise<{
       status,
       circuitOpen: false,
       lastError: pingOk ? null : lastError,
+      probeTcp,
+      probeTls,
       url: urlInfo,
     };
   } catch (error) {
@@ -540,6 +629,8 @@ export async function getValkeyRuntimeStatus(): Promise<{
       status,
       circuitOpen: true,
       lastError: lastError,
+      probeTcp,
+      probeTls,
       url: urlInfo,
     };
   }
