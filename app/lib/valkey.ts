@@ -1,5 +1,7 @@
 import "server-only";
 
+import net from "node:net";
+import tls from "node:tls";
 import Redis from "ioredis";
 
 /**
@@ -256,8 +258,6 @@ async function probeSocket(
   port: number,
   useTls: boolean,
 ): Promise<string> {
-  const net = await import("node:net");
-  const tls = await import("node:tls");
   return new Promise((resolve) => {
     const done = (msg: string, socket?: { destroy: () => void }) => {
       try {
