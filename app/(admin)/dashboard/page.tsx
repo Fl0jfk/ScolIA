@@ -73,12 +73,6 @@ export default function Home() {
     refresh: loadSignals,
   } = useDashboardSignals({ onFetched: onSignalsFetched });
 
-  const firstName =
-    user?.firstName ||
-    user?.fullName?.split(/\s+/)[0] ||
-    user?.username ||
-    null;
-
   const uniqueCategories = useMemo(() => {
     if (!isLoaded || !user || !data?.categories) return [];
     const roles = intranetRolesFromMetadata(user.publicMetadata);
@@ -145,76 +139,21 @@ export default function Home() {
 
         <main className="relative mx-auto flex min-h-[calc(100dvh-1rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:px-8">
           <div className="flex flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:py-4">
-            <header className="hidden shrink-0 grid-cols-[1fr_auto] items-center gap-4 md:grid">
-              <motion.div
-                className="min-w-0 justify-self-start"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.45 }}
-              >
-                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--dash-mid)]">
-                  Tableau de bord
-                </p>
-                <h1 className="mt-1 text-[1.75rem] font-semibold tracking-tight text-[var(--dash-ink)] md:text-[2rem] lg:text-[2.15rem]">
-                  {firstName ? (
-                    <>
-                      Bonjour{" "}
-                      <span className="relative inline-flex items-start">
-                        <span className="bg-gradient-to-r from-[var(--dash-primary)] via-[var(--dash-mid)] to-[var(--dash-bright)] bg-clip-text text-transparent">
-                          {firstName}
-                        </span>
-                        <DashboardGlobalNotifications items={notifications} />
-                      </span>
-                    </>
-                  ) : (
-                    "Bienvenue"
-                  )}
-                </h1>
-              </motion.div>
-
-              <div className="justify-self-end">
-                <DashboardTodayNews
-                  items={todayNews}
-                  hasCurrentWeek={hasCurrentWeek}
-                  loading={signalsLoading}
-                  onWeekSheetUpdated={loadSignals}
-                />
-              </div>
-            </header>
-
-            {/* Mobile */}
-            <div className="flex shrink-0 flex-col gap-2 md:hidden">
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.45 }}
-              >
-                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--dash-mid)]">
-                  Tableau de bord
-                </p>
-                <h1 className="mt-1 text-[1.75rem] font-semibold tracking-tight text-[var(--dash-ink)]">
-                  {firstName ? (
-                    <>
-                      Bonjour{" "}
-                      <span className="relative inline-flex items-start">
-                        <span className="bg-gradient-to-r from-[var(--dash-primary)] via-[var(--dash-mid)] to-[var(--dash-bright)] bg-clip-text text-transparent">
-                          {firstName}
-                        </span>
-                        <DashboardGlobalNotifications items={notifications} />
-                      </span>
-                    </>
-                  ) : (
-                    "Bienvenue"
-                  )}
-                </h1>
-              </motion.div>
+            <div className="relative flex shrink-0 items-start justify-end gap-2">
               <DashboardTodayNews
-                wide={false}
                 items={todayNews}
                 hasCurrentWeek={hasCurrentWeek}
                 loading={signalsLoading}
                 onWeekSheetUpdated={loadSignals}
+                wide={false}
               />
+              <div className="absolute -right-1 -top-1 md:static md:pt-1">
+                <DashboardGlobalNotifications items={notifications} />
+              </div>
+            </div>
+
+            {/* Mobile : raccourcis externes (desktop = sidebar) */}
+            <div className="md:hidden">
               <ExternalQuickLinksBar
                 links={quickLinks}
                 manageHref={isOrgAdmin ? "/parametres?tab=dashboard-links" : null}

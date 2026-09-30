@@ -152,11 +152,11 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="flex items-center gap-2 px-3 pb-3 pt-4">
+        <div className="flex items-center gap-1 px-3 pb-3 pt-3">
           <Link
             href={homeHref}
             onClick={onCloseMobile}
-            className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 transition hover:opacity-90"
+            className="flex basis-1/2 items-center justify-center transition hover:opacity-90"
             title={logoAlt}
             aria-label={logoAlt}
           >
@@ -165,19 +165,27 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                 <Image
                   src={customLogoUrl}
                   alt={logoAlt}
-                  width={40}
-                  height={40}
+                  width={72}
+                  height={72}
                   unoptimized
-                  className="h-full w-full object-contain p-1"
+                  className="h-14 w-14 object-contain sm:h-16 sm:w-16"
                 />
               ) : (
-                <Image src={Logo} alt={logoAlt} width={36} height={36} className="object-contain" />
+                <Image
+                  src={Logo}
+                  alt={logoAlt}
+                  width={72}
+                  height={72}
+                  className="h-14 w-14 object-contain sm:h-16 sm:w-16"
+                />
               ))}
           </Link>
-          <DashboardWeather compact />
+          <div className="basis-1/2">
+            <DashboardWeather compact />
+          </div>
           <button
             type="button"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[var(--dash-ink)] shadow-sm lg:hidden"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 text-[var(--dash-ink)] shadow-sm lg:hidden"
             onClick={onCloseMobile}
             aria-label="Fermer le menu"
           >
@@ -286,7 +294,12 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                 ) : null}
               </div>
               {quickLinks.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1.5 px-0.5">
+                <div
+                  className="grid w-full gap-1"
+                  style={{
+                    gridTemplateColumns: `repeat(${quickLinks.length}, minmax(0, 1fr))`,
+                  }}
+                >
                   {quickLinks.map((link) => (
                     <a
                       key={link.id}
@@ -296,9 +309,13 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                       onClick={onCloseMobile}
                       title={link.name}
                       aria-label={link.name}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/80 shadow-sm ring-1 ring-black/5 transition hover:bg-white hover:ring-black/15"
+                      className="flex aspect-square w-full items-center justify-center rounded-xl transition hover:bg-white/60"
                     >
-                      <QuickLinkIcon src={link.img} name={link.name} />
+                      <QuickLinkIcon
+                        src={link.img}
+                        name={link.name}
+                        className="relative h-[68%] w-[68%] overflow-hidden"
+                      />
                     </a>
                   ))}
                 </div>

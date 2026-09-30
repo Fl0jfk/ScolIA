@@ -39,28 +39,25 @@ export default function DashboardWeather({ compact = false }: Props) {
     if (!weather || weather.temperature === null) {
       return (
         <div
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-xl bg-white/70 px-2 py-1.5 animate-pulse"
+          className="flex w-full items-center justify-center gap-2 animate-pulse"
           aria-hidden
           title="Chargement météo"
         >
-          <span className="h-5 w-5 rounded-full bg-stone-200/80" />
-          <span className="h-3 w-10 rounded bg-stone-200/80" />
+          <span className="h-6 w-6 rounded-full bg-stone-200/70" />
+          <span className="h-5 w-10 rounded bg-stone-200/70" />
         </div>
       );
     }
     return (
       <div
-        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-xl bg-white/80 px-2 py-1.5 shadow-sm ring-1 ring-black/5"
-        title={`Météo à ${weather.location} — ${weather.label}`}
+        className="flex w-full items-center justify-center gap-2"
+        title={`Météo à ${weather.location}${weather.label ? ` — ${weather.label}` : ""}`}
       >
-        <span className="shrink-0 text-lg leading-none" aria-hidden>
+        <span className="text-2xl leading-none" aria-hidden>
           {weather.icon}
         </span>
-        <span className={`shrink-0 text-sm font-black tabular-nums ${dash.ink}`}>
+        <span className={`text-xl font-black tabular-nums tracking-tight ${dash.ink}`}>
           {weather.temperature}°
-        </span>
-        <span className="min-w-0 truncate text-[10px] font-semibold text-stone-500">
-          {weather.label}
         </span>
       </div>
     );
