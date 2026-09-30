@@ -44,8 +44,9 @@ export default function SidebarScoliaBlock({ onCloseMobile }: Props) {
         <button
           type="submit"
           className="shrink-0 rounded-xl bg-[var(--dash-ink)] px-2.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110"
+          title={draft.trim() ? "Envoyer à ScolIA" : "Ouvrir la conversation"}
         >
-          {draft.trim() ? "→" : "Ouvrir"}
+          {draft.trim() ? "→" : "Chat"}
         </button>
       </form>
     </div>

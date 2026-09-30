@@ -47,8 +47,6 @@ type PendingFile = {
   name: string;
 };
 
-type LayoutMode = "window" | "expanded";
-
 function renderMessageContent(content: string) {
   const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
   const urlRegex = /\bhttps?:\/\/[^\s<>"')\]]+/g;
@@ -144,14 +142,11 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   const router = useRouter();
   const { isSignedIn } = useSessionUser();
   const [open, setOpen] = useState(pageMode);
-  const [layout, setLayout] = useState<LayoutMode>(pageMode ? "expanded" : "window");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [interimSpeech, setInterimSpeech] = useState("");
   const [input, setInput] = useState("");
   const [mounted, setMounted] = useState(false);
-  /** ≥1024px : bulle flottante + boutons Mac. En dessous : plein écran + croix. */
-  const [isDesktopChat, setIsDesktopChat] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [memoryReady, setMemoryReady] = useState(false);
   const [messages, setMessages] = useState<ScoliaMemoryMessage[]>([defaultWelcomeMessage()]);
@@ -180,10 +175,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
   useEffect(() => {
     setMounted(true);
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const syncDesktop = () => setIsDesktopChat(mq.matches);
-    syncDesktop();
-    mq.addEventListener("change", syncDesktop);
     const supported = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
     setSpeechSupported(supported);
     const mem = loadScoliaMemory();
@@ -194,7 +185,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       setPendingChoices(mem.pendingChoices ?? null);
     }
     setMemoryReady(true);
-    return () => mq.removeEventListener("change", syncDesktop);
   }, []);
 
   useEffect(() => {
@@ -208,7 +198,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   }, [messages, conversationState, pendingConfirmation, pendingChoices, memoryReady]);
 
   useEffect(() => {
-    if (!open || pageMode || layout !== "expanded") return;
+    if (!open || pageMode) return;
     const body = document.body;
     const html = document.documentElement;
     const previousBodyOverflow = body.style.overflow;
@@ -220,7 +210,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       html.style.overscrollBehavior = "";
       window.scrollTo(0, scrollYRef.current);
     };
-  }, [open, layout, pageMode]);
+  }, [open, pageMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -230,15 +220,13 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   }, [messages, loading, open, listening, pendingConfirmation, pendingChoices]);
 
   useEffect(() => {
-    if (!open || pageMode || layout === "expanded") return;
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (panelRef.current?.contains(target)) return;
-      setOpen(false);
+    if (!open || pageMode) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [open, pageMode, layout]);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, pageMode]);
 
   const stopVoice = useCallback(() => {
     try {
@@ -418,7 +406,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     };
     const onOpen = (ev: Event) => {
       const detail = (ev as CustomEvent<ScoliaOpenDetail>).detail;
-      setLayout("window");
       setOpen(true);
       if (detail?.draft?.trim()) setInput(detail.draft.trim());
     };
@@ -562,22 +549,18 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     setInput("");
   };
 
-  const openExpanded = () => {
-    setLayout("expanded");
-    setOpen(true);
-  };
-
-  const collapseToWindow = () => {
+  const closeChat = () => {
     if (pageMode) {
       router.push("/dashboard");
       return;
     }
-    setLayout("window");
+    setOpen(false);
   };
 
   if (hidden) return null;
 
-  const isExpanded = pageMode || layout === "expanded";
+  /** Toujours le mode conversation large (page dédiée ou modale centrale). */
+  const isExpanded = true;
 
   const renderChatBody = () => (
     <div
@@ -596,201 +579,95 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         </div>
       ) : null}
       {/* Header */}
-      <div
-        className={`relative flex items-center gap-3 border-b ${
-          isExpanded
-            ? "justify-between border-white/10 bg-transparent px-5 py-4 pt-[max(16px,env(safe-area-inset-top))]"
-            : "justify-between border-white/45 bg-white/45 px-3 py-2.5 pt-[max(10px,env(safe-area-inset-top))] text-[var(--dash-ink,#14231A)] backdrop-blur-xl"
-        }`}
-      >
-        {!pageMode && !isExpanded ? (
-          <>
-            {/* Desktop : boutons type Mac */}
-            <div className="z-[1] hidden w-14 shrink-0 items-center gap-1.5 lg:flex" aria-label="Contrôles fenêtre">
-              <button
-                type="button"
-                title="Fermer"
-                onClick={() => setOpen(false)}
-                className="h-3 w-3 rounded-full bg-[#ff5f57] shadow-sm hover:brightness-110"
-              />
-              <button
-                type="button"
-                title="Réduire"
-                onClick={() => setOpen(false)}
-                className="h-3 w-3 rounded-full bg-[#febc2e] shadow-sm hover:brightness-110"
-              />
-              <button
-                type="button"
-                title="Agrandir"
-                onClick={openExpanded}
-                className="h-3 w-3 rounded-full bg-[#28c840] shadow-sm hover:brightness-110"
-              />
-            </div>
-            {/* Mobile / tablette : croix de fermeture */}
-            <button
-              type="button"
-              title="Fermer"
-              aria-label={`Fermer ${SCOLIA_AI_NAME}`}
-              onClick={() => setOpen(false)}
-              className="z-[1] flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-white/80 text-slate-600 hover:bg-white hover:text-slate-900 lg:hidden"
-            >
-              <span className="text-lg leading-none" aria-hidden>
-                ×
-              </span>
-            </button>
-          </>
-        ) : (
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="min-w-0">
-              <ScoliaAiMark size={isExpanded ? "lg" : "sm"} rain={false} />
-              {isExpanded ? (
-                <p className="mt-1 truncate text-[11px] text-slate-500">
-                  Assistant de votre établissement
-                </p>
-              ) : null}
-            </div>
+      <div className="relative flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white/80 px-5 py-3.5 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-md">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--dash-ink,#14231A)]">
+            <ScoliaAiMark size="sm" inverted fill />
           </div>
-        )}
-
-        {!isExpanded && !pageMode ? (
-          <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-            <ScoliaAiMark size="sm" rain={false} />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-slate-900">{SCOLIA_AI_NAME}</p>
+            <p className="truncate text-[11px] text-slate-500">Assistant de votre établissement</p>
           </div>
-        ) : null}
+        </div>
 
-        <div
-          className={`z-[1] flex shrink-0 items-center gap-2 ${
-            !isExpanded && !pageMode ? "w-9 justify-end lg:w-14" : ""
-          }`}
-        >
-          {isExpanded && !pageMode ? (
-            <button
-              type="button"
-              onClick={collapseToWindow}
-              className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-white"
-            >
-              Réduire
-            </button>
-          ) : null}
-          {isExpanded ? (
-            <button
-              type="button"
-              onClick={resetConversation}
-              className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-white"
-            >
-              Nouvelle conversation
-            </button>
-          ) : null}
-          {pageMode ? (
-            <Link href="/dashboard" className="text-[11px] text-slate-600 hover:text-slate-900">
-              Fermer
-            </Link>
-          ) : isExpanded ? (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                setLayout("window");
-              }}
-              className="text-[11px] text-slate-600 hover:text-slate-900"
-            >
-              Fermer
-            </button>
-          ) : (
-            <span className="hidden w-3 lg:inline" aria-hidden />
-          )}
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={resetConversation}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Nouvelle conversation
+          </button>
+          <button
+            type="button"
+            onClick={closeChat}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+            aria-label={`Fermer ${SCOLIA_AI_NAME}`}
+            title="Fermer"
+          >
+            ×
+          </button>
         </div>
       </div>
 
-      {/* Messages */}
+      {/* Messages — historique complet type LLM */}
       <div
         ref={messagesRef}
-        className={`relative flex-1 min-h-0 overflow-y-auto ${
-          isExpanded
-            ? "px-4 sm:px-8 py-6 space-y-4"
-            : "space-y-2 bg-gradient-to-b from-white/40 via-emerald-50/15 to-sky-50/20 p-3"
-        }`}
+        className="relative min-h-0 flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-slate-50/80 to-white px-4 py-5 sm:px-8"
       >
-        {isExpanded ? (
-          <div className="mx-auto w-full max-w-2xl space-y-4">
-            {messages.length <= 1 ? (
-              <div className="flex flex-col items-center justify-center py-10 sm:py-16 text-center">
-                <ScoliaAiMark size="lg" />
-                <p className="mt-4 max-w-md text-sm text-slate-600 leading-relaxed">
-                  Posez une question, dictez au micro, ou glissez un PDF ici quand j’en ai besoin.
-                </p>
-              </div>
-            ) : null}
-            {(messages.length <= 1 ? [] : messages).map((m, i) => (
+        <div className="mx-auto w-full max-w-2xl space-y-4">
+          {messages.length <= 1 ? (
+            <div className="flex flex-col items-center justify-center px-2 py-8 text-center sm:py-12">
+              <ScoliaAiMark size="lg" />
+              <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-600">
+                Posez une question, dictez au micro, ou glissez un PDF. L’historique de la conversation
+                reste ici.
+              </p>
+            </div>
+          ) : null}
+          {messages.map((m, i) => {
+            if (messages.length <= 1 && m.role === "assistant") return null;
+            return (
               <div
                 key={i}
-                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
+                {m.role === "assistant" ? (
+                  <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--dash-ink,#14231A)]">
+                    <ScoliaAiMark size="sm" inverted fill />
+                  </div>
+                ) : null}
                 <div
-                  className={`max-w-[92%] rounded-3xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+                  className={`max-w-[min(92%,36rem)] rounded-3xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
                     m.role === "user"
-                      ? "bg-slate-900 text-white rounded-br-lg"
-                      : "bg-white/80 text-slate-800 border border-slate-200/70 shadow-sm rounded-bl-lg backdrop-blur-md"
+                      ? "rounded-br-lg bg-slate-900 text-white"
+                      : "rounded-bl-lg border border-slate-200/80 bg-white text-slate-800 shadow-sm"
                   }`}
                 >
                   {renderMessageContent(m.content)}
                 </div>
               </div>
-            ))}
-            {renderExtras()}
-          </div>
-        ) : (
-          <>
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={`rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap shadow-sm backdrop-blur-md ${
-                  m.role === "user"
-                    ? "ml-8 border border-emerald-200/50 bg-emerald-100/55 text-emerald-950"
-                    : "mr-8 border border-white/70 bg-white/65 text-[var(--dash-ink,#14231A)]"
-                }`}
-              >
-                {renderMessageContent(m.content)}
-              </div>
-            ))}
-            {renderExtras()}
-          </>
-        )}
+            );
+          })}
+          {renderExtras()}
+        </div>
       </div>
 
       {/* Composer */}
-      <div
-        className={`border-t ${
-          isExpanded
-            ? "border-slate-200/70 bg-transparent px-4 sm:px-8 py-3 pb-[max(16px,env(safe-area-inset-bottom))]"
-            : "border-white/50 bg-white/45 p-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-xl"
-        }`}
-      >
-        <div className={isExpanded ? "mx-auto w-full max-w-2xl" : ""}>
+      <div className="border-t border-slate-200/80 bg-white/90 px-4 py-3 pb-[max(16px,env(safe-area-inset-bottom))] backdrop-blur-md sm:px-8">
+        <div className="mx-auto w-full max-w-2xl">
           {listening ? (
             <div className="mb-2 flex items-center gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/90 px-3 py-2">
               <span className="relative flex h-8 w-8 items-center justify-center">
-                <span className="absolute inset-0 rounded-full bg-rose-400/30 animate-ping" />
-                <span className="absolute inset-1 rounded-full bg-rose-400/40 animate-pulse" />
+                <span className="absolute inset-0 animate-ping rounded-full bg-rose-400/30" />
+                <span className="absolute inset-1 animate-pulse rounded-full bg-rose-400/40" />
                 <span className="relative h-3 w-3 rounded-full bg-rose-500" />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-semibold text-rose-900">Écoute en cours…</p>
-                <p className="text-[11px] text-rose-800/80 truncate">
+                <p className="truncate text-[11px] text-rose-800/80">
                   {interimSpeech || "Parlez, je vous écoute"}
                 </p>
-              </div>
-              <div className="flex items-end gap-0.5 h-6" aria-hidden>
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <span
-                    key={i}
-                    className="w-1 rounded-full bg-rose-500 animate-pulse"
-                    style={{
-                      height: `${8 + ((i * 5) % 14)}px`,
-                      animationDelay: `${i * 0.12}s`,
-                    }}
-                  />
-                ))}
               </div>
               <button
                 type="button"
@@ -807,7 +684,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               {pendingFiles.map((f, idx) => (
                 <span
                   key={`${f.name}_${idx}`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] text-slate-700"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-700"
                 >
                   PDF · {f.name}
                   <button
@@ -822,13 +699,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             </div>
           ) : null}
 
-          <div
-            className={`flex items-end gap-2 ${
-              isExpanded
-                ? "rounded-2xl border border-slate-200/80 bg-white px-3 py-2"
-                : "rounded-2xl border border-white/70 bg-white/80 px-2 py-1.5 shadow-sm backdrop-blur-md"
-            }`}
-          >
+          <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <input
               ref={fileInputRef}
               type="file"
@@ -855,8 +726,8 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
                   void send();
                 }
               }}
-              placeholder={listening ? "Écoute…" : "Votre message…"}
-              className="flex-1 resize-none bg-transparent px-1 py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none max-h-32 overflow-y-auto"
+              placeholder={listening ? "Écoute…" : "Message à ScolIA…"}
+              className="max-h-32 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none sm:text-sm"
             />
             <button
               type="button"
@@ -864,7 +735,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               disabled={!speechSupported || loading}
               title={speechSupported ? (listening ? "Arrêter l’écoute" : "Dicter") : "Dictée non supportée"}
               className={`shrink-0 rounded-xl px-2.5 py-2 text-sm font-bold disabled:opacity-40 ${
-                listening ? "bg-rose-500 text-white" : "hover:bg-slate-100 text-slate-700"
+                listening ? "bg-rose-500 text-white" : "text-slate-700 hover:bg-slate-100"
               }`}
             >
               🎤
@@ -873,11 +744,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               type="button"
               onClick={() => void send()}
               disabled={loading || (!input.trim() && pendingFiles.length === 0)}
-              className={`shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
-                isExpanded
-                  ? "bg-slate-900 hover:bg-black"
-                  : "bg-[#064028]/90 shadow-sm hover:bg-[#052e1c]"
-              }`}
+              className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-black disabled:opacity-50"
             >
               {loading ? "…" : "Envoyer"}
             </button>
@@ -1112,45 +979,31 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
   if (pageMode) {
     return (
-      <div className="min-h-[100dvh] w-full bg-[radial-gradient(ellipse_at_top,_#e8f0ff_0%,_#f8fafc_45%,_#eef2ff_100%)]">
-        <div className="mx-auto flex h-[100dvh] w-full max-w-5xl flex-col">{renderChatBody()}</div>
+      <div className="min-h-[100dvh] w-full bg-[radial-gradient(ellipse_at_top,_#eef2ff_0%,_#f8fafc_50%,_#f1f5f9_100%)]">
+        <div className="mx-auto flex h-[100dvh] w-full max-w-4xl flex-col">{renderChatBody()}</div>
       </div>
     );
   }
 
-  const windowOpen = open && mounted && layout === "window";
+  if (!mounted || !open) return null;
 
   return (
-    <>
-      {open && layout === "expanded" ? (
-        <div className="fixed inset-0 z-[120] bg-[radial-gradient(ellipse_at_top,_rgba(232,240,255,0.97)_0%,_rgba(248,250,252,0.98)_50%,_rgba(238,242,255,0.97)_100%)] backdrop-blur-xl">
-          <div className="mx-auto flex h-[100dvh] w-full max-w-5xl flex-col">{renderChatBody()}</div>
-        </div>
-      ) : null}
-
-      {windowOpen ? (
-        <div
-          className="fixed inset-0 z-[120] bg-slate-900/20 lg:hidden"
-          onClick={() => setOpen(false)}
-          aria-hidden
-        />
-      ) : null}
-
-      {windowOpen ? (
-        <div
-          ref={panelRef}
-          className="fixed inset-0 z-[120] h-[100dvh] overflow-hidden rounded-none border-0 bg-white/55 backdrop-blur-2xl lg:inset-auto lg:right-4 lg:bottom-20 lg:h-[580px] lg:w-[min(92vw,400px)] lg:rounded-[1.5rem] lg:border lg:border-white/55 lg:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)]"
-        >
-          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
-            <div className="absolute -left-10 -top-12 h-40 w-40 rounded-full bg-emerald-200/25 blur-3xl" />
-            <div className="absolute -right-8 bottom-0 h-36 w-36 rounded-full bg-sky-200/20 blur-3xl" />
-            <div className="absolute inset-[1px] rounded-none border border-white/40 lg:rounded-[calc(1.5rem-1px)]" />
-          </div>
-          <div className="relative flex h-full flex-col">{renderChatBody()}</div>
-        </div>
-      ) : null}
-
-      {/* Ouverture ScolIA uniquement via la sidebar. */}
-    </>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6">
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
+        aria-label="Fermer ScolIA"
+        onClick={() => setOpen(false)}
+      />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={SCOLIA_AI_NAME}
+        className="relative z-[1] flex h-[min(88dvh,820px)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_32px_80px_-28px_rgba(15,23,42,0.45)]"
+      >
+        {renderChatBody()}
+      </div>
+    </div>
   );
 }
