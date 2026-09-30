@@ -213,6 +213,9 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-3">
+          <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
+            Espaces
+          </p>
           <Link
             href="/dashboard"
             onClick={onCloseMobile}
@@ -225,10 +228,6 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
             <span aria-hidden>🏠</span>
             Accueil
           </Link>
-
-          <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
-            Espaces
-          </p>
           {visiblePillars.map((p) => {
             const active = navActive(p.href);
             return (
@@ -277,9 +276,11 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           ) : null}
 
           {(quickLinks.length > 0 || isOrgAdmin) && (
-            <>
-              <p className="flex items-center justify-between gap-2 px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
-                <span>Raccourcis</span>
+            <div className="pt-3">
+              <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
+                  Raccourcis
+                </p>
                 {isOrgAdmin ? (
                   <Link
                     href="/parametres?tab=dashboard-links"
@@ -290,31 +291,34 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                     +
                   </Link>
                 ) : null}
-              </p>
-              {quickLinks.map((link) => (
-                <a
-                  key={link.id}
-                  href={link.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={onCloseMobile}
-                  title={link.name}
-                  className="flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-white/70 hover:text-[var(--dash-ink)]"
-                >
-                  <QuickLinkIcon src={link.img} name={link.name} />
-                  <span className="min-w-0 flex-1 truncate">{link.name}</span>
-                </a>
-              ))}
-              {quickLinks.length === 0 && isOrgAdmin ? (
+              </div>
+              {quickLinks.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5 px-0.5">
+                  {quickLinks.map((link) => (
+                    <a
+                      key={link.id}
+                      href={link.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={onCloseMobile}
+                      title={link.name}
+                      aria-label={link.name}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/80 shadow-sm ring-1 ring-black/5 transition hover:bg-white hover:ring-black/15"
+                    >
+                      <QuickLinkIcon src={link.img} name={link.name} />
+                    </a>
+                  ))}
+                </div>
+              ) : isOrgAdmin ? (
                 <Link
                   href="/parametres?tab=dashboard-links"
                   onClick={onCloseMobile}
-                  className="rounded-2xl px-3 py-2 text-xs font-medium text-neutral-500 hover:bg-white/70"
+                  className="rounded-2xl px-2 py-1.5 text-xs font-medium text-neutral-500 hover:bg-white/70"
                 >
-                  Ajouter des raccourcis…
+                  Ajouter…
                 </Link>
               ) : null}
-            </>
+            </div>
           )}
         </nav>
 
