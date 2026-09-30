@@ -882,6 +882,32 @@ export default function RdvInscriptionAdminClient() {
                               <span className="text-xs text-slate-500">Régime : {b.regime}</span>
                             </>
                           ) : null}
+                          {b.etablissementOrigineLabel ? (
+                            <>
+                              <br />
+                              <span className="text-xs text-slate-600">
+                                Origine : {b.etablissementOrigineLabel}
+                              </span>
+                            </>
+                          ) : null}
+                          {b.hasPap === "yes" ? (
+                            <>
+                              <br />
+                              <span className="text-xs text-amber-800">
+                                PAP : oui
+                                {b.papS3Key
+                                  ? " (déposé)"
+                                  : b.papBringToRdv
+                                    ? " — à apporter"
+                                    : ""}
+                              </span>
+                            </>
+                          ) : b.hasPap === "no" ? (
+                            <>
+                              <br />
+                              <span className="text-xs text-slate-500">PAP : non</span>
+                            </>
+                          ) : null}
                         </td>
                         <td className="py-2 pr-3">
                           {[b.parentFirstName, b.parentLastName].filter(Boolean).join(" ") || (

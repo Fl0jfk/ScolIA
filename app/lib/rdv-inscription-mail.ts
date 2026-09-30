@@ -15,6 +15,47 @@ function parentDisplayName(booking: RdvInscriptionBookingRow): string {
   return [booking.parentFirstName, booking.parentLastName].filter(Boolean).join(" ");
 }
 
+function papSummaryLabel(booking: RdvInscriptionBookingRow): string {
+  if (booking.hasPap === "yes") {
+    if (booking.papS3Key) return "oui (déposé en ligne)";
+    if (booking.papBringToRdv) return "oui — à apporter au rendez-vous";
+    return "oui";
+  }
+  if (booking.hasPap === "no") return "non";
+  return "";
+}
+
+/** Lignes métier communes mails direction / ICS (origine, PAP, régime…). */
+function bookingDetailLines(booking: RdvInscriptionBookingRow): string[] {
+  const pap = papSummaryLabel(booking);
+  return [
+    booking.niveauLabel ? `Niveau demandé : ${booking.niveauLabel}` : "",
+    booking.regime ? `Régime : ${booking.regime}` : "",
+    booking.etablissementOrigineLabel
+      ? `Établissement d’origine : ${booking.etablissementOrigineLabel}`
+      : "",
+    pap ? `PAP : ${pap}` : "",
+  ].filter(Boolean);
+}
+
+function bookingDetailHtmlItems(booking: RdvInscriptionBookingRow): string {
+  const pap = papSummaryLabel(booking);
+  return [
+    booking.niveauLabel
+      ? `<li><strong>Niveau demandé :</strong> ${escapeHtml(booking.niveauLabel)}</li>`
+      : "",
+    booking.regime
+      ? `<li><strong>Régime :</strong> ${escapeHtml(booking.regime)}</li>`
+      : "",
+    booking.etablissementOrigineLabel
+      ? `<li><strong>Établissement d’origine :</strong> ${escapeHtml(booking.etablissementOrigineLabel)}</li>`
+      : "",
+    pap ? `<li><strong>PAP :</strong> ${escapeHtml(pap)}</li>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+}
+
 function formatSlotFr(startAt: string, endAt: string): string {
   const start = new Date(startAt);
   const end = new Date(endAt);
@@ -134,8 +175,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
       `Rendez-vous d’inscription (${opts.directionLabel}).`,
       opts.directriceName ? `Avec : ${opts.directriceName}` : "",
       `Élève : ${student}`,
-      opts.booking.niveauLabel ? `Niveau demandé : ${opts.booking.niveauLabel}` : "",
-      opts.booking.regime ? `Régime : ${opts.booking.regime}` : "",
+      ...bookingDetailLines(opts.booking),
       parentName ? `Parent : ${parentName}` : "",
       presentLabel ? `Présent au RDV : ${presentLabel}` : "",
       // Téléphone : uniquement dans LOCATION (icsLocation), pas dans la description.
@@ -218,16 +258,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
                 ? `<li><strong>Présent au RDV :</strong> ${escapeHtml(formatRdvAttendeeLabel(opts.booking.rdvAttendee))}</li>`
                 : ""
             }
-            ${
-              opts.booking.niveauLabel
-                ? `<li><strong>Niveau demandé :</strong> ${escapeHtml(opts.booking.niveauLabel)}</li>`
-                : ""
-            }
-            ${
-              opts.booking.regime
-                ? `<li><strong>Régime :</strong> ${escapeHtml(opts.booking.regime)}</li>`
-                : ""
-            }
+            ${bookingDetailHtmlItems(opts.booking)}
             ${
               opts.booking.eleveId
                 ? `<li><strong>Dossier :</strong> /eleves/dossier/${escapeHtml(opts.booking.eleveId)}/inscription</li>`
@@ -323,7 +354,7 @@ export async function sendRdvInscriptionCreatedPreinscritNotify(opts: {
         (aucune fiche élève trouvée pour ces coordonnées parent).</p>
         <ul>
           <li><strong>Élève :</strong> ${escapeHtml(student)}</li>
-          <li><strong>Niveau demandé :</strong> ${escapeHtml(opts.booking.niveauLabel || "—")}</li>
+          ${bookingDetailHtmlItems(opts.booking)}
           <li><strong>E-mail :</strong> ${escapeHtml(opts.booking.parentEmail)}</li>
           <li><strong>Tél. :</strong> ${escapeHtml(opts.booking.parentPhone)}</li>
           ${
@@ -539,8 +570,7 @@ export async function sendRdvInscriptionSlotChangedByAdminMail(opts: {
       `Rendez-vous d’inscription (${opts.directionLabel}) — créneau modifié.`,
       opts.directriceName ? `Avec : ${opts.directriceName}` : "",
       `Élève : ${student}`,
-      opts.booking.niveauLabel ? `Niveau demandé : ${opts.booking.niveauLabel}` : "",
-      opts.booking.regime ? `Régime : ${opts.booking.regime}` : "",
+      ...bookingDetailLines(opts.booking),
       parentName ? `Parent : ${parentName}` : "",
       presentLabel ? `Présent au RDV : ${presentLabel}` : "",
     ]

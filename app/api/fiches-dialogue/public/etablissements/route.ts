@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   if (!q && !dept && !cp) {
     return NextResponse.json({
       etablissements: [],
-      hint: "Indiquez un code postal, un département (ex. 076) et/ou un nom d’établissement.",
+      hint: "Indiquez un code postal (ex. 76500), un département (ex. 76) et/ou un nom d’établissement.",
     });
   }
 
@@ -55,8 +55,12 @@ export async function GET(req: Request) {
   }
   if (cp) {
     const cpDigits = cp.replace(/\D+/g, "").slice(0, 5);
-    if (cpDigits.length >= 2) {
+    if (cpDigits.length === 5) {
       conditions.push(ilike(refEtablissement.adresse, `%${cpDigits}%`));
+    } else if (cpDigits.length === 2 || cpDigits.length === 3) {
+      // « 76 » / « 076 » saisis dans le champ CP → filtre UAI département.
+      const d = cpDigits.length === 2 ? `0${cpDigits}` : cpDigits;
+      conditions.push(sql`${refEtablissement.codeRne} ILIKE ${`${d}%`}`);
     }
   }
   if (q.length >= 2) {
@@ -114,7 +118,7 @@ export async function GET(req: Request) {
     source,
     hint:
       etablissements.length === 0
-        ? "Aucun établissement trouvé — affinez le code postal, le département (076) ou le nom."
+        ? "Aucun établissement trouvé — affinez le code postal (5 chiffres, ex. 76500), le département (ex. 76) ou le nom."
         : undefined,
   });
 }

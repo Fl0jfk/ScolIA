@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 import { parisDateKey, parseParisDateTime } from "@/app/lib/paris-time";
 import { RDV_BOOK_CONFIRM_PHRASE } from "@/app/lib/rdv-inscription-types";
@@ -182,6 +182,11 @@ export default function RdvInscriptionPublicClient({
   const [origineResults, setOrigineResults] = useState<OrigineEtab[]>([]);
   const [origineSelected, setOrigineSelected] = useState<OrigineEtab | null>(null);
   const [origineBusy, setOrigineBusy] = useState(false);
+  /** true après au moins une recherche lancée (évite l’impression « liste vide »). */
+  const [origineSearched, setOrigineSearched] = useState(false);
+  const [origineError, setOrigineError] = useState<string | null>(null);
+  const origineCpAutoRef = useRef<string>("");
+  const origineSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [consent, setConsent] = useState(false);
   const [confirmTyped, setConfirmTyped] = useState("");
   const [honeypot, setHoneypot] = useState("");
@@ -599,18 +604,35 @@ export default function RdvInscriptionPublicClient({
     }
   }
 
-  async function searchOrigine() {
-    setFormError(null);
+  const searchOrigine = useCallback(async () => {
+    setOrigineError(null);
     setOrigineBusy(true);
     setOrigineSelected(null);
+    setOrigineSearched(true);
     try {
       const params = new URLSearchParams();
-      if (origineCp.trim()) params.set("cp", origineCp.trim());
-      if (origineDept.trim()) params.set("dept", origineDept.trim());
+      const cpDigits = origineCp.replace(/\D+/g, "").slice(0, 5);
+      const deptRaw = origineDept.trim();
+      // Piège fréquent : « 76 » saisi dans code postal → on le traite comme département.
+      if (cpDigits.length === 5) {
+        params.set("cp", cpDigits);
+      } else if ((cpDigits.length === 2 || cpDigits.length === 3) && !deptRaw) {
+        params.set("dept", cpDigits);
+      } else if (cpDigits.length > 0 && cpDigits.length < 5) {
+        setOrigineError(
+          "Le code postal doit contenir 5 chiffres (ex. 76500). Pour le département, utilisez le champ à côté (ex. 76).",
+        );
+        setOrigineResults([]);
+        return;
+      }
+      if (deptRaw) params.set("dept", deptRaw);
       if (origineQuery.trim()) params.set("q", origineQuery.trim());
       params.set("limit", "100");
       if (!params.has("cp") && !params.has("dept") && !params.has("q")) {
-        setFormError("Indiquez un code postal, un département ou un nom d’établissement.");
+        setOrigineError(
+          "Indiquez d’abord le code postal de l’école (ex. 76500), puis lancez la recherche.",
+        );
+        setOrigineResults([]);
         return;
       }
       const res = await fetch(`/api/fiches-dialogue/public/etablissements?${params}`);
@@ -620,18 +642,50 @@ export default function RdvInscriptionPublicClient({
         hint?: string;
       };
       if (!res.ok) {
-        setFormError(data.error || "Recherche établissement impossible.");
+        setOrigineError(data.error || "Recherche établissement impossible.");
+        setOrigineResults([]);
         return;
       }
-      setOrigineResults(data.etablissements || []);
-      if (!(data.etablissements || []).length) {
-        setFormError(data.hint || "Aucun établissement trouvé — affinez le code postal ou le nom.");
+      const list = data.etablissements || [];
+      setOrigineResults(list);
+      if (!list.length) {
+        setOrigineError(
+          data.hint ||
+            "Aucun établissement trouvé — vérifiez le code postal (5 chiffres) ou essayez le nom.",
+        );
       }
     } catch {
-      setFormError("Erreur réseau — réessayez.");
+      setOrigineError("Erreur réseau — réessayez dans un instant.");
+      setOrigineResults([]);
     } finally {
       setOrigineBusy(false);
     }
+  }, [origineCp, origineDept, origineQuery]);
+
+  /** Dès qu’un code postal complet est saisi, lance la recherche sans clic. */
+  useEffect(() => {
+    if (!matchReady) return;
+    const cpDigits = origineCp.replace(/\D+/g, "").slice(0, 5);
+    if (cpDigits.length !== 5) {
+      origineCpAutoRef.current = "";
+      return;
+    }
+    if (origineCpAutoRef.current === cpDigits) return;
+    if (origineSearchTimerRef.current) clearTimeout(origineSearchTimerRef.current);
+    origineSearchTimerRef.current = setTimeout(() => {
+      origineCpAutoRef.current = cpDigits;
+      void searchOrigine();
+    }, 350);
+    return () => {
+      if (origineSearchTimerRef.current) clearTimeout(origineSearchTimerRef.current);
+    };
+  }, [origineCp, matchReady, searchOrigine]);
+
+  function onOrigineFieldKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    e.stopPropagation();
+    void searchOrigine();
   }
 
   async function uploadPapFile(file: File) {
@@ -696,7 +750,10 @@ export default function RdvInscriptionPublicClient({
       return;
     }
     if (!origineSelected) {
-      setFormError("Sélectionnez l’établissement d’origine.");
+      setFormError("Sélectionnez l’établissement d’origine (section 3 — recherchez puis cliquez dans la liste).");
+      setOrigineError(
+        "Recherchez un établissement (code postal recommandé), puis cliquez sur une ligne de la liste pour le sélectionner.",
+      );
       return;
     }
     if (hasPap !== "yes" && hasPap !== "no") {
@@ -1229,10 +1286,25 @@ export default function RdvInscriptionPublicClient({
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
                 3 · Établissement d’origine
               </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Indiquez l’établissement actuel de l’élève (école / collège d’où il vient). Filtrez
-                par code postal (recommandé) ou département, puis choisissez dans la liste.
+              <p className="mt-2 text-sm text-slate-600">
+                Indiquez l’école / collège actuel de l’élève (celui d’où il vient).
               </p>
+              <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+                <p className="font-bold">Comment faire ?</p>
+                <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-sky-900/90">
+                  <li>
+                    Saisissez le <strong>code postal</strong> de l’établissement (5 chiffres) — la
+                    liste se charge toute seule.
+                  </li>
+                  <li>
+                    Ou cliquez sur <strong>Rechercher</strong> (département / nom).
+                  </li>
+                  <li>
+                    Puis <strong>cliquez sur l’établissement</strong> dans la liste pour le
+                    sélectionner.
+                  </li>
+                </ol>
+              </div>
               {homeEtablissement ? (
                 <div className="mt-3">
                   <button
@@ -1241,6 +1313,8 @@ export default function RdvInscriptionPublicClient({
                     onClick={() => {
                       setOrigineSelected(homeEtablissement);
                       setOrigineResults([]);
+                      setOrigineError(null);
+                      setOrigineSearched(true);
                     }}
                     className={`w-full rounded-xl px-4 py-3 text-left text-sm transition disabled:opacity-50 ${
                       origineSelected?.codeRne === homeEtablissement.codeRne
@@ -1263,23 +1337,28 @@ export default function RdvInscriptionPublicClient({
               ) : null}
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <label className="block text-sm">
-                  <span className="font-semibold text-slate-800">Code postal</span>
+                  <span className="font-semibold text-slate-800">
+                    Code postal <span className="text-sky-700">(recommandé)</span>
+                  </span>
                   <input
                     className={fieldClass}
                     value={origineCp}
-                    onChange={(e) => setOrigineCp(e.target.value)}
-                    placeholder="76500"
+                    onChange={(e) => setOrigineCp(e.target.value.replace(/[^\d\s]/g, "").slice(0, 6))}
+                    onKeyDown={onOrigineFieldKeyDown}
+                    placeholder="ex. 76500"
                     inputMode="numeric"
+                    autoComplete="postal-code"
                     disabled={!matchReady}
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="font-semibold text-slate-800">Département (UAI)</span>
+                  <span className="font-semibold text-slate-800">Département</span>
                   <input
                     className={fieldClass}
                     value={origineDept}
                     onChange={(e) => setOrigineDept(e.target.value)}
-                    placeholder="076"
+                    onKeyDown={onOrigineFieldKeyDown}
+                    placeholder="ex. 76"
                     disabled={!matchReady}
                   />
                 </label>
@@ -1289,6 +1368,7 @@ export default function RdvInscriptionPublicClient({
                     className={fieldClass}
                     value={origineQuery}
                     onChange={(e) => setOrigineQuery(e.target.value)}
+                    onKeyDown={onOrigineFieldKeyDown}
                     placeholder="Collège…"
                     disabled={!matchReady}
                   />
@@ -1298,23 +1378,37 @@ export default function RdvInscriptionPublicClient({
                 type="button"
                 disabled={!matchReady || origineBusy}
                 onClick={() => void searchOrigine()}
-                className="mt-3 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-900 disabled:opacity-50"
+                className="mt-3 w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-sky-800 disabled:opacity-50 sm:w-auto"
               >
-                {origineBusy ? "Recherche…" : "Rechercher l’établissement"}
+                {origineBusy ? "Recherche en cours…" : "Rechercher l’établissement"}
               </button>
+              {origineError ? (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  {origineError}
+                </p>
+              ) : null}
+              {!origineSearched && !origineSelected ? (
+                <p className="mt-3 text-sm text-slate-500">
+                  La liste des établissements s’affiche ici après la recherche — elle n’est pas
+                  préchargée.
+                </p>
+              ) : null}
               {origineResults.length > 0 ? (
-                <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
+                <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto rounded-xl ring-1 ring-slate-200">
                   {origineResults.map((e) => {
                     const selected = origineSelected?.codeRne === e.codeRne;
                     return (
                       <li key={e.codeRne}>
                         <button
                           type="button"
-                          onClick={() => setOrigineSelected(e)}
-                          className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                          onClick={() => {
+                            setOrigineSelected(e);
+                            setOrigineError(null);
+                          }}
+                          className={`w-full rounded-lg px-3 py-2.5 text-left text-sm ${
                             selected
                               ? "bg-sky-700 text-white"
-                              : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
+                              : "bg-white text-slate-800 hover:bg-sky-50"
                           }`}
                         >
                           <span className="font-semibold">{e.label}</span>
@@ -1334,24 +1428,25 @@ export default function RdvInscriptionPublicClient({
                 </ul>
               ) : null}
               {origineSelected ? (
-                <p className="mt-3 text-sm text-emerald-700">
+                <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                   Sélection : <strong>{origineSelected.label}</strong>
-                  {homeEtablissement &&
-                  origineSelected.codeRne === homeEtablissement.codeRne ? (
-                    <button
-                      type="button"
-                      className="ml-2 text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
-                      onClick={() => setOrigineSelected(null)}
-                    >
-                      Changer
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="ml-2 text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
+                    onClick={() => setOrigineSelected(null)}
+                  >
+                    Changer
+                  </button>
                 </p>
-              ) : (
+              ) : origineSearched && origineResults.length > 0 ? (
+                <p className="mt-3 text-sm font-semibold text-amber-800">
+                  Cliquez sur un établissement dans la liste ci-dessus pour le sélectionner.
+                </p>
+              ) : !origineSelected ? (
                 <p className="mt-3 text-sm text-amber-800">
-                  Choisissez un établissement d’origine pour pouvoir réserver.
+                  Un établissement d’origine est obligatoire pour pouvoir réserver.
                 </p>
-              )}
+              ) : null}
             </section>
 
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
