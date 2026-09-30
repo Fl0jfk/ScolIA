@@ -146,15 +146,6 @@ export default function Home() {
 
         <main className="relative mx-auto flex min-h-[calc(100dvh-1rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:px-8">
           <div className="flex flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:py-4">
-            <div className="intranet-fade-up rounded-[1.5rem] bg-[var(--dash-lime)] px-5 py-4 shadow-sm sm:px-6">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--dash-ink)]/70">
-                Vue d&apos;ensemble
-              </p>
-              <p className="mt-1 text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
-                Votre tableau de bord établissement
-              </p>
-            </div>
-
             <header className="hidden shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 md:grid">
               <motion.div
                 className="min-w-0 justify-self-start"
