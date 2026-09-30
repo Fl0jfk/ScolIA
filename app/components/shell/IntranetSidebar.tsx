@@ -15,6 +15,7 @@ import GlobalDocsDropZone from "@/app/components/shell/GlobalDocsDropZone";
 import SidebarScoliaBlock from "@/app/components/shell/SidebarScoliaBlock";
 import { useEleveDossierModal } from "@/app/components/shell/EleveDossierModalProvider";
 import { QuickLinkIcon } from "@/app/components/Dashboard/ExternalQuickLinks";
+import DashboardWeather from "@/app/components/Dashboard/DashboardWeather";
 import { useMessagingConversations, useMessagingStream } from "@/app/components/messaging/useMessagingData";
 import {
   DASHBOARD_PILLARS,
@@ -64,7 +65,6 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
 
   const logoAlt = siteIdentity?.shortName || siteIdentity?.name || "Établissement";
   const customLogoUrl = siteIdentity?.headerLogoUrl?.trim() || "";
-  const tenantName = siteIdentity?.shortName || siteIdentity?.name || "Intranet";
 
   const userRoles = useMemo(() => {
     if (!user) return [];
@@ -152,39 +152,32 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="flex items-center gap-3 px-4 pb-3 pt-4">
+        <div className="flex items-center gap-2 px-3 pb-3 pt-4">
           <Link
             href={homeHref}
             onClick={onCloseMobile}
-            className="flex min-w-0 flex-1 items-center gap-2.5 transition hover:opacity-90"
+            className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 transition hover:opacity-90"
+            title={logoAlt}
+            aria-label={logoAlt}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
-              {!bootstrapLoading &&
-                (customLogoUrl ? (
-                  <Image
-                    src={customLogoUrl}
-                    alt={logoAlt}
-                    width={40}
-                    height={40}
-                    unoptimized
-                    className="h-full w-full object-contain p-1"
-                  />
-                ) : (
-                  <Image src={Logo} alt={logoAlt} width={36} height={36} className="object-contain" />
-                ))}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold tracking-tight text-[var(--dash-ink)]">
-                {tenantName}
-              </p>
-              <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--dash-mid)]">
-                Intranet
-              </p>
-            </div>
+            {!bootstrapLoading &&
+              (customLogoUrl ? (
+                <Image
+                  src={customLogoUrl}
+                  alt={logoAlt}
+                  width={40}
+                  height={40}
+                  unoptimized
+                  className="h-full w-full object-contain p-1"
+                />
+              ) : (
+                <Image src={Logo} alt={logoAlt} width={36} height={36} className="object-contain" />
+              ))}
           </Link>
+          <DashboardWeather compact />
           <button
             type="button"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-[var(--dash-ink)] shadow-sm lg:hidden"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[var(--dash-ink)] shadow-sm lg:hidden"
             onClick={onCloseMobile}
             aria-label="Fermer le menu"
           >

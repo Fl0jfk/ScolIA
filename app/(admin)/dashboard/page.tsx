@@ -6,7 +6,6 @@ import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGl
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardPillars from "@/app/components/Dashboard/DashboardPillars";
 import DashboardTodayNews from "@/app/components/Dashboard/DashboardTodayNews";
-import DashboardWeather from "@/app/components/Dashboard/DashboardWeather";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import { ExternalQuickLinksBar } from "@/app/components/Dashboard/ExternalQuickLinks";
 import { useData } from "@/app/contexts/data";
@@ -146,7 +145,7 @@ export default function Home() {
 
         <main className="relative mx-auto flex min-h-[calc(100dvh-1rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:px-8">
           <div className="flex flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:py-4">
-            <header className="hidden shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 md:grid">
+            <header className="hidden shrink-0 grid-cols-[1fr_auto] items-center gap-4 md:grid">
               <motion.div
                 className="min-w-0 justify-self-start"
                 initial={{ opacity: 0, y: 8 }}
@@ -173,17 +172,13 @@ export default function Home() {
                 </h1>
               </motion.div>
 
-              <div className="justify-self-center">
+              <div className="justify-self-end">
                 <DashboardTodayNews
                   items={todayNews}
                   hasCurrentWeek={hasCurrentWeek}
                   loading={signalsLoading}
                   onWeekSheetUpdated={loadSignals}
                 />
-              </div>
-
-              <div className="justify-self-end">
-                <DashboardWeather />
               </div>
             </header>
 
@@ -213,7 +208,6 @@ export default function Home() {
                   )}
                 </h1>
               </motion.div>
-              <DashboardWeather />
               <DashboardTodayNews
                 wide={false}
                 items={todayNews}
