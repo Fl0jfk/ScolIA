@@ -2,10 +2,8 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGlobalNotifications";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardPillars from "@/app/components/Dashboard/DashboardPillars";
-import DashboardTodayNews from "@/app/components/Dashboard/DashboardTodayNews";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import { ExternalQuickLinksBar } from "@/app/components/Dashboard/ExternalQuickLinks";
 import { useData } from "@/app/contexts/data";
@@ -66,11 +64,7 @@ export default function Home() {
 
   const {
     shortcuts,
-    todayNews,
     notifications,
-    hasCurrentWeek,
-    loading: signalsLoading,
-    refresh: loadSignals,
   } = useDashboardSignals({ onFetched: onSignalsFetched });
 
   const uniqueCategories = useMemo(() => {
@@ -139,19 +133,6 @@ export default function Home() {
 
         <main className="relative mx-auto flex min-h-[calc(100dvh-1rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:px-8">
           <div className="flex flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:py-4">
-            <div className="relative flex shrink-0 items-start justify-end gap-2">
-              <DashboardTodayNews
-                items={todayNews}
-                hasCurrentWeek={hasCurrentWeek}
-                loading={signalsLoading}
-                onWeekSheetUpdated={loadSignals}
-                wide={false}
-              />
-              <div className="absolute -right-1 -top-1 md:static md:pt-1">
-                <DashboardGlobalNotifications items={notifications} />
-              </div>
-            </div>
-
             {/* Mobile : raccourcis externes (desktop = sidebar) */}
             <div className="md:hidden">
               <ExternalQuickLinksBar

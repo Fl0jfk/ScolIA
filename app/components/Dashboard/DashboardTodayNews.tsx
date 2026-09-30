@@ -14,6 +14,8 @@ type Props = {
   onWeekSheetUpdated?: () => void;
   /** Largeur fixe élargie (~+50 % vs 2× météo ; défaut true hors mobile full-bleed). */
   wide?: boolean;
+  /** Variante dense pour la sidebar intranet. */
+  variant?: "chip" | "sidebar";
 };
 
 function isPdfFile(file: File): boolean {
@@ -29,6 +31,7 @@ export default function DashboardTodayNews({
   loading,
   onWeekSheetUpdated,
   wide = true,
+  variant = "chip",
 }: Props) {
   const isOrgAdmin = useIsOrgAdmin();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -122,6 +125,121 @@ export default function DashboardTodayNews({
         ? success
         : null;
 
+  const body = loading || importing ? (
+    <>
+      <p className={`truncate font-black leading-tight ${variant === "sidebar" ? "text-sm" : "text-lg"} ${dash.ink}`}>
+        {importing ? "Import…" : "…"}
+      </p>
+      <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
+        {importing ? "OCR + analyse" : "chargement"}
+      </p>
+    </>
+  ) : empty ? (
+    <>
+      <p className={`truncate font-black leading-tight ${variant === "sidebar" ? "text-sm" : "text-lg"} ${dash.ink}`}>
+        Pas d&apos;actualité
+      </p>
+      <p
+        className={`truncate text-[10px] font-medium leading-tight ${
+          error ? "text-rose-600" : success ? "text-emerald-700" : "text-stone-400"
+        }`}
+        title={statusLine || "aujourd'hui"}
+      >
+        {statusLine || "aujourd'hui"}
+      </p>
+    </>
+  ) : (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={current?.id ?? index}
+        initial={{ opacity: 0, y: 3 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -3 }}
+        transition={{ duration: 0.28 }}
+      >
+        <p className={`truncate font-black leading-tight ${variant === "sidebar" ? "text-sm" : "text-lg"} ${dash.ink}`}>
+          {current?.title}
+        </p>
+        <p
+          className={`truncate text-[10px] font-medium leading-tight ${
+            error ? "text-rose-600" : success ? "text-emerald-700" : "text-stone-400"
+          }`}
+          title={statusLine || meta || undefined}
+        >
+          {statusLine ||
+            meta ||
+            (items.length > 1 ? `${index + 1} / ${items.length}` : "\u00a0")}
+        </p>
+      </motion.div>
+    </AnimatePresence>
+  );
+
+  const controls =
+    items.length > 1 || isOrgAdmin ? (
+      <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-stretch">
+        {items.length > 1 ? (
+          <div className="flex items-center gap-1">
+            {items.map((item, i) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={`Actualité ${i + 1}`}
+                onClick={() => setIndex(i)}
+                className={`h-1 rounded-full transition-all ${
+                  i === index ? "w-3 bg-[var(--dash-primary)]" : "w-1.5 bg-stone-300"
+                }`}
+              />
+            ))}
+          </div>
+        ) : null}
+        {isOrgAdmin ? (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="hidden"
+              disabled={importing}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleFile(f);
+              }}
+            />
+            <button
+              type="button"
+              disabled={importing}
+              onClick={() => fileRef.current?.click()}
+              className="text-[10px] font-bold leading-none text-[var(--dash-primary)] hover:underline disabled:opacity-50"
+              title="Importer la feuille de semaine (PDF)"
+            >
+              {importing ? "…" : "PDF"}
+            </button>
+          </>
+        ) : null}
+      </div>
+    ) : null;
+
+  if (variant === "sidebar") {
+    return (
+      <div
+        className="flex w-full items-center gap-2 overflow-hidden rounded-xl px-1 py-1"
+        aria-label="Actualité du jour"
+        title={error || success || current?.title || "Actualité du jour"}
+      >
+        <span className="shrink-0 text-base leading-none" aria-hidden>
+          📰
+        </span>
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <p className={`text-[9px] font-bold uppercase tracking-[0.16em] ${dash.label}`}>
+            Aujourd&apos;hui
+          </p>
+          {body}
+        </div>
+        {controls}
+      </div>
+    );
+  }
+
   return (
     <div
       className={`${DASH_CHIP_SHELL} ${wide ? DASH_NEWS_WIDTH : "w-full"}`}
@@ -135,100 +253,9 @@ export default function DashboardTodayNews({
         <p className={`text-[10px] font-bold uppercase tracking-widest ${dash.label}`}>
           Aujourd&apos;hui
         </p>
-
-        {loading || importing ? (
-          <>
-            <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>
-              {importing ? "Import…" : "…"}
-            </p>
-            <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
-              {importing ? "OCR + analyse en cours" : "chargement"}
-            </p>
-          </>
-        ) : empty ? (
-          <>
-            <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>
-              Pas d&apos;actualité
-            </p>
-            <p
-              className={`truncate text-[10px] font-medium leading-tight ${
-                error ? "text-rose-600" : success ? "text-emerald-700" : "text-stone-400"
-              }`}
-              title={statusLine || "aujourd'hui"}
-            >
-              {statusLine || "aujourd'hui"}
-            </p>
-          </>
-        ) : (
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={current?.id ?? index}
-              initial={{ opacity: 0, y: 3 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -3 }}
-              transition={{ duration: 0.28 }}
-            >
-              <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>
-                {current?.title}
-              </p>
-              <p
-                className={`truncate text-[10px] font-medium leading-tight ${
-                  error ? "text-rose-600" : success ? "text-emerald-700" : "text-stone-400"
-                }`}
-                title={statusLine || meta || undefined}
-              >
-                {statusLine ||
-                  meta ||
-                  (items.length > 1 ? `${index + 1} / ${items.length}` : "\u00a0")}
-              </p>
-            </motion.div>
-          </AnimatePresence>
-        )}
+        {body}
       </div>
-
-      {(items.length > 1 || isOrgAdmin) && (
-        <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-stretch">
-          {items.length > 1 ? (
-            <div className="flex items-center gap-1">
-              {items.map((item, i) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-label={`Actualité ${i + 1}`}
-                  onClick={() => setIndex(i)}
-                  className={`h-1 rounded-full transition-all ${
-                    i === index ? "w-3 bg-[var(--dash-primary)]" : "w-1.5 bg-stone-300"
-                  }`}
-                />
-              ))}
-            </div>
-          ) : null}
-          {isOrgAdmin ? (
-            <>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/pdf,.pdf"
-                className="hidden"
-                disabled={importing}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleFile(f);
-                }}
-              />
-              <button
-                type="button"
-                disabled={importing}
-                onClick={() => fileRef.current?.click()}
-                className="text-[10px] font-bold leading-none text-[var(--dash-primary)] hover:underline disabled:opacity-50"
-                title="Importer la feuille de semaine (PDF)"
-              >
-                {importing ? "…" : "PDF"}
-              </button>
-            </>
-          ) : null}
-        </div>
-      )}
+      {controls}
     </div>
   );
 }

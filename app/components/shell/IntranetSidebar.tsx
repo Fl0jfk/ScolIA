@@ -16,7 +16,10 @@ import SidebarScoliaBlock from "@/app/components/shell/SidebarScoliaBlock";
 import { useEleveDossierModal } from "@/app/components/shell/EleveDossierModalProvider";
 import { QuickLinkIcon } from "@/app/components/Dashboard/ExternalQuickLinks";
 import DashboardWeather from "@/app/components/Dashboard/DashboardWeather";
+import DashboardTodayNews from "@/app/components/Dashboard/DashboardTodayNews";
+import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGlobalNotifications";
 import { useMessagingConversations, useMessagingStream } from "@/app/components/messaging/useMessagingData";
+import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import {
   DASHBOARD_PILLARS,
   pillarHasVisibleModules,
@@ -121,6 +124,14 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
     onFallbackPoll: () => void refreshMessaging(),
   });
 
+  const {
+    todayNews,
+    hasCurrentWeek,
+    notifications,
+    loading: newsLoading,
+    refresh: refreshNews,
+  } = useDashboardSignals();
+
   function navActive(href: string) {
     if (href === "/dashboard") {
       return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
@@ -152,58 +163,76 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="flex items-center gap-1 px-3 pb-3 pt-3">
-          <Link
-            href={homeHref}
-            onClick={onCloseMobile}
-            className="flex basis-1/2 items-center justify-center transition hover:opacity-90"
-            title={logoAlt}
-            aria-label={logoAlt}
-          >
-            {!bootstrapLoading &&
-              (customLogoUrl ? (
-                <Image
-                  src={customLogoUrl}
-                  alt={logoAlt}
-                  width={72}
-                  height={72}
-                  unoptimized
-                  className="h-14 w-14 object-contain sm:h-16 sm:w-16"
-                />
-              ) : (
-                <Image
-                  src={Logo}
-                  alt={logoAlt}
-                  width={72}
-                  height={72}
-                  className="h-14 w-14 object-contain sm:h-16 sm:w-16"
-                />
-              ))}
-          </Link>
-          <div className="basis-1/2">
-            <DashboardWeather compact />
-          </div>
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 text-[var(--dash-ink)] shadow-sm lg:hidden"
-            onClick={onCloseMobile}
-            aria-label="Fermer le menu"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-              className="h-4 w-4"
-              aria-hidden
+        <div className="space-y-2 px-3 pb-2 pt-3">
+          <div className="flex items-center gap-1">
+            <Link
+              href={homeHref}
+              onClick={onCloseMobile}
+              className="flex basis-1/2 items-center justify-center transition hover:opacity-90"
+              title={logoAlt}
+              aria-label={logoAlt}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
+              {!bootstrapLoading ? (
+                <span className="relative flex h-[4.25rem] w-[4.25rem] items-center justify-center overflow-hidden">
+                  {customLogoUrl ? (
+                    <Image
+                      src={customLogoUrl}
+                      alt={logoAlt}
+                      width={96}
+                      height={96}
+                      unoptimized
+                      className="h-full w-full origin-center scale-[1.55] object-contain"
+                    />
+                  ) : (
+                    <Image
+                      src={Logo}
+                      alt={logoAlt}
+                      width={96}
+                      height={96}
+                      className="h-full w-full origin-center scale-[1.55] object-contain"
+                    />
+                  )}
+                </span>
+              ) : null}
+            </Link>
+            <div className="basis-1/2">
+              <DashboardWeather compact />
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 text-[var(--dash-ink)] shadow-sm lg:hidden"
+              onClick={onCloseMobile}
+              aria-label="Fermer le menu"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+                stroke="currentColor"
+                className="h-4 w-4"
+                aria-hidden
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="relative">
+            <DashboardTodayNews
+              variant="sidebar"
+              items={todayNews}
+              hasCurrentWeek={hasCurrentWeek}
+              loading={newsLoading}
+              onWeekSheetUpdated={refreshNews}
+            />
+            <div className="absolute -right-0.5 -top-0.5">
+              <DashboardGlobalNotifications items={notifications} />
+            </div>
+          </div>
         </div>
 
-        <div className="space-y-4 px-3 pb-3">
+        <div className="space-y-3 px-3 pb-3">
           <GlobalEleveSearch
             onSelect={(id) => {
               openEleveModal(id);
@@ -295,7 +324,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
               </div>
               {quickLinks.length > 0 ? (
                 <div
-                  className="grid w-full gap-1"
+                  className="grid w-full gap-0.5"
                   style={{
                     gridTemplateColumns: `repeat(${quickLinks.length}, minmax(0, 1fr))`,
                   }}
@@ -309,12 +338,12 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                       onClick={onCloseMobile}
                       title={link.name}
                       aria-label={link.name}
-                      className="flex aspect-square w-full items-center justify-center rounded-xl transition hover:bg-white/60"
+                      className="flex h-8 w-full items-center justify-center rounded-lg transition hover:bg-white/60"
                     >
                       <QuickLinkIcon
                         src={link.img}
                         name={link.name}
-                        className="relative h-[68%] w-[68%] overflow-hidden"
+                        className="relative h-6 w-6 overflow-hidden"
                       />
                     </a>
                   ))}
