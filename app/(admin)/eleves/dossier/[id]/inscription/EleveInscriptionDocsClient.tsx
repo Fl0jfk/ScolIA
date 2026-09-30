@@ -73,10 +73,19 @@ function dossiersListHrefFromRetour(retour: string | null): string {
   return "/eleves/dossiers?status=preinscrit";
 }
 
-export default function EleveInscriptionDocsClient() {
+export default function EleveInscriptionDocsClient({
+  eleveId: eleveIdProp,
+  mode = "page",
+  onBack,
+}: {
+  eleveId?: string;
+  mode?: "page" | "modal";
+  onBack?: () => void;
+} = {}) {
   const params = useParams();
   const searchParams = useSearchParams();
-  const id = String(params?.id || "").trim();
+  const id = (eleveIdProp || String(params?.id || "")).trim();
+  const isModal = mode === "modal";
   const retour = searchParams.get("retour");
   const listHref = useMemo(() => dossiersListHrefFromRetour(retour), [retour]);
   const dossierHref = useMemo(() => {
@@ -190,13 +199,23 @@ export default function EleveInscriptionDocsClient() {
 
   if (error && !data) {
     return (
-      <div className="mx-auto max-w-3xl p-6">
+      <div className={`mx-auto max-w-3xl ${isModal ? "p-4 sm:p-6" : "p-6"}`}>
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
         </p>
-        <Link href={listHref} className="mt-4 inline-block text-sm text-sky-700 underline">
-          Retour aux dossiers
-        </Link>
+        {isModal && onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mt-4 inline-block text-sm text-sky-700 underline"
+          >
+            Retour au dossier
+          </button>
+        ) : (
+          <Link href={listHref} className="mt-4 inline-block text-sm text-sky-700 underline">
+            Retour aux dossiers
+          </Link>
+        )}
       </div>
     );
   }
@@ -207,7 +226,7 @@ export default function EleveInscriptionDocsClient() {
     : undefined;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-6">
+    <div className={`mx-auto max-w-3xl space-y-6 ${isModal ? "p-4 sm:p-6" : "p-6"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">
@@ -222,12 +241,22 @@ export default function EleveInscriptionDocsClient() {
             </p>
           ) : null}
         </div>
-        <Link
-          href={dossierHref}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Dossier complet
-        </Link>
+        {isModal && onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Retour au dossier
+          </button>
+        ) : (
+          <Link
+            href={dossierHref}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Dossier complet
+          </Link>
+        )}
       </div>
 
       {error ? (

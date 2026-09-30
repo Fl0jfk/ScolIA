@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import EleveInscriptionDocsClient from "@/app/(admin)/eleves/dossier/[id]/inscription/EleveInscriptionDocsClient";
 import {
   CATEGORIE_TIROIRS,
   DOC_CATEGORIE_LABELS,
@@ -346,6 +347,7 @@ export default function EleveDossierClient({
   const [data, setData] = useState<DossierPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("synthese");
+  const [modalSubView, setModalSubView] = useState<"dossier" | "inscription">("dossier");
   const [focusFoyerId, setFocusFoyerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -2376,12 +2378,22 @@ export default function EleveDossierClient({
                   sans créer une nouvelle fiche).
                 </p>
               </div>
-              <Link
-                href={`/eleves/dossier/${encodeURIComponent(id)}/inscription`}
-                className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800"
-              >
-                Page documents d’inscription
-              </Link>
+              {isModal ? (
+                <button
+                  type="button"
+                  onClick={() => setModalSubView("inscription")}
+                  className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800"
+                >
+                  Page documents d’inscription
+                </button>
+              ) : (
+                <Link
+                  href={`/eleves/dossier/${encodeURIComponent(id)}/inscription`}
+                  className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800"
+                >
+                  Page documents d’inscription
+                </Link>
+              )}
             </div>
 
             {allowedDocCategories.length > 0 || data.meta.tiroirs.includes("inscription") ? (
@@ -2757,6 +2769,18 @@ export default function EleveDossierClient({
   );
 
   if (isModal) {
+    if (modalSubView === "inscription") {
+      return (
+        <EleveInscriptionDocsClient
+          eleveId={id}
+          mode="modal"
+          onBack={() => {
+            setModalSubView("dossier");
+            void load({ silent: true });
+          }}
+        />
+      );
+    }
     return <div className="p-4 sm:p-6">{dossierInner}</div>;
   }
 
