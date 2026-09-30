@@ -168,7 +168,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
             <Link
               href={homeHref}
               onClick={onCloseMobile}
-              className="flex basis-1/2 items-center justify-center transition hover:opacity-90"
+              className="flex basis-2/3 items-center justify-center transition hover:opacity-90"
               title={logoAlt}
               aria-label={logoAlt}
             >
@@ -177,23 +177,23 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                   <Image
                     src={customLogoUrl}
                     alt={logoAlt}
-                    width={80}
-                    height={80}
+                    width={112}
+                    height={112}
                     unoptimized
-                    className="h-16 w-16 object-contain"
+                    className="h-[5.25rem] w-[5.25rem] object-contain"
                   />
                 ) : (
                   <Image
                     src={Logo}
                     alt={logoAlt}
-                    width={80}
-                    height={80}
-                    className="h-16 w-16 object-contain"
+                    width={112}
+                    height={112}
+                    className="h-[5.25rem] w-[5.25rem] object-contain"
                   />
                 )
               ) : null}
             </Link>
-            <div className="basis-1/2">
+            <div className="basis-1/3">
               <DashboardWeather compact />
             </div>
             <button
