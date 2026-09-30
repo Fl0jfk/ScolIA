@@ -317,7 +317,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
               </div>
               {quickLinks.length > 0 ? (
                 <div
-                  className="grid w-full gap-0.5"
+                  className="grid w-full gap-0"
                   style={{
                     gridTemplateColumns: `repeat(${quickLinks.length}, minmax(0, 1fr))`,
                   }}
@@ -331,12 +331,12 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                       onClick={onCloseMobile}
                       title={link.name}
                       aria-label={link.name}
-                      className="flex h-11 w-full items-center justify-center rounded-xl transition hover:bg-white/60"
+                      className="flex h-14 w-full items-center justify-center rounded-xl transition hover:bg-white/60"
                     >
                       <QuickLinkIcon
                         src={link.img}
                         name={link.name}
-                        className="relative h-8 w-8 overflow-hidden"
+                        className="relative h-10 w-10 overflow-hidden"
                       />
                     </a>
                   ))}
