@@ -27,7 +27,7 @@ import {
   rolesFromUserLike,
 } from "@/app/lib/intranet-roles";
 import { resolveEstablishmentLogoHomeHref } from "@/app/lib/channel-access";
-import Logo from "../../../../public/Logo header.png";
+import Logo from "../../../public/Logo header.png";
 
 const PILLAR_ICONS: Record<string, string> = {
   administratif: "📁",
