@@ -127,16 +127,18 @@ export default function DashboardTodayNews({
 
   const body = loading || importing ? (
     <>
-      <p className={`truncate font-black leading-tight ${variant === "sidebar" ? "text-sm" : "text-lg"} ${dash.ink}`}>
+      <p className={`truncate font-black leading-snug ${variant === "sidebar" ? "text-[15px]" : "text-lg"} ${dash.ink}`}>
         {importing ? "Import…" : "…"}
       </p>
-      <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
-        {importing ? "OCR + analyse" : "chargement"}
-      </p>
+      {variant !== "sidebar" ? (
+        <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
+          {importing ? "OCR + analyse" : "chargement"}
+        </p>
+      ) : null}
     </>
   ) : empty ? (
     <>
-      <p className={`truncate font-black leading-tight ${variant === "sidebar" ? "text-sm" : "text-lg"} ${dash.ink}`}>
+      <p className={`truncate font-black leading-snug ${variant === "sidebar" ? "text-[15px]" : "text-lg"} ${dash.ink}`}>
         Pas d&apos;actualité
       </p>
       <p
@@ -145,7 +147,7 @@ export default function DashboardTodayNews({
         }`}
         title={statusLine || "aujourd'hui"}
       >
-        {statusLine || "aujourd'hui"}
+        {statusLine || (variant === "sidebar" ? "\u00a0" : "aujourd'hui")}
       </p>
     </>
   ) : (
@@ -157,7 +159,11 @@ export default function DashboardTodayNews({
         exit={{ opacity: 0, y: -3 }}
         transition={{ duration: 0.28 }}
       >
-        <p className={`truncate font-black leading-tight ${variant === "sidebar" ? "text-sm" : "text-lg"} ${dash.ink}`}>
+        <p
+          className={`font-black leading-snug ${
+            variant === "sidebar" ? "line-clamp-2 text-[15px]" : "truncate text-lg"
+          } ${dash.ink}`}
+        >
           {current?.title}
         </p>
         <p
@@ -166,15 +172,27 @@ export default function DashboardTodayNews({
           }`}
           title={statusLine || meta || undefined}
         >
-          {statusLine ||
-            meta ||
-            (items.length > 1 ? `${index + 1} / ${items.length}` : "\u00a0")}
+          {statusLine || meta || "\u00a0"}
         </p>
       </motion.div>
     </AnimatePresence>
   );
 
-  const controls =
+  const fileInput = isOrgAdmin ? (
+    <input
+      ref={fileRef}
+      type="file"
+      accept="application/pdf,.pdf"
+      className="hidden"
+      disabled={importing}
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        if (f) void handleFile(f);
+      }}
+    />
+  ) : null;
+
+  const chipControls =
     items.length > 1 || isOrgAdmin ? (
       <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-stretch">
         {items.length > 1 ? (
@@ -193,28 +211,15 @@ export default function DashboardTodayNews({
           </div>
         ) : null}
         {isOrgAdmin ? (
-          <>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/pdf,.pdf"
-              className="hidden"
-              disabled={importing}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void handleFile(f);
-              }}
-            />
-            <button
-              type="button"
-              disabled={importing}
-              onClick={() => fileRef.current?.click()}
-              className="text-[10px] font-bold leading-none text-[var(--dash-primary)] hover:underline disabled:opacity-50"
-              title="Importer la feuille de semaine (PDF)"
-            >
-              {importing ? "…" : "PDF"}
-            </button>
-          </>
+          <button
+            type="button"
+            disabled={importing}
+            onClick={() => fileRef.current?.click()}
+            className="text-[10px] font-bold leading-none text-[var(--dash-primary)] hover:underline disabled:opacity-50"
+            title="Importer la feuille de semaine (PDF)"
+          >
+            {importing ? "…" : "PDF"}
+          </button>
         ) : null}
       </div>
     ) : null;
@@ -222,20 +227,28 @@ export default function DashboardTodayNews({
   if (variant === "sidebar") {
     return (
       <div
-        className="flex w-full items-center gap-2 overflow-hidden rounded-xl px-1 py-1"
+        className="flex w-full items-start gap-2 overflow-hidden px-0.5 py-0.5"
         aria-label="Actualité du jour"
         title={error || success || current?.title || "Actualité du jour"}
       >
-        <span className="shrink-0 text-base leading-none" aria-hidden>
-          📰
-        </span>
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <p className={`text-[9px] font-bold uppercase tracking-[0.16em] ${dash.label}`}>
-            Aujourd&apos;hui
-          </p>
-          {body}
-        </div>
-        {controls}
+        {fileInput}
+        {isOrgAdmin ? (
+          <button
+            type="button"
+            disabled={importing}
+            onClick={() => fileRef.current?.click()}
+            className="mt-0.5 shrink-0 text-xl leading-none transition hover:scale-105 disabled:opacity-50"
+            title="Importer la feuille de semaine (PDF)"
+            aria-label="Importer un PDF d'actualités"
+          >
+            📰
+          </button>
+        ) : (
+          <span className="mt-0.5 shrink-0 text-xl leading-none" aria-hidden>
+            📰
+          </span>
+        )}
+        <div className="min-w-0 flex-1 overflow-hidden">{body}</div>
       </div>
     );
   }
@@ -246,6 +259,7 @@ export default function DashboardTodayNews({
       aria-label="Actualité du jour"
       title={error || success || current?.title || "Actualité du jour"}
     >
+      {fileInput}
       <span className="text-2xl leading-none" aria-hidden>
         📰
       </span>
@@ -255,7 +269,7 @@ export default function DashboardTodayNews({
         </p>
         {body}
       </div>
-      {controls}
+      {chipControls}
     </div>
   );
 }

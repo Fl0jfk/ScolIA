@@ -173,26 +173,24 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
               aria-label={logoAlt}
             >
               {!bootstrapLoading ? (
-                <span className="relative flex h-[4.25rem] w-[4.25rem] items-center justify-center overflow-hidden">
-                  {customLogoUrl ? (
-                    <Image
-                      src={customLogoUrl}
-                      alt={logoAlt}
-                      width={96}
-                      height={96}
-                      unoptimized
-                      className="h-full w-full origin-center scale-[1.55] object-contain"
-                    />
-                  ) : (
-                    <Image
-                      src={Logo}
-                      alt={logoAlt}
-                      width={96}
-                      height={96}
-                      className="h-full w-full origin-center scale-[1.55] object-contain"
-                    />
-                  )}
-                </span>
+                customLogoUrl ? (
+                  <Image
+                    src={customLogoUrl}
+                    alt={logoAlt}
+                    width={80}
+                    height={80}
+                    unoptimized
+                    className="h-16 w-16 object-contain"
+                  />
+                ) : (
+                  <Image
+                    src={Logo}
+                    alt={logoAlt}
+                    width={80}
+                    height={80}
+                    className="h-16 w-16 object-contain"
+                  />
+                )
               ) : null}
             </Link>
             <div className="basis-1/2">
@@ -218,18 +216,13 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
             </button>
           </div>
 
-          <div className="relative">
-            <DashboardTodayNews
-              variant="sidebar"
-              items={todayNews}
-              hasCurrentWeek={hasCurrentWeek}
-              loading={newsLoading}
-              onWeekSheetUpdated={refreshNews}
-            />
-            <div className="absolute -right-0.5 -top-0.5">
-              <DashboardGlobalNotifications items={notifications} />
-            </div>
-          </div>
+          <DashboardTodayNews
+            variant="sidebar"
+            items={todayNews}
+            hasCurrentWeek={hasCurrentWeek}
+            loading={newsLoading}
+            onWeekSheetUpdated={refreshNews}
+          />
         </div>
 
         <div className="space-y-3 px-3 pb-3">
@@ -242,7 +235,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           <GlobalDocsDropZone onCloseMobile={onCloseMobile} ocrAvailable={showOcr} />
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-3">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-1">
           <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
             Espaces
           </p>
@@ -306,8 +299,8 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           ) : null}
 
           {(quickLinks.length > 0 || isOrgAdmin) && (
-            <div className="pt-3">
-              <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+            <div className="pt-2">
+              <div className="mb-1 flex items-center justify-between gap-2 px-1">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
                   Raccourcis
                 </p>
@@ -338,12 +331,12 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                       onClick={onCloseMobile}
                       title={link.name}
                       aria-label={link.name}
-                      className="flex h-8 w-full items-center justify-center rounded-lg transition hover:bg-white/60"
+                      className="flex h-11 w-full items-center justify-center rounded-xl transition hover:bg-white/60"
                     >
                       <QuickLinkIcon
                         src={link.img}
                         name={link.name}
-                        className="relative h-6 w-6 overflow-hidden"
+                        className="relative h-8 w-8 overflow-hidden"
                       />
                     </a>
                   ))}
@@ -361,7 +354,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           )}
         </nav>
 
-        <div className="space-y-2 border-t border-black/6 p-3">
+        <div className="space-y-2 px-3 pb-3 pt-1">
           <SidebarScoliaBlock onCloseMobile={onCloseMobile} />
 
           <div className="relative">
@@ -381,7 +374,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                   {(user?.firstName?.[0] || user?.fullName?.[0] || "?").toUpperCase()}
                 </div>
               )}
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 pr-6">
                 <p className="truncate text-sm font-bold text-[var(--dash-ink)]">
                   {user?.fullName || user?.username || "Compte"}
                 </p>
@@ -390,6 +383,9 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                 </p>
               </div>
             </button>
+            <div className="absolute right-2 top-1/2 z-10 -translate-y-1/2">
+              <DashboardGlobalNotifications items={notifications} panelPlacement="top" />
+            </div>
 
             {profileOpen ? (
               <div className="absolute bottom-[calc(100%+0.35rem)] left-0 right-0 z-20 overflow-hidden rounded-2xl border border-black/8 bg-white shadow-xl">
