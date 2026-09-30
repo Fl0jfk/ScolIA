@@ -39,6 +39,8 @@ export type OneDriveOcrGate = {
   error: string | null;
   connect: () => Promise<void>;
   ensureConnected: () => Promise<boolean>;
+  /** Access token Graph valide (null si non connecté). */
+  getAccessToken: () => Promise<string | null>;
   suivi: OcrSuiviSnapshot;
   refreshSuivi: () => Promise<void>;
 };
@@ -224,6 +226,14 @@ export function useOneDriveOcrGate(enabled: boolean): OneDriveOcrGate {
     }
   }, [ready, configured, assigned]);
 
+  const getAccessToken = useCallback(async () => {
+    const cached = pickCachedAccessToken(tokenRef.current);
+    if (cached) return cached;
+    const ok = await ensureConnected();
+    if (!ok) return null;
+    return pickCachedAccessToken(tokenRef.current);
+  }, [ensureConnected]);
+
   return {
     ready,
     checking,
@@ -233,6 +243,7 @@ export function useOneDriveOcrGate(enabled: boolean): OneDriveOcrGate {
     error,
     connect,
     ensureConnected,
+    getAccessToken,
     suivi,
     refreshSuivi,
   };
