@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import type {
   RdvInscriptionBookingRow,
   RdvInscriptionConfigPublic,
@@ -358,25 +360,25 @@ export default function RdvInscriptionAdminClient() {
   const { config, directions, google, publicLinks, oauthRedirectUri, oauthStartPath } = data;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
-      <header>
-        <h1 className="text-2xl font-bold text-slate-900">RDV inscription direction</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Paramétrage des agendas et suivi des réservations parents (école, collège, lycée).
-        </p>
-      </header>
+    <ModulePageShell maxWidthClass="max-w-4xl">
+      <div className="space-y-6">
+      <ModulePageHeader
+        eyebrow="Établissement"
+        title="RDV inscription direction"
+        description="Paramétrage des agendas et suivi des réservations parents (école, collège, lycée)."
+      />
 
       <nav
-        className="flex flex-wrap gap-2 border-b border-slate-200 pb-3"
+        className="mb-6 flex flex-wrap gap-2"
         aria-label="Sections RDV inscription"
       >
         <button
           type="button"
           onClick={() => selectTab("reglages")}
-          className={`rounded-lg px-3 py-1.5 text-sm font-bold transition ${
+          className={`rounded-full px-4 py-2 text-sm font-bold transition ${
             tab === "reglages"
-              ? "bg-slate-900 text-white"
-              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              ? "bg-[var(--dash-ink)] text-white shadow-sm"
+              : "border border-black/8 bg-white text-slate-600 hover:border-black/20"
           }`}
         >
           Réglages
@@ -384,15 +386,21 @@ export default function RdvInscriptionAdminClient() {
         <button
           type="button"
           onClick={() => selectTab("suivi")}
-          className={`rounded-lg px-3 py-1.5 text-sm font-bold transition ${
+          className={`rounded-full px-4 py-2 text-sm font-bold transition ${
             tab === "suivi"
-              ? "bg-sky-700 text-white"
-              : "bg-sky-50 text-sky-800 ring-1 ring-sky-200 hover:bg-sky-100"
+              ? "bg-[var(--dash-ink)] text-white shadow-sm"
+              : "border border-black/8 bg-white text-slate-600 hover:border-black/20"
           }`}
         >
           Suivi
           {bookings.length > 0 ? (
-            <span className="ml-1.5 inline-flex min-w-[1.25rem] justify-center rounded-full bg-white/20 px-1.5 text-[11px] font-bold tabular-nums">
+            <span
+              className={`ml-1.5 inline-flex min-w-[1.25rem] justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums ${
+                tab === "suivi"
+                  ? "bg-[var(--dash-lime)] text-[var(--dash-ink)]"
+                  : "bg-[color:var(--dash-lime)]/80 text-[var(--dash-ink)]"
+              }`}
+            >
               {bookings.length}
             </span>
           ) : null}
@@ -1252,6 +1260,7 @@ export default function RdvInscriptionAdminClient() {
           </div>
         </div>
       ) : null}
-    </div>
+      </div>
+    </ModulePageShell>
   );
 }

@@ -56,7 +56,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "groupes-pedagogiques",
       "stages",
       "fiches-dialogue",
-      "agent-ia-ocr",
       "certificates",
     ],
   },

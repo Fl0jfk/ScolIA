@@ -190,16 +190,29 @@ function MessageriePageBody({
       <MessagingCallOverlay embedSplitInPage />
       <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-7xl flex-col gap-4 p-4 md:p-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <IconMessageCircle className="h-6 w-6 text-sky-600" />
-            <div>
-              <h1 className={`text-xl font-semibold ${dash.ink}`}>Messagerie</h1>
-              <p className="text-xs text-slate-500">
-                Discussions 1:1 et groupes — personnel
-                {totalUnread > 0 ? ` · ${totalUnread} non lu${totalUnread > 1 ? "s" : ""}` : ""}
-                {inSplitCall ? " · Visio en cours (chat toujours dispo)" : ""}
-              </p>
+          <div className="flex min-w-0 flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <IconMessageCircle className="h-6 w-6 text-[var(--dash-ink)]" />
+              <div>
+                <h1 className={`text-xl font-semibold ${dash.ink}`}>Messagerie</h1>
+                <p className="text-xs text-slate-500">
+                  Discussions, groupes et salons
+                  {totalUnread > 0 ? ` · ${totalUnread} non lu${totalUnread > 1 ? "s" : ""}` : ""}
+                  {inSplitCall ? " · Visio en cours (chat toujours dispo)" : ""}
+                </p>
+              </div>
             </div>
+            <nav className="flex flex-wrap gap-2" aria-label="Sections messagerie">
+              <span className="rounded-full bg-[var(--dash-ink)] px-3 py-1.5 text-xs font-bold text-white shadow-sm">
+                Messages
+              </span>
+              <a
+                href="/channels"
+                className="rounded-full border border-black/8 bg-white px-3 py-1.5 text-xs font-bold text-[var(--dash-ink)] transition hover:bg-[color:var(--dash-soft-muted)]"
+              >
+                Salons
+              </a>
+            </nav>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="w-[220px]">
@@ -207,7 +220,7 @@ function MessageriePageBody({
             </div>
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-sky-700"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[var(--dash-ink)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:brightness-110"
               onClick={() => setShowNewGroup(true)}
             >
               <IconUsers className="h-3.5 w-3.5" />

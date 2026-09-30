@@ -290,7 +290,15 @@ export default function ProfChatPage() {
         md:flex
       `}>
         <div className="p-6 border-b flex justify-between items-center">
-          <h2 className="font-bold text-gray-800">Salons</h2>
+          <div>
+            <h2 className="font-bold text-gray-800">Salons</h2>
+            <a
+              href="/messagerie"
+              className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider text-[var(--dash-mid)] hover:text-[var(--dash-ink)]"
+            >
+              ← Messages
+            </a>
+          </div>
           <button 
             onClick={() => setShowModal(true)}
             className="w-8 h-8 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-all"

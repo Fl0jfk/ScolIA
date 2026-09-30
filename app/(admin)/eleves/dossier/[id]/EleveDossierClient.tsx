@@ -323,11 +323,22 @@ const emptyResp = {
   payeur: false,
 };
 
-export default function EleveDossierClient() {
+export default function EleveDossierClient({
+  mode = "page",
+  eleveId: eleveIdProp,
+  onClose,
+  onNavigateEleve,
+}: {
+  mode?: "page" | "modal";
+  eleveId?: string;
+  onClose?: () => void;
+  onNavigateEleve?: (eleveId: string) => void;
+} = {}) {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const id = String(params.id || "");
+  const id = eleveIdProp || String(params.id || "");
+  const isModal = mode === "modal";
   const listHref = dossiersListHrefFromRetour(
     searchParams.get("retour"),
     searchParams.get("classe"),
@@ -833,22 +844,32 @@ export default function EleveDossierClient() {
   }
 
   if (error && !data) {
-    return (
-      <ModulePageShell maxWidthClass="max-w-3xl">
+    const body = (
+      <>
         <p className="text-red-600">{error}</p>
-        <Link href={listHref} className="text-sm font-semibold text-indigo-600">
-          ← Retour liste
-        </Link>
-      </ModulePageShell>
+        {isModal ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-3 text-sm font-semibold text-[var(--dash-ink)] underline"
+          >
+            Fermer
+          </button>
+        ) : (
+          <Link href={listHref} className="text-sm font-semibold text-indigo-600">
+            ← Retour liste
+          </Link>
+        )}
+      </>
     );
+    if (isModal) return <div className="p-6">{body}</div>;
+    return <ModulePageShell maxWidthClass="max-w-3xl">{body}</ModulePageShell>;
   }
 
   if (!data) {
-    return (
-      <ModulePageShell maxWidthClass="max-w-3xl">
-        <p className="text-slate-500">Chargement du dossier…</p>
-      </ModulePageShell>
-    );
+    const loading = <p className="text-slate-500">Chargement du dossier…</p>;
+    if (isModal) return <div className="p-6">{loading}</div>;
+    return <ModulePageShell maxWidthClass="max-w-3xl">{loading}</ModulePageShell>;
   }
 
   const e = data.eleve;
@@ -918,6 +939,10 @@ export default function EleveDossierClient() {
   const nowView = liveNowCopy();
 
   function navigateToDossier(eleveId: string) {
+    if (isModal && onNavigateEleve) {
+      onNavigateEleve(eleveId);
+      return "#";
+    }
     const retour = searchParams.get("retour");
     if (!retour) return `/eleves/dossier/${eleveId}`;
     return `/eleves/dossier/${eleveId}?retour=${encodeURIComponent(retour)}`;
@@ -928,15 +953,17 @@ export default function EleveDossierClient() {
     setTab("finances");
   }
 
-  return (
-    <ModulePageShell maxWidthClass="max-w-6xl">
-      <Link
-        href={listHref}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition hover:text-indigo-700"
-      >
-        <span aria-hidden>←</span>
-        Retour à la liste des dossiers
-      </Link>
+  const dossierInner = (
+    <>
+      {isModal ? null : (
+        <Link
+          href={listHref}
+          className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition hover:text-indigo-700"
+        >
+          <span aria-hidden>←</span>
+          Retour à la liste des dossiers
+        </Link>
+      )}
       <ModulePageHeader
         eyebrow="Dossier élève"
         title={`${e.prenom} ${e.nom}`}
@@ -948,17 +975,21 @@ export default function EleveDossierClient() {
               </span>
             ) : null}
             {e.classe ? (
-              <Link
-                href={listHref}
-                className="text-base font-bold text-indigo-700 hover:underline"
-              >
-                {classeDisplay}
-              </Link>
+              isModal ? (
+                <span className="text-base font-bold text-slate-700">{classeDisplay}</span>
+              ) : (
+                <Link
+                  href={listHref}
+                  className="text-base font-bold text-indigo-700 hover:underline"
+                >
+                  {classeDisplay}
+                </Link>
+              )
             ) : (
               <span className="text-base font-bold text-slate-700">{classeDisplay}</span>
             )}
             <span className="text-slate-400">·</span>
-            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+            <span className="rounded-full bg-[color:var(--dash-lime)]/70 px-2.5 py-0.5 text-xs font-bold text-[var(--dash-ink)]">
               {statusLabel}
             </span>
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700">
@@ -976,7 +1007,7 @@ export default function EleveDossierClient() {
             onClick={() => setTab(t.id)}
             className={`rounded-xl px-4 py-2 text-sm font-bold border transition ${
               tab === t.id
-                ? "bg-slate-900 text-white border-slate-900"
+                ? "bg-[var(--dash-ink)] text-white border-[var(--dash-ink)]"
                 : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
             }`}
           >
@@ -996,6 +1027,7 @@ export default function EleveDossierClient() {
             classe={e.classe}
             classmates={data.classmates ?? []}
             dossierHref={navigateToDossier}
+            onSelectEleve={isModal && onNavigateEleve ? onNavigateEleve : undefined}
           />
         </div>
 
@@ -2721,6 +2753,12 @@ export default function EleveDossierClient() {
       ) : null}
         </div>
       </div>
-    </ModulePageShell>
+    </>
   );
+
+  if (isModal) {
+    return <div className="p-4 sm:p-6">{dossierInner}</div>;
+  }
+
+  return <ModulePageShell maxWidthClass="max-w-6xl">{dossierInner}</ModulePageShell>;
 }

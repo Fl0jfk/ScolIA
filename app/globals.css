@@ -74,16 +74,40 @@ select:disabled {
   cursor: default !important;
 }
 
-/* Fallback thème dashboard (surchargé par DashboardThemeRoot) */
+/* Thème intranet lime (fixe) — appliqué aussi via DashboardThemeRoot */
+:root,
 .dashboard-themed {
-  --dash-primary: #2F6B4A;
-  --dash-dark: #1E4A32;
-  --dash-mid: #3D8A5C;
-  --dash-bright: #4ADE80;
-  --dash-soft: #D1FAE5;
-  --dash-soft-muted: #ECFDF5;
-  --dash-border: #A7F3D0;
-  --dash-ink: #14231A;
+  --dash-primary: #141414;
+  --dash-dark: #0a0a0a;
+  --dash-mid: #5a6b4a;
+  --dash-bright: #d4ff37;
+  --dash-soft: #eeffa8;
+  --dash-soft-muted: #f5ffd6;
+  --dash-border: #d5e89c;
+  --dash-ink: #141414;
+  --dash-surface: #f4f5f3;
+  --dash-lime: #d4ff37;
+}
+
+@keyframes intranet-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.intranet-fade-up {
+  animation: intranet-fade-up 0.45s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intranet-fade-up {
+    animation: none;
+  }
 }
 ::-webkit-scrollbar { display: none}
 /* ScolIA — pluie Matrix (fond bulle / marque IA) */

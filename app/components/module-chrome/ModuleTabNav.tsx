@@ -46,18 +46,20 @@ export default function ModuleTabNav<T extends string>({
             type="button"
             onClick={() => onChange(tab.id)}
             {...tab.dataAttrs}
-            className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer transition-colors ${
+            className={`shrink-0 flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold transition-colors ${
               isActive
-                ? `${dash.bgPrimary} text-white shadow-md`
-                : `bg-white/80 ${dash.ink} border border-white/70 ${dash.hoverBorder}`
+                ? "bg-[var(--dash-ink)] text-white shadow-md"
+                : `bg-white ${dash.ink} border border-black/8 ${dash.hoverBorder}`
             }`}
           >
             {tab.icon ? <span>{tab.icon}</span> : null}
             <span>{tab.label}</span>
             {badge != null && badge > 0 ? (
               <span
-                className={`ml-0.5 min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-black flex items-center justify-center ${
-                  isActive ? "bg-white/25 text-white" : "bg-amber-100 text-amber-800"
+                className={`ml-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 text-[10px] font-black ${
+                  isActive
+                    ? "bg-[var(--dash-lime)] text-[var(--dash-ink)]"
+                    : "bg-[color:var(--dash-lime)]/80 text-[var(--dash-ink)]"
                 }`}
               >
                 {badge}

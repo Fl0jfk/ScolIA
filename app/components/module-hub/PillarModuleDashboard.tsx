@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
+import { useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import GlassLayer from "@/app/components/GlassLayer";
@@ -12,7 +11,6 @@ import {
   categoriesForPillar,
   type DashboardPillarId,
 } from "@/app/lib/dashboard-pillars";
-import { stageDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
 import {
   notificationCountForModule,
@@ -113,68 +111,6 @@ function previewLinesForModule(
   return lines.slice(0, max);
 }
 
-function OcrQuickDrop() {
-  const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const [hint, setHint] = useState<string | null>(null);
-
-  const goWithFiles = useCallback(
-    (files: FileList | File[] | null) => {
-      if (!files || (Array.isArray(files) ? files.length === 0 : files.length === 0)) return;
-      const ok = stageDashboardUpload("standard", files);
-      if (!ok) {
-        setHint("PDF uniquement");
-        return;
-      }
-      setHint(null);
-      router.push("/agentIAOCR?upload=1");
-    },
-    [router],
-  );
-
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    goWithFiles(e.dataTransfer.files);
-  };
-
-  return (
-    <div className="mt-auto space-y-2 pt-2">
-      <button
-        type="button"
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
-        className={`w-full rounded-xl border-2 border-dashed px-3 py-4 text-center transition ${
-          dragging
-            ? "border-[var(--dash-primary)] bg-white/90"
-            : "border-white/70 bg-white/50 hover:bg-white/75"
-        }`}
-      >
-        <p className="text-xs font-semibold text-[var(--dash-ink)]">Déposer un PDF ici</p>
-        <p className="mt-0.5 text-[10px] text-[var(--dash-mid)]">ou cliquer pour choisir</p>
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="application/pdf,.pdf"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          goWithFiles(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      {hint ? <p className="text-[10px] text-amber-700">{hint}</p> : null}
-    </div>
-  );
-}
-
 function ModuleQuickActions({
   moduleId,
   accessibleModuleIds,
@@ -223,9 +159,6 @@ function ModuleQuickActions({
         </Link>
       </div>
     );
-  }
-  if (moduleId === "agent-ia-ocr") {
-    return <OcrQuickDrop />;
   }
   if (moduleId === "requests-staff") {
     return (

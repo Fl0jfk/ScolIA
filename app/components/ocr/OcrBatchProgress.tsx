@@ -55,7 +55,7 @@ export default function OcrBatchProgress({
   const stuckTrace = ocrServerTraceLooksStuck(traceLog);
 
   return (
-    <>
+    <div id="ocr-results" data-ocr-suivi>
       {batchPollIssue && activeBatchJobId && !batchJobNeedsToken ? (
         <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 text-amber-900 rounded-r-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -433,6 +433,6 @@ export default function OcrBatchProgress({
           </div>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

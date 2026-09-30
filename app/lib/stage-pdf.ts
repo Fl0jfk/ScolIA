@@ -1256,7 +1256,7 @@ export async function buildStageConventionPdf(convention: StageConvention): Prom
     schoolPhone: bundle.identity.phone?.display || "",
     rgpdContact,
     insuranceText: bundle.notifications.stagesInsuranceText?.trim() || DEFAULT_INSURANCE,
-    accentHex: bundle.identity.dashboardAccent,
+    accentHex: "#D4FF37",
     logo: logoPayload,
   });
 }

@@ -292,14 +292,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "agent-ia-ocr",
     pathPrefixes: ["/agentIAOCR", "/api/agentIAOCR", "/api/eleves", "/api/mef-secteurs", "/api/enseignants"],
     allowedRoles: ["administratif", "comptabilite", "surveillant", "cpe", ...DIRECTIONS],
-    dashboard: {
-      id: 10,
-      name: "Ajout de documents IA",
-      img: "",
-      link: "/agentIAOCR",
-      external: false,
-      variant: "agent-ia",
-    },
+    // Pas de tuile dashboard : dépôt via sidebar + page de suivi /agentIAOCR.
   },
   {
     id: "eleve-dossier",
@@ -387,7 +380,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "evenements",
-    pathPrefixes: ["/etablissement/evenements", "/api/toolbox"],
+    pathPrefixes: [
+      "/etablissement/evenements",
+      "/api/toolbox",
+      "/api/invitation/pages",
+    ],
     excludePrefixes: ["/api/toolbox/class-allocation"],
     allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
     dashboard: {
@@ -1134,7 +1131,6 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "groupes-pedagogiques",
     "stages",
     "fiches-dialogue",
-    "agent-ia-ocr",
     "certificates",
   ],
   "pillar-etablissement": [

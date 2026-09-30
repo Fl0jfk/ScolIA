@@ -1,17 +1,14 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { useAppContext } from "@/app/hooks/useAppContext";
 import { dashboardBrandStyle } from "@/app/lib/dashboard-brand";
-import { dashboardBrandCssVars, parseDashboardAccent } from "@/app/lib/dashboard-brand-presets";
+import { dashboardBrandCssVars } from "@/app/lib/dashboard-brand-presets";
 
 export default function DashboardThemeRoot({ children }: { children: ReactNode }) {
-  const { data } = useAppContext();
-  const accent = data?.identity?.dashboardAccent;
-  const style = dashboardBrandStyle(accent);
+  const style = dashboardBrandStyle();
 
   useEffect(() => {
-    const vars = dashboardBrandCssVars(parseDashboardAccent(accent));
+    const vars = dashboardBrandCssVars();
     const root = document.documentElement;
     const previous = new Map<string, string>();
     for (const [key, value] of Object.entries(vars)) {
@@ -25,7 +22,7 @@ export default function DashboardThemeRoot({ children }: { children: ReactNode }
         else root.style.removeProperty(key);
       }
     };
-  }, [accent]);
+  }, []);
 
   return (
     <div className="dashboard-themed" style={style}>

@@ -23,7 +23,7 @@ import {
   SCOLIA_AI_PAGE_PATH,
   type ScoliaMemoryMessage,
 } from "@/app/lib/brain-ai/scolia-memory";
-import { SCOLIA_ASK_EVENT, type ScoliaAskDetail } from "@/app/lib/brain-ai/scolia-ask";
+import { SCOLIA_ASK_EVENT, SCOLIA_OPEN_EVENT, type ScoliaAskDetail, type ScoliaOpenDetail } from "@/app/lib/brain-ai/scolia-ask";
 
 type PendingConfirmation = {
   tool: string;
@@ -164,7 +164,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
@@ -235,7 +234,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
       if (panelRef.current?.contains(target)) return;
-      if (buttonRef.current?.contains(target)) return;
       setOpen(false);
     };
     document.addEventListener("mousedown", onPointerDown);
@@ -418,8 +416,18 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         void sendRef.current({ message: prompt });
       }, 50);
     };
+    const onOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent<ScoliaOpenDetail>).detail;
+      setLayout("window");
+      setOpen(true);
+      if (detail?.draft?.trim()) setInput(detail.draft.trim());
+    };
     window.addEventListener(SCOLIA_ASK_EVENT, onAsk as EventListener);
-    return () => window.removeEventListener(SCOLIA_ASK_EVENT, onAsk as EventListener);
+    window.addEventListener(SCOLIA_OPEN_EVENT, onOpen as EventListener);
+    return () => {
+      window.removeEventListener(SCOLIA_ASK_EVENT, onAsk as EventListener);
+      window.removeEventListener(SCOLIA_OPEN_EVENT, onOpen as EventListener);
+    };
   }, []);
 
   const confirmPending = () => {
@@ -1142,37 +1150,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         </div>
       ) : null}
 
-      {/* Mobile/tablette : on ne monte pas l’icône si le chat est ouvert (sinon elle masque Envoyer). */}
-      {!open || isDesktopChat ? (
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={() => {
-            if (open && layout === "expanded") {
-              setLayout("window");
-              return;
-            }
-            if (open) {
-              setOpen(false);
-              setLayout("window");
-              return;
-            }
-            setLayout("window");
-            setOpen(true);
-          }}
-          className="fixed bottom-4 right-4 z-[130] flex h-14 w-14 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-emerald-400/25 bg-[#052e1c]/78 shadow-[0_14px_34px_rgba(5,46,28,0.45)] backdrop-blur-xl transition-all hover:scale-[1.04] hover:border-emerald-300/40 hover:bg-[#064028]/82 active:scale-[0.97]"
-          aria-label={open ? `Réduire ${SCOLIA_AI_NAME}` : `Ouvrir ${SCOLIA_AI_NAME}`}
-        >
-          <span
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(52,211,153,0.35),transparent_52%),linear-gradient(160deg,rgba(255,255,255,0.12),transparent_42%)]"
-            aria-hidden
-          />
-          <span className="pointer-events-none absolute inset-[1px] rounded-full border border-white/15" aria-hidden />
-          <span className="relative h-full w-full">
-            <ScoliaAiMark size="md" inverted fill />
-          </span>
-        </button>
-      ) : null}
+      {/* Ouverture ScolIA uniquement via la sidebar. */}
     </>
   );
 }

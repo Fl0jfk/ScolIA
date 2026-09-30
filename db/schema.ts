@@ -21,6 +21,7 @@ import { charlemagneP3Schema } from "./schema-charlemagne-p3";
 import { charlemagneP4Schema } from "./schema-charlemagne-p4";
 import { charlemagneP5Schema } from "./schema-charlemagne-p5";
 import { fichesDialogueSchema } from "./schema-fiches-dialogue";
+import { invitationSchema } from "./schema-invitation";
 import { messagingSchema } from "./schema-messaging";
 import { rdvInscriptionSchema } from "./schema-rdv-inscription";
 
@@ -33,6 +34,7 @@ export * from "./schema-charlemagne-p3";
 export * from "./schema-charlemagne-p4";
 export * from "./schema-charlemagne-p5";
 export * from "./schema-fiches-dialogue";
+export * from "./schema-invitation";
 export * from "./schema-messaging";
 export * from "./schema-portes-ouvertes";
 export * from "./schema-rdv-inscription";
@@ -877,6 +879,7 @@ export const appSchema = {
   ...charlemagneP4Schema,
   ...charlemagneP5Schema,
   ...fichesDialogueSchema,
+  ...invitationSchema,
   ...messagingSchema,
   ...rdvInscriptionSchema,
 };

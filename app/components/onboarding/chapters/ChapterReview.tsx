@@ -32,12 +32,7 @@ export default function ChapterReview({
     },
     {
       label: "Identité",
-      value: [
-        identity.shortName || identity.name,
-        identity.dashboardAccent ? `accent ${identity.dashboardAccent}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      value: identity.shortName || identity.name || "—",
     },
     {
       label: "Adresse",

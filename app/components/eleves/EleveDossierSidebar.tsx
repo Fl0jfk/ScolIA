@@ -12,6 +12,8 @@ type Props = {
   classe: string | null;
   classmates: Classmate[];
   dossierHref: (eleveId: string) => string;
+  /** Si fourni, sélectionne sans navigation (ex. mode modale). */
+  onSelectEleve?: (eleveId: string) => void;
 };
 
 export default function EleveDossierSidebar({
@@ -19,6 +21,7 @@ export default function EleveDossierSidebar({
   classe,
   classmates,
   dossierHref,
+  onSelectEleve,
 }: Props) {
   const [q, setQ] = useState("");
   const [searchPool, setSearchPool] = useState<SearchRow[] | null>(null);
@@ -94,15 +97,28 @@ export default function EleveDossierSidebar({
             ) : null}
             {searchResults.map((e) => (
               <li key={e.id}>
-                <Link
-                  href={dossierHref(e.id)}
-                  className="block px-3 py-2 text-sm font-medium text-slate-800 hover:bg-indigo-50 hover:text-indigo-900"
-                >
-                  {e.prenom} {e.nom}
-                  {e.classe ? (
-                    <span className="ml-1 text-xs font-normal text-slate-500">· {e.classe}</span>
-                  ) : null}
-                </Link>
+                {onSelectEleve ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectEleve(e.id)}
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-[color:var(--dash-soft-muted)] hover:text-[var(--dash-ink)]"
+                  >
+                    {e.prenom} {e.nom}
+                    {e.classe ? (
+                      <span className="ml-1 text-xs font-normal text-slate-500">· {e.classe}</span>
+                    ) : null}
+                  </button>
+                ) : (
+                  <Link
+                    href={dossierHref(e.id)}
+                    className="block px-3 py-2 text-sm font-medium text-slate-800 hover:bg-[color:var(--dash-soft-muted)] hover:text-[var(--dash-ink)]"
+                  >
+                    {e.prenom} {e.nom}
+                    {e.classe ? (
+                      <span className="ml-1 text-xs font-normal text-slate-500">· {e.classe}</span>
+                    ) : null}
+                  </Link>
+                )}
               </li>
             ))}
             {!searchBusy && searchPool && searchResults.length === 0 ? (
@@ -124,15 +140,22 @@ export default function EleveDossierSidebar({
           <ul className="mt-3 max-h-[min(60vh,28rem)] overflow-y-auto space-y-0.5">
             {sortedClassmates.map((c) => (
               <li key={c.id}>
-                <Link
-                  href={dossierHref(c.id)}
-                  className="block rounded-lg px-2 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100 hover:text-slate-900"
-                >
-                  <span className="font-semibold">
-                    {c.nom.toUpperCase()}
-                  </span>{" "}
-                  {c.prenom}
-                </Link>
+                {onSelectEleve ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectEleve(c.id)}
+                    className="block w-full rounded-lg px-2 py-1.5 text-left text-sm text-slate-700 transition hover:bg-slate-100 hover:text-slate-900"
+                  >
+                    <span className="font-semibold">{c.nom.toUpperCase()}</span> {c.prenom}
+                  </button>
+                ) : (
+                  <Link
+                    href={dossierHref(c.id)}
+                    className="block rounded-lg px-2 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100 hover:text-slate-900"
+                  >
+                    <span className="font-semibold">{c.nom.toUpperCase()}</span> {c.prenom}
+                  </Link>
+                )}
               </li>
             ))}
             {sortedClassmates.length === 0 ? (
