@@ -43,8 +43,8 @@ export default function DashboardWeather({ compact = false }: Props) {
           aria-hidden
           title="Chargement météo"
         >
-          <span className="h-5 w-5 rounded-full bg-stone-200/70" />
-          <span className="h-4 w-8 rounded bg-stone-200/70" />
+          <span className="h-6 w-6 rounded-full bg-stone-200/70" />
+          <span className="h-5 w-9 rounded bg-stone-200/70" />
         </div>
       );
     }
@@ -53,10 +53,10 @@ export default function DashboardWeather({ compact = false }: Props) {
         className="flex w-full flex-col items-center justify-center gap-0.5"
         title={`Météo à ${weather.location}${weather.label ? ` — ${weather.label}` : ""}`}
       >
-        <span className="text-xl leading-none" aria-hidden>
+        <span className="text-2xl leading-none" aria-hidden>
           {weather.icon}
         </span>
-        <span className={`text-base font-black tabular-nums tracking-tight ${dash.ink}`}>
+        <span className={`text-lg font-black tabular-nums tracking-tight ${dash.ink}`}>
           {weather.temperature}°
         </span>
       </div>

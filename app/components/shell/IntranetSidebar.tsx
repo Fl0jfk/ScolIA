@@ -163,12 +163,12 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="space-y-2 px-3 pb-2 pt-3">
-          <div className="flex items-center gap-1">
+        <div className="space-y-1 px-2.5 pb-1 pt-1.5">
+          <div className="flex items-center gap-0.5">
             <Link
               href={homeHref}
               onClick={onCloseMobile}
-              className="flex basis-2/3 items-center justify-center transition hover:opacity-90"
+              className="flex min-w-0 basis-2/3 items-center justify-center transition hover:opacity-90"
               title={logoAlt}
               aria-label={logoAlt}
             >
@@ -177,23 +177,23 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                   <Image
                     src={customLogoUrl}
                     alt={logoAlt}
-                    width={112}
-                    height={112}
+                    width={128}
+                    height={128}
                     unoptimized
-                    className="h-[5.25rem] w-[5.25rem] object-contain"
+                    className="h-24 w-24 object-contain"
                   />
                 ) : (
                   <Image
                     src={Logo}
                     alt={logoAlt}
-                    width={112}
-                    height={112}
-                    className="h-[5.25rem] w-[5.25rem] object-contain"
+                    width={128}
+                    height={128}
+                    className="h-24 w-24 object-contain"
                   />
                 )
               ) : null}
             </Link>
-            <div className="basis-1/3">
+            <div className="basis-1/3 shrink-0">
               <DashboardWeather compact />
             </div>
             <button
@@ -225,7 +225,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           />
         </div>
 
-        <div className="space-y-3 px-3 pb-3">
+        <div className="space-y-2.5 px-2.5 pb-2.5">
           <GlobalEleveSearch
             onSelect={(id) => {
               openEleveModal(id);
@@ -235,14 +235,14 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           <GlobalDocsDropZone onCloseMobile={onCloseMobile} ocrAvailable={showOcr} />
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-1">
-          <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
+        <nav className="flex-1 space-y-1.5 overflow-y-auto px-2.5 pb-2">
+          <p className="px-3 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
             Espaces
           </p>
           <Link
             href="/dashboard"
             onClick={onCloseMobile}
-            className={`flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-sm font-semibold transition ${
+            className={`flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold transition ${
               navActive("/dashboard")
                 ? "bg-[var(--dash-ink)] text-white shadow-sm"
                 : "text-[var(--dash-ink)] hover:bg-white/70"
@@ -258,7 +258,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                 key={p.id}
                 href={p.href}
                 onClick={onCloseMobile}
-                className={`flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-sm font-semibold transition ${
+                className={`flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold transition ${
                   active
                     ? "bg-[var(--dash-ink)] text-white shadow-sm"
                     : "text-[var(--dash-ink)] hover:bg-white/70"
@@ -277,7 +277,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
             <Link
               href={showMessagerie ? "/messagerie" : "/channels"}
               onClick={onCloseMobile}
-              className={`flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-sm font-semibold transition ${
+              className={`flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold transition ${
                 navActive("/messagerie")
                   ? "bg-[var(--dash-ink)] text-white shadow-sm"
                   : "text-[var(--dash-ink)] hover:bg-white/70"
@@ -299,8 +299,8 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           ) : null}
 
           {(quickLinks.length > 0 || isOrgAdmin) && (
-            <div className="pt-2">
-              <div className="mb-1 flex items-center justify-between gap-2 px-1">
+            <div className="pt-3">
+              <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
                   Raccourcis
                 </p>
@@ -354,14 +354,14 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           )}
         </nav>
 
-        <div className="space-y-2 px-3 pb-3 pt-1">
+        <div className="space-y-2 px-2.5 pb-3 pt-1.5">
           <SidebarScoliaBlock onCloseMobile={onCloseMobile} />
 
           <div className="relative">
             <button
               type="button"
               onClick={() => setProfileOpen((v) => !v)}
-              className="flex w-full items-center gap-3 rounded-2xl bg-white/80 px-3 py-2.5 text-left shadow-sm ring-1 ring-black/5 transition hover:bg-white"
+              className="flex w-full items-center gap-3 rounded-2xl bg-white/80 px-3 py-2 text-left shadow-sm ring-1 ring-black/5 transition hover:bg-white"
             >
               {user?.imageUrl ? (
                 <img
