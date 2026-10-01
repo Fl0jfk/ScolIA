@@ -154,11 +154,14 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "list_eleves_filtered",
     description:
-      "Liste les élèves filtrés par classe et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP de 6ème A ». Retourne des liens dossier.",
+      "Liste les élèves filtrés par classe et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP de 6ème A ». « 6ème A » / « sixième A » = classe 6A (pas 6E). Retourne des liens dossier.",
     parameters: {
       type: "object",
       properties: {
-        classe: { type: "string", description: "Ex. 6ème A" },
+        classe: {
+          type: "string",
+          description: "Ex. 6ème A, 6A, sixième B — garder la lettre de division (A/B/C…)",
+        },
         accompagnement: {
           type: "string",
           description: "pap | pai | pps | gevasco | any",

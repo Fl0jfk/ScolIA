@@ -6,9 +6,10 @@ import { listEleveLatestAccompagnementByKind } from "@/app/lib/eleve-dossier-acc
 import { listElevesDossierFromDb } from "@/app/lib/eleve-dossier-prof";
 import type { AccompagnementKind } from "@/app/lib/eleve-pap";
 import { ACCOMPAGNEMENT_KINDS } from "@/app/lib/eleve-pap";
-import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import { schoolClassesMatch, resolveSchoolClassQuery } from "@/app/lib/school-classes-catalog";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
+import { choicesResult } from "@/app/lib/brain-ai/choice-options";
 
 function canView(ctx: BrainToolCtx): boolean {
   return canOpenEleveDossierDetail({
@@ -86,11 +87,33 @@ export async function handleListElevesFiltered(
   void getDb();
   let eleves = await listElevesDossierFromDb(etabId, {
     status: "inscrit",
-    classe: classe || undefined,
   });
 
+  let resolvedClasse = classe;
   if (classe) {
-    eleves = eleves.filter((e) => schoolClassesMatch(e.classe, classe));
+    const known = [
+      ...new Set(eleves.map((e) => String(e.classe || "").trim()).filter(Boolean)),
+    ];
+    const resolved = resolveSchoolClassQuery(classe, known);
+    if (resolved.match) {
+      resolvedClasse = resolved.match;
+    } else if (resolved.ambiguous.length > 0) {
+      return choicesResult(
+        "list_eleves_filtered",
+        "classe",
+        `Plusieurs classes correspondent à « ${classe} ». Laquelle ?`,
+        resolved.ambiguous
+          .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+          .slice(0, 30)
+          .map((c) => ({ value: c, label: c })),
+        { accompagnement: kindRaw || kind || "any" },
+      );
+    } else if (resolved.fold && /^[3-6]E$/.test(resolved.fold)) {
+      // « 6ème » sans lettre alors qu’il n’y a que des 6A/6B… déjà géré via ambiguous ;
+      // sinon on continue avec le fold pour ne pas matcher 6E par erreur seule.
+      resolvedClasse = classe;
+    }
+    eleves = eleves.filter((e) => schoolClassesMatch(e.classe, resolvedClasse));
   }
 
   const accompagnementByEleve = await listEleveLatestAccompagnementByKind({
@@ -134,7 +157,7 @@ export async function handleListElevesFiltered(
       : [];
 
   const filterLabel = [
-    classe ? `classe ${classe}` : null,
+    resolvedClasse ? `classe ${resolvedClasse}` : null,
     kind && kind !== "any" ? kind.toUpperCase() : null,
   ]
     .filter(Boolean)

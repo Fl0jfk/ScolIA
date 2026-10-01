@@ -45,16 +45,21 @@ export function parseClassesSelection(
   catalog: string[],
 ): { selected: string[]; otherText: string; autres: boolean } {
   const tokens = splitClassesValue(raw);
-  const catalogSet = new Set(catalog.map((c) => c.toLowerCase()));
   const selected: string[] = [];
   const otherParts: string[] = [];
   for (const t of tokens) {
     if (t === TRAVELS_CLASSES_AUTRES_LABEL || t === TRAVELS_CLASSES_AUTRES_VALUE) {
       continue;
     }
-    const hit = catalog.find((c) => c.toLowerCase() === t.toLowerCase());
-    if (hit) selected.push(hit);
-    else if (!catalogSet.has(t.toLowerCase())) otherParts.push(t);
+    const hit =
+      catalog.find((c) => c.toLowerCase() === t.toLowerCase()) ||
+      catalog.find((c) => schoolClassesMatch(c, t)) ||
+      null;
+    if (hit) {
+      if (!selected.includes(hit)) selected.push(hit);
+    } else {
+      otherParts.push(t);
+    }
   }
   const otherText = otherParts.join(", ");
   return { selected, otherText, autres: otherText.length > 0 };

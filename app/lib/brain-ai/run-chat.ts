@@ -758,6 +758,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `  · « crée / créer / nouvelle / démarrer » une sortie → create_trip.\n` +
     `  · Même règle pour les autres modules : ouvrir un dossier → open_eleve_dossier ; créer un élève → create_eleve_preinscrit.\n` +
     `- File perso : get_my_pending_actions (signaux à traiter, signatures, validations).\n` +
+    `- Classes : « 6ème A » / « sixième A » = 6A (pas 6E). Toujours garder la lettre de division.\n` +
     `- create_reservation = réservation salle | create_trip = NOUVELLE sortie uniquement | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
     `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe).\n` +
     `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_eleve_preinscrit | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | decide_rh_absence | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room | resend_stage_signatures.\n` +

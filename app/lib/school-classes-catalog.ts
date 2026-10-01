@@ -92,26 +92,53 @@ export const DEFAULT_CLASSES_BY_POLE: Record<string, string[]> = {
 const BARE_ELEMENTAIRE = new Set(["CP", "CE1", "CE2", "CM1", "CM2"]);
 const BARE_MATERNELLE = new Set(["TPS", "PS", "MS", "GS"]);
 
-/** Compacte un libellé de classe pour comparaison (PS A ≡ PSA, 6ème A ≡ 6A, CE1-B ≡ CE1B). */
+/** Niveau collège/lycée seul (6E, 5E…) — sans lettre de division. */
+function isLevelOnlyFold(fold: string): boolean {
+  return /^[3-6]E$/.test(fold) || /^[12]$/.test(fold) || fold === "T";
+}
+
+/** Classe avec division (6A, 5B, 1A…). */
+function isDivisionFold(fold: string): boolean {
+  if (!fold || isLevelOnlyFold(fold)) return false;
+  return /^[3-6][A-Z0-9]+$/.test(fold) || /^[12T][A-Z0-9]+$/.test(fold);
+}
+
+/**
+ * Compacte un libellé de classe pour comparaison
+ * (PS A ≡ PSA, 6ème A ≡ 6A, CE1-B ≡ CE1B, sixieme a ≡ 6A).
+ */
 export function foldSchoolClass(raw: string): string {
   let s = raw
     .trim()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[°º]/g, "")
+    .replace(/[°º]/g, " ")
     .replace(/[()[\]]/g, " ")
     .toUpperCase();
 
-  // Niveaux écrits en toutes lettres / ordinals Pronote → formes compactes.
+  // Oral / toutes lettres → formes compactes (avant suppression des espaces).
   s = s
+    .replace(/\bSIXIEME\b/g, "6E")
+    .replace(/\bCINQUIEME\b/g, "5E")
+    .replace(/\bQUATRIEME\b/g, "4E")
+    .replace(/\bTROISIEME\b/g, "3E")
     .replace(/\bPREMIERE\b/g, "1RE")
     .replace(/\b1ERE\b/g, "1RE")
     .replace(/\bSECONDE\b/g, "2NDE")
     .replace(/\b2DE\b/g, "2NDE")
     .replace(/\bTERMINALE\b/g, "TLE")
-    .replace(/\bTALE\b/g, "TLE")
+    .replace(/\bTALE\b/g, "TLE");
+
+  // « 6 EME A », « 6EME A », « 6 E A »
+  s = s
+    .replace(/\b([3-6])\s*EME\b/g, "$1E")
     .replace(/\b([3-6])EME\b/g, "$1E")
-    .replace(/\b([3-6])E\b/g, "$1E");
+    .replace(/\b([3-6])\s*E\b/g, "$1E");
+
+  // Division séparée : « 6E A » / « 6 E A » → garder lettre avant compactage
+  s = s.replace(/\b([3-6]E)\s+([A-Z])\b/g, "$1$2");
+  s = s.replace(/\b([12](?:RE|NDE)?|TLE)\s+([A-Z])\b/g, "$1$2");
+  s = s.replace(/\b([3-6])\s+([A-Z])\b/g, "$1$2");
 
   s = s.replace(/[\s._\-/]+/g, "");
 
@@ -124,6 +151,26 @@ export function foldSchoolClass(raw: string): string {
   return s;
 }
 
+/**
+ * Indique si la requête parlée/écrite contient clairement une lettre de division
+ * (« 6ème A », « 6 A », « sixieme B ») — pour ne pas la perdre en 6E.
+ */
+export function spokenClassHasDivision(raw: string): boolean {
+  const s = raw
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  if (/\b([3-6]|SIXIEME|CINQUIEME|QUATRIEME|TROISIEME|6E|5E|4E|3E)\s*[A-Z]\b/.test(s)) {
+    return true;
+  }
+  if (/\b([3-6])EME\s*[A-Z]\b/.test(s)) return true;
+  if (/^[3-6][A-Z]/i.test(foldSchoolClass(raw)) && !/^[3-6]E$/i.test(foldSchoolClass(raw))) {
+    return true;
+  }
+  return false;
+}
+
 export function schoolClassesMatch(
   a: string | null | undefined,
   b: string | null | undefined,
@@ -132,11 +179,64 @@ export function schoolClassesMatch(
   const fb = foldSchoolClass(String(b || ""));
   if (!fa || !fb) return false;
   if (fa === fb) return true;
+
+  // Jamais « 6E » (niveau) ≡ « 6A » (division).
+  if (
+    (isLevelOnlyFold(fa) && isDivisionFold(fb)) ||
+    (isLevelOnlyFold(fb) && isDivisionFold(fa))
+  ) {
+    return false;
+  }
+
   // Préfixe prudent (évite « 1 » ≡ « 1A ») : au moins 3 caractères utiles.
   if (fa.length >= 3 && fb.length >= 3 && (fa.startsWith(fb) || fb.startsWith(fa))) {
     return true;
   }
   return false;
+}
+
+/**
+ * Résout une saisie libre (« 6ème A », « sixieme a ») vers une classe connue.
+ * Si plusieurs divisions possibles pour un niveau seul (« 6ème »), renvoie ambiguous.
+ */
+export function resolveSchoolClassQuery(
+  query: string,
+  knownClasses: string[],
+): { match: string | null; ambiguous: string[]; fold: string } {
+  const q = String(query || "").trim();
+  const fold = foldSchoolClass(q);
+  if (!q || !fold || knownClasses.length === 0) {
+    return { match: null, ambiguous: [], fold };
+  }
+
+  const uniqueKnown = [...new Set(knownClasses.map((c) => String(c || "").trim()).filter(Boolean))];
+
+  const exactFold = uniqueKnown.filter((c) => foldSchoolClass(c) === fold);
+  if (exactFold.length === 1 && !(isLevelOnlyFold(fold) && !spokenClassHasDivision(q))) {
+    return { match: exactFold[0]!, ambiguous: [], fold };
+  }
+  if (exactFold.length > 1) return { match: null, ambiguous: exactFold, fold };
+
+  // « 6ème » sans lettre → proposer toutes les 6x (6A, 6B… et 6E s’il existe),
+  // plutôt que de coller sur 6E.
+  if (isLevelOnlyFold(fold) && !spokenClassHasDivision(q)) {
+    const levelDigit = fold[0]!;
+    const related = uniqueKnown.filter((c) => {
+      const f = foldSchoolClass(c);
+      return f === fold || (isDivisionFold(f) && f.startsWith(levelDigit));
+    });
+    if (related.length > 1) return { match: null, ambiguous: related, fold };
+    if (related.length === 1) return { match: related[0]!, ambiguous: [], fold };
+  }
+
+  if (exactFold.length === 1) return { match: exactFold[0]!, ambiguous: [], fold };
+
+  // Match souple via schoolClassesMatch (sans confondre niveau / division).
+  const soft = uniqueKnown.filter((c) => schoolClassesMatch(c, q));
+  if (soft.length === 1) return { match: soft[0]!, ambiguous: [], fold };
+  if (soft.length > 1) return { match: null, ambiguous: soft, fold };
+
+  return { match: null, ambiguous: [], fold };
 }
 
 function foldClass(raw: string): string {
