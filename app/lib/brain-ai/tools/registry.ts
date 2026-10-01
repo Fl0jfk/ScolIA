@@ -23,8 +23,112 @@ import {
   handleGetWeekSheetRange,
   handleGetWeekSheetToday,
 } from "@/app/lib/brain-ai/tools/handlers/week-sheet";
+import {
+  handleListDestinations,
+  handleResolveAndOpen,
+} from "@/app/lib/brain-ai/tools/handlers/navigation";
+import {
+  handleOpenEleveDossier,
+  handleSearchEleves,
+  handleUpdateEleveRegime,
+} from "@/app/lib/brain-ai/tools/handlers/eleves";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
+  {
+    name: "resolve_and_open",
+    description:
+      "Ouvre une page de l’intranet (modale ou navigation). Utiliser dès que l’utilisateur veut aller sur un module / une page / un écran. Passer query (texte libre) ou destinationId ou href.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Ex. sorties scolaires, photocopies, absences" },
+        destinationId: { type: "string" },
+        href: { type: "string", description: "Chemin interne /…" },
+        label: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/dashboard",
+    moduleId: "dashboard-week-sheet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleResolveAndOpen,
+  },
+  {
+    name: "list_destinations",
+    description: "Liste les pages / modules accessibles (optionnellement filtrés par query).",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/dashboard",
+    moduleId: "dashboard-week-sheet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleListDestinations,
+  },
+  {
+    name: "search_eleves",
+    description: "Recherche des élèves par nom/prénom (dossiers). Retourne id, classe, régime.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Nom et/ou prénom" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleSearchEleves,
+  },
+  {
+    name: "open_eleve_dossier",
+    description:
+      "Ouvre le dossier élève (ou les documents d’inscription / préinscription) en modale. Passer eleveId ou query (nom). subView=inscription pour les docs d’inscription.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+        subView: { type: "string", enum: ["dossier", "inscription"] },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleOpenEleveDossier,
+  },
+  {
+    name: "update_eleve_regime",
+    description:
+      "Change le régime d’un élève (interne / demi-pensionnaire / externe). Demande toujours confirmation UI. Passer eleveId ou query + regime.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+        regime: {
+          type: "string",
+          description: "interne | demi_pension | externe (ou libellé FR)",
+        },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleUpdateEleveRegime,
+  },
+
   {
     name: "get_week_sheet_today",
     description:

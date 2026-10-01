@@ -24,6 +24,11 @@ import {
   type ScoliaMemoryMessage,
 } from "@/app/lib/brain-ai/scolia-memory";
 import { SCOLIA_ASK_EVENT, SCOLIA_OPEN_EVENT, type ScoliaAskDetail, type ScoliaOpenDetail } from "@/app/lib/brain-ai/scolia-ask";
+import {
+  ScoliaUrlModal,
+  useScoliaClientActions,
+} from "@/app/components/scolia/ScoliaClientActions";
+import type { BrainClientAction } from "@/app/lib/brain-ai/types";
 
 type PendingConfirmation = {
   tool: string;
@@ -135,12 +140,15 @@ async function uploadPdf(file: File): Promise<{ key: string; fileName: string; c
 type Props = {
   /** Mode page dédiée (/scolia-ai) — pas de bulle flottante. */
   pageMode?: boolean;
+  /** Intégré dans un layout parent (hub dashboard) — hauteur 100% au lieu de 100dvh. */
+  embedded?: boolean;
 };
 
-export default function ChatbotBubble({ pageMode = false }: Props) {
+export default function ChatbotBubble({ pageMode = false, embedded = false }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const { isSignedIn } = useSessionUser();
+  const { runActions, urlModal, closeUrlModal } = useScoliaClientActions();
   const [open, setOpen] = useState(pageMode);
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
@@ -370,13 +378,35 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       } else {
         setCtas([]);
       }
+      const answerText = data.answer || data.error || "Je ne peux pas répondre pour le moment.";
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: data.answer || data.error || "Je ne peux pas répondre pour le moment.",
+          content: answerText,
         },
       ]);
+      if (Array.isArray(data.clientActions)) {
+        runActions(data.clientActions as BrainClientAction[]);
+      }
+      // Persistance serveur (best-effort) — historique multi-appareils
+      if (isSignedIn && data.conversationState?.conversationId) {
+        const convId = String(data.conversationState.conversationId);
+        const toPersist: Array<{ role: "user" | "assistant"; content: string }> = [];
+        if (userLabel) toPersist.push({ role: "user", content: userLabel });
+        toPersist.push({ role: "assistant", content: answerText });
+        void fetch(`/api/chatbot/conversations/${encodeURIComponent(convId)}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: toPersist,
+            state: data.conversationState,
+            titleHint: userLabel || undefined,
+          }),
+        }).catch(() => {
+          /* ignore */
+        });
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -979,31 +1009,55 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
   if (pageMode) {
     return (
-      <div className="min-h-[100dvh] w-full bg-[radial-gradient(ellipse_at_top,_#eef2ff_0%,_#f8fafc_50%,_#f1f5f9_100%)]">
-        <div className="mx-auto flex h-[100dvh] w-full max-w-4xl flex-col">{renderChatBody()}</div>
-      </div>
+      <>
+        <div
+          className={
+            embedded
+              ? "flex h-full min-h-0 w-full flex-col bg-transparent"
+              : "min-h-[100dvh] w-full bg-[radial-gradient(ellipse_at_top,_#eef2ff_0%,_#f8fafc_50%,_#f1f5f9_100%)]"
+          }
+        >
+          <div
+            className={
+              embedded
+                ? "flex h-full min-h-0 w-full flex-col"
+                : "mx-auto flex h-[100dvh] w-full max-w-4xl flex-col"
+            }
+          >
+            {renderChatBody()}
+          </div>
+        </div>
+        {urlModal ? (
+          <ScoliaUrlModal href={urlModal.href} title={urlModal.title} onClose={closeUrlModal} />
+        ) : null}
+      </>
     );
   }
 
   if (!mounted || !open) return null;
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6">
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
-        aria-label="Fermer ScolIA"
-        onClick={() => setOpen(false)}
-      />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={SCOLIA_AI_NAME}
-        className="relative z-[1] flex h-[min(88dvh,820px)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_32px_80px_-28px_rgba(15,23,42,0.45)]"
-      >
-        {renderChatBody()}
+    <>
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6">
+        <button
+          type="button"
+          className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
+          aria-label="Fermer ScolIA"
+          onClick={() => setOpen(false)}
+        />
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={SCOLIA_AI_NAME}
+          className="relative z-[1] flex h-[min(88dvh,820px)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_32px_80px_-28px_rgba(15,23,42,0.45)]"
+        >
+          {renderChatBody()}
+        </div>
       </div>
-    </div>
+      {urlModal ? (
+        <ScoliaUrlModal href={urlModal.href} title={urlModal.title} onClose={closeUrlModal} />
+      ) : null}
+    </>
   );
 }

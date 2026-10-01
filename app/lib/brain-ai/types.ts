@@ -15,6 +15,12 @@ export type BrainPendingChoices = {
   selectionType?: "single" | "multi" | "date" | "text";
 };
 
+/** Action UI exécutée côté navigateur après la réponse Brain. */
+export type BrainClientAction =
+  | { type: "open_route"; href: string; label?: string }
+  | { type: "open_eleve_dossier"; eleveId: string; subView?: "dossier" | "inscription" }
+  | { type: "open_url_modal"; href: string; title?: string };
+
 export type BrainToolResult =
   | { ok: true; data: unknown; summaryFr?: string }
   | { ok: false; error: string; code?: string }
@@ -79,6 +85,7 @@ export type BrainChatResponse = {
   pendingConfirmation?: BrainPendingConfirmation | null;
   pendingChoices?: BrainPendingChoices | null;
   ctas?: BrainCta[];
+  clientActions?: BrainClientAction[];
 };
 
 export type BrainToolDefinition = {

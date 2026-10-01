@@ -33,7 +33,7 @@ export function defaultWelcomeMessage(): ScoliaMemoryMessage {
   return {
     role: "assistant",
     content:
-      `Bonjour, je suis ${SCOLIA_AI_NAME}. Posez votre question, glissez un PDF si besoin, ou dictez au micro — réservation de salle, demandes, absences, photocopies, feuille de semaine, séjours…`,
+      `Bonjour, je suis ${SCOLIA_AI_NAME}. Parlez au micro ou écrivez — j’ouvre les pages (dossiers élèves, sorties, salles…) et j’agis avec votre validation.`,
   };
 }
 

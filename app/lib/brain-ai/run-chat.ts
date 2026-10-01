@@ -20,6 +20,7 @@ import {
 } from "@/app/lib/travels-classes";
 import type {
   BrainChatResponse,
+  BrainClientAction,
   BrainCta,
   BrainConversationState,
   BrainPendingChoices,
@@ -219,6 +220,47 @@ function extractCtas(data: unknown): BrainCta[] {
     .map((c) => ({ label: String((c as BrainCta).label || "Ouvrir"), href: (c as BrainCta).href }));
 }
 
+function extractClientActions(data: unknown): BrainClientAction[] {
+  if (!data || typeof data !== "object") return [];
+  const raw = (data as { clientActions?: unknown }).clientActions;
+  if (!Array.isArray(raw)) return [];
+  const out: BrainClientAction[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const type = String((item as { type?: string }).type || "");
+    if (type === "open_route") {
+      const href = String((item as { href?: string }).href || "").trim();
+      if (!href.startsWith("/")) continue;
+      out.push({
+        type: "open_route",
+        href,
+        label: String((item as { label?: string }).label || "Ouvrir"),
+      });
+      continue;
+    }
+    if (type === "open_eleve_dossier") {
+      const eleveId = String((item as { eleveId?: string }).eleveId || "").trim();
+      if (!eleveId) continue;
+      const subView =
+        String((item as { subView?: string }).subView || "") === "inscription"
+          ? "inscription"
+          : "dossier";
+      out.push({ type: "open_eleve_dossier", eleveId, subView });
+      continue;
+    }
+    if (type === "open_url_modal") {
+      const href = String((item as { href?: string }).href || "").trim();
+      if (!href.startsWith("/")) continue;
+      out.push({
+        type: "open_url_modal",
+        href,
+        title: String((item as { title?: string }).title || ""),
+      });
+    }
+  }
+  return out;
+}
+
 function applyChoiceToArgs(
   draftArgs: Record<string, unknown>,
   field: string,
@@ -318,6 +360,7 @@ function materializeToolTurn(
   result: BrainToolResult,
   ctas: BrainCta[],
   knowledgeMeta?: { domainId?: string; file?: string },
+  clientActions: BrainClientAction[] = [],
 ): BrainChatResponse {
   if (!result.ok && "needsChoices" in result && result.needsChoices) {
     const pendingChoices: BrainPendingChoices = {
@@ -337,6 +380,7 @@ function materializeToolTurn(
       pendingConfirmation: null,
       pendingChoices,
       ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
     };
   }
 
@@ -355,6 +399,7 @@ function materializeToolTurn(
       pendingConfirmation,
       pendingChoices: null,
       ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
     };
   }
 
@@ -368,10 +413,12 @@ function materializeToolTurn(
       pendingConfirmation: null,
       pendingChoices: null,
       ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
     };
   }
 
   const nextCtas = [...ctas, ...extractCtas(result.data)];
+  const nextActions = [...clientActions, ...extractClientActions(result.data)];
   const follow =
     result.data && typeof result.data === "object" && "followUrl" in (result.data as object)
       ? String((result.data as { followUrl?: string }).followUrl || "")
@@ -390,6 +437,7 @@ function materializeToolTurn(
     pendingConfirmation: null,
     pendingChoices: null,
     ctas: nextCtas.length ? nextCtas : undefined,
+    clientActions: nextActions.length ? nextActions : undefined,
   };
 }
 
@@ -448,6 +496,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   }
 
   const ctas: BrainCta[] = [];
+  const clientActions: BrainClientAction[] = [];
   let pendingConfirmation: BrainPendingConfirmation | null = null;
   let pendingChoices: BrainPendingChoices | null = null;
 
@@ -473,7 +522,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       ...input.toolCtx,
       confirmed: false,
     });
-    return materializeToolTurn(conversationState, result, ctas);
+    return materializeToolTurn(conversationState, result, ctas, undefined, clientActions);
   }
 
   // Confirmation directe (bouton UI) — fusionne éventuelle PJ récente dans les args photocopies
@@ -534,6 +583,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       };
     }
     ctas.push(...extractCtas(result.data));
+    clientActions.push(...extractClientActions(result.data));
     const follow =
       result.data && typeof result.data === "object" && "followUrl" in (result.data as object)
         ? String((result.data as { followUrl?: string }).followUrl || "")
@@ -545,6 +595,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       pendingConfirmation: null,
       pendingChoices: null,
       ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
     };
   }
 
@@ -598,7 +649,9 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- INTERDIT d'écrire « dites-moi… », « pour commencer… », « liste-moi les salles… ».\n` +
     `- Dès que l'utilisateur veut réserver / créer / déclarer : appelle IMMÉDIATEMENT l'outil correspondant AVEC {} (sans args). L'UI affiche listes déroulantes, dates et boutons.\n` +
     `- create_reservation = réservation salle | create_trip = sortie/voyage | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
-    `- Pas d'accès RH / dossiers personnels / salaires. create_absence = soi uniquement.\n` +
+    `- Navigation : resolve_and_open (pages modules) | open_eleve_dossier (dossier / docs inscription) | search_eleves | update_eleve_regime (avec confirmation).\n` +
+    `- Dossiers élèves / régime : UNIQUEMENT si l'utilisateur a les droits (les outils refusent sinon). Pas de salaires / RH nominatifs hors outils.\n` +
+    `- create_absence = soi uniquement (sauf outils absences dédiés).\n` +
     `- Si des PDF sont joints (max 5), passe-les à create_photocopie_demand via documents[] (ou documentKey / documentFileName en mono).\n` +
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
     `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
@@ -700,6 +753,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         pendingConfirmation,
         pendingChoices,
         ctas: ctas.length ? ctas : undefined,
+        clientActions: clientActions.length ? clientActions : undefined,
       };
     }
 
@@ -753,6 +807,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
           result,
           ctas,
           { domainId: knowledge.domain.id, file: knowledge.domain.file },
+          clientActions,
         );
       }
 
@@ -762,11 +817,13 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
           result,
           ctas,
           { domainId: knowledge.domain.id, file: knowledge.domain.file },
+          clientActions,
         );
       }
 
       if (result.ok) {
         ctas.push(...extractCtas(result.data));
+        clientActions.push(...extractClientActions(result.data));
         const follow =
           result.data && typeof result.data === "object" && "followUrl" in (result.data as object)
             ? String((result.data as { followUrl?: string }).followUrl || "")
@@ -794,5 +851,6 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     pendingConfirmation,
     pendingChoices,
     ctas: ctas.length ? ctas : undefined,
+    clientActions: clientActions.length ? clientActions : undefined,
   };
 }

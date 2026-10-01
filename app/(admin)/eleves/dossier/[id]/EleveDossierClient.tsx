@@ -327,11 +327,13 @@ const emptyResp = {
 export default function EleveDossierClient({
   mode = "page",
   eleveId: eleveIdProp,
+  initialModalSubView = "dossier",
   onClose,
   onNavigateEleve,
 }: {
   mode?: "page" | "modal";
   eleveId?: string;
+  initialModalSubView?: "dossier" | "inscription";
   onClose?: () => void;
   onNavigateEleve?: (eleveId: string) => void;
 } = {}) {
@@ -347,7 +349,7 @@ export default function EleveDossierClient({
   const [data, setData] = useState<DossierPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("synthese");
-  const [modalSubView, setModalSubView] = useState<"dossier" | "inscription">("dossier");
+  const [modalSubView, setModalSubView] = useState<"dossier" | "inscription">(initialModalSubView);
   const [focusFoyerId, setFocusFoyerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);

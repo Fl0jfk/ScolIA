@@ -19,6 +19,7 @@ import {
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { MODULE_EMOJI, moduleHref } from "@/app/lib/pillar-module-routes";
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
+import ScoliaCompactBar from "@/app/components/scolia/ScoliaCompactBar";
 import { PILLAR_EDGE, PILLAR_ORB, PILLAR_WASH } from "@/app/lib/dashboard-pillar-visual";
 
 type Props = {
@@ -431,6 +432,12 @@ export default function PillarModuleDashboard({
     return [...modules].sort((a, b) => score(a.moduleId) - score(b.moduleId));
   }, [modules, pillarShortcuts]);
 
+  const urgentSignals = useMemo(() => {
+    return pillarShortcuts
+      .filter((s) => s.rich && (s.tone === "warn" || s.tone === "action" || Boolean(s.badge)))
+      .slice(0, 8);
+  }, [pillarShortcuts]);
+
   const count = orderedModules.length;
   const gridClass =
     count <= 2
@@ -450,6 +457,37 @@ export default function PillarModuleDashboard({
           className="relative mx-auto flex w-full max-w-[90rem] flex-1 flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-8"
           aria-label={pillar.title}
         >
+          <div className="mb-3 flex flex-col gap-2 sm:mb-4">
+            <ScoliaCompactBar />
+            {urgentSignals.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 rounded-2xl border border-white/60 bg-white/55 p-2 backdrop-blur">
+                <span className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--dash-mid)]">
+                  À traiter
+                </span>
+                {urgentSignals.map((s) => (
+                  <Link
+                    key={s.id}
+                    href={s.href}
+                    className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-105 ${
+                      s.tone === "warn"
+                        ? "bg-amber-100 text-amber-900"
+                        : s.tone === "action"
+                          ? "bg-[var(--dash-primary)]/15 text-[var(--dash-primary)]"
+                          : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    <span className="truncate">{s.label}</span>
+                    {s.badge ? (
+                      <span className="rounded-full bg-white/80 px-1.5 text-[9px] font-bold">
+                        {s.badge}
+                      </span>
+                    ) : null}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           {orderedModules.length === 0 ? (
             <p className="rounded-2xl border border-white/60 bg-white/50 px-5 py-8 text-center text-sm text-[var(--dash-mid)] backdrop-blur">
               Aucun module accessible pour votre profil. Contactez un administrateur si besoin.

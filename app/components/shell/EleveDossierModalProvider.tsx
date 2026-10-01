@@ -13,7 +13,7 @@ import {
 import EleveDossierClient from "@/app/(admin)/eleves/dossier/[id]/EleveDossierClient";
 
 type EleveDossierModalApi = {
-  open: (eleveId: string) => void;
+  open: (eleveId: string, opts?: { subView?: "dossier" | "inscription" }) => void;
   close: () => void;
   isOpen: boolean;
   eleveId: string | null;
@@ -36,10 +36,12 @@ export function useEleveDossierModalOptional(): EleveDossierModalApi | null {
 
 function ModalBody({
   eleveId,
+  initialSubView,
   onClose,
   onNavigateEleve,
 }: {
   eleveId: string;
+  initialSubView: "dossier" | "inscription";
   onClose: () => void;
   onNavigateEleve: (id: string) => void;
 }) {
@@ -59,7 +61,7 @@ function ModalBody({
       <div className="relative z-[1] flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--dash-surface)] shadow-2xl sm:h-[min(92dvh,920px)] sm:max-w-6xl sm:rounded-[1.75rem] sm:border sm:border-black/8">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-black/6 bg-white px-4 py-3 sm:px-5">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
-            Dossier élève
+            {initialSubView === "inscription" ? "Documents d’inscription" : "Dossier élève"}
           </p>
           <button
             type="button"
@@ -87,9 +89,10 @@ function ModalBody({
             }
           >
             <EleveDossierClient
-              key={eleveId}
+              key={`${eleveId}:${initialSubView}`}
               mode="modal"
               eleveId={eleveId}
+              initialModalSubView={initialSubView}
               onClose={onClose}
               onNavigateEleve={onNavigateEleve}
             />
@@ -102,13 +105,16 @@ function ModalBody({
 
 export default function EleveDossierModalProvider({ children }: { children: ReactNode }) {
   const [eleveId, setEleveId] = useState<string | null>(null);
+  const [subView, setSubView] = useState<"dossier" | "inscription">("dossier");
 
-  const open = useCallback((id: string) => {
+  const open = useCallback((id: string, opts?: { subView?: "dossier" | "inscription" }) => {
+    setSubView(opts?.subView === "inscription" ? "inscription" : "dossier");
     setEleveId(id);
   }, []);
 
   const close = useCallback(() => {
     setEleveId(null);
+    setSubView("dossier");
   }, []);
 
   useEffect(() => {
@@ -141,8 +147,12 @@ export default function EleveDossierModalProvider({ children }: { children: Reac
       {eleveId ? (
         <ModalBody
           eleveId={eleveId}
+          initialSubView={subView}
           onClose={close}
-          onNavigateEleve={(id) => setEleveId(id)}
+          onNavigateEleve={(id) => {
+            setSubView("dossier");
+            setEleveId(id);
+          }}
         />
       ) : null}
     </EleveDossierModalContext.Provider>
