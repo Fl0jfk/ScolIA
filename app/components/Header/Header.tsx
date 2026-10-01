@@ -230,15 +230,6 @@ export default function Header() {
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {isSignedIn && !isDashboard ? (
-              <Link
-                href="/dashboard"
-                className="hidden rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 md:inline-flex"
-              >
-                Dashboard
-              </Link>
-            ) : null}
-
             {isSignedIn ? (
               <div ref={popoverRef} className="relative hidden md:block">
                 <button

@@ -5,7 +5,6 @@ import { useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import GlassLayer from "@/app/components/GlassLayer";
-import { dash } from "@/app/lib/dashboard-brand";
 import {
   DASHBOARD_PILLARS,
   categoriesForPillar,
@@ -447,19 +446,10 @@ export default function PillarModuleDashboard({
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,color-mix(in_srgb,var(--dash-soft)_80%,transparent),transparent_55%),radial-gradient(ellipse_at_bottom_right,color-mix(in_srgb,var(--dash-bright)_18%,transparent),transparent_50%)]"
           aria-hidden
         />
-        <main className="relative mx-auto flex w-full max-w-[90rem] flex-1 flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
-          <div className="relative mb-4 flex shrink-0 items-center justify-center">
-            <Link
-              href="/dashboard"
-              className={`absolute left-0 text-xs font-bold tracking-wide ${dash.textPrimary} hover:underline`}
-            >
-              ← Tableau de bord
-            </Link>
-            <h1 className={`text-2xl font-black tracking-tight sm:text-3xl ${dash.ink}`}>
-              {pillar.title}
-            </h1>
-          </div>
-
+        <main
+          className="relative mx-auto flex w-full max-w-[90rem] flex-1 flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-8"
+          aria-label={pillar.title}
+        >
           {orderedModules.length === 0 ? (
             <p className="rounded-2xl border border-white/60 bg-white/50 px-5 py-8 text-center text-sm text-[var(--dash-mid)] backdrop-blur">
               Aucun module accessible pour votre profil. Contactez un administrateur si besoin.
