@@ -23,8 +23,6 @@ export default function ChatbotBubbleClient() {
 
   const path = (pathname ?? "").toLowerCase();
   if (path === "/scolia-ai" || path.startsWith("/scolia-ai/")) return null;
-  /** Accueil chat-first : ScolIA est déjà monté dans la page. */
-  if (path === "/dashboard" || path.startsWith("/dashboard/")) return null;
 
   if (bienEtreMode) return <ChatbotBubbleBienEtre />;
   return <ChatbotBubble />;

@@ -146,9 +146,9 @@ export default function ScoliaCompactBar({ className = "" }: { className?: strin
       <Link
         href="/dashboard"
         className="hidden shrink-0 rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50 sm:inline"
-        title="Hub ScolIA"
+        title="Accueil"
       >
-        Hub
+        Accueil
       </Link>
     </div>
   );
