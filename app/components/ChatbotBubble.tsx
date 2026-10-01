@@ -455,7 +455,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               (c: unknown): c is BrainCta =>
                 Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"),
             )
-            .map((c) => ({
+            .map((c: BrainCta) => ({
               label: String(c.label || "Ouvrir"),
               href: c.href,
               ...(c.preview ? { preview: true as const } : {}),
