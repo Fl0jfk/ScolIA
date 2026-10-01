@@ -1,4 +1,5 @@
-import type { BrainToolDefinition } from "@/app/lib/brain-ai/types";
+import type { BrainToolCtx, BrainToolDefinition } from "@/app/lib/brain-ai/types";
+import { assertToolPermissions } from "@/app/lib/brain-ai/permissions";
 import { handleCreateAbsence } from "@/app/lib/brain-ai/tools/handlers/absences";
 import { handleCreateHseDemand, handleListHseDemands } from "@/app/lib/brain-ai/tools/handlers/hse";
 import { handleGetInternatStatus, handleAssignInternatRoom, handleOpenInternatAppel } from "@/app/lib/brain-ai/tools/handlers/internat";
@@ -700,8 +701,25 @@ export function getBrainTool(name: string): BrainToolDefinition | undefined {
   return BRAIN_TOOLS.find((t) => t.name === name);
 }
 
-export function mistralToolsForUser(signedIn: boolean) {
-  const tools = signedIn ? BRAIN_TOOLS : BRAIN_TOOLS.filter((t) => !t.requiresAuth);
+/**
+ * Outils exposés au modèle : filtrés par auth + droits module intranet.
+ * Un outil absent de la liste = l’utilisateur n’y a pas accès (le prompt l’indique).
+ */
+export function mistralToolsForUser(
+  signedIn: boolean,
+  ctx?: Pick<BrainToolCtx, "userId" | "roles" | "isOrgAdmin" | "audience">,
+) {
+  let tools = signedIn ? BRAIN_TOOLS : BRAIN_TOOLS.filter((t) => !t.requiresAuth);
+  if (ctx && signedIn) {
+    const gateCtx: BrainToolCtx = {
+      userId: ctx.userId,
+      roles: ctx.roles,
+      isOrgAdmin: ctx.isOrgAdmin,
+      audience: ctx.audience,
+      confirmed: false,
+    };
+    tools = tools.filter((t) => assertToolPermissions(gateCtx, t).ok);
+  }
   return tools.map((t) => ({
     type: "function" as const,
     function: {

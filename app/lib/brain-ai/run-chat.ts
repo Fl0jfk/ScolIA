@@ -14,6 +14,7 @@ import {
 } from "@/app/lib/brain-ai/conversation-state";
 import { executeBrainTool } from "@/app/lib/brain-ai/tools/execute";
 import { getBrainTool, mistralToolsForUser } from "@/app/lib/brain-ai/tools/registry";
+import { isBrainPermissionDenied } from "@/app/lib/brain-ai/permissions";
 import { detectWizardStartTool } from "@/app/lib/brain-ai/wizard-intent";
 import {
   TRAVELS_CLASSES_AUTRES_LABEL,
@@ -716,7 +717,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     };
   }
 
-  const tools = mistralToolsForUser(signedIn);
+  const tools = mistralToolsForUser(signedIn, input.toolCtx);
 
   const systemPrompt =
     `Tu es ScolIA, l'assistant institutionnel de l'établissement (Brain AI).\n` +
@@ -725,6 +726,11 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +
     `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat…) — toujours préférer un outil pour l'actualité.\n` +
+    `Droits d'accès (OBLIGATOIRE) :\n` +
+    `- Tu n'as accès QU'AUX OUTILS listés dans cet appel. Ce filtre = les droits intranet de l'utilisateur.\n` +
+    `- Si l'utilisateur demande une action absente de ta liste d'outils : refuse clairement. Formulation type : « Vous n'êtes pas autorisé à effectuer cette action. Elle est restreinte selon votre profil — ScolIA ne peut pas contourner vos droits. »\n` +
+    `- INTERDIT d'inventer un contournement, de simuler le résultat, de « faire comme si », ou de donner des étapes pour passer outre.\n` +
+    `- Si un outil renvoie FORBIDDEN / MODULE_FORBIDDEN : reprends le message d'erreur tel quel, sans l'adoucir ni proposer de bypass.\n` +
     `Règles STRICTES (actions) :\n` +
     `- INTERDIT de demander en texte libre la salle, la date, les créneaux, le motif, etc.\n` +
     `- INTERDIT d'écrire « dites-moi… », « pour commencer… », « liste-moi les salles… ».\n` +
@@ -741,7 +747,6 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Stages : get_stages_overview | resend_stage_signatures (relance e-mails / ouvrir convention).\n` +
     `- RH absences (direction) : decide_rh_absence avec {} pour la file à valider.\n` +
     `- Voyages : open_trip (ouvrir / lister existants) | list_trips_brief | get_trip_status | create_trip (créer neuf seulement).\n` +
-    `- Dossiers élèves / régime / PAP / préinscription : UNIQUEMENT si l'utilisateur a les droits (les outils refusent sinon).\n` +
     `- create_absence = soi uniquement. create_accueil_absence = élèves (accueil). decide_rh_absence = file direction/validateur.\n` +
     `- Photocopies : après les champs, l'UI demande le PDF (dépôt). Ne demande pas le PDF en texte libre.\n` +
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
@@ -891,6 +896,24 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         ...input.toolCtx,
         confirmed: false,
       });
+
+      // Refus RBAC : réponse immédiate, sans laisser le modèle inventer un contournement.
+      if (
+        !result.ok &&
+        "code" in result &&
+        isBrainPermissionDenied(result.code) &&
+        !("needsConfirmation" in result) &&
+        !("needsChoices" in result) &&
+        !("needsFileUpload" in result)
+      ) {
+        return materializeToolTurn(
+          conversationState,
+          result,
+          ctas,
+          { domainId: knowledge.domain.id, file: knowledge.domain.file },
+          clientActions,
+        );
+      }
 
       if (!result.ok && "needsChoices" in result && result.needsChoices) {
         return materializeToolTurn(

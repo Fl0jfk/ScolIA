@@ -1,4 +1,8 @@
-import { assertToolPermissions } from "@/app/lib/brain-ai/permissions";
+import {
+  assertToolPermissions,
+  isBrainPermissionDenied,
+  normalizeBrainDeniedResult,
+} from "@/app/lib/brain-ai/permissions";
 import { getBrainTool } from "@/app/lib/brain-ai/tools/registry";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 
@@ -13,6 +17,14 @@ function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
     else out[k] = v;
   }
   return out;
+}
+
+function maybeNormalizeDenied(result: BrainToolResult): BrainToolResult {
+  if (result.ok) return result;
+  if (!("error" in result) || !result.error) return result;
+  if (!isBrainPermissionDenied(result.code)) return result;
+  const normalized = normalizeBrainDeniedResult(result.error, result.code);
+  return { ok: false, error: normalized.error, code: normalized.code };
 }
 
 export async function executeBrainTool(
@@ -41,7 +53,7 @@ export async function executeBrainTool(
       : {};
 
   try {
-    const result = await tool.handler(ctx, args);
+    const result = maybeNormalizeDenied(await tool.handler(ctx, args));
     const needsConfirm =
       !result.ok && "needsConfirmation" in result && result.needsConfirmation === true;
     console.info("[brain-ai] tool", {
@@ -51,6 +63,7 @@ export async function executeBrainTool(
       ok: result.ok,
       needsConfirm,
       error: result.ok ? undefined : "error" in result ? result.error : undefined,
+      code: result.ok ? undefined : "code" in result ? result.code : undefined,
     });
     return result;
   } catch (err) {
