@@ -17,6 +17,7 @@ export type BrainActionEntry = {
 /** Source de vérité produit pour étendre le registre sans trous. */
 export const BRAIN_ACTION_CATALOG: BrainActionEntry[] = [
   // —— Live ——
+  { id: "personal-queue", intentFr: "Mes actions / signaux à traiter", tool: "get_my_pending_actions", coverage: "live", moduleId: "dashboard-week-sheet" },
   { id: "nav-open", intentFr: "Ouvrir une page / un module", tool: "resolve_and_open", coverage: "live", moduleId: "dashboard-week-sheet" },
   { id: "eleve-search", intentFr: "Chercher un élève", tool: "search_eleves", coverage: "live", moduleId: "eleve-dossier" },
   { id: "eleve-open", intentFr: "Ouvrir dossier / docs inscription", tool: "open_eleve_dossier", coverage: "live", moduleId: "eleve-dossier" },

@@ -43,8 +43,20 @@ import { handleUpdateEleveGrilleRepas } from "@/app/lib/brain-ai/tools/handlers/
 import { handleCreateElevePreinscrit } from "@/app/lib/brain-ai/tools/handlers/eleve-create";
 import { handleOpenTrip } from "@/app/lib/brain-ai/tools/handlers/open-trip";
 import { handleDecideRhAbsence } from "@/app/lib/brain-ai/tools/handlers/rh-absences";
+import { handleGetMyPendingActions } from "@/app/lib/brain-ai/personal-signals";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
+  {
+    name: "get_my_pending_actions",
+    description:
+      "File personnelle de l’utilisateur : signatures stages, absences à valider, photocopies, demandes… d’après ses signaux intranet. Utiliser pour « qu’est-ce que j’ai à faire », « mes signatures », « à traiter ».",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    pathPrefix: "/dashboard",
+    moduleId: "dashboard-week-sheet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetMyPendingActions,
+  },
   {
     name: "resolve_and_open",
     description:

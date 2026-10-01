@@ -15,6 +15,7 @@ import {
 import { executeBrainTool } from "@/app/lib/brain-ai/tools/execute";
 import { getBrainTool, mistralToolsForUser } from "@/app/lib/brain-ai/tools/registry";
 import { isBrainPermissionDenied } from "@/app/lib/brain-ai/permissions";
+import { loadScoliaPersonalSignalsBrief } from "@/app/lib/brain-ai/personal-signals";
 import { detectWizardStartTool } from "@/app/lib/brain-ai/wizard-intent";
 import {
   TRAVELS_CLASSES_AUTRES_LABEL,
@@ -719,13 +720,29 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
   const tools = mistralToolsForUser(signedIn, input.toolCtx);
 
+  const personalSignals = signedIn
+    ? await loadScoliaPersonalSignalsBrief(input.toolCtx)
+    : { brief: "", items: [], source: "empty" as const };
+  const personalBlock = personalSignals.brief
+    ? `\nContexte personnel (signaux intranet de cet utilisateur) :\n${personalSignals.brief}\n` +
+      `- Si l’utilisateur dit bonjour / « qu’est-ce que j’ai à faire » / « mes signatures » : mentionne ces points et propose d’ouvrir le lien ou d’agir (outil adapté).\n` +
+      `- Pour rafraîchir ou détailler : appelle get_my_pending_actions.\n` +
+      `- N’invente pas d’autres tâches hors cette liste / hors outils.\n`
+    : signedIn
+      ? `\nContexte personnel : aucun signal chargé pour l’instant — si on demande « à faire / signatures / file », appelle get_my_pending_actions.\n`
+      : "";
+
   const systemPrompt =
     `Tu es ScolIA, l'assistant institutionnel de l'établissement (Brain AI).\n` +
     `Réponds en français, précis, utile et concis.\n` +
+    (input.toolCtx.firstName
+      ? `L’utilisateur s’appelle ${input.toolCtx.firstName} — tu peux l’appeler par son prénom, ton professionnel.\n`
+      : "") +
     buildBrainAiClockContext() +
+    personalBlock +
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +
-    `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat…) — toujours préférer un outil pour l'actualité.\n` +
+    `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat, file personnelle…) — toujours préférer un outil pour l'actualité.\n` +
     `Droits d'accès (OBLIGATOIRE) :\n` +
     `- Tu n'as accès QU'AUX OUTILS listés dans cet appel. Ce filtre = les droits intranet de l'utilisateur.\n` +
     `- Si l'utilisateur demande une action absente de ta liste d'outils : refuse clairement. Formulation type : « Vous n'êtes pas autorisé à effectuer cette action. Elle est restreinte selon votre profil — ScolIA ne peut pas contourner vos droits. »\n` +
@@ -740,6 +757,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `  · « ouvre les sorties / module voyages » sans nom → open_trip avec {} ou resolve_and_open.\n` +
     `  · « crée / créer / nouvelle / démarrer » une sortie → create_trip.\n` +
     `  · Même règle pour les autres modules : ouvrir un dossier → open_eleve_dossier ; créer un élève → create_eleve_preinscrit.\n` +
+    `- File perso : get_my_pending_actions (signaux à traiter, signatures, validations).\n` +
     `- create_reservation = réservation salle | create_trip = NOUVELLE sortie uniquement | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
     `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe).\n` +
     `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_eleve_preinscrit | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | decide_rh_absence | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room | resend_stage_signatures.\n` +
