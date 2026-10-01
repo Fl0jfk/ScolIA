@@ -14,6 +14,7 @@ import {
 } from "@/app/lib/brain-ai/tools/handlers/rooms";
 import { handleCreateRequest } from "@/app/lib/brain-ai/tools/handlers/requests";
 import { handleGetStagesOverview } from "@/app/lib/brain-ai/tools/handlers/stages";
+import { handleResendStageSignatures } from "@/app/lib/brain-ai/tools/handlers/stages-signatures";
 import {
   handleCreateTrip,
   handleGetTripStatus,
@@ -38,7 +39,9 @@ import {
 } from "@/app/lib/brain-ai/tools/handlers/accueil-absences";
 import { handleListElevesFiltered } from "@/app/lib/brain-ai/tools/handlers/eleves-filtered";
 import { handleUpdateEleveGrilleRepas } from "@/app/lib/brain-ai/tools/handlers/eleve-grille-repas";
+import { handleCreateElevePreinscrit } from "@/app/lib/brain-ai/tools/handlers/eleve-create";
 import { handleOpenTrip } from "@/app/lib/brain-ai/tools/handlers/open-trip";
+import { handleDecideRhAbsence } from "@/app/lib/brain-ai/tools/handlers/rh-absences";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
@@ -583,6 +586,72 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: async (ctx) => handleGetStagesOverview(ctx),
+  },
+  {
+    name: "resend_stage_signatures",
+    description:
+      "Relance les e-mails de signature d’une convention de stage (file signatures_pending). Sans args : propose la liste. Passer query (nom élève) ou conventionId. openOnly=true pour ouvrir sans relancer.",
+    parameters: {
+      type: "object",
+      properties: {
+        conventionId: { type: "string" },
+        query: { type: "string", description: "Nom élève / entreprise" },
+        openOnly: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/stages",
+    moduleId: "stages",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleResendStageSignatures,
+  },
+  {
+    name: "decide_rh_absence",
+    description:
+      "File direction / validateur OGEC : lister les absences RH en attente, puis valider ou refuser (avec choix du traitement des heures si besoin). Appeler avec {} pour ouvrir la file.",
+    parameters: {
+      type: "object",
+      properties: {
+        absenceId: { type: "string" },
+        query: { type: "string", description: "Nom de l’agent" },
+        decision: { type: "string", enum: ["VALIDER", "REFUSER"] },
+        hoursTreatment: {
+          type: "string",
+          description: "RATTRAPAGE | DEDUCTION_SALAIRE | RATTRAPAGE_INTERNE | DECLARATION_RECTORAT | DECLARATION_ONISE…",
+        },
+        managerNote: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/absences",
+    moduleId: "absences",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleDecideRhAbsence,
+  },
+  {
+    name: "create_eleve_preinscrit",
+    description:
+      "Crée un dossier élève préinscrit (direction / admin / administratif). Wizard : nom → prénom → e-mail parent → confirmation. Ouvre ensuite les docs d’inscription.",
+    parameters: {
+      type: "object",
+      properties: {
+        nom: { type: "string" },
+        prenom: { type: "string" },
+        parentEmail: { type: "string" },
+        parentPhone: { type: "string" },
+        parentFirstName: { type: "string" },
+        parentLastName: { type: "string" },
+        classe: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleCreateElevePreinscrit,
   },
   {
     name: "get_internat_status",
