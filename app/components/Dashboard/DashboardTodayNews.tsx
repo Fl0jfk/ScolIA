@@ -125,20 +125,30 @@ export default function DashboardTodayNews({
         ? success
         : null;
 
+  /** Sidebar : toujours réserver 2 lignes (leading-snug = 1.375 → 2.75em) pour éviter le layout shift. */
+  const sidebarTitleClass =
+    variant === "sidebar"
+      ? "line-clamp-2 min-h-[2.75em] text-[15px]"
+      : "truncate text-lg";
+
   const body = loading || importing ? (
     <>
-      <p className={`truncate font-black leading-snug ${variant === "sidebar" ? "text-[15px]" : "text-lg"} ${dash.ink}`}>
+      <p className={`font-black leading-snug ${sidebarTitleClass} ${dash.ink}`}>
         {importing ? "Import…" : "…"}
       </p>
       {variant !== "sidebar" ? (
         <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
           {importing ? "OCR + analyse" : "chargement"}
         </p>
-      ) : null}
+      ) : (
+        <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
+          {"\u00a0"}
+        </p>
+      )}
     </>
   ) : empty ? (
     <>
-      <p className={`truncate font-black leading-snug ${variant === "sidebar" ? "text-[15px]" : "text-lg"} ${dash.ink}`}>
+      <p className={`font-black leading-snug ${sidebarTitleClass} ${dash.ink}`}>
         Pas d&apos;actualité
       </p>
       <p
@@ -159,11 +169,7 @@ export default function DashboardTodayNews({
         exit={{ opacity: 0, y: -3 }}
         transition={{ duration: 0.28 }}
       >
-        <p
-          className={`font-black leading-snug ${
-            variant === "sidebar" ? "line-clamp-2 text-[15px]" : "truncate text-lg"
-          } ${dash.ink}`}
-        >
+        <p className={`font-black leading-snug ${sidebarTitleClass} ${dash.ink}`}>
           {current?.title}
         </p>
         <p
@@ -248,7 +254,10 @@ export default function DashboardTodayNews({
             📰
           </span>
         )}
-        <div className="min-w-0 flex-1 overflow-hidden">{body}</div>
+        <div className="min-w-0 flex-1 overflow-hidden text-[15px]">
+          {/* Titre 2 lignes (2.75em) + méta (~0.83em à 10px) : hauteur figée même à 1 ligne */}
+          <div className="min-h-[calc(2.75em+0.833em)]">{body}</div>
+        </div>
       </div>
     );
   }
