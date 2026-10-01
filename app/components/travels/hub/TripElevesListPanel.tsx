@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import {
+  buildElevesListXlsxBytes,
+  elevesListExcelFilename,
+} from "@/app/lib/travels-eleves-excel";
+import {
   applyParticipantElevesToTripData,
   compareParticipantsByClasseThenName,
   countPanierRepasAssigned,
@@ -334,6 +338,27 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         for (const k of removeKeys) delete copy[k];
         return copy;
       });
+    }
+  };
+
+  const downloadElevesExcel = () => {
+    if (selectedParticipants.length === 0) {
+      alert("Ajoutez au moins un élève à la liste avant de télécharger.");
+      return;
+    }
+    try {
+      const bytes = buildElevesListXlsxBytes(selectedParticipants.map((p) => p.eleve));
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = elevesListExcelFilename(trip.data.title || trip.data.destination || trip.id);
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Export Excel impossible");
     }
   };
 
@@ -757,52 +782,62 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                   vous pouvez enchaîner plusieurs classes.
                 </p>
               ) : (
-                <div className="max-h-72 overflow-y-auto rounded-xl border border-indigo-100 bg-white">
-                  {selectedByClass.map(({ classe, items }) => (
-                    <div key={classe}>
-                      <div className="sticky top-0 z-[1] border-b border-indigo-200/80 bg-indigo-100/90 px-3 py-1.5 backdrop-blur-sm">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-indigo-900">
-                          {classe}
-                          <span className="ml-2 font-semibold normal-case tracking-normal text-indigo-700/70">
-                            {items.length} élève{items.length > 1 ? "s" : ""}
-                          </span>
-                        </p>
-                      </div>
-                      <ul className="divide-y divide-indigo-50">
-                        {items.map(({ key, eleve }) => (
-                          <li
-                            key={key}
-                            className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm"
-                          >
-                            <span className="min-w-0 flex-1 font-medium text-slate-800">
-                              {eleve.nom} {eleve.prenom}
+                <>
+                  <div className="max-h-72 overflow-y-auto rounded-xl border border-indigo-100 bg-white">
+                    {selectedByClass.map(({ classe, items }) => (
+                      <div key={classe}>
+                        <div className="sticky top-0 z-[1] border-b border-indigo-200/80 bg-indigo-100/90 px-3 py-1.5 backdrop-blur-sm">
+                          <p className="text-[11px] font-black uppercase tracking-wide text-indigo-900">
+                            {classe}
+                            <span className="ml-2 font-semibold normal-case tracking-normal text-indigo-700/70">
+                              {items.length} élève{items.length > 1 ? "s" : ""}
                             </span>
-                            <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
-                              <input
-                                type="checkbox"
-                                checked={droitByKey[key] !== false}
-                                disabled={!canEdit}
-                                onChange={(ev) =>
-                                  setDroitByKey((d) => ({ ...d, [key]: ev.target.checked }))
-                                }
-                              />
-                              Droit image OK
-                            </label>
-                            {canEdit && (
-                              <button
-                                type="button"
-                                onClick={() => removeEleveFromList(key)}
-                                className="text-xs font-bold text-rose-600 hover:underline"
-                              >
-                                Retirer
-                              </button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
+                          </p>
+                        </div>
+                        <ul className="divide-y divide-indigo-50">
+                          {items.map(({ key, eleve }) => (
+                            <li
+                              key={key}
+                              className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm"
+                            >
+                              <span className="min-w-0 flex-1 font-medium text-slate-800">
+                                {eleve.nom} {eleve.prenom}
+                              </span>
+                              <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
+                                <input
+                                  type="checkbox"
+                                  checked={droitByKey[key] !== false}
+                                  disabled={!canEdit}
+                                  onChange={(ev) =>
+                                    setDroitByKey((d) => ({ ...d, [key]: ev.target.checked }))
+                                  }
+                                />
+                                Droit image OK
+                              </label>
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeEleveFromList(key)}
+                                  className="text-xs font-bold text-rose-600 hover:underline"
+                                >
+                                  Retirer
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <TripButton variant="secondary" size="sm" onClick={downloadElevesExcel}>
+                      Télécharger la liste (Excel)
+                    </TripButton>
+                    <p className="text-[11px] text-indigo-800/75">
+                      Nom, prénom, classe — triés par classe puis alphabétique.
+                    </p>
+                  </div>
+                </>
               )}
             </div>
 

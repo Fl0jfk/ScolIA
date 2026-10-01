@@ -80,6 +80,39 @@ export function compareParticipantsByClasseThenName(
   });
 }
 
+/** Lignes Excel nominatives (tri classe → nom → prénom). */
+export type ElevesListExcelRow = {
+  Nom: string;
+  Prénom: string;
+  Classe: string;
+};
+
+export function buildElevesListExcelRows(
+  participants: Array<{ nom: string; prenom: string; classe?: string | null }>,
+): ElevesListExcelRow[] {
+  return participants
+    .slice()
+    .sort(compareParticipantsByClasseThenName)
+    .map((p) => ({
+      Nom: String(p.nom || "").trim(),
+      Prénom: String(p.prenom || "").trim(),
+      Classe: String(p.classe || "").trim(),
+    }));
+}
+
+/** Nom de fichier sûr pour le téléchargement Excel de la liste élèves. */
+export function elevesListExcelFilename(tripLabel?: string | null): string {
+  const raw = String(tripLabel || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+  const stamp = new Date().toISOString().slice(0, 10);
+  return `liste-eleves${raw ? `-${raw}` : ""}-${stamp}.xlsx`;
+}
+
 /** Nombre de paniers attribués dans la liste nominative. */
 export function countPanierRepasAssigned(participants: TravelsParticipantEleve[]): number {
   return participants.filter((p) => p.panierRepas === true).length;
