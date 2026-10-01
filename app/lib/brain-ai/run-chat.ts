@@ -731,7 +731,9 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Dès que l'utilisateur veut réserver / créer / déclarer : appelle IMMÉDIATEMENT l'outil correspondant AVEC {} (sans args). L'UI affiche listes déroulantes, dates et boutons.\n` +
     `- create_reservation = réservation salle | create_trip = sortie/voyage | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
     `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe).\n` +
-    `- Mutations : update_eleve_regime | create_accueil_absence (élève accueil) | create_absence (soi) | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand.\n` +
+    `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room.\n` +
+    `- Internat : get_internat_status | open_internat_appel | assign_internat_room.\n` +
+    `- Voyages : open_trip (choix si plusieurs) | list_trips_brief | get_trip_status | create_trip.\n` +
     `- Dossiers élèves / régime / PAP : UNIQUEMENT si l'utilisateur a les droits (les outils refusent sinon).\n` +
     `- create_absence = soi uniquement. create_accueil_absence = élèves (accueil).\n` +
     `- Photocopies : après les champs, l'UI demande le PDF (dépôt). Ne demande pas le PDF en texte libre.\n` +

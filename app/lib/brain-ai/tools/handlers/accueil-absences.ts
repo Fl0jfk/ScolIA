@@ -307,3 +307,114 @@ export async function handleCreateAccueilAbsence(
       `${eleveNature === "retard" ? "Retard" : "Absence"} déclaré(e) pour ${created.displayName} ${periodLabel}.`,
   };
 }
+
+/**
+ * Annule une absence / retard déclaré à l’accueil (élève).
+ */
+export async function handleCancelAccueilAbsence(
+  ctx: BrainToolCtx,
+  args: Record<string, unknown>,
+): Promise<BrainToolResult> {
+  if (!ctx.userId) {
+    return { ok: false, error: "Connexion requise.", code: "AUTH_REQUIRED" };
+  }
+  if (!isDatabaseConfigured()) {
+    return { ok: false, error: "Base indisponible.", code: "DB" };
+  }
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) return { ok: false, error: "Établissement introuvable." };
+
+  const { listAccueilBoard, cancelAccueilAbsence } = await import(
+    "@/app/lib/accueil-absences-db"
+  );
+  const { parisDateKey } = await import("@/app/lib/paris-time");
+
+  const date = String(args.date || "").trim() || parisDateKey(new Date());
+  let absenceId = String(args.absenceId || args.id || "").trim();
+  const query = String(args.query || args.q || args.name || "").trim();
+
+  const board = await listAccueilBoard(etabId, date);
+  const eleves = board.filter((r) => r.kind === "eleve");
+
+  if (!absenceId && query) {
+    const folded = fold(query);
+    const hits = eleves.filter((r) => fold(r.displayName).includes(folded));
+    if (hits.length === 0) {
+      return {
+        ok: false,
+        error: `Aucune absence accueil pour « ${query} » le ${date}.`,
+      };
+    }
+    if (hits.length > 1) {
+      return {
+        ok: false,
+        needsChoices: true,
+        tool: "cancel_accueil_absence",
+        field: "absenceId",
+        promptFr: "Quelle ligne annuler ?",
+        options: hits.map((r) => ({
+          value: r.id,
+          label: `${r.displayName}${r.subtitle ? ` — ${r.subtitle}` : ""}`,
+        })),
+        draftArgs: { date, query },
+        selectionType: "single",
+      };
+    }
+    absenceId = hits[0]!.id;
+  }
+
+  if (!absenceId) {
+    if (eleves.length === 0) {
+      return { ok: false, error: `Aucune absence élève sur le board du ${date}.` };
+    }
+    return {
+      ok: false,
+      needsChoices: true,
+      tool: "cancel_accueil_absence",
+      field: "absenceId",
+      promptFr: `Absences du ${date} — laquelle annuler ?`,
+      options: eleves.slice(0, 20).map((r) => ({
+        value: r.id,
+        label: `${r.displayName}${r.subtitle ? ` — ${r.subtitle}` : ""}`,
+      })),
+      draftArgs: { date },
+      selectionType: "single",
+    };
+  }
+
+  const row = eleves.find((r) => r.id === absenceId) || board.find((r) => r.id === absenceId);
+  if (!row) {
+    return { ok: false, error: "Ligne d’absence introuvable sur ce board." };
+  }
+
+  if (!ctx.confirmed) {
+    return {
+      ok: false,
+      needsConfirmation: true,
+      tool: "cancel_accueil_absence",
+      args: { absenceId, date },
+      summaryFr: `Annuler la déclaration accueil de ${row.displayName}` +
+        (row.subtitle ? ` (${row.subtitle})` : "") +
+        ` — board du ${date}.`,
+    };
+  }
+
+  const actorName =
+    [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || ctx.name || "Accueil";
+  const ok = await cancelAccueilAbsence(etabId, absenceId, actorName);
+  if (!ok) {
+    return { ok: false, error: "Annulation impossible (déjà validée direction ?)." };
+  }
+
+  return {
+    ok: true,
+    data: {
+      absenceId,
+      clientActions: [
+        { type: "open_route" as const, href: "/vie-scolaire/absences", label: "Board absences" },
+      ],
+      ctas: [{ label: "Board absences", href: "/vie-scolaire/absences" }],
+    },
+    summaryFr: `Déclaration annulée pour ${row.displayName}.`,
+  };
+}

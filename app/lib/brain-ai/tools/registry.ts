@@ -1,7 +1,7 @@
 import type { BrainToolDefinition } from "@/app/lib/brain-ai/types";
 import { handleCreateAbsence } from "@/app/lib/brain-ai/tools/handlers/absences";
 import { handleCreateHseDemand, handleListHseDemands } from "@/app/lib/brain-ai/tools/handlers/hse";
-import { handleGetInternatStatus } from "@/app/lib/brain-ai/tools/handlers/internat";
+import { handleGetInternatStatus, handleAssignInternatRoom, handleOpenInternatAppel } from "@/app/lib/brain-ai/tools/handlers/internat";
 import { handleOcrModuleStatus } from "@/app/lib/brain-ai/tools/handlers/ocr";
 import {
   handleCreatePhotocopie,
@@ -32,8 +32,12 @@ import {
   handleSearchEleves,
   handleUpdateEleveRegime,
 } from "@/app/lib/brain-ai/tools/handlers/eleves";
-import { handleCreateAccueilAbsence } from "@/app/lib/brain-ai/tools/handlers/accueil-absences";
+import {
+  handleCancelAccueilAbsence,
+  handleCreateAccueilAbsence,
+} from "@/app/lib/brain-ai/tools/handlers/accueil-absences";
 import { handleListElevesFiltered } from "@/app/lib/brain-ai/tools/handlers/eleves-filtered";
+import { handleUpdateEleveGrilleRepas } from "@/app/lib/brain-ai/tools/handlers/eleve-grille-repas";
 import { handleOpenTrip } from "@/app/lib/brain-ai/tools/handlers/open-trip";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
@@ -179,6 +183,47 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: true,
     handler: handleCreateAccueilAbsence,
+  },
+  {
+    name: "cancel_accueil_absence",
+    description:
+      "Annule une absence/retard élève déclarée à l’accueil (board du jour). Passer query (nom) ou absenceId.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        absenceId: { type: "string" },
+        date: { type: "string", description: "YYYY-MM-DD (défaut aujourd’hui)" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "accueil-absences",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleCancelAccueilAbsence,
+  },
+  {
+    name: "update_eleve_grille_repas",
+    description:
+      "Modifie la grille repas d’un élève (nb de midi / jours). Ex. « 3 repas par semaine », preset 3|4|5|0. Confirmation UI.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+        repasParSemaine: { type: "number" },
+        preset: { type: "string" },
+        days: { type: "string", description: "lun,mar,jeu" },
+        soir: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleUpdateEleveGrilleRepas,
   },
   {
     name: "open_trip",
@@ -549,6 +594,36 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: async (ctx) => handleGetInternatStatus(ctx),
+  },
+  {
+    name: "open_internat_appel",
+    description: "Ouvre l’écran d’appel du soir internat.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    pathPrefix: "/gestion-internat",
+    moduleId: "internat",
+    requiresAuth: true,
+    mutates: false,
+    handler: async (ctx) => handleOpenInternatAppel(ctx),
+  },
+  {
+    name: "assign_internat_room",
+    description:
+      "Affecte un interne à une chambre (ou retire). Wizard : élève → chambre libre → confirmation.",
+    parameters: {
+      type: "object",
+      properties: {
+        studentId: { type: "string" },
+        query: { type: "string", description: "Nom de l’interne" },
+        roomId: { type: "string" },
+        roomQuery: { type: "string", description: "Libellé chambre" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/gestion-internat",
+    moduleId: "internat",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleAssignInternatRoom,
   },
 ];
 

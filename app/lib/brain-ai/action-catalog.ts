@@ -36,11 +36,11 @@ export const BRAIN_ACTION_CATALOG: BrainActionEntry[] = [
   { id: "internat-status", intentFr: "Statut internat (agrégats)", tool: "get_internat_status", coverage: "partial", moduleId: "internat" },
 
   // —— À brancher (API déjà là) ——
-  { id: "eleve-grille-repas", intentFr: "Modifier grille repas jour par jour", coverage: "todo", moduleId: "eleve-dossier" },
+  { id: "eleve-grille-repas", intentFr: "Modifier grille repas jour par jour", tool: "update_eleve_grille_repas", coverage: "live", moduleId: "eleve-dossier" },
   { id: "eleve-create", intentFr: "Créer un élève / préinscription", coverage: "todo", moduleId: "eleve-dossier" },
-  { id: "accueil-cancel", intentFr: "Annuler une absence accueil", coverage: "todo", moduleId: "accueil-absences" },
-  { id: "internat-appel", intentFr: "Faire l’appel internat", coverage: "todo", moduleId: "internat" },
-  { id: "internat-assign", intentFr: "Affecter une chambre", coverage: "todo", moduleId: "internat" },
+  { id: "accueil-cancel", intentFr: "Annuler une absence accueil", tool: "cancel_accueil_absence", coverage: "live", moduleId: "accueil-absences" },
+  { id: "internat-appel", intentFr: "Ouvrir l’appel internat", tool: "open_internat_appel", coverage: "live", moduleId: "internat" },
+  { id: "internat-assign", intentFr: "Affecter une chambre", tool: "assign_internat_room", coverage: "live", moduleId: "internat" },
   { id: "stages-sign", intentFr: "Relancer / signer convention", coverage: "todo", moduleId: "stages" },
   { id: "notes-saisie", intentFr: "Saisir une note", coverage: "todo", moduleId: "notes" },
   { id: "rdv-book", intentFr: "Gérer un RDV inscription", coverage: "todo", moduleId: "rdv-inscription" },
