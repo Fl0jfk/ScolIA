@@ -3,17 +3,23 @@
 import { useMemo } from "react";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
+import HomeMainTasks from "@/app/components/Dashboard/HomeMainTasks";
 import HomeSignalBento from "@/app/components/Dashboard/HomeSignalBento";
 import HomeScoliaHeroBar from "@/app/components/Dashboard/HomeScoliaHeroBar";
+import { useData } from "@/app/contexts/data";
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
+import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
+import { resolveHomeMainTasks } from "@/app/lib/home-main-tasks";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 
 /**
- * Accueil chat-first : barre ScolIA (modale) + bento de signaux forts uniquement.
+ * Accueil chat-first : barre ScolIA + tâches de rôle + signaux regroupés.
  */
 export default function Home() {
   const { isLoaded, user } = useSessionUser();
+  const isOrgAdmin = useIsOrgAdmin();
+  const data = useData();
   const { shortcuts, notifications, loading: loadingSignals } = useDashboardSignals();
 
   const userRoles = useMemo(() => {
@@ -25,6 +31,16 @@ export default function Home() {
     if (!user) return false;
     return isEleveBienEtreProfile(userRoles);
   }, [user, userRoles]);
+
+  const mainTasks = useMemo(
+    () =>
+      resolveHomeMainTasks({
+        roles: userRoles,
+        accessibleModuleIds: data.accessibleModuleIds ?? null,
+        orgAdmin: isOrgAdmin,
+      }),
+    [userRoles, data.accessibleModuleIds, isOrgAdmin],
+  );
 
   if (!isLoaded) return null;
 
@@ -63,6 +79,7 @@ export default function Home() {
           ) : (
             <>
               <HomeScoliaHeroBar />
+              <HomeMainTasks tasks={mainTasks} />
               <HomeSignalBento
                 shortcuts={shortcuts}
                 notifications={notifications}
