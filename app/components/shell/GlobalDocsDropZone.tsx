@@ -19,7 +19,7 @@ type Props = {
 const ACCEPT = ".pdf,application/pdf";
 
 /** Hauteur figée du panneau (connecté / non connecté / progress) — évite de pousser les raccourcis. */
-const PANEL_H = "h-[5.5rem]";
+const PANEL_H = "h-[4.25rem] overflow-y-auto";
 
 export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -213,7 +213,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
 
       {gate.checking && !gate.connected ? (
         <div
-          className={`${PANEL_H} flex items-center justify-center overflow-hidden rounded-2xl bg-white/70 px-3`}
+          className={`${PANEL_H} flex items-center justify-center rounded-2xl bg-white/70 px-3`}
           role="status"
         >
           <p className="line-clamp-2 text-center text-[11px] leading-snug text-neutral-500">
@@ -222,7 +222,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
         </div>
       ) : !gate.configured ? (
         <div
-          className={`${PANEL_H} flex items-center justify-center overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 px-3`}
+          className={`${PANEL_H} flex items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 px-3`}
         >
           <p className="line-clamp-3 text-center text-[11px] font-medium leading-snug text-amber-900">
             OneDrive non activé (Paramètres → Intégrations).
@@ -232,7 +232,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
         <button
           type="button"
           onClick={() => void gate.connect()}
-          className={`${PANEL_H} flex w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl border border-dashed border-black/15 bg-white/80 px-3 text-center transition hover:border-black/30 hover:bg-white`}
+          className={`${PANEL_H} flex w-full flex-col items-center justify-center gap-0.5 rounded-2xl border border-dashed border-black/15 bg-white/80 px-3 text-center transition hover:border-black/30 hover:bg-white`}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -258,7 +258,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
         </button>
       ) : progress && progress.phase !== "error" ? (
         <div
-          className={`${PANEL_H} overflow-hidden rounded-2xl border px-3 py-2 ${
+          className={`${PANEL_H} rounded-2xl border px-3 py-1.5 ${
             progress.phase === "done"
               ? "border-emerald-300 bg-emerald-50"
               : "border-[var(--dash-ink)]/20 bg-white/90"
@@ -335,7 +335,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
             setDragOver(false);
           }}
           onDrop={onDrop}
-          className={`${PANEL_H} flex cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl border border-dashed px-3 text-center transition ${
+          className={`${PANEL_H} flex cursor-pointer flex-col items-center justify-center gap-0.5 rounded-2xl border border-dashed px-3 text-center transition ${
             dragOver
               ? "border-[var(--dash-ink)] bg-[color:var(--dash-lime)]/70"
               : "border-black/12 bg-white/80 hover:border-black/25 hover:bg-white"

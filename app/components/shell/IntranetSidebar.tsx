@@ -163,7 +163,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="space-y-1 px-2.5 pb-1 pt-1.5">
+        <div className="space-y-0.5 px-2.5 pb-0 pt-0.5">
           <div className="flex items-center gap-0.5">
             <Link
               href={homeHref}
