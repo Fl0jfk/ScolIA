@@ -81,6 +81,13 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/api/app/context",
   /** Messagerie bulles (overlay global) — auth session dans les routes. */
   "/api/messaging",
+  /**
+   * ScolIA (historique + upload PDF) — bulle / hub global.
+   * Auth + filtre élève bien-être dans les routes.
+   * Ne pas inclure /api/chatbot/ingest (réservé module chatbot-knowledge).
+   */
+  "/api/chatbot/conversations",
+  "/api/chatbot/upload",
   "/api/tenant/public",
   "/api/tenant/diagnostics",
   /** Compte : MDP / e-mail / events — sinon « Accès refusé à ce module » au premier login. */
@@ -871,7 +878,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "scolia-ai",
-    pathPrefixes: ["/scolia-ai"],
+    pathPrefixes: ["/scolia-ai", "/api/chatbot/conversations", "/api/chatbot/upload"],
     allowedRoles: [...ROLES_EXCEPT_PARENT],
   },
   {
