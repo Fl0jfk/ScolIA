@@ -729,13 +729,18 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- INTERDIT de demander en texte libre la salle, la date, les créneaux, le motif, etc.\n` +
     `- INTERDIT d'écrire « dites-moi… », « pour commencer… », « liste-moi les salles… ».\n` +
     `- Dès que l'utilisateur veut réserver / créer / déclarer : appelle IMMÉDIATEMENT l'outil correspondant AVEC {} (sans args). L'UI affiche listes déroulantes, dates et boutons.\n` +
-    `- create_reservation = réservation salle | create_trip = sortie/voyage | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
+    `- OUVRIR ≠ CRÉER (critique) :\n` +
+    `  · « ouvre / ouvrir / montre / affiche / va sur / accède » une sortie, un séjour, un voyage → open_trip (JAMAIS create_trip).\n` +
+    `  · « ouvre les sorties / module voyages » sans nom → open_trip avec {} ou resolve_and_open.\n` +
+    `  · « crée / créer / nouvelle / démarrer » une sortie → create_trip.\n` +
+    `  · Même règle pour les autres modules : ouvrir un dossier → open_eleve_dossier ; créer un élève → create_eleve_preinscrit.\n` +
+    `- create_reservation = réservation salle | create_trip = NOUVELLE sortie uniquement | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
     `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe).\n` +
     `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_eleve_preinscrit | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | decide_rh_absence | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room | resend_stage_signatures.\n` +
     `- Internat : get_internat_status | open_internat_appel | assign_internat_room.\n` +
     `- Stages : get_stages_overview | resend_stage_signatures (relance e-mails / ouvrir convention).\n` +
     `- RH absences (direction) : decide_rh_absence avec {} pour la file à valider.\n` +
-    `- Voyages : open_trip (choix si plusieurs) | list_trips_brief | get_trip_status | create_trip.\n` +
+    `- Voyages : open_trip (ouvrir / lister existants) | list_trips_brief | get_trip_status | create_trip (créer neuf seulement).\n` +
     `- Dossiers élèves / régime / PAP / préinscription : UNIQUEMENT si l'utilisateur a les droits (les outils refusent sinon).\n` +
     `- create_absence = soi uniquement. create_accueil_absence = élèves (accueil). decide_rh_absence = file direction/validateur.\n` +
     `- Photocopies : après les champs, l'UI demande le PDF (dépôt). Ne demande pas le PDF en texte libre.\n` +

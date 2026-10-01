@@ -13,8 +13,14 @@ export default function ScoliaCompactBar({ className = "" }: { className?: strin
   const [value, setValue] = useState("");
   const [listening, setListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
+  const voiceFinalRef = useRef("");
+  const valueRef = useRef("");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
   useEffect(() => {
     setSpeechSupported(
@@ -48,23 +54,41 @@ export default function ScoliaCompactBar({ className = "" }: { className?: strin
     recognition.interimResults = true;
     recognition.continuous = false;
     recognitionRef.current = recognition;
+    voiceFinalRef.current = "";
+    let flushed = false;
     setListening(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     recognition.onresult = (event: any) => {
+      let interim = "";
       let finalText = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const t = event.results[i][0]?.transcript || "";
         if (event.results[i].isFinal) finalText += t;
-        else setValue(t.trim());
+        else interim += t;
       }
+      if (interim.trim()) setValue(interim.trim());
       if (finalText.trim()) {
-        setValue(finalText.trim());
-        askScolia(finalText.trim());
-        setValue("");
+        const chunk = finalText.trim();
+        voiceFinalRef.current = voiceFinalRef.current
+          ? `${voiceFinalRef.current} ${chunk}`
+          : chunk;
+        setValue(voiceFinalRef.current);
       }
     };
-    recognition.onerror = () => stopVoice();
-    recognition.onend = () => stopVoice();
+    const flushSend = () => {
+      if (flushed) return;
+      flushed = true;
+      const text = voiceFinalRef.current.trim() || valueRef.current.trim();
+      voiceFinalRef.current = "";
+      recognitionRef.current = null;
+      setListening(false);
+      if (text) {
+        setValue("");
+        askScolia(text);
+      }
+    };
+    recognition.onerror = () => flushSend();
+    recognition.onend = () => flushSend();
     recognition.start();
   };
 

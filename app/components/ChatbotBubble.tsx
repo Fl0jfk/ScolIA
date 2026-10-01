@@ -180,6 +180,9 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const scrollYRef = useRef(0);
+  /** Texte final dicté — envoyé auto quand le micro s’arrête. */
+  const voiceFinalRef = useRef("");
+  const sendRef = useRef<(opts?: { message?: string }) => void>(() => undefined);
 
   const hidden = useMemo(() => {
     if (pageMode) return false;
@@ -259,6 +262,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
   const startVoiceInput = () => {
     if (!speechSupported || loading) return;
     if (listening) {
+      // Arrêt manuel : onend enverra le texte dicté.
       stopVoice();
       return;
     }
@@ -272,6 +276,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
     recognitionRef.current = recognition;
+    voiceFinalRef.current = "";
     setListening(true);
     setInterimSpeech("");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -285,15 +290,33 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
       }
       if (interim) setInterimSpeech(interim.trim());
       if (finalText.trim()) {
-        setInput((prev) => (prev ? `${prev} ${finalText.trim()}` : finalText.trim()));
+        const chunk = finalText.trim();
+        voiceFinalRef.current = voiceFinalRef.current
+          ? `${voiceFinalRef.current} ${chunk}`
+          : chunk;
+        setInput(voiceFinalRef.current);
         setInterimSpeech("");
       }
     };
-    recognition.onerror = () => stopVoice();
+    recognition.onerror = () => {
+      recognitionRef.current = null;
+      setListening(false);
+      setInterimSpeech("");
+      // En cas d’erreur après du texte final, on envoie quand même.
+      const text = voiceFinalRef.current.trim();
+      voiceFinalRef.current = "";
+      if (text) sendRef.current({ message: text });
+    };
     recognition.onend = () => {
       recognitionRef.current = null;
       setListening(false);
       setInterimSpeech("");
+      const text = voiceFinalRef.current.trim();
+      voiceFinalRef.current = "";
+      if (text) {
+        setInput("");
+        sendRef.current({ message: text });
+      }
     };
     recognition.start();
   };
@@ -322,6 +345,8 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     const isFileApply = Boolean(opts?.fileApply?.tool);
     const filesToSend = opts?.files ?? pendingFiles;
     if ((!message && !isConfirm && !isChoice && !isFileApply && filesToSend.length === 0) || loading) return;
+    // Évite un double envoi si stopVoice déclenche onend pendant un send manuel.
+    voiceFinalRef.current = "";
     if (!isConfirm && !isChoice && !isFileApply) {
       setInput("");
       setPendingFiles([]);
@@ -450,7 +475,6 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     }
   };
 
-  const sendRef = useRef(send);
   sendRef.current = send;
 
   useEffect(() => {
@@ -789,14 +813,14 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                   void send();
                 }
               }}
-              placeholder={listening ? "Écoute…" : "Message à ScolIA…"}
+              placeholder={listening ? "Parlez… (envoi auto à la fin)" : "Message à ScolIA…"}
               className="max-h-32 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none sm:text-sm"
             />
             <button
               type="button"
               onClick={startVoiceInput}
               disabled={!speechSupported || loading}
-              title={speechSupported ? (listening ? "Arrêter l’écoute" : "Dicter") : "Dictée non supportée"}
+              title={speechSupported ? (listening ? "Arrêter et envoyer" : "Dicter (envoi auto)") : "Dictée non supportée"}
               className={`shrink-0 rounded-xl px-2.5 py-2 text-sm font-bold disabled:opacity-40 ${
                 listening ? "bg-rose-500 text-white" : "text-slate-700 hover:bg-slate-100"
               }`}

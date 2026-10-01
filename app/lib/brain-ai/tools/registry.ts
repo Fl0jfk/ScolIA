@@ -231,12 +231,12 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "open_trip",
     description:
-      "Ouvre un séjour / sortie scolaire existant. Si plusieurs matchent le titre, propose un choix avec liens. Passer tripId ou query.",
+      "Ouvre un séjour / sortie scolaire EXISTANT (voir, afficher, accéder). Si plusieurs matchent, propose un choix. Passer tripId ou query. IMPORTANT : pour « ouvre / montre / va sur » une sortie → TOUJOURS cet outil, JAMAIS create_trip.",
     parameters: {
       type: "object",
       properties: {
         tripId: { type: "string" },
-        query: { type: "string", description: "Titre ou destination" },
+        query: { type: "string", description: "Titre ou destination (vide = liste récente)" },
       },
       additionalProperties: false,
     },
@@ -321,7 +321,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_trip",
     description:
-      "Démarre / poursuit un wizard de sortie scolaire. Appeler immédiatement (même sans args) : type → titre → lieu → dates → établissement → classes → effectif → confirmation.",
+      "Crée une NOUVELLE sortie scolaire (wizard). Uniquement si l’utilisateur dit créer / nouvelle / démarrer une sortie. INTERDIT si « ouvre », « montre », « va sur », « affiche » une sortie → utiliser open_trip.",
     parameters: {
       type: "object",
       properties: {
