@@ -113,13 +113,17 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "open_eleve_dossier",
     description:
-      "Ouvre le dossier élève (ou les documents d’inscription / préinscription) en modale. Passer eleveId ou query (nom). subView=inscription pour les docs d’inscription.",
+      "Ouvre le dossier élève (ou les documents d’inscription) en modale, ou directement un document d’accompagnement (PAP/PAI/PPS/GEVASCO) en aperçu PDF. Passer eleveId ou query (nom). documentKind=pap|pai|pps|gevasco pour ouvrir la pièce. subView=inscription pour les docs d’inscription.",
     parameters: {
       type: "object",
       properties: {
         eleveId: { type: "string" },
         query: { type: "string" },
         subView: { type: "string", enum: ["dossier", "inscription"] },
+        documentKind: {
+          type: "string",
+          description: "pap | pai | pps | gevasco — ouvre le PDF directement",
+        },
       },
       additionalProperties: false,
     },
@@ -154,7 +158,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "list_eleves_filtered",
     description:
-      "Liste les élèves filtrés par classe et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP de 6ème A ». « 6ème A » / « sixième A » = classe 6A (pas 6E). Retourne des liens dossier.",
+      "Liste les élèves filtrés par classe et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP de 6ème B ». « 6ème A » / « sixième A » = classe 6A (pas 6E). Renvoie pour chaque élève un bouton d’ouverture directe du document (aperçu PDF) et un bouton fiche.",
     parameters: {
       type: "object",
       properties: {

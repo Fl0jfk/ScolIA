@@ -93,6 +93,8 @@ export type BrainConversationState = {
 export type BrainCta = {
   label: string;
   href: string;
+  /** Ouvre le lien dans la modale aperçu (PDF PAP/PAI…) au lieu d’une navigation. */
+  preview?: boolean;
 };
 
 export type BrainChatResponse = {

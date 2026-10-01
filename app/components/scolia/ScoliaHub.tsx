@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import ChatbotBubble from "@/app/components/ChatbotBubble";
 import ScoliaAiMark from "@/app/components/ScoliaAiMark";
-import { askScolia, openScolia } from "@/app/lib/brain-ai/scolia-ask";
+import { openScolia } from "@/app/lib/brain-ai/scolia-ask";
 import {
   clearScoliaMemory,
   defaultWelcomeMessage,
@@ -17,16 +17,8 @@ type ConversationSummary = {
   lastMessageAt: string | null;
 };
 
-const SUGGESTIONS = [
-  "Ouvre les documents de préinscription d’un élève",
-  "Qu’est-ce qui se passe aujourd’hui ?",
-  "Réserve une salle demain matin",
-  "Montre les sorties scolaires en cours",
-  "Passe un élève en interne",
-];
-
 /**
- * Hub chat-first pour /dashboard : historique + suggestions + ScolIA plein écran.
+ * Hub chat-first pour /dashboard — bento minimaliste, sans raccourcis.
  */
 export default function ScoliaHub() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -55,8 +47,6 @@ export default function ScoliaHub() {
   const startNew = () => {
     clearScoliaMemory();
     openScolia();
-    // Soft reload of pageMode bubble state via full navigation to /scolia-ai alternative:
-    // On dashboard we remount by key — force local welcome via ask with empty then clear.
     window.location.href = "/dashboard?new=1";
   };
 
@@ -77,7 +67,6 @@ export default function ScoliaHub() {
         conv.messages.length > 0
           ? conv.messages.map((m) => ({ role: m.role, content: m.content }))
           : [defaultWelcomeMessage()];
-      // Inject into localStorage memory so ChatbotBubble picks it up
       const { saveScoliaMemory } = await import("@/app/lib/brain-ai/scolia-memory");
       saveScoliaMemory({
         messages,
@@ -92,39 +81,42 @@ export default function ScoliaHub() {
   };
 
   return (
-    <div className="flex min-h-[calc(100dvh-1.5rem)] w-full flex-col gap-3 lg:flex-row lg:gap-4">
-      {/* Historique */}
+    <div className="grid min-h-[calc(100dvh-1.5rem)] w-full grid-cols-1 gap-3 lg:grid-cols-[15.5rem_minmax(0,1fr)] lg:gap-3.5">
+      {/* Bento — historique */}
       <aside
-        className={`shrink-0 overflow-hidden rounded-[1.5rem] border border-white/70 bg-white/70 shadow-sm backdrop-blur-xl transition-all lg:w-64 ${
-          historyOpen ? "max-h-[40vh] lg:max-h-none" : "max-h-12"
+        className={`flex flex-col overflow-hidden rounded-[1.75rem] border border-black/6 bg-[#eceeea] shadow-[0_1px_0_rgba(0,0,0,0.03)] transition-all ${
+          historyOpen ? "max-h-[38vh] lg:max-h-none" : "max-h-14"
         }`}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-2 px-3.5 py-3">
           <button
             type="button"
-            className="flex items-center gap-2 text-left"
+            className="flex min-w-0 items-center gap-2.5 text-left"
             onClick={() => setHistoryOpen((v) => !v)}
+            aria-expanded={historyOpen}
           >
-            <ScoliaAiMark className="h-6 w-6" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)]">
+              <ScoliaAiMark size="sm" inverted fill />
+            </span>
+            <span className="truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
               Historique
             </span>
           </button>
           <button
             type="button"
             onClick={startNew}
-            className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-black"
+            className="shrink-0 rounded-2xl bg-[var(--dash-ink)] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:opacity-90"
           >
             Nouveau
           </button>
         </div>
         {historyOpen ? (
-          <ul className="max-h-[32vh] space-y-0.5 overflow-y-auto p-2 lg:max-h-[calc(100dvh-8rem)]">
+          <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-3 lg:max-h-[calc(100dvh-9rem)]">
             {loadingList ? (
-              <li className="px-2 py-3 text-xs text-slate-400">Chargement…</li>
+              <li className="px-3 py-4 text-xs text-neutral-500">Chargement…</li>
             ) : conversations.length === 0 ? (
-              <li className="px-2 py-3 text-xs text-slate-400">
-                Aucune conversation enregistrée pour l’instant.
+              <li className="rounded-2xl px-3 py-4 text-xs leading-relaxed text-neutral-500">
+                Vos conversations apparaîtront ici.
               </li>
             ) : (
               conversations.map((c) => (
@@ -132,10 +124,12 @@ export default function ScoliaHub() {
                   <button
                     type="button"
                     onClick={() => void resumeConversation(c.id)}
-                    className="w-full rounded-xl px-2.5 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100"
+                    className="w-full rounded-2xl px-3 py-2.5 text-left transition hover:bg-white/70"
                   >
-                    <span className="line-clamp-2 font-medium">{c.title}</span>
-                    <span className="mt-0.5 block text-[10px] text-slate-400">
+                    <span className="line-clamp-2 text-sm font-semibold text-[var(--dash-ink)]">
+                      {c.title}
+                    </span>
+                    <span className="mt-1 block text-[10px] font-medium text-neutral-500">
                       {new Date(c.updatedAt).toLocaleString("fr-FR", {
                         day: "2-digit",
                         month: "short",
@@ -151,35 +145,30 @@ export default function ScoliaHub() {
         ) : null}
       </aside>
 
-      {/* Chat principal */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/75 shadow-sm backdrop-blur-xl">
-        <div className="border-b border-slate-100 px-4 py-3 sm:px-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <ScoliaAiMark className="h-8 w-8" />
-            <div>
-              <h1 className="text-lg font-semibold text-slate-900">{SCOLIA_AI_NAME}</h1>
-              <p className="text-xs text-slate-500">
-                Parlez ou écrivez — j’ouvre les pages et j’agis avec votre validation.
-              </p>
-            </div>
+      {/* Bento — chat hero */}
+      <section className="flex min-h-[70dvh] min-w-0 flex-col overflow-hidden rounded-[1.75rem] border border-black/6 bg-white/80 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-xl lg:min-h-0">
+        <header className="flex items-center gap-3 border-b border-black/5 px-5 py-4 sm:px-6">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)] shadow-sm">
+            <ScoliaAiMark size="sm" inverted fill />
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)]">
+              {SCOLIA_AI_NAME}
+            </h1>
+            <p className="truncate text-xs text-neutral-500">
+              Parlez ou écrivez — j’ouvre et j’agis avec votre validation.
+            </p>
           </div>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => askScolia(s)}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
+          <span
+            className="ml-auto hidden h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--dash-lime)] ring-4 ring-[color:var(--dash-lime)]/25 sm:block"
+            title="En ligne"
+            aria-hidden
+          />
+        </header>
         <div className="min-h-0 flex-1 overflow-hidden">
           <ChatbotBubble pageMode embedded />
         </div>
-      </div>
+      </section>
     </div>
   );
 }

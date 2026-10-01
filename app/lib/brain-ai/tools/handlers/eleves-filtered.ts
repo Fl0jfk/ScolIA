@@ -1,11 +1,12 @@
 import "server-only";
 
-import type { BrainClientAction, BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
+import type { BrainClientAction, BrainCta, BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
 import { listEleveLatestAccompagnementByKind } from "@/app/lib/eleve-dossier-access";
+import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import { listElevesDossierFromDb } from "@/app/lib/eleve-dossier-prof";
 import type { AccompagnementKind } from "@/app/lib/eleve-pap";
-import { ACCOMPAGNEMENT_KINDS } from "@/app/lib/eleve-pap";
+import { ACCOMPAGNEMENT_KINDS, accompagnementKindDef } from "@/app/lib/eleve-pap";
 import { schoolClassesMatch, resolveSchoolClassQuery } from "@/app/lib/school-classes-catalog";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
@@ -32,8 +33,15 @@ function parseAccompKind(raw: string): AccompagnementKind | "any" | null {
   return hit?.kind ?? null;
 }
 
+type EleveDocLink = {
+  kind: AccompagnementKind;
+  documentId: string;
+  fileHref: string;
+};
+
 /**
  * Liste des élèves filtrés (classe + accompagnement PAP/PAI/PPS…).
+ * CTAs : ouverture directe du document (aperçu) + lien fiche élève.
  */
 export async function handleListElevesFiltered(
   ctx: BrainToolCtx,
@@ -109,8 +117,6 @@ export async function handleListElevesFiltered(
         { accompagnement: kindRaw || kind || "any" },
       );
     } else if (resolved.fold && /^[3-6]E$/.test(resolved.fold)) {
-      // « 6ème » sans lettre alors qu’il n’y a que des 6A/6B… déjà géré via ambiguous ;
-      // sinon on continue avec le fold pour ne pas matcher 6E par erreur seule.
       resolvedClasse = classe;
     }
     eleves = eleves.filter((e) => schoolClassesMatch(e.classe, resolvedClasse));
@@ -125,6 +131,11 @@ export async function handleListElevesFiltered(
   let rows = eleves.map((e) => {
     const items = accompagnementByEleve.get(e.id) ?? [];
     const kinds = kindOrder.filter((k) => items.some((i) => i.kind === k));
+    const documents: EleveDocLink[] = items.map((i) => ({
+      kind: i.kind,
+      documentId: i.documentId,
+      fileHref: eleveDocumentFileProxyPath(e.id, i.documentId),
+    }));
     return {
       id: e.id,
       nom: e.nom,
@@ -136,6 +147,7 @@ export async function handleListElevesFiltered(
       hasPps: kinds.includes("pps"),
       label: `${e.prenom} ${e.nom}${e.classe ? ` (${e.classe})` : ""}`,
       dossierHref: `/eleves/dossier/${e.id}`,
+      documents,
     };
   });
 
@@ -145,22 +157,80 @@ export async function handleListElevesFiltered(
 
   const limit = Math.min(Math.max(Number(args.limit) || 40, 1), 80);
   const sliced = rows.slice(0, limit);
+  const focusKind: AccompagnementKind | null = kind && kind !== "any" ? kind : null;
+  const focusCode = focusKind ? accompagnementKindDef(focusKind).code : null;
 
-  const ctas = sliced.slice(0, 12).map((r) => ({
-    label: r.label,
-    href: r.dossierHref,
-  }));
+  const ctas: BrainCta[] = [];
+  for (const r of sliced.slice(0, 10)) {
+    if (focusKind && focusCode) {
+      const doc = r.documents.find((d) => d.kind === focusKind);
+      if (doc) {
+        ctas.push({
+          label: `${focusCode} · ${r.prenom} ${r.nom}`,
+          href: doc.fileHref,
+          preview: true,
+        });
+      }
+      ctas.push({
+        label: `Fiche · ${r.prenom} ${r.nom}`,
+        href: r.dossierHref,
+      });
+      continue;
+    }
 
-  const clientActions: BrainClientAction[] =
-    sliced.length === 1
-      ? [{ type: "open_eleve_dossier", eleveId: sliced[0]!.id, subView: "dossier" }]
-      : [];
+    ctas.push({
+      label: `Fiche · ${r.prenom} ${r.nom}`,
+      href: r.dossierHref,
+    });
+    for (const doc of r.documents.slice(0, 2)) {
+      const code = accompagnementKindDef(doc.kind).code;
+      ctas.push({
+        label: `${code} · ${r.prenom} ${r.nom}`,
+        href: doc.fileHref,
+        preview: true,
+      });
+    }
+  }
+
+  const clientActions: BrainClientAction[] = [];
+  if (sliced.length === 1) {
+    const alone = sliced[0]!;
+    const doc =
+      (focusKind ? alone.documents.find((d) => d.kind === focusKind) : null) ??
+      alone.documents[0] ??
+      null;
+    if (doc && focusKind) {
+      clientActions.push({
+        type: "open_url_modal",
+        href: doc.fileHref,
+        title: `${accompagnementKindDef(doc.kind).code} — ${alone.prenom} ${alone.nom}`,
+      });
+    } else {
+      clientActions.push({ type: "open_eleve_dossier", eleveId: alone.id, subView: "dossier" });
+    }
+  }
 
   const filterLabel = [
     resolvedClasse ? `classe ${resolvedClasse}` : null,
-    kind && kind !== "any" ? kind.toUpperCase() : null,
+    focusCode,
   ]
     .filter(Boolean)
+    .join(" · ");
+
+  const listPreview = sliced
+    .slice(0, 8)
+    .map((e) => {
+      if (focusCode) {
+        const hasDoc = e.documents.some((d) => d.kind === focusKind);
+        return hasDoc
+          ? `${e.prenom} ${e.nom} (${focusCode} + fiche)`
+          : `${e.prenom} ${e.nom} (fiche)`;
+      }
+      const codes = e.documents.map((d) => accompagnementKindDef(d.kind).code).join("/");
+      return codes
+        ? `${e.prenom} ${e.nom}${e.classe ? ` · ${e.classe}` : ""} (${codes})`
+        : e.label;
+    })
     .join(" · ");
 
   return {
@@ -168,15 +238,14 @@ export async function handleListElevesFiltered(
     data: {
       total: rows.length,
       eleves: sliced,
-      ctas,
+      ctas: ctas.slice(0, 20),
       clientActions,
     },
     summaryFr:
       sliced.length === 0
         ? `Aucun élève${filterLabel ? ` (${filterLabel})` : ""}.`
-        : `${rows.length} élève(s)${filterLabel ? ` — ${filterLabel}` : ""} : ${sliced
-            .slice(0, 8)
-            .map((e) => e.label)
-            .join(" · ")}${rows.length > 8 ? "…" : ""}.`,
+        : `${rows.length} élève(s)${filterLabel ? ` — ${filterLabel}` : ""} : ${listPreview}${
+            rows.length > 8 ? "…" : ""
+          }. Utilise les boutons ci-dessous pour ouvrir le document ou la fiche.`,
   };
 }

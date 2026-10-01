@@ -44,7 +44,11 @@ export function useScoliaClientActions() {
 
   const closeUrlModal = useCallback(() => setUrlModal(null), []);
 
-  return { runActions, urlModal, closeUrlModal };
+  const openUrlPreview = useCallback((href: string, title?: string) => {
+    setUrlModal({ href, title: title || "Aperçu" });
+  }, []);
+
+  return { runActions, urlModal, closeUrlModal, openUrlPreview };
 }
 
 export function ScoliaUrlModal({

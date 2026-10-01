@@ -1,9 +1,13 @@
 import "server-only";
 
 import { and, eq, ilike, or } from "drizzle-orm";
-import type { BrainClientAction, BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
+import type { BrainClientAction, BrainCta, BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
+import { listEleveLatestAccompagnementByKind } from "@/app/lib/eleve-dossier-access";
+import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import { canManageElevePreinscriptions } from "@/app/lib/eleve-dossier-scope";
+import type { AccompagnementKind } from "@/app/lib/eleve-pap";
+import { ACCOMPAGNEMENT_KINDS, accompagnementKindDef } from "@/app/lib/eleve-pap";
 import { canonicalRegimeLabel, classifyRegime } from "@/app/lib/eleve-regime";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
@@ -15,6 +19,16 @@ function fold(s: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function parseDocumentKind(raw: string): AccompagnementKind | null {
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  if (s === "pap" || s === "pai" || s === "pps" || s === "gevasco") return s;
+  const hit = ACCOMPAGNEMENT_KINDS.find(
+    (k) => k.kind === s || k.code.toLowerCase() === s || k.label.toLowerCase().includes(s),
+  );
+  return hit?.kind ?? null;
 }
 
 function canViewDossiers(ctx: BrainToolCtx): boolean {
@@ -150,6 +164,9 @@ export async function handleOpenEleveDossier(
     String(args.subView || args.view || "").trim() === "inscription"
       ? "inscription"
       : "dossier";
+  const documentKind = parseDocumentKind(
+    String(args.documentKind || args.accompagnement || args.kind || args.document || "").trim(),
+  );
 
   let eleveId = String(args.eleveId || args.id || "").trim();
   const query = String(args.query || args.q || args.name || "").trim();
@@ -170,7 +187,11 @@ export async function handleOpenEleveDossier(
           value: e.id,
           label: `${e.prenom} ${e.nom}${e.classe ? ` — ${e.classe}` : ""}`,
         })),
-        draftArgs: { subView, query },
+        draftArgs: {
+          subView,
+          query,
+          ...(documentKind ? { documentKind } : {}),
+        },
         selectionType: "single",
       };
     }
@@ -183,9 +204,14 @@ export async function handleOpenEleveDossier(
       needsChoices: true,
       tool: "open_eleve_dossier",
       field: "query",
-      promptFr: "Nom de l’élève à ouvrir ?",
+      promptFr: documentKind
+        ? `Nom de l’élève dont ouvrir le ${accompagnementKindDef(documentKind).code} ?`
+        : "Nom de l’élève à ouvrir ?",
       options: [],
-      draftArgs: { subView },
+      draftArgs: {
+        subView,
+        ...(documentKind ? { documentKind } : {}),
+      },
       selectionType: "text",
     };
   }
@@ -202,6 +228,47 @@ export async function handleOpenEleveDossier(
     .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, eleveId)))
     .limit(1);
   if (!row) return { ok: false, error: "Élève introuvable.", code: "NOT_FOUND" };
+
+  if (documentKind) {
+    const byEleve = await listEleveLatestAccompagnementByKind({
+      etablissementId: etabId,
+      eleveIds: [row.id],
+    });
+    const doc = (byEleve.get(row.id) ?? []).find((d) => d.kind === documentKind);
+    const code = accompagnementKindDef(documentKind).code;
+    if (!doc) {
+      return {
+        ok: false,
+        error: `Aucun ${code} trouvé pour ${row.prenom} ${row.nom}.`,
+        code: "NOT_FOUND",
+      };
+    }
+    const fileHref = eleveDocumentFileProxyPath(row.id, doc.documentId);
+    const dossierHref = `/eleves/dossier/${row.id}`;
+    const clientActions: BrainClientAction[] = [
+      {
+        type: "open_url_modal",
+        href: fileHref,
+        title: `${code} — ${row.prenom} ${row.nom}`,
+      },
+    ];
+    const ctas: BrainCta[] = [
+      { label: `${code} · ${row.prenom} ${row.nom}`, href: fileHref, preview: true },
+      { label: `Fiche · ${row.prenom} ${row.nom}`, href: dossierHref },
+    ];
+    return {
+      ok: true,
+      data: {
+        clientActions,
+        ctas,
+        eleve: row,
+        documentKind,
+        fileHref,
+        href: dossierHref,
+      },
+      summaryFr: `J’ouvre le ${code} de ${row.prenom} ${row.nom}. Bouton fiche disponible si besoin.`,
+    };
+  }
 
   const action: BrainClientAction = {
     type: "open_eleve_dossier",

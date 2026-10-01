@@ -221,7 +221,11 @@ function extractCtas(data: unknown): BrainCta[] {
   if (!Array.isArray(ctas)) return [];
   return ctas
     .filter((c): c is BrainCta => Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"))
-    .map((c) => ({ label: String((c as BrainCta).label || "Ouvrir"), href: (c as BrainCta).href }));
+    .map((c) => ({
+      label: String((c as BrainCta).label || "Ouvrir"),
+      href: (c as BrainCta).href,
+      ...((c as BrainCta).preview ? { preview: true as const } : {}),
+    }));
 }
 
 function extractClientActions(data: unknown): BrainClientAction[] {

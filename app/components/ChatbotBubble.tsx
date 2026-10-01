@@ -28,6 +28,7 @@ import {
   ScoliaUrlModal,
   useScoliaClientActions,
 } from "@/app/components/scolia/ScoliaClientActions";
+import { useEleveDossierModalOptional } from "@/app/components/shell/EleveDossierModalProvider";
 import type { BrainClientAction } from "@/app/lib/brain-ai/types";
 
 type PendingConfirmation = {
@@ -53,17 +54,35 @@ type PendingFileUpload = {
   accept?: string;
 };
 
-type BrainCta = { label: string; href: string };
+type BrainCta = { label: string; href: string; preview?: boolean };
 
 type PendingFile = {
   file: File;
   name: string;
 };
 
-function renderMessageContent(content: string) {
-  const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+function linkPillClass(onDark: boolean): string {
+  return onDark
+    ? "inline-flex max-w-full items-center gap-1 truncate rounded-full bg-white/15 px-2.5 py-0.5 text-[13px] font-semibold text-[var(--dash-lime)] no-underline ring-1 ring-white/20 transition hover:bg-white/25"
+    : "inline-flex max-w-full items-center gap-1 truncate rounded-full bg-[color:var(--dash-lime)]/55 px-2.5 py-0.5 text-[13px] font-semibold text-[var(--dash-ink)] no-underline ring-1 ring-black/5 transition hover:bg-[color:var(--dash-lime)]";
+}
+
+function shortUrlLabel(rawUrl: string): string {
+  try {
+    const u = new URL(rawUrl);
+    const path = u.pathname === "/" ? "" : u.pathname;
+    const label = `${u.hostname}${path}`;
+    return label.length > 42 ? `${label.slice(0, 40)}…` : label;
+  } catch {
+    return rawUrl.length > 42 ? `${rawUrl.slice(0, 40)}…` : rawUrl;
+  }
+}
+
+function renderMessageContent(content: string, onDark = false) {
+  const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g;
   const urlRegex = /\bhttps?:\/\/[^\s<>"')\]]+/g;
   const lines = content.split("\n");
+  const pill = linkPillClass(onDark);
 
   return lines.map((line, lineIndex) => {
     const nodes: Array<string | ReactElement> = [];
@@ -83,9 +102,10 @@ function renderMessageContent(content: string) {
             href={rawUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sky-700 underline break-all"
+            className={pill}
+            title={rawUrl}
           >
-            {rawUrl}
+            {shortUrlLabel(rawUrl)}
           </a>,
         );
         plainCursor = end;
@@ -100,13 +120,14 @@ function renderMessageContent(content: string) {
       const start = match.index ?? 0;
       const end = start + full.length;
       if (start > cursor) pushPlainWithUrls(line.slice(cursor, start));
+      const external = href.startsWith("http");
       nodes.push(
         <a
           key={`md_${lineIndex}_${key++}`}
           href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sky-700 underline break-all"
+          {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          className={pill}
+          title={href}
         >
           {label}
         </a>,
@@ -156,7 +177,8 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
   const pathname = usePathname();
   const router = useRouter();
   const { isSignedIn } = useSessionUser();
-  const { runActions, urlModal, closeUrlModal } = useScoliaClientActions();
+  const { runActions, urlModal, closeUrlModal, openUrlPreview } = useScoliaClientActions();
+  const dossierModal = useEleveDossierModalOptional();
   const [open, setOpen] = useState(pageMode);
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
@@ -428,10 +450,16 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
       }
       if (Array.isArray(data.ctas)) {
         setCtas(
-          data.ctas.filter(
-            (c: unknown): c is BrainCta =>
-              Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"),
-          ),
+          data.ctas
+            .filter(
+              (c: unknown): c is BrainCta =>
+                Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"),
+            )
+            .map((c) => ({
+              label: String(c.label || "Ouvrir"),
+              href: c.href,
+              ...(c.preview ? { preview: true as const } : {}),
+            })),
         );
       } else {
         setCtas([]);
@@ -651,87 +679,93 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
 
   const renderChatBody = () => (
     <div
-      className={`relative h-full flex flex-col ${dragOver ? "ring-2 ring-emerald-400/60 ring-inset" : ""}`}
+      className={`relative flex h-full flex-col ${dragOver ? "ring-2 ring-[color:var(--dash-lime)]/70 ring-inset" : ""}`}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
       {dragOver ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-emerald-50/80 backdrop-blur-[2px]">
-          <div className="rounded-2xl border-2 border-dashed border-emerald-500 bg-white/90 px-6 py-5 text-center shadow-lg">
-            <p className="text-sm font-semibold text-emerald-900">Déposez votre PDF ici</p>
-            <p className="mt-1 text-[11px] text-emerald-800/80">ScolIA l’ajoutera à la conversation</p>
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[color:var(--dash-soft-muted)]/90 backdrop-blur-[2px]">
+          <div className="rounded-[1.5rem] border-2 border-dashed border-[var(--dash-ink)] bg-white/95 px-6 py-5 text-center shadow-lg">
+            <p className="text-sm font-semibold text-[var(--dash-ink)]">Déposez votre PDF ici</p>
+            <p className="mt-1 text-[11px] text-neutral-600">ScolIA l’ajoutera à la conversation</p>
           </div>
         </div>
       ) : null}
-      {/* Header */}
-      <div className="relative flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white/80 px-5 py-3.5 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-md">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--dash-ink,#14231A)]">
-            <ScoliaAiMark size="sm" inverted fill />
+
+      {!embedded ? (
+        <div className="relative flex items-center justify-between gap-3 border-b border-black/5 bg-white/85 px-5 py-3.5 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-md">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)]">
+              <ScoliaAiMark size="sm" inverted fill />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-[var(--dash-ink)]">{SCOLIA_AI_NAME}</p>
+              <p className="truncate text-[11px] text-neutral-500">Assistant de votre établissement</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-slate-900">{SCOLIA_AI_NAME}</p>
-            <p className="truncate text-[11px] text-slate-500">Assistant de votre établissement</p>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={resetConversation}
+              className="rounded-2xl border border-black/8 bg-white px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-ink)] transition hover:bg-[color:var(--dash-soft-muted)]"
+            >
+              Nouvelle conversation
+            </button>
+            <button
+              type="button"
+              onClick={closeChat}
+              className="flex h-9 w-9 items-center justify-center rounded-2xl border border-black/8 bg-white text-lg leading-none text-neutral-600 transition hover:bg-[color:var(--dash-soft-muted)] hover:text-[var(--dash-ink)]"
+              aria-label={`Fermer ${SCOLIA_AI_NAME}`}
+              title="Fermer"
+            >
+              ×
+            </button>
           </div>
         </div>
+      ) : null}
 
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={resetConversation}
-            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Nouvelle conversation
-          </button>
-          <button
-            type="button"
-            onClick={closeChat}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            aria-label={`Fermer ${SCOLIA_AI_NAME}`}
-            title="Fermer"
-          >
-            ×
-          </button>
-        </div>
-      </div>
-
-      {/* Messages — historique complet type LLM */}
       <div
         ref={messagesRef}
-        className="relative min-h-0 flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-slate-50/80 to-white px-4 py-5 sm:px-8"
+        className="relative min-h-0 flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-[#f4f5f3] via-white to-white px-4 py-5 sm:px-7"
       >
         <div className="mx-auto w-full max-w-2xl space-y-4">
           {messages.length <= 1 ? (
-            <div className="flex flex-col items-center justify-center px-2 py-8 text-center sm:py-12">
-              <ScoliaAiMark size="lg" />
-              <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-600">
-                Posez une question, dictez au micro, ou glissez un PDF. L’historique de la conversation
-                reste ici.
+            <div className="flex flex-col items-center justify-center px-2 py-10 text-center sm:py-16">
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] bg-[var(--dash-ink)] shadow-sm ring-4 ring-[color:var(--dash-lime)]/30">
+                <ScoliaAiMark size="lg" inverted fill />
+              </div>
+              <p className="mt-5 max-w-sm text-[15px] font-medium leading-relaxed text-[var(--dash-ink)]">
+                Posez une question, dictez au micro, ou glissez un PDF.
+              </p>
+              <p className="mt-2 max-w-sm text-xs leading-relaxed text-neutral-500">
+                L’historique reste ici. Les actions importantes vous seront toujours confirmées.
               </p>
             </div>
           ) : null}
           {messages.map((m, i) => {
             if (messages.length <= 1 && m.role === "assistant") return null;
+            const isUser = m.role === "user";
             return (
               <div
                 key={i}
-                className={`flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
               >
-                {m.role === "assistant" ? (
-                  <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--dash-ink,#14231A)]">
+                {!isUser ? (
+                  <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)]">
                     <ScoliaAiMark size="sm" inverted fill />
                   </div>
                 ) : null}
                 <div
-                  className={`max-w-[min(92%,36rem)] rounded-3xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
-                    m.role === "user"
-                      ? "rounded-br-lg bg-slate-900 text-white"
-                      : "rounded-bl-lg border border-slate-200/80 bg-white text-slate-800 shadow-sm"
+                  className={`max-w-[min(92%,36rem)] px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+                    isUser
+                      ? "rounded-[1.35rem] rounded-br-md bg-[var(--dash-ink)] text-white shadow-sm"
+                      : "rounded-[1.35rem] rounded-bl-md border border-black/6 bg-white text-[var(--dash-ink)] shadow-[0_1px_0_rgba(0,0,0,0.03)]"
                   }`}
                 >
-                  {renderMessageContent(m.content)}
+                  {renderMessageContent(m.content, isUser)}
                 </div>
               </div>
             );
@@ -741,7 +775,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
       </div>
 
       {/* Composer */}
-      <div className="border-t border-slate-200/80 bg-white/90 px-4 py-3 pb-[max(16px,env(safe-area-inset-bottom))] backdrop-blur-md sm:px-8">
+      <div className="border-t border-black/5 bg-white/90 px-4 py-3 pb-[max(16px,env(safe-area-inset-bottom))] backdrop-blur-md sm:px-7">
         <div className="mx-auto w-full max-w-2xl">
           {listening ? (
             <div className="mb-2 flex items-center gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/90 px-3 py-2">
@@ -771,12 +805,12 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               {pendingFiles.map((f, idx) => (
                 <span
                   key={`${f.name}_${idx}`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-700"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-black/8 bg-[color:var(--dash-soft-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--dash-ink)]"
                 >
                   PDF · {f.name}
                   <button
                     type="button"
-                    className="text-slate-400 hover:text-slate-700"
+                    className="text-neutral-400 hover:text-[var(--dash-ink)]"
                     onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
                   >
                     ×
@@ -786,7 +820,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
             </div>
           ) : null}
 
-          <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+          <div className="flex items-end gap-2 rounded-[1.35rem] border border-black/8 bg-[#f7f8f6] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
             <input
               ref={fileInputRef}
               type="file"
@@ -799,7 +833,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               disabled={loading || !isSignedIn}
               title={isSignedIn ? "Joindre un PDF" : "Connectez-vous pour joindre un PDF"}
               onClick={() => fileInputRef.current?.click()}
-              className="shrink-0 rounded-xl px-2 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+              className="shrink-0 rounded-xl px-2.5 py-2 text-sm text-neutral-600 transition hover:bg-white disabled:opacity-40"
             >
               📎
             </button>
@@ -814,7 +848,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                 }
               }}
               placeholder={listening ? "Parlez… (envoi auto à la fin)" : "Message à ScolIA…"}
-              className="max-h-32 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none sm:text-sm"
+              className="max-h-32 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-base text-[var(--dash-ink)] placeholder:text-neutral-400 focus:outline-none sm:text-sm"
             />
             <button
               type="button"
@@ -822,7 +856,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               disabled={!speechSupported || loading}
               title={speechSupported ? (listening ? "Arrêter et envoyer" : "Dicter (envoi auto)") : "Dictée non supportée"}
               className={`shrink-0 rounded-xl px-2.5 py-2 text-sm font-bold disabled:opacity-40 ${
-                listening ? "bg-rose-500 text-white" : "text-slate-700 hover:bg-slate-100"
+                listening ? "bg-rose-500 text-white" : "text-neutral-700 hover:bg-white"
               }`}
             >
               🎤
@@ -831,11 +865,22 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               type="button"
               onClick={() => void send()}
               disabled={loading || (!input.trim() && pendingFiles.length === 0)}
-              className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-black disabled:opacity-50"
+              className="shrink-0 rounded-2xl bg-[var(--dash-ink)] px-3.5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
             >
               {loading ? "…" : "Envoyer"}
             </button>
           </div>
+          {embedded ? (
+            <div className="mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={resetConversation}
+                className="text-[11px] font-medium text-neutral-500 transition hover:text-[var(--dash-ink)]"
+              >
+                Nouvelle conversation
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1089,31 +1134,62 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
           </div>
         ) : null}
         {ctas.length > 0 ? (
-          <div className={`flex flex-wrap gap-1.5 ${isExpanded ? "" : "mr-4"}`}>
-            {ctas.map((c) => (
-              <Link
-                key={`${c.href}_${c.label}`}
-                href={c.href}
-                onClick={() => {
-                  if (!pageMode) setOpen(false);
-                }}
-                className="text-[11px] rounded-lg bg-slate-900/90 text-white px-2.5 py-1.5 font-semibold hover:bg-black"
-              >
-                {c.label}
-              </Link>
-            ))}
+          <div className={`flex flex-wrap gap-2 ${isExpanded ? "" : "mr-4"}`}>
+            {ctas.map((c) => {
+              if (c.preview) {
+                return (
+                  <button
+                    key={`${c.href}_${c.label}_preview`}
+                    type="button"
+                    onClick={() => {
+                      openUrlPreview(c.href, c.label);
+                    }}
+                    className="rounded-2xl bg-[color:var(--dash-lime)] px-3 py-2 text-[12px] font-semibold text-[var(--dash-ink)] shadow-sm ring-1 ring-black/5 transition hover:brightness-95"
+                  >
+                    {c.label}
+                  </button>
+                );
+              }
+              const dossierMatch = c.href.match(/^\/eleves\/dossier\/([^/?#]+)\/?$/);
+              if (dossierMatch && dossierModal) {
+                return (
+                  <button
+                    key={`${c.href}_${c.label}_dossier`}
+                    type="button"
+                    onClick={() => {
+                      dossierModal.open(dossierMatch[1]!);
+                    }}
+                    className="rounded-2xl bg-[var(--dash-ink)] px-3 py-2 text-[12px] font-semibold text-white shadow-sm transition hover:opacity-90"
+                  >
+                    {c.label}
+                  </button>
+                );
+              }
+              return (
+                <Link
+                  key={`${c.href}_${c.label}`}
+                  href={c.href}
+                  onClick={() => {
+                    if (!pageMode) setOpen(false);
+                  }}
+                  className="rounded-2xl bg-[var(--dash-ink)] px-3 py-2 text-[12px] font-semibold text-white shadow-sm transition hover:opacity-90"
+                >
+                  {c.label}
+                </Link>
+              );
+            })}
           </div>
         ) : null}
         {loading ? (
           <div
-            className={`rounded-2xl px-3 py-2 text-sm bg-white/80 border border-slate-200 ${
+            className={`rounded-2xl border border-black/6 bg-white px-3 py-2.5 text-sm shadow-sm ${
               isExpanded ? "w-fit" : "mr-8"
             }`}
           >
-            <div className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
-              <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
-              <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" />
+            <div className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-[var(--dash-ink)] animate-bounce [animation-delay:-0.2s]" />
+              <span className="h-2 w-2 rounded-full bg-[var(--dash-ink)] animate-bounce [animation-delay:-0.1s]" />
+              <span className="h-2 w-2 rounded-full bg-[color:var(--dash-lime)] animate-bounce" />
             </div>
           </div>
         ) : null}
