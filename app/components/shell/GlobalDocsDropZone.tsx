@@ -18,6 +18,9 @@ type Props = {
 
 const ACCEPT = ".pdf,application/pdf";
 
+/** Hauteur figée du panneau (connecté / non connecté / progress) — évite de pousser les raccourcis. */
+const PANEL_H = "h-[5.5rem]";
+
 export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -178,7 +181,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex h-5 items-center justify-between gap-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--dash-mid)]">
           Dépôt intelligent
         </p>
@@ -186,7 +189,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
           <Link
             href="/agentIAOCR?suivi=1"
             onClick={onCloseMobile}
-            className="inline-flex items-center gap-1 rounded-full bg-[var(--dash-lime)] px-2 py-0.5 text-[10px] font-black text-[var(--dash-ink)]"
+            className="inline-flex h-5 items-center gap-1 rounded-full bg-[var(--dash-lime)] px-2 text-[10px] font-black text-[var(--dash-ink)]"
             title="Ouvrir le suivi OCR"
           >
             <span
@@ -201,7 +204,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
           <Link
             href="/agentIAOCR"
             onClick={onCloseMobile}
-            className="text-[10px] font-semibold text-neutral-500 underline-offset-2 hover:text-[var(--dash-ink)] hover:underline"
+            className="inline-flex h-5 items-center text-[10px] font-semibold text-neutral-500 underline-offset-2 hover:text-[var(--dash-ink)] hover:underline"
           >
             Suivi
           </Link>
@@ -209,32 +212,53 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
       </div>
 
       {gate.checking && !gate.connected ? (
-        <p className="rounded-xl bg-white/70 px-2 py-2 text-[11px] text-neutral-500">
-          Vérification OneDrive…
-        </p>
-      ) : !gate.configured ? (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-2 py-2 text-[11px] font-medium text-amber-900">
-          OneDrive non activé (Paramètres → Intégrations).
-        </p>
-      ) : !gate.connected ? (
-        <div className="space-y-1.5 rounded-2xl border border-dashed border-black/15 bg-white/80 px-3 py-3 text-center">
-          <p className="text-[11px] font-semibold text-[var(--dash-ink)]">
-            Connectez OneDrive pour déposer
+        <div
+          className={`${PANEL_H} flex items-center justify-center overflow-hidden rounded-2xl bg-white/70 px-3`}
+          role="status"
+        >
+          <p className="line-clamp-2 text-center text-[11px] leading-snug text-neutral-500">
+            Vérification OneDrive…
           </p>
-          <p className="text-[10px] text-neutral-500">
-            L’OCR range ensuite dans les dossiers élèves / personnel.
-          </p>
-          <button
-            type="button"
-            onClick={() => void gate.connect()}
-            className="mt-1 w-full rounded-xl bg-[var(--dash-ink)] px-3 py-2 text-[11px] font-bold text-white hover:brightness-110"
-          >
-            Connecter OneDrive
-          </button>
         </div>
+      ) : !gate.configured ? (
+        <div
+          className={`${PANEL_H} flex items-center justify-center overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 px-3`}
+        >
+          <p className="line-clamp-3 text-center text-[11px] font-medium leading-snug text-amber-900">
+            OneDrive non activé (Paramètres → Intégrations).
+          </p>
+        </div>
+      ) : !gate.connected ? (
+        <button
+          type="button"
+          onClick={() => void gate.connect()}
+          className={`${PANEL_H} flex w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl border border-dashed border-black/15 bg-white/80 px-3 text-center transition hover:border-black/30 hover:bg-white`}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.75}
+            stroke="currentColor"
+            className="h-4 w-4 shrink-0 text-[var(--dash-ink)]"
+            aria-hidden
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
+            />
+          </svg>
+          <span className="line-clamp-1 text-[11px] font-semibold leading-snug text-[var(--dash-ink)]">
+            Connecter OneDrive
+          </span>
+          <span className="line-clamp-1 text-[10px] leading-snug text-neutral-500">
+            Puis déposez un PDF ici
+          </span>
+        </button>
       ) : progress && progress.phase !== "error" ? (
         <div
-          className={`rounded-2xl border px-3 py-3 ${
+          className={`${PANEL_H} overflow-hidden rounded-2xl border px-3 py-2 ${
             progress.phase === "done"
               ? "border-emerald-300 bg-emerald-50"
               : "border-[var(--dash-ink)]/20 bg-white/90"
@@ -242,9 +266,9 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
           role="status"
           aria-live="polite"
         >
-          <div className="flex items-start gap-2">
+          <div className="flex h-full items-start gap-2">
             {progress.phase === "done" ? (
-              <span className="text-base leading-none" aria-hidden>
+              <span className="shrink-0 text-base leading-none" aria-hidden>
                 ✓
               </span>
             ) : (
@@ -253,8 +277,8 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
                 aria-hidden
               />
             )}
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-bold leading-snug text-[var(--dash-ink)]">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-center">
+              <p className="truncate text-[11px] font-bold leading-snug text-[var(--dash-ink)]">
                 {progress.phase === "uploading"
                   ? "Envoi en cours"
                   : progress.phase === "starting"
@@ -264,28 +288,23 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
                       : "OCR en cours"}
               </p>
               <p
-                className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-neutral-600"
+                className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-neutral-600"
                 title={progress.label}
               >
                 {progress.label}
               </p>
               {progress.phase !== "done" ? (
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/8">
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-black/8">
                   <div
                     className="h-full rounded-full bg-[var(--dash-ink)] transition-[width] duration-500"
                     style={{ width: `${Math.max(4, Math.min(100, progress.percent))}%` }}
                   />
                 </div>
               ) : null}
-              <p className="mt-1.5 text-[10px] text-neutral-500">
-                {progress.phase === "done"
-                  ? "Vous pouvez ouvrir le suivi pour le détail."
-                  : "Restez sur cette page — pas besoin d’ouvrir l’OCR."}
-              </p>
               <Link
                 href="/agentIAOCR?suivi=1"
                 onClick={onCloseMobile}
-                className="mt-1 inline-block text-[10px] font-semibold text-[var(--dash-ink)] underline-offset-2 hover:underline"
+                className="mt-1 truncate text-[10px] font-semibold text-[var(--dash-ink)] underline-offset-2 hover:underline"
               >
                 Voir le détail →
               </Link>
@@ -316,7 +335,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
             setDragOver(false);
           }}
           onDrop={onDrop}
-          className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl border border-dashed px-3 py-3 text-center transition ${
+          className={`${PANEL_H} flex cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl border border-dashed px-3 text-center transition ${
             dragOver
               ? "border-[var(--dash-ink)] bg-[color:var(--dash-lime)]/70"
               : "border-black/12 bg-white/80 hover:border-black/25 hover:bg-white"
@@ -328,7 +347,7 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
             viewBox="0 0 24 24"
             strokeWidth={1.75}
             stroke="currentColor"
-            className="h-4 w-4 text-[var(--dash-ink)]"
+            className="h-4 w-4 shrink-0 text-[var(--dash-ink)]"
             aria-hidden
           >
             <path
@@ -337,10 +356,10 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
               d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
             />
           </svg>
-          <span className="text-[11px] font-semibold leading-snug text-[var(--dash-ink)]">
+          <span className="line-clamp-1 text-[11px] font-semibold leading-snug text-[var(--dash-ink)]">
             Déposer un PDF
           </span>
-          <span className="text-[10px] text-neutral-500">
+          <span className="line-clamp-1 text-[10px] leading-snug text-neutral-500">
             OCR ici — sans quitter la page
           </span>
           <input
@@ -357,22 +376,32 @@ export default function GlobalDocsDropZone({ onCloseMobile, ocrAvailable = true 
         </div>
       )}
 
-      {hint ? <p className="text-[11px] font-medium text-amber-800">{hint}</p> : null}
-      {progress?.phase === "error" ? (
-        <button
-          type="button"
-          onClick={() => {
-            setProgress(null);
-            setHint(null);
-          }}
-          className="text-[10px] font-semibold text-[var(--dash-ink)] underline-offset-2 hover:underline"
-        >
-          Réessayer un dépôt
-        </button>
-      ) : null}
-      {gate.error && gate.connected === false ? (
-        <p className="text-[11px] font-medium text-red-600">{gate.error}</p>
-      ) : null}
+      {/* Zone méta figée : hints / erreurs n’altèrent pas la hauteur du panneau principal */}
+      <div className="min-h-[1.1rem]">
+        {hint ? (
+          <p className="line-clamp-1 text-[11px] font-medium text-amber-800" title={hint}>
+            {hint}
+          </p>
+        ) : progress?.phase === "error" ? (
+          <button
+            type="button"
+            onClick={() => {
+              setProgress(null);
+              setHint(null);
+            }}
+            className="text-[10px] font-semibold text-[var(--dash-ink)] underline-offset-2 hover:underline"
+          >
+            Réessayer un dépôt
+          </button>
+        ) : gate.error && gate.connected === false ? (
+          <p
+            className="line-clamp-1 text-[11px] font-medium text-red-600"
+            title={gate.error}
+          >
+            {gate.error}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
