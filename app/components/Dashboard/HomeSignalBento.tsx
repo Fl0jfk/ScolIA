@@ -403,11 +403,8 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
     return (
       <div className="space-y-3">
         <div className="px-1">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
+          <h2 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
             Signaux
-          </p>
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--dash-ink)]">
-            Ce qui compte maintenant
           </h2>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -427,11 +424,8 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
     return (
       <div className="space-y-3">
         <div className="px-1">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
+          <h2 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
             Signaux
-          </p>
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--dash-ink)]">
-            Ce qui compte maintenant
           </h2>
         </div>
         <div className="rounded-[1.75rem] border border-dashed border-black/10 bg-white/60 px-6 py-8 text-center">
@@ -446,18 +440,10 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
 
   return (
     <div className="space-y-3">
-      <div className="flex items-end justify-between gap-3 px-1">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
-            Signaux
-          </p>
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--dash-ink)]">
-            Ce qui compte maintenant
-          </h2>
-        </div>
-        <p className="text-xs font-medium text-neutral-400">
-          {tiles.length} module{tiles.length > 1 ? "s" : ""}
-        </p>
+      <div className="px-1">
+        <h2 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
+          Signaux
+        </h2>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((tile) => (

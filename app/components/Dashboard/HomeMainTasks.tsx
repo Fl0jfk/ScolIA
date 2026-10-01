@@ -16,14 +16,9 @@ export default function HomeMainTasks({ tasks }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex items-end justify-between gap-3 px-1">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
-            Mes tâches
-          </p>
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--dash-ink)]">
-            Accès rapides selon votre rôle
-          </h2>
-        </div>
+        <h2 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]">
+          Pour vous
+        </h2>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {tasks.map((task, index) => {
