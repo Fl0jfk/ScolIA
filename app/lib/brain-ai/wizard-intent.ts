@@ -21,13 +21,42 @@ function isMetaHowTo(t: string): boolean {
   );
 }
 
+const TRIP_NOUN = /\b(sortie|voyage|sejour|trip)s?\b/;
+const TRIP_PHRASE = /\b(sortie|voyage|sejour)s?\s+scolaire(s)?\b/;
+const OPEN_VERB =
+  /\b(ouvre|ouvrir|montre|montrer|affiche|afficher|va sur|accede|acceder|consulte|consulter|voir|vois|regarde|regarder|liste|lister|trouve|trouver)\b/;
+const CREATE_VERB =
+  /\b(creer|cree|organise|organiser|planifie|planifier|demarre|demarrer|lance|lancer|nouvelle|nouveau)\b/;
+
 /**
- * Retourne le nom d'outil wizard à démarrer immédiatement, ou null.
+ * Retourne le nom d'outil wizard / navigation à démarrer immédiatement, ou null.
  */
 export function detectWizardStartTool(message: string): string | null {
   const t = normalize(message);
   if (!t || t.length > 280) return null;
   if (isMetaHowTo(t)) return null;
+
+  const mentionsTrip = TRIP_NOUN.test(t) || TRIP_PHRASE.test(t);
+
+  // Sorties : OUVRIR avant CRÉER
+  // (avant : « sortie scolaire » seul forçait create_trip → « ouvre une sortie » créait).
+  if (mentionsTrip && OPEN_VERB.test(t) && !CREATE_VERB.test(t)) {
+    return "open_trip";
+  }
+  if (mentionsTrip && CREATE_VERB.test(t)) {
+    return "create_trip";
+  }
+  // « faire une sortie » = créer ; pas « ouvrir »
+  if (mentionsTrip && /\bfaire\b/.test(t) && !OPEN_VERB.test(t)) {
+    return "create_trip";
+  }
+  if (
+    mentionsTrip &&
+    /\b(mes|les|des)\s+(sorties|voyages|sejours)\b/.test(t) &&
+    !CREATE_VERB.test(t)
+  ) {
+    return "open_trip";
+  }
 
   // Réservation de salle
   if (
@@ -37,15 +66,6 @@ export function detectWizardStartTool(message: string): string | null {
     /\breserv(er)?\b.{0,20}\b(une |la )?(salle|local)\b/.test(t)
   ) {
     return "create_reservation";
-  }
-
-  // Sortie / voyage / séjour
-  if (
-    (/\b(creer|organiser|planifier|faire|demarrer|lancer|nouvelle?)\b/.test(t) &&
-      /\b(sortie|voyage|sejour|trip)\b/.test(t)) ||
-    /\b(sortie scolaire|voyage scolaire|sejour scolaire)\b/.test(t)
-  ) {
-    return "create_trip";
   }
 
   // Absence

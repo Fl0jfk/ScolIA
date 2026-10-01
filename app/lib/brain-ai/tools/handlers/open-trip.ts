@@ -34,6 +34,21 @@ function scoreTrip(t: TravelsTrip, query: string): number {
   return score;
 }
 
+/** « ouvre une sortie scolaire » → pas un titre de séjour. */
+function isGenericTripQuery(query: string): boolean {
+  const q = query
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/['’]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return true;
+  return /^(une |la |les |des |mon |ma |mes )?(sortie|voyage|sejour|trip)s?( scolaire(s)?)?$/.test(
+    q,
+  );
+}
+
 /**
  * Ouvre un séjour existant. Si plusieurs matchent, propose un choix + liens CTA.
  */
@@ -42,7 +57,8 @@ export async function handleOpenTrip(
   args: Record<string, unknown>,
 ): Promise<BrainToolResult> {
   const tripId = String(args.tripId || args.id || "").trim();
-  const query = String(args.query || args.q || args.title || "").trim();
+  let query = String(args.query || args.q || args.title || "").trim();
+  if (isGenericTripQuery(query)) query = "";
   const trips = await loadTripsIndex();
 
   if (tripId) {
