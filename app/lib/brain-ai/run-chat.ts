@@ -10,6 +10,7 @@ import {
   normalizeConversationState,
   withPendingChoices,
   withPendingConfirmation,
+  withPendingFileUpload,
 } from "@/app/lib/brain-ai/conversation-state";
 import { executeBrainTool } from "@/app/lib/brain-ai/tools/execute";
 import { getBrainTool, mistralToolsForUser } from "@/app/lib/brain-ai/tools/registry";
@@ -25,6 +26,7 @@ import type {
   BrainConversationState,
   BrainPendingChoices,
   BrainPendingConfirmation,
+  BrainPendingFileUpload,
   BrainToolCtx,
   BrainToolResult,
 } from "@/app/lib/brain-ai/types";
@@ -379,6 +381,29 @@ function materializeToolTurn(
       conversationState: state,
       pendingConfirmation: null,
       pendingChoices,
+      pendingFileUpload: null,
+      ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
+    };
+  }
+
+  if (!result.ok && "needsFileUpload" in result && result.needsFileUpload) {
+    const pendingFileUpload: BrainPendingFileUpload = {
+      tool: result.tool,
+      promptFr: result.promptFr,
+      draftArgs: result.draftArgs,
+      optional: result.optional,
+      accept: result.accept,
+    };
+    const state = withPendingFileUpload(conversationState, pendingFileUpload);
+    return {
+      answer: result.promptFr,
+      domain: knowledgeMeta?.domainId,
+      usedFile: knowledgeMeta?.file,
+      conversationState: state,
+      pendingConfirmation: null,
+      pendingChoices: null,
+      pendingFileUpload,
       ctas: ctas.length ? ctas : undefined,
       clientActions: clientActions.length ? clientActions : undefined,
     };
@@ -398,6 +423,7 @@ function materializeToolTurn(
       conversationState: state,
       pendingConfirmation,
       pendingChoices: null,
+      pendingFileUpload: null,
       ctas: ctas.length ? ctas : undefined,
       clientActions: clientActions.length ? clientActions : undefined,
     };
@@ -406,12 +432,13 @@ function materializeToolTurn(
   if (!result.ok) {
     return {
       answer: "error" in result ? result.error : "Échec de l'action.",
-      conversationState: withPendingChoices(
-        withPendingConfirmation(conversationState, null),
+      conversationState: withPendingFileUpload(
+        withPendingChoices(withPendingConfirmation(conversationState, null), null),
         null,
       ),
       pendingConfirmation: null,
       pendingChoices: null,
+      pendingFileUpload: null,
       ctas: ctas.length ? ctas : undefined,
       clientActions: clientActions.length ? clientActions : undefined,
     };
@@ -430,12 +457,13 @@ function materializeToolTurn(
     answer: result.summaryFr || "Action effectuée.",
     domain: knowledgeMeta?.domainId,
     usedFile: knowledgeMeta?.file,
-    conversationState: withPendingChoices(
-      withPendingConfirmation(conversationState, null),
+    conversationState: withPendingFileUpload(
+      withPendingChoices(withPendingConfirmation(conversationState, null), null),
       null,
     ),
     pendingConfirmation: null,
     pendingChoices: null,
+    pendingFileUpload: null,
     ctas: nextCtas.length ? nextCtas : undefined,
     clientActions: nextActions.length ? nextActions : undefined,
   };
@@ -458,6 +486,12 @@ type RunBrainChatInput = {
     value?: string;
     values?: string[];
     draftArgs: Record<string, unknown>;
+  } | null;
+  /** Reprise après demande de dépôt de fichier. */
+  fileApply?: {
+    tool: string;
+    draftArgs: Record<string, unknown>;
+    skipPdf?: boolean;
   } | null;
   /** Pièces jointes déjà uploadées (PDF…). */
   attachments?: Array<{
@@ -499,6 +533,53 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   const clientActions: BrainClientAction[] = [];
   let pendingConfirmation: BrainPendingConfirmation | null = null;
   let pendingChoices: BrainPendingChoices | null = null;
+
+  // Reprise après dépôt PDF (ou skip)
+  if (input.fileApply?.tool) {
+    const toolName = input.fileApply.tool;
+    const tool = getBrainTool(toolName);
+    if (!tool) {
+      return {
+        answer: "Action inconnue, impossible d'appliquer le fichier.",
+        conversationState,
+        pendingConfirmation: null,
+        pendingChoices: null,
+        pendingFileUpload: null,
+      };
+    }
+    const mergedArgs: Record<string, unknown> = {
+      ...(input.fileApply.draftArgs || {}),
+      ...(input.fileApply.skipPdf ? { skipPdf: true } : {}),
+    };
+    if (toolName === "create_photocopie_demand" && !input.fileApply.skipPdf) {
+      const atts = conversationState.slots.attachments;
+      if (Array.isArray(atts) && atts.length > 0) {
+        const docs = atts
+          .slice(-5)
+          .map((a) => {
+            const row = a as { key?: string; fileName?: string; contentType?: string };
+            if (!row?.key) return null;
+            return {
+              key: row.key,
+              fileName: row.fileName || "document.pdf",
+              contentType: row.contentType || "application/pdf",
+            };
+          })
+          .filter((d): d is { key: string; fileName: string; contentType: string } => Boolean(d));
+        if (docs.length > 0) {
+          mergedArgs.documents = docs;
+          mergedArgs.documentKey = docs[0].key;
+          mergedArgs.documentFileName = docs[0].fileName;
+          mergedArgs.documentContentType = docs[0].contentType;
+        }
+      }
+    }
+    const result = await executeBrainTool(toolName, mergedArgs, {
+      ...input.toolCtx,
+      confirmed: false,
+    });
+    return materializeToolTurn(conversationState, result, ctas, undefined, clientActions);
+  }
 
   // Choix UI (liste déroulante / multi / date) — rejoue l'outil sans passer par le LLM
   if (input.choiceApply?.tool && input.choiceApply.field) {
@@ -649,10 +730,11 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- INTERDIT d'écrire « dites-moi… », « pour commencer… », « liste-moi les salles… ».\n` +
     `- Dès que l'utilisateur veut réserver / créer / déclarer : appelle IMMÉDIATEMENT l'outil correspondant AVEC {} (sans args). L'UI affiche listes déroulantes, dates et boutons.\n` +
     `- create_reservation = réservation salle | create_trip = sortie/voyage | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
-    `- Navigation : resolve_and_open (pages modules) | open_eleve_dossier (dossier / docs inscription) | search_eleves | update_eleve_regime (avec confirmation).\n` +
-    `- Dossiers élèves / régime : UNIQUEMENT si l'utilisateur a les droits (les outils refusent sinon). Pas de salaires / RH nominatifs hors outils.\n` +
-    `- create_absence = soi uniquement (sauf outils absences dédiés).\n` +
-    `- Si des PDF sont joints (max 5), passe-les à create_photocopie_demand via documents[] (ou documentKey / documentFileName en mono).\n` +
+    `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe).\n` +
+    `- Mutations : update_eleve_regime | create_accueil_absence (élève accueil) | create_absence (soi) | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand.\n` +
+    `- Dossiers élèves / régime / PAP : UNIQUEMENT si l'utilisateur a les droits (les outils refusent sinon).\n` +
+    `- create_absence = soi uniquement. create_accueil_absence = élèves (accueil).\n` +
+    `- Photocopies : après les champs, l'UI demande le PDF (dépôt). Ne demande pas le PDF en texte libre.\n` +
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
     `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
     `- Liens en URL complète https://…\n` +
@@ -802,6 +884,16 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       });
 
       if (!result.ok && "needsChoices" in result && result.needsChoices) {
+        return materializeToolTurn(
+          conversationState,
+          result,
+          ctas,
+          { domainId: knowledge.domain.id, file: knowledge.domain.file },
+          clientActions,
+        );
+      }
+
+      if (!result.ok && "needsFileUpload" in result && result.needsFileUpload) {
         return materializeToolTurn(
           conversationState,
           result,

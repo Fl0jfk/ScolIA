@@ -32,6 +32,9 @@ import {
   handleSearchEleves,
   handleUpdateEleveRegime,
 } from "@/app/lib/brain-ai/tools/handlers/eleves";
+import { handleCreateAccueilAbsence } from "@/app/lib/brain-ai/tools/handlers/accueil-absences";
+import { handleListElevesFiltered } from "@/app/lib/brain-ai/tools/handlers/eleves-filtered";
+import { handleOpenTrip } from "@/app/lib/brain-ai/tools/handlers/open-trip";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
@@ -127,6 +130,73 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: true,
     handler: handleUpdateEleveRegime,
+  },
+  {
+    name: "list_eleves_filtered",
+    description:
+      "Liste les élèves filtrés par classe et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP de 6ème A ». Retourne des liens dossier.",
+    parameters: {
+      type: "object",
+      properties: {
+        classe: { type: "string", description: "Ex. 6ème A" },
+        accompagnement: {
+          type: "string",
+          description: "pap | pai | pps | gevasco | any",
+        },
+        limit: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleListElevesFiltered,
+  },
+  {
+    name: "create_accueil_absence",
+    description:
+      "Déclare une absence ou un retard élève à l’accueil (aujourd’hui, multi-jours, ou horaires). Wizard + confirmation. Ex. « Paul est absent 2 jours ».",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Nom élève" },
+        subjectId: { type: "string" },
+        eleveNature: { type: "string", enum: ["absence", "retard"] },
+        mode: { type: "string", enum: ["today", "multi_day", "hours"] },
+        startDate: { type: "string" },
+        endDate: { type: "string" },
+        days: { type: "number", description: "Nombre de jours (raccourci multi_day)" },
+        startTime: { type: "string" },
+        endTime: { type: "string" },
+        motif: { type: "string" },
+        canal: { type: "string", enum: ["telephone", "physique", "mail"] },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "accueil-absences",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleCreateAccueilAbsence,
+  },
+  {
+    name: "open_trip",
+    description:
+      "Ouvre un séjour / sortie scolaire existant. Si plusieurs matchent le titre, propose un choix avec liens. Passer tripId ou query.",
+    parameters: {
+      type: "object",
+      properties: {
+        tripId: { type: "string" },
+        query: { type: "string", description: "Titre ou destination" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/travels",
+    moduleId: "travels",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleOpenTrip,
   },
 
   {

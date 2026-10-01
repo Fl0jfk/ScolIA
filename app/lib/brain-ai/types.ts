@@ -15,6 +15,16 @@ export type BrainPendingChoices = {
   selectionType?: "single" | "multi" | "date" | "text";
 };
 
+/** Demande un dépôt de fichier (ex. PDF photocopie) avant de poursuivre. */
+export type BrainPendingFileUpload = {
+  tool: string;
+  promptFr: string;
+  draftArgs: Record<string, unknown>;
+  /** Si true, l’utilisateur peut continuer sans fichier. */
+  optional?: boolean;
+  accept?: string;
+};
+
 /** Action UI exécutée côté navigateur après la réponse Brain. */
 export type BrainClientAction =
   | { type: "open_route"; href: string; label?: string }
@@ -40,6 +50,15 @@ export type BrainToolResult =
       options: BrainChoiceOption[];
       draftArgs: Record<string, unknown>;
       selectionType?: "single" | "multi" | "date" | "text";
+    }
+  | {
+      ok: false;
+      needsFileUpload: true;
+      tool: string;
+      promptFr: string;
+      draftArgs: Record<string, unknown>;
+      optional?: boolean;
+      accept?: string;
     };
 
 export type BrainToolCtx = {
@@ -68,6 +87,7 @@ export type BrainConversationState = {
   slots: Record<string, unknown>;
   pendingConfirmation?: BrainPendingConfirmation | null;
   pendingChoices?: BrainPendingChoices | null;
+  pendingFileUpload?: BrainPendingFileUpload | null;
 };
 
 export type BrainCta = {
@@ -84,6 +104,7 @@ export type BrainChatResponse = {
   conversationState?: BrainConversationState;
   pendingConfirmation?: BrainPendingConfirmation | null;
   pendingChoices?: BrainPendingChoices | null;
+  pendingFileUpload?: BrainPendingFileUpload | null;
   ctas?: BrainCta[];
   clientActions?: BrainClientAction[];
 };

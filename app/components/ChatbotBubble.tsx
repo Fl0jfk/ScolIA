@@ -45,6 +45,14 @@ type PendingChoices = {
   selectionType?: "single" | "multi" | "date" | "text";
 };
 
+type PendingFileUpload = {
+  tool: string;
+  promptFr: string;
+  draftArgs: Record<string, unknown>;
+  optional?: boolean;
+  accept?: string;
+};
+
 type BrainCta = { label: string; href: string };
 
 type PendingFile = {
@@ -161,6 +169,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
   const [conversationState, setConversationState] = useState<Record<string, unknown> | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [pendingChoices, setPendingChoices] = useState<PendingChoices | null>(null);
+  const [pendingFileUpload, setPendingFileUpload] = useState<PendingFileUpload | null>(null);
   const [choiceDraft, setChoiceDraft] = useState("");
   const [choiceMulti, setChoiceMulti] = useState<string[]>([]);
   const [ctas, setCtas] = useState<BrainCta[]>([]);
@@ -300,14 +309,20 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
       values?: string[];
       draftArgs: Record<string, unknown>;
     } | null;
+    fileApply?: {
+      tool: string;
+      draftArgs: Record<string, unknown>;
+      skipPdf?: boolean;
+    } | null;
     files?: PendingFile[];
   }) => {
     const message = (opts?.message ?? input).trim();
     const isConfirm = Boolean(opts?.confirm && opts.confirmAction?.tool);
     const isChoice = Boolean(opts?.choiceApply?.tool);
+    const isFileApply = Boolean(opts?.fileApply?.tool);
     const filesToSend = opts?.files ?? pendingFiles;
-    if ((!message && !isConfirm && !isChoice && filesToSend.length === 0) || loading) return;
-    if (!isConfirm && !isChoice) {
+    if ((!message && !isConfirm && !isChoice && !isFileApply && filesToSend.length === 0) || loading) return;
+    if (!isConfirm && !isChoice && !isFileApply) {
       setInput("");
       setPendingFiles([]);
     }
@@ -317,6 +332,9 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
         ? (opts!.choiceApply!.values?.length
             ? opts!.choiceApply!.values.join(", ")
             : opts!.choiceApply!.value || "Choix")
+        : "")
+      || (isFileApply
+        ? (opts!.fileApply!.skipPdf ? "Continuer sans PDF" : "PDF joint")
         : "")
       || (filesToSend.length ? `(fichier : ${filesToSend.map((f) => f.name).join(", ")})` : "");
     if (userLabel) {
@@ -332,13 +350,22 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
         for (const pf of filesToSend) {
           attachments.push(await uploadPdf(pf.file));
         }
+        setPendingFiles([]);
       }
 
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: message || (isConfirm ? "(confirmation)" : isChoice ? "(choix)" : "Voici un document joint."),
+          message:
+            message ||
+            (isConfirm
+              ? "(confirmation)"
+              : isChoice
+                ? "(choix)"
+                : isFileApply
+                  ? "(fichier)"
+                  : "Voici un document joint."),
           audience: isSignedIn ? "private" : "public",
           history: messages.slice(-10),
           conversationState: conversationState || undefined,
@@ -347,6 +374,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
             ? { tool: opts!.confirmAction!.tool, args: opts!.confirmAction!.args }
             : undefined,
           choiceApply: isChoice ? opts!.choiceApply : undefined,
+          fileApply: isFileApply ? opts!.fileApply : undefined,
           attachments,
         }),
       });
@@ -367,6 +395,11 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
         setPendingChoices(null);
         setChoiceDraft("");
         setChoiceMulti([]);
+      }
+      if (data.pendingFileUpload?.tool) {
+        setPendingFileUpload(data.pendingFileUpload as PendingFileUpload);
+      } else {
+        setPendingFileUpload(null);
       }
       if (Array.isArray(data.ctas)) {
         setCtas(
@@ -929,6 +962,63 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
             >
               Annuler
             </button>
+          </div>
+        ) : null}
+        {pendingFileUpload ? (
+          <div className="rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50/80 px-3 py-3 space-y-2">
+            <p className="text-[12px] font-semibold text-indigo-950">{pendingFileUpload.promptFr}</p>
+            {pendingFiles.length > 0 ? (
+              <p className="text-[11px] text-indigo-800">
+                Prêt : {pendingFiles.map((f) => f.name).join(", ")}
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-4 text-sm font-medium text-indigo-900 hover:bg-indigo-50"
+              >
+                Glisser un PDF ici ou cliquer pour choisir
+              </button>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={loading || pendingFiles.length === 0}
+                onClick={() => {
+                  if (!pendingFileUpload) return;
+                  const draft = pendingFileUpload.draftArgs;
+                  setPendingFileUpload(null);
+                  void send({
+                    fileApply: { tool: pendingFileUpload.tool, draftArgs: draft },
+                    files: pendingFiles,
+                  });
+                }}
+                className="rounded-lg bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+              >
+                Continuer avec le PDF
+              </button>
+              {pendingFileUpload.optional ? (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    if (!pendingFileUpload) return;
+                    const draft = pendingFileUpload.draftArgs;
+                    setPendingFileUpload(null);
+                    void send({
+                      fileApply: {
+                        tool: pendingFileUpload.tool,
+                        draftArgs: draft,
+                        skipPdf: true,
+                      },
+                    });
+                  }}
+                  className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-900"
+                >
+                  Sans PDF
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {pendingConfirmation ? (

@@ -272,13 +272,32 @@ export async function handleCreatePhotocopie(
     );
   }
 
+  if (docs.length === 0 && !args.skipPdf) {
+    return {
+      ok: false,
+      needsFileUpload: true,
+      tool: "create_photocopie_demand",
+      promptFr:
+        "Déposez le PDF à photocopier (glisser-déposer ou trombone). Vous pourrez aussi continuer sans PDF.",
+      draftArgs: {
+        typeImpression,
+        etablissement,
+        motif,
+        classesOuMatiere,
+        nombrePhotocopies: nb,
+      },
+      optional: true,
+      accept: "application/pdf",
+    };
+  }
+
   const typeLabel = photoCopieTypeImpressionLabel(typeImpression);
   const isNoirBlanc = typeImpression === "NOIR_BLANC";
 
   if (!ctx.confirmed) {
     const pdfLine =
       docs.length === 0
-        ? `• PDF : aucun (vous pouvez encore en joindre jusqu'à ${PHOTOCOPIES_MAX_DOCUMENTS} via le trombone avant de confirmer)`
+        ? `• PDF : aucun`
         : docs.length === 1
           ? `• PDF joint : ${docs[0].fileName}`
           : `• PDF joints (${docs.length}) : ${docs.map((d) => d.fileName).join(", ")}`;
@@ -293,6 +312,7 @@ export async function handleCreatePhotocopie(
         classesOuMatiere,
         nombrePhotocopies: nb,
         ...documentFields,
+        skipPdf: true,
       },
       summaryFr:
         `Récapitulatif — ${nb} photocopie(s) ${typeLabel.toLowerCase()}\n` +
