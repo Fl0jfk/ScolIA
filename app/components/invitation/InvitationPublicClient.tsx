@@ -41,30 +41,33 @@ function buildConfetti(count: number): ConfettiPiece[] {
   }));
 }
 
-function SparkleField({ dense = false }: { dense?: boolean }) {
+function SparkleField({ count = 100 }: { count?: number }) {
   const sparks = useMemo(
     () =>
-      Array.from({ length: dense ? 28 : 16 }, (_, i) => ({
+      Array.from({ length: count }, (_, i) => ({
         id: i,
-        left: (i * 19 + 7) % 100,
-        top: (i * 29 + 13) % 100,
-        delay: (i % 10) * 0.35,
-        size: 2 + (i % 3),
+        left: (i * 37 + 11) % 100,
+        top: (i * 53 + 7) % 100,
+        delay: ((i * 17) % 40) * 0.12,
+        duration: 2.6 + (i % 9) * 0.35,
+        size: 1.5 + (i % 5) * 0.9,
+        soft: i % 7 === 0,
       })),
-    [dense],
+    [count],
   );
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
       {sparks.map((s) => (
         <span
           key={s.id}
-          className="inv-sparkle absolute rounded-full"
+          className={`inv-sparkle absolute rounded-full ${s.soft ? "inv-sparkle-soft" : ""}`}
           style={{
             left: `${s.left}%`,
             top: `${s.top}%`,
             width: s.size,
             height: s.size,
             animationDelay: `${s.delay}s`,
+            animationDuration: `${s.duration}s`,
           }}
         />
       ))}
@@ -348,8 +351,8 @@ export default function InvitationPublicClient({ page }: Props) {
   }
 
   const shellClass = festive
-    ? "invitation-theme-diplome min-h-[100dvh]"
-    : "invitation-theme-neutre min-h-[100dvh]";
+    ? "invitation-theme-diplome relative min-h-[100dvh] overflow-hidden"
+    : "invitation-theme-neutre relative min-h-[100dvh]";
 
   return (
     <div className={shellClass}>
@@ -467,6 +470,10 @@ export default function InvitationPublicClient({ page }: Props) {
           box-shadow: 0 0 6px rgba(232, 212, 139, 0.8);
           animation: inv-sparkle 3.2s ease-in-out infinite;
         }
+        .inv-sparkle-soft {
+          box-shadow: 0 0 10px 2px rgba(232, 212, 139, 0.55);
+          opacity: 0.85;
+        }
         .inv-float {
           animation: inv-float 4.5s ease-in-out infinite;
         }
@@ -490,8 +497,9 @@ export default function InvitationPublicClient({ page }: Props) {
         }
       `}</style>
 
+      {festive ? <SparkleField count={108} /> : null}
+
       <div className="relative mx-auto max-w-lg px-4 py-10 sm:py-16">
-        {festive ? <SparkleField dense /> : null}
         <ConfettiBurst active={celebrate} />
 
         <div
