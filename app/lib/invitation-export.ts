@@ -1,6 +1,10 @@
 /** Export invitations cérémonies — CSV Excel FR (séparateur `;`, BOM UTF-8). */
 
-import { diplomaLabel, type InvitationRsvpRecord } from "@/app/lib/invitation-types";
+import {
+  diplomaLabel,
+  situationStatusLabel,
+  type InvitationRsvpRecord,
+} from "@/app/lib/invitation-types";
 
 function csvCell(value: string | number | boolean | null | undefined): string {
   const raw = value == null ? "" : String(value);
@@ -13,10 +17,14 @@ function csvCell(value: string | number | boolean | null | undefined): string {
 const HEADERS = [
   "prenom_eleve",
   "nom_eleve",
+  "date_naissance",
   "reponse",
   "nb_personnes",
   "diplome",
   "email",
+  "situation",
+  "situation_detail",
+  "situation_etablissement",
   "doublon_groupe",
   "date_reponse",
 ] as const;
@@ -41,10 +49,14 @@ export function buildInvitationRsvpExportCsv(rsvps: InvitationRsvpRecord[]): str
       [
         csvCell(r.eleveFirstName),
         csvCell(r.eleveLastName),
+        csvCell(r.birthDate || ""),
         csvCell(r.response === "oui" ? "Oui" : "Non"),
         csvCell(r.response === "oui" ? r.presentCount : 0),
         csvCell(diplomaLabel(r.diploma) || ""),
         csvCell(r.parentEmail),
+        csvCell(situationStatusLabel(r.situationStatus) || ""),
+        csvCell(r.situationDetail || ""),
+        csvCell(r.situationEstablishment || ""),
         csvCell(r.duplicateGroupId || ""),
         csvCell(formatParisDate(r.createdAt)),
       ].join(";"),

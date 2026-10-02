@@ -8,9 +8,12 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import {
   diplomaLabel,
+  situationStatusLabel,
+  type InvitationAskSituation,
   type InvitationDashboardStats,
   type InvitationDiplomaMode,
   type InvitationDuplicateSuspect,
+  type InvitationEligibleRecord,
   type InvitationPageRecord,
   type InvitationRsvpRecord,
   type InvitationTheme,
@@ -21,6 +24,7 @@ type DashboardPayload = {
   rsvps: InvitationRsvpRecord[];
   stats: InvitationDashboardStats;
   duplicates: InvitationDuplicateSuspect[];
+  eligible: InvitationEligibleRecord[];
 };
 
 function toDatetimeLocal(iso: string | null): string {
@@ -99,6 +103,11 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
   const [maxTotal, setMaxTotal] = useState(200);
   const [maxPerEleve, setMaxPerEleve] = useState(4);
   const [notifyEmail, setNotifyEmail] = useState("");
+  const [requireEligible, setRequireEligible] = useState(false);
+  const [askSituation, setAskSituation] = useState<InvitationAskSituation>("off");
+  const [rsvpClosesLocal, setRsvpClosesLocal] = useState("");
+  const [eligiblePaste, setEligiblePaste] = useState("");
+  const [eligibleBusy, setEligibleBusy] = useState(false);
 
   const applyPage = useCallback((page: InvitationPageRecord) => {
     setTitle(page.title);
@@ -113,6 +122,9 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
     setMaxTotal(page.maxTotalPersons);
     setMaxPerEleve(page.maxPersonsPerEleve);
     setNotifyEmail(page.notifyEmail || "");
+    setRequireEligible(page.requireEligible);
+    setAskSituation(page.askSituation);
+    setRsvpClosesLocal(toDatetimeLocal(page.rsvpClosesAt));
   }, []);
 
   const load = useCallback(async () => {
@@ -124,7 +136,14 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
       });
       const json = (await res.json()) as DashboardPayload & { error?: string };
       if (!res.ok) throw new Error(json.error || "Chargement impossible.");
-      setData(json);
+      setData({
+        ...json,
+        eligible: json.eligible || [],
+        stats: {
+          ...json.stats,
+          eligibleCount: json.stats.eligibleCount ?? (json.eligible || []).length,
+        },
+      });
       applyPage(json.page);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -158,6 +177,9 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
           maxTotalPersons: maxTotal,
           maxPersonsPerEleve: maxPerEleve,
           notifyEmail: notifyEmail.trim() || null,
+          requireEligible,
+          askSituation,
+          rsvpClosesAt: fromDatetimeLocal(rsvpClosesLocal),
         }),
       });
       const json = (await res.json()) as { page?: InvitationPageRecord; error?: string };
@@ -197,6 +219,78 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error || "Action impossible.");
       setNotice(action === "link" ? "Réponses reliées." : "Signal doublon ignoré.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function deleteRsvp(rsvpId: string, label: string) {
+    if (!window.confirm(`Supprimer la réponse de ${label} ?`)) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/invitation/pages/${pageId}/rsvps/${rsvpId}`, {
+        method: "DELETE",
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error || "Suppression impossible.");
+      setNotice("Réponse supprimée.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function importEligible(mode: "append" | "replace") {
+    if (!eligiblePaste.trim()) {
+      setError("Collez une liste (Prénom;Nom ou Prénom Nom par ligne).");
+      return;
+    }
+    if (
+      mode === "replace" &&
+      !window.confirm("Remplacer toute la liste d’élèves autorisés ?")
+    ) {
+      return;
+    }
+    setEligibleBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/invitation/pages/${pageId}/eligible`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, text: eligiblePaste }),
+      });
+      const json = (await res.json()) as {
+        inserted?: number;
+        skipped?: number;
+        total?: number;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error || "Import impossible.");
+      setEligiblePaste("");
+      setNotice(
+        `Liste mise à jour : ${json.total ?? 0} élève(s) · ${json.inserted ?? 0} traité(s) · ${json.skipped ?? 0} ignoré(s).`,
+      );
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEligibleBusy(false);
+    }
+  }
+
+  async function removeEligible(id: string, label: string) {
+    if (!window.confirm(`Retirer ${label} de la liste ?`)) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/invitation/pages/${pageId}/eligible?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error || "Suppression impossible.");
+      setNotice("Élève retiré de la liste.");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -262,7 +356,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
 
         {data ? (
           <>
-            <section className="grid gap-3 sm:grid-cols-4">
+            <section className="grid gap-3 sm:grid-cols-5">
               <Kpi label="Oui" value={String(data.stats.ouiCount)} />
               <Kpi label="Non" value={String(data.stats.nonCount)} />
               <Kpi label="Personnes" value={String(data.stats.totalPersons)} />
@@ -274,6 +368,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                     : `${data.stats.placesRemaining} / ${data.stats.maxTotalPersons}`
                 }
               />
+              <Kpi label="Liste invités" value={String(data.stats.eligibleCount)} />
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
@@ -300,6 +395,15 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                   onChange={(e) => setEnabled(e.target.checked)}
                 />
                 Publier la page publique
+              </label>
+
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={requireEligible}
+                  onChange={(e) => setRequireEligible(e.target.checked)}
+                />
+                Restreindre aux élèves de la liste (protection)
               </label>
 
               {enabled && publicUrl ? (
@@ -410,6 +514,25 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                   />
                 </Field>
+                <Field label="Question situation actuelle">
+                  <select
+                    value={askSituation}
+                    onChange={(e) => setAskSituation(e.target.value as InvitationAskSituation)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <option value="off">Désactivée</option>
+                    <option value="bac_only">Uniquement si bac</option>
+                    <option value="always">Toujours (bac et brevet)</option>
+                  </select>
+                </Field>
+                <Field label="Date limite de réponse / modification">
+                  <input
+                    type="datetime-local"
+                    value={rsvpClosesLocal}
+                    onChange={(e) => setRsvpClosesLocal(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </Field>
               </div>
               <Field label="Texte d’introduction">
                 <textarea
@@ -419,6 +542,96 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 />
               </Field>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-black text-slate-900">Liste des élèves autorisés</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Une ligne = un élève. Formats :{" "}
+                    <code>Prénom;Nom;JJ/MM/AAAA</code>,{" "}
+                    <code>Prénom;Nom;bac;JJ/MM/AAAA</code>. La date de naissance sert de filet
+                    (match 2/3 avec prénom et nom).
+                  </p>
+                </div>
+                <p className="text-xs font-bold text-slate-600">
+                  {data.eligible.length} élève(s)
+                </p>
+              </div>
+              <textarea
+                value={eligiblePaste}
+                onChange={(e) => setEligiblePaste(e.target.value)}
+                rows={5}
+                placeholder={"Marie;Dupont;12/03/2007;bac\nJean;Martin;01/09/2007"}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
+              />
+              <div className="flex flex-wrap gap-2">
+                <ModuleButton
+                  type="button"
+                  onClick={() => void importEligible("append")}
+                  disabled={eligibleBusy}
+                >
+                  {eligibleBusy ? "Import…" : "Ajouter à la liste"}
+                </ModuleButton>
+                <button
+                  type="button"
+                  onClick={() => void importEligible("replace")}
+                  disabled={eligibleBusy}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Remplacer la liste
+                </button>
+              </div>
+              {data.eligible.length > 0 ? (
+                <div className="max-h-56 overflow-auto rounded-xl border border-slate-100">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-2 py-2">Élève</th>
+                        <th className="px-2 py-2">Né(e) le</th>
+                        <th className="px-2 py-2">Diplôme</th>
+                        <th className="px-2 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.eligible.map((e) => (
+                        <tr key={e.id} className="border-t border-slate-100">
+                          <td className="px-2 py-1.5 font-semibold text-slate-900">
+                            {e.eleveFirstName} {e.eleveLastName}
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-600">
+                            {e.birthDate
+                              ? new Date(e.birthDate + "T12:00:00").toLocaleDateString("fr-FR")
+                              : "—"}
+                          </td>
+                          <td className="px-2 py-1.5 text-slate-600">
+                            {diplomaLabel(e.diploma) || "—"}
+                          </td>
+                          <td className="px-2 py-1.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void removeEligible(
+                                  e.id,
+                                  `${e.eleveFirstName} ${e.eleveLastName}`,
+                                )
+                              }
+                              className="text-[11px] font-bold text-rose-700 hover:underline"
+                            >
+                              Retirer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  Aucun élève pour l’instant. Sans liste + option protection, le formulaire reste ouvert.
+                </p>
+              )}
             </section>
 
             {data.duplicates.length > 0 ? (
@@ -502,8 +715,10 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                         <th className="px-2 py-2">Réponse</th>
                         <th className="px-2 py-2">Pers.</th>
                         <th className="px-2 py-2">Diplôme</th>
+                        <th className="px-2 py-2">Situation</th>
                         <th className="px-2 py-2">E-mail</th>
                         <th className="px-2 py-2">Date</th>
+                        <th className="px-2 py-2" />
                       </tr>
                     </thead>
                     <tbody>
@@ -542,11 +757,31 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                             </td>
                             <td className="px-2 py-2">{r.response === "oui" ? r.presentCount : "—"}</td>
                             <td className="px-2 py-2">{diplomaLabel(r.diploma) || "—"}</td>
+                            <td className="px-2 py-2 text-xs text-slate-600">
+                              {situationStatusLabel(r.situationStatus) || "—"}
+                              {r.situationEstablishment
+                                ? ` · ${r.situationEstablishment}`
+                                : ""}
+                            </td>
                             <td className="px-2 py-2 text-slate-600">{r.parentEmail}</td>
                             <td className="px-2 py-2 text-xs text-slate-500">
                               {new Date(r.createdAt).toLocaleString("fr-FR", {
                                 timeZone: "Europe/Paris",
                               })}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void deleteRsvp(
+                                    r.id,
+                                    `${r.eleveFirstName} ${r.eleveLastName}`,
+                                  )
+                                }
+                                className="text-[11px] font-bold text-rose-700 hover:underline"
+                              >
+                                Supprimer
+                              </button>
                             </td>
                           </tr>
                         );

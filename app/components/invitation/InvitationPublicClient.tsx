@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import type { InvitationDiploma, InvitationPagePublic, InvitationResponse } from "@/app/lib/invitation-types";
+import type {
+  InvitationDiploma,
+  InvitationPagePublic,
+  InvitationResponse,
+  InvitationSituationStatus,
+} from "@/app/lib/invitation-types";
+import { shouldAskSituation } from "@/app/lib/invitation-types";
 
 type Step = "eleve" | "rsvp" | "details" | "done";
 
@@ -115,6 +121,38 @@ function LaurelMark({ className }: { className?: string }) {
   );
 }
 
+function TenantLogoMark({
+  logoUrl,
+  festive,
+  schoolName,
+}: {
+  logoUrl: string | null;
+  festive: boolean;
+  schoolName: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (!logoUrl || failed) {
+    return festive ? <LaurelMark className="h-10 w-28" /> : null;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={logoUrl}
+      alt={schoolName || "Logo"}
+      className="inv-float mx-auto h-14 w-auto max-w-[180px] object-contain"
+      style={
+        festive
+          ? {
+              filter:
+                "brightness(0) saturate(100%) invert(86%) sepia(28%) saturate(700%) hue-rotate(5deg) brightness(102%) contrast(92%)",
+            }
+          : undefined
+      }
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export default function InvitationPublicClient({ page }: Props) {
   const [step, setStep] = useState<Step>("eleve");
   const [eleveFirstName, setEleveFirstName] = useState("");
@@ -123,8 +161,14 @@ export default function InvitationPublicClient({ page }: Props) {
   const [presentCount, setPresentCount] = useState(2);
   const [parentEmail, setParentEmail] = useState("");
   const [diploma, setDiploma] = useState<InvitationDiploma | "">("");
+  const [birthDate, setBirthDate] = useState("");
+  const [editingExisting, setEditingExisting] = useState(false);
+  const [situationStatus, setSituationStatus] = useState<InvitationSituationStatus | "">("");
+  const [situationDetail, setSituationDetail] = useState("");
+  const [situationEstablishment, setSituationEstablishment] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [mailSent, setMailSent] = useState(false);
+  const [updatedExisting, setUpdatedExisting] = useState(false);
   const [pending, startTransition] = useTransition();
   const [celebrate, setCelebrate] = useState(false);
 
@@ -143,6 +187,21 @@ export default function InvitationPublicClient({ page }: Props) {
 
   const festive = page.theme !== "neutre";
 
+  const effectiveDiploma: InvitationDiploma | null =
+    page.diplomaMode === "bac"
+      ? "bac"
+      : page.diplomaMode === "brevet"
+        ? "brevet"
+        : page.diplomaMode === "both"
+          ? diploma || null
+          : null;
+
+  const showSituation = shouldAskSituation(
+    page.askSituation,
+    effectiveDiploma,
+    page.diplomaMode,
+  );
+
   useEffect(() => {
     if (step === "done" && response === "oui" && festive) {
       setCelebrate(true);
@@ -159,7 +218,55 @@ export default function InvitationPublicClient({ page }: Props) {
       setError("Indiquez le prénom et le nom de l’élève.");
       return;
     }
-    setStep("rsvp");
+    if (page.requireEligible && !birthDate.trim()) {
+      setError("Indiquez la date de naissance de l’élève.");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/invitation/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slug: page.slug,
+            eleveFirstName: eleveFirstName.trim(),
+            eleveLastName: eleveLastName.trim(),
+            birthDate: birthDate.trim() || null,
+          }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          existing?: {
+            response: InvitationResponse;
+            presentCount: number;
+            parentEmail: string;
+            diploma: InvitationDiploma | null;
+            situationStatus: InvitationSituationStatus | null;
+            situationDetail: string;
+            situationEstablishment: string;
+          } | null;
+        };
+        if (!res.ok) throw new Error(data.error || "Vérification impossible.");
+        if (data.existing) {
+          setEditingExisting(true);
+          setResponse(data.existing.response);
+          setPresentCount(data.existing.presentCount || 2);
+          setParentEmail(data.existing.parentEmail || "");
+          setDiploma(data.existing.diploma || "");
+          setSituationStatus(data.existing.situationStatus || "");
+          setSituationDetail(data.existing.situationDetail || "");
+          setSituationEstablishment(data.existing.situationEstablishment || "");
+          setStep("details");
+        } else {
+          setEditingExisting(false);
+          setStep("rsvp");
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    });
   }
 
   function chooseResponse(r: InvitationResponse) {
@@ -206,6 +313,7 @@ export default function InvitationPublicClient({ page }: Props) {
             slug: page.slug,
             eleveFirstName: eleveFirstName.trim(),
             eleveLastName: eleveLastName.trim(),
+            birthDate: birthDate.trim() || null,
             response,
             presentCount: response === "oui" ? presentCount : undefined,
             parentEmail: parentEmail.trim(),
@@ -217,16 +325,21 @@ export default function InvitationPublicClient({ page }: Props) {
                   : page.diplomaMode === "brevet"
                     ? "brevet"
                     : null,
+            situationStatus: showSituation ? situationStatus || null : null,
+            situationDetail: showSituation ? situationDetail : undefined,
+            situationEstablishment: showSituation ? situationEstablishment : undefined,
             website: "",
           }),
         });
         const data = (await res.json()) as {
           success?: boolean;
+          updated?: boolean;
           mailSent?: boolean;
           error?: string;
         };
         if (!res.ok) throw new Error(data.error || "Envoi impossible.");
         setMailSent(Boolean(data.mailSent));
+        setUpdatedExisting(Boolean(data.updated));
         setStep("done");
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -408,10 +521,22 @@ export default function InvitationPublicClient({ page }: Props) {
                   animationDelay: "1.2s",
                 }}
               />
-              <div className="inv-float mb-3 flex justify-center text-[var(--inv-accent)]">
-                <LaurelMark className="h-10 w-28" />
+              <div className="mb-3 flex justify-center text-[var(--inv-accent)]">
+                <TenantLogoMark
+                  logoUrl={page.logoUrl}
+                  festive={festive}
+                  schoolName={page.schoolName}
+                />
               </div>
             </>
+          ) : page.logoUrl ? (
+            <div className="mb-3 flex justify-center">
+              <TenantLogoMark
+                logoUrl={page.logoUrl}
+                festive={false}
+                schoolName={page.schoolName}
+              />
+            </div>
           ) : null}
 
           <p
@@ -467,9 +592,27 @@ export default function InvitationPublicClient({ page }: Props) {
           ) : null}
 
           <div className="inv-rise-delay mt-6 space-y-5">
-            {step === "eleve" ? (
+            {!page.rsvpOpen ? (
+              <p className="rounded-xl border border-amber-300/40 bg-amber-500/10 px-3 py-3 text-center text-sm">
+                Les inscriptions sont closes
+                {page.rsvpClosesAt
+                  ? ` (limite : ${new Date(page.rsvpClosesAt).toLocaleString("fr-FR", {
+                      timeZone: "Europe/Paris",
+                    })})`
+                  : ""}
+                .
+              </p>
+            ) : null}
+
+            {page.rsvpOpen && step === "eleve" ? (
               <>
                 <p className="text-center text-sm font-semibold">Élève concerné</p>
+                {page.requireEligible ? (
+                  <p className="text-center text-xs" style={{ color: "var(--inv-muted)" }}>
+                    Réservé aux élèves de la liste. Saisissez prénom, nom et date de naissance
+                    (2 critères sur 3 suffisent en cas de petite faute d’orthographe).
+                  </p>
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label
                     className="flex flex-col gap-1 text-xs font-semibold"
@@ -498,10 +641,24 @@ export default function InvitationPublicClient({ page }: Props) {
                     />
                   </label>
                 </div>
+                <label
+                  className="flex flex-col gap-1 text-xs font-semibold"
+                  style={{ color: "var(--inv-muted)" }}
+                >
+                  Date de naissance{page.requireEligible ? "" : " (optionnel)"}
+                  <input
+                    type="date"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    className="rounded-xl border px-3 py-2.5 text-sm font-medium"
+                    style={{ borderColor: "var(--inv-border)", color: "var(--inv-input-ink)" }}
+                  />
+                </label>
                 <button
                   type="button"
                   onClick={goRsvp}
-                  className="w-full rounded-2xl px-4 py-3 text-sm font-bold transition hover:brightness-110"
+                  disabled={pending}
+                  className="w-full rounded-2xl px-4 py-3 text-sm font-bold transition hover:brightness-110 disabled:opacity-60"
                   style={{
                     background: festive
                       ? "linear-gradient(135deg, var(--inv-accent) 0%, var(--inv-accent-deep) 100%)"
@@ -509,12 +666,12 @@ export default function InvitationPublicClient({ page }: Props) {
                     color: festive ? "#0c1b33" : "#ffffff",
                   }}
                 >
-                  Continuer
+                  {pending ? "Vérification…" : "Continuer"}
                 </button>
               </>
             ) : null}
 
-            {step === "rsvp" ? (
+            {page.rsvpOpen && step === "rsvp" ? (
               <>
                 <p className="text-center text-sm font-semibold">
                   {eleveFirstName} {eleveLastName} — serez-vous présents ?
@@ -552,10 +709,14 @@ export default function InvitationPublicClient({ page }: Props) {
               </>
             ) : null}
 
-            {step === "details" && response ? (
+            {page.rsvpOpen && step === "details" && response ? (
               <>
                 <p className="text-center text-sm font-semibold">
-                  {response === "oui" ? "Compléter votre inscription" : "Confirmer votre absence"}
+                  {editingExisting
+                    ? "Vous avez déjà répondu — vous pouvez modifier"
+                    : response === "oui"
+                      ? "Compléter votre inscription"
+                      : "Confirmer votre absence"}
                 </p>
 
                 {response === "oui" ? (
@@ -601,6 +762,50 @@ export default function InvitationPublicClient({ page }: Props) {
                   </label>
                 ) : null}
 
+                {showSituation ? (
+                  <div className="space-y-3 rounded-2xl border px-3 py-3" style={{ borderColor: "var(--inv-border)" }}>
+                    <p className="text-xs font-semibold" style={{ color: "var(--inv-muted)" }}>
+                      Situation actuelle <span className="font-medium opacity-70">(optionnel)</span>
+                    </p>
+                    <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "var(--inv-muted)" }}>
+                      Statut
+                      <select
+                        value={situationStatus}
+                        onChange={(e) =>
+                          setSituationStatus(e.target.value as InvitationSituationStatus | "")
+                        }
+                        className="rounded-xl border px-3 py-2.5 text-sm font-medium"
+                        style={{ borderColor: "var(--inv-border)", color: "var(--inv-input-ink)" }}
+                      >
+                        <option value="">— Ne pas préciser —</option>
+                        <option value="etudes">Études / poursuite d’études</option>
+                        <option value="emploi">Emploi / stage</option>
+                        <option value="autre">Autre</option>
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "var(--inv-muted)" }}>
+                      Filière / précision
+                      <input
+                        value={situationDetail}
+                        onChange={(e) => setSituationDetail(e.target.value)}
+                        placeholder="Ex. Licence LEA, BTS…"
+                        className="rounded-xl border px-3 py-2.5 text-sm font-medium"
+                        style={{ borderColor: "var(--inv-border)", color: "var(--inv-input-ink)" }}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "var(--inv-muted)" }}>
+                      Établissement / structure
+                      <input
+                        value={situationEstablishment}
+                        onChange={(e) => setSituationEstablishment(e.target.value)}
+                        placeholder="Ex. Université de Caen"
+                        className="rounded-xl border px-3 py-2.5 text-sm font-medium"
+                        style={{ borderColor: "var(--inv-border)", color: "var(--inv-input-ink)" }}
+                      />
+                    </label>
+                  </div>
+                ) : null}
+
                 <label
                   className="flex flex-col gap-1 text-xs font-semibold"
                   style={{ color: "var(--inv-muted)" }}
@@ -629,11 +834,15 @@ export default function InvitationPublicClient({ page }: Props) {
                       color: festive ? "#0c1b33" : "#ffffff",
                     }}
                   >
-                    {pending ? "Envoi…" : "Valider"}
+                    {pending
+                      ? "Envoi…"
+                      : editingExisting
+                        ? "Mettre à jour ma réponse"
+                        : "Valider"}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setStep("rsvp")}
+                    onClick={() => setStep(editingExisting ? "eleve" : "rsvp")}
                     className="text-xs font-semibold underline"
                     style={{ color: "var(--inv-muted)" }}
                   >
@@ -654,11 +863,27 @@ export default function InvitationPublicClient({ page }: Props) {
                     ★
                   </p>
                 ) : null}
-                <p className="inv-display text-2xl font-semibold">
-                  {festive && response === "oui" ? "À très bientôt !" : "Merci"}
+                <p className={`inv-display text-2xl font-semibold`}>
+                  {festive && response === "oui"
+                    ? "À très bientôt !"
+                    : updatedExisting
+                      ? "Réponse mise à jour"
+                      : "Merci"}
                 </p>
                 <p className="text-sm leading-relaxed" style={{ color: "var(--inv-muted)" }}>
-                  {response === "oui" ? (
+                  {updatedExisting ? (
+                    <>
+                      Votre inscription pour{" "}
+                      <strong style={{ color: "var(--inv-ink)" }}>
+                        {eleveFirstName} {eleveLastName}
+                      </strong>{" "}
+                      a bien été modifiée
+                      {response === "oui"
+                        ? ` (${presentCount} personne${presentCount > 1 ? "s" : ""}).`
+                        : " (absence confirmée)."}
+                      {mailSent ? " Un e-mail de confirmation vous a été envoyé." : ""}
+                    </>
+                  ) : response === "oui" ? (
                     <>
                       Présence confirmée pour{" "}
                       <strong style={{ color: "var(--inv-ink)" }}>

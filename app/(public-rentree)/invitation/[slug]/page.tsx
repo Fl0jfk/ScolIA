@@ -7,6 +7,7 @@ import {
   sumOuiPresentCount,
 } from "@/app/lib/invitation-db";
 import type { InvitationPagePublic } from "@/app/lib/invitation-types";
+import { isInvitationRsvpOpen } from "@/app/lib/invitation-types";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -43,11 +44,16 @@ export default async function InvitationPublicPage({ params }: Props) {
     theme: page.theme,
     startsAt: page.startsAt,
     endsAt: page.endsAt,
+    rsvpClosesAt: page.rsvpClosesAt,
     location: page.location,
     diplomaMode: page.diplomaMode,
     maxPersonsPerEleve: page.maxPersonsPerEleve,
     placesRemaining,
     schoolName,
+    logoUrl: "/api/site/header-logo",
+    requireEligible: page.requireEligible,
+    askSituation: page.askSituation,
+    rsvpOpen: isInvitationRsvpOpen(page.rsvpClosesAt),
   };
 
   return (

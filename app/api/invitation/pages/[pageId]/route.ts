@@ -7,6 +7,7 @@ import {
   updateInvitationPage,
 } from "@/app/lib/invitation-db";
 import {
+  INVITATION_ASK_SITUATION,
   INVITATION_DIPLOMA_MODES,
   INVITATION_THEMES,
 } from "@/app/lib/invitation-types";
@@ -24,6 +25,9 @@ const PatchSchema = z.object({
   maxTotalPersons: z.number().int().min(1).max(50000).optional(),
   maxPersonsPerEleve: z.number().int().min(1).max(50).optional(),
   notifyEmail: z.string().max(200).nullable().optional(),
+  requireEligible: z.boolean().optional(),
+  askSituation: z.enum(INVITATION_ASK_SITUATION).optional(),
+  rsvpClosesAt: z.string().nullable().optional(),
 });
 
 type Ctx = { params: Promise<{ pageId: string }> };
