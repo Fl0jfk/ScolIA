@@ -16,6 +16,9 @@ import { fetchAndEnrichTravelCoverImage } from "@/app/lib/travels-image-web-sear
 export type { TravelCatalogImage };
 export { formatTravelImageAttribution };
 
+/** Seuil : l’image doit clairement coller au lieu / thème (pas une approximaton). */
+const STRONG_MATCH_SCORE = 6;
+
 function withNormalizedUrl(img: TravelCatalogImage): TravelCatalogImage {
   return { ...img, url: normalizePublicImageUrl(img.url) };
 }
@@ -39,35 +42,34 @@ function fallbackImage(
 }
 
 function isStrongLexicalMatch(
-  ranked: TravelCatalogImage[],
+  img: TravelCatalogImage | undefined,
   title: string,
   destination: string,
 ): boolean {
-  const top = ranked[0];
-  if (!top) return false;
+  if (!img) return false;
   const tokens = tokenizeTravelPlaceQuery(title, destination);
-  return scoreTravelCatalogMatch(top, tokens) >= 6;
+  return scoreTravelCatalogMatch(img, tokens) >= STRONG_MATCH_SCORE;
 }
 
+/**
+ * Mistral ne choisit que parmi des candidats déjà proches lexicalement.
+ * S’il n’y en a aucun, on ne l’appelle pas : mieux vaut le web qu’un faux positif.
+ */
 async function pickFromCatalogWithMistral(opts: {
-  catalog: TravelCatalogImage[];
+  candidates: TravelCatalogImage[];
   title: string;
   destination: string;
   excludeId?: string | null;
 }): Promise<TravelCatalogImage | null> {
   const mistralKey = await getMistralApiKey();
-  if (!mistralKey || opts.catalog.length === 0) return null;
+  if (!mistralKey || opts.candidates.length === 0) return null;
 
-  const candidates = rankTravelCatalogCandidates(
-    opts.catalog,
-    opts.title,
-    opts.destination,
-    opts.excludeId,
-  ).slice(0, 25);
-  const pool = candidates.length > 0 ? candidates : opts.catalog.slice(0, 40);
-  const catalogSummary = pool.map((i) => `${i.id} (${i.label})`).join(", ");
+  const pool = opts.candidates.slice(0, 25);
+  const catalogSummary = pool
+    .map((i) => `${i.id} — ${i.label}${i.keywords ? ` [${i.keywords}]` : ""}`)
+    .join("\n");
   const avoidHint = opts.excludeId
-    ? ` Évite l'ID "${opts.excludeId}" si une autre image convient.`
+    ? `\nÉvite l'ID "${opts.excludeId}" (image actuelle à remplacer).`
     : "";
 
   try {
@@ -83,24 +85,30 @@ async function pickFromCatalogWithMistral(opts: {
           {
             role: "system",
             content:
-              `Tu choisis l'illustration d'une sortie scolaire. ` +
-              `Réponds UNIQUEMENT par l'ID exact parmi : ${catalogSummary}. ` +
-              `Si AUCUNE image ne correspond clairement au lieu / thème, réponds exactement NONE.` +
+              `Tu sélectionnes l'illustration d'une sortie / d'un séjour scolaire.\n` +
+              `Règles STRICTES :\n` +
+              `- Choisis un ID UNIQUEMENT si le libellé / mots-clés décrivent clairement le MÊME lieu ou la MÊME activité (ex. surf → surf / océan / plage de surf ; pas un musée, pas un théâtre).\n` +
+              `- Si aucune entrée ne correspond clairement, réponds exactement NONE.\n` +
+              `- Ne force JAMAIS un choix par approximation, proximité géographique, thème culturel vague ou « meilleure option disponible ».\n` +
+              `- NONE est la bonne réponse dès qu'il y a un doute.\n` +
+              `Réponds UNIQUEMENT par l'ID exact (une ligne) ou NONE.\n` +
+              `Candidats :\n${catalogSummary}` +
               avoidHint,
           },
           {
             role: "user",
-            content: `TITRE : "${opts.title}" — LIEU : "${opts.destination}"`,
+            content: `TITRE : "${opts.title}"\nLIEU / THÈME : "${opts.destination}"`,
           },
         ],
-        temperature: opts.excludeId ? 0.4 : 0,
+        temperature: 0,
       }),
     });
 
     const resData = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
-    const choice = resData.choices?.[0]?.message?.content?.trim() || "";
+    const raw = resData.choices?.[0]?.message?.content?.trim() || "";
+    const choice = raw.split(/\s+/)[0]?.replace(/[`"']/g, "") || "";
     if (!choice || /^none$/i.test(choice) || /^img_default$/i.test(choice)) {
       return null;
     }
@@ -112,6 +120,10 @@ async function pickFromCatalogWithMistral(opts: {
     if (opts.excludeId && normalizeId(matched.id) === normalizeId(opts.excludeId)) {
       return null;
     }
+    // Filet de sécurité : même si Mistral force un ID, on refuse un choix lexicalement faible.
+    if (!isStrongLexicalMatch(matched, opts.title, opts.destination)) {
+      return null;
+    }
     return withNormalizedUrl(matched);
   } catch (err) {
     console.error("[travels-select-cover-image] mistral", err);
@@ -121,9 +133,10 @@ async function pickFromCatalogWithMistral(opts: {
 
 /**
  * Choisit une image de présentation :
- * 1) match fort / Mistral dans le catalogue partagé (JSON seed + BDD enrichie)
- * 2) sinon recherche Wikimedia / Unsplash → copie S3 → enrichit le catalogue
- * 3) sinon image aléatoire du catalogue
+ * 1) match fort dans le catalogue (clé exacte / score lexical)
+ * 2) sinon Wikimedia / Unsplash → enrichit le catalogue
+ * 3) sinon Mistral uniquement parmi des candidats déjà proches (peut répondre NONE)
+ * 4) sinon image de repli catalogue (dernier recours)
  */
 export async function selectTravelCoverImage(opts: {
   title: string;
@@ -147,16 +160,18 @@ export async function selectTravelCoverImage(opts: {
   const exactKey = normalizeTravelImageKey(placeQuery);
   if (exactKey) {
     const exact = await findTravelCatalogByNormalizeKey(exactKey);
-    if (exact && normalizeId(exact.id) !== normalizeId(excludeId)) {
+    if (
+      exact &&
+      normalizeId(exact.id) !== normalizeId(excludeId) &&
+      isStrongLexicalMatch(exact, title, destination)
+    ) {
       return withNormalizedUrl(exact);
     }
   }
 
   const ranked = rankTravelCatalogCandidates(catalog, title, destination, excludeId);
-  const strongCatalogMatch =
-    ranked[0] && isStrongLexicalMatch(ranked, title, destination);
-  if (strongCatalogMatch) {
-    return withNormalizedUrl(ranked[0]);
+  if (isStrongLexicalMatch(ranked[0], title, destination)) {
+    return withNormalizedUrl(ranked[0]!);
   }
 
   const tryWebEnrichment = async (): Promise<TravelCatalogImage | null> => {
@@ -176,34 +191,19 @@ export async function selectTravelCoverImage(opts: {
     return null;
   };
 
-  // Régénération : sans match catalogue fort, même repli web qu’à la création
-  // (sinon Mistral choisit souvent une autre image générique du seed JSON).
-  if (excludeId) {
-    const fromWeb = await tryWebEnrichment();
-    if (fromWeb) return fromWeb;
-  }
+  // Pas de match catalogue clair → web d’abord (création et régénération).
+  const fromWeb = await tryWebEnrichment();
+  if (fromWeb) return fromWeb;
 
+  // Mistral seulement sur des candidats déjà proches ; jamais sur tout le catalogue.
   const fromAi = await pickFromCatalogWithMistral({
-    catalog,
+    candidates: ranked,
     title,
     destination,
     excludeId,
   });
-  if (fromAi) {
-    if (excludeId) {
-      const tokens = tokenizeTravelPlaceQuery(title, destination);
-      const aiScore = scoreTravelCatalogMatch(fromAi, tokens);
-      if (aiScore < 6) {
-        const fromWeb = await tryWebEnrichment();
-        if (fromWeb) return fromWeb;
-      }
-    }
-    return fromAi;
-  }
+  if (fromAi) return fromAi;
 
-  const fromWeb = await tryWebEnrichment();
-  if (fromWeb) return fromWeb;
-
-  if (ranked[0]) return withNormalizedUrl(ranked[0]);
+  // Dernier recours : mieux une image générique aléatoire qu’un faux match thématique forcé.
   return withNormalizedUrl(fallbackImage(catalog, excludeId));
 }

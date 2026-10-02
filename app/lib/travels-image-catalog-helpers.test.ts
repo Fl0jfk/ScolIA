@@ -57,5 +57,31 @@ describe("travels-image-catalog-helpers", () => {
       buildTravelPlaceSearchQuery("Sortie pédagogique", "Château de Chambord"),
       "Château de Chambord",
     );
+    assert.equal(
+      buildTravelPlaceSearchQuery("Joueur surf", ""),
+      "Joueur surf",
+    );
+    assert.equal(
+      buildTravelPlaceSearchQuery("Joueur surf", "Rouen"),
+      "joueur surf Rouen",
+    );
+  });
+
+  it("ne matche pas Beaux-Arts pour un thème surf", () => {
+    const beauxArts = {
+      id: "Musée des Beaux Arts de Rouen",
+      label: "Musée des Beaux Arts de Rouen",
+      url: "https://example.com/mba.jpg",
+      keywords: "musée, beaux-arts, rouen",
+      normalizeKey: "museedesbeauxartsderouen",
+    };
+    const tokens = tokenizeTravelPlaceQuery("Joueur surf", "Surf");
+    assert.equal(scoreTravelCatalogMatch(beauxArts, tokens), 0);
+    const ranked = rankTravelCatalogCandidates(
+      [beauxArts],
+      "Joueur surf",
+      "Surf",
+    );
+    assert.equal(ranked.length, 0);
   });
 });

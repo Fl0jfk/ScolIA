@@ -36,6 +36,12 @@ const STOP_WORDS = new Set([
   "classes",
   "scolaire",
   "scolaires",
+  "pedagogique",
+  "pedagogiques",
+  "educative",
+  "educatives",
+  "culturelle",
+  "culturelles",
   "journee",
   "journée",
   "au",
@@ -73,7 +79,7 @@ export function tokenizeTravelPlaceQuery(...parts: string[]): string[] {
   return [...new Set(tokens)];
 }
 
-/** Score lexical simple sur label + keywords. */
+/** Score lexical simple sur label + keywords (mots entiers, pas de sous-chaîne hasardeuse). */
 export function scoreTravelCatalogMatch(
   img: TravelCatalogImage,
   tokens: string[],
@@ -83,13 +89,32 @@ export function scoreTravelCatalogMatch(
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+  const hayTokens = new Set(
+    hay
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 3),
+  );
   let score = 0;
   for (const token of tokens) {
-    if (hay.includes(token)) score += token.length >= 6 ? 3 : 2;
+    if (hayTokens.has(token)) {
+      score += token.length >= 6 ? 3 : 2;
+      continue;
+    }
+    // Compose (ex. beaux-arts) : accepter seulement si le token est long (≥ 5).
+    if (token.length >= 5 && hay.includes(token)) {
+      score += token.length >= 6 ? 3 : 2;
+    }
   }
   const key = img.normalizeKey || normalizeTravelImageKey(img.label);
   const queryKey = normalizeTravelImageKey(tokens.join(""));
-  if (key && queryKey && (key.includes(queryKey) || queryKey.includes(key))) {
+  // Bonus clé exacte / quasi-exacte uniquement (évite un lieu court inclus dans un autre).
+  if (
+    key &&
+    queryKey &&
+    queryKey.length >= 5 &&
+    (key === queryKey ||
+      (queryKey.length >= 8 && (key.includes(queryKey) || queryKey.includes(key))))
+  ) {
     score += 8;
   }
   return score;
@@ -123,12 +148,23 @@ export function rankTravelCatalogCandidates(
 export function buildTravelPlaceSearchQuery(title: string, destination: string): string {
   const dest = String(destination || "").trim();
   const tit = String(title || "").trim();
-  const preferred =
+  const destOk =
     dest &&
     !/^destination\s*introuvable$/i.test(dest) &&
-    dest.toLowerCase() !== "n/a"
-      ? dest
-      : tit;
+    dest.toLowerCase() !== "n/a";
+  const titleOk = tit && !/^titre\s*introuvable$/i.test(tit);
+
+  if (destOk && titleOk) {
+    const destTokens = new Set(tokenizeTravelPlaceQuery(dest));
+    const themeExtras = tokenizeTravelPlaceQuery(tit).filter((t) => !destTokens.has(t));
+    // Ex. titre « Joueur surf » + lieu « Rouen » → « joueur surf Rouen » (pas seulement Rouen).
+    if (themeExtras.length > 0) {
+      return `${themeExtras.join(" ")} ${dest}`.replace(/\s+/g, " ").trim();
+    }
+    return dest;
+  }
+
+  const preferred = destOk ? dest : titleOk ? tit : dest || tit;
   const cleaned = preferred
     .replace(/\b(sortie|voyage|séjour|sejour|visite|journée|journee)\b/gi, " ")
     .replace(/\s+/g, " ")
