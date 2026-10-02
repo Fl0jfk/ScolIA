@@ -18,12 +18,15 @@ import { QuickLinkIcon } from "@/app/components/Dashboard/ExternalQuickLinks";
 import DashboardWeather from "@/app/components/Dashboard/DashboardWeather";
 import DashboardTodayNews from "@/app/components/Dashboard/DashboardTodayNews";
 import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGlobalNotifications";
+import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
 import { useMessagingConversations, useMessagingStream } from "@/app/components/messaging/useMessagingData";
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import {
   DASHBOARD_PILLARS,
   pillarHasVisibleModules,
+  type DashboardPillarId,
 } from "@/app/lib/dashboard-pillars";
+import { notificationCountForPillar } from "@/app/lib/dashboard-signals";
 import { toDashboardQuickLinks } from "@/app/lib/dashboard-quick-links";
 import {
   hasGlobalAdminRole,
@@ -131,6 +134,14 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
     loading: newsLoading,
     refresh: refreshNews,
   } = useDashboardSignals();
+
+  const pillarNotifCounts = useMemo(() => {
+    const counts = {} as Record<DashboardPillarId, number>;
+    for (const p of DASHBOARD_PILLARS) {
+      counts[p.id] = notificationCountForPillar(p.id, notifications);
+    }
+    return counts;
+  }, [notifications]);
 
   function navActive(href: string) {
     if (href === "/dashboard") {
@@ -253,6 +264,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           </Link>
           {visiblePillars.map((p) => {
             const active = navActive(p.href);
+            const notifCount = pillarNotifCounts[p.id] ?? 0;
             return (
               <Link
                 key={p.id}
@@ -266,7 +278,9 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
               >
                 <span aria-hidden>{PILLAR_ICONS[p.id] || "•"}</span>
                 <span className="min-w-0 flex-1 truncate">{p.title}</span>
-                {active ? (
+                {notifCount > 0 ? (
+                  <NotificationCountBadge count={notifCount} />
+                ) : active ? (
                   <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--dash-lime)]" aria-hidden />
                 ) : null}
               </Link>
@@ -286,12 +300,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
               <span aria-hidden>💬</span>
               <span className="min-w-0 flex-1 truncate">Messagerie</span>
               {totalUnread > 0 ? (
-                <span
-                  className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-[var(--dash-lime)] px-1.5 text-[10px] font-black text-[var(--dash-ink)]"
-                  title={`${totalUnread} non lu${totalUnread > 1 ? "s" : ""}`}
-                >
-                  {totalUnread > 99 ? "99+" : totalUnread}
-                </span>
+                <NotificationCountBadge count={totalUnread} />
               ) : navActive("/messagerie") ? (
                 <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--dash-lime)]" aria-hidden />
               ) : null}

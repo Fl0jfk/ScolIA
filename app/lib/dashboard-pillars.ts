@@ -184,6 +184,7 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   organigramme: "etablissement",
   evenements: "etablissement",
   "accueil-portes-ouvertes": "etablissement",
+  "rdv-inscription": "etablissement",
   communication: "etablissement",
   "admin-settings": "etablissement",
   "conformite-rgpd": "etablissement",

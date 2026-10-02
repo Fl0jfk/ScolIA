@@ -136,6 +136,19 @@ export function notificationCountForModule(
     .reduce((sum, n) => sum + n.count, 0);
 }
 
+/**
+ * Total des notifications d’un espace (pilier) — agrège tous les modules
+ * rattachés via `moduleIdToPillarId` (ex. absences / HSE → Comptabilité & RH).
+ */
+export function notificationCountForPillar(
+  pillarId: DashboardPillarId,
+  notifications: DashboardNotification[],
+): number {
+  return notifications
+    .filter((n) => n.count > 0 && moduleIdToPillarId(n.moduleId) === pillarId)
+    .reduce((sum, n) => sum + n.count, 0);
+}
+
 export type DashboardSignals = {
   shortcuts: DashboardShortcut[];
   todayNews: DashboardTodayNewsItem[];
