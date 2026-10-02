@@ -466,6 +466,13 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <h2 className="text-sm font-black text-slate-900">Réponses</h2>
                 <div className="flex flex-wrap gap-2">
+                  <a
+                    href={`/api/invitation/pages/${pageId}/export`}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50"
+                    download
+                  >
+                    Export CSV
+                  </a>
                   <select
                     value={filter}
                     onChange={(e) => setFilter(e.target.value as "all" | "oui" | "non")}
