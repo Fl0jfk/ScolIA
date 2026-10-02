@@ -95,6 +95,41 @@ function normalizeLinks(text: string) {
   return text.replace(/\bwww\.[^\s<>"')\]]+/gi, (raw) => `https://${raw}`);
 }
 
+/** Liens proxy PDF dossier élève : inutilisables en `<a>` (besoin de la modale aperçu). */
+const ELEVE_DOC_FILE_PATH =
+  /\/api\/eleves\/[^)\s<>"']+\/documents\/[^)\s<>"']+\/file\/?[^)\s<>"']*/gi;
+
+/**
+ * Retire du texte les liens vers les pièces (markdown ou URL nues).
+ * Les CTAs UI ouvrent ces documents correctement — éviter le doublon cassé dans le chat.
+ */
+function stripEleveDocumentLinks(text: string): string {
+  let out = text.replace(
+    /\[([^\]]+)\]\(\s*\/api\/eleves\/[^)]+\/documents\/[^)]+\/file\/?[^)]*\)/gi,
+    "",
+  );
+  out = out.replace(ELEVE_DOC_FILE_PATH, "");
+  // Nettoyage lignes / puces laissées vides par les suppressions
+  out = out
+    .replace(/^[ \t]*[-•*]\s*$/gm, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  return out;
+}
+
+/** Outils dont la réponse structurée (summaryFr + ctas) doit primer sur le LLM. */
+function shouldMaterializeStructuredList(toolName: string, result: BrainToolResult): boolean {
+  if (!result.ok) return false;
+  if (toolName === "list_eleves_filtered") return true;
+  if (toolName === "open_eleve_dossier") {
+    const ctas = extractCtas(result.data);
+    return ctas.some((c) => c.preview);
+  }
+  return false;
+}
+
 async function fetchMistralWithRetry(body: unknown, apiKey: string, attempts = 3) {
   let lastResponse: Response | null = null;
   for (let i = 0; i < attempts; i += 1) {
@@ -460,7 +495,7 @@ function materializeToolTurn(
     nextCtas.push({ label: "Ouvrir", href: follow });
   }
   return {
-    answer: result.summaryFr || "Action effectuée.",
+    answer: stripEleveDocumentLinks(result.summaryFr || "Action effectuée."),
     domain: knowledgeMeta?.domainId,
     usedFile: knowledgeMeta?.file,
     conversationState: withPendingFileUpload(
@@ -775,6 +810,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
     `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
     `- Liens en URL complète https://…\n` +
+    `- Pièces PAP/PAI/PPS/GEVASCO : INTERDIT de coller des liens /api/eleves/…/documents/…/file dans le texte. L’UI affiche les boutons d’ouverture. Dans le texte, cite seulement les noms d’élèves.\n` +
     `Séjours scolaires (travels) :\n` +
     `- SIMPLE ≠ COMPLEX : SIMPLE n'a pas d'étape devis bus ; COMPLEX avec needsBus=true a Logistique puis Signature.\n` +
     `- À PROF_LOGISTICS : créateur peut « Choisir » un devis ; direction peut « Choisir et signer ».\n` +
@@ -852,7 +888,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     const toolCalls = msg?.tool_calls;
 
     if (!toolCalls?.length) {
-      const answer = normalizeLinks(msg?.content?.trim() || "");
+      const answer = stripEleveDocumentLinks(normalizeLinks(msg?.content?.trim() || ""));
       conversationState = withPendingConfirmation(conversationState, pendingConfirmation);
       conversationState = withPendingChoices(conversationState, pendingChoices);
       return {
@@ -969,6 +1005,18 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       }
 
       if (result.ok) {
+        // Listes PAP / ouverture pièce : réponse structurée (pas de liens inventés par le LLM).
+        // materializeToolTurn ré-extrait déjà ctas/actions depuis result → ne pas pré-pousser.
+        if (shouldMaterializeStructuredList(name, result)) {
+          return materializeToolTurn(
+            conversationState,
+            result,
+            ctas,
+            { domainId: knowledge.domain.id, file: knowledge.domain.file },
+            clientActions,
+          );
+        }
+
         ctas.push(...extractCtas(result.data));
         clientActions.push(...extractClientActions(result.data));
         const follow =
@@ -980,11 +1028,36 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         }
       }
 
+      // Ne pas exposer les href PDF au LLM (sinon il les recolle en markdown cassé).
+      const toolPayloadForLlm = (() => {
+        if (!result.ok || !result.data || typeof result.data !== "object") return result;
+        const data = { ...(result.data as Record<string, unknown>) };
+        if (Array.isArray(data.eleves)) {
+          data.eleves = data.eleves.map((row) => {
+            if (!row || typeof row !== "object") return row;
+            const e = { ...(row as Record<string, unknown>) };
+            delete e.documents;
+            delete e.fileHref;
+            return e;
+          });
+        }
+        delete data.fileHref;
+        if (Array.isArray(data.ctas)) {
+          data.ctas = data.ctas.map((c) => {
+            if (!c || typeof c !== "object") return c;
+            const row = c as BrainCta;
+            if (!row.preview) return { label: row.label, href: row.href };
+            return { label: row.label, preview: true };
+          });
+        }
+        return { ...result, data };
+      })();
+
       messages.push({
         role: "tool",
         tool_call_id: call.id,
         name,
-        content: JSON.stringify(result),
+        content: JSON.stringify(toolPayloadForLlm),
       });
     }
   }

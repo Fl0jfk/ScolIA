@@ -266,7 +266,7 @@ export async function handleOpenEleveDossier(
         fileHref,
         href: dossierHref,
       },
-      summaryFr: `J’ouvre le ${code} de ${row.prenom} ${row.nom}. Bouton fiche disponible si besoin.`,
+      summaryFr: `J’ouvre le ${code} de ${row.prenom} ${row.nom}.`,
     };
   }
 

@@ -4,9 +4,18 @@ export const SCOLIA_AI_NAME = "ScolIA";
 const SCOLIA_AI_MEMORY_KEY = "scolia-ai-memory-v1";
 export const SCOLIA_AI_PAGE_PATH = "/scolia-ai";
 
+export type ScoliaMemoryCta = {
+  label: string;
+  href: string;
+  /** Aperçu PDF (PAP/PAI…) via modale, pas une navigation. */
+  preview?: boolean;
+};
+
 export type ScoliaMemoryMessage = {
   role: "user" | "assistant";
   content: string;
+  /** Actions / pièces rattachées au tour (persistées avec l’historique). */
+  ctas?: ScoliaMemoryCta[];
 };
 
 type ScoliaMemorySnapshot = {

@@ -161,7 +161,7 @@ export async function handleListElevesFiltered(
   const focusCode = focusKind ? accompagnementKindDef(focusKind).code : null;
 
   const ctas: BrainCta[] = [];
-  for (const r of sliced.slice(0, 10)) {
+  for (const r of sliced.slice(0, 12)) {
     if (focusKind && focusCode) {
       const doc = r.documents.find((d) => d.kind === focusKind);
       if (doc) {
@@ -170,24 +170,27 @@ export async function handleListElevesFiltered(
           href: doc.fileHref,
           preview: true,
         });
+      } else {
+        ctas.push({
+          label: `Fiche · ${r.prenom} ${r.nom}`,
+          href: r.dossierHref,
+        });
       }
-      ctas.push({
-        label: `Fiche · ${r.prenom} ${r.nom}`,
-        href: r.dossierHref,
-      });
       continue;
     }
 
-    ctas.push({
-      label: `Fiche · ${r.prenom} ${r.nom}`,
-      href: r.dossierHref,
-    });
     for (const doc of r.documents.slice(0, 2)) {
       const code = accompagnementKindDef(doc.kind).code;
       ctas.push({
         label: `${code} · ${r.prenom} ${r.nom}`,
         href: doc.fileHref,
         preview: true,
+      });
+    }
+    if (r.documents.length === 0) {
+      ctas.push({
+        label: `Fiche · ${r.prenom} ${r.nom}`,
+        href: r.dossierHref,
       });
     }
   }
@@ -218,20 +221,17 @@ export async function handleListElevesFiltered(
     .join(" · ");
 
   const listPreview = sliced
-    .slice(0, 8)
+    .slice(0, 12)
     .map((e) => {
       if (focusCode) {
-        const hasDoc = e.documents.some((d) => d.kind === focusKind);
-        return hasDoc
-          ? `${e.prenom} ${e.nom} (${focusCode} + fiche)`
-          : `${e.prenom} ${e.nom} (fiche)`;
+        return `• ${e.prenom} ${e.nom}${e.classe ? ` (${e.classe})` : ""}`;
       }
-      const codes = e.documents.map((d) => accompagnementKindDef(d.kind).code).join("/");
+      const codes = e.documents.map((d) => accompagnementKindDef(d.kind).code).join(", ");
       return codes
-        ? `${e.prenom} ${e.nom}${e.classe ? ` · ${e.classe}` : ""} (${codes})`
-        : e.label;
+        ? `• ${e.prenom} ${e.nom}${e.classe ? ` · ${e.classe}` : ""} — ${codes}`
+        : `• ${e.label}`;
     })
-    .join(" · ");
+    .join("\n");
 
   return {
     ok: true,
@@ -244,8 +244,8 @@ export async function handleListElevesFiltered(
     summaryFr:
       sliced.length === 0
         ? `Aucun élève${filterLabel ? ` (${filterLabel})` : ""}.`
-        : `${rows.length} élève(s)${filterLabel ? ` — ${filterLabel}` : ""} : ${listPreview}${
-            rows.length > 8 ? "…" : ""
-          }. Utilise les boutons ci-dessous pour ouvrir le document ou la fiche.`,
+        : `${rows.length} élève(s)${filterLabel ? ` — ${filterLabel}` : ""} :\n${listPreview}${
+            rows.length > 12 ? "\n…" : ""
+          }`,
   };
 }

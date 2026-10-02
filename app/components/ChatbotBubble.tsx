@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   Fragment,
   useCallback,
@@ -21,6 +20,7 @@ import {
   saveScoliaMemory,
   SCOLIA_AI_NAME,
   SCOLIA_AI_PAGE_PATH,
+  type ScoliaMemoryCta,
   type ScoliaMemoryMessage,
 } from "@/app/lib/brain-ai/scolia-memory";
 import { SCOLIA_ASK_EVENT, SCOLIA_OPEN_EVENT, type ScoliaAskDetail, type ScoliaOpenDetail } from "@/app/lib/brain-ai/scolia-ask";
@@ -54,12 +54,19 @@ type PendingFileUpload = {
   accept?: string;
 };
 
-type BrainCta = { label: string; href: string; preview?: boolean };
+type BrainCta = ScoliaMemoryCta;
 
 type PendingFile = {
   file: File;
   name: string;
 };
+
+const ELEVE_DOC_FILE_HREF =
+  /^\/api\/eleves\/[^/]+\/documents\/[^/]+\/file\/?$/;
+
+function isEleveDocumentHref(href: string): boolean {
+  return ELEVE_DOC_FILE_HREF.test((href.split("?")[0] || "").trim());
+}
 
 function linkPillClass(onDark: boolean): string {
   return onDark
@@ -78,7 +85,14 @@ function shortUrlLabel(rawUrl: string): string {
   }
 }
 
-function renderMessageContent(content: string, onDark = false) {
+function renderMessageContent(
+  content: string,
+  opts: {
+    onDark?: boolean;
+    onPreviewHref?: (href: string, label: string) => void;
+  } = {},
+) {
+  const onDark = opts.onDark ?? false;
   const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g;
   const urlRegex = /\bhttps?:\/\/[^\s<>"')\]]+/g;
   const lines = content.split("\n");
@@ -115,23 +129,37 @@ function renderMessageContent(content: string, onDark = false) {
 
     for (const match of line.matchAll(markdownLinkRegex)) {
       const full = match[0];
-      const label = match[1];
-      const href = match[2];
+      const label = match[1] || "Ouvrir";
+      const href = match[2] || "";
       const start = match.index ?? 0;
       const end = start + full.length;
       if (start > cursor) pushPlainWithUrls(line.slice(cursor, start));
       const external = href.startsWith("http");
-      nodes.push(
-        <a
-          key={`md_${lineIndex}_${key++}`}
-          href={href}
-          {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-          className={pill}
-          title={href}
-        >
-          {label}
-        </a>,
-      );
+      if (isEleveDocumentHref(href) && opts.onPreviewHref) {
+        nodes.push(
+          <button
+            key={`md_${lineIndex}_${key++}`}
+            type="button"
+            onClick={() => opts.onPreviewHref?.(href, label)}
+            className={pill}
+            title={label}
+          >
+            {label}
+          </button>,
+        );
+      } else {
+        nodes.push(
+          <a
+            key={`md_${lineIndex}_${key++}`}
+            href={href}
+            {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            className={pill}
+            title={href}
+          >
+            {label}
+          </a>,
+        );
+      }
       cursor = end;
     }
     if (cursor < line.length) pushPlainWithUrls(line.slice(cursor));
@@ -143,6 +171,79 @@ function renderMessageContent(content: string, onDark = false) {
       </Fragment>
     );
   });
+}
+
+function ChatMessageActions({
+  ctas,
+  onPreview,
+  onOpenDossier,
+  onNavigate,
+}: {
+  ctas: BrainCta[];
+  onPreview: (href: string, label: string) => void;
+  onOpenDossier: ((eleveId: string) => void) | null;
+  onNavigate: (href: string) => void;
+}) {
+  if (ctas.length === 0) return null;
+
+  const previewCount = ctas.filter((c) => c.preview).length;
+  const heading =
+    previewCount > 0 && previewCount === ctas.length
+      ? "Documents"
+      : previewCount > 0
+        ? "Documents & fiches"
+        : "Liens";
+
+  return (
+    <div className="mt-2.5 overflow-hidden rounded-2xl border border-black/8 bg-[#f4f5f3]">
+      <p className="border-b border-black/5 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
+        {heading}
+      </p>
+      <ul className="divide-y divide-black/5">
+        {ctas.map((c, idx) => {
+          const dossierMatch = c.href.match(/^\/eleves\/dossier\/([^/?#]+)\/?$/);
+          const isPreview = Boolean(c.preview) || isEleveDocumentHref(c.href);
+          const onClick = () => {
+            if (isPreview) {
+              onPreview(c.href, c.label);
+              return;
+            }
+            if (dossierMatch && onOpenDossier) {
+              onOpenDossier(dossierMatch[1]!);
+              return;
+            }
+            onNavigate(c.href);
+          };
+          return (
+            <li key={`${c.href}_${c.label}_${idx}`}>
+              <button
+                type="button"
+                onClick={onClick}
+                className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white"
+              >
+                <span
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold ${
+                    isPreview
+                      ? "bg-[color:var(--dash-lime)]/70 text-[var(--dash-ink)]"
+                      : "bg-[var(--dash-ink)] text-white"
+                  }`}
+                  aria-hidden
+                >
+                  {isPreview ? "PDF" : "→"}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--dash-ink)]">
+                  {c.label}
+                </span>
+                <span className="shrink-0 text-[11px] font-semibold text-neutral-400 transition group-hover:text-[var(--dash-ink)]">
+                  Ouvrir
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 async function uploadPdf(file: File): Promise<{ key: string; fileName: string; contentType: string }> {
@@ -194,7 +295,6 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
   const [pendingFileUpload, setPendingFileUpload] = useState<PendingFileUpload | null>(null);
   const [choiceDraft, setChoiceDraft] = useState("");
   const [choiceMulti, setChoiceMulti] = useState<string[]>([]);
-  const [ctas, setCtas] = useState<BrainCta[]>([]);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -388,7 +488,6 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
       setMessages((prev) => [...prev, { role: "user", content: userLabel }]);
     }
     setLoading(true);
-    setCtas([]);
     stopVoice();
     try {
       let attachments: Array<{ key: string; fileName: string; contentType: string }> | undefined;
@@ -414,7 +513,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                   ? "(fichier)"
                   : "Voici un document joint."),
           audience: isSignedIn ? "private" : "public",
-          history: messages.slice(-10),
+          history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
           conversationState: conversationState || undefined,
           confirm: isConfirm,
           confirmAction: isConfirm
@@ -448,9 +547,8 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
       } else {
         setPendingFileUpload(null);
       }
-      if (Array.isArray(data.ctas)) {
-        setCtas(
-          data.ctas
+      const nextCtas: BrainCta[] = Array.isArray(data.ctas)
+        ? data.ctas
             .filter(
               (c: unknown): c is BrainCta =>
                 Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"),
@@ -459,17 +557,15 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               label: String(c.label || "Ouvrir"),
               href: c.href,
               ...(c.preview ? { preview: true as const } : {}),
-            })),
-        );
-      } else {
-        setCtas([]);
-      }
+            }))
+        : [];
       const answerText = data.answer || data.error || "Je ne peux pas répondre pour le moment.";
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: answerText,
+          ...(nextCtas.length > 0 ? { ctas: nextCtas } : {}),
         },
       ]);
       if (Array.isArray(data.clientActions)) {
@@ -659,7 +755,6 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     setPendingChoices(null);
     setChoiceDraft("");
     setChoiceMulti([]);
-    setCtas([]);
     setPendingFiles([]);
     setInput("");
   };
@@ -748,6 +843,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
           {messages.map((m, i) => {
             if (messages.length <= 1 && m.role === "assistant") return null;
             const isUser = m.role === "user";
+            const messageCtas = !isUser && Array.isArray(m.ctas) ? m.ctas : [];
             return (
               <div
                 key={i}
@@ -758,14 +854,36 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                     <ScoliaAiMark size="sm" inverted fill />
                   </div>
                 ) : null}
-                <div
-                  className={`max-w-[min(92%,36rem)] px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
-                    isUser
-                      ? "rounded-[1.35rem] rounded-br-md bg-[var(--dash-ink)] text-white shadow-sm"
-                      : "rounded-[1.35rem] rounded-bl-md border border-black/6 bg-white text-[var(--dash-ink)] shadow-[0_1px_0_rgba(0,0,0,0.03)]"
-                  }`}
-                >
-                  {renderMessageContent(m.content, isUser)}
+                <div className="max-w-[min(92%,36rem)] min-w-0">
+                  <div
+                    className={`px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+                      isUser
+                        ? "rounded-[1.35rem] rounded-br-md bg-[var(--dash-ink)] text-white shadow-sm"
+                        : "rounded-[1.35rem] rounded-bl-md border border-black/6 bg-white text-[var(--dash-ink)] shadow-[0_1px_0_rgba(0,0,0,0.03)]"
+                    }`}
+                  >
+                    {renderMessageContent(m.content, {
+                      onDark: isUser,
+                      onPreviewHref: openUrlPreview,
+                    })}
+                  </div>
+                  {!isUser && messageCtas.length > 0 ? (
+                    <ChatMessageActions
+                      ctas={messageCtas}
+                      onPreview={openUrlPreview}
+                      onOpenDossier={
+                        dossierModal
+                          ? (eleveId) => {
+                              dossierModal.open(eleveId);
+                            }
+                          : null
+                      }
+                      onNavigate={(href) => {
+                        if (!pageMode) setOpen(false);
+                        router.push(href);
+                      }}
+                    />
+                  ) : null}
                 </div>
               </div>
             );
@@ -1131,53 +1249,6 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                 Annuler
               </button>
             </div>
-          </div>
-        ) : null}
-        {ctas.length > 0 ? (
-          <div className={`flex flex-wrap gap-2 ${isExpanded ? "" : "mr-4"}`}>
-            {ctas.map((c) => {
-              if (c.preview) {
-                return (
-                  <button
-                    key={`${c.href}_${c.label}_preview`}
-                    type="button"
-                    onClick={() => {
-                      openUrlPreview(c.href, c.label);
-                    }}
-                    className="rounded-2xl bg-[color:var(--dash-lime)] px-3 py-2 text-[12px] font-semibold text-[var(--dash-ink)] shadow-sm ring-1 ring-black/5 transition hover:brightness-95"
-                  >
-                    {c.label}
-                  </button>
-                );
-              }
-              const dossierMatch = c.href.match(/^\/eleves\/dossier\/([^/?#]+)\/?$/);
-              if (dossierMatch && dossierModal) {
-                return (
-                  <button
-                    key={`${c.href}_${c.label}_dossier`}
-                    type="button"
-                    onClick={() => {
-                      dossierModal.open(dossierMatch[1]!);
-                    }}
-                    className="rounded-2xl bg-[var(--dash-ink)] px-3 py-2 text-[12px] font-semibold text-white shadow-sm transition hover:opacity-90"
-                  >
-                    {c.label}
-                  </button>
-                );
-              }
-              return (
-                <Link
-                  key={`${c.href}_${c.label}`}
-                  href={c.href}
-                  onClick={() => {
-                    if (!pageMode) setOpen(false);
-                  }}
-                  className="rounded-2xl bg-[var(--dash-ink)] px-3 py-2 text-[12px] font-semibold text-white shadow-sm transition hover:opacity-90"
-                >
-                  {c.label}
-                </Link>
-              );
-            })}
           </div>
         ) : null}
         {loading ? (
