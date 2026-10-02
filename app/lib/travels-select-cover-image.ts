@@ -118,7 +118,7 @@ async function pickFromCatalogWithMistral(opts: {
     if (opts.excludeId && normalizeId(matched.id) === normalizeId(opts.excludeId)) {
       return null;
     }
-    if (!isStrongLexicalMatch(matched, opts.title, opts.destination)) {
+    if (!isUsableCatalogCover(matched, opts.title, opts.destination)) {
       return null;
     }
     return withNormalizedUrl(matched);
