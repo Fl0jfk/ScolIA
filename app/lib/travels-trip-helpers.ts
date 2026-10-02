@@ -461,3 +461,95 @@ export function travelsListBudget(trip: TravelsTrip): TravelsListBudget {
     kind: "previsionnel",
   };
 }
+
+export type TravelsListPipelineStep = {
+  id: string;
+  /** Libellé court pour la frise (carte liste). */
+  shortLabel: string;
+  /** Libellé accessible / tooltip. */
+  label: string;
+};
+
+export type TravelsListPipeline = {
+  steps: TravelsListPipelineStep[];
+  /** Index de l’étape courante (0-based). `steps.length` = tout terminé. */
+  currentIndex: number;
+  /** Libellé de l’étape active (ou « Finalisé »). */
+  currentLabel: string;
+  done: boolean;
+  blocked: boolean;
+};
+
+/**
+ * Frise de progression pour la liste `/travels` (points), adaptée SIMPLE vs COMPLEX+bus.
+ */
+export function travelsListPipeline(trip: TravelsTrip): TravelsListPipeline {
+  const withBus = complexNeedsBus(trip);
+  const steps: TravelsListPipelineStep[] = withBus
+    ? [
+        { id: "pedago", shortLabel: "Pédago", label: "Validation pédagogique" },
+        { id: "transport", shortLabel: "Bus", label: "Transport / devis" },
+        { id: "finances", shortLabel: "Compta", label: "Validation finances" },
+        { id: "direction", shortLabel: "Final", label: "Validation finale" },
+        { id: "eleves", shortLabel: "OK", label: "Dossier finalisé" },
+      ]
+    : [
+        { id: "pedago", shortLabel: "Pédago", label: "Validation pédagogique" },
+        { id: "finances", shortLabel: "Compta", label: "Validation finances" },
+        { id: "direction", shortLabel: "Final", label: "Validation finale" },
+        { id: "eleves", shortLabel: "OK", label: "Dossier finalisé" },
+      ];
+
+  const status = String(trip.status || "");
+  const blocked =
+    status === "BESOIN_MODIFICATION" ||
+    status === "REJETE" ||
+    status === "ANNULE" ||
+    status === "SEANCE_ANNULEE";
+
+  let currentIndex = 0;
+  switch (status) {
+    case "EN_ATTENTE_DIR_INITIAL":
+      currentIndex = 0;
+      break;
+    case "PROF_LOGISTICS":
+    case "EN_ATTENTE_BUS_SIGNATURE":
+      currentIndex = 1;
+      break;
+    case "EN_ATTENTE_COMPTA":
+      currentIndex = withBus ? 2 : 1;
+      break;
+    case "EN_ATTENTE_DIR_FINAL":
+      currentIndex = withBus ? 3 : 2;
+      break;
+    case "FINALISE_DIR_ATTENTE_ELEVES":
+      currentIndex = withBus ? 4 : 3;
+      break;
+    case "VALIDE":
+      currentIndex = steps.length;
+      break;
+    case "BESOIN_MODIFICATION":
+      currentIndex = 0;
+      break;
+    default:
+      currentIndex = 0;
+      break;
+  }
+
+  // SIMPLE : après pédagogie on saute le bus — PROF_LOGISTICS ne devrait pas arriver,
+  // mais si statut bus orphelin, on le mappe sur finances.
+  if (!withBus && (status === "PROF_LOGISTICS" || status === "EN_ATTENTE_BUS_SIGNATURE")) {
+    currentIndex = 1;
+  }
+
+  const done = status === "VALIDE" || currentIndex >= steps.length;
+  const currentLabel = done
+    ? "Finalisé"
+    : status === "FINALISE_DIR_ATTENTE_ELEVES"
+      ? "Liste élèves"
+      : status === "BESOIN_MODIFICATION"
+        ? "Modifications demandées"
+        : steps[Math.min(currentIndex, steps.length - 1)]?.label || "En cours";
+
+  return { steps, currentIndex, currentLabel, done, blocked };
+}

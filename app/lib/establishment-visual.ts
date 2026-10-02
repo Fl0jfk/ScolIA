@@ -114,6 +114,37 @@ export function establishmentVisualFromHex(hex: string): EstablishmentVisual {
   };
 }
 
+/**
+ * Variante plus saturée pour les cartes liste (bento sorties) :
+ * wash / bordure / badge plus lisibles entre établissements.
+ */
+export function establishmentVisualVibrantFromHex(hex: string): EstablishmentVisual {
+  const color = normalizeColorHex(hex) || DEFAULT_ESTABLISHMENT_KIND_COLORS.custom;
+  return {
+    hex: color,
+    washBg: hexToRgba(color, 0.16),
+    orbBg: hexToRgba(color, 0.45),
+    borderColor: hexToRgba(color, 0.62),
+    badgeBg: mixToward(color, 255, 0.42),
+    textColor: mixToward(color, 0, 0.55),
+  };
+}
+
+export function vibrantVisualForEstablishmentLabel(
+  label: string,
+  establishments: Establishment[],
+  groupeLabel?: string,
+): EstablishmentVisual {
+  const hit = establishments.find(
+    (e) => e.active !== false && (e.label === label || e.id === label),
+  );
+  if (hit) return establishmentVisualVibrantFromHex(resolveEstablishmentColorHex(hit));
+  if (groupeLabel && label === groupeLabel) {
+    return establishmentVisualVibrantFromHex(DEFAULT_ESTABLISHMENT_KIND_COLORS.custom);
+  }
+  return establishmentVisualVibrantFromHex(resolveEstablishmentColorHex({ label }));
+}
+
 export function visualForEstablishmentLabel(
   label: string,
   establishments: Establishment[],

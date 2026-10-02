@@ -6,17 +6,26 @@ import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import TravelsDirectionDashboardPanel from "@/app/components/travels/TravelsDirectionDashboard";
+import TravelsTripBentoCard from "@/app/components/travels/TravelsTripBentoCard";
 import {
   TravelsRemindersModal,
   type TravelsReminderRow,
 } from "@/app/components/travels/TravelsRemindersModal";
 import type { TravelsDirectionDashboard } from "@/app/lib/travels-direction-dashboard";
-import { isTripTravelDatePast, travelsListBudget, travelsListNbEleves, travelsTripMatchesSearch } from "@/app/lib/travels-trip-helpers";
-import { TRAVELS_STATUS_LABELS, type TravelsTrip } from "@/app/lib/travels-types";
+import {
+  isTripTravelDatePast,
+  travelsListBudget,
+  travelsListNbEleves,
+  travelsListPipeline,
+  travelsTripMatchesSearch,
+} from "@/app/lib/travels-trip-helpers";
+import type { TravelsTrip } from "@/app/lib/travels-types";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
-import { visualForEstablishmentLabel } from "@/app/lib/establishment-visual";
+import {
+  vibrantVisualForEstablishmentLabel,
+} from "@/app/lib/establishment-visual";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -191,20 +200,8 @@ function TripDashboardContent() {
     return isNaN(d.getTime()) ? val : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const etabVisual = (label: string) =>
-    visualForEstablishmentLabel(label, etabFilterOptions.establishments, GROUPE_SCOLAIRE_LABEL);
-
-  const getStatusStyle = (status: string) => {
-    switch (status) {
-      case 'VALIDE': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-      case 'FINALISE_DIR_ATTENTE_ELEVES': return 'bg-teal-50 text-teal-800 border-teal-100';
-      case 'REJET_MODIF': return 'bg-rose-50 text-rose-700 border-rose-100';
-      case 'EN_ATTENTE_DIR_INITIAL': return 'bg-blue-50 text-blue-700 border-blue-100';
-      case 'SEANCE_ANNULEE': return 'bg-slate-100 text-slate-600 border-slate-200';
-      case 'ANNULE': return 'bg-red-50 text-red-700 border-red-100';
-      default: return 'bg-amber-50 text-amber-700 border-amber-100';
-    }
-  };
+  const etabCardVisual = (label: string) =>
+    vibrantVisualForEstablishmentLabel(label, etabFilterOptions.establishments, GROUPE_SCOLAIRE_LABEL);
   return (
     <ModulePageShell maxWidthClass="max-w-[1500px]" tourModuleId="travels">
       <ModulePageHeader
@@ -282,7 +279,7 @@ function TripDashboardContent() {
         <div className="flex gap-2 flex-wrap">
           {["Tous", ...etabFilterOptions.labels, ...(etabFilterOptions.showGroupe ? [GROUPE_SCOLAIRE_LABEL] : [])].map((f) => {
             const active = (f === "Tous" && !filterEtab) || filterEtab === f;
-            const vis = f !== "Tous" ? etabVisual(f) : null;
+            const vis = f !== "Tous" ? etabCardVisual(f) : null;
             return (
               <button
                 key={f}
@@ -314,179 +311,26 @@ function TripDashboardContent() {
       {loading ? (
         <div className="text-center py-20">Chargement des dossiers...</div>
       ) : filteredTrips.length > 0 ? (
-        <div data-tour="travels-list" className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {filteredTrips.map((trip) => {
-            const isComplex = trip.type === "COMPLEX" || Boolean((trip.data as { transport?: unknown })?.transport);
-            const imageUrl = normalizeTravelImageUrl(
-              (typeof trip.imageUrl === "string" && trip.imageUrl) ||
-                (typeof trip.data?.imageUrl === "string" ? trip.data.imageUrl : undefined),
-            );
-            const defaultEtab = etabFilterOptions.showGroupe ? GROUPE_SCOLAIRE_LABEL : etabFilterOptions.labels[0] || "Établissement";
+        <div
+          data-tour="travels-list"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+        >
+          {filteredTrips.map((trip, tripIndex) => {
+            const defaultEtab = etabFilterOptions.showGroupe
+              ? GROUPE_SCOLAIRE_LABEL
+              : etabFilterOptions.labels[0] || "Établissement";
             const etabLabel = trip.data?.etablissement || defaultEtab;
-            const vis = etabVisual(etabLabel);
-            const isPast = isTripTravelDatePast(trip);
             return (
-              <div
+              <TravelsTripBentoCard
                 key={trip.id}
-                onClick={canOpenTrip ? () => router.push(`/travels/${trip.id}`) : undefined}
-                className={`group relative min-w-0 rounded-[2.5rem] overflow-hidden border transition-all duration-300 transform-gpu ${
-                  canOpenTrip ? "cursor-pointer" : "cursor-default"
-                } ${
-                  isPast
-                    ? "bg-slate-100/90 border-slate-200 opacity-60 grayscale hover:opacity-75 hover:grayscale-[0.85]"
-                    : canOpenTrip
-                      ? "shadow-sm hover:shadow-xl hover:-translate-y-1"
-                      : "shadow-sm"
-                }`}
-                title={
-                  canOpenTrip
-                    ? undefined
-                    : "Consultation liste uniquement — ouverture du dossier réservée à d’autres rôles"
-                }
-                style={
-                  isPast
-                    ? undefined
-                    : { backgroundColor: vis.washBg, borderColor: vis.borderColor }
-                }
-              >
-                {isPast ? null : (
-                  <div
-                    className="pointer-events-none absolute -right-10 -bottom-12 h-44 w-44 rounded-full blur-3xl transition duration-700 group-hover:scale-110"
-                    style={{ backgroundColor: vis.orbBg }}
-                    aria-hidden
-                  />
-                )}
-                <div className="relative h-44 w-full bg-slate-100 overflow-hidden isolate" style={{ maskImage: 'radial-gradient(white, black)' }}>
-                  {imageUrl ? (
-                    <Image 
-                      src={imageUrl} 
-                      alt={trip.data?.title || "Sortie scolaire"}
-                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                      width={500}
-                      height={300}
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-5xl bg-gradient-to-br from-slate-50 to-slate-100">
-                      {isComplex ? '🚌' : '🍦'}
-                    </div>
-                  )}
-                  <div className="absolute top-4 left-4 flex gap-2">
-                    {isPast ? (
-                      <span className="text-[10px] font-black px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-sm bg-slate-200/95 text-slate-600 border-slate-300">
-                        Terminée
-                      </span>
-                    ) : null}
-                    <span className={`text-[10px] font-black px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-sm ${getStatusStyle(trip.status)}`}>
-                      {TRAVELS_STATUS_LABELS[trip.status] ||
-                        (trip.status === "SEANCE_ANNULEE"
-                          ? "Séance annulée"
-                          : trip.status?.replace("EN_ATTENTE_", "").replace("_", " "))}
-                    </span>
-                  </div>
-                  <div
-                    className="absolute top-4 right-4 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border shadow-sm"
-                    style={{
-                      backgroundColor: vis.badgeBg,
-                      color: vis.textColor,
-                      borderColor: vis.borderColor,
-                    }}
-                  >
-                    <span
-                      className="h-1.5 w-1.5 rounded-full shrink-0"
-                      style={{ backgroundColor: vis.hex }}
-                      aria-hidden
-                    />
-                    {etabLabel}
-                  </div>
-                </div>
-                <div className="relative p-8">
-                  <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
-                    <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${isComplex ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-slate-50 text-slate-600 border-slate-100'}`}>
-                      {isComplex ? 'Voyage Scolaire' : 'Sortie Locale'}
-                      {trip.data?.recurrenceSeriesId && trip.data?.recurrenceTotal ? (
-                        <span className="ml-2 text-indigo-600">
-                          · Série {trip.data.recurrenceIndex ?? "?"}/{trip.data.recurrenceTotal}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                      Dossier du {formatDate(trip, 'created')}
-                    </span>
-                  </div>
-                  <h3
-                    className="mb-4 text-2xl font-black leading-snug text-slate-800 break-words group-hover:text-indigo-600 transition-colors line-clamp-2"
-                    title={trip.data?.title || "Sans titre"}
-                  >
-                    {trip.data?.title || "Sans titre"}
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-slate-500 flex items-start gap-2">
-                        <span className="text-lg shrink-0">📍</span>
-                        <span className="min-w-0 break-words">{trip.data?.destination || "Non définie"}</span>
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        {trip.type === "COMPLEX" ? (
-                          <span>
-                            Du {formatDate(trip, "travel")} au{" "}
-                            {trip.data?.endDate
-                              ? new Date(trip.data.endDate).toLocaleDateString("fr-FR")
-                              : "—"}
-                          </span>
-                        ) : (
-                          <span>Le {formatDate(trip, "travel")}</span>
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3 md:justify-end">
-                      {(() => {
-                        const nbEleves = travelsListNbEleves(trip);
-                        const budget = travelsListBudget(trip);
-                        return (
-                          <>
-                            <div className="bg-slate-50 px-4 py-3 rounded-2xl text-center min-w-[70px] border border-slate-100">
-                              <p className="text-[10px] text-slate-400 font-bold uppercase">Élèves</p>
-                              <p className="text-md font-black text-slate-700">
-                                {nbEleves != null ? nbEleves : "—"}
-                              </p>
-                            </div>
-                            <div className="bg-slate-50 px-4 py-3 rounded-2xl text-center min-w-[90px] border border-slate-100">
-                              <p className="text-[10px] text-slate-400 font-bold uppercase">
-                                {budget.kind === "valide" ? "Budget" : "Prévisionnel"}
-                              </p>
-                              <p className="text-md font-black text-slate-700">
-                                {budget.amount != null ? `${Math.round(budget.amount)}€` : "—"}
-                              </p>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <div className="mt-8 pt-6 border-t border-slate-50 flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-slate-900 flex items-center justify-center text-[10px] font-bold text-white uppercase shadow-inner">
-                        {trip.ownerName?.substring(0, 2)}
-                      </div>
-                      <span className="text-sm font-bold text-slate-600">{trip.ownerName}</span>
-                    </div>
-                    <div className={`flex items-center gap-2 font-bold text-sm ${isPast ? "text-slate-500" : "text-indigo-600"}`}>
-                      <span className="opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
-                        {isPast ? "Facturation / dossier" : "Gérer le dossier"}
-                      </span>
-                      <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-sm ${
-                          isPast
-                            ? "bg-slate-200 group-hover:bg-slate-500 group-hover:text-white"
-                            : "bg-slate-100 group-hover:bg-indigo-600 group-hover:text-white"
-                        }`}
-                      >
-                        →
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                trip={trip}
+                etabLabel={etabLabel}
+                vis={etabCardVisual(etabLabel)}
+                canOpenTrip={canOpenTrip}
+                index={tripIndex}
+                formatDate={formatDate}
+                onOpen={() => router.push(`/travels/${trip.id}`)}
+              />
             );
           })}
         </div>
