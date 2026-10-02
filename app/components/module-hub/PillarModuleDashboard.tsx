@@ -289,10 +289,11 @@ function ModuleBentoCard({ tile }: { tile: ModuleTile }) {
 
   const active = faces[slideIdx] ?? faces[0]!;
   const faceCount = active.count ?? (slideIdx === 0 ? tile.notifCount : 0);
+  const cardHref = active.href || tile.href;
 
   return (
     <div
-      className={`group relative flex min-h-[12.5rem] flex-col overflow-hidden rounded-[1.75rem] p-5 transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(0,0,0,0.45)] sm:p-5 ${tileShell(
+      className={`group relative flex min-h-[12.5rem] flex-col overflow-hidden rounded-[1.75rem] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(0,0,0,0.45)] ${tileShell(
         tone,
       )}`}
     >
@@ -309,64 +310,109 @@ function ModuleBentoCard({ tile }: { tile: ModuleTile }) {
         aria-hidden
       />
 
-      <div className="relative flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${softLabelClass(tone)}`}>
-            Module
-          </p>
-          <h2 className="mt-1 truncate text-lg font-semibold tracking-tight sm:text-xl">{tile.title}</h2>
+      <Link
+        href={cardHref}
+        className="relative flex min-h-0 flex-1 flex-col p-5 outline-none sm:p-5"
+        aria-label={`Ouvrir ${tile.title}`}
+      >
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${softLabelClass(tone)}`}>
+              Module
+            </p>
+            <h2 className="mt-1 truncate text-lg font-semibold tracking-tight sm:text-xl">{tile.title}</h2>
+          </div>
+          <span
+            className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl ${emojiShell(tone)}`}
+            aria-hidden
+          >
+            {tile.emoji}
+          </span>
         </div>
-        <span
-          className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl ${emojiShell(tone)}`}
-          aria-hidden
-        >
-          {tile.emoji}
-        </span>
-      </div>
 
-      <Link href={active.href} className="relative mt-3 min-h-[4.75rem] flex-1 outline-none">
-        {faces.map((face, i) => {
-          const visible = i === slideIdx;
-          const count = face.count ?? (i === 0 ? tile.notifCount : 0);
-          return (
-            <div
-              key={face.id}
-              className={`absolute inset-0 flex flex-col justify-center transition-all duration-500 ease-out ${
-                visible
-                  ? "translate-y-0 opacity-100"
-                  : "pointer-events-none translate-y-2 opacity-0"
-              }`}
-              aria-hidden={!visible}
-            >
-              {count > 0 ? (
-                <p className="text-4xl font-black leading-none tracking-tight sm:text-5xl">
-                  {count > 99 ? "99+" : count}
-                </p>
-              ) : null}
-              <div className={`flex flex-wrap items-center gap-2 ${count > 0 ? "mt-2" : ""}`}>
-                <p className="text-base font-semibold tracking-tight sm:text-lg">{face.label}</p>
-                {face.badge ? (
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badgeShell(
-                      tone,
-                    )}`}
-                  >
-                    {face.badge}
-                  </span>
+        <div className="relative mt-3 min-h-[4.75rem] flex-1">
+          {faces.map((face, i) => {
+            const visible = i === slideIdx;
+            const count = face.count ?? (i === 0 ? tile.notifCount : 0);
+            return (
+              <div
+                key={face.id}
+                className={`absolute inset-0 flex flex-col justify-center transition-all duration-500 ease-out ${
+                  visible
+                    ? "translate-y-0 opacity-100"
+                    : "pointer-events-none translate-y-2 opacity-0"
+                }`}
+                aria-hidden={!visible}
+              >
+                {count > 0 ? (
+                  <p className="text-4xl font-black leading-none tracking-tight sm:text-5xl">
+                    {count > 99 ? "99+" : count}
+                  </p>
+                ) : null}
+                <div className={`flex flex-wrap items-center gap-2 ${count > 0 ? "mt-2" : ""}`}>
+                  <p className="text-base font-semibold tracking-tight sm:text-lg">{face.label}</p>
+                  {face.badge ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badgeShell(
+                        tone,
+                      )}`}
+                    >
+                      {face.badge}
+                    </span>
+                  ) : null}
+                </div>
+                {face.detail ? (
+                  <p className={`mt-1 line-clamp-2 text-sm leading-relaxed ${detailClass(tone)}`}>
+                    {face.detail}
+                  </p>
                 ) : null}
               </div>
-              {face.detail ? (
-                <p className={`mt-1 line-clamp-2 text-sm leading-relaxed ${detailClass(tone)}`}>
-                  {face.detail}
-                </p>
-              ) : null}
+            );
+          })}
+        </div>
+
+        <div className="relative mt-3 flex items-center justify-between gap-2">
+          {multi ? (
+            <div className="flex items-center gap-1.5" aria-hidden>
+              {faces.map((f, i) => (
+                <span
+                  key={f.id}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                    i === slideIdx
+                      ? tone === "warn"
+                        ? "w-4 bg-amber-400"
+                        : tone === "info"
+                          ? "w-4 bg-[color:var(--dash-lime)]"
+                          : "w-4 bg-[var(--dash-ink)]"
+                      : tone === "action"
+                        ? "w-1.5 bg-[var(--dash-ink)]/25"
+                        : tone === "warn"
+                          ? "w-1.5 bg-amber-200/35"
+                          : tone === "info"
+                            ? "w-1.5 bg-white/30"
+                            : "w-1.5 bg-neutral-300"
+                  }`}
+                />
+              ))}
             </div>
-          );
-        })}
+          ) : (
+            <span className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${softLabelClass(tone)}`}>
+              {faceCount > 0 ? "À traiter" : "Ouvrir"}
+            </span>
+          )}
+          <span
+            className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-lg transition group-hover:translate-x-0.5 ${arrowShell(
+              tone,
+            )}`}
+            aria-hidden
+          >
+            →
+          </span>
+        </div>
       </Link>
 
       {tile.actions.length > 0 ? (
-        <div className="relative mt-3 flex flex-wrap gap-1.5">
+        <div className="relative flex flex-wrap gap-1.5 px-5 pb-5">
           {tile.actions.map((action) => (
             <Link
               key={`${action.href}-${action.label}`}
@@ -381,46 +427,6 @@ function ModuleBentoCard({ tile }: { tile: ModuleTile }) {
           ))}
         </div>
       ) : null}
-
-      <div className="relative mt-3 flex items-center justify-between gap-2">
-        {multi ? (
-          <div className="flex items-center gap-1.5" aria-hidden>
-            {faces.map((f, i) => (
-              <span
-                key={f.id}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  i === slideIdx
-                    ? tone === "warn"
-                      ? "w-4 bg-amber-400"
-                      : tone === "info"
-                        ? "w-4 bg-[color:var(--dash-lime)]"
-                        : "w-4 bg-[var(--dash-ink)]"
-                    : tone === "action"
-                      ? "w-1.5 bg-[var(--dash-ink)]/25"
-                      : tone === "warn"
-                        ? "w-1.5 bg-amber-200/35"
-                        : tone === "info"
-                          ? "w-1.5 bg-white/30"
-                          : "w-1.5 bg-neutral-300"
-                }`}
-              />
-            ))}
-          </div>
-        ) : (
-          <span className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${softLabelClass(tone)}`}>
-            {faceCount > 0 ? "À traiter" : "Ouvrir"}
-          </span>
-        )}
-        <Link
-          href={active.href}
-          className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-lg transition group-hover:translate-x-0.5 ${arrowShell(
-            tone,
-          )}`}
-          aria-label={`Ouvrir ${tile.title}`}
-        >
-          →
-        </Link>
-      </div>
     </div>
   );
 }
