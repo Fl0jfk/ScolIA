@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import {
   hexToRgba,
   type EstablishmentVisual,
@@ -85,12 +84,13 @@ export default function TravelsTripBentoCard({
       {/* Media — ~25 % moins haut qu’avant (16/10 → 16/7.5) */}
       <div className="relative isolate aspect-[16/7.5] w-full overflow-hidden bg-slate-100">
         {imageUrl ? (
-          <Image
+          // eslint-disable-next-line @next/next/no-img-element -- covers CDN / Wikimedia hors optimizer Next
+          <img
             src={imageUrl}
             alt={trip.data?.title || "Sortie scolaire"}
             className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
-            width={800}
-            height={375}
+            loading="lazy"
+            decoding="async"
           />
         ) : (
           <div

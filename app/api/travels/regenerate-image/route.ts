@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "Aucune image pertinente trouvée (catalogue ni web). Vérifiez le titre / lieu du séjour.",
+            "Image trouvée mais impossible de l’héberger sur le CDN public (S3). Réessayez ou contactez un admin technique.",
         },
         { status: 422 },
       );

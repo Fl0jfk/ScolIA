@@ -17,6 +17,8 @@ const WIKI_UA =
 type WebImageHit = {
   title: string;
   imageUrl: string;
+  /** URLs alternatives (miniatures) — préférées pour l’hébergement CDN. */
+  alternateUrls?: string[];
   author?: string | null;
   license?: string | null;
   attributionUrl?: string | null;
@@ -25,50 +27,72 @@ type WebImageHit = {
   mime?: string | null;
 };
 
-function preferredImageBuckets(): string[] {
+/** Uniquement le bucket CDN public — jamais le bucket métier privé (BUCKET_NAME). */
+function publicImageBuckets(): string[] {
   const list = [
     process.env.IMAGE_BUCKET?.trim(),
     SCOLA_IMAGE_BUCKET,
-    process.env.BUCKET_NAME?.trim(),
   ].filter((b): b is string => Boolean(b));
   return [...new Set(list)];
 }
 
 function publicUrlForBucketKey(bucket: string, key: string): string {
-  const encoded = key
-    .split("/")
-    .map((s) => encodeURIComponent(s))
-    .join("/");
-  if (bucket === SCOLA_IMAGE_BUCKET || bucket === process.env.IMAGE_BUCKET?.trim()) {
-    return scolaImageUrl(key);
-  }
-  const region = process.env.REGION?.trim() || "fr-par";
-  const endpoint = process.env.S3_ENDPOINT?.trim();
-  if (endpoint) {
-    return `${endpoint.replace(/\/$/, "")}/${bucket}/${encoded}`;
-  }
-  if (region.startsWith("fr-") || region.includes("par")) {
-    return `https://${bucket}.s3.${region}.scw.cloud/${encoded}`;
-  }
-  return `https://${bucket}.s3.${region}.amazonaws.com/${encoded}`;
+  // Toujours via le helper CDN (évite une URL path-style / région privée).
+  void bucket;
+  return scolaImageUrl(key);
 }
 
-function s3ClientForBucket(bucket: string): S3Client {
-  if (bucket === SCOLA_IMAGE_BUCKET || bucket === (process.env.IMAGE_BUCKET?.trim() || "")) {
-    const accessKeyId = process.env.ACCESS_KEY_ID?.trim();
-    const secretAccessKey = process.env.SECRET_ACCESS_KEY?.trim();
-    if (accessKeyId && secretAccessKey) {
-      return new S3Client({
-        region: "fr-par",
-        endpoint: process.env.S3_ENDPOINT?.trim() || "https://s3.fr-par.scw.cloud",
-        forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== "false",
-        credentials: { accessKeyId, secretAccessKey },
-        requestChecksumCalculation: "WHEN_REQUIRED",
-        responseChecksumValidation: "WHEN_REQUIRED",
-      });
-    }
+function s3ClientForPublicImageBucket(): S3Client {
+  const accessKeyId = process.env.ACCESS_KEY_ID?.trim();
+  const secretAccessKey = process.env.SECRET_ACCESS_KEY?.trim();
+  if (accessKeyId && secretAccessKey) {
+    return new S3Client({
+      region: "fr-par",
+      endpoint: process.env.S3_ENDPOINT?.trim() || "https://s3.fr-par.scw.cloud",
+      forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== "false",
+      credentials: { accessKeyId, secretAccessKey },
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
+    });
   }
   return getPlatformS3Client();
+}
+
+function cleanImageUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    // Wikimedia ajoute des utm_* inutiles qui cassent parfois le cache / l’optimizer.
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return String(url || "").trim();
+  }
+}
+
+function looksLikeImageBytes(bytes: Buffer): boolean {
+  if (bytes.length < 24) return false;
+  // JPEG
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return true;
+  // PNG
+  if (
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return true;
+  }
+  // GIF
+  if (bytes.slice(0, 3).toString("ascii") === "GIF") return true;
+  // WEBP (RIFF....WEBP)
+  if (
+    bytes.slice(0, 4).toString("ascii") === "RIFF" &&
+    bytes.slice(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function extFromMimeOrUrl(mime: string | null | undefined, url: string): string {
@@ -85,12 +109,14 @@ function extFromMimeOrUrl(mime: string | null | undefined, url: string): string 
 
 async function downloadBytes(
   url: string,
-): Promise<{ bytes: Buffer; contentType: string } | null> {
+): Promise<{ bytes: Buffer; contentType: string; sourceUrl: string } | null> {
+  const cleaned = cleanImageUrl(url);
+  if (!cleaned) return null;
   try {
-    const res = await fetch(url, {
+    const res = await fetch(cleaned, {
       headers: {
         "User-Agent": WIKI_UA,
-        Accept: "image/*,*/*",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
       },
       redirect: "follow",
     });
@@ -98,11 +124,56 @@ async function downloadBytes(
     const contentType = res.headers.get("content-type") || "image/jpeg";
     if (!contentType.startsWith("image/")) return null;
     const ab = await res.arrayBuffer();
-    if (!ab.byteLength || ab.byteLength > 12_000_000) return null;
-    return { bytes: Buffer.from(ab), contentType };
+    // Trop petit = souvent une page d’erreur / stub ; trop gros = risque timeout Scaleway.
+    if (!ab.byteLength || ab.byteLength < 4_000 || ab.byteLength > 8_000_000) {
+      return null;
+    }
+    const bytes = Buffer.from(ab);
+    if (!looksLikeImageBytes(bytes)) return null;
+    return { bytes, contentType, sourceUrl: cleaned };
   } catch (err) {
-    console.error("[travels-image-web] download failed", url, err);
+    console.error("[travels-image-web] download failed", cleaned, err);
     return null;
+  }
+}
+
+async function downloadBestCandidate(
+  hit: WebImageHit,
+): Promise<{ bytes: Buffer; contentType: string; sourceUrl: string } | null> {
+  const urls = [
+    ...(hit.alternateUrls || []),
+    hit.imageUrl,
+  ]
+    .map(cleanImageUrl)
+    .filter((u, i, arr) => u && arr.indexOf(u) === i);
+
+  for (const url of urls) {
+    const downloaded = await downloadBytes(url);
+    if (downloaded) return downloaded;
+  }
+  return null;
+}
+
+async function isPubliclyReadableImage(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": WIKI_UA,
+        Range: "bytes=0-64",
+        Accept: "image/*,*/*",
+      },
+      redirect: "follow",
+    });
+    if (!(res.ok || res.status === 206)) return false;
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType && !contentType.startsWith("image/") && !contentType.includes("octet-stream")) {
+      return false;
+    }
+    const bytes = Buffer.from(await res.arrayBuffer());
+    return looksLikeImageBytes(bytes) || bytes.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -116,10 +187,10 @@ async function uploadCoverToPublicBucket(opts: {
     `${opts.normalizeKey}-${Date.now().toString(36)}.${opts.ext}`,
   );
   const key = s3Key(`travels/auto/${fileName}`);
+  const client = s3ClientForPublicImageBucket();
 
-  for (const bucket of preferredImageBuckets()) {
+  for (const bucket of publicImageBuckets()) {
     try {
-      const client = s3ClientForBucket(bucket);
       await client.send(
         new PutObjectCommand({
           Bucket: bucket,
@@ -127,9 +198,23 @@ async function uploadCoverToPublicBucket(opts: {
           Body: opts.bytes,
           ContentType: opts.contentType,
           CacheControl: "public, max-age=31536000, immutable",
+          // Scaleway ignore souvent ACL ; le bucket scolia-images est public en lecture.
         }),
       );
-      return publicUrlForBucketKey(bucket, key);
+      const url = publicUrlForBucketKey(bucket, key);
+      const ok =
+        (await isPubliclyReadableImage(url)) ||
+        (await new Promise<boolean>((resolve) => {
+          setTimeout(() => {
+            void isPubliclyReadableImage(url).then(resolve);
+          }, 500);
+        }));
+      if (!ok) {
+        console.warn(
+          `[travels-image-web] upload ok, public read not confirmed yet on ${bucket}/${key} — URL conservée (bucket CDN public)`,
+        );
+      }
+      return url;
     } catch (err) {
       console.warn(
         `[travels-image-web] S3 upload failed on ${bucket}:`,
@@ -164,11 +249,29 @@ function hitLooksRelevant(hit: WebImageHit, query: string, themeTokens: string[]
   return themeInQuery.some((t) => titleHay.includes(t));
 }
 
+function wikimediaMidThumbUrl(originalUrl: string): string | null {
+  try {
+    const u = new URL(cleanImageUrl(originalUrl));
+    // /wikipedia/commons/d/d1/file.jpg
+    // → /wikipedia/commons/thumb/d/d1/file.jpg/1280px-file.jpg
+    const match = u.pathname.match(
+      /^(.*?\/commons\/)([0-9a-f]\/[0-9a-f]{2}\/)([^/]+\.(jpe?g|png|webp|gif))$/i,
+    );
+    if (!match) return null;
+    const fileName = match[3];
+    u.pathname = `${match[1]}thumb/${match[2]}${fileName}/1280px-${fileName}`;
+    u.search = "";
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 type WikiSummary = {
   title?: string;
   content_urls?: { desktop?: { page?: string } };
-  originalimage?: { source?: string };
-  thumbnail?: { source?: string };
+  originalimage?: { source?: string; width?: number; height?: number };
+  thumbnail?: { source?: string; width?: number; height?: number };
   type?: string;
 };
 
@@ -184,11 +287,21 @@ async function wikiSummaryFromTitle(
     if (!res.ok) return null;
     const data = (await res.json()) as WikiSummary;
     if (data.type === "disambiguation") return null;
-    const imageUrl = data.originalimage?.source || data.thumbnail?.source;
+    const original = data.originalimage?.source
+      ? cleanImageUrl(data.originalimage.source)
+      : null;
+    const thumb = data.thumbnail?.source
+      ? cleanImageUrl(data.thumbnail.source)
+      : null;
+    const mid = original ? wikimediaMidThumbUrl(original) : null;
+    const imageUrl = mid || thumb || original;
     if (!imageUrl) return null;
     return {
       title: data.title || title,
       imageUrl,
+      alternateUrls: [mid, thumb, original].filter(
+        (u): u is string => Boolean(u),
+      ),
       author: null,
       license: "Wikipedia / Wikimedia",
       attributionUrl: data.content_urls?.desktop?.page || null,
@@ -245,6 +358,7 @@ type CommonsSearchResponse = {
         title?: string;
         imageinfo?: Array<{
           url?: string;
+          thumburl?: string;
           mime?: string;
           descriptionurl?: string;
           extmetadata?: Record<string, { value?: string }>;
@@ -267,7 +381,7 @@ async function searchWikimediaCommons(
   api.searchParams.set("gsrlimit", "12");
   api.searchParams.set("prop", "imageinfo");
   api.searchParams.set("iiprop", "url|mime|extmetadata|size");
-  api.searchParams.set("iiurlwidth", "1600");
+  api.searchParams.set("iiurlwidth", "1280");
   api.searchParams.set("origin", "*");
 
   try {
@@ -279,12 +393,13 @@ async function searchWikimediaCommons(
     const pages = Object.values(data.query?.pages || {});
     for (const page of pages) {
       const info = page.imageinfo?.[0];
-      if (!info?.url) continue;
-      if (skipUrls.has(info.url)) continue;
-      const mime = String(info.mime || "").toLowerCase();
+      const imageUrl = info?.thumburl || info?.url;
+      if (!imageUrl) continue;
+      if (skipUrls.has(cleanImageUrl(imageUrl)) || skipUrls.has(imageUrl)) continue;
+      const mime = String(info?.mime || "").toLowerCase();
       if (mime && !mime.startsWith("image/")) continue;
       if (mime.includes("svg")) continue;
-      const meta = info.extmetadata || {};
+      const meta = info?.extmetadata || {};
       const artistRaw = meta.Artist?.value || meta.Credit?.value || "";
       const license = meta.LicenseShortName?.value || meta.License?.value || "CC";
       const author = String(artistRaw)
@@ -294,13 +409,16 @@ async function searchWikimediaCommons(
         .slice(0, 160);
       return {
         title: (page.title || query).replace(/^File:/i, "").replace(/\.[^.]+$/, ""),
-        imageUrl: info.url,
+        imageUrl: cleanImageUrl(imageUrl),
+        alternateUrls: [info?.thumburl, info?.url]
+          .filter((u): u is string => Boolean(u))
+          .map(cleanImageUrl),
         author: author || null,
         license: String(license).slice(0, 80),
-        attributionUrl: info.descriptionurl || null,
-        sourcePageUrl: info.descriptionurl || null,
+        attributionUrl: info?.descriptionurl || null,
+        sourcePageUrl: info?.descriptionurl || null,
         source: "wikimedia",
-        mime: info.mime || null,
+        mime: info?.mime || null,
       };
     }
   } catch (err) {
@@ -480,27 +598,37 @@ export async function fetchAndEnrichTravelCoverImage(opts: {
   }
 
   const { hit, query } = resolved;
-  const downloaded = await downloadBytes(hit.imageUrl);
-  let hostedUrl: string | null = null;
-  if (downloaded) {
-    const normalizeKey = normalizeTravelImageKey(query);
-    const ext = extFromMimeOrUrl(downloaded.contentType || hit.mime, hit.imageUrl);
-    hostedUrl = await uploadCoverToPublicBucket({
-      normalizeKey: normalizeKey || "place",
-      bytes: downloaded.bytes,
-      contentType: downloaded.contentType,
-      ext,
+  const downloaded = await downloadBestCandidate(hit);
+  if (!downloaded) {
+    console.warn("[travels-image-web] could not download image bytes", {
+      query,
+      title: hit.title,
+      url: hit.imageUrl,
     });
+    return null;
   }
 
-  const finalUrl = hostedUrl || hit.imageUrl;
-  if (!finalUrl) return null;
-
   const normalizeKey = normalizeTravelImageKey(query);
-  const label =
-    hit.title ||
-    String(opts.destination || "").trim() ||
-    query;
+  const ext = extFromMimeOrUrl(downloaded.contentType || hit.mime, downloaded.sourceUrl);
+  const hostedUrl = await uploadCoverToPublicBucket({
+    normalizeKey: normalizeKey || "place",
+    bytes: downloaded.bytes,
+    contentType: downloaded.contentType,
+    ext,
+  });
+
+  // Obligatoire : URL sur le CDN public scolia-images (pas de bucket privé, pas d’URL wiki brute
+  // que next/image n’arrive pas à optimiser côté serveur).
+  const finalUrl = hostedUrl;
+  if (!finalUrl) {
+    console.error(
+      "[travels-image-web] public CDN upload failed — refuse d’enregistrer une URL cassée",
+      { query, source: hit.source },
+    );
+    return null;
+  }
+
+  const label = hit.title || String(opts.destination || "").trim() || query;
   const keywords = [query, title, destination, hit.title]
     .join(", ")
     .replace(/\s+/g, " ")

@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
 import type { MailPreviewType } from "@/app/lib/travels-mail-preview";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
@@ -247,12 +246,11 @@ export function TripActionsPanel({
               <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="relative h-28 w-full sm:w-44 shrink-0 overflow-hidden rounded-lg bg-slate-200">
                   {coverUrl ? (
-                    <Image
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
                       src={coverUrl}
                       alt={trip.data?.title || "Image de présentation"}
-                      fill
-                      className="object-cover"
-                      sizes="176px"
+                      className="absolute inset-0 h-full w-full object-cover"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-3xl">🎒</div>
