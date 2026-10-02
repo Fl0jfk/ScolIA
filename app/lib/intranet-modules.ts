@@ -651,6 +651,25 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "partenariats",
+    pathPrefixes: [
+      "/etablissement/partenariats",
+      "/api/partenariats",
+    ],
+    excludePrefixes: [
+      "/api/partenariats/public",
+    ],
+    allowedRoles: [...DIRECTIONS, "administratif", "admin"],
+    dashboard: {
+      id: 246,
+      name: "Partenariats & offres",
+      img: "",
+      link: "/etablissement/partenariats",
+      external: false,
+      description: "Catalogue public des partenariats et offres (inscriptions en ligne)",
+    },
+  },
+  {
     id: "absences-accueil-consultation",
     pathPrefixes: [
       "/vie-scolaire/absences-accueil",

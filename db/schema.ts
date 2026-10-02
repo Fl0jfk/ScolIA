@@ -23,6 +23,7 @@ import { charlemagneP5Schema } from "./schema-charlemagne-p5";
 import { fichesDialogueSchema } from "./schema-fiches-dialogue";
 import { invitationSchema } from "./schema-invitation";
 import { messagingSchema } from "./schema-messaging";
+import { partenariatsSchema } from "./schema-partenariats";
 import { rdvInscriptionSchema } from "./schema-rdv-inscription";
 import { scoliaChatSchema } from "./schema-scolia-chat";
 
@@ -37,6 +38,7 @@ export * from "./schema-charlemagne-p5";
 export * from "./schema-fiches-dialogue";
 export * from "./schema-invitation";
 export * from "./schema-messaging";
+export * from "./schema-partenariats";
 export * from "./schema-portes-ouvertes";
 export * from "./schema-rdv-inscription";
 export * from "./schema-scolia-chat";
@@ -884,6 +886,7 @@ export const appSchema = {
   ...fichesDialogueSchema,
   ...invitationSchema,
   ...messagingSchema,
+  ...partenariatsSchema,
   ...rdvInscriptionSchema,
   ...scoliaChatSchema,
 };
