@@ -218,7 +218,7 @@ export default function InvitationPublicClient({ page }: Props) {
       setError("Indiquez le prénom et le nom de l’élève.");
       return;
     }
-    if (page.requireEligible && !birthDate.trim()) {
+    if (!birthDate.trim()) {
       setError("Indiquez la date de naissance de l’élève.");
       return;
     }
@@ -313,7 +313,7 @@ export default function InvitationPublicClient({ page }: Props) {
             slug: page.slug,
             eleveFirstName: eleveFirstName.trim(),
             eleveLastName: eleveLastName.trim(),
-            birthDate: birthDate.trim() || null,
+            birthDate: birthDate.trim(),
             response,
             presentCount: response === "oui" ? presentCount : undefined,
             parentEmail: parentEmail.trim(),
@@ -606,11 +606,10 @@ export default function InvitationPublicClient({ page }: Props) {
 
             {page.rsvpOpen && step === "eleve" ? (
               <>
-                <p className="text-center text-sm font-semibold">Élève concerné</p>
                 {page.requireEligible ? (
                   <p className="text-center text-xs" style={{ color: "var(--inv-muted)" }}>
-                    Réservé aux élèves de la liste. Saisissez prénom, nom et date de naissance
-                    (2 critères sur 3 suffisent en cas de petite faute d’orthographe).
+                    Réservé aux élèves de la liste. En cas de petite faute d’orthographe, 2 critères
+                    sur 3 (prénom, nom, date de naissance) suffisent.
                   </p>
                 ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -618,26 +617,28 @@ export default function InvitationPublicClient({ page }: Props) {
                     className="flex flex-col gap-1 text-xs font-semibold"
                     style={{ color: "var(--inv-muted)" }}
                   >
-                    Prénom
+                    Prénom de l’élève
                     <input
                       value={eleveFirstName}
                       onChange={(e) => setEleveFirstName(e.target.value)}
                       className="rounded-xl border px-3 py-2.5 text-sm font-medium"
                       style={{ borderColor: "var(--inv-border)", color: "var(--inv-input-ink)" }}
                       autoComplete="given-name"
+                      required
                     />
                   </label>
                   <label
                     className="flex flex-col gap-1 text-xs font-semibold"
                     style={{ color: "var(--inv-muted)" }}
                   >
-                    Nom
+                    Nom de l’élève
                     <input
                       value={eleveLastName}
                       onChange={(e) => setEleveLastName(e.target.value)}
                       className="rounded-xl border px-3 py-2.5 text-sm font-medium"
                       style={{ borderColor: "var(--inv-border)", color: "var(--inv-input-ink)" }}
                       autoComplete="family-name"
+                      required
                     />
                   </label>
                 </div>
@@ -645,13 +646,14 @@ export default function InvitationPublicClient({ page }: Props) {
                   className="flex flex-col gap-1 text-xs font-semibold"
                   style={{ color: "var(--inv-muted)" }}
                 >
-                  Date de naissance{page.requireEligible ? "" : " (optionnel)"}
+                  Date de naissance de l’élève
                   <input
                     type="date"
                     value={birthDate}
                     onChange={(e) => setBirthDate(e.target.value)}
                     className="rounded-xl border px-3 py-2.5 text-sm font-medium"
                     style={{ borderColor: "var(--inv-border)", color: "var(--inv-input-ink)" }}
+                    required
                   />
                 </label>
                 <button

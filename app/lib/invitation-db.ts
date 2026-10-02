@@ -566,6 +566,13 @@ export async function lookupInvitationIdentity(
   if (!eleveFirstName || !eleveLastName) {
     return { ok: false, error: "Nom et prénom de l'élève requis.", status: 400 };
   }
+  if (!birthDate) {
+    return {
+      ok: false,
+      error: "Indiquez la date de naissance de l'élève.",
+      status: 400,
+    };
+  }
 
   const page = await getInvitationPageBySlug(input.slug, etabId);
   if (!page || !page.enabled) {
@@ -582,13 +589,6 @@ export async function lookupInvitationIdentity(
   const identity = { firstName: eleveFirstName, lastName: eleveLastName, birthDate };
 
   if (page.requireEligible) {
-    if (!birthDate) {
-      return {
-        ok: false,
-        error: "Indiquez la date de naissance de l'élève.",
-        status: 400,
-      };
-    }
     const eligibleList = await listInvitationEligible(page.id, etabId);
     const picked = pickBestIdentityMatch(identity, eligibleList, 2);
     if (!picked) {
@@ -659,6 +659,13 @@ export async function registerInvitationRsvp(
   if (!eleveFirstName || !eleveLastName) {
     return { ok: false, error: "Nom et prénom de l'élève requis.", status: 400 };
   }
+  if (!birthDate) {
+    return {
+      ok: false,
+      error: "Indiquez la date de naissance de l'élève.",
+      status: 400,
+    };
+  }
   if (!parentEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) {
     return { ok: false, error: "E-mail parent invalide.", status: 400 };
   }
@@ -694,13 +701,6 @@ export async function registerInvitationRsvp(
     let eligibleDiploma: InvitationDiploma | null = null;
 
     if (page.requireEligible) {
-      if (!birthDate) {
-        return {
-          ok: false as const,
-          error: "Indiquez la date de naissance de l'élève.",
-          status: 400,
-        };
-      }
       const eligibleRows = await tx
         .select()
         .from(invitationEligible)

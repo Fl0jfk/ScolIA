@@ -6,7 +6,7 @@ const BodySchema = z.object({
   slug: z.string().min(1).max(80),
   eleveFirstName: z.string().min(1).max(80),
   eleveLastName: z.string().min(1).max(80),
-  birthDate: z.string().max(32).optional().nullable(),
+  birthDate: z.string().min(1).max(32),
 });
 
 export async function POST(req: Request) {
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
       slug: body.slug,
       eleveFirstName: body.eleveFirstName,
       eleveLastName: body.eleveLastName,
-      birthDate: body.birthDate ?? null,
+      birthDate: body.birthDate,
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
