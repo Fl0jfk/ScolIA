@@ -9,6 +9,30 @@ export type ScoliaMemoryCta = {
   href: string;
   /** Aperçu PDF (PAP/PAI…) via modale, pas une navigation. */
   preview?: boolean;
+  subtitle?: string;
+  group?: string;
+};
+
+export type ScoliaMemoryDocCatalogItem = {
+  title: string;
+  subtitle?: string;
+  href: string;
+  preview?: boolean;
+  dossierHref?: string;
+  ext?: string;
+};
+
+export type ScoliaMemoryDocCatalogGroup = {
+  title: string;
+  count: number;
+  items: ScoliaMemoryDocCatalogItem[];
+};
+
+export type ScoliaMemoryDocCatalog = {
+  title: string;
+  kindLabel?: string;
+  total: number;
+  groups: ScoliaMemoryDocCatalogGroup[];
 };
 
 export type ScoliaMemoryMessage = {
@@ -16,6 +40,8 @@ export type ScoliaMemoryMessage = {
   content: string;
   /** Actions / pièces rattachées au tour (persistées avec l’historique). */
   ctas?: ScoliaMemoryCta[];
+  /** Catalogue documents groupé (PAP par classe, etc.). */
+  docCatalog?: ScoliaMemoryDocCatalog;
 };
 
 type ScoliaMemorySnapshot = {

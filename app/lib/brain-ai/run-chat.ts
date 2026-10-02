@@ -26,6 +26,9 @@ import type {
   BrainClientAction,
   BrainCta,
   BrainConversationState,
+  BrainDocCatalog,
+  BrainDocCatalogGroup,
+  BrainDocCatalogItem,
   BrainPendingChoices,
   BrainPendingConfirmation,
   BrainPendingFileUpload,
@@ -260,7 +263,52 @@ function extractCtas(data: unknown): BrainCta[] {
       label: String((c as BrainCta).label || "Ouvrir"),
       href: (c as BrainCta).href,
       ...((c as BrainCta).preview ? { preview: true as const } : {}),
+      ...((c as BrainCta).subtitle ? { subtitle: String((c as BrainCta).subtitle) } : {}),
+      ...((c as BrainCta).group ? { group: String((c as BrainCta).group) } : {}),
     }));
+}
+
+function extractDocCatalog(data: unknown): BrainDocCatalog | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const raw = (data as { docCatalog?: unknown }).docCatalog;
+  if (!raw || typeof raw !== "object") return undefined;
+  const catalog = raw as BrainDocCatalog;
+  if (!Array.isArray(catalog.groups)) return undefined;
+  const groups: BrainDocCatalogGroup[] = [];
+  for (const g of catalog.groups) {
+    if (!g || typeof g !== "object" || !Array.isArray(g.items)) continue;
+    const items: BrainDocCatalogItem[] = [];
+    for (const item of g.items) {
+      if (!item || typeof item !== "object") continue;
+      const href = String(item.href || "").trim();
+      const title = String(item.title || "").trim();
+      if (!href || !title) continue;
+      items.push({
+        title,
+        href,
+        ...(item.subtitle ? { subtitle: String(item.subtitle) } : {}),
+        ...(item.preview ? { preview: true as const } : {}),
+        ...(item.dossierHref ? { dossierHref: String(item.dossierHref) } : {}),
+        ...(item.ext ? { ext: String(item.ext) } : {}),
+      });
+    }
+    if (items.length === 0) continue;
+    groups.push({
+      title: String(g.title || "—").trim() || "—",
+      count: Number.isFinite(g.count) ? Number(g.count) : items.length,
+      items,
+    });
+  }
+  if (groups.length === 0) return undefined;
+  const total = Number.isFinite(catalog.total)
+    ? Number(catalog.total)
+    : groups.reduce((acc, g) => acc + g.count, 0);
+  return {
+    title: String(catalog.title || "").trim() || `${total} document(s)`,
+    ...(catalog.kindLabel ? { kindLabel: String(catalog.kindLabel) } : {}),
+    total,
+    groups,
+  };
 }
 
 function extractClientActions(data: unknown): BrainClientAction[] {
@@ -487,6 +535,7 @@ function materializeToolTurn(
 
   const nextCtas = [...ctas, ...extractCtas(result.data)];
   const nextActions = [...clientActions, ...extractClientActions(result.data)];
+  const docCatalog = extractDocCatalog(result.data);
   const follow =
     result.data && typeof result.data === "object" && "followUrl" in (result.data as object)
       ? String((result.data as { followUrl?: string }).followUrl || "")
@@ -506,6 +555,7 @@ function materializeToolTurn(
     pendingChoices: null,
     pendingFileUpload: null,
     ctas: nextCtas.length ? nextCtas : undefined,
+    ...(docCatalog ? { docCatalog } : {}),
     clientActions: nextActions.length ? nextActions : undefined,
   };
 }
@@ -799,7 +849,8 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- File perso : get_my_pending_actions (signaux à traiter, signatures, validations).\n` +
     `- Classes : « 6ème A » / « sixième A » = 6A (pas 6E). Toujours garder la lettre de division.\n` +
     `- create_reservation = réservation salle | create_trip = NOUVELLE sortie uniquement | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
-    `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe).\n` +
+    `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe/pôle).\n` +
+    `- list_eleves_filtered : pour « tous les PAP du collège / d’une classe », appeler l’outil. L’UI affiche le catalogue complet groupé par classe — ne pas tronquer la liste dans le texte, juste confirmer le total et renvoyer vers les cartes.\n` +
     `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_eleve_preinscrit | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | decide_rh_absence | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room | resend_stage_signatures.\n` +
     `- Internat : get_internat_status | open_internat_appel | assign_internat_room.\n` +
     `- Stages : get_stages_overview | resend_stage_signatures (relance e-mails / ouvrir convention).\n` +
@@ -810,7 +861,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
     `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
     `- Liens en URL complète https://…\n` +
-    `- Pièces PAP/PAI/PPS/GEVASCO : INTERDIT de coller des liens /api/eleves/…/documents/…/file dans le texte. L’UI affiche les boutons d’ouverture. Dans le texte, cite seulement les noms d’élèves.\n` +
+    `- Pièces PAP/PAI/PPS/GEVASCO : INTERDIT de coller des liens /api/eleves/…/documents/…/file dans le texte. L’UI affiche le catalogue / les boutons d’ouverture. Dans le texte, cite le total et éventuellement le détail par classe (noms), sans liens.\n` +
     `Séjours scolaires (travels) :\n` +
     `- SIMPLE ≠ COMPLEX : SIMPLE n'a pas d'étape devis bus ; COMPLEX avec needsBus=true a Logistique puis Signature.\n` +
     `- À PROF_LOGISTICS : créateur peut « Choisir » un devis ; direction peut « Choisir et signer ».\n` +
@@ -1042,6 +1093,19 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
           });
         }
         delete data.fileHref;
+        // Catalogue UI : résumé compact pour le LLM (les boutons sont côté chat).
+        if (data.docCatalog && typeof data.docCatalog === "object") {
+          const catalog = data.docCatalog as BrainDocCatalog;
+          data.docCatalog = {
+            title: catalog.title,
+            kindLabel: catalog.kindLabel,
+            total: catalog.total,
+            groups: (catalog.groups || []).map((g) => ({
+              title: g.title,
+              count: g.count,
+            })),
+          };
+        }
         if (Array.isArray(data.ctas)) {
           data.ctas = data.ctas.map((c) => {
             if (!c || typeof c !== "object") return c;

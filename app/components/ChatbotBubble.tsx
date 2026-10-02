@@ -21,6 +21,7 @@ import {
   SCOLIA_AI_NAME,
   SCOLIA_AI_PAGE_PATH,
   type ScoliaMemoryCta,
+  type ScoliaMemoryDocCatalog,
   type ScoliaMemoryMessage,
 } from "@/app/lib/brain-ai/scolia-memory";
 import { SCOLIA_ASK_EVENT, SCOLIA_OPEN_EVENT, type ScoliaAskDetail, type ScoliaOpenDetail } from "@/app/lib/brain-ai/scolia-ask";
@@ -28,6 +29,7 @@ import {
   ScoliaUrlModal,
   useScoliaClientActions,
 } from "@/app/components/scolia/ScoliaClientActions";
+import BrainDocCatalogPanel from "@/app/components/scolia/BrainDocCatalogPanel";
 import { useEleveDossierModalOptional } from "@/app/components/shell/EleveDossierModalProvider";
 import type { BrainClientAction } from "@/app/lib/brain-ai/types";
 
@@ -557,8 +559,49 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               label: String(c.label || "Ouvrir"),
               href: c.href,
               ...(c.preview ? { preview: true as const } : {}),
+              ...(c.subtitle ? { subtitle: String(c.subtitle) } : {}),
+              ...(c.group ? { group: String(c.group) } : {}),
             }))
         : [];
+      const nextDocCatalog: ScoliaMemoryDocCatalog | undefined = (() => {
+        const raw = data.docCatalog;
+        if (!raw || typeof raw !== "object" || !Array.isArray(raw.groups)) return undefined;
+        const groups = raw.groups
+          .filter(
+            (g: unknown): g is ScoliaMemoryDocCatalog["groups"][number] =>
+              Boolean(g && typeof g === "object" && Array.isArray((g as { items?: unknown }).items)),
+          )
+          .map((g: ScoliaMemoryDocCatalog["groups"][number]) => ({
+            title: String(g.title || "—"),
+            count: Number(g.count) || g.items.length,
+            items: g.items
+              .filter(
+                (it: unknown) =>
+                  Boolean(
+                    it &&
+                      typeof it === "object" &&
+                      typeof (it as { href?: unknown }).href === "string" &&
+                      typeof (it as { title?: unknown }).title === "string",
+                  ),
+              )
+              .map((it: ScoliaMemoryDocCatalog["groups"][number]["items"][number]) => ({
+                title: String(it.title),
+                href: String(it.href),
+                ...(it.subtitle ? { subtitle: String(it.subtitle) } : {}),
+                ...(it.preview ? { preview: true as const } : {}),
+                ...(it.dossierHref ? { dossierHref: String(it.dossierHref) } : {}),
+                ...(it.ext ? { ext: String(it.ext) } : {}),
+              })),
+          }))
+          .filter((g: ScoliaMemoryDocCatalog["groups"][number]) => g.items.length > 0);
+        if (groups.length === 0) return undefined;
+        return {
+          title: String(raw.title || `${raw.total || 0} document(s)`),
+          ...(raw.kindLabel ? { kindLabel: String(raw.kindLabel) } : {}),
+          total: Number(raw.total) || groups.reduce((a: number, g: { count: number }) => a + g.count, 0),
+          groups,
+        };
+      })();
       const answerText = data.answer || data.error || "Je ne peux pas répondre pour le moment.";
       setMessages((prev) => [
         ...prev,
@@ -566,6 +609,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
           role: "assistant",
           content: answerText,
           ...(nextCtas.length > 0 ? { ctas: nextCtas } : {}),
+          ...(nextDocCatalog ? { docCatalog: nextDocCatalog } : {}),
         },
       ]);
       if (Array.isArray(data.clientActions)) {
@@ -844,6 +888,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
             if (messages.length <= 1 && m.role === "assistant") return null;
             const isUser = m.role === "user";
             const messageCtas = !isUser && Array.isArray(m.ctas) ? m.ctas : [];
+            const messageCatalog = !isUser && m.docCatalog ? m.docCatalog : null;
             return (
               <div
                 key={i}
@@ -854,7 +899,13 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                     <ScoliaAiMark size="sm" inverted fill />
                   </div>
                 ) : null}
-                <div className="max-w-[min(92%,36rem)] min-w-0">
+                <div
+                  className={`min-w-0 ${
+                    messageCatalog
+                      ? "w-full max-w-[min(96%,42rem)]"
+                      : "max-w-[min(92%,36rem)]"
+                  }`}
+                >
                   <div
                     className={`px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
                       isUser
@@ -867,7 +918,24 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                       onPreviewHref: openUrlPreview,
                     })}
                   </div>
-                  {!isUser && messageCtas.length > 0 ? (
+                  {!isUser && messageCatalog ? (
+                    <BrainDocCatalogPanel
+                      catalog={messageCatalog}
+                      onPreview={openUrlPreview}
+                      onOpenDossier={
+                        dossierModal
+                          ? (eleveId) => {
+                              dossierModal.open(eleveId);
+                            }
+                          : null
+                      }
+                      onNavigate={(href) => {
+                        if (!pageMode) setOpen(false);
+                        router.push(href);
+                      }}
+                    />
+                  ) : null}
+                  {!isUser && !messageCatalog && messageCtas.length > 0 ? (
                     <ChatMessageActions
                       ctas={messageCtas}
                       onPreview={openUrlPreview}

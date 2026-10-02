@@ -95,6 +95,33 @@ export type BrainCta = {
   href: string;
   /** Ouvre le lien dans la modale aperçu (PDF PAP/PAI…) au lieu d’une navigation. */
   preview?: boolean;
+  /** Sous-titre (année scolaire, classe…). */
+  subtitle?: string;
+  /** Groupe UI (ex. classe). */
+  group?: string;
+};
+
+/** Catalogue de documents structuré (PAP/PAI…) — rendu riche côté chat. */
+export type BrainDocCatalogItem = {
+  title: string;
+  subtitle?: string;
+  href: string;
+  preview?: boolean;
+  dossierHref?: string;
+  ext?: string;
+};
+
+export type BrainDocCatalogGroup = {
+  title: string;
+  count: number;
+  items: BrainDocCatalogItem[];
+};
+
+export type BrainDocCatalog = {
+  title: string;
+  kindLabel?: string;
+  total: number;
+  groups: BrainDocCatalogGroup[];
 };
 
 export type BrainChatResponse = {
@@ -108,6 +135,8 @@ export type BrainChatResponse = {
   pendingChoices?: BrainPendingChoices | null;
   pendingFileUpload?: BrainPendingFileUpload | null;
   ctas?: BrainCta[];
+  /** Liste riche groupée (ex. tous les PAP par classe). */
+  docCatalog?: BrainDocCatalog;
   clientActions?: BrainClientAction[];
 };
 

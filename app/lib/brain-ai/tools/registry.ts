@@ -158,19 +158,19 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "list_eleves_filtered",
     description:
-      "Liste les élèves filtrés par classe et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP de 6ème B ». « 6ème A » / « sixième A » = classe 6A (pas 6E). Renvoie pour chaque élève un bouton d’ouverture directe du document (aperçu PDF) et un bouton fiche.",
+      "Liste les élèves filtrés par classe/pôle et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP du collège », « PAP de 6ème B ». « 6ème A » / « sixième A » = classe 6A (pas 6E). Affiche un catalogue groupé par classe avec aperçu PDF cliquable pour chaque document — ne pas inventer de liens.",
     parameters: {
       type: "object",
       properties: {
         classe: {
           type: "string",
-          description: "Ex. 6ème A, 6A, sixième B — garder la lettre de division (A/B/C…)",
+          description:
+            "Classe (ex. 6ème A, 6A) ou pôle entier (Collège, Lycée, École). Garder la lettre de division si précisée.",
         },
         accompagnement: {
           type: "string",
           description: "pap | pai | pps | gevasco | any",
         },
-        limit: { type: "number" },
       },
       additionalProperties: false,
     },

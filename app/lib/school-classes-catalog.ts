@@ -372,3 +372,59 @@ export function resolveProfRoomClassesByPole(
   }
   return enriched;
 }
+
+export type SchoolPoleId = "ecole" | "college" | "lycee";
+
+/** Détecte un pôle dans une saisie libre (« collège », « lycée », « école »). */
+export function detectSchoolPoleQuery(raw: string): SchoolPoleId | null {
+  const blob = String(raw || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[_\s-]+/g, "");
+  if (!blob) return null;
+  if (
+    blob === "college" ||
+    blob === "collegeentier" ||
+    blob.includes("college") ||
+    blob === "collegiens"
+  ) {
+    return "college";
+  }
+  if (blob === "lycee" || blob.includes("lycee") || blob === "lyceens") {
+    return "lycee";
+  }
+  if (
+    blob === "ecole" ||
+    blob.includes("primaire") ||
+    blob.includes("elementaire") ||
+    blob.includes("maternelle")
+  ) {
+    return "ecole";
+  }
+  return null;
+}
+
+/** Indique si une classe appartient à un pôle (heuristique + défauts du catalogue). */
+export function schoolClassBelongsToPole(
+  classe: string | null | undefined,
+  pole: SchoolPoleId,
+): boolean {
+  const fold = foldSchoolClass(String(classe || ""));
+  if (!fold) return false;
+  if (pole === "college") {
+    return /^[3-6]/.test(fold);
+  }
+  if (pole === "lycee") {
+    return /^[12T]/.test(fold);
+  }
+  // École : maternelle + élémentaire
+  return /^(TPS|PS|MS|GS|CP|CE1|CE2|CM1|CM2)/.test(fold);
+}
+
+export function schoolPoleLabel(pole: SchoolPoleId): string {
+  if (pole === "college") return "Collège";
+  if (pole === "lycee") return "Lycée";
+  return "École";
+}

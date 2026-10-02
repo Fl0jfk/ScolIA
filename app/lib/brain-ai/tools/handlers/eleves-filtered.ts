@@ -1,13 +1,27 @@
 import "server-only";
 
-import type { BrainClientAction, BrainCta, BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
+import type {
+  BrainClientAction,
+  BrainCta,
+  BrainDocCatalog,
+  BrainDocCatalogGroup,
+  BrainDocCatalogItem,
+  BrainToolCtx,
+  BrainToolResult,
+} from "@/app/lib/brain-ai/types";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
 import { listEleveLatestAccompagnementByKind } from "@/app/lib/eleve-dossier-access";
 import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import { listElevesDossierFromDb } from "@/app/lib/eleve-dossier-prof";
 import type { AccompagnementKind } from "@/app/lib/eleve-pap";
 import { ACCOMPAGNEMENT_KINDS, accompagnementKindDef } from "@/app/lib/eleve-pap";
-import { schoolClassesMatch, resolveSchoolClassQuery } from "@/app/lib/school-classes-catalog";
+import {
+  detectSchoolPoleQuery,
+  schoolClassBelongsToPole,
+  schoolClassesMatch,
+  schoolPoleLabel,
+  resolveSchoolClassQuery,
+} from "@/app/lib/school-classes-catalog";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { choicesResult } from "@/app/lib/brain-ai/choice-options";
@@ -33,15 +47,38 @@ function parseAccompKind(raw: string): AccompagnementKind | "any" | null {
   return hit?.kind ?? null;
 }
 
+function formatDocYear(anneeLabel: string | null, createdAt: Date): string {
+  const label = String(anneeLabel || "").trim();
+  if (label) return label;
+  const y = createdAt.getFullYear();
+  if (!Number.isFinite(y) || y < 2000) return "PDF";
+  return `${y}-${y + 1}`;
+}
+
+function compareClasseLabel(a: string, b: string): number {
+  return a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" });
+}
+
+function compareEleveName(
+  a: { nom: string; prenom: string },
+  b: { nom: string; prenom: string },
+): number {
+  const byNom = a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" });
+  if (byNom !== 0) return byNom;
+  return a.prenom.localeCompare(b.prenom, "fr", { sensitivity: "base" });
+}
+
 type EleveDocLink = {
   kind: AccompagnementKind;
   documentId: string;
   fileHref: string;
+  anneeLabel: string | null;
+  createdAt: Date;
 };
 
 /**
- * Liste des élèves filtrés (classe + accompagnement PAP/PAI/PPS…).
- * CTAs : ouverture directe du document (aperçu) + lien fiche élève.
+ * Liste des élèves filtrés (classe / pôle + accompagnement PAP/PAI/PPS…).
+ * Renvoie un catalogue groupé par classe (cartes PDF cliquables).
  */
 export async function handleListElevesFiltered(
   ctx: BrainToolCtx,
@@ -57,7 +94,7 @@ export async function handleListElevesFiltered(
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return { ok: false, error: "Établissement introuvable." };
 
-  const classe = String(args.classe || args.className || "").trim();
+  const classe = String(args.classe || args.className || args.pole || "").trim();
   const kindRaw = String(args.accompagnement || args.kind || args.has || "").trim();
   const kind = kindRaw ? parseAccompKind(kindRaw) : "any";
   if (kindRaw && kind === null) {
@@ -85,7 +122,7 @@ export async function handleListElevesFiltered(
       needsChoices: true,
       tool: "list_eleves_filtered",
       field: "classe",
-      promptFr: "Pour quelle classe ? (ex. 6ème A)",
+      promptFr: "Pour quelle classe ou quel pôle ? (ex. 6ème A, Collège)",
       options: [],
       draftArgs: { accompagnement: kindRaw || "any" },
       selectionType: "text",
@@ -98,28 +135,37 @@ export async function handleListElevesFiltered(
   });
 
   let resolvedClasse = classe;
+  let resolvedPole = detectSchoolPoleQuery(classe);
+  let filterScopeLabel = "";
+
   if (classe) {
-    const known = [
-      ...new Set(eleves.map((e) => String(e.classe || "").trim()).filter(Boolean)),
-    ];
-    const resolved = resolveSchoolClassQuery(classe, known);
-    if (resolved.match) {
-      resolvedClasse = resolved.match;
-    } else if (resolved.ambiguous.length > 0) {
-      return choicesResult(
-        "list_eleves_filtered",
-        "classe",
-        `Plusieurs classes correspondent à « ${classe} ». Laquelle ?`,
-        resolved.ambiguous
-          .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
-          .slice(0, 30)
-          .map((c) => ({ value: c, label: c })),
-        { accompagnement: kindRaw || kind || "any" },
-      );
-    } else if (resolved.fold && /^[3-6]E$/.test(resolved.fold)) {
-      resolvedClasse = classe;
+    if (resolvedPole) {
+      eleves = eleves.filter((e) => schoolClassBelongsToPole(e.classe, resolvedPole!));
+      filterScopeLabel = schoolPoleLabel(resolvedPole);
+    } else {
+      const known = [
+        ...new Set(eleves.map((e) => String(e.classe || "").trim()).filter(Boolean)),
+      ];
+      const resolved = resolveSchoolClassQuery(classe, known);
+      if (resolved.match) {
+        resolvedClasse = resolved.match;
+      } else if (resolved.ambiguous.length > 0) {
+        return choicesResult(
+          "list_eleves_filtered",
+          "classe",
+          `Plusieurs classes correspondent à « ${classe} ». Laquelle ?`,
+          resolved.ambiguous
+            .sort(compareClasseLabel)
+            .slice(0, 30)
+            .map((c) => ({ value: c, label: c })),
+          { accompagnement: kindRaw || kind || "any" },
+        );
+      } else if (resolved.fold && /^[3-6]E$/.test(resolved.fold)) {
+        resolvedClasse = classe;
+      }
+      eleves = eleves.filter((e) => schoolClassesMatch(e.classe, resolvedClasse));
+      filterScopeLabel = `classe ${resolvedClasse}`;
     }
-    eleves = eleves.filter((e) => schoolClassesMatch(e.classe, resolvedClasse));
   }
 
   const accompagnementByEleve = await listEleveLatestAccompagnementByKind({
@@ -135,6 +181,8 @@ export async function handleListElevesFiltered(
       kind: i.kind,
       documentId: i.documentId,
       fileHref: eleveDocumentFileProxyPath(e.id, i.documentId),
+      anneeLabel: i.anneeLabel,
+      createdAt: i.createdAt,
     }));
     return {
       id: e.id,
@@ -155,49 +203,93 @@ export async function handleListElevesFiltered(
     rows = rows.filter((r) => r.accompagnementKinds.includes(kind));
   }
 
-  const limit = Math.min(Math.max(Number(args.limit) || 40, 1), 80);
-  const sliced = rows.slice(0, limit);
+  rows.sort((a, b) => {
+    const byClasse = compareClasseLabel(String(a.classe || "—"), String(b.classe || "—"));
+    if (byClasse !== 0) return byClasse;
+    return compareEleveName(a, b);
+  });
+
   const focusKind: AccompagnementKind | null = kind && kind !== "any" ? kind : null;
   const focusCode = focusKind ? accompagnementKindDef(focusKind).code : null;
 
-  const ctas: BrainCta[] = [];
-  for (const r of sliced.slice(0, 12)) {
-    if (focusKind && focusCode) {
-      const doc = r.documents.find((d) => d.kind === focusKind);
-      if (doc) {
-        ctas.push({
-          label: `${focusCode} · ${r.prenom} ${r.nom}`,
+  // Pas de plafond artificiel : le catalogue UI gère le volume (groupé + scroll).
+  const catalogItemsByClasse = new Map<string, BrainDocCatalogItem[]>();
+
+  for (const r of rows) {
+    const classeKey = String(r.classe || "").trim() || "Sans classe";
+    const docs =
+      focusKind != null
+        ? r.documents.filter((d) => d.kind === focusKind)
+        : r.documents;
+
+    const bucket = catalogItemsByClasse.get(classeKey) ?? [];
+    if (docs.length === 0) {
+      bucket.push({
+        title: `${r.prenom} ${r.nom}`,
+        subtitle: "Fiche élève",
+        href: r.dossierHref,
+        dossierHref: r.dossierHref,
+      });
+    } else {
+      for (const doc of docs) {
+        const code = accompagnementKindDef(doc.kind).code;
+        bucket.push({
+          title: `${code} · ${r.prenom} ${r.nom}`,
+          subtitle: formatDocYear(doc.anneeLabel, doc.createdAt),
           href: doc.fileHref,
           preview: true,
-        });
-      } else {
-        ctas.push({
-          label: `Fiche · ${r.prenom} ${r.nom}`,
-          href: r.dossierHref,
+          dossierHref: r.dossierHref,
+          ext: "pdf",
         });
       }
-      continue;
     }
+    catalogItemsByClasse.set(classeKey, bucket);
+  }
 
-    for (const doc of r.documents.slice(0, 2)) {
-      const code = accompagnementKindDef(doc.kind).code;
-      ctas.push({
-        label: `${code} · ${r.prenom} ${r.nom}`,
-        href: doc.fileHref,
-        preview: true,
-      });
-    }
-    if (r.documents.length === 0) {
-      ctas.push({
-        label: `Fiche · ${r.prenom} ${r.nom}`,
-        href: r.dossierHref,
-      });
+  const groups: BrainDocCatalogGroup[] = [...catalogItemsByClasse.entries()]
+    .sort(([a], [b]) => compareClasseLabel(a, b))
+    .map(([title, items]) => ({
+      title,
+      count: items.length,
+      items,
+    }));
+
+  const totalDocs = groups.reduce((acc, g) => acc + g.count, 0);
+  const catalogTitle = [
+    totalDocs > 0
+      ? `${totalDocs} ${focusCode ? focusCode : "document(s)"}`
+      : `Aucun ${focusCode || "document"}`,
+    filterScopeLabel || null,
+  ]
+    .filter(Boolean)
+    .join(" — ");
+
+  const docCatalog: BrainDocCatalog = {
+    title: catalogTitle,
+    kindLabel: focusCode || undefined,
+    total: totalDocs,
+    groups,
+  };
+
+  // CTAs plats : uniquement pour les petites listes (repli UI / historique léger).
+  const ctas: BrainCta[] = [];
+  if (totalDocs > 0 && totalDocs <= 8) {
+    for (const g of groups) {
+      for (const item of g.items) {
+        ctas.push({
+          label: item.title,
+          href: item.href,
+          ...(item.preview ? { preview: true as const } : {}),
+          ...(item.subtitle ? { subtitle: item.subtitle } : {}),
+          group: g.title,
+        });
+      }
     }
   }
 
   const clientActions: BrainClientAction[] = [];
-  if (sliced.length === 1) {
-    const alone = sliced[0]!;
+  if (rows.length === 1) {
+    const alone = rows[0]!;
     const doc =
       (focusKind ? alone.documents.find((d) => d.kind === focusKind) : null) ??
       alone.documents[0] ??
@@ -213,39 +305,44 @@ export async function handleListElevesFiltered(
     }
   }
 
-  const filterLabel = [
-    resolvedClasse ? `classe ${resolvedClasse}` : null,
-    focusCode,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const classSummary =
+    groups.length > 1
+      ? groups.map((g) => `${g.title} (${g.count})`).join(" · ")
+      : groups[0]
+        ? `${groups[0].title} — ${groups[0].count} élève(s)`
+        : "";
 
-  const listPreview = sliced
-    .slice(0, 12)
-    .map((e) => {
-      if (focusCode) {
-        return `• ${e.prenom} ${e.nom}${e.classe ? ` (${e.classe})` : ""}`;
-      }
-      const codes = e.documents.map((d) => accompagnementKindDef(d.kind).code).join(", ");
-      return codes
-        ? `• ${e.prenom} ${e.nom}${e.classe ? ` · ${e.classe}` : ""} — ${codes}`
-        : `• ${e.label}`;
-    })
-    .join("\n");
+  const summaryFr =
+    totalDocs === 0
+      ? `Aucun élève${filterScopeLabel ? ` (${filterScopeLabel})` : ""}${focusCode ? ` avec ${focusCode}` : ""}.`
+      : [
+          `${totalDocs} ${focusCode || "document(s)"}${filterScopeLabel ? ` — ${filterScopeLabel}` : ""}.`,
+          classSummary ? `Par classe : ${classSummary}.` : "",
+          "Ouvrez un document ci-dessous (aperçu PDF).",
+        ]
+          .filter(Boolean)
+          .join("\n");
 
   return {
     ok: true,
     data: {
       total: rows.length,
-      eleves: sliced,
-      ctas: ctas.slice(0, 20),
+      eleves: rows.map((r) => ({
+        id: r.id,
+        nom: r.nom,
+        prenom: r.prenom,
+        classe: r.classe,
+        accompagnementKinds: r.accompagnementKinds,
+        hasPap: r.hasPap,
+        hasPai: r.hasPai,
+        hasPps: r.hasPps,
+        label: r.label,
+        dossierHref: r.dossierHref,
+      })),
+      docCatalog,
+      ...(ctas.length ? { ctas } : {}),
       clientActions,
     },
-    summaryFr:
-      sliced.length === 0
-        ? `Aucun élève${filterLabel ? ` (${filterLabel})` : ""}.`
-        : `${rows.length} élève(s)${filterLabel ? ` — ${filterLabel}` : ""} :\n${listPreview}${
-            rows.length > 12 ? "\n…" : ""
-          }`,
+    summaryFr,
   };
 }
