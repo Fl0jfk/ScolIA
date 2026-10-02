@@ -232,7 +232,7 @@ export default function InvitationPublicClient({ page }: Props) {
             slug: page.slug,
             eleveFirstName: eleveFirstName.trim(),
             eleveLastName: eleveLastName.trim(),
-            birthDate: birthDate.trim() || null,
+            birthDate: birthDate.trim(),
           }),
         });
         const data = (await res.json()) as {
