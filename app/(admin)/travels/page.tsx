@@ -313,7 +313,7 @@ function TripDashboardContent() {
       ) : filteredTrips.length > 0 ? (
         <div
           data-tour="travels-list"
-          className="grid grid-cols-1 gap-5 lg:grid-cols-2"
+          className="grid grid-cols-1 gap-6 lg:grid-cols-2"
         >
           {filteredTrips.map((trip, tripIndex) => {
             const defaultEtab = etabFilterOptions.showGroupe
