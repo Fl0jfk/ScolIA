@@ -3,7 +3,6 @@ import { resolveSession } from "@/app/lib/intranet-session";
 
 import { jsPDF } from 'jspdf';
 import { drawPdfLetterhead, getSchoolLetterhead, loadSchoolLogoForPdf } from "@/app/lib/pdf-branding";
-import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { parseTravelsS3KeyFromUrl } from "@/app/lib/travels-s3";
 import { requireMistralApiKey } from "@/app/lib/tenant-config";
 import { runTextractForS3Key } from "@/app/lib/ocr-textract";
