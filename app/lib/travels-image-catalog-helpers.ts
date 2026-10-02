@@ -80,6 +80,64 @@ const STOP_WORDS = new Set([
   "to",
 ]);
 
+/**
+ * Mots trop génériques pour illustrer une sortie (jamais en requête web seuls).
+ * Ex. « concours de drone à Houlgate » → drone / Houlgate, pas « concours ».
+ */
+const WEAK_THEME_WORDS = new Set([
+  "concours",
+  "competition",
+  "compétition",
+  "competitions",
+  "championnat",
+  "championnats",
+  "tournoi",
+  "tournois",
+  "finale",
+  "finales",
+  "festival",
+  "festivals",
+  "salon",
+  "salons",
+  "foire",
+  "foires",
+  "meeting",
+  "meetings",
+  "rencontre",
+  "rencontres",
+  "edition",
+  "editions",
+  "édition",
+  "éditions",
+  "annee",
+  "année",
+  "saison",
+  "projet",
+  "projets",
+  "atelier",
+  "ateliers",
+  "animation",
+  "animations",
+  "decouverte",
+  "découverte",
+  "initiation",
+  "challenge",
+  "challenges",
+  "open",
+  "cup",
+  "trophy",
+  "trophee",
+  "trophée",
+]);
+
+function isYearToken(token: string): boolean {
+  return /^(19|20)\d{2}$/.test(token);
+}
+
+function isWeakThemeToken(token: string): boolean {
+  return WEAK_THEME_WORDS.has(token) || isYearToken(token);
+}
+
 export function tokenizeTravelPlaceQuery(...parts: string[]): string[] {
   const raw = parts.join(" ");
   const tokens = raw
@@ -87,8 +145,13 @@ export function tokenizeTravelPlaceQuery(...parts: string[]): string[] {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length >= 3 && !STOP_WORDS.has(t));
+    .filter((t) => t.length >= 3 && !STOP_WORDS.has(t) && !isYearToken(t));
   return [...new Set(tokens)];
+}
+
+/** Tokens utiles pour une illustration (activité / lieu), hors « concours », années, etc. */
+export function strongTravelThemeTokens(...parts: string[]): string[] {
+  return tokenizeTravelPlaceQuery(...parts).filter((t) => !isWeakThemeToken(t));
 }
 
 /** Score lexical simple sur label + keywords (mots entiers, pas de sous-chaîne hasardeuse). */
@@ -138,7 +201,11 @@ export function rankTravelCatalogCandidates(
   destination: string,
   excludeId?: string | null,
 ): TravelCatalogImage[] {
-  const tokens = tokenizeTravelPlaceQuery(title, destination);
+  // Scoring sur l’activité / lieu concrets — pas « concours », années, etc.
+  const tokens =
+    strongTravelThemeTokens(title, destination).length > 0
+      ? strongTravelThemeTokens(title, destination)
+      : tokenizeTravelPlaceQuery(destination);
   const excluded = String(excludeId || "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
@@ -163,9 +230,9 @@ export function buildTravelPlaceSearchQuery(title: string, destination: string):
 }
 
 /**
- * Plusieurs requêtes web, du plus thématique au plus large.
- * Ex. « Joueur surf » + « Rouen » → ["joueur surf", "surf", "joueur surf Rouen", "Rouen", …]
- * (évite de ne tenter que « joueur surf Rouen » qui rate Wikipedia).
+ * Plusieurs requêtes web, du plus pertinent au plus large.
+ * Priorité : activité concrète (drone, surf) + lieu (Houlgate), jamais un mot
+ * générique seul (« concours », année…).
  */
 export function buildTravelWebSearchQueries(title: string, destination: string): string[] {
   const dest = String(destination || "").trim();
@@ -176,37 +243,45 @@ export function buildTravelWebSearchQueries(title: string, destination: string):
     dest.toLowerCase() !== "n/a";
   const titleOk = tit && !/^titre\s*introuvable$/i.test(tit);
 
-  const titleTokens = titleOk ? tokenizeTravelPlaceQuery(tit) : [];
-  const destTokens = destOk ? tokenizeTravelPlaceQuery(dest) : [];
+  const strongTitle = titleOk ? strongTravelThemeTokens(tit) : [];
+  const destTokens = destOk ? strongTravelThemeTokens(dest) : [];
   const queries: string[] = [];
   const add = (raw: string) => {
     const q = String(raw || "")
-      .replace(/\b(sortie|voyage|séjour|sejour|visite|journée|journee)\b/gi, " ")
+      .replace(
+        /\b(sortie|voyage|séjour|sejour|visite|journée|journee|concours|competition|compétition)\b/gi,
+        " ",
+      )
+      .replace(/\b(19|20)\d{2}\b/g, " ")
       .replace(/\s+/g, " ")
       .trim();
     if (!q) return;
     if (queries.some((x) => x.toLowerCase() === q.toLowerCase())) return;
+    // Refuse une requête réduite à un seul mot faible.
+    const parts = tokenizeTravelPlaceQuery(q);
+    if (parts.length === 1 && isWeakThemeToken(parts[0]!)) return;
+    if (parts.length === 0) return;
     queries.push(q);
   };
 
-  // 1) Thème du titre seul (surf, accrobranche…) — le plus utile pour Wiki/Unsplash.
-  if (titleTokens.length > 0) add(titleTokens.join(" "));
-  for (const token of titleTokens) {
+  // 1) Activité concrète du titre (drone, surf…) — pas « concours ».
+  if (strongTitle.length > 0) add(strongTitle.join(" "));
+  for (const token of strongTitle) {
     if (token.length >= 4) add(token);
   }
 
-  // 2) Thème + lieu
-  if (titleTokens.length > 0 && destOk) {
-    add(`${titleTokens.join(" ")} ${dest}`);
+  // 2) Activité + lieu (drone Houlgate)
+  if (strongTitle.length > 0 && destOk) {
+    add(`${strongTitle.join(" ")} ${dest}`);
   }
 
-  // 3) Lieu seul
+  // 3) Lieu seul (Houlgate) — bon sens si l’activité ne donne rien.
   if (destOk) add(dest);
   for (const token of destTokens) {
     if (token.length >= 4) add(token);
   }
 
-  // 4) Titre brut nettoyé
+  // 4) Titre nettoyé (sans année / concours) en dernier recours
   if (titleOk) add(tit);
 
   if (queries.length === 0) add("école france");

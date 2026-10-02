@@ -6,6 +6,7 @@ import {
   normalizeTravelImageKey,
   rankTravelCatalogCandidates,
   scoreTravelCatalogMatch,
+  strongTravelThemeTokens,
   tokenizeTravelPlaceQuery,
 } from "./travels-image-catalog-helpers";
 
@@ -70,6 +71,27 @@ describe("travels-image-catalog-helpers", () => {
     assert.ok(queries.includes("surf"));
     assert.ok(!queries.includes("joueur"));
     assert.ok(queries.some((q) => /rouen/i.test(q)));
+  });
+
+  it("pour un concours de drone à Houlgate priorise drone puis le lieu", () => {
+    const queries = buildTravelWebSearchQueries(
+      "Concours de drone 2027",
+      "Houlgate",
+    );
+    assert.equal(queries[0], "drone");
+    assert.ok(!queries.some((q) => /^concours$/i.test(q)));
+    assert.ok(!queries.some((q) => /2027/.test(q)));
+    assert.ok(queries.includes("Houlgate") || queries.some((q) => /houlgate/i.test(q)));
+    assert.ok(queries.some((q) => /drone/i.test(q) && /houlgate/i.test(q)));
+  });
+
+  it("ignore les années et mots génériques à la tokenisation forte", () => {
+    const tokens = tokenizeTravelPlaceQuery("Concours de drone 2027");
+    assert.ok(tokens.includes("concours"));
+    assert.ok(tokens.includes("drone"));
+    assert.ok(!tokens.includes("2027"));
+    const strong = strongTravelThemeTokens("Concours de drone 2027", "Houlgate");
+    assert.deepEqual(strong, ["drone", "houlgate"]);
   });
 
   it("ne matche pas Beaux-Arts pour un thème surf", () => {

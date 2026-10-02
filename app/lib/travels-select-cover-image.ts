@@ -7,6 +7,7 @@ import {
   normalizeTravelImageKey,
   rankTravelCatalogCandidates,
   scoreTravelCatalogMatch,
+  strongTravelThemeTokens,
   tokenizeTravelPlaceQuery,
   buildTravelWebSearchQueries,
   type TravelCatalogImage,
@@ -35,7 +36,10 @@ function isStrongLexicalMatch(
   destination: string,
 ): boolean {
   if (!img) return false;
-  const tokens = tokenizeTravelPlaceQuery(title, destination);
+  const tokens = strongTravelThemeTokens(title, destination);
+  if (tokens.length === 0) {
+    return scoreTravelCatalogMatch(img, tokenizeTravelPlaceQuery(destination)) >= STRONG_MATCH_SCORE;
+  }
   return scoreTravelCatalogMatch(img, tokens) >= STRONG_MATCH_SCORE;
 }
 

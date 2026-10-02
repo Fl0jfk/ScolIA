@@ -17,6 +17,7 @@ export {
   normalizeTravelImageKey,
   rankTravelCatalogCandidates,
   scoreTravelCatalogMatch,
+  strongTravelThemeTokens,
   tokenizeTravelPlaceQuery,
 } from "@/app/lib/travels-image-catalog-helpers";
 

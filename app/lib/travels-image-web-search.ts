@@ -6,7 +6,7 @@ import { sanitizeS3FileName, s3Key } from "@/app/lib/s3-path";
 import {
   buildTravelWebSearchQueries,
   normalizeTravelImageKey,
-  tokenizeTravelPlaceQuery,
+  strongTravelThemeTokens,
   upsertTravelCatalogImage,
   type TravelCatalogImage,
 } from "@/app/lib/travels-image-catalog-db";
@@ -235,20 +235,20 @@ function normalizeHay(value: string): string {
     .toLowerCase();
 }
 
-/** Refuse une image web hors sujet (ex. cimetière pour une requête surf). */
+/** Refuse une image web hors sujet (ex. page « Concours » pour un séjour drone). */
 function hitLooksRelevant(hit: WebImageHit, query: string, themeTokens: string[]): boolean {
   const titleHay = normalizeHay(hit.title);
   const queryHay = normalizeHay(query);
   const distinctive = themeTokens.filter((t) => t.length >= 4);
   if (distinctive.length === 0) return true;
 
-  // Tokens du thème présents dans CETTE requête (ex. « surf » dans « joueur surf »).
+  // Tokens du thème présents dans CETTE requête (ex. « drone » dans « drone Houlgate »).
   const themeInQuery = distinctive.filter((t) => queryHay.includes(t));
   if (themeInQuery.length === 0) {
-    // Requête = lieu seul (ex. « Rouen ») : on accepte le résultat lieu.
+    // Requête = lieu seul (ex. « Houlgate ») : on accepte le résultat lieu.
     return true;
   }
-  // Le titre de l’image doit coller au thème (pas seulement à la ville).
+  // Le titre de l’image doit coller à l’activité / lieu concret de la requête.
   return themeInQuery.some((t) => titleHay.includes(t));
 }
 
@@ -589,7 +589,7 @@ export async function fetchAndEnrichTravelCoverImage(opts: {
 
   if (queries.length === 0) return null;
 
-  const themeTokens = tokenizeTravelPlaceQuery(title, destination);
+  const themeTokens = strongTravelThemeTokens(title, destination);
   const skipUrls = new Set(
     (opts.excludeImageUrls || []).map((u) => String(u || "").trim()).filter(Boolean),
   );
