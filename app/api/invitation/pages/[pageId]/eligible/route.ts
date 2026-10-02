@@ -84,8 +84,8 @@ export function parseEligiblePaste(text: string): {
       const rest = [...tokens];
       while (rest.length > 2) {
         const last = rest[rest.length - 1];
-        const before = diploma;
-        const beforeBd = birthDate;
+        const before: "bac" | "brevet" | null = diploma;
+        const beforeBd: string | null = birthDate;
         consumeToken(last);
         if (diploma !== before || birthDate !== beforeBd) {
           rest.pop();
