@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import RequireModuleAccess from "@/app/components/RequireModuleAccess";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
@@ -108,6 +108,8 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
   const [rsvpClosesLocal, setRsvpClosesLocal] = useState("");
   const [eligiblePaste, setEligiblePaste] = useState("");
   const [eligibleBusy, setEligibleBusy] = useState(false);
+  const [eligibleFileName, setEligibleFileName] = useState<string | null>(null);
+  const eligibleFileRef = useRef<HTMLInputElement | null>(null);
 
   const applyPage = useCallback((page: InvitationPageRecord) => {
     setTitle(page.title);
@@ -273,6 +275,50 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
       setNotice(
         `Liste mise à jour : ${json.total ?? 0} élève(s) · ${json.inserted ?? 0} traité(s) · ${json.skipped ?? 0} ignoré(s).`,
       );
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEligibleBusy(false);
+    }
+  }
+
+  async function importEligibleExcel(mode: "append" | "replace") {
+    const input = eligibleFileRef.current;
+    const file = input?.files?.[0];
+    if (!file) {
+      setError("Choisissez un fichier Excel (.xlsx) à importer.");
+      return;
+    }
+    if (
+      mode === "replace" &&
+      !window.confirm("Remplacer toute la liste d’élèves autorisés par ce fichier ?")
+    ) {
+      return;
+    }
+    setEligibleBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const form = new FormData();
+      form.set("mode", mode);
+      form.set("file", file);
+      const res = await fetch(`/api/invitation/pages/${pageId}/eligible`, {
+        method: "POST",
+        body: form,
+      });
+      const json = (await res.json()) as {
+        inserted?: number;
+        skipped?: number;
+        total?: number;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error || "Import Excel impossible.");
+      setNotice(
+        `Excel importé : ${json.total ?? 0} élève(s) · ${json.inserted ?? 0} traité(s) · ${json.skipped ?? 0} ignoré(s).`,
+      );
+      if (input) input.value = "";
+      setEligibleFileName(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -549,40 +595,83 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                 <div>
                   <h2 className="text-sm font-black text-slate-900">Liste des élèves autorisés</h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    Une ligne = un élève. Formats :{" "}
-                    <code>Prénom;Nom;JJ/MM/AAAA</code>,{" "}
-                    <code>Prénom;Nom;bac;JJ/MM/AAAA</code>. La date de naissance sert de filet
-                    (match 2/3 avec prénom et nom).
+                    Importez un Excel (.xlsx) avec colonnes <strong>Prénom</strong>,{" "}
+                    <strong>Nom</strong>, <strong>Date de naissance</strong> (et Diplôme si besoin).
+                    La date sert de filet (match 2/3 avec prénom et nom).
                   </p>
                 </div>
                 <p className="text-xs font-bold text-slate-600">
                   {data.eligible.length} élève(s)
                 </p>
               </div>
-              <textarea
-                value={eligiblePaste}
-                onChange={(e) => setEligiblePaste(e.target.value)}
-                rows={5}
-                placeholder={"Marie;Dupont;12/03/2007;bac\nJean;Martin;01/09/2007"}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
-              />
-              <div className="flex flex-wrap gap-2">
-                <ModuleButton
-                  type="button"
-                  onClick={() => void importEligible("append")}
-                  disabled={eligibleBusy}
-                >
-                  {eligibleBusy ? "Import…" : "Ajouter à la liste"}
-                </ModuleButton>
-                <button
-                  type="button"
-                  onClick={() => void importEligible("replace")}
-                  disabled={eligibleBusy}
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  Remplacer la liste
-                </button>
+
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4 space-y-3">
+                <input
+                  ref={eligibleFileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+                  className="block w-full text-xs text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-slate-800"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setEligibleFileName(f?.name || null);
+                  }}
+                />
+                {eligibleFileName ? (
+                  <p className="text-xs font-semibold text-slate-700">Fichier : {eligibleFileName}</p>
+                ) : (
+                  <p className="text-xs text-slate-500">Aucun fichier sélectionné</p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <ModuleButton
+                    type="button"
+                    onClick={() => void importEligibleExcel("append")}
+                    disabled={eligibleBusy}
+                  >
+                    {eligibleBusy ? "Import…" : "Importer l’Excel (ajouter)"}
+                  </ModuleButton>
+                  <button
+                    type="button"
+                    onClick={() => void importEligibleExcel("replace")}
+                    disabled={eligibleBusy}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Remplacer la liste avec l’Excel
+                  </button>
+                </div>
               </div>
+
+              <details className="rounded-xl border border-slate-100 bg-white px-3 py-2">
+                <summary className="cursor-pointer text-xs font-bold text-slate-600">
+                  Ou coller une liste texte (secours)
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <textarea
+                    value={eligiblePaste}
+                    onChange={(e) => setEligiblePaste(e.target.value)}
+                    rows={4}
+                    placeholder={"Marie;Dupont;12/03/2007;bac\nJean;Martin;01/09/2007"}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void importEligible("append")}
+                      disabled={eligibleBusy}
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Ajouter le texte
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void importEligible("replace")}
+                      disabled={eligibleBusy}
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Remplacer avec le texte
+                    </button>
+                  </div>
+                </div>
+              </details>
               {data.eligible.length > 0 ? (
                 <div className="max-h-56 overflow-auto rounded-xl border border-slate-100">
                   <table className="min-w-full text-left text-sm">

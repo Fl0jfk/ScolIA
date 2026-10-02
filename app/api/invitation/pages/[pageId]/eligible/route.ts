@@ -6,6 +6,7 @@ import {
   listInvitationEligible,
   replaceInvitationEligibleBatch,
 } from "@/app/lib/invitation-db";
+import { parseInvitationEligibleExcelBuffer } from "@/app/lib/invitation-eligible-excel";
 import {
   INVITATION_DIPLOMAS,
   isInvitationDiploma,
@@ -80,7 +81,6 @@ export function parseEligiblePaste(text: string): {
     } else {
       const tokens = line.split(/\s+/).filter(Boolean);
       if (tokens.length < 2) continue;
-      // Derniers tokens peuvent être date / diplôme
       const rest = [...tokens];
       while (rest.length > 2) {
         const last = rest[rest.length - 1];
@@ -104,6 +104,18 @@ export function parseEligiblePaste(text: string): {
   return out;
 }
 
+function isExcelFile(file: File) {
+  const name = file.name.toLowerCase();
+  return (
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    name.endsWith(".csv") ||
+    file.type.includes("spreadsheet") ||
+    file.type.includes("excel") ||
+    file.type.includes("csv")
+  );
+}
+
 export async function GET(_req: Request, ctx: Ctx) {
   const gate = await requireModule("evenements");
   if (!gate.ok) return gate.response;
@@ -121,18 +133,58 @@ export async function POST(req: Request, ctx: Ctx) {
   if (!gate.ok) return gate.response;
   try {
     const { pageId } = await ctx.params;
-    const body = ImportSchema.parse(await req.json());
-    const rows =
-      body.rows && body.rows.length > 0
-        ? body.rows.map((r) => ({
-            ...r,
-            birthDate: r.birthDate ? parseInvitationBirthDate(r.birthDate) : null,
-          }))
-        : parseEligiblePaste(body.text || "");
+    const contentType = req.headers.get("content-type") || "";
+
+    let mode: "append" | "replace" = "append";
+    let rows: {
+      eleveFirstName: string;
+      eleveLastName: string;
+      birthDate: string | null;
+      diploma: "bac" | "brevet" | null;
+    }[] = [];
+
+    if (contentType.includes("multipart/form-data")) {
+      const form = await req.formData();
+      const modeRaw = String(form.get("mode") || "append");
+      mode = modeRaw === "replace" ? "replace" : "append";
+      const file = form.get("file");
+      if (!(file instanceof File)) {
+        return NextResponse.json({ error: "Fichier Excel requis." }, { status: 400 });
+      }
+      if (!isExcelFile(file)) {
+        return NextResponse.json(
+          { error: "Format non supporté — utilisez Excel (.xlsx, .xls) ou CSV." },
+          { status: 400 },
+        );
+      }
+      const buf = Buffer.from(await file.arrayBuffer());
+      if (file.name.toLowerCase().endsWith(".csv")) {
+        rows = parseEligiblePaste(buf.toString("utf8"));
+      } else {
+        const parsed = parseInvitationEligibleExcelBuffer(buf);
+        if (!parsed.ok) {
+          return NextResponse.json({ error: parsed.error }, { status: 400 });
+        }
+        rows = parsed.rows;
+      }
+    } else {
+      const body = ImportSchema.parse(await req.json());
+      mode = body.mode;
+      rows =
+        body.rows && body.rows.length > 0
+          ? body.rows.map((r) => ({
+              eleveFirstName: r.eleveFirstName,
+              eleveLastName: r.eleveLastName,
+              birthDate: r.birthDate ? parseInvitationBirthDate(r.birthDate) : null,
+              diploma: r.diploma ?? null,
+            }))
+          : parseEligiblePaste(body.text || "");
+    }
+
     if (rows.length === 0) {
       return NextResponse.json({ error: "Aucun élève à importer." }, { status: 400 });
     }
-    const result = await replaceInvitationEligibleBatch(pageId, rows, body.mode);
+    const result = await replaceInvitationEligibleBatch(pageId, rows, mode);
     const eligible = await listInvitationEligible(pageId);
     return NextResponse.json({ ...result, eligible });
   } catch (e) {
