@@ -12,6 +12,7 @@ import {
 export type { TravelCatalogImage };
 export {
   buildTravelPlaceSearchQuery,
+  buildTravelWebSearchQueries,
   formatTravelImageAttribution,
   normalizeTravelImageKey,
   rankTravelCatalogCandidates,

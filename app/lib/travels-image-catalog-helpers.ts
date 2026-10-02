@@ -1,4 +1,4 @@
-export type TravelImageCatalogSource = "manual" | "wikimedia" | "unsplash";
+export type TravelImageCatalogSource = "manual" | "wikimedia" | "unsplash" | "openverse";
 
 export type TravelCatalogImage = {
   id: string;
@@ -42,6 +42,18 @@ const STOP_WORDS = new Set([
   "educatives",
   "culturelle",
   "culturelles",
+  "joueur",
+  "joueurs",
+  "joueuse",
+  "joueuses",
+  "eleve",
+  "eleves",
+  "enfant",
+  "enfants",
+  "groupe",
+  "groupes",
+  "club",
+  "team",
   "journee",
   "journée",
   "au",
@@ -144,8 +156,18 @@ export function rankTravelCatalogCandidates(
     .map((x) => x.img);
 }
 
-/** Libellé de lieu exploitable pour une recherche web. */
+/** Libellé de lieu exploitable pour une recherche web (requête principale). */
 export function buildTravelPlaceSearchQuery(title: string, destination: string): string {
+  const queries = buildTravelWebSearchQueries(title, destination);
+  return queries[0] || "école france";
+}
+
+/**
+ * Plusieurs requêtes web, du plus thématique au plus large.
+ * Ex. « Joueur surf » + « Rouen » → ["joueur surf", "surf", "joueur surf Rouen", "Rouen", …]
+ * (évite de ne tenter que « joueur surf Rouen » qui rate Wikipedia).
+ */
+export function buildTravelWebSearchQueries(title: string, destination: string): string[] {
   const dest = String(destination || "").trim();
   const tit = String(title || "").trim();
   const destOk =
@@ -154,22 +176,41 @@ export function buildTravelPlaceSearchQuery(title: string, destination: string):
     dest.toLowerCase() !== "n/a";
   const titleOk = tit && !/^titre\s*introuvable$/i.test(tit);
 
-  if (destOk && titleOk) {
-    const destTokens = new Set(tokenizeTravelPlaceQuery(dest));
-    const themeExtras = tokenizeTravelPlaceQuery(tit).filter((t) => !destTokens.has(t));
-    // Ex. titre « Joueur surf » + lieu « Rouen » → « joueur surf Rouen » (pas seulement Rouen).
-    if (themeExtras.length > 0) {
-      return `${themeExtras.join(" ")} ${dest}`.replace(/\s+/g, " ").trim();
-    }
-    return dest;
+  const titleTokens = titleOk ? tokenizeTravelPlaceQuery(tit) : [];
+  const destTokens = destOk ? tokenizeTravelPlaceQuery(dest) : [];
+  const queries: string[] = [];
+  const add = (raw: string) => {
+    const q = String(raw || "")
+      .replace(/\b(sortie|voyage|séjour|sejour|visite|journée|journee)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!q) return;
+    if (queries.some((x) => x.toLowerCase() === q.toLowerCase())) return;
+    queries.push(q);
+  };
+
+  // 1) Thème du titre seul (surf, accrobranche…) — le plus utile pour Wiki/Unsplash.
+  if (titleTokens.length > 0) add(titleTokens.join(" "));
+  for (const token of titleTokens) {
+    if (token.length >= 4) add(token);
   }
 
-  const preferred = destOk ? dest : titleOk ? tit : dest || tit;
-  const cleaned = preferred
-    .replace(/\b(sortie|voyage|séjour|sejour|visite|journée|journee)\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned || preferred || "école france";
+  // 2) Thème + lieu
+  if (titleTokens.length > 0 && destOk) {
+    add(`${titleTokens.join(" ")} ${dest}`);
+  }
+
+  // 3) Lieu seul
+  if (destOk) add(dest);
+  for (const token of destTokens) {
+    if (token.length >= 4) add(token);
+  }
+
+  // 4) Titre brut nettoyé
+  if (titleOk) add(tit);
+
+  if (queries.length === 0) add("école france");
+  return queries.slice(0, 10);
 }
 
 /** Crédit d'attribution affichable. */
@@ -180,5 +221,6 @@ export function formatTravelImageAttribution(img: TravelCatalogImage): string | 
   if (img.license) parts.push(img.license);
   if (img.source === "wikimedia") parts.push("Wikimedia Commons");
   if (img.source === "unsplash") parts.push("Unsplash");
+  if (img.source === "openverse") parts.push("Openverse");
   return parts.join(" · ");
 }

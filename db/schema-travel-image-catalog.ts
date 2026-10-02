@@ -10,7 +10,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-export type TravelImageCatalogSource = "manual" | "wikimedia" | "unsplash";
+export type TravelImageCatalogSource = "manual" | "wikimedia" | "unsplash" | "openverse";
 
 export const travelImageCatalog = pgTable(
   "travel_image_catalog",

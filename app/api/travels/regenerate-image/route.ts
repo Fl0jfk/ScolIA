@@ -30,12 +30,29 @@ export async function POST(req: Request) {
     const destination = String(trip.data?.destination || "Destination introuvable");
     const previousConfigId =
       typeof trip.imageConfigId === "string" ? trip.imageConfigId : null;
+    const previousImageUrl =
+      typeof trip.imageUrl === "string"
+        ? trip.imageUrl
+        : typeof trip.data?.imageUrl === "string"
+          ? trip.data.imageUrl
+          : null;
 
     const selected = await selectTravelCoverImage({
       title,
       destination,
       excludeId: previousConfigId,
+      excludeImageUrl: previousImageUrl,
     });
+
+    if (!selected?.url) {
+      return NextResponse.json(
+        {
+          error:
+            "Aucune image pertinente trouvée (catalogue ni web). Vérifiez le titre / lieu du séjour.",
+        },
+        { status: 422 },
+      );
+    }
 
     const me = await safeCurrentUser();
     const actor = me?.fullName || me?.primaryEmailAddress?.emailAddress || "Admin";

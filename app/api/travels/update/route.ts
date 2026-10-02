@@ -38,12 +38,14 @@ export async function POST(req: Request) {
     if (!objectToSave.imageUrl) {
       try {
         const matchedImage = await selectTravelCoverImage({ title, destination });
-        objectToSave.imageUrl = normalizePublicImageUrl(matchedImage.url);
-        objectToSave.imageConfigId = matchedImage.id;
-        objectToSave.imageAttribution = formatTravelImageAttribution(matchedImage);
-        objectToSave.imageAuthor = matchedImage.author ?? null;
-        objectToSave.imageLicense = matchedImage.license ?? null;
-        objectToSave.imageAttributionUrl = matchedImage.attributionUrl ?? null;
+        if (matchedImage?.url) {
+          objectToSave.imageUrl = normalizePublicImageUrl(matchedImage.url);
+          objectToSave.imageConfigId = matchedImage.id;
+          objectToSave.imageAttribution = formatTravelImageAttribution(matchedImage);
+          objectToSave.imageAuthor = matchedImage.author ?? null;
+          objectToSave.imageLicense = matchedImage.license ?? null;
+          objectToSave.imageAttributionUrl = matchedImage.attributionUrl ?? null;
+        }
       } catch (err) {
         console.error("Erreur IA:", err);
       }

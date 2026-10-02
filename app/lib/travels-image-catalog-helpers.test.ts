@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildTravelPlaceSearchQuery,
+  buildTravelWebSearchQueries,
   normalizeTravelImageKey,
   rankTravelCatalogCandidates,
   scoreTravelCatalogMatch,
@@ -59,12 +60,16 @@ describe("travels-image-catalog-helpers", () => {
     );
     assert.equal(
       buildTravelPlaceSearchQuery("Joueur surf", ""),
-      "Joueur surf",
+      "surf",
     );
-    assert.equal(
-      buildTravelPlaceSearchQuery("Joueur surf", "Rouen"),
-      "joueur surf Rouen",
-    );
+  });
+
+  it("priorise le thème surf avant le lieu pour le web", () => {
+    const queries = buildTravelWebSearchQueries("Joueur surf", "Rouen");
+    assert.equal(queries[0], "surf");
+    assert.ok(queries.includes("surf"));
+    assert.ok(!queries.includes("joueur"));
+    assert.ok(queries.some((q) => /rouen/i.test(q)));
   });
 
   it("ne matche pas Beaux-Arts pour un thème surf", () => {

@@ -1,7 +1,6 @@
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { normalizePublicImageUrl } from "@/app/lib/scola-image";
 import {
-  buildTravelPlaceSearchQuery,
   findTravelCatalogByNormalizeKey,
   formatTravelImageAttribution,
   listTravelCatalogImages,
@@ -9,6 +8,7 @@ import {
   rankTravelCatalogCandidates,
   scoreTravelCatalogMatch,
   tokenizeTravelPlaceQuery,
+  buildTravelWebSearchQueries,
   type TravelCatalogImage,
 } from "@/app/lib/travels-image-catalog-db";
 import { fetchAndEnrichTravelCoverImage } from "@/app/lib/travels-image-web-search";
@@ -16,7 +16,7 @@ import { fetchAndEnrichTravelCoverImage } from "@/app/lib/travels-image-web-sear
 export type { TravelCatalogImage };
 export { formatTravelImageAttribution };
 
-/** Seuil : l’image doit clairement coller au lieu / thème (pas une approximaton). */
+/** Seuil : l’image doit clairement coller au lieu / thème (pas une approximation). */
 const STRONG_MATCH_SCORE = 6;
 
 function withNormalizedUrl(img: TravelCatalogImage): TravelCatalogImage {
@@ -27,18 +27,6 @@ function normalizeId(value: string | undefined | null): string {
   return String(value || "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
-}
-
-function fallbackImage(
-  catalog: TravelCatalogImage[],
-  excludeId?: string | null,
-): TravelCatalogImage {
-  const excluded = normalizeId(excludeId);
-  const alternatives = excluded
-    ? catalog.filter((img) => normalizeId(img.id) !== excluded)
-    : catalog;
-  const pool = alternatives.length > 0 ? alternatives : catalog;
-  return pool[Math.floor(Math.random() * pool.length)] || catalog[0];
 }
 
 function isStrongLexicalMatch(
@@ -52,8 +40,8 @@ function isStrongLexicalMatch(
 }
 
 /**
- * Mistral ne choisit que parmi des candidats déjà proches lexicalement.
- * S’il n’y en a aucun, on ne l’appelle pas : mieux vaut le web qu’un faux positif.
+ * Mistral uniquement parmi des candidats déjà proches lexicalement.
+ * Peut répondre NONE — jamais de catalogue « au hasard ».
  */
 async function pickFromCatalogWithMistral(opts: {
   candidates: TravelCatalogImage[];
@@ -87,9 +75,9 @@ async function pickFromCatalogWithMistral(opts: {
             content:
               `Tu sélectionnes l'illustration d'une sortie / d'un séjour scolaire.\n` +
               `Règles STRICTES :\n` +
-              `- Choisis un ID UNIQUEMENT si le libellé / mots-clés décrivent clairement le MÊME lieu ou la MÊME activité (ex. surf → surf / océan / plage de surf ; pas un musée, pas un théâtre).\n` +
+              `- Choisis un ID UNIQUEMENT si le libellé / mots-clés décrivent clairement le MÊME lieu ou la MÊME activité (ex. surf → surf / océan ; pas un musée, pas un cimetière).\n` +
               `- Si aucune entrée ne correspond clairement, réponds exactement NONE.\n` +
-              `- Ne force JAMAIS un choix par approximation, proximité géographique, thème culturel vague ou « meilleure option disponible ».\n` +
+              `- Ne force JAMAIS un choix par approximation.\n` +
               `- NONE est la bonne réponse dès qu'il y a un doute.\n` +
               `Réponds UNIQUEMENT par l'ID exact (une ligne) ou NONE.\n` +
               `Candidats :\n${catalogSummary}` +
@@ -120,7 +108,6 @@ async function pickFromCatalogWithMistral(opts: {
     if (opts.excludeId && normalizeId(matched.id) === normalizeId(opts.excludeId)) {
       return null;
     }
-    // Filet de sécurité : même si Mistral force un ID, on refuse un choix lexicalement faible.
     if (!isStrongLexicalMatch(matched, opts.title, opts.destination)) {
       return null;
     }
@@ -133,69 +120,89 @@ async function pickFromCatalogWithMistral(opts: {
 
 /**
  * Choisit une image de présentation :
- * 1) match fort dans le catalogue (clé exacte / score lexical)
- * 2) sinon Wikimedia / Unsplash → enrichit le catalogue
- * 3) sinon Mistral uniquement parmi des candidats déjà proches (peut répondre NONE)
- * 4) sinon image de repli catalogue (dernier recours)
+ * 1) match fort catalogue (clé / score lexical)
+ * 2) sinon TOUJOURS recherche web (plusieurs requêtes : thème, lieu…)
+ * 3) sinon Mistral seulement sur candidats proches
+ * 4) jamais d’image catalogue aléatoire hors sujet
  */
 export async function selectTravelCoverImage(opts: {
   title: string;
   destination: string;
-  /** Si fourni, l’IA évite cette image (régénération). */
+  /** Si fourni, on évite cette image (régénération). */
   excludeId?: string | null;
+  /** URL actuelle à éviter lors d’une régénération web. */
+  excludeImageUrl?: string | null;
   /** Désactive l’enrichissement web (tests / offline). */
   allowWebEnrichment?: boolean;
-}): Promise<TravelCatalogImage> {
+}): Promise<TravelCatalogImage | null> {
   const title = opts.title || "Titre introuvable";
   const destination = opts.destination || "Destination introuvable";
   const excludeId = opts.excludeId || null;
   const allowWeb = opts.allowWebEnrichment !== false;
 
   const catalog = await listTravelCatalogImages();
-  if (catalog.length === 0) {
+  if (catalog.length === 0 && !allowWeb) {
     throw new Error("Catalogue d'images voyages vide");
   }
 
-  const placeQuery = buildTravelPlaceSearchQuery(title, destination);
-  const exactKey = normalizeTravelImageKey(placeQuery);
-  if (exactKey) {
-    const exact = await findTravelCatalogByNormalizeKey(exactKey);
-    if (
-      exact &&
-      normalizeId(exact.id) !== normalizeId(excludeId) &&
-      isStrongLexicalMatch(exact, title, destination)
-    ) {
-      return withNormalizedUrl(exact);
+  // Match catalogue fort uniquement (jamais un « à peu près » Rouen → cimetière).
+  if (catalog.length > 0) {
+    const queries = buildTravelWebSearchQueries(title, destination);
+    for (const q of queries.slice(0, 3)) {
+      const exactKey = normalizeTravelImageKey(q);
+      if (!exactKey) continue;
+      const exact = await findTravelCatalogByNormalizeKey(exactKey);
+      if (
+        exact &&
+        normalizeId(exact.id) !== normalizeId(excludeId) &&
+        isStrongLexicalMatch(exact, title, destination)
+      ) {
+        return withNormalizedUrl(exact);
+      }
     }
-  }
 
-  const ranked = rankTravelCatalogCandidates(catalog, title, destination, excludeId);
-  if (isStrongLexicalMatch(ranked[0], title, destination)) {
-    return withNormalizedUrl(ranked[0]!);
+    const ranked = rankTravelCatalogCandidates(catalog, title, destination, excludeId);
+    if (isStrongLexicalMatch(ranked[0], title, destination)) {
+      return withNormalizedUrl(ranked[0]!);
+    }
   }
 
   const tryWebEnrichment = async (): Promise<TravelCatalogImage | null> => {
     if (!allowWeb) return null;
     try {
       const enriched = await fetchAndEnrichTravelCoverImage({
-        query: placeQuery,
         title,
         destination,
+        excludeImageUrls: opts.excludeImageUrl ? [opts.excludeImageUrl] : [],
       });
-      if (enriched && normalizeId(enriched.id) !== normalizeId(excludeId)) {
-        return withNormalizedUrl(enriched);
+      if (!enriched?.url) return null;
+      // Régénération : on accepte même le même id catalogue si l’URL a changé,
+      // et on refuse seulement si c’est strictement la même image exclue.
+      if (
+        excludeId &&
+        normalizeId(enriched.id) === normalizeId(excludeId) &&
+        opts.excludeImageUrl &&
+        normalizePublicImageUrl(enriched.url) ===
+          normalizePublicImageUrl(opts.excludeImageUrl)
+      ) {
+        return null;
       }
+      return withNormalizedUrl(enriched);
     } catch (err) {
       console.error("[travels-select-cover-image] web enrich", err);
+      return null;
     }
-    return null;
   };
 
-  // Pas de match catalogue clair → web d’abord (création et régénération).
   const fromWeb = await tryWebEnrichment();
   if (fromWeb) return fromWeb;
 
-  // Mistral seulement sur des candidats déjà proches ; jamais sur tout le catalogue.
+  const ranked = rankTravelCatalogCandidates(
+    catalog,
+    title,
+    destination,
+    excludeId,
+  );
   const fromAi = await pickFromCatalogWithMistral({
     candidates: ranked,
     title,
@@ -204,6 +211,11 @@ export async function selectTravelCoverImage(opts: {
   });
   if (fromAi) return fromAi;
 
-  // Dernier recours : mieux une image générique aléatoire qu’un faux match thématique forcé.
-  return withNormalizedUrl(fallbackImage(catalog, excludeId));
+  // Pas de fallback aléatoire : mieux aucune image qu’un cimetière pour du surf.
+  console.warn("[travels-select-cover-image] no suitable cover", {
+    title,
+    destination,
+    queries: buildTravelWebSearchQueries(title, destination).slice(0, 5),
+  });
+  return null;
 }
