@@ -7,10 +7,12 @@ import type {
   MessagingConversationKind,
   MessagingMessageDto,
   MessagingPeer,
+  MessagingPresenceStatus,
 } from "@/app/lib/messaging/types";
 import { MESSAGING_ROOT_ATTR } from "@/app/lib/messaging/dock";
 import MessagingMessageBubble from "./MessagingMessageBubble";
 import MessagingComposer from "./MessagingComposer";
+import MessagingPresenceBadge from "./MessagingPresenceBadge";
 
 type Props = {
   conversationId: string;
@@ -20,6 +22,7 @@ type Props = {
   membersPreview?: MessagingPeer[];
   memberCount?: number;
   currentUserId: string;
+  presenceStatus?: MessagingPresenceStatus;
   variant: "dock" | "page" | "mobile-full";
   onClose?: () => void;
   onMinimize?: () => void;
@@ -36,6 +39,7 @@ export default function MessagingConversationPanel({
   membersPreview = [],
   memberCount,
   currentUserId,
+  presenceStatus = "offline",
   variant,
   onClose,
   onMinimize,
@@ -100,12 +104,20 @@ export default function MessagingConversationPanel({
       if (detail.conversationId !== conversationId) return;
       if (detail.type === "message" && detail.message) {
         appendOrReplace(detail.message);
-        void markRead();
+        if (detail.message.senderId !== currentUserId) {
+          void markRead();
+        }
       }
       if (detail.type === "typing" && detail.userId && detail.userId !== currentUserId) {
         setTyping(true);
         if (typingHideRef.current) clearTimeout(typingHideRef.current);
         typingHideRef.current = setTimeout(() => setTyping(false), 2500);
+      }
+      if (detail.type === "delivered" && detail.userId && detail.userId !== currentUserId) {
+        void loadMessages();
+      }
+      if (detail.type === "read" && detail.userId && detail.userId !== currentUserId) {
+        void loadMessages();
       }
       if (detail.type === "reaction" || detail.type === "conversation_updated") {
         void loadMessages();
@@ -138,24 +150,32 @@ export default function MessagingConversationPanel({
 
   const shell =
     variant === "mobile-full"
-      ? "fixed inset-0 z-[140] flex flex-col bg-slate-50"
+      ? "fixed inset-0 z-[140] flex flex-col bg-[var(--dash-surface)]"
       : variant === "dock"
-        ? "flex h-[420px] w-[340px] flex-col overflow-hidden rounded-t-2xl bg-slate-50 shadow-[0_16px_40px_rgba(15,23,42,0.28)] ring-1 ring-slate-200"
-        : "flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-slate-50 ring-1 ring-slate-200";
+        ? "flex h-[420px] w-[340px] flex-col overflow-hidden rounded-t-[1.75rem] border border-black/6 bg-[var(--dash-surface)] shadow-[0_16px_40px_rgba(15,23,42,0.28)]"
+        : "flex h-full min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-black/6 bg-white/80 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-xl";
 
   const subtitle =
     kind === "group"
       ? `${memberCount && memberCount > 0 ? memberCount : Math.max(membersPreview.length + 1, 2)} membres`
-      : null;
+      : presenceStatus === "online"
+        ? "En ligne"
+        : presenceStatus === "away"
+          ? "Absent"
+          : presenceStatus === "busy"
+            ? "Occupé"
+            : presenceStatus === "dnd"
+              ? "Ne pas déranger"
+              : "Hors ligne";
 
   const typingLabel =
     kind === "group" ? "Quelqu’un écrit…" : `${peer?.name ?? "Contact"} écrit…`;
 
   return (
     <div {...{ [MESSAGING_ROOT_ATTR]: "" }} className={`${shell} ${className}`}>
-      <header className="flex items-center gap-2 border-b border-slate-200/80 bg-gradient-to-r from-white to-sky-50/60 px-3 py-2.5">
+      <header className="flex items-center gap-2.5 border-b border-black/5 bg-[#eceeea]/60 px-3.5 py-3">
         {kind === "group" ? (
-          <div className="relative flex h-9 w-9 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-600">
+          <div className="relative flex h-10 w-10 shrink-0 overflow-hidden rounded-2xl bg-[var(--dash-ink)]">
             {membersPreview.slice(0, 2).length === 0 ? (
               <span className="flex h-full w-full items-center justify-center text-xs font-bold text-white">
                 <IconUsers className="h-4 w-4" />
@@ -163,12 +183,12 @@ export default function MessagingConversationPanel({
             ) : (
               <div className="absolute inset-0 grid grid-cols-2">
                 {membersPreview.slice(0, 2).map((m) => (
-                  <div key={m.id} className="overflow-hidden bg-slate-200">
+                  <div key={m.id} className="overflow-hidden bg-neutral-300">
                     {m.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={m.imageUrl} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      <span className="flex h-full w-full items-center justify-center text-[8px] font-bold text-slate-700">
+                      <span className="flex h-full w-full items-center justify-center text-[8px] font-bold text-[var(--dash-ink)]">
                         {m.name.slice(0, 1).toUpperCase()}
                       </span>
                     )}
@@ -178,48 +198,58 @@ export default function MessagingConversationPanel({
             )}
           </div>
         ) : (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-sky-100 text-sm font-semibold text-sky-800">
-            {peer?.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              (peer?.name || title || "?").slice(0, 1).toUpperCase()
-            )}
-          </div>
+          <MessagingPresenceBadge status={presenceStatus} dotClassName="h-2.5 w-2.5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)] text-sm font-semibold text-white">
+              {peer?.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                (peer?.name || title || "?").slice(0, 1).toUpperCase()
+              )}
+            </div>
+          </MessagingPresenceBadge>
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-800">{title}</p>
-          {subtitle ? (
-            <p className="truncate text-[11px] text-slate-400">{subtitle}</p>
-          ) : null}
+          <p className="truncate text-sm font-semibold tracking-tight text-[var(--dash-ink)]">
+            {title}
+          </p>
+          <p className="truncate text-[11px] font-medium text-[var(--dash-mid)]">{subtitle}</p>
         </div>
         {onStartVideoCall ? (
           <button
             type="button"
             title="Visio"
-            className="rounded-full p-1.5 text-sky-600 hover:bg-sky-50"
+            className="rounded-2xl p-2 text-[var(--dash-ink)] transition hover:bg-black/[0.05]"
             onClick={onStartVideoCall}
           >
             <IconVideoCall className="h-4 w-4" />
           </button>
         ) : null}
         {onMinimize ? (
-          <button type="button" className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100" onClick={onMinimize}>
+          <button
+            type="button"
+            className="rounded-2xl p-2 text-neutral-400 transition hover:bg-black/[0.05]"
+            onClick={onMinimize}
+          >
             <IconMinus className="h-4 w-4" />
           </button>
         ) : null}
         {onClose ? (
-          <button type="button" className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100" onClick={onClose}>
+          <button
+            type="button"
+            className="rounded-2xl p-2 text-neutral-400 transition hover:bg-black/[0.05]"
+            onClick={onClose}
+          >
             <IconX className="h-4 w-4" />
           </button>
         ) : null}
       </header>
 
-      <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div className="flex-1 space-y-3 overflow-y-auto px-3.5 py-4">
         {loading ? (
-          <p className="text-center text-xs text-slate-400">Chargement…</p>
+          <p className="text-center text-xs text-neutral-400">Chargement…</p>
         ) : messages.length === 0 ? (
-          <p className="text-center text-xs text-slate-400">Aucun message — dites bonjour !</p>
+          <p className="text-center text-xs text-neutral-400">Aucun message — dites bonjour !</p>
         ) : (
           messages.map((m) => (
             <MessagingMessageBubble
@@ -234,7 +264,9 @@ export default function MessagingConversationPanel({
             />
           ))
         )}
-        {typing ? <p className="text-xs italic text-slate-400">{typingLabel}</p> : null}
+        {typing ? (
+          <p className="text-xs italic text-[var(--dash-mid)]">{typingLabel}</p>
+        ) : null}
         <div ref={bottomRef} />
       </div>
 

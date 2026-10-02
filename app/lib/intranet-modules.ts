@@ -340,6 +340,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/channels",
       external: false,
+      description: "Salons d’équipe — personnel : via Messagerie → Salons.",
     },
   },
   {
@@ -352,7 +353,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/messagerie",
       external: false,
-      description: "Messages 1:1 avec le personnel — bulles style Messenger.",
+      description: "Messages privés, groupes et salons — design unifié.",
     },
   },
   {
@@ -1158,7 +1159,6 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "documents",
     "office",
     "qrcreator",
-    "channels",
     "assistance",
     "photocopies-couleur",
   ],

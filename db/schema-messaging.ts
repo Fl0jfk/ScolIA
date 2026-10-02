@@ -67,6 +67,9 @@ export const messagingParticipant = pgTable(
     userId: text("user_id").notNull(),
     lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
     lastReadMessageId: text("last_read_message_id"),
+    /** Dernier message connu comme reçu sur l’appareil du participant (SSE / ouverture). */
+    lastDeliveredAt: timestamp("last_delivered_at", { withTimezone: true }),
+    lastDeliveredMessageId: text("last_delivered_message_id"),
     muted: boolean("muted").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

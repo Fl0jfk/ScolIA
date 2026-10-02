@@ -1437,7 +1437,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       label: "QR Code",
       detail: "Créer un QR code avec le logo de l'établissement",
     },
-    { moduleId: "channels", label: "Salons" },
+    { moduleId: "channels", label: "Salons", detail: "Via la messagerie" },
     { moduleId: "assistance", label: "Assistance" },
   ];
   for (const s of stableServices) {

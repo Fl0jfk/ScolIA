@@ -115,7 +115,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "office",
       "qrcreator",
       "photocopies-couleur",
-      "channels",
       "assistance",
     ],
   },

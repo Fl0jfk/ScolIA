@@ -151,14 +151,19 @@ export function useMessagingPresence({
     }
   }, [enabled]);
 
+  /** Rafraîchir dès que la liste des pairs change (sinon présence bloquée ~2 min). */
   useEffect(() => {
     if (!enabled) return;
     void refresh();
+  }, [enabled, peerKey, refresh]);
+
+  useEffect(() => {
+    if (!enabled) return;
     void refreshMe();
     const timer = setInterval(() => {
       void refresh();
       void refreshMe();
-    }, 120_000);
+    }, 8_000);
     return () => clearInterval(timer);
   }, [enabled, refresh, refreshMe]);
 
