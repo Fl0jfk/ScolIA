@@ -153,19 +153,14 @@ export async function selectTravelCoverImage(opts: {
   }
 
   const ranked = rankTravelCatalogCandidates(catalog, title, destination, excludeId);
-  if (ranked[0] && isStrongLexicalMatch(ranked, title, destination)) {
+  const strongCatalogMatch =
+    ranked[0] && isStrongLexicalMatch(ranked, title, destination);
+  if (strongCatalogMatch) {
     return withNormalizedUrl(ranked[0]);
   }
 
-  const fromAi = await pickFromCatalogWithMistral({
-    catalog,
-    title,
-    destination,
-    excludeId,
-  });
-  if (fromAi) return fromAi;
-
-  if (allowWeb) {
+  const tryWebEnrichment = async (): Promise<TravelCatalogImage | null> => {
+    if (!allowWeb) return null;
     try {
       const enriched = await fetchAndEnrichTravelCoverImage({
         query: placeQuery,
@@ -178,7 +173,36 @@ export async function selectTravelCoverImage(opts: {
     } catch (err) {
       console.error("[travels-select-cover-image] web enrich", err);
     }
+    return null;
+  };
+
+  // Régénération : sans match catalogue fort, même repli web qu’à la création
+  // (sinon Mistral choisit souvent une autre image générique du seed JSON).
+  if (excludeId) {
+    const fromWeb = await tryWebEnrichment();
+    if (fromWeb) return fromWeb;
   }
+
+  const fromAi = await pickFromCatalogWithMistral({
+    catalog,
+    title,
+    destination,
+    excludeId,
+  });
+  if (fromAi) {
+    if (excludeId) {
+      const tokens = tokenizeTravelPlaceQuery(title, destination);
+      const aiScore = scoreTravelCatalogMatch(fromAi, tokens);
+      if (aiScore < 6) {
+        const fromWeb = await tryWebEnrichment();
+        if (fromWeb) return fromWeb;
+      }
+    }
+    return fromAi;
+  }
+
+  const fromWeb = await tryWebEnrichment();
+  if (fromWeb) return fromWeb;
 
   if (ranked[0]) return withNormalizedUrl(ranked[0]);
   return withNormalizedUrl(fallbackImage(catalog, excludeId));
