@@ -107,11 +107,18 @@ export async function POST(req: Request) {
     let currentY = HEADER_H + 2;
     if (tripData.imageUrl) {
       try {
-        const imgRes = await fetch(normalizeTravelImageUrl(tripData.imageUrl) || tripData.imageUrl);
-        const imgBuf = Buffer.from(await imgRes.arrayBuffer());
-        const imgData = `data:image/jpeg;base64,${imgBuf.toString("base64")}`;
-        docPdf.addImage(imgData, "JPEG", 0, currentY, W, BANNER_H);
-        currentY += BANNER_H;
+        const { loadTravelCoverImageBytes } = await import("@/app/lib/travels-cover-cdn");
+        const loaded = await loadTravelCoverImageBytes(tripData.imageUrl);
+        if (loaded) {
+          const mime = loaded.contentType.includes("png")
+            ? "PNG"
+            : loaded.contentType.includes("webp")
+              ? "WEBP"
+              : "JPEG";
+          const imgData = `data:${loaded.contentType};base64,${loaded.bytes.toString("base64")}`;
+          docPdf.addImage(imgData, mime, 0, currentY, W, BANNER_H);
+          currentY += BANNER_H;
+        }
       } catch (e) {console.error("Erreur image circulaire:", e)}
     }
     docPdf.setFillColor(30, 41, 59);

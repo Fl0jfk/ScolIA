@@ -198,21 +198,24 @@ async function uploadCoverToPublicBucket(opts: {
           Body: opts.bytes,
           ContentType: opts.contentType,
           CacheControl: "public, max-age=31536000, immutable",
-          // Scaleway ignore souvent ACL ; le bucket scolia-images est public en lecture.
+          // Obligatoire : sans ça Scaleway crée un objet privé → 403 sur l’URL CDN.
+          ACL: "public-read",
         }),
       );
       const url = publicUrlForBucketKey(bucket, key);
-      const ok =
-        (await isPubliclyReadableImage(url)) ||
+      const readableNow = await isPubliclyReadableImage(url);
+      const readableRetry =
+        readableNow ||
         (await new Promise<boolean>((resolve) => {
           setTimeout(() => {
             void isPubliclyReadableImage(url).then(resolve);
-          }, 500);
+          }, 600);
         }));
-      if (!ok) {
-        console.warn(
-          `[travels-image-web] upload ok, public read not confirmed yet on ${bucket}/${key} — URL conservée (bucket CDN public)`,
+      if (!readableRetry) {
+        console.error(
+          `[travels-image-web] objet uploadé mais toujours en 403 public sur ${bucket}/${key}`,
         );
+        continue;
       }
       return url;
     } catch (err) {
