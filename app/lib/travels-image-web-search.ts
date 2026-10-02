@@ -613,13 +613,19 @@ export async function fetchAndEnrichTravelCoverImage(opts: {
   query?: string;
   title?: string;
   destination?: string;
+  /** Requêtes prioritaires (ex. proposées par Mistral après compréhension du sens). */
+  preferredQueries?: string[];
   excludeImageUrls?: string[];
 }): Promise<TravelCatalogImage | null> {
   const title = String(opts.title || "").trim();
   const destination = String(opts.destination || "").trim();
   const placeQueries = buildTravelPlaceOnlyQueries(title, destination);
   const activityQueries = buildTravelActivitySafeQueries(title, destination);
+  const preferred = (opts.preferredQueries || [])
+    .map((q) => String(q || "").trim())
+    .filter(Boolean);
   const queries = [
+    ...preferred,
     ...(opts.query ? [opts.query] : []),
     ...placeQueries,
     ...activityQueries,

@@ -14,6 +14,7 @@ import {
   isSchoolSafeCoverText,
   type TravelCatalogImage,
 } from "@/app/lib/travels-image-catalog-db";
+import { proposeTravelCoverSearchQueries } from "@/app/lib/travels-cover-mistral-intent";
 import { fetchAndEnrichTravelCoverImage } from "@/app/lib/travels-image-web-search";
 
 export type { TravelCatalogImage };
@@ -31,7 +32,7 @@ function normalizeId(value: string | undefined | null): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function isUsableCatalogCover(
+function isUsableManualCatalogCover(
   img: TravelCatalogImage | undefined,
   title: string,
   destination: string,
@@ -40,10 +41,10 @@ function isUsableCatalogCover(
   if (!isSchoolSafeCoverText(img.label, img.keywords || "", img.id, img.url)) {
     return false;
   }
-  // Les auto-* issus d’anciennes recherches foireuses : ne pas les resservir en priorité.
-  if (img.source && img.source !== "manual" && String(img.id).startsWith("auto-")) {
-    return false;
-  }
+  // Ne jamais resservir les auto-* issus d’anciennes recherches foireuses.
+  if (img.source && img.source !== "manual") return false;
+  if (String(img.id).startsWith("auto-")) return false;
+
   const tokens = strongTravelThemeTokens(title, destination);
   if (tokens.length === 0) {
     return (
@@ -84,8 +85,9 @@ async function pickFromCatalogWithMistral(opts: {
           {
             role: "system",
             content:
-              `Tu sélectionnes l'illustration d'une sortie scolaire.\n` +
-              `Règles : lieu ou activité concrète adaptée à une école uniquement.\n` +
+              `Tu sélectionnes l'illustration d'une sortie scolaire dans un catalogue.\n` +
+              `Comprends le SENS du titre + lieu. Choisis UNIQUEMENT si ça colle clairement ` +
+              `(lieu réel ou activité concrète adaptée aux élèves).\n` +
               `Jamais concours générique, jamais militaire / drone de combat.\n` +
               `Sinon NONE.\n` +
               `Candidats :\n${catalogSummary}` +
@@ -116,20 +118,21 @@ async function pickFromCatalogWithMistral(opts: {
     if (opts.excludeId && normalizeId(matched.id) === normalizeId(opts.excludeId)) {
       return null;
     }
-    if (!isUsableCatalogCover(matched, opts.title, opts.destination)) {
+    if (!isUsableManualCatalogCover(matched, opts.title, opts.destination)) {
       return null;
     }
     return withNormalizedUrl(matched);
   } catch (err) {
-    console.error("[travels-select-cover-image] mistral", err);
+    console.error("[travels-select-cover-image] mistral catalog", err);
     return null;
   }
 }
 
 /**
- * 1) Catalogue manuel fort (Disneyland, etc.)
- * 2) Web : lieu d’abord (Houlgate), puis activité loisir — jamais Wikipedia « drone »
- * 3) Mistral catalogue manuel en dernier recours
+ * 1) Mistral comprend le sens → propose des requêtes d’image « école »
+ * 2) Recherche web (Wikimedia / Unsplash / Openverse) avec ces requêtes
+ * 3) Repli heuristique lieu / activité loisir
+ * 4) Catalogue manuel fort (Disneyland…) + Mistral catalogue en dernier recours
  */
 export async function selectTravelCoverImage(opts: {
   title: string;
@@ -148,12 +151,20 @@ export async function selectTravelCoverImage(opts: {
     throw new Error("Catalogue d'images voyages vide");
   }
 
-  const tryWebEnrichment = async (): Promise<TravelCatalogImage | null> => {
+  // 1) Intention Mistral (compréhension du sens) AVANT toute recherche web/catalogue auto.
+  const intent = allowWeb
+    ? await proposeTravelCoverSearchQueries({ title, destination })
+    : null;
+
+  const tryWebEnrichment = async (
+    preferredQueries?: string[],
+  ): Promise<TravelCatalogImage | null> => {
     if (!allowWeb) return null;
     try {
       const enriched = await fetchAndEnrichTravelCoverImage({
         title,
         destination,
+        preferredQueries,
         excludeImageUrls: opts.excludeImageUrl ? [opts.excludeImageUrl] : [],
       });
       if (!enriched?.url) return null;
@@ -183,14 +194,11 @@ export async function selectTravelCoverImage(opts: {
     }
   };
 
-  // Régénération OU lieu renseigné → web d’abord (évite de resservir un mauvais auto-*).
-  const preferWebFirst =
-    Boolean(excludeId) || buildTravelPlaceOnlyQueries(title, destination).length > 0;
-  if (preferWebFirst) {
-    const fromWeb = await tryWebEnrichment();
-    if (fromWeb) return fromWeb;
-  }
+  // 2) Web guidé par Mistral (puis repli heuristique dans fetchAndEnrich).
+  const fromWeb = await tryWebEnrichment(intent?.queries);
+  if (fromWeb) return fromWeb;
 
+  // 3) Catalogue manuel uniquement (ex. Disneyland déjà en base).
   if (catalog.length > 0) {
     const placeKeys = buildTravelPlaceOnlyQueries(title, destination);
     for (const q of placeKeys.slice(0, 3)) {
@@ -200,7 +208,7 @@ export async function selectTravelCoverImage(opts: {
       if (
         exact &&
         normalizeId(exact.id) !== normalizeId(excludeId) &&
-        isUsableCatalogCover(exact, title, destination)
+        isUsableManualCatalogCover(exact, title, destination)
       ) {
         return withNormalizedUrl(exact);
       }
@@ -211,33 +219,23 @@ export async function selectTravelCoverImage(opts: {
       title,
       destination,
       excludeId,
-    ).filter((img) => isUsableCatalogCover(img, title, destination));
+    ).filter((img) => isUsableManualCatalogCover(img, title, destination));
     if (ranked[0]) return withNormalizedUrl(ranked[0]);
-  }
 
-  if (!preferWebFirst) {
-    const fromWeb = await tryWebEnrichment();
-    if (fromWeb) return fromWeb;
+    const fromAi = await pickFromCatalogWithMistral({
+      candidates: ranked,
+      title,
+      destination,
+      excludeId,
+    });
+    if (fromAi) return fromAi;
   }
-
-  const ranked = rankTravelCatalogCandidates(
-    catalog,
-    title,
-    destination,
-    excludeId,
-  ).filter((img) => isUsableCatalogCover(img, title, destination));
-  const fromAi = await pickFromCatalogWithMistral({
-    candidates: ranked,
-    title,
-    destination,
-    excludeId,
-  });
-  if (fromAi) return fromAi;
 
   console.warn("[travels-select-cover-image] no suitable cover", {
     title,
     destination,
-    queries: buildTravelWebSearchQueries(title, destination).slice(0, 5),
+    mistralQueries: intent?.queries?.slice(0, 5),
+    fallbackQueries: buildTravelWebSearchQueries(title, destination).slice(0, 5),
   });
   return null;
 }
