@@ -21,23 +21,6 @@ function officeKinds(filter: KindFilter): OfficeKind[] {
   return filter === "all" ? (["writer", "calc", "impress"] as OfficeKind[]) : [filter];
 }
 
-function editUrl(entry: {
-  kind: OfficeKind;
-  scope: string;
-  shareId?: string | null;
-  fileShareId?: string | null;
-  relPath: string;
-}): string {
-  const params = new URLSearchParams({
-    kind: entry.kind,
-    scope: entry.scope,
-    path: entry.relPath,
-  });
-  if (entry.shareId) params.set("shareId", entry.shareId);
-  if (entry.fileShareId) params.set("fileShareId", entry.fileShareId);
-  return `/documents/edit?${params.toString()}`;
-}
-
 /** Scan léger du cloud perso (1 niveau + sous-dossiers limités) pour enrichir la recherche. */
 async function scanPersonalOfficeFiles(
   userId: string,
@@ -50,7 +33,6 @@ async function scanPersonalOfficeFiles(
     scope: "personal";
     relPath: string;
     fileName: string;
-    editUrl: string;
   }[]
 > {
   const q = query.trim().toLowerCase();
@@ -62,7 +44,6 @@ async function scanPersonalOfficeFiles(
     scope: "personal";
     relPath: string;
     fileName: string;
-    editUrl: string;
   }[] = [];
 
   async function walk(parent: string, depth: number) {
@@ -87,7 +68,6 @@ async function scanPersonalOfficeFiles(
         scope: "personal",
         relPath: item.relPath,
         fileName: item.name,
-        editUrl: editUrl({ kind, scope: "personal", relPath: item.relPath }),
       });
     }
   }
@@ -121,7 +101,6 @@ export async function GET(req: NextRequest) {
         fileName: r.fileName,
         sharedLabel: r.sharedLabel,
         touchedAt: r.touchedAt,
-        editUrl: editUrl(r),
       })),
       ...fromScan,
     ]) {
@@ -212,7 +191,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     kind,
-    personal: personalOut.map((e) => ({ ...e, editUrl: editUrl(e) })),
-    shared: shared.map((e) => ({ ...e, editUrl: editUrl(e) })),
+    personal: personalOut,
+    shared,
   });
 }

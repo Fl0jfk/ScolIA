@@ -66,7 +66,7 @@ export async function putObject(
   return key;
 }
 
-/** Lecture/écriture S3 avec bucket explicite (WOPI multi-tenant hors Host). */
+/** Lecture/écriture S3 avec bucket explicite (multi-tenant hors Host). */
 export async function getObjectBytesInBucket(
   bucket: string,
   relativePath: string,
@@ -170,7 +170,11 @@ export async function sendS3WithConflictRetry<T>(op: () => Promise<T>, attempts 
   throw last;
 }
 
-export async function getSignedReadUrl(relativeOrFullKey: string, expiresIn = 3600): Promise<string | null> {
+export async function getSignedReadUrl(
+  relativeOrFullKey: string,
+  expiresIn = 3600,
+  opts?: { downloadFileName?: string },
+): Promise<string | null> {
   try {
     const client = await getS3Client();
     const bucket = await getBucketName();
@@ -182,7 +186,23 @@ export async function getSignedReadUrl(relativeOrFullKey: string, expiresIn = 36
     } catch {
       /* on tente quand même la signature */
     }
-    return await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn });
+    const fileName = opts?.downloadFileName?.trim();
+    const safeName = fileName
+      ? fileName.replace(/[\r\n"]/g, "_").slice(0, 180)
+      : null;
+    return await getSignedUrl(
+      client,
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        ...(safeName
+          ? {
+              ResponseContentDisposition: `attachment; filename="${safeName}"`,
+            }
+          : {}),
+      }),
+      { expiresIn },
+    );
   } catch {
     return null;
   }

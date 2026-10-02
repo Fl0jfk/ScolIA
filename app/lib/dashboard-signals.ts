@@ -1443,7 +1443,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     {
       moduleId: "office",
       label: "Bureautique",
-      detail: "Texte, tableur et présentation dans le navigateur",
+      detail: "Créer et télécharger texte, tableur et présentation",
     },
     {
       moduleId: "qrcreator",

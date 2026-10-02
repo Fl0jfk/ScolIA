@@ -140,7 +140,7 @@ const INTRANET_PLATFORM_MASTER_PREFIXES = [
 export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "documents",
-    pathPrefixes: ["/documents", "/api/documents", "/api/wopi"],
+    pathPrefixes: ["/documents", "/api/documents"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
@@ -167,7 +167,6 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/documents/writer",
       "/documents/calc",
       "/documents/impress",
-      "/documents/edit",
     ],
     allowedRoles: [
       ...DIRECTIONS,
@@ -187,7 +186,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       link: "/documents/office",
       external: false,
       description:
-        "Traitement de texte, tableur et présentation dans le navigateur (liés au cloud).",
+        "Créer et télécharger documents, tableurs et présentations (liés au cloud).",
     },
   },
   {

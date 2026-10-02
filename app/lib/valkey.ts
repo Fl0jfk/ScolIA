@@ -11,6 +11,10 @@ import Redis from "ioredis";
  * - si pas ready → skip immédiat
  * - half-open : une seule sonde après échec (évite N × timeout)
  * - ready TCP ne rouvre PAS le circuit (seulement une commande OK)
+ *
+ * Prod actuelle : Valkey **en veille** (pas d’instance Scaleway facturée).
+ * Sans `VALKEY_URL` / `REDIS_URL`, ou avec `VALKEY_DISABLED=1`, tout le cache
+ * bascule en repli mémoire + Postgres — le code reste prêt pour plus tard.
  */
 
 let client: Redis | null | undefined;

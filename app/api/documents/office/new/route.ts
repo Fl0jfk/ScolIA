@@ -44,7 +44,6 @@ export async function POST(req: NextRequest) {
     kind,
     scope: created.scope,
     path: created.relPath,
-    draft: created.fromModuleRoot ? "1" : "0",
   });
   if (created.shareId) params.set("shareId", created.shareId);
 
@@ -57,6 +56,7 @@ export async function POST(req: NextRequest) {
     relPath: created.relPath,
     fileName: created.fileName,
     fromModuleRoot: created.fromModuleRoot,
-    editUrl: `/documents/edit?${params.toString()}`,
+    /** Ancien champ editUrl → désormais lien cloud (téléchargement). */
+    cloudUrl: `/documents?${params.toString()}`,
   });
 }
