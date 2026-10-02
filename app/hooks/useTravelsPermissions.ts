@@ -6,6 +6,10 @@ import { useAppContext } from "@/app/hooks/useAppContext";
 import { canSignForEstablishmentLabel } from "@/app/lib/establishment-sign-permissions";
 import { userIsAnyDirection } from "@/app/lib/establishment-catalog";
 import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
+import {
+  canEditTravelsDates,
+  canEditTravelsEffectif,
+} from "@/app/lib/travels-edit-permissions";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 import type { TravelsTrip } from "@/app/lib/travels-types";
@@ -46,10 +50,16 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
     const canAddDocuments = canManageFiles || isAdministratif;
     const canUseInternalThread = isOwner || isDirection || isCompta;
     const canSeeTravelDocHoverActions = isDirection || isAdministratif || isCompta;
-    const canEditEffectif =
-      (isOwner || isDirection || isAdministratif || isGlobalAdmin) &&
-      trip != null &&
-      !["SEANCE_ANNULEE", "REJETE", "ANNULE"].includes(trip.status);
+    const roleFlags = {
+      isOwner,
+      isDirection,
+      isAdministratif,
+      isGlobalAdmin,
+      status: trip?.status,
+    };
+    const canEditEffectif = canEditTravelsEffectif({ ...roleFlags, isCompta });
+    const canEditDates = canEditTravelsDates(roleFlags);
+    const canEditParentCom = canEditDates;
     const canAccessComptaTab = isCompta || isAdministratif || isDirection;
     return {
       user,
@@ -66,6 +76,8 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
       canUseInternalThread,
       canSeeTravelDocHoverActions,
       canEditEffectif,
+      canEditDates,
+      canEditParentCom,
     };
   }, [trip, user, roles, extraUserIds, appCtx?.session?.isGlobalAdmin, appCtx?.establishments]);
 }

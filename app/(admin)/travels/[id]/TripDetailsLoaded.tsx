@@ -180,6 +180,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     canAddDocuments,
     canUseInternalThread,
     canEditEffectif,
+    canEditDates,
+    canEditParentCom,
     isAdministratif,
     canReassignTripOwner,
     isGlobalAdmin,
@@ -1430,7 +1432,6 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const cuisineOrderSent = cuisineOrderWasSent(trip);
   const cuisineOrderSentAt = resolveCuisineOrderSentAt(trip);
   const cuisineChanged = cuisineEffectifChanged(trip.data);
-  const canEditDates = canEditEffectif;
   const hasCuisineOrder = Boolean(trip.data.piqueNiqueDetails?.active);
   const participantCount = trip.data.participantEleves?.length || 0;
   const visibleHubTabs = TRAVELS_HUB_TABS.filter((t) => {
@@ -1538,8 +1539,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         trip.status !== "SEANCE_ANNULEE" && (
           <TripAlert tone="muted" icon="📅" title="Séjour terminé">
             {isCompta
-              ? "La sortie est passée : la fiche comptabilité reste modifiable pour finaliser la facturation."
-              : "La sortie est passée. La comptabilité peut encore travailler sur la fiche budget pour la facturation."}
+              ? "La sortie est passée : vous gardez la main sur la fiche compta, le prix, l’effectif et la liste des élèves pour finaliser la facturation."
+              : "La sortie est passée. La comptabilité peut encore modifier budget, prix et élèves pour la facturation."}
           </TripAlert>
         )}
 
@@ -1679,6 +1680,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         <TripElevesListPanel
           trip={trip}
           canEdit={canEditEffectif}
+          isCompta={isCompta}
           onTripUpdated={(t) => {
             setTrip(t);
             setEditedData(t.data);
@@ -1689,7 +1691,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       {hubTab === "communication" && participantCount > 0 && (
         <TripParentComPanel
           trip={trip}
-          canEdit={canEditEffectif}
+          canEdit={canEditParentCom}
           onTripUpdated={(t) => {
             setTrip(t);
             setEditedData(t.data);

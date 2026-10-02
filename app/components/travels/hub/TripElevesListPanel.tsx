@@ -40,6 +40,8 @@ import {
 type Props = {
   trip: TravelsTrip;
   canEdit: boolean;
+  /** Compta : peut ajuster la liste après confirmation sans la « déconfirmer » ni renvoyer les mails. */
+  isCompta?: boolean;
   onTripUpdated: (trip: TravelsTrip) => void;
 };
 
@@ -49,7 +51,7 @@ const KIND_LABEL: Record<TravelsCalendarPoint["kind"], string> = {
   autre: "Autre point",
 };
 
-export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
+export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpdated }: Props) {
   const [eleves, setEleves] = useState<EleveConfig[]>([]);
   /** Classes année en cours (Siècle) — fournies par l’API, pas le distinct brut élèves. */
   const [catalogClasses, setCatalogClasses] = useState<string[]>([]);
@@ -409,11 +411,21 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     const participants = buildParticipants();
     setBusy("save");
     try {
+      // Compta (facturation) : on aligne l’effectif sur les présents et on garde la confirmation
+      // pour ne pas relancer transporteur / parents. Sinon : brouillon classique.
+      const billingAdjust = isCompta && confirmed;
       const data = applyParticipantElevesToTripData(trip.data, participants, {
-        resetConfirmation: confirmed,
+        resetConfirmation: confirmed && !billingAdjust,
+        syncNbEleves: billingAdjust ? "exact" : "max",
       });
       if (!data.listeElevesStatus) data.listeElevesStatus = "draft";
       data.parentCalendar = calendar;
+      if (billingAdjust && data.comptaSheet && typeof data.comptaSheet === "object") {
+        data.comptaSheet = {
+          ...data.comptaSheet,
+          nbEleves: participants.length,
+        };
+      }
       const updatedTrip: TravelsTrip = {
         ...trip,
         data,
@@ -422,7 +434,9 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
           {
             date: new Date().toISOString(),
             user: "Utilisateur",
-            action: `Liste élèves enregistrée (brouillon, ${participants.length} élève(s))`,
+            action: billingAdjust
+              ? `Liste élèves ajustée pour facturation (${participants.length} présent(s))`
+              : `Liste élèves enregistrée (brouillon, ${participants.length} élève(s))`,
           },
         ],
       };
@@ -436,7 +450,11 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         throw new Error(j.error || "Enregistrement impossible");
       }
       onTripUpdated(updatedTrip);
-      alert("Liste et horaires enregistrés (brouillon).");
+      alert(
+        billingAdjust
+          ? `Liste mise à jour pour facturation (${participants.length} élève(s)). Aucun nouvel e-mail envoyé.`
+          : "Liste et horaires enregistrés (brouillon).",
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -608,10 +626,16 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         {!canEdit && (
           <TripAlert tone="warning" icon="🔒" title="Lecture seule">
             Vous ne pouvez pas modifier cette liste (réservé au créateur de la sortie, à la
-            direction ou à l&apos;administratif).
+            direction, à l&apos;administratif ou à la comptabilité).
           </TripAlert>
         )}
 
+        {canEdit && isCompta && confirmed && (
+          <TripAlert tone="info" icon="💶" title="Ajustement facturation">
+            Vous pouvez corriger les présents même après confirmation. L’enregistrement met à jour
+            l’effectif (et la fiche compta) sans renvoyer d’e-mails aux parents ni au transporteur.
+          </TripAlert>
+        )}
         {trip.status === "FINALISE_DIR_ATTENTE_ELEVES" && !confirmed && (
           <TripAlert tone="warning" icon="⚠️" title="Action requise — liste élèves">
             La direction a finalisé le projet. Confirmez la liste nominative des élèves
@@ -1064,26 +1088,32 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
             {canEdit && (
               <div className="flex flex-wrap gap-2 pt-1">
                 <TripButton variant="secondary" disabled={!!busy} onClick={() => void saveDraft()}>
-                  {busy === "save" ? "…" : "Enregistrer brouillon"}
-                </TripButton>
-                <TripButton
-                  variant="primary"
-                  disabled={
-                    !!busy ||
-                    selectedKeys.size === 0 ||
-                    !canConfirmHoraires ||
-                    (cuisineActive && panierAssigned !== mealsOrdered)
-                  }
-                  onClick={() => void confirmList()}
-                >
-                  {busy === "confirm"
+                  {busy === "save"
                     ? "…"
-                    : needsBus
-                      ? "Confirmer liste (+ transporteur)"
-                      : horairesRequired
-                        ? "Confirmer liste + horaires parents"
-                        : "Confirmer la liste des élèves"}
+                    : isCompta && confirmed
+                      ? "Enregistrer (facturation)"
+                      : "Enregistrer brouillon"}
                 </TripButton>
+                {!(isCompta && confirmed) && (
+                  <TripButton
+                    variant="primary"
+                    disabled={
+                      !!busy ||
+                      selectedKeys.size === 0 ||
+                      !canConfirmHoraires ||
+                      (cuisineActive && panierAssigned !== mealsOrdered)
+                    }
+                    onClick={() => void confirmList()}
+                  >
+                    {busy === "confirm"
+                      ? "…"
+                      : needsBus
+                        ? "Confirmer liste (+ transporteur)"
+                        : horairesRequired
+                          ? "Confirmer liste + horaires parents"
+                          : "Confirmer la liste des élèves"}
+                  </TripButton>
+                )}
               </div>
             )}
           </>
