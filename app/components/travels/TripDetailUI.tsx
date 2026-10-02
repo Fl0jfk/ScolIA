@@ -106,6 +106,8 @@ export function TripHeroHeader({
   status,
   statusPulse,
   coverImageUrl,
+  coverImageAttribution,
+  coverImageAttributionUrl,
 }: {
   title: string;
   typeLabel: string;
@@ -115,6 +117,8 @@ export function TripHeroHeader({
   status: string;
   statusPulse?: boolean;
   coverImageUrl?: string | null;
+  coverImageAttribution?: string | null;
+  coverImageAttributionUrl?: string | null;
 }) {
   const etabEmoji = establishmentKindEmoji(inferEstablishmentKind({ label: etablissement }));
 
@@ -133,6 +137,22 @@ export function TripHeroHeader({
       ) : (
         <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_top_right,white,transparent_55%)]" />
       )}
+      {coverImageAttribution ? (
+        <div className="absolute bottom-2 right-3 z-10 max-w-[70%] text-right">
+          {coverImageAttributionUrl ? (
+            <a
+              href={coverImageAttributionUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] text-white/55 hover:text-white/80 underline-offset-2 hover:underline"
+            >
+              Photo : {coverImageAttribution}
+            </a>
+          ) : (
+            <span className="text-[10px] text-white/55">Photo : {coverImageAttribution}</span>
+          )}
+        </div>
+      ) : null}
       <div className="relative px-6 sm:px-8 py-6 sm:py-8">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="space-y-3 min-w-0">

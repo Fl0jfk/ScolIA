@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { getJson, putJson } from "@/app/lib/s3-storage";
-import { selectTravelCoverImage } from "@/app/lib/travels-select-cover-image";
+import {
+  formatTravelImageAttribution,
+  selectTravelCoverImage,
+} from "@/app/lib/travels-select-cover-image";
 import { normalizeTripImageFields } from "@/app/lib/travels-image-url";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
@@ -38,10 +41,15 @@ export async function POST(req: Request) {
     const actor = me?.fullName || me?.primaryEmailAddress?.emailAddress || "Admin";
     const now = new Date().toISOString();
 
+    const attribution = formatTravelImageAttribution(selected);
     const updatedTrip: TravelsTrip = {
       ...trip,
       imageUrl: selected.url,
       imageConfigId: selected.id,
+      imageAttribution: attribution,
+      imageAuthor: selected.author ?? null,
+      imageLicense: selected.license ?? null,
+      imageAttributionUrl: selected.attributionUrl ?? null,
       updatedAt: now,
       history: [
         ...(trip.history || []),
@@ -49,7 +57,9 @@ export async function POST(req: Request) {
           date: now,
           user: actor,
           action: "IMAGE_REGENEREE",
-          note: `Image de présentation régénérée (IA) → ${selected.label || selected.id}`,
+          note: `Image de présentation régénérée (IA) → ${selected.label || selected.id}${
+            attribution ? ` (${attribution})` : ""
+          }`,
         },
       ],
     };
@@ -66,6 +76,10 @@ export async function POST(req: Request) {
           ...t,
           imageUrl: selected.url,
           imageConfigId: selected.id,
+          imageAttribution: attribution,
+          imageAuthor: selected.author ?? null,
+          imageLicense: selected.license ?? null,
+          imageAttributionUrl: selected.attributionUrl ?? null,
           updatedAt: now,
           data: {
             ...t.data,
@@ -81,6 +95,7 @@ export async function POST(req: Request) {
       imageUrl: selected.url,
       imageConfigId: selected.id,
       imageLabel: selected.label,
+      imageAttribution: attribution,
     });
   } catch (e) {
     console.error("[travels/regenerate-image]", e);

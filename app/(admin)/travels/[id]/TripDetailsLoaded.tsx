@@ -1587,6 +1587,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           (typeof trip.imageUrl === "string" && trip.imageUrl) ||
             (typeof trip.data?.imageUrl === "string" ? trip.data.imageUrl : undefined),
         )}
+        coverImageAttribution={
+          typeof trip.imageAttribution === "string" ? trip.imageAttribution : null
+        }
+        coverImageAttributionUrl={
+          typeof trip.imageAttributionUrl === "string" ? trip.imageAttributionUrl : null
+        }
       />
 
       <TripQuickStats

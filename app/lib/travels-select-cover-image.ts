@@ -1,18 +1,20 @@
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { normalizePublicImageUrl } from "@/app/lib/scola-image";
-import IMAGE_CATALOG from "@/app/api/travels/update/image-catalog.json";
+import {
+  buildTravelPlaceSearchQuery,
+  findTravelCatalogByNormalizeKey,
+  formatTravelImageAttribution,
+  listTravelCatalogImages,
+  normalizeTravelImageKey,
+  rankTravelCatalogCandidates,
+  scoreTravelCatalogMatch,
+  tokenizeTravelPlaceQuery,
+  type TravelCatalogImage,
+} from "@/app/lib/travels-image-catalog-db";
+import { fetchAndEnrichTravelCoverImage } from "@/app/lib/travels-image-web-search";
 
-type TravelCatalogImage = {
-  id: string;
-  label: string;
-  url: string;
-  keywords?: string;
-};
-
-const catalog = (IMAGE_CATALOG as TravelCatalogImage[]).map((img) => ({
-  ...img,
-  url: normalizePublicImageUrl(img.url),
-}));
+export type { TravelCatalogImage };
+export { formatTravelImageAttribution };
 
 function withNormalizedUrl(img: TravelCatalogImage): TravelCatalogImage {
   return { ...img, url: normalizePublicImageUrl(img.url) };
@@ -24,7 +26,10 @@ function normalizeId(value: string | undefined | null): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function fallbackImage(excludeId?: string | null): TravelCatalogImage {
+function fallbackImage(
+  catalog: TravelCatalogImage[],
+  excludeId?: string | null,
+): TravelCatalogImage {
   const excluded = normalizeId(excludeId);
   const alternatives = excluded
     ? catalog.filter((img) => normalizeId(img.id) !== excluded)
@@ -33,29 +38,39 @@ function fallbackImage(excludeId?: string | null): TravelCatalogImage {
   return pool[Math.floor(Math.random() * pool.length)] || catalog[0];
 }
 
-/**
- * Choisit une image de présentation dans le catalogue via Mistral
- * (même logique qu’à la création d’un dossier travels).
- */
-export async function selectTravelCoverImage(opts: {
+function isStrongLexicalMatch(
+  ranked: TravelCatalogImage[],
+  title: string,
+  destination: string,
+): boolean {
+  const top = ranked[0];
+  if (!top) return false;
+  const tokens = tokenizeTravelPlaceQuery(title, destination);
+  return scoreTravelCatalogMatch(top, tokens) >= 6;
+}
+
+async function pickFromCatalogWithMistral(opts: {
+  catalog: TravelCatalogImage[];
   title: string;
   destination: string;
-  /** Si fourni, l’IA évite cette image (régénération). */
   excludeId?: string | null;
-}): Promise<TravelCatalogImage> {
-  const title = opts.title || "Titre introuvable";
-  const destination = opts.destination || "Destination introuvable";
-  const excludeId = opts.excludeId || null;
+}): Promise<TravelCatalogImage | null> {
+  const mistralKey = await getMistralApiKey();
+  if (!mistralKey || opts.catalog.length === 0) return null;
+
+  const candidates = rankTravelCatalogCandidates(
+    opts.catalog,
+    opts.title,
+    opts.destination,
+    opts.excludeId,
+  ).slice(0, 25);
+  const pool = candidates.length > 0 ? candidates : opts.catalog.slice(0, 40);
+  const catalogSummary = pool.map((i) => `${i.id} (${i.label})`).join(", ");
+  const avoidHint = opts.excludeId
+    ? ` Évite l'ID "${opts.excludeId}" si une autre image convient.`
+    : "";
 
   try {
-    const mistralKey = await getMistralApiKey();
-    if (!mistralKey) return withNormalizedUrl(fallbackImage(excludeId));
-
-    const catalogSummary = catalog.map((i) => `${i.id} (${i.label})`).join(", ");
-    const avoidHint = excludeId
-      ? ` Évite l'ID "${excludeId}" si une autre image convient.`
-      : "";
-
     const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -67,34 +82,104 @@ export async function selectTravelCoverImage(opts: {
         messages: [
           {
             role: "system",
-            content: `Choisis l'ID exact parmis : ${catalogSummary}. Réponds uniquement par l'ID. Sinon "img_default".${avoidHint}`,
+            content:
+              `Tu choisis l'illustration d'une sortie scolaire. ` +
+              `Réponds UNIQUEMENT par l'ID exact parmi : ${catalogSummary}. ` +
+              `Si AUCUNE image ne correspond clairement au lieu / thème, réponds exactement NONE.` +
+              avoidHint,
           },
           {
             role: "user",
-            content: `DONNÉES À ANALYSER : - TITRE : "${title}" - LIEU : "${destination}"`,
+            content: `TITRE : "${opts.title}" — LIEU : "${opts.destination}"`,
           },
         ],
-        temperature: excludeId ? 0.4 : 0,
+        temperature: opts.excludeId ? 0.4 : 0,
       }),
     });
 
     const resData = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
-    const mistralChoice = resData.choices?.[0]?.message?.content?.trim();
-    const matched =
-      catalog.find(
-        (img) => normalizeId(img.id) === normalizeId(mistralChoice),
-      ) ||
-      catalog.find((img) => img.id === "img_default") ||
-      catalog[0];
+    const choice = resData.choices?.[0]?.message?.content?.trim() || "";
+    if (!choice || /^none$/i.test(choice) || /^img_default$/i.test(choice)) {
+      return null;
+    }
 
-    if (excludeId && normalizeId(matched.id) === normalizeId(excludeId)) {
-      return withNormalizedUrl(fallbackImage(excludeId));
+    const matched = pool.find(
+      (img) => normalizeId(img.id) === normalizeId(choice),
+    );
+    if (!matched) return null;
+    if (opts.excludeId && normalizeId(matched.id) === normalizeId(opts.excludeId)) {
+      return null;
     }
     return withNormalizedUrl(matched);
   } catch (err) {
-    console.error("[travels-select-cover-image]", err);
-    return withNormalizedUrl(fallbackImage(excludeId));
+    console.error("[travels-select-cover-image] mistral", err);
+    return null;
   }
+}
+
+/**
+ * Choisit une image de présentation :
+ * 1) match fort / Mistral dans le catalogue partagé (JSON seed + BDD enrichie)
+ * 2) sinon recherche Wikimedia / Unsplash → copie S3 → enrichit le catalogue
+ * 3) sinon image aléatoire du catalogue
+ */
+export async function selectTravelCoverImage(opts: {
+  title: string;
+  destination: string;
+  /** Si fourni, l’IA évite cette image (régénération). */
+  excludeId?: string | null;
+  /** Désactive l’enrichissement web (tests / offline). */
+  allowWebEnrichment?: boolean;
+}): Promise<TravelCatalogImage> {
+  const title = opts.title || "Titre introuvable";
+  const destination = opts.destination || "Destination introuvable";
+  const excludeId = opts.excludeId || null;
+  const allowWeb = opts.allowWebEnrichment !== false;
+
+  const catalog = await listTravelCatalogImages();
+  if (catalog.length === 0) {
+    throw new Error("Catalogue d'images voyages vide");
+  }
+
+  const placeQuery = buildTravelPlaceSearchQuery(title, destination);
+  const exactKey = normalizeTravelImageKey(placeQuery);
+  if (exactKey) {
+    const exact = await findTravelCatalogByNormalizeKey(exactKey);
+    if (exact && normalizeId(exact.id) !== normalizeId(excludeId)) {
+      return withNormalizedUrl(exact);
+    }
+  }
+
+  const ranked = rankTravelCatalogCandidates(catalog, title, destination, excludeId);
+  if (ranked[0] && isStrongLexicalMatch(ranked, title, destination)) {
+    return withNormalizedUrl(ranked[0]);
+  }
+
+  const fromAi = await pickFromCatalogWithMistral({
+    catalog,
+    title,
+    destination,
+    excludeId,
+  });
+  if (fromAi) return fromAi;
+
+  if (allowWeb) {
+    try {
+      const enriched = await fetchAndEnrichTravelCoverImage({
+        query: placeQuery,
+        title,
+        destination,
+      });
+      if (enriched && normalizeId(enriched.id) !== normalizeId(excludeId)) {
+        return withNormalizedUrl(enriched);
+      }
+    } catch (err) {
+      console.error("[travels-select-cover-image] web enrich", err);
+    }
+  }
+
+  if (ranked[0]) return withNormalizedUrl(ranked[0]);
+  return withNormalizedUrl(fallbackImage(catalog, excludeId));
 }

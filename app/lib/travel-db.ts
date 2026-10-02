@@ -205,6 +205,19 @@ function assembleTravel(
     updatedAt: m.updatedAt?.toISOString(),
     imageUrl: m.imageUrl ?? undefined,
     imageConfigId: m.imageConfigId ?? undefined,
+    ...(typeof rootExtras.imageAttribution === "string"
+      ? { imageAttribution: rootExtras.imageAttribution }
+      : {}),
+    ...(typeof rootExtras.imageAuthor === "string" || rootExtras.imageAuthor === null
+      ? { imageAuthor: rootExtras.imageAuthor as string | null }
+      : {}),
+    ...(typeof rootExtras.imageLicense === "string" || rootExtras.imageLicense === null
+      ? { imageLicense: rootExtras.imageLicense as string | null }
+      : {}),
+    ...(typeof rootExtras.imageAttributionUrl === "string" ||
+    rootExtras.imageAttributionUrl === null
+      ? { imageAttributionUrl: rootExtras.imageAttributionUrl as string | null }
+      : {}),
     data,
     history: [...parts.history]
       .sort((a, b) => a.sortOrder - b.sortOrder)

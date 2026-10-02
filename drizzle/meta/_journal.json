@@ -393,6 +393,20 @@
       "when": 1787710000000,
       "tag": "0056_messaging_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1787720000000,
+      "tag": "0057_invitation_eligible_situation",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1787730000000,
+      "tag": "0058_travel_image_catalog",
+      "breakpoints": true
     }
   ]
 }
