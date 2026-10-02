@@ -19,6 +19,7 @@ type Props = {
 export default function PartenariatsPublicCatalogClient({ schoolName, offres }: Props) {
   const [cycle, setCycle] = useState<PartenariatCycle | null>(null);
   const [niveau, setNiveau] = useState<string | null>(null);
+  const [logoFailed, setLogoFailed] = useState(false);
 
   const niveauxOptions = useMemo(() => {
     if (cycle) return PARTENARIAT_NIVEAUX_BY_CYCLE[cycle];
@@ -39,6 +40,15 @@ export default function PartenariatsPublicCatalogClient({ schoolName, offres }: 
     <div className="partenariats-public min-h-screen bg-[radial-gradient(1200px_600px_at_10%_-10%,#dbeafe_0%,transparent_55%),radial-gradient(900px_500px_at_90%_0%,#fef3c7_0%,transparent_50%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]">
       <div className="mx-auto max-w-5xl px-4 py-10 sm:py-14">
         <header className="mb-10 space-y-3">
+          {!logoFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src="/api/site/header-logo"
+              alt={schoolName || "Logo de l’établissement"}
+              className="h-16 w-auto max-w-[220px] object-contain object-left sm:h-20"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : null}
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-800/80">
             {schoolName || "Établissement"}
           </p>

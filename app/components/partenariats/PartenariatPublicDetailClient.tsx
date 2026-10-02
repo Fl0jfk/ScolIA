@@ -27,6 +27,7 @@ export default function PartenariatPublicDetailClient({ offre }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [schoolLogoFailed, setSchoolLogoFailed] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -78,7 +79,17 @@ export default function PartenariatPublicDetailClient({ offre }: Props) {
           ← Tous les partenariats
         </Link>
 
-        <header className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {!schoolLogoFailed ? (
+          <img
+            src="/api/site/header-logo"
+            alt={offre.schoolName || "Logo de l’établissement"}
+            className="mt-6 h-14 w-auto max-w-[200px] object-contain object-left sm:h-16"
+            onError={() => setSchoolLogoFailed(true)}
+          />
+        ) : null}
+
+        <header className={`${schoolLogoFailed ? "mt-6" : "mt-4"} flex flex-col gap-4 sm:flex-row sm:items-start`}>
           {offre.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
