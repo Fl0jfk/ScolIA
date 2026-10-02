@@ -7,7 +7,6 @@ import {
 } from "@/app/lib/establishment-visual";
 import {
   isTripTravelDatePast,
-  travelsListBudget,
   travelsListNbEleves,
   travelsListPipeline,
 } from "@/app/lib/travels-trip-helpers";
@@ -47,7 +46,6 @@ export default function TravelsTripBentoCard({
   );
   const isPast = isTripTravelDatePast(trip);
   const nbEleves = travelsListNbEleves(trip);
-  const budget = travelsListBudget(trip);
   const pipeline = travelsListPipeline(trip);
   const isFinalized = pipeline.done && !pipeline.blocked;
   const accent = isPast ? "#64748b" : isFinalized ? DONE_GREEN : vis.hex;
@@ -62,8 +60,6 @@ export default function TravelsTripBentoCard({
       ? `${trip.data.recurrenceIndex ?? "?"}/${trip.data.recurrenceTotal}`
       : null;
   const progressLabel = isPast ? "Terminée" : isFinalized ? "Finalisé" : pipeline.currentLabel;
-  const budgetLabel = budget.amount != null ? `${Math.round(budget.amount)}€` : "—";
-  const budgetKind = budget.kind === "valide" ? "Budget" : "Prévisionnel";
 
   return (
     <article
@@ -86,15 +82,15 @@ export default function TravelsTripBentoCard({
           : "Consultation liste uniquement — ouverture du dossier réservée à d’autres rôles"
       }
     >
-      {/* Media — listing style : image plein bord haut */}
-      <div className="relative isolate aspect-[16/10] w-full overflow-hidden bg-slate-100">
+      {/* Media — ~25 % moins haut qu’avant (16/10 → 16/7.5) */}
+      <div className="relative isolate aspect-[16/7.5] w-full overflow-hidden bg-slate-100">
         {imageUrl ? (
           <Image
             src={imageUrl}
             alt={trip.data?.title || "Sortie scolaire"}
             className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
             width={800}
-            height={500}
+            height={375}
           />
         ) : (
           <div
@@ -130,16 +126,7 @@ export default function TravelsTripBentoCard({
           <span className="truncate">{etabLabel}</span>
         </div>
 
-        {/* Prix / budget façon listing — ancré bas image */}
-        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
-          <div className="rounded-2xl bg-white/95 px-3 py-2 shadow-sm backdrop-blur-sm">
-            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-              {budgetKind}
-            </p>
-            <p className="text-lg font-black leading-none tracking-tight text-slate-900">
-              {budgetLabel}
-            </p>
-          </div>
+        <div className="absolute bottom-3 right-3">
           <span
             className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white shadow-md transition group-hover:translate-x-0.5"
             style={{ backgroundColor: accent }}
@@ -167,7 +154,6 @@ export default function TravelsTripBentoCard({
           </p>
         </div>
 
-        {/* Meta row — style amenities listing */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-slate-100 py-3 text-sm">
           <div className="flex items-center gap-1.5 font-semibold text-slate-700">
             <span className="text-slate-400" aria-hidden>
@@ -175,10 +161,6 @@ export default function TravelsTripBentoCard({
             </span>
             <span>{nbEleves != null ? nbEleves : "—"}</span>
             <span className="font-medium text-slate-400">élèves</span>
-          </div>
-          <div className="h-4 w-px bg-slate-200" aria-hidden />
-          <div className="min-w-0 flex-1 truncate text-xs font-medium text-slate-400">
-            Dossier du {formatDate(trip, "created")}
           </div>
         </div>
 

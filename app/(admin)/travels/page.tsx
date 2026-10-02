@@ -14,9 +14,6 @@ import {
 import type { TravelsDirectionDashboard } from "@/app/lib/travels-direction-dashboard";
 import {
   isTripTravelDatePast,
-  travelsListBudget,
-  travelsListNbEleves,
-  travelsListPipeline,
   travelsTripMatchesSearch,
 } from "@/app/lib/travels-trip-helpers";
 import type { TravelsTrip } from "@/app/lib/travels-types";
