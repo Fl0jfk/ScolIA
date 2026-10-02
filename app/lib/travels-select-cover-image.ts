@@ -10,6 +10,7 @@ import {
   strongTravelThemeTokens,
   tokenizeTravelPlaceQuery,
   buildTravelWebSearchQueries,
+  isSchoolSafeCoverText,
   type TravelCatalogImage,
 } from "@/app/lib/travels-image-catalog-db";
 import { fetchAndEnrichTravelCoverImage } from "@/app/lib/travels-image-web-search";
@@ -30,15 +31,19 @@ function normalizeId(value: string | undefined | null): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function isStrongLexicalMatch(
+function isUsableCatalogCover(
   img: TravelCatalogImage | undefined,
   title: string,
   destination: string,
-): boolean {
+): img is TravelCatalogImage {
   if (!img) return false;
+  if (!isSchoolSafeCoverText(img.label, img.keywords || "", img.id)) return false;
   const tokens = strongTravelThemeTokens(title, destination);
   if (tokens.length === 0) {
-    return scoreTravelCatalogMatch(img, tokenizeTravelPlaceQuery(destination)) >= STRONG_MATCH_SCORE;
+    return (
+      scoreTravelCatalogMatch(img, tokenizeTravelPlaceQuery(destination)) >=
+      STRONG_MATCH_SCORE
+    );
   }
   return scoreTravelCatalogMatch(img, tokens) >= STRONG_MATCH_SCORE;
 }
@@ -79,10 +84,11 @@ async function pickFromCatalogWithMistral(opts: {
             content:
               `Tu sélectionnes l'illustration d'une sortie / d'un séjour scolaire.\n` +
               `Règles STRICTES :\n` +
-              `- Choisis un ID UNIQUEMENT si le libellé / mots-clés décrivent clairement le MÊME lieu ou la MÊME activité (ex. surf → surf / océan ; pas un musée, pas un cimetière).\n` +
-              `- Si aucune entrée ne correspond clairement, réponds exactement NONE.\n` +
+              `- Choisis un ID UNIQUEMENT si le libellé / mots-clés décrivent clairement le MÊME lieu ou la MÊME activité concrète (ex. drone → drone loisir / Houlgate ; surf → océan).\n` +
+              `- Jamais une image générique (« concours », « festival ») si le vrai sujet est une activité ou un lieu.\n` +
+              `- Jamais une image militaire, de guerre, d'arme ou de drone de combat.\n` +
+              `- Si aucune entrée ne convient clairement et de façon adaptée à une école, réponds exactement NONE.\n` +
               `- Ne force JAMAIS un choix par approximation.\n` +
-              `- NONE est la bonne réponse dès qu'il y a un doute.\n` +
               `Réponds UNIQUEMENT par l'ID exact (une ligne) ou NONE.\n` +
               `Candidats :\n${catalogSummary}` +
               avoidHint,
@@ -159,15 +165,17 @@ export async function selectTravelCoverImage(opts: {
       if (
         exact &&
         normalizeId(exact.id) !== normalizeId(excludeId) &&
-        isStrongLexicalMatch(exact, title, destination)
+        isUsableCatalogCover(exact, title, destination)
       ) {
         return withNormalizedUrl(exact);
       }
     }
 
-    const ranked = rankTravelCatalogCandidates(catalog, title, destination, excludeId);
-    if (isStrongLexicalMatch(ranked[0], title, destination)) {
-      return withNormalizedUrl(ranked[0]!);
+    const ranked = rankTravelCatalogCandidates(catalog, title, destination, excludeId).filter(
+      (img) => isUsableCatalogCover(img, title, destination),
+    );
+    if (ranked[0]) {
+      return withNormalizedUrl(ranked[0]);
     }
   }
 
@@ -180,6 +188,9 @@ export async function selectTravelCoverImage(opts: {
         excludeImageUrls: opts.excludeImageUrl ? [opts.excludeImageUrl] : [],
       });
       if (!enriched?.url) return null;
+      if (!isSchoolSafeCoverText(enriched.label, enriched.keywords || "", enriched.id)) {
+        return null;
+      }
       // Régénération : on accepte même le même id catalogue si l’URL a changé,
       // et on refuse seulement si c’est strictement la même image exclue.
       if (
@@ -206,7 +217,7 @@ export async function selectTravelCoverImage(opts: {
     title,
     destination,
     excludeId,
-  );
+  ).filter((img) => isUsableCatalogCover(img, title, destination));
   const fromAi = await pickFromCatalogWithMistral({
     candidates: ranked,
     title,

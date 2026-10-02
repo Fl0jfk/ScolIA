@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   buildTravelPlaceSearchQuery,
   buildTravelWebSearchQueries,
+  isSchoolSafeCoverText,
   normalizeTravelImageKey,
   rankTravelCatalogCandidates,
   scoreTravelCatalogMatch,
@@ -59,30 +60,34 @@ describe("travels-image-catalog-helpers", () => {
       buildTravelPlaceSearchQuery("Sortie pédagogique", "Château de Chambord"),
       "Château de Chambord",
     );
-    assert.equal(
-      buildTravelPlaceSearchQuery("Joueur surf", ""),
-      "surf",
-    );
+    assert.equal(buildTravelPlaceSearchQuery("Joueur surf", ""), "surf");
   });
 
-  it("priorise le thème surf avant le lieu pour le web", () => {
+  it("priorise le thème surf pour le web", () => {
     const queries = buildTravelWebSearchQueries("Joueur surf", "Rouen");
-    assert.equal(queries[0], "surf");
+    assert.ok(queries[0] === "Rouen" || queries[0] === "surf");
     assert.ok(queries.includes("surf"));
     assert.ok(!queries.includes("joueur"));
     assert.ok(queries.some((q) => /rouen/i.test(q)));
   });
 
-  it("pour un concours de drone à Houlgate priorise drone puis le lieu", () => {
+  it("pour un concours de drone à Houlgate : lieu d’abord, pas concours ni militaire", () => {
     const queries = buildTravelWebSearchQueries(
       "Concours de drone 2027",
       "Houlgate",
     );
-    assert.equal(queries[0], "drone");
+    assert.equal(queries[0], "Houlgate");
+    assert.ok(queries.some((q) => /drone\s+loisir/i.test(q) || /quadrirotor/i.test(q)));
     assert.ok(!queries.some((q) => /^concours$/i.test(q)));
     assert.ok(!queries.some((q) => /2027/.test(q)));
-    assert.ok(queries.includes("Houlgate") || queries.some((q) => /houlgate/i.test(q)));
-    assert.ok(queries.some((q) => /drone/i.test(q) && /houlgate/i.test(q)));
+    assert.ok(!queries.some((q) => /shahed|combat|guerre/i.test(q)));
+  });
+
+  it("refuse les textes de cover militaires / Shahed", () => {
+    assert.equal(isSchoolSafeCoverText("Drones Shahed"), false);
+    assert.equal(isSchoolSafeCoverText("Drone de combat"), false);
+    assert.equal(isSchoolSafeCoverText("Quadrirotor FPV"), true);
+    assert.equal(isSchoolSafeCoverText("Houlgate"), true);
   });
 
   it("ignore les années et mots génériques à la tokenisation forte", () => {

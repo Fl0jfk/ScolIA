@@ -14,6 +14,7 @@ export {
   buildTravelPlaceSearchQuery,
   buildTravelWebSearchQueries,
   formatTravelImageAttribution,
+  isSchoolSafeCoverText,
   normalizeTravelImageKey,
   rankTravelCatalogCandidates,
   scoreTravelCatalogMatch,

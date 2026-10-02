@@ -5,6 +5,7 @@ import { SCOLA_IMAGE_BUCKET, scolaImageUrl } from "@/app/lib/scola-image";
 import { sanitizeS3FileName, s3Key } from "@/app/lib/s3-path";
 import {
   buildTravelWebSearchQueries,
+  isSchoolSafeCoverText,
   normalizeTravelImageKey,
   strongTravelThemeTokens,
   upsertTravelCatalogImage,
@@ -235,20 +236,19 @@ function normalizeHay(value: string): string {
     .toLowerCase();
 }
 
-/** Refuse une image web hors sujet (ex. page « Concours » pour un séjour drone). */
+/** Refuse une image web hors sujet ou inadaptée à une école. */
 function hitLooksRelevant(hit: WebImageHit, query: string, themeTokens: string[]): boolean {
+  if (!isSchoolSafeCoverText(hit.title, query, hit.imageUrl)) return false;
+
   const titleHay = normalizeHay(hit.title);
   const queryHay = normalizeHay(query);
   const distinctive = themeTokens.filter((t) => t.length >= 4);
   if (distinctive.length === 0) return true;
 
-  // Tokens du thème présents dans CETTE requête (ex. « drone » dans « drone Houlgate »).
   const themeInQuery = distinctive.filter((t) => queryHay.includes(t));
   if (themeInQuery.length === 0) {
-    // Requête = lieu seul (ex. « Houlgate ») : on accepte le résultat lieu.
     return true;
   }
-  // Le titre de l’image doit coller à l’activité / lieu concret de la requête.
   return themeInQuery.some((t) => titleHay.includes(t));
 }
 
@@ -319,18 +319,20 @@ async function wikiSummaryFromTitle(
 
 async function fetchWikipediaSummary(query: string, lang: "fr" | "en"): Promise<WebImageHit | null> {
   const titleGuess = query.trim().replace(/\s+/g, "_");
-  const direct =
-    (await wikiSummaryFromTitle(titleGuess, lang)) ||
-    (await wikiSummaryFromTitle(query.trim(), lang));
-  if (direct) return direct;
+  const directCandidates = [titleGuess, query.trim()];
+  for (const candidate of directCandidates) {
+    if (!isSchoolSafeCoverText(candidate)) continue;
+    const direct = await wikiSummaryFromTitle(candidate, lang);
+    if (direct && isSchoolSafeCoverText(direct.title)) return direct;
+  }
 
-  // Recherche plein texte : « joueur surf » → page « Surf »
+  // Recherche plein texte — on ignore les pages militaires / hors sujet scolaire.
   try {
     const api = new URL(`https://${lang}.wikipedia.org/w/api.php`);
     api.searchParams.set("action", "query");
     api.searchParams.set("list", "search");
     api.searchParams.set("srsearch", query);
-    api.searchParams.set("srlimit", "5");
+    api.searchParams.set("srlimit", "10");
     api.searchParams.set("srnamespace", "0");
     api.searchParams.set("format", "json");
     api.searchParams.set("origin", "*");
@@ -341,11 +343,30 @@ async function fetchWikipediaSummary(query: string, lang: "fr" | "en"): Promise<
     const data = (await res.json()) as {
       query?: { search?: Array<{ title?: string }> };
     };
-    for (const row of data.query?.search || []) {
-      const title = String(row.title || "").trim();
-      if (!title) continue;
-      const hit = await wikiSummaryFromTitle(title, lang);
-      if (hit) return hit;
+    const queryNorm = normalizeHay(query);
+    const ranked = (data.query?.search || [])
+      .map((row) => String(row.title || "").trim())
+      .filter(Boolean)
+      .filter((title) => isSchoolSafeCoverText(title))
+      .map((title) => {
+        const t = normalizeHay(title);
+        let score = 0;
+        if (t === queryNorm) score += 20;
+        if (t.startsWith(queryNorm) || queryNorm.startsWith(t)) score += 10;
+        for (const part of queryNorm.split(/\s+/).filter((p) => p.length >= 4)) {
+          if (t === part) score += 8;
+          else if (t.includes(part)) score += 3;
+        }
+        // Pénalise les listes / pages techniques hors illustration.
+        if (t.startsWith("liste ") || t.startsWith("list of ")) score -= 8;
+        return { title, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    for (const row of ranked) {
+      const hit = await wikiSummaryFromTitle(row.title, lang);
+      if (hit && isSchoolSafeCoverText(hit.title)) return hit;
     }
   } catch (err) {
     console.error("[travels-image-web] wiki search failed", lang, err);
@@ -402,6 +423,8 @@ async function searchWikimediaCommons(
       const mime = String(info?.mime || "").toLowerCase();
       if (mime && !mime.startsWith("image/")) continue;
       if (mime.includes("svg")) continue;
+      const title = (page.title || query).replace(/^File:/i, "").replace(/\.[^.]+$/, "");
+      if (!isSchoolSafeCoverText(title, query)) continue;
       const meta = info?.extmetadata || {};
       const artistRaw = meta.Artist?.value || meta.Credit?.value || "";
       const license = meta.LicenseShortName?.value || meta.License?.value || "CC";
@@ -411,7 +434,7 @@ async function searchWikimediaCommons(
         .trim()
         .slice(0, 160);
       return {
-        title: (page.title || query).replace(/^File:/i, "").replace(/\.[^.]+$/, ""),
+        title,
         imageUrl: cleanImageUrl(imageUrl),
         alternateUrls: [info?.thumburl, info?.url]
           .filter((u): u is string => Boolean(u))
@@ -464,8 +487,10 @@ async function searchUnsplash(
     for (const photo of data.results || []) {
       const imageUrl = photo?.urls?.regular || photo?.urls?.full;
       if (!imageUrl || skipUrls.has(imageUrl)) continue;
+      const title = photo.alt_description || photo.description || query;
+      if (!isSchoolSafeCoverText(title, query)) continue;
       return {
-        title: photo.alt_description || photo.description || query,
+        title,
         imageUrl,
         author: photo.user?.name || "Unsplash photographer",
         license: "Unsplash License",
@@ -511,9 +536,11 @@ async function searchOpenverse(
     for (const photo of data.results || []) {
       const imageUrl = photo.url;
       if (!imageUrl || skipUrls.has(imageUrl)) continue;
+      const title = photo.title || query;
+      if (!isSchoolSafeCoverText(title, query)) continue;
       const license = [photo.license, photo.license_version].filter(Boolean).join(" ").trim();
       return {
-        title: photo.title || query,
+        title,
         imageUrl,
         author: photo.creator || null,
         license: license || "CC",
@@ -534,22 +561,23 @@ async function resolveWebHitForQuery(
   themeTokens: string[],
   skipUrls: Set<string>,
 ): Promise<WebImageHit | null> {
+  // Unsplash / Openverse avant Wikipedia pour les thèmes piégés (drone → militaire).
   const candidates: Array<WebImageHit | null> = [
+    await searchUnsplash(query, skipUrls),
+    await searchOpenverse(query, skipUrls),
     await fetchWikipediaSummary(query, "fr"),
     await fetchWikipediaSummary(query, "en"),
     await searchWikimediaCommons(query, skipUrls),
-    await searchUnsplash(query, skipUrls),
-    await searchOpenverse(query, skipUrls),
   ];
 
   for (const hit of candidates) {
     if (!hit?.imageUrl) continue;
-    if (skipUrls.has(hit.imageUrl)) continue;
+    if (skipUrls.has(hit.imageUrl) || skipUrls.has(cleanImageUrl(hit.imageUrl))) continue;
     if (!hitLooksRelevant(hit, query, themeTokens)) {
-      console.info(
-        "[travels-image-web] skip irrelevant hit",
-        { query, hitTitle: hit.title },
-      );
+      console.info("[travels-image-web] skip irrelevant/unsafe hit", {
+        query,
+        hitTitle: hit.title,
+      });
       continue;
     }
     return hit;
