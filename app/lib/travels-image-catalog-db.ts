@@ -12,9 +12,12 @@ import {
 export type { TravelCatalogImage };
 export {
   buildTravelPlaceSearchQuery,
+  buildTravelPlaceOnlyQueries,
+  buildTravelActivitySafeQueries,
   buildTravelWebSearchQueries,
   formatTravelImageAttribution,
   isSchoolSafeCoverText,
+  isWikiRiskyActivityToken,
   normalizeTravelImageKey,
   rankTravelCatalogCandidates,
   scoreTravelCatalogMatch,

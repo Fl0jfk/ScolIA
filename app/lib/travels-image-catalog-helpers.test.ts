@@ -77,15 +77,23 @@ describe("travels-image-catalog-helpers", () => {
       "Houlgate",
     );
     assert.equal(queries[0], "Houlgate");
-    assert.ok(queries.some((q) => /drone\s+loisir/i.test(q) || /quadrirotor/i.test(q)));
+    assert.ok(queries.some((q) => /quadcopter|drone loisir|quadrirotor|hobby/i.test(q)));
     assert.ok(!queries.some((q) => /^concours$/i.test(q)));
     assert.ok(!queries.some((q) => /2027/.test(q)));
+    assert.ok(!queries.some((q) => /^drone$/i.test(q)), "pas de requête « drone » nue");
     assert.ok(!queries.some((q) => /shahed|combat|guerre/i.test(q)));
   });
 
-  it("refuse les textes de cover militaires / Shahed", () => {
+  it("refuse les textes/URL de cover militaires / Shahed / IAI Heron", () => {
     assert.equal(isSchoolSafeCoverText("Drones Shahed"), false);
     assert.equal(isSchoolSafeCoverText("Drone de combat"), false);
+    assert.equal(
+      isSchoolSafeCoverText(
+        "Drone",
+        "https://upload.wikimedia.org/wikipedia/commons/4/4e/IAI_Heron_(frame).jpg",
+      ),
+      false,
+    );
     assert.equal(isSchoolSafeCoverText("Quadrirotor FPV"), true);
     assert.equal(isSchoolSafeCoverText("Houlgate"), true);
   });

@@ -9,6 +9,7 @@ import {
   scoreTravelCatalogMatch,
   strongTravelThemeTokens,
   tokenizeTravelPlaceQuery,
+  buildTravelPlaceOnlyQueries,
   buildTravelWebSearchQueries,
   isSchoolSafeCoverText,
   type TravelCatalogImage,
@@ -18,7 +19,6 @@ import { fetchAndEnrichTravelCoverImage } from "@/app/lib/travels-image-web-sear
 export type { TravelCatalogImage };
 export { formatTravelImageAttribution };
 
-/** Seuil : l’image doit clairement coller au lieu / thème (pas une approximation). */
 const STRONG_MATCH_SCORE = 6;
 
 function withNormalizedUrl(img: TravelCatalogImage): TravelCatalogImage {
@@ -37,7 +37,13 @@ function isUsableCatalogCover(
   destination: string,
 ): img is TravelCatalogImage {
   if (!img) return false;
-  if (!isSchoolSafeCoverText(img.label, img.keywords || "", img.id)) return false;
+  if (!isSchoolSafeCoverText(img.label, img.keywords || "", img.id, img.url)) {
+    return false;
+  }
+  // Les auto-* issus d’anciennes recherches foireuses : ne pas les resservir en priorité.
+  if (img.source && img.source !== "manual" && String(img.id).startsWith("auto-")) {
+    return false;
+  }
   const tokens = strongTravelThemeTokens(title, destination);
   if (tokens.length === 0) {
     return (
@@ -48,10 +54,6 @@ function isUsableCatalogCover(
   return scoreTravelCatalogMatch(img, tokens) >= STRONG_MATCH_SCORE;
 }
 
-/**
- * Mistral uniquement parmi des candidats déjà proches lexicalement.
- * Peut répondre NONE — jamais de catalogue « au hasard ».
- */
 async function pickFromCatalogWithMistral(opts: {
   candidates: TravelCatalogImage[];
   title: string;
@@ -82,20 +84,16 @@ async function pickFromCatalogWithMistral(opts: {
           {
             role: "system",
             content:
-              `Tu sélectionnes l'illustration d'une sortie / d'un séjour scolaire.\n` +
-              `Règles STRICTES :\n` +
-              `- Choisis un ID UNIQUEMENT si le libellé / mots-clés décrivent clairement le MÊME lieu ou la MÊME activité concrète (ex. drone → drone loisir / Houlgate ; surf → océan).\n` +
-              `- Jamais une image générique (« concours », « festival ») si le vrai sujet est une activité ou un lieu.\n` +
-              `- Jamais une image militaire, de guerre, d'arme ou de drone de combat.\n` +
-              `- Si aucune entrée ne convient clairement et de façon adaptée à une école, réponds exactement NONE.\n` +
-              `- Ne force JAMAIS un choix par approximation.\n` +
-              `Réponds UNIQUEMENT par l'ID exact (une ligne) ou NONE.\n` +
+              `Tu sélectionnes l'illustration d'une sortie scolaire.\n` +
+              `Règles : lieu ou activité concrète adaptée à une école uniquement.\n` +
+              `Jamais concours générique, jamais militaire / drone de combat.\n` +
+              `Sinon NONE.\n` +
               `Candidats :\n${catalogSummary}` +
               avoidHint,
           },
           {
             role: "user",
-            content: `TITRE : "${opts.title}"\nLIEU / THÈME : "${opts.destination}"`,
+            content: `TITRE : "${opts.title}"\nLIEU : "${opts.destination}"`,
           },
         ],
         temperature: 0,
@@ -129,20 +127,15 @@ async function pickFromCatalogWithMistral(opts: {
 }
 
 /**
- * Choisit une image de présentation :
- * 1) match fort catalogue (clé / score lexical)
- * 2) sinon TOUJOURS recherche web (plusieurs requêtes : thème, lieu…)
- * 3) sinon Mistral seulement sur candidats proches
- * 4) jamais d’image catalogue aléatoire hors sujet
+ * 1) Catalogue manuel fort (Disneyland, etc.)
+ * 2) Web : lieu d’abord (Houlgate), puis activité loisir — jamais Wikipedia « drone »
+ * 3) Mistral catalogue manuel en dernier recours
  */
 export async function selectTravelCoverImage(opts: {
   title: string;
   destination: string;
-  /** Si fourni, on évite cette image (régénération). */
   excludeId?: string | null;
-  /** URL actuelle à éviter lors d’une régénération web. */
   excludeImageUrl?: string | null;
-  /** Désactive l’enrichissement web (tests / offline). */
   allowWebEnrichment?: boolean;
 }): Promise<TravelCatalogImage | null> {
   const title = opts.title || "Titre introuvable";
@@ -155,30 +148,6 @@ export async function selectTravelCoverImage(opts: {
     throw new Error("Catalogue d'images voyages vide");
   }
 
-  // Match catalogue fort uniquement (jamais un « à peu près » Rouen → cimetière).
-  if (catalog.length > 0) {
-    const queries = buildTravelWebSearchQueries(title, destination);
-    for (const q of queries.slice(0, 3)) {
-      const exactKey = normalizeTravelImageKey(q);
-      if (!exactKey) continue;
-      const exact = await findTravelCatalogByNormalizeKey(exactKey);
-      if (
-        exact &&
-        normalizeId(exact.id) !== normalizeId(excludeId) &&
-        isUsableCatalogCover(exact, title, destination)
-      ) {
-        return withNormalizedUrl(exact);
-      }
-    }
-
-    const ranked = rankTravelCatalogCandidates(catalog, title, destination, excludeId).filter(
-      (img) => isUsableCatalogCover(img, title, destination),
-    );
-    if (ranked[0]) {
-      return withNormalizedUrl(ranked[0]);
-    }
-  }
-
   const tryWebEnrichment = async (): Promise<TravelCatalogImage | null> => {
     if (!allowWeb) return null;
     try {
@@ -188,11 +157,16 @@ export async function selectTravelCoverImage(opts: {
         excludeImageUrls: opts.excludeImageUrl ? [opts.excludeImageUrl] : [],
       });
       if (!enriched?.url) return null;
-      if (!isSchoolSafeCoverText(enriched.label, enriched.keywords || "", enriched.id)) {
+      if (
+        !isSchoolSafeCoverText(
+          enriched.label,
+          enriched.keywords || "",
+          enriched.id,
+          enriched.url,
+        )
+      ) {
         return null;
       }
-      // Régénération : on accepte même le même id catalogue si l’URL a changé,
-      // et on refuse seulement si c’est strictement la même image exclue.
       if (
         excludeId &&
         normalizeId(enriched.id) === normalizeId(excludeId) &&
@@ -209,8 +183,42 @@ export async function selectTravelCoverImage(opts: {
     }
   };
 
-  const fromWeb = await tryWebEnrichment();
-  if (fromWeb) return fromWeb;
+  // Régénération OU lieu renseigné → web d’abord (évite de resservir un mauvais auto-*).
+  const preferWebFirst =
+    Boolean(excludeId) || buildTravelPlaceOnlyQueries(title, destination).length > 0;
+  if (preferWebFirst) {
+    const fromWeb = await tryWebEnrichment();
+    if (fromWeb) return fromWeb;
+  }
+
+  if (catalog.length > 0) {
+    const placeKeys = buildTravelPlaceOnlyQueries(title, destination);
+    for (const q of placeKeys.slice(0, 3)) {
+      const exactKey = normalizeTravelImageKey(q);
+      if (!exactKey) continue;
+      const exact = await findTravelCatalogByNormalizeKey(exactKey);
+      if (
+        exact &&
+        normalizeId(exact.id) !== normalizeId(excludeId) &&
+        isUsableCatalogCover(exact, title, destination)
+      ) {
+        return withNormalizedUrl(exact);
+      }
+    }
+
+    const ranked = rankTravelCatalogCandidates(
+      catalog,
+      title,
+      destination,
+      excludeId,
+    ).filter((img) => isUsableCatalogCover(img, title, destination));
+    if (ranked[0]) return withNormalizedUrl(ranked[0]);
+  }
+
+  if (!preferWebFirst) {
+    const fromWeb = await tryWebEnrichment();
+    if (fromWeb) return fromWeb;
+  }
 
   const ranked = rankTravelCatalogCandidates(
     catalog,
@@ -226,7 +234,6 @@ export async function selectTravelCoverImage(opts: {
   });
   if (fromAi) return fromAi;
 
-  // Pas de fallback aléatoire : mieux aucune image qu’un cimetière pour du surf.
   console.warn("[travels-select-cover-image] no suitable cover", {
     title,
     destination,

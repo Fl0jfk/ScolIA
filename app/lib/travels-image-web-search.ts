@@ -4,8 +4,10 @@ import { getPlatformS3Client } from "@/app/lib/s3-clients";
 import { SCOLA_IMAGE_BUCKET, scolaImageUrl } from "@/app/lib/scola-image";
 import { sanitizeS3FileName, s3Key } from "@/app/lib/s3-path";
 import {
-  buildTravelWebSearchQueries,
+  buildTravelActivitySafeQueries,
+  buildTravelPlaceOnlyQueries,
   isSchoolSafeCoverText,
+  isWikiRiskyActivityToken,
   normalizeTravelImageKey,
   strongTravelThemeTokens,
   upsertTravelCatalogImage,
@@ -560,23 +562,30 @@ async function resolveWebHitForQuery(
   query: string,
   themeTokens: string[],
   skipUrls: Set<string>,
+  opts?: { allowWikipedia?: boolean },
 ): Promise<WebImageHit | null> {
-  // Unsplash / Openverse avant Wikipedia pour les thèmes piégés (drone → militaire).
-  const candidates: Array<WebImageHit | null> = [
-    await searchUnsplash(query, skipUrls),
-    await searchOpenverse(query, skipUrls),
-    await fetchWikipediaSummary(query, "fr"),
-    await fetchWikipediaSummary(query, "en"),
-    await searchWikimediaCommons(query, skipUrls),
+  const allowWiki = opts?.allowWikipedia !== false;
+  const sources: Array<() => Promise<WebImageHit | null>> = [
+    () => searchUnsplash(query, skipUrls),
+    () => searchOpenverse(query, skipUrls),
   ];
+  if (allowWiki) {
+    sources.push(
+      () => fetchWikipediaSummary(query, "fr"),
+      () => fetchWikipediaSummary(query, "en"),
+      () => searchWikimediaCommons(query, skipUrls),
+    );
+  }
 
-  for (const hit of candidates) {
+  for (const load of sources) {
+    const hit = await load();
     if (!hit?.imageUrl) continue;
     if (skipUrls.has(hit.imageUrl) || skipUrls.has(cleanImageUrl(hit.imageUrl))) continue;
     if (!hitLooksRelevant(hit, query, themeTokens)) {
       console.info("[travels-image-web] skip irrelevant/unsafe hit", {
         query,
         hitTitle: hit.title,
+        url: hit.imageUrl.slice(0, 80),
       });
       continue;
     }
@@ -585,34 +594,35 @@ async function resolveWebHitForQuery(
   return null;
 }
 
-async function resolveWebHit(
-  queries: string[],
-  themeTokens: string[],
-  skipUrls: Set<string>,
-): Promise<{ hit: WebImageHit; query: string } | null> {
-  for (const query of queries) {
-    const hit = await resolveWebHitForQuery(query, themeTokens, skipUrls);
-    if (hit) return { hit, query };
-  }
-  return null;
+function queryAllowsWikipedia(query: string): boolean {
+  const parts = query
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  // « drone », « uav », etc. : Wikipedia = pages militaires → Openverse/Unsplash only.
+  return !parts.some((p) => isWikiRiskyActivityToken(p));
 }
 
 /**
- * Cherche une image web (Wikimedia / Unsplash / Openverse), la copie sur le CDN public,
- * et l'enregistre dans le catalogue partagé pour réutilisation.
+ * Cherche une image web, la copie sur le CDN public, enrichit le catalogue.
+ * Enchaîne les requêtes : si download/upload échoue, passe à la suivante.
  */
 export async function fetchAndEnrichTravelCoverImage(opts: {
   query?: string;
   title?: string;
   destination?: string;
-  /** URLs à éviter (régénération). */
   excludeImageUrls?: string[];
 }): Promise<TravelCatalogImage | null> {
   const title = String(opts.title || "").trim();
   const destination = String(opts.destination || "").trim();
+  const placeQueries = buildTravelPlaceOnlyQueries(title, destination);
+  const activityQueries = buildTravelActivitySafeQueries(title, destination);
   const queries = [
     ...(opts.query ? [opts.query] : []),
-    ...buildTravelWebSearchQueries(title, destination),
+    ...placeQueries,
+    ...activityQueries,
   ].filter((q, i, arr) => q && arr.findIndex((x) => x.toLowerCase() === q.toLowerCase()) === i);
 
   if (queries.length === 0) return null;
@@ -622,62 +632,71 @@ export async function fetchAndEnrichTravelCoverImage(opts: {
     (opts.excludeImageUrls || []).map((u) => String(u || "").trim()).filter(Boolean),
   );
 
-  const resolved = await resolveWebHit(queries, themeTokens, skipUrls);
-  if (!resolved) {
-    console.warn("[travels-image-web] no relevant hit", { queries: queries.slice(0, 5) });
-    return null;
-  }
-
-  const { hit, query } = resolved;
-  const downloaded = await downloadBestCandidate(hit);
-  if (!downloaded) {
-    console.warn("[travels-image-web] could not download image bytes", {
-      query,
-      title: hit.title,
-      url: hit.imageUrl,
+  for (const query of queries) {
+    const allowWikipedia = queryAllowsWikipedia(query);
+    const hit = await resolveWebHitForQuery(query, themeTokens, skipUrls, {
+      allowWikipedia,
     });
-    return null;
+    if (!hit) continue;
+
+    skipUrls.add(hit.imageUrl);
+    skipUrls.add(cleanImageUrl(hit.imageUrl));
+
+    if (!isSchoolSafeCoverText(hit.title, hit.imageUrl, query)) {
+      console.info("[travels-image-web] skip unsafe after resolve", hit.title);
+      continue;
+    }
+
+    const downloaded = await downloadBestCandidate(hit);
+    if (!downloaded) {
+      console.warn("[travels-image-web] download failed, try next query", {
+        query,
+        title: hit.title,
+      });
+      continue;
+    }
+
+    const normalizeKey = normalizeTravelImageKey(query);
+    const ext = extFromMimeOrUrl(downloaded.contentType || hit.mime, downloaded.sourceUrl);
+    const hostedUrl = await uploadCoverToPublicBucket({
+      normalizeKey: normalizeKey || "place",
+      bytes: downloaded.bytes,
+      contentType: downloaded.contentType,
+      ext,
+    });
+    if (!hostedUrl) {
+      console.warn("[travels-image-web] CDN upload failed, try next query", { query });
+      continue;
+    }
+
+    const label =
+      hit.title ||
+      (placeQueries.includes(query) ? destination : "") ||
+      query;
+    const keywords = [query, title, destination, hit.title]
+      .join(", ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 400);
+    const id = `auto-${normalizeKey || Date.now().toString(36)}`.slice(0, 80);
+
+    const saved = await upsertTravelCatalogImage({
+      id,
+      label: label.slice(0, 160),
+      url: hostedUrl,
+      keywords,
+      normalizeKey,
+      source: hit.source === "openverse" ? "openverse" : hit.source,
+      author: hit.author,
+      license: hit.license,
+      attributionUrl: hit.attributionUrl,
+      sourcePageUrl: hit.sourcePageUrl,
+    });
+    if (saved?.url) return saved;
   }
 
-  const normalizeKey = normalizeTravelImageKey(query);
-  const ext = extFromMimeOrUrl(downloaded.contentType || hit.mime, downloaded.sourceUrl);
-  const hostedUrl = await uploadCoverToPublicBucket({
-    normalizeKey: normalizeKey || "place",
-    bytes: downloaded.bytes,
-    contentType: downloaded.contentType,
-    ext,
+  console.warn("[travels-image-web] no usable cover after all queries", {
+    queries: queries.slice(0, 8),
   });
-
-  // Obligatoire : URL sur le CDN public scolia-images (pas de bucket privé, pas d’URL wiki brute
-  // que next/image n’arrive pas à optimiser côté serveur).
-  const finalUrl = hostedUrl;
-  if (!finalUrl) {
-    console.error(
-      "[travels-image-web] public CDN upload failed — refuse d’enregistrer une URL cassée",
-      { query, source: hit.source },
-    );
-    return null;
-  }
-
-  const label = hit.title || String(opts.destination || "").trim() || query;
-  const keywords = [query, title, destination, hit.title]
-    .join(", ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 400);
-
-  const id = `auto-${normalizeKey || Date.now().toString(36)}`.slice(0, 80);
-
-  return upsertTravelCatalogImage({
-    id,
-    label: label.slice(0, 160),
-    url: finalUrl,
-    keywords,
-    normalizeKey,
-    source: hit.source === "openverse" ? "openverse" : hit.source,
-    author: hit.author,
-    license: hit.license,
-    attributionUrl: hit.attributionUrl,
-    sourcePageUrl: hit.sourcePageUrl,
-  });
+  return null;
 }

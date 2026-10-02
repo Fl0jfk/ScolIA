@@ -231,7 +231,7 @@ export function buildTravelPlaceSearchQuery(title: string, destination: string):
 
 /**
  * Contenu inadapté à une illustration scolaire (guerre, armes, etc.).
- * Ex. « drone » Wikipedia → souvent Shahed / drone de combat.
+ * Inclut les noms de fichiers Wikimedia (ex. IAI_Heron sur la page « Drone »).
  */
 const SCHOOL_UNSAFE_COVER_PATTERNS: RegExp[] = [
   /\bshahed\b/i,
@@ -263,6 +263,17 @@ const SCHOOL_UNSAFE_COVER_PATTERNS: RegExp[] = [
   /\bexplod/i,
   /\bsuicide\s+drone\b/i,
   /\bkamikaze\b/i,
+  /\biai[_\-\s]?heron\b/i,
+  /iai[_-]?heron/i,
+  /heron[_-]?(tp|1|2)/i,
+  /mq[_-]?\d+/i,
+  /rq[_-]?\d+/i,
+  /\bpredator\b/i,
+  /\breaper\b/i,
+  /global[\s_-]?hawk/i,
+  /\bwatchkeeper\b/i,
+  /\barmed\s+drone\b/i,
+  /\bucav\b/i,
 ];
 
 export function isSchoolSafeCoverText(...parts: string[]): boolean {
@@ -275,24 +286,92 @@ export function isSchoolSafeCoverText(...parts: string[]): boolean {
   return !SCHOOL_UNSAFE_COVER_PATTERNS.some((re) => re.test(hay));
 }
 
+/** Thèmes où Wikipedia renvoie surtout du militaire / technique inadapté. */
+const WIKI_RISKY_ACTIVITY_TOKENS = new Set([
+  "drone",
+  "drones",
+  "uav",
+  "robot",
+  "robots",
+  "fusil",
+  "arme",
+  "tank",
+]);
+
+export function isWikiRiskyActivityToken(token: string): boolean {
+  return WIKI_RISKY_ACTIVITY_TOKENS.has(
+    String(token || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase(),
+  );
+}
+
 /** Reformulations « scolaires / loisirs » pour des thèmes piégés sur Wikipedia. */
 const SCHOOL_SAFE_ACTIVITY_QUERIES: Record<string, string[]> = {
-  drone: ["drone loisir", "quadrirotor", "drone civil", "drone hobby"],
-  drones: ["drone loisir", "quadrirotor", "drone civil"],
-  uav: ["drone loisir", "quadrirotor"],
-  robot: ["robot educatif", "robotique scolaire"],
-  robots: ["robot educatif", "robotique scolaire"],
-  fusil: ["tir sportif club"],
+  drone: [
+    "quadcopter hobby",
+    "drone camera hobby",
+    "mini drone recreational",
+    "drone loisir",
+    "quadrirotor",
+  ],
+  drones: ["quadcopter hobby", "drone camera hobby", "drone loisir"],
+  uav: ["quadcopter hobby", "drone camera hobby"],
+  robot: ["robot educatif", "educational robot kids"],
+  robots: ["robot educatif", "educational robot kids"],
+  fusil: [],
   arme: [],
   tank: [],
 };
 
-/**
- * Plusieurs requêtes web, du plus pertinent / sûr au plus large.
- * Priorité : lieu (Houlgate) + activité « loisir/scolaire » (drone loisir),
- * jamais un mot générique seul (« concours ») ni du contenu militaire.
- */
-export function buildTravelWebSearchQueries(title: string, destination: string): string[] {
+function cleanSearchQuery(raw: string): string {
+  return String(raw || "")
+    .replace(
+      /\b(sortie|voyage|séjour|sejour|visite|journée|journee|concours|competition|compétition)\b/gi,
+      " ",
+    )
+    .replace(/\b(19|20)\d{2}\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Requêtes « lieu uniquement » (prioritaires pour une sortie scolaire). */
+export function buildTravelPlaceOnlyQueries(
+  title: string,
+  destination: string,
+): string[] {
+  const dest = String(destination || "").trim();
+  const destOk =
+    dest &&
+    !/^destination\s*introuvable$/i.test(dest) &&
+    dest.toLowerCase() !== "n/a";
+  if (!destOk) return [];
+
+  const queries: string[] = [];
+  const add = (raw: string) => {
+    const q = cleanSearchQuery(raw);
+    if (!q) return;
+    if (queries.some((x) => x.toLowerCase() === q.toLowerCase())) return;
+    if (!isSchoolSafeCoverText(q)) return;
+    queries.push(q);
+  };
+
+  add(dest);
+  add(`${dest} France`);
+  add(`${dest} plage`);
+  add(`${dest} ville`);
+  for (const token of strongTravelThemeTokens(dest)) {
+    if (token.length >= 4) add(token);
+  }
+  return queries.slice(0, 6);
+}
+
+/** Requêtes activité « sûres » (jamais le mot nu « drone » → Wikipedia militaire). */
+export function buildTravelActivitySafeQueries(
+  title: string,
+  destination: string,
+): string[] {
   const dest = String(destination || "").trim();
   const tit = String(title || "").trim();
   const destOk =
@@ -300,59 +379,51 @@ export function buildTravelWebSearchQueries(title: string, destination: string):
     !/^destination\s*introuvable$/i.test(dest) &&
     dest.toLowerCase() !== "n/a";
   const titleOk = tit && !/^titre\s*introuvable$/i.test(tit);
+  if (!titleOk) return [];
 
-  const strongTitle = titleOk ? strongTravelThemeTokens(tit) : [];
-  const destTokens = destOk ? strongTravelThemeTokens(dest) : [];
+  const strongTitle = strongTravelThemeTokens(tit);
   const queries: string[] = [];
   const add = (raw: string) => {
-    const q = String(raw || "")
-      .replace(
-        /\b(sortie|voyage|séjour|sejour|visite|journée|journee|concours|competition|compétition)\b/gi,
-        " ",
-      )
-      .replace(/\b(19|20)\d{2}\b/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const q = cleanSearchQuery(raw);
     if (!q) return;
     if (queries.some((x) => x.toLowerCase() === q.toLowerCase())) return;
     if (!isSchoolSafeCoverText(q)) return;
     const parts = tokenizeTravelPlaceQuery(q);
     if (parts.length === 0) return;
-    if (parts.length === 1 && isWeakThemeToken(parts[0]!)) return;
-    // Ne jamais lancer une requête réduite à un seul mot faible résiduel.
     if (parts.every((p) => isWeakThemeToken(p))) return;
+    // Interdit une requête réduite à un seul token Wikipedia-risqué (drone, uav…).
+    if (parts.length === 1 && isWikiRiskyActivityToken(parts[0]!)) return;
     queries.push(q);
   };
 
-  // 1) Lieu d’abord : image de Houlgate > page Wikipedia militaire « drone ».
-  if (destOk) add(dest);
-  for (const token of destTokens) {
-    if (token.length >= 4) add(token);
-  }
-
-  // 2) Activité reformulée « loisir / scolaire » (évite Shahed / drone de combat).
   for (const token of strongTitle) {
     const expansions = SCHOOL_SAFE_ACTIVITY_QUERIES[token];
-    if (expansions) {
+    if (expansions && expansions.length > 0) {
       for (const alt of expansions) add(alt);
       if (destOk) {
         for (const alt of expansions.slice(0, 2)) add(`${alt} ${dest}`);
       }
+      continue;
+    }
+    if (!isWikiRiskyActivityToken(token) && token.length >= 4) {
+      add(token);
+      if (destOk) add(`${token} ${dest}`);
     }
   }
 
-  // 3) Activité concrète + lieu
-  if (strongTitle.length > 0 && destOk) {
-    add(`${strongTitle.join(" ")} ${dest}`);
-  }
+  return queries.slice(0, 8);
+}
 
-  // 4) Activité seule (en dernier — Wikipedia « drone » est souvent militaire)
-  if (strongTitle.length > 0) add(strongTitle.join(" "));
-  for (const token of strongTitle) {
-    if (token.length >= 4) add(token);
-  }
-
-  if (queries.length === 0) add("école france");
+/**
+ * Lieu d’abord, puis activité reformulée « loisir ».
+ * Jamais « concours » ni « drone » nu (page Wikipedia = drones militaires).
+ */
+export function buildTravelWebSearchQueries(title: string, destination: string): string[] {
+  const queries = [
+    ...buildTravelPlaceOnlyQueries(title, destination),
+    ...buildTravelActivitySafeQueries(title, destination),
+  ];
+  if (queries.length === 0) return ["école france"];
   return queries.slice(0, 12);
 }
 
