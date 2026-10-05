@@ -153,7 +153,7 @@ export type TravelsTripData = {
     nbEleves: number;
     nbAccompagnateurs: number;
     sentAt?: string;
-    type?: string;
+    type?: "initial" | "amendment" | "reminder" | string;
   };
   transportDateSnapshot?: {
     startDate?: string;

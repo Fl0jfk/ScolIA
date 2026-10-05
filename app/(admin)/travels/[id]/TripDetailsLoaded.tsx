@@ -792,6 +792,58 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
 
+  const remindTransportQuotes = async () => {
+    if (!isOwner && !canSign) {
+      return alert("Vous n'êtes pas autorisé(e) à relancer les demandes de devis.");
+    }
+    if (!trip?.id) return;
+    if (trip.data?.signedQuoteUrl) {
+      return alert(
+        "Un devis est déjà signé. Utilisez « Devis rectifié (effectif) » pour un avenant.",
+      );
+    }
+    const devisCount = Array.isArray(trip.receivedDevis) ? trip.receivedDevis.length : 0;
+    const snapAt = trip.data?.transportQuoteSnapshot?.sentAt;
+    const lastSent = snapAt
+      ? new Date(snapAt).toLocaleString("fr-FR")
+      : "jamais enregistré";
+    const msg =
+      devisCount === 0
+        ? `Relancer la demande de devis auprès de tous les transporteurs ?\n\nLes mêmes documents (PDF récap + programme éventuel) seront renvoyés.\nDernier envoi enregistré : ${lastSent}.`
+        : `Relancer la demande de devis auprès des transporteurs qui n'ont pas encore de devis rattaché ?\n\n${devisCount} devis déjà reçu${devisCount > 1 ? "s" : ""} — ceux-ci ne seront pas relancés.\nDernier envoi enregistré : ${lastSent}.`;
+    if (!confirm(msg)) return;
+
+    setLoadingAction("remind-transport-quotes");
+    try {
+      const res = await fetch("/api/travels/remind-transport-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tripId: trip.id,
+          userName: user?.fullName || "La Providence",
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Relance impossible.");
+      if (payload.trip) {
+        setTrip(payload.trip);
+        setEditedData(payload.trip?.data);
+      }
+      const sent = Array.isArray(payload.sentTo) ? payload.sentTo.length : 0;
+      const skipped = Number(payload.skippedAlreadyQuoted) || 0;
+      alert(
+        skipped > 0
+          ? `Relance envoyée à ${sent} transporteur${sent > 1 ? "s" : ""} (${skipped} déjà devis ignoré${skipped > 1 ? "s" : ""}).`
+          : `Relance envoyée à ${sent} transporteur${sent > 1 ? "s" : ""}.`,
+      );
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : "Erreur lors de la relance des demandes de devis.");
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
   const sendInitialCuisine = async (opts?: { skipConfirm?: boolean; tripRef?: TravelsTrip }) => {
     const tripRef = opts?.tripRef || trip;
     if (!tripRef?.data?.piqueNiqueDetails?.active) {
@@ -1460,6 +1512,11 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     withBusLogistics &&
     (isOwner || canSign) &&
     Boolean(transportSnapshot || trip.data?.selectedBusQuote || trip.data?.signedQuoteUrl);
+  const canRemindTransportQuotes =
+    withBusLogistics &&
+    (isOwner || canSign) &&
+    !trip.data?.signedQuoteUrl &&
+    ["PROF_LOGISTICS", "EN_ATTENTE_BUS_SIGNATURE"].includes(String(trip.status));
   const cuisineOrderSent = cuisineOrderWasSent(trip);
   const cuisineOrderSentAt = resolveCuisineOrderSentAt(trip);
   const cuisineChanged = cuisineEffectifChanged(trip.data);
@@ -1775,6 +1832,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           loadingAction={loadingAction}
           canRequestAmendedQuote={canRequestAmendedQuote}
           requestAmendedBusQuote={requestAmendedBusQuote}
+          canRemindTransportQuotes={canRemindTransportQuotes}
+          remindTransportQuotes={remindTransportQuotes}
           canSign={canSign}
           skipTransportToCompta={skipTransportToCompta}
           openSecureFile={openSecureFile}

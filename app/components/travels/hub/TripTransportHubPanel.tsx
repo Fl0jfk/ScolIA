@@ -19,6 +19,8 @@ type TripTransportHubPanelProps = {
   loadingAction: string | null;
   canRequestAmendedQuote: boolean;
   requestAmendedBusQuote: () => void;
+  canRemindTransportQuotes: boolean;
+  remindTransportQuotes: () => void;
   canSign: boolean;
   skipTransportToCompta: () => void | Promise<void>;
   openSecureFile: (url: string, key?: string | null) => void;
@@ -53,6 +55,8 @@ export function TripTransportHubPanel({
   loadingAction,
   canRequestAmendedQuote,
   requestAmendedBusQuote,
+  canRemindTransportQuotes,
+  remindTransportQuotes,
   canSign,
   skipTransportToCompta,
   openSecureFile,
@@ -87,15 +91,31 @@ export function TripTransportHubPanel({
           icon="🚌"
           accent="amber"
           action={
-            canRequestAmendedQuote ? (
-              <TripButton
-                variant="warning"
-                size="sm"
-                onClick={() => requestAmendedBusQuote()}
-                disabled={loadingAction === "amendment-quote"}
-              >
-                {loadingAction === "amendment-quote" ? "Envoi…" : "Devis rectifié (effectif)"}
-              </TripButton>
+            canRemindTransportQuotes || canRequestAmendedQuote ? (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {canRemindTransportQuotes ? (
+                  <TripButton
+                    variant="primary"
+                    size="sm"
+                    onClick={() => remindTransportQuotes()}
+                    disabled={loadingAction === "remind-transport-quotes"}
+                  >
+                    {loadingAction === "remind-transport-quotes"
+                      ? "Envoi…"
+                      : "Relancer les demandes de devis"}
+                  </TripButton>
+                ) : null}
+                {canRequestAmendedQuote ? (
+                  <TripButton
+                    variant="warning"
+                    size="sm"
+                    onClick={() => requestAmendedBusQuote()}
+                    disabled={loadingAction === "amendment-quote"}
+                  >
+                    {loadingAction === "amendment-quote" ? "Envoi…" : "Devis rectifié (effectif)"}
+                  </TripButton>
+                ) : null}
+              </div>
             ) : undefined
           }
         >
@@ -272,9 +292,27 @@ export function TripTransportHubPanel({
                   );
                 })
               ) : (
-                <p className="text-sm text-slate-400 italic py-4 text-center rounded-xl border border-dashed border-amber-200">
-                  En attente de devis par e-mail…
-                </p>
+                <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/40 px-4 py-5 text-center space-y-3">
+                  <p className="text-sm text-slate-500 italic">En attente de devis par e-mail…</p>
+                  {canRemindTransportQuotes ? (
+                    <>
+                      <p className="text-[11px] text-amber-900/80 leading-snug">
+                        Aucun devis reçu pour l&apos;instant. Vous pouvez renvoyer la demande
+                        (PDF + programme) aux transporteurs.
+                      </p>
+                      <TripButton
+                        variant="primary"
+                        size="sm"
+                        onClick={() => remindTransportQuotes()}
+                        disabled={loadingAction === "remind-transport-quotes"}
+                      >
+                        {loadingAction === "remind-transport-quotes"
+                          ? "Envoi…"
+                          : "Relancer les demandes de devis"}
+                      </TripButton>
+                    </>
+                  ) : null}
+                </div>
               )}
               {canAddDocuments && (
                 <form onSubmit={addManualBusQuote} className="mt-4 p-4 rounded-xl border border-dashed border-amber-300 bg-amber-50/50 space-y-3 text-left">
