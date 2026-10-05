@@ -467,12 +467,8 @@ export async function finalizeAppelAbsencesFromLignes(
   for (const ligne of lignes) {
     if (!isNonPresent(ligne.statut)) continue;
     if (enSortie.has(ligne.eleveId)) continue;
-    const covered = await eleveHasAccueilCoveringSlot(etablissementId, ligne.eleveId, {
-      date: appel.dateAppel,
-      heureDebut: appel.heureDebut,
-      heureFin: appel.heureFin,
-    });
-    if (covered) continue;
+    // Clôture : toujours une ligne source=appel (Consulter / CPE). L’anti-doublon accueil
+    // reste sur saveAppelLignes (saisie) ; à la clôture le prof confirme l’absent du créneau.
     const id = await upsertAbsenceFromAppelLigne(
       etablissementId,
       appel,
