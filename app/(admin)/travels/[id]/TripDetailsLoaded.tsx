@@ -792,8 +792,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
 
+  /** Créateur, direction établissement, administratif, admin général. */
+  const canRemindTransportStaff =
+    isOwner || canSign || isAdministratif || isGlobalAdmin;
+
   const remindTransportQuotes = async () => {
-    if (!isOwner && !canSign) {
+    if (!canRemindTransportStaff) {
       return alert("Vous n'êtes pas autorisé(e) à relancer les demandes de devis.");
     }
     if (!trip?.id) return;
@@ -1514,9 +1518,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     Boolean(transportSnapshot || trip.data?.selectedBusQuote || trip.data?.signedQuoteUrl);
   const canRemindTransportQuotes =
     withBusLogistics &&
-    (isOwner || canSign) &&
+    canRemindTransportStaff &&
     !trip.data?.signedQuoteUrl &&
-    ["PROF_LOGISTICS", "EN_ATTENTE_BUS_SIGNATURE"].includes(String(trip.status));
+    !["SEANCE_ANNULEE", "REJETE", "ANNULE"].includes(String(trip.status));
   const cuisineOrderSent = cuisineOrderWasSent(trip);
   const cuisineOrderSentAt = resolveCuisineOrderSentAt(trip);
   const cuisineChanged = cuisineEffectifChanged(trip.data);

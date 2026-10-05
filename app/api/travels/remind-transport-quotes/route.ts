@@ -37,6 +37,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Dossier introuvable" }, { status: 404 });
     }
 
+    // Créateur, direction établissement, administratif / admin général (et compta via le même garde).
     const access = await assertTravelsTripAccess(trip, { requireOwnerOrDirection: true });
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
