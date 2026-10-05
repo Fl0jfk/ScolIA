@@ -104,19 +104,13 @@ test("closeAppel — absence source appel + event + motif préservé", async (t)
       );
     assert.equal(absRow?.source, "appel");
 
-    try {
-      const [ev] = await db
-        .select({ type: metierEvent.type })
-        .from(metierEvent)
-        .where(
-          and(eq(metierEvent.etablissementId, etab.id), eq(metierEvent.aggregateId, appel.id)),
-        );
-      assert.equal(ev?.type, VS_APPEL_EVENT_TYPES.ATTENDANCE_CALL_COMPLETED);
-    } catch (err) {
-      const code = (err as { cause?: { code?: string } })?.cause?.code;
-      if (code !== "42P01") throw err;
-      t.diagnostic("metier_event absent en local — event non vérifié");
-    }
+    const [ev] = await db
+      .select({ type: metierEvent.type })
+      .from(metierEvent)
+      .where(
+        and(eq(metierEvent.etablissementId, etab.id), eq(metierEvent.aggregateId, appel.id)),
+      );
+    assert.equal(ev?.type, VS_APPEL_EVENT_TYPES.ATTENDANCE_CALL_COMPLETED);
 
     await db
       .update(vsAbsenceEleve)

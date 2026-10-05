@@ -20,6 +20,7 @@
     "test:vs-absences-hub": "npx tsx --test app/lib/vs-absences-hub-access.test.ts",
     "test:vs-appels-slot": "npx tsx --test app/lib/vs-appels-slot.test.ts",
     "test:vs-appels-close": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/vs-appels-close.integration.test.ts",
+    "test:metier-event-migration": "npx tsx --test app/lib/metier-event-migration.test.ts",
     "test:feuille-du-jour": "npx tsx --test app/lib/feuille-du-jour.test.ts",
     "test:famille-justif": "npx tsx --test app/lib/famille-absences-justify.test.ts",
     "test:accueil-occupancy": "npx tsx --test app/lib/accueil-absence-occupancy.test.ts",
