@@ -7,13 +7,14 @@ import {
   canCreateConventionAsStaff,
   canCreateOffer,
   canReviewPreconvention,
+  canBrowseStageConventions,
   canViewAllConventions,
   canViewReferentConventions,
 } from "@/app/lib/stage-access";
 import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { conventionMatchesStageSecteurs, resolveStageViewerSecteurs } from "@/app/lib/stage-sector-scope";
-import { ensureConventionReferent, listClassesForReferentUser } from "@/app/lib/stage-referents-config";
+import { ensureConventionReferent, listPrincipalClassesForUser } from "@/app/lib/stage-referents-config";
 import {
   getStageWatchersConfig,
   listWatcherAssignmentsForUser,
@@ -24,12 +25,12 @@ import {
   normalizeConventionInput,
 } from "@/app/lib/stage-workflow";
 import {
-  getConventionsIndex,
   getStageConvention,
   getStageOffer,
   listConventionsForDossier,
   saveStageConvention,
 } from "@/app/lib/stage-storage";
+import { loadActiveStageConventions } from "@/app/lib/stage-convention-load";
 import {
   currentStageSchoolYear,
   stageUid,
@@ -75,6 +76,7 @@ export async function GET(req: Request) {
     const watcherAssignments = listWatcherAssignmentsForUser(watchersCfg, gate.ctx.userId);
 
     if (
+      !canBrowseStageConventions(roles) &&
       !canViewAllConventions(roles) &&
       !canViewReferentConventions(roles) &&
       !canCreateOffer(roles) &&
@@ -83,23 +85,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
-    const index = await getConventionsIndex();
-    const all = await Promise.all(index.map((e) => getStageConvention(e.id)));
+    const all = await loadActiveStageConventions();
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
-    const referentClassNames = canViewReferentConventions(roles)
-      ? await listClassesForReferentUser(gate.ctx.userId)
+    const principalClassNames = canViewReferentConventions(roles)
+      ? await listPrincipalClassesForUser(gate.ctx.userId)
       : [];
     const conventions = all
-      .filter((c): c is NonNullable<typeof c> => Boolean(c))
-      .filter((c) => c.status !== "archived" && c.status !== "draft")
       .filter((c) =>
         conventionVisibleToUser(
           c,
           roles,
           userEmail,
           gate.ctx.userId,
-          referentClassNames,
+          principalClassNames,
           watcherAssignments,
         ),
       )

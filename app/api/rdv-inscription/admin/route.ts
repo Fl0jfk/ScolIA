@@ -42,7 +42,7 @@ export async function GET(req: Request) {
 
     if (view === "bookings") {
       const directionSlug = url.searchParams.get("direction") || undefined;
-      const bookings = await listRdvInscriptionBookings({ directionSlug, limit: 150 });
+      const bookings = await listRdvInscriptionBookings({ directionSlug, limit: 250 });
       return NextResponse.json({ bookings });
     }
 
@@ -87,6 +87,161 @@ export async function PUT(req: Request) {
     if (action === "unlink-google") {
       await clearRdvInscriptionGoogleLinkSecret();
       return NextResponse.json({ success: true, google: await getRdvInscriptionGoogleLinkStatus() });
+    }
+
+    if (action === "confirm-booking") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const { confirmRdvInscriptionBookingAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await confirmRdvInscriptionBookingAsAdmin(bookingId);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        already: result.already === true,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
+    if (action === "cancel-booking") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const { cancelRdvInscriptionBookingAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await cancelRdvInscriptionBookingAsAdmin(bookingId);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        remainingCount: result.remaining.length,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
+    if (action === "request-reschedule") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const note =
+        typeof body.note === "string" ? body.note.trim().slice(0, 1000) : "";
+      const { requestRdvInscriptionRescheduleAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await requestRdvInscriptionRescheduleAsAdmin({
+        bookingId,
+        note: note || null,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
+    if (action === "resend-reschedule") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const note =
+        typeof body.note === "string" ? body.note.trim().slice(0, 1000) : undefined;
+      const { resendRdvInscriptionRescheduleMailAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await resendRdvInscriptionRescheduleMailAsAdmin({
+        bookingId,
+        note,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
+    if (action === "list-booking-slots") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const { findRdvInscriptionBookingById, getRdvInscriptionDirectionBySlug } = await import(
+        "@/app/lib/rdv-inscription-db"
+      );
+      const found = await findRdvInscriptionBookingById({ bookingId });
+      if (!found) {
+        return NextResponse.json({ error: "Réservation introuvable." }, { status: 404 });
+      }
+      const dir = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+        etablissementId: found.etablissementId,
+      });
+      if (!dir?.googleCalendarId.trim()) {
+        return NextResponse.json({ error: "Agenda de la direction non configuré." }, { status: 503 });
+      }
+      const { listAvailableInscriptionSlots } = await import("@/app/lib/rdv-inscription-gcal");
+      const slots = await listAvailableInscriptionSlots({
+        calendarId: dir.googleCalendarId,
+        titlePattern: dir.eventTitlePattern,
+        horizonDays: dir.horizonDays,
+      });
+      return NextResponse.json({
+        success: true,
+        bookingId: found.id,
+        currentEventId: found.googleEventId,
+        currentStartAt: found.startAt,
+        currentEndAt: found.endAt,
+        slots,
+      });
+    }
+
+    if (action === "change-slot") {
+      const bookingId = String(body.bookingId || "").trim();
+      const newEventId = String(body.newEventId || "").trim();
+      const googleModeRaw = String(body.googleMode || "").trim();
+      const googleMode =
+        googleModeRaw === "already_done" ? "already_done" : googleModeRaw === "update" ? "update" : null;
+      if (!bookingId || !newEventId || !googleMode) {
+        return NextResponse.json(
+          { error: "bookingId, newEventId et googleMode (update|already_done) requis." },
+          { status: 400 },
+        );
+      }
+      const note =
+        typeof body.note === "string" ? body.note.trim().slice(0, 1000) : "";
+      const { changeRdvInscriptionSlotAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await changeRdvInscriptionSlotAsAdmin({
+        bookingId,
+        newEventId,
+        googleMode,
+        note: note || null,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        mailWarning: result.mailWarning || undefined,
+      });
     }
 
     if (action === "test-slots") {
@@ -164,9 +319,18 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });
   } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    const isNetwork =
+      /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|network|UND_ERR|inaccessible \(réseau\)/i.test(
+        raw,
+      );
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
+      {
+        error: isNetwork
+          ? "Impossible de joindre Google Agenda (réseau). Réessayez, ou reconnectez Google dans le paramétrage RDV."
+          : raw || "Échec.",
+      },
+      { status: 502 },
     );
   }
 }

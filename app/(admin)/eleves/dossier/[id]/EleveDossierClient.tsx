@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import EleveInscriptionDocsClient from "@/app/(admin)/eleves/dossier/[id]/inscription/EleveInscriptionDocsClient";
 import {
   CATEGORIE_TIROIRS,
   DOC_CATEGORIE_LABELS,
@@ -20,6 +21,7 @@ import {
   type AccompagnementKind,
 } from "@/app/lib/eleve-pap";
 import { DOCUMENT_ACCESS_DURATION_OPTIONS } from "@/app/lib/eleve-document-access-duration";
+import { ELEVE_DELETE_PERMANENT_CONFIRM_WORD } from "@/app/lib/eleve-delete-permanent-confirm";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import EleveDossierSidebar from "@/app/components/eleves/EleveDossierSidebar";
 import ElevePhotoLazy from "@/app/components/eleves/ElevePhotoLazy";
@@ -68,6 +70,12 @@ function formatDateNaissanceFr(value: string | null | undefined): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   return raw;
+}
+
+/** Valeur pour `<input type="date">` (AAAA-MM-JJ). */
+function toDateInputValue(value: string | null | undefined): string {
+  const raw = String(value || "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
 }
 
 function IconUpload({ className }: { className?: string }) {
@@ -200,6 +208,7 @@ type DossierPayload = {
     canUploadAccompagnement?: boolean;
     canDeleteAccompagnement?: boolean;
     canDeleteDocuments?: boolean;
+    canDeleteElevePermanent?: boolean;
     profRestrictedView?: boolean;
     tiroirs: string[];
     docCategories?: EleveDocCategorie[];
@@ -315,10 +324,24 @@ const emptyResp = {
   payeur: false,
 };
 
-export default function EleveDossierClient() {
+export default function EleveDossierClient({
+  mode = "page",
+  eleveId: eleveIdProp,
+  initialModalSubView = "dossier",
+  onClose,
+  onNavigateEleve,
+}: {
+  mode?: "page" | "modal";
+  eleveId?: string;
+  initialModalSubView?: "dossier" | "inscription";
+  onClose?: () => void;
+  onNavigateEleve?: (eleveId: string) => void;
+} = {}) {
   const params = useParams();
   const searchParams = useSearchParams();
-  const id = String(params.id || "");
+  const router = useRouter();
+  const id = eleveIdProp || String(params.id || "");
+  const isModal = mode === "modal";
   const listHref = dossiersListHrefFromRetour(
     searchParams.get("retour"),
     searchParams.get("classe"),
@@ -326,12 +349,15 @@ export default function EleveDossierClient() {
   const [data, setData] = useState<DossierPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("synthese");
+  const [modalSubView, setModalSubView] = useState<"dossier" | "inscription">(initialModalSubView);
   const [focusFoyerId, setFocusFoyerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [accompagnementDragOver, setAccompagnementDragOver] = useState(false);
   const [staleCache, setStaleCache] = useState(false);
   const [extrasReady, setExtrasReady] = useState(false);
+  const [deleteEleveOpen, setDeleteEleveOpen] = useState(false);
+  const [deleteEleveConfirm, setDeleteEleveConfirm] = useState("");
   const dataRef = useRef<DossierPayload | null>(null);
   dataRef.current = data;
 
@@ -361,6 +387,8 @@ export default function EleveDossierClient() {
     durationDays: number;
     note: string;
   } | null>(null);
+  const [dobDraft, setDobDraft] = useState("");
+  const [lieuDraft, setLieuDraft] = useState("");
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const cacheKey = `scola:eleve-dossier:${id}`;
@@ -495,6 +523,12 @@ export default function EleveDossierClient() {
     return list.filter((t) => t.show);
   }, [data]);
 
+  useEffect(() => {
+    if (!data?.eleve) return;
+    setDobDraft(toDateInputValue(data.eleve.dateNaissance));
+    setLieuDraft(data.eleve.lieuNaissance || "");
+  }, [data?.eleve?.id, data?.eleve?.dateNaissance, data?.eleve?.lieuNaissance]);
+
   const allowedDocCategories = useMemo((): EleveDocCategorie[] => {
     if (!data?.meta.docCategories?.length) {
       const fromTiroirs = new Set<EleveDocCategorie>();
@@ -592,8 +626,16 @@ export default function EleveDossierClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        deleted?: boolean;
+        redirectTo?: string;
+      };
       if (!res.ok) throw new Error(j.error || `Erreur ${res.status}`);
+      if (j.deleted && j.redirectTo) {
+        router.push(j.redirectTo);
+        return true;
+      }
       await load();
       return true;
     } catch (e) {
@@ -602,6 +644,19 @@ export default function EleveDossierClient() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function confirmDeleteElevePermanent() {
+    if (
+      deleteEleveConfirm.trim().toLowerCase().normalize("NFC") !==
+      ELEVE_DELETE_PERMANENT_CONFIRM_WORD
+    ) {
+      return;
+    }
+    await postAction({
+      action: "delete_eleve_permanent",
+      confirmation: deleteEleveConfirm.trim(),
+    });
   }
 
   async function ensureFoyerFromContacts() {
@@ -793,27 +848,38 @@ export default function EleveDossierClient() {
   }
 
   if (error && !data) {
-    return (
-      <ModulePageShell maxWidthClass="max-w-3xl">
+    const body = (
+      <>
         <p className="text-red-600">{error}</p>
-        <Link href={listHref} className="text-sm font-semibold text-indigo-600">
-          ← Retour liste
-        </Link>
-      </ModulePageShell>
+        {isModal ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-3 text-sm font-semibold text-[var(--dash-ink)] underline"
+          >
+            Fermer
+          </button>
+        ) : (
+          <Link href={listHref} className="text-sm font-semibold text-indigo-600">
+            ← Retour liste
+          </Link>
+        )}
+      </>
     );
+    if (isModal) return <div className="p-6">{body}</div>;
+    return <ModulePageShell maxWidthClass="max-w-3xl">{body}</ModulePageShell>;
   }
 
   if (!data) {
-    return (
-      <ModulePageShell maxWidthClass="max-w-3xl">
-        <p className="text-slate-500">Chargement du dossier…</p>
-      </ModulePageShell>
-    );
+    const loading = <p className="text-slate-500">Chargement du dossier…</p>;
+    if (isModal) return <div className="p-6">{loading}</div>;
+    return <ModulePageShell maxWidthClass="max-w-3xl">{loading}</ModulePageShell>;
   }
 
   const e = data.eleve;
   const classeListHref = dossiersListHrefForClasse(e.classe);
   const canEdit = data.meta.canEditStructure;
+  const canDeletePermanent = Boolean(data.meta.canDeleteElevePermanent);
   const synth = data.synthese;
   const liveNow = data.enCoursMaintenant;
   const statusLabel = synth?.statusLabel || e.status;
@@ -877,6 +943,10 @@ export default function EleveDossierClient() {
   const nowView = liveNowCopy();
 
   function navigateToDossier(eleveId: string) {
+    if (isModal && onNavigateEleve) {
+      onNavigateEleve(eleveId);
+      return "#";
+    }
     const retour = searchParams.get("retour");
     if (!retour) return `/eleves/dossier/${eleveId}`;
     return `/eleves/dossier/${eleveId}?retour=${encodeURIComponent(retour)}`;
@@ -887,15 +957,17 @@ export default function EleveDossierClient() {
     setTab("finances");
   }
 
-  return (
-    <ModulePageShell maxWidthClass="max-w-6xl">
-      <Link
-        href={listHref}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition hover:text-indigo-700"
-      >
-        <span aria-hidden>←</span>
-        Retour à la liste des dossiers
-      </Link>
+  const dossierInner = (
+    <>
+      {isModal ? null : (
+        <Link
+          href={listHref}
+          className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition hover:text-indigo-700"
+        >
+          <span aria-hidden>←</span>
+          Retour à la liste des dossiers
+        </Link>
+      )}
       <ModulePageHeader
         eyebrow="Dossier élève"
         title={`${e.prenom} ${e.nom}`}
@@ -907,17 +979,21 @@ export default function EleveDossierClient() {
               </span>
             ) : null}
             {e.classe ? (
-              <Link
-                href={listHref}
-                className="text-base font-bold text-indigo-700 hover:underline"
-              >
-                {classeDisplay}
-              </Link>
+              isModal ? (
+                <span className="text-base font-bold text-slate-700">{classeDisplay}</span>
+              ) : (
+                <Link
+                  href={listHref}
+                  className="text-base font-bold text-indigo-700 hover:underline"
+                >
+                  {classeDisplay}
+                </Link>
+              )
             ) : (
               <span className="text-base font-bold text-slate-700">{classeDisplay}</span>
             )}
             <span className="text-slate-400">·</span>
-            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+            <span className="rounded-full bg-[color:var(--dash-lime)]/70 px-2.5 py-0.5 text-xs font-bold text-[var(--dash-ink)]">
               {statusLabel}
             </span>
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700">
@@ -935,7 +1011,7 @@ export default function EleveDossierClient() {
             onClick={() => setTab(t.id)}
             className={`rounded-xl px-4 py-2 text-sm font-bold border transition ${
               tab === t.id
-                ? "bg-slate-900 text-white border-slate-900"
+                ? "bg-[var(--dash-ink)] text-white border-[var(--dash-ink)]"
                 : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
             }`}
           >
@@ -955,6 +1031,7 @@ export default function EleveDossierClient() {
             classe={e.classe}
             classmates={data.classmates ?? []}
             dossierHref={navigateToDossier}
+            onSelectEleve={isModal && onNavigateEleve ? onNavigateEleve : undefined}
           />
         </div>
 
@@ -1003,16 +1080,93 @@ export default function EleveDossierClient() {
                   <p className="mt-2 text-lg font-bold text-slate-500">Classe non renseignée</p>
                 )}
                 <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-                  <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-                    <dt className="text-slate-500">Né(e) le</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {formatDateNaissanceFr(e.dateNaissance)}
-                    </dd>
+                  <div
+                    className={`rounded-xl px-3 py-2 ${
+                      !toDateInputValue(e.dateNaissance)
+                        ? "bg-amber-50 ring-1 ring-amber-200"
+                        : "bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-slate-500">Né(e) le</dt>
+                      {!canEdit ? (
+                        <dd className="font-semibold text-slate-900">
+                          {formatDateNaissanceFr(e.dateNaissance)}
+                        </dd>
+                      ) : null}
+                    </div>
+                    {canEdit ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          value={dobDraft}
+                          disabled={busy}
+                          onChange={(ev) => setDobDraft(ev.target.value)}
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                          aria-label="Date de naissance"
+                        />
+                        <button
+                          type="button"
+                          disabled={
+                            busy ||
+                            dobDraft === toDateInputValue(e.dateNaissance)
+                          }
+                          onClick={() =>
+                            void postAction({
+                              action: "update_identite",
+                              dateNaissance: dobDraft || null,
+                            })
+                          }
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                        >
+                          Enregistrer
+                        </button>
+                      </div>
+                    ) : null}
+                    {canEdit && !toDateInputValue(e.dateNaissance) ? (
+                      <p className="mt-1.5 text-[11px] font-medium text-amber-800">
+                        Requise pour le matching des rendez-vous d’inscription (lien parent).
+                      </p>
+                    ) : null}
                   </div>
                   {!data.meta.profRestrictedView ? (
-                    <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-                      <dt className="text-slate-500">Lieu</dt>
-                      <dd className="font-semibold text-slate-900">{e.lieuNaissance || "—"}</dd>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-slate-500">Lieu</dt>
+                        {!canEdit ? (
+                          <dd className="font-semibold text-slate-900">
+                            {e.lieuNaissance || "—"}
+                          </dd>
+                        ) : null}
+                      </div>
+                      {canEdit ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <input
+                            type="text"
+                            value={lieuDraft}
+                            disabled={busy}
+                            placeholder="Ville de naissance"
+                            onChange={(ev) => setLieuDraft(ev.target.value)}
+                            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                            aria-label="Lieu de naissance"
+                          />
+                          <button
+                            type="button"
+                            disabled={
+                              busy || lieuDraft.trim() === (e.lieuNaissance || "").trim()
+                            }
+                            onClick={() =>
+                              void postAction({
+                                action: "update_identite",
+                                lieuNaissance: lieuDraft.trim() || null,
+                              })
+                            }
+                            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                          >
+                            Enregistrer
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
@@ -1446,6 +1600,74 @@ export default function EleveDossierClient() {
               </ul>
             )}
           </div>
+
+          {canDeletePermanent ? (
+            <div className="rounded-3xl border border-rose-300 bg-rose-50/80 p-6 shadow-sm space-y-3">
+              <div>
+                <h2 className="text-sm font-bold text-rose-950">Zone danger</h2>
+                <p className="mt-1 text-xs leading-relaxed text-rose-900/90">
+                  Supprimer définitivement cet élève efface la fiche et ses traces (documents,
+                  scolarité, absences, notes, etc.). Ce n’est pas une sortie d’établissement :
+                  l’élève disparaît comme s’il n’avait jamais existé. Irréversible.
+                </p>
+              </div>
+              {!deleteEleveOpen ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setDeleteEleveConfirm("");
+                    setDeleteEleveOpen(true);
+                  }}
+                  className="rounded-xl border border-rose-400 bg-white px-4 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                >
+                  Supprimer définitivement l’élève…
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold text-rose-950">
+                    Pour confirmer, tapez{" "}
+                    <span className="font-mono text-rose-700">
+                      {ELEVE_DELETE_PERMANENT_CONFIRM_WORD}
+                    </span>
+                    <input
+                      value={deleteEleveConfirm}
+                      onChange={(ev) => setDeleteEleveConfirm(ev.target.value)}
+                      placeholder={ELEVE_DELETE_PERMANENT_CONFIRM_WORD}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="mt-1 w-full max-w-md rounded-xl border border-rose-300 bg-white px-3 py-2 font-mono text-sm"
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setDeleteEleveOpen(false);
+                        setDeleteEleveConfirm("");
+                      }}
+                      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        deleteEleveConfirm.trim().toLowerCase().normalize("NFC") !==
+                          ELEVE_DELETE_PERMANENT_CONFIRM_WORD
+                      }
+                      onClick={() => void confirmDeleteElevePermanent()}
+                      className="rounded-xl bg-rose-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                    >
+                      {busy ? "Suppression…" : "Confirmer la suppression définitive"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -2158,12 +2380,22 @@ export default function EleveDossierClient() {
                   sans créer une nouvelle fiche).
                 </p>
               </div>
-              <Link
-                href={`/eleves/dossier/${encodeURIComponent(id)}/inscription`}
-                className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800"
-              >
-                Page documents d’inscription
-              </Link>
+              {isModal ? (
+                <button
+                  type="button"
+                  onClick={() => setModalSubView("inscription")}
+                  className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800"
+                >
+                  Page documents d’inscription
+                </button>
+              ) : (
+                <Link
+                  href={`/eleves/dossier/${encodeURIComponent(id)}/inscription`}
+                  className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800"
+                >
+                  Page documents d’inscription
+                </Link>
+              )}
             </div>
 
             {allowedDocCategories.length > 0 || data.meta.tiroirs.includes("inscription") ? (
@@ -2535,6 +2767,24 @@ export default function EleveDossierClient() {
       ) : null}
         </div>
       </div>
-    </ModulePageShell>
+    </>
   );
+
+  if (isModal) {
+    if (modalSubView === "inscription") {
+      return (
+        <EleveInscriptionDocsClient
+          eleveId={id}
+          mode="modal"
+          onBack={() => {
+            setModalSubView("dossier");
+            void load({ silent: true });
+          }}
+        />
+      );
+    }
+    return <div className="p-4 sm:p-6">{dossierInner}</div>;
+  }
+
+  return <ModulePageShell maxWidthClass="max-w-6xl">{dossierInner}</ModulePageShell>;
 }

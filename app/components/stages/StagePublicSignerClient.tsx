@@ -2,10 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import StageCancelledPublicPage from "@/app/components/stages/StageCancelledPublicPage";
 import StageConventionPdfPreview from "@/app/components/stages/StageConventionPdfPreview";
 import StageOtpCodeInput from "@/app/components/stages/StageOtpCodeInput";
 import StageScheduleEditor from "@/app/components/stages/StageScheduleEditor";
-import type { StageSchedule } from "@/app/lib/stage-types";
+import StageOutOfPeriodAlert from "@/app/components/stages/StageOutOfPeriodAlert";
+import StageDiscussionChat from "@/app/components/stages/StageDiscussionChat";
+import type { StageDiscussionMessage, StageSchedule } from "@/app/lib/stage-types";
+import type { StagePeriodAlignment } from "@/app/lib/stage-period-alignment";
+import { STAGE_CANCELLED_PUBLIC_MESSAGE } from "@/app/lib/stage-types";
 
 type SignMethod = "code_confirm" | "touch" | "paper_upload";
 
@@ -49,9 +54,14 @@ type SignView = {
   needsDrawnSignature: boolean;
   hasStoredReferentSignature: boolean;
   canRequestScheduleChange?: boolean;
+  canDiscuss?: boolean;
+  discussionMessages?: StageDiscussionMessage[];
+  periodAlignment?: StagePeriodAlignment | null;
   scheduleChangeRequest?: {
     requestedAt: string;
     note?: string;
+    requestedByLabel?: string;
+    source?: string;
     previousPeriodLabel?: string;
     requestedPeriodLabel?: string;
     requestedScheduleSummary?: string;
@@ -158,6 +168,7 @@ export default function StagePublicSignerClient() {
   const [token, setToken] = useState(initialToken);
   const [view, setView] = useState<SignView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelled, setCancelled] = useState(false);
   const [signerName, setSignerName] = useState("");
   const [signaturePng, setSignaturePng] = useState<string | null>(null);
   const [paperFile, setPaperFile] = useState<File | null>(null);
@@ -182,7 +193,14 @@ export default function StagePublicSignerClient() {
       cache: "no-store",
     });
     const data = await res.json();
+    if (res.status === 410 || data?.cancelled === true) {
+      setCancelled(true);
+      setView(null);
+      setError(data?.message || data?.error || STAGE_CANCELLED_PUBLIC_MESSAGE);
+      return;
+    }
     if (!res.ok) throw new Error(data?.error || "Lien invalide");
+    setCancelled(false);
     setView(data);
     if (data.signature?.status === "signe") {
       setDone(true);
@@ -259,6 +277,13 @@ export default function StagePublicSignerClient() {
   async function sign(chosenMethod?: SignMethod) {
     if (!view || !token) return;
     const method = chosenMethod ?? signMethod;
+
+    if (view.periodAlignment?.outside) {
+      const ok = window.confirm(
+        `ATTENTION — ce stage est HORS PÉRIODE OFFICIELLE.\n\n${view.periodAlignment.message}\n\nConfirmez-vous vouloir signer malgré tout ?`,
+      );
+      if (!ok) return;
+    }
 
     if (method === "code_confirm" && view.isExternalSigner) {
       if (!codeSent) {
@@ -340,6 +365,14 @@ export default function StagePublicSignerClient() {
     return <main className="flex min-h-screen items-center justify-center p-6">Chargement…</main>;
   }
 
+  if (cancelled) {
+    return (
+      <StageCancelledPublicPage
+        message={error || STAGE_CANCELLED_PUBLIC_MESSAGE}
+      />
+    );
+  }
+
   if (error && !view) {
     return (
       <main className="flex min-h-screen items-center justify-center p-6">
@@ -401,6 +434,10 @@ export default function StagePublicSignerClient() {
           </p>
         </div>
 
+        <div className="mt-4">
+          <StageOutOfPeriodAlert alignment={view.periodAlignment} />
+        </div>
+
         {scheduleDays.length > 0 && (
           <div className="mt-3">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
@@ -431,10 +468,13 @@ export default function StagePublicSignerClient() {
         {view.scheduleChangeRequest && (
           <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-2">
             <p className="text-sm font-bold text-amber-950">
-              Demande de modification en attente
+              Demande d&apos;avenant en attente
             </p>
             <p className="text-xs text-amber-900 leading-relaxed">
-              Vous avez demandé de passer de{" "}
+              {view.scheduleChangeRequest.requestedByLabel
+                ? `${view.scheduleChangeRequest.requestedByLabel} propose`
+                : "Proposition"}{" "}
+              de passer de{" "}
               <strong>{view.scheduleChangeRequest.previousPeriodLabel || "—"}</strong> à{" "}
               <strong>{view.scheduleChangeRequest.requestedPeriodLabel || "—"}</strong>.
               L&apos;établissement doit valider avant que la signature puisse reprendre. Si la
@@ -448,11 +488,11 @@ export default function StagePublicSignerClient() {
 
         {canEditSchedule && !editSchedule && (
           <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50 p-4 space-y-2">
-            <p className="text-sm font-bold text-[#1F3D2B]">Dates ou horaires incorrects ?</p>
+            <p className="text-sm font-bold text-[#1F3D2B]">Demander un avenant ?</p>
             <p className="text-xs text-stone-600 leading-relaxed">
-              Si l&apos;élève s&apos;était trompé sur la période, les jours ou les horaires,
-              demandez une correction. L&apos;établissement validera : toutes les signatures en
-              cours seront alors annulées et chacun devra re-signer.
+              Changement de dates, d&apos;horaires ou d&apos;une semaine incompatible avec le
+              calendrier scolaire : proposez une correction. L&apos;établissement validera ; les
+              signatures en cours seront alors annulées et chacun devra re-signer.
             </p>
             <button
               type="button"
@@ -464,7 +504,7 @@ export default function StagePublicSignerClient() {
               }}
               className="rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900"
             >
-              Demander une modification des horaires
+              Demander un avenant (dates / horaires)
             </button>
           </div>
         )}
@@ -474,7 +514,7 @@ export default function StagePublicSignerClient() {
             <StageScheduleEditor
               value={draftSchedule}
               onChange={setDraftSchedule}
-              title="Proposez vos dates et horaires corrigés"
+              title="Proposez les dates et horaires corrigés"
               constraints={
                 view.scheduleConstraints
                   ? {
@@ -487,12 +527,12 @@ export default function StagePublicSignerClient() {
               cycleLabel={view.scheduleConstraints?.cycleLabel}
             />
             <label className="block text-xs font-semibold text-stone-600">
-              Motif (optionnel)
+              Motif
               <textarea
                 className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm min-h-[64px]"
                 value={scheduleNote}
                 onChange={(e) => setScheduleNote(e.target.value)}
-                placeholder="Ex. horaires réels 9h–17h, période décalée d'une semaine…"
+                placeholder="Ex. une semaine tombe pendant les cours — caler sur la période officielle…"
               />
             </label>
             {error && <p className="text-sm text-rose-700">{error}</p>}
@@ -503,7 +543,7 @@ export default function StagePublicSignerClient() {
                 onClick={() => void submitScheduleChange()}
                 className="rounded-lg bg-amber-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
-                {busy ? "Envoi…" : "Envoyer la demande à l'établissement"}
+                {busy ? "Envoi…" : "Envoyer la demande d'avenant"}
               </button>
               <button
                 type="button"
@@ -520,6 +560,16 @@ export default function StagePublicSignerClient() {
           </div>
         )}
 
+        {view.canDiscuss && token ? (
+          <div className="mt-4">
+            <StageDiscussionChat
+              token={token}
+              initialMessages={view.discussionMessages ?? []}
+              title="Échanges (direction, responsable légal, tuteur, professeur référent)"
+            />
+          </div>
+        ) : null}
+
         {view.pdfUrl && (
           <div className="mt-6">
             <p className="mb-2 text-xs font-bold text-stone-600">Aperçu du document</p>
@@ -529,8 +579,8 @@ export default function StagePublicSignerClient() {
 
         {signingSuspended ? (
           <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            Signature temporairement suspendue : une demande de modification des horaires attend
-            la validation de l&apos;établissement.
+            Signature temporairement suspendue : une demande d&apos;avenant attend la validation de
+            l&apos;établissement. Vous pouvez échanger dans le fil de discussion ci-dessus.
           </p>
         ) : done ? (
           <p className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">

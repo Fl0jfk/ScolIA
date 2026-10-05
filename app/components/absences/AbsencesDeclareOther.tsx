@@ -237,7 +237,7 @@ export default function AbsencesDeclareOther({ onSuccess }: Props) {
             <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">Motif / type d&apos;absence</span>
             <input
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Ex. convocation bac, formation, arrêt maladie…"
+              placeholder="Ex. convocation bac, formation, arrêt de travail…"
               value={manualForm.examType}
               onChange={(e) => setManualForm((p) => ({ ...p, examType: e.target.value }))}
               disabled={savingManual}

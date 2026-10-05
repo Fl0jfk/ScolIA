@@ -6,6 +6,7 @@ import {
   canViewFichesDialogue,
 } from "@/app/lib/fiches-dialogue-access";
 import {
+  deleteFdCampagne,
   getFdCampagne,
   getFdCampagneStats,
   listFdEtapes,
@@ -52,6 +53,8 @@ const PatchSchema = z.object({
   statut: z.enum(["brouillon", "active", "cloturee", "archivee"]).optional(),
   delaiFamilleJours: z.number().int().min(1).max(60).optional(),
   classesCibles: z.array(z.string()).optional(),
+  eleveIdsCibles: z.array(z.string().uuid()).optional(),
+  niveauActuel: z.string().max(16).optional().nullable(),
   calendrierMode: z.enum(["trimestre", "semestre", "personnalise"]).optional(),
   starterMode: z.enum(["conseil_dabord", "famille_dabord"]).optional(),
   contactPpLabel: z.string().max(120).optional().nullable(),
@@ -82,10 +85,11 @@ const PatchSchema = z.object({
     .optional(),
   appelConfig: z
     .object({
-      enabled: z.boolean(),
+      enabled: z.boolean().optional(),
       dateLimite: z.string().optional(),
       procedureHtml: z.string().optional(),
       documentsLabels: z.array(z.string()).optional(),
+      contactPpLabel: z.string().optional(),
     })
     .optional(),
   etapes: z
@@ -123,11 +127,15 @@ export async function PATCH(req: Request, ctx: Ctx) {
       statut: body.data.statut,
       delaiFamilleJours: body.data.delaiFamilleJours,
       classesCibles: body.data.classesCibles,
+      eleveIdsCibles: body.data.eleveIdsCibles,
+      niveauActuel: body.data.niveauActuel,
       calendrierMode: body.data.calendrierMode,
       starterMode: body.data.starterMode,
       contactPpLabel: body.data.contactPpLabel,
       catalogue: body.data.catalogue,
-      appelConfig: body.data.appelConfig,
+      appelConfig: body.data.appelConfig
+        ? { ...body.data.appelConfig, enabled: true }
+        : undefined,
     });
 
     if (body.data.etapes?.length) {
@@ -144,6 +152,25 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
     const etapes = await listFdEtapes(scope.ctx.etablissementId, id);
     return NextResponse.json({ campagne, etapes });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Erreur";
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+}
+
+export async function DELETE(_req: Request, ctx: Ctx) {
+  const scope = await requireTenantId();
+  if (!scope.ok) return scope.response;
+  const appUser = await requireAppUser();
+  if (!appUser.ok) return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
+  if (!canManageFichesDialogue(appUser.user.roles, { orgAdmin: appUser.user.orgAdmin })) {
+    return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+  }
+
+  const { id } = await ctx.params;
+  try {
+    await deleteFdCampagne(scope.ctx.etablissementId, id);
+    return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erreur";
     return NextResponse.json({ error: msg }, { status: 400 });

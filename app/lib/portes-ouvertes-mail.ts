@@ -18,8 +18,10 @@ import type {
   PortesOuvertesRegistration,
   PortesOuvertesRegistrationSource,
 } from "@/app/lib/portes-ouvertes-types";
+import { findPortesOuvertesParallelSlot } from "@/app/lib/portes-ouvertes-slots";
 import {
   isPortesOuvertesRegistrationUpcoming,
+  portesOuvertesRegistrationFingerprint,
   portesOuvertesVisitLine,
 } from "@/app/lib/portes-ouvertes-types";
 import type { PortesOuvertesSlot, PortesOuvertesToolConfig } from "@/app/lib/toolbox-types";
@@ -249,6 +251,29 @@ export async function registerPortesOuvertesVisitor(
   const childFirstName = input.childFirstName?.trim() || undefined;
   const childLastName = input.childLastName?.trim() || undefined;
   const classeSouhaitee = input.classeSouhaitee?.trim() || undefined;
+  const cycle = input.cycle || slot.cycle;
+  const pendingFingerprint = portesOuvertesRegistrationFingerprint({
+    slotId: input.slotId,
+    email: input.email,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    childFirstName,
+    childLastName,
+    cycle,
+    classeSouhaitee,
+  });
+  const existing = await listPortesOuvertesRegistrations();
+  const duplicate = existing.find(
+    (r) => portesOuvertesRegistrationFingerprint(r) === pendingFingerprint,
+  );
+  if (duplicate) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Cette inscription est déjà enregistrée sur ce créneau.",
+    };
+  }
+
   const childrenInfo =
     input.childrenInfo?.trim() ||
     portesOuvertesVisitLine({
@@ -269,7 +294,7 @@ export async function registerPortesOuvertesVisitor(
     childrenInfo,
     childFirstName,
     childLastName,
-    cycle: input.cycle || slot.cycle,
+    cycle,
     classeSouhaitee,
     consent: input.consent,
     source: input.source,
@@ -311,6 +336,13 @@ export type UpdatePortesOuvertesInput = {
   cycle?: PortesOuvertesCycle;
   classeSouhaitee?: string;
   actor: { userId: string; name: string };
+  /** Si false, ne pas envoyer le mail de confirmation au visiteur (défaut : true). */
+  notifyVisitor?: boolean;
+  /**
+   * Accueil uniquement : autorise le dépassement de `maxPlaces`
+   * (requalification / déplacement interne). Jamais pour l’inscription publique.
+   */
+  allowOverCapacity?: boolean;
 };
 
 export async function updatePortesOuvertesVisitor(
@@ -338,8 +370,39 @@ export async function updatePortesOuvertesVisitor(
     };
   }
 
-  const nextSlotId = input.slotId || current.slotId;
-  const slot = po.slots.find((s) => s.id === nextSlotId);
+  const nextCycle = input.cycle ?? current.cycle ?? currentConfigSlot?.cycle;
+  let nextSlotId = input.slotId || current.slotId;
+  let slot = po.slots.find((s) => s.id === nextSlotId);
+
+  const needsRequalify =
+    Boolean(nextCycle) &&
+    (!slot || (Boolean(slot.cycle) && slot.cycle !== nextCycle));
+
+  // Requalification d’établissement : bascule vers le créneau jumeau (même horaire).
+  if (needsRequalify && nextCycle) {
+    const startAt =
+      currentWithSnap.slotStartAt || slot?.startAt || currentConfigSlot?.startAt || "";
+    const endAt =
+      currentWithSnap.slotEndAt || slot?.endAt || currentConfigSlot?.endAt || undefined;
+    const parallel = startAt
+      ? findPortesOuvertesParallelSlot(po.slots, {
+          targetCycle: nextCycle,
+          startAt,
+          endAt,
+        })
+      : undefined;
+    if (!parallel) {
+      return {
+        ok: false,
+        status: 400,
+        error:
+          "Aucun créneau à la même heure pour cet établissement. Choisissez un autre horaire ou créez les créneaux manquants.",
+      };
+    }
+    nextSlotId = parallel.id;
+    slot = parallel;
+  }
+
   if (!slot) {
     return { ok: false, status: 400, error: "Créneau invalide." };
   }
@@ -348,12 +411,14 @@ export async function updatePortesOuvertesVisitor(
     return { ok: false, status: 400, error: "Impossible d’affecter un créneau déjà passé." };
   }
 
-  const nextCycle = input.cycle ?? current.cycle ?? slot.cycle;
   if (slot.cycle && nextCycle && slot.cycle !== nextCycle) {
     return { ok: false, status: 400, error: "Ce créneau n’est pas proposé pour cet établissement." };
   }
 
-  if (slot.maxPlaces && nextSlotId !== current.slotId) {
+  const cycleChanged = Boolean(input.cycle && current.cycle && input.cycle !== current.cycle);
+  const allowOverCapacity = input.allowOverCapacity === true || cycleChanged || needsRequalify;
+
+  if (slot.maxPlaces && nextSlotId !== current.slotId && !allowOverCapacity) {
     const used = await countRegistrationsForSlot(nextSlotId);
     if (used >= slot.maxPlaces) {
       return {
@@ -402,21 +467,28 @@ export async function updatePortesOuvertesVisitor(
     return { ok: false, status: 404, error: "Inscription introuvable." };
   }
 
-  const mailSent = await sendVisitorConfirmationMail({
-    po,
-    entry,
-    slot,
-    kind: "update",
-  });
+  const shouldNotify = input.notifyVisitor !== false;
+  let mailSent = false;
+  if (shouldNotify) {
+    mailSent = await sendVisitorConfirmationMail({
+      po,
+      entry,
+      slot,
+      kind: "update",
+    });
+  }
 
   if (po.notifyEmail) {
     const visitLine = visitLineOf(entry);
+    const cycleChanged = Boolean(nextCycle && current.cycle && nextCycle !== current.cycle);
     await sendPortesOuvertesMail({
       to: po.notifyEmail,
-      subject: `Créneau modifié — ${po.title}`,
-      html: `<p>${entry.firstName} ${entry.lastName} (${entry.email}) — nouveau créneau ${slot.label}${
+      subject: cycleChanged
+        ? `Établissement requalifié — ${po.title}`
+        : `Créneau modifié — ${po.title}`,
+      html: `<p>${entry.firstName} ${entry.lastName} (${entry.email}) — créneau ${slot.label}${
         visitLine ? ` — ${visitLine}` : ""
-      } — modifié par ${input.actor.name}</p>`,
+      } — modifié par ${input.actor.name}${shouldNotify ? "" : " (sans e-mail visiteur)"}</p>`,
     });
   }
 

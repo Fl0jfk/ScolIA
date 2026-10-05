@@ -33,8 +33,8 @@ export async function loadCreneauVideSignalsForDashboard(opts: {
     const active = trips.filter((t) => {
       if (!ACTIVE.has(String(t.status || ""))) return false;
       if (t.data?.listeElevesStatus !== "confirmed") return false;
-      const start = String(t.data?.startDate || t.startDate || "").slice(0, 10);
-      const end = String(t.data?.endDate || t.endDate || start).slice(0, 10);
+      const start = String(t.data?.startDate || "").slice(0, 10);
+      const end = String(t.data?.endDate || start).slice(0, 10);
       return start <= date && end >= date;
     });
     const cap = opts.maxTrips ?? 12;

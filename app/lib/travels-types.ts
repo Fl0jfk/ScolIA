@@ -158,7 +158,7 @@ export type TravelsTripData = {
     nbEleves: number;
     nbAccompagnateurs: number;
     sentAt?: string;
-    type?: string;
+    type?: "initial" | "amendment" | "reminder" | string;
   };
   transportDateSnapshot?: {
     startDate?: string;
@@ -282,6 +282,11 @@ export type TravelsTrip = {
   updatedAt?: string;
   imageUrl?: string;
   imageConfigId?: string;
+  /** Crédit photo (auteur · licence · source) pour images Wikimedia / Unsplash. */
+  imageAttribution?: string | null;
+  imageAuthor?: string | null;
+  imageLicense?: string | null;
+  imageAttributionUrl?: string | null;
   data: TravelsTripData;
   receivedDevis?: Record<string, unknown>[];
   history?: TravelsHistoryEntry[];

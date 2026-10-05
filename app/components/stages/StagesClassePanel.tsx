@@ -12,6 +12,9 @@ export default function StagesClassePanel({
   oneDriveConnected,
   onFileOneDrive,
   filingConventionId,
+  canCreateOffline,
+  onCreateOffline,
+  refreshToken,
 }: {
   onOpenConvention: (id: string) => void;
   selectedConventionId?: string | null;
@@ -21,29 +24,37 @@ export default function StagesClassePanel({
   oneDriveConnected: boolean;
   onFileOneDrive: (id: string) => void;
   filingConventionId: string | null;
+  canCreateOffline?: boolean;
+  onCreateOffline?: (preset: {
+    firstName: string;
+    lastName: string;
+    className: string;
+    ine?: string;
+  }) => void;
+  refreshToken?: number;
 }) {
   return (
-    <section data-tour="stages-classe" className="space-y-6">
-      <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+    <section data-tour="stages-classe" className="space-y-3">
+      <div>
         <h2 className="text-lg font-bold text-[#1F3D2B]">Suivi des stages par classe</h2>
-        <p className="mt-2 text-sm text-stone-600 max-w-3xl">
-          Cliquez sur un élève pour voir toutes ses conventions (statuts, signatures, référent).
-          Ouvrez un dossier pour valider, relancer ou suivre les signatures — le dossier s&apos;affiche
-          directement sous l&apos;élève.
+        <p className="mt-1 text-sm text-stone-600">
+          Liste des élèves, statut et signatures. Ouvrez un dossier pour valider ou relancer.
+          Les validations quotidiennes se font aussi depuis le tableau de bord.
         </p>
-        <div className="mt-6">
-          <StageClassRosterPanel
-            onOpenConvention={onOpenConvention}
-            selectedConventionId={selectedConventionId}
-            focusClassName={focusClassName}
-            detailSlot={detailSlot}
-            canFileOneDrive={canFileOneDrive}
-            oneDriveConnected={oneDriveConnected}
-            onFileOneDrive={onFileOneDrive}
-            filingConventionId={filingConventionId}
-          />
-        </div>
       </div>
+      <StageClassRosterPanel
+        onOpenConvention={onOpenConvention}
+        selectedConventionId={selectedConventionId}
+        focusClassName={focusClassName}
+        detailSlot={detailSlot}
+        canFileOneDrive={canFileOneDrive}
+        oneDriveConnected={oneDriveConnected}
+        onFileOneDrive={onFileOneDrive}
+        filingConventionId={filingConventionId}
+        canCreateOffline={canCreateOffline}
+        onCreateOffline={onCreateOffline}
+        refreshToken={refreshToken}
+      />
     </section>
   );
 }

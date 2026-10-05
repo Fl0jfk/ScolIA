@@ -636,6 +636,10 @@ export async function GET(req: Request, ctx: Ctx) {
         orgAdmin,
         platformAdmin,
       }),
+      canDeleteElevePermanent: (await import("@/app/lib/eleve-delete-permanent")).canDeleteElevePermanently(
+        roles,
+        { orgAdmin, platformAdmin },
+      ),
       profRestrictedView,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
@@ -704,6 +708,11 @@ type DossierBody = {
   fileUrl?: string | null;
   mimeType?: string | null;
   source?: string;
+  /** Identité élève (date / lieu de naissance). */
+  dateNaissance?: string | null;
+  lieuNaissance?: string | null;
+  /** Confirmation textuelle pour delete_eleve_permanent. */
+  confirmation?: string;
 };
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -910,9 +919,8 @@ export async function POST(req: Request, ctx: Ctx) {
     const classe = body.classe?.trim() || null;
     const siteId = body.siteId?.trim() || null;
     const statut = String(body.statut || "en_cours").trim() || "en_cours";
-    const { EleveCoreError, applyClasseCourante, openPrevueScolarite } = await import(
-      "@/app/lib/eleve-core/port"
-    );
+    const { applyClasseCourante, openPrevueScolarite } = await import("@/app/lib/eleve-core/port");
+    const { EleveCoreError } = await import("@/app/lib/eleve-core/invariants");
 
     try {
       if (statut === "prevue") {
@@ -994,7 +1002,8 @@ export async function POST(req: Request, ctx: Ctx) {
         { status: 400 },
       );
     }
-    const { EleveCoreError, applyRegimeChange } = await import("@/app/lib/eleve-core/port");
+    const { applyRegimeChange } = await import("@/app/lib/eleve-core/port");
+    const { EleveCoreError } = await import("@/app/lib/eleve-core/invariants");
     try {
       const result = await applyRegimeChange(
         {
@@ -1154,6 +1163,26 @@ export async function POST(req: Request, ctx: Ctx) {
       );
     }
 
+    // PAP / PAI / PPS / GEVASCO : retirer silencieusement les versos blancs (scans recto-verso).
+    const registeredS3Key = body.s3Key ? String(body.s3Key) : null;
+    if (registeredS3Key && isAccompagnementDocumentTitle(title)) {
+      try {
+        const { looksLikePdfUpload, stripBlankPagesInS3Object } = await import(
+          "@/app/lib/pdf-strip-blank-pages"
+        );
+        if (
+          looksLikePdfUpload({
+            mimeType: body.mimeType,
+            s3Key: registeredS3Key,
+          })
+        ) {
+          await stripBlankPagesInS3Object(registeredS3Key);
+        }
+      } catch (stripErr) {
+        console.warn("[eleves/dossier] strip blank pages (non bloquant)", stripErr);
+      }
+    }
+
     const [doc] = await db
       .insert(eleveDocument)
       .values({
@@ -1162,7 +1191,7 @@ export async function POST(req: Request, ctx: Ctx) {
         tiroir,
         title,
         mimeType: body.mimeType || null,
-        s3Key: body.s3Key || null,
+        s3Key: registeredS3Key,
         fileUrl: body.fileUrl || null,
         anneeLabel: body.anneeLabel || null,
         confidentialite,
@@ -1463,6 +1492,156 @@ export async function POST(req: Request, ctx: Ctx) {
       },
     });
     return NextResponse.json({ success: true, deletedId: documentId });
+  }
+
+  if (action === "update_identite") {
+    if (!canEditStructure(roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    }
+    const { normalizeEleveDateNaissance } = await import("@/app/lib/eleves-config");
+    const patch: {
+      dateNaissance?: string | null;
+      lieuNaissance?: string | null;
+      updatedAt: Date;
+    } = { updatedAt: new Date() };
+
+    if ("dateNaissance" in body) {
+      const raw = body.dateNaissance;
+      if (raw == null || String(raw).trim() === "") {
+        patch.dateNaissance = null;
+      } else {
+        const dob = normalizeEleveDateNaissance(raw);
+        if (!dob) {
+          return NextResponse.json(
+            { error: "Date de naissance invalide (JJ/MM/AAAA ou AAAA-MM-JJ)." },
+            { status: 400 },
+          );
+        }
+        patch.dateNaissance = dob;
+      }
+    }
+
+    if ("lieuNaissance" in body) {
+      const lieu = String(body.lieuNaissance ?? "").trim();
+      patch.lieuNaissance = lieu || null;
+    }
+
+    if (!("dateNaissance" in body) && !("lieuNaissance" in body)) {
+      return NextResponse.json(
+        { error: "Aucune donnée d’identité à mettre à jour." },
+        { status: 400 },
+      );
+    }
+
+    const [updated] = await db
+      .update(eleve)
+      .set(patch)
+      .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, id)))
+      .returning({
+        id: eleve.id,
+        dateNaissance: eleve.dateNaissance,
+        lieuNaissance: eleve.lieuNaissance,
+      });
+
+    await recordEleveAccessAudit({
+      etablissementId: etabId,
+      actorUserId: authUserId,
+      resourceType: "fiche_eleve",
+      resourceId: id,
+      eleveId: id,
+      action: "update_identite",
+      metadata: {
+        dateNaissance: updated?.dateNaissance ?? null,
+        lieuNaissance: updated?.lieuNaissance ?? null,
+      },
+    });
+    return NextResponse.json({
+      success: true,
+      eleve: {
+        id,
+        dateNaissance: updated?.dateNaissance ?? null,
+        lieuNaissance: updated?.lieuNaissance ?? null,
+      },
+    });
+  }
+
+  if (action === "delete_eleve_permanent") {
+    const {
+      canDeleteElevePermanently,
+      deleteElevePermanently,
+      EleveDeleteNotFoundError,
+      ELEVE_DELETE_PERMANENT_CONFIRM_WORD,
+      isEleveDeletePermanentConfirmation,
+    } = await import("@/app/lib/eleve-delete-permanent");
+
+    if (!canDeleteElevePermanently(roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json(
+        {
+          error:
+            "Suppression définitive réservée à la direction et à l’administration.",
+        },
+        { status: 403 },
+      );
+    }
+    if (!isEleveDeletePermanentConfirmation(body.confirmation)) {
+      return NextResponse.json(
+        {
+          error: `Pour confirmer, tapez exactement « ${ELEVE_DELETE_PERMANENT_CONFIRM_WORD} ».`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const [before] = await db
+      .select({ id: eleve.id, nom: eleve.nom, prenom: eleve.prenom, status: eleve.status })
+      .from(eleve)
+      .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, id)))
+      .limit(1);
+    if (!before) {
+      return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+    }
+
+    try {
+      const result = await deleteElevePermanently({
+        etablissementId: etabId,
+        eleveId: id,
+      });
+
+      await recordEleveAccessAudit({
+        etablissementId: etabId,
+        actorUserId: authUserId,
+        resourceType: "fiche_eleve",
+        resourceId: id,
+        eleveId: null,
+        action: "delete_permanent",
+        metadata: {
+          nom: result.nom,
+          prenom: result.prenom,
+          statusAvant: before.status,
+          documentsRemoved: result.documentsRemoved,
+          s3ObjectsRemoved: result.s3ObjectsRemoved,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        deleted: true,
+        deletedId: result.deletedId,
+        redirectTo: "/eleves/dossiers",
+      });
+    } catch (err) {
+      if (err instanceof EleveDeleteNotFoundError) {
+        return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+      }
+      console.error("[eleves/dossier] delete_eleve_permanent", err);
+      return NextResponse.json(
+        {
+          error: "Impossible de supprimer définitivement cet élève.",
+          detail: err instanceof Error ? err.message : String(err),
+        },
+        { status: 500 },
+      );
+    }
   }
 
   return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

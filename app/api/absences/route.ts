@@ -15,9 +15,12 @@ import {
   isNonDiscretionaryAbsence,
   isNonDiscretionaryTreatment,
   isRattrapageTreatment,
+  getCongeExceptionnelSubmotif,
   nonDiscretionaryTreatmentFromReason,
   reasonLabelForNonDiscretionaryTreatment,
   validateHoursTreatmentForAbsence,
+  type CongeExceptionnelSubmotifCode,
+  type NonDiscretionaryAbsenceTreatment,
 } from "@/app/lib/absence-hours-treatment";
 import {
   canDeclareAbsenceOnBehalf,
@@ -33,7 +36,9 @@ import {
   type AbsenceScope,
   type Etablissement,
 } from "@/app/lib/absences-types";
+import { resolveOgecValidatorForNewAbsence } from "@/app/lib/absences-ogec-validators";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
+import { findPersonnelByEmail, findPersonnelByExternalId } from "@/app/lib/personnel-storage";
 import { getAbsenceDocumentKeys, isDocumentKeyReferenced } from "@/app/lib/absences-documents";
 import {
   notifyAbsenceCreated,
@@ -44,12 +49,14 @@ import {
   notifyAbsenceAdminTreated,
   notifyAbsenceMakeupSlotsRequested,
   notifyAbsenceMakeupSlotsProvided,
+  notifyAbsenceThreadMessage,
 } from "@/app/lib/absences-workflow-mail";
 import {
   processorMayAccessValidatedAbsence,
   viewerIsAbsenceProcessor,
 } from "@/app/lib/absences-admin-access";
 import {
+  appendAbsenceThreadMessage,
   consolidatePendingAbsencesInIndex,
   getAbsenceIndex,
   getAbsenceRecord,
@@ -254,14 +261,14 @@ export async function POST(req: Request) {
     let staffPreferredTreatment = payload.staffPreferredTreatment
       ? String(payload.staffPreferredTreatment).trim() || null
       : null;
-    // Maladie / enfant malade : forcé en déclaration sans rattrapage (pas de préférence libre).
+    // Arrêt de travail / enfant malade / congé exceptionnel : forcé sans rattrapage.
     if (nonDiscretionaryFromReason) {
       staffPreferredTreatment = nonDiscretionaryFromReason;
     } else if (isNonDiscretionaryTreatment(staffPreferredTreatment)) {
       return NextResponse.json(
         {
           error:
-            "Pour une absence maladie ou enfant malade, choisissez le motif correspondant dans la liste.",
+            "Pour un arrêt de travail, un enfant malade ou un congé exceptionnel, choisissez le motif correspondant dans la liste.",
         },
         { status: 400 },
       );
@@ -276,6 +283,29 @@ export async function POST(req: Request) {
     if (!reason) {
       return NextResponse.json({ error: "Champs obligatoires manquants." }, { status: 400 });
     }
+
+    const rawCongeCode =
+      typeof payload.congeExceptionnelCode === "string"
+        ? payload.congeExceptionnelCode.trim()
+        : "";
+    const congeSub =
+      nonDiscretionaryFromReason === "CONGE_EXCEPTIONNEL"
+        ? getCongeExceptionnelSubmotif(rawCongeCode)
+        : null;
+    if (nonDiscretionaryFromReason === "CONGE_EXCEPTIONNEL" && !congeSub) {
+      return NextResponse.json(
+        { error: "Merci de préciser le type de congé exceptionnel." },
+        { status: 400 },
+      );
+    }
+    const congeExceptionnelCode = congeSub?.code ?? null;
+    const congeExceptionnelJoursSuggeres =
+      congeSub && typeof congeSub.joursOuvrables === "number" ? congeSub.joursOuvrables : null;
+    const storedReason =
+      nonDiscretionaryFromReason === "CONGE_EXCEPTIONNEL" && congeSub
+        ? reasonLabelForNonDiscretionaryTreatment("CONGE_EXCEPTIONNEL", congeSub.code)
+        : reason;
+
     if (scope === "professeur" && !etablissement) {
       return NextResponse.json({ error: "Établissement requis pour une absence professeur." }, { status: 400 });
     }
@@ -287,6 +317,23 @@ export async function POST(req: Request) {
       startTime: period.startTime,
       endTime: period.endTime,
     });
+
+    const bundle = await loadAppConfig();
+    let personnelId: string | null = null;
+    let ogecValidator: AbsenceRecord["data"]["ogecValidator"] = null;
+    if (scope === "ogec") {
+      const subjectPersonnel =
+        (subjectUserId ? await findPersonnelByExternalId(subjectUserId) : null) ||
+        (subjectEmail ? await findPersonnelByEmail(subjectEmail) : null);
+      personnelId = subjectPersonnel?.id || null;
+      ogecValidator = await resolveOgecValidatorForNewAbsence({
+        personnel: subjectPersonnel,
+        subjectUserId,
+        subjectEmail,
+        notifications: bundle.notifications,
+        establishments: bundle.establishments,
+      });
+    }
 
     const record: AbsenceRecord = {
       id,
@@ -302,9 +349,11 @@ export async function POST(req: Request) {
         roles: subjectRoles,
       },
       ...(submittedBy ? { submittedBy } : {}),
+      ...(personnelId ? { personnelId } : {}),
       data: {
         scope,
         etablissement: scope === "ogec" ? null : etablissement,
+        ...(scope === "ogec" && ogecValidator ? { ogecValidator } : {}),
         periodType: period.periodType,
         startDate: period.startDate,
         endDate: period.endDate,
@@ -312,8 +361,14 @@ export async function POST(req: Request) {
         endTime: period.endTime ?? null,
         startAt,
         endAt,
-        reason,
+        reason: storedReason,
         details,
+        ...(congeExceptionnelCode
+          ? {
+              congeExceptionnelCode,
+              congeExceptionnelJoursSuggeres,
+            }
+          : {}),
       },
       staffPreferredTreatment,
       staffPreferredMakeupSlots,
@@ -414,8 +469,10 @@ export async function PATCH(req: Request) {
         "CLOTURER",
         "REOUVRIR",
         "CORRIGER_SCOPE",
+        "RECLASSER_ARRET_MALADIE",
         "MODIFIER_CALENDRIER",
         "TRAITER_ADMIN",
+        "POST_MESSAGE",
       ].includes(action)
     ) {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
@@ -455,6 +512,9 @@ export async function PATCH(req: Request) {
     if (action === "RENSEIGNER_CRENEAUX_RATTRAPAGE" && !isOwner && !isSubmitter) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
+    if (action === "POST_MESSAGE" && !isOwner && !isSubmitter && !canManage && !canProcess) {
+      return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
+    }
     if (action === "TRAITER_ADMIN" && !canProcess) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
@@ -471,6 +531,7 @@ export async function PATCH(req: Request) {
         action === "VALIDER" ||
         action === "REFUSER" ||
         action === "CORRIGER_SCOPE" ||
+        action === "RECLASSER_ARRET_MALADIE" ||
         action === "MODIFIER_CALENDRIER") &&
       !canManage
     ) {
@@ -677,9 +738,9 @@ export async function PATCH(req: Request) {
           { status: 400 },
         );
       }
-      if (hasMakeupSlotsInfo(current)) {
+      if (current.directionConfirmedMakeupSlots?.trim()) {
         return NextResponse.json(
-          { error: "Les créneaux de rattrapage sont déjà renseignés." },
+          { error: "Les créneaux de rattrapage sont déjà confirmés par la direction." },
           { status: 400 },
         );
       }
@@ -705,6 +766,63 @@ export async function PATCH(req: Request) {
         });
       } catch (mailErr) {
         console.error("Absences makeup slots relance mail error:", mailErr);
+      }
+    } else if (action === "POST_MESSAGE") {
+      const text = String(body?.messageText || body?.text || "").trim();
+      if (!text) {
+        return NextResponse.json({ error: "Message vide." }, { status: 400 });
+      }
+      if (text.length > 4000) {
+        return NextResponse.json(
+          { error: "Message trop long (4000 caractères max)." },
+          { status: 400 },
+        );
+      }
+      if (current.managerDecision === "REFUSEE") {
+        return NextResponse.json(
+          { error: "Cette absence est refusée ; le fil est clos." },
+          { status: 400 },
+        );
+      }
+      const roleLabel = isOwner || isSubmitter
+        ? "Déclarant"
+        : canManage
+          ? "Direction"
+          : "Traitement admin";
+      const message = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        at: new Date().toISOString(),
+        userId,
+        userName: actor,
+        roleLabel,
+        text,
+      };
+      const savedMessage = await appendAbsenceThreadMessage(current.id, message);
+      updated = {
+        ...current,
+        updatedAt: savedMessage.at,
+        messages: [...(current.messages || []), savedMessage],
+        history: [
+          ...(current.history || []),
+          {
+            at: savedMessage.at,
+            by: actor,
+            action: "MESSAGE",
+            note: text.slice(0, 200),
+          },
+        ],
+      };
+      // Historique workflow via upsert classique ; le message lui-même est déjà en append-only.
+      try {
+        await notifyAbsenceThreadMessage({
+          record: updated,
+          messageText: text,
+          authorName: actor,
+          authorRoleLabel: roleLabel,
+          fromStaff: Boolean(isOwner || isSubmitter),
+        });
+      } catch (mailErr) {
+        console.error("Absences thread message mail error:", mailErr);
       }
     } else if (action === "RENSEIGNER_CRENEAUX_RATTRAPAGE") {
       const slots = body?.staffPreferredMakeupSlots
@@ -838,6 +956,87 @@ export async function PATCH(req: Request) {
           },
         ],
       };
+    } else if (action === "RECLASSER_ARRET_MALADIE") {
+      // Anciennes déclarations libres : la direction reclasse en motif non discrétionnaire.
+      if (current.managerDecision !== "EN_ATTENTE" || current.workflowStatus === "CLOTUREE") {
+        return NextResponse.json(
+          {
+            error:
+              "Seules les absences encore en attente de validation direction peuvent être reclassées (arrêt de travail, enfant malade, congé exceptionnel).",
+          },
+          { status: 400 },
+        );
+      }
+      let treatment: NonDiscretionaryAbsenceTreatment | null = null;
+      if (body?.treatment === "ENFANT_MALADE") treatment = "ENFANT_MALADE";
+      else if (body?.treatment === "MALADIE") treatment = "MALADIE";
+      else if (body?.treatment === "CONGE_EXCEPTIONNEL") treatment = "CONGE_EXCEPTIONNEL";
+      if (!treatment) {
+        return NextResponse.json(
+          { error: "Précisez le type : MALADIE, ENFANT_MALADE ou CONGE_EXCEPTIONNEL." },
+          { status: 400 },
+        );
+      }
+      const congeCodeRaw =
+        typeof body?.congeExceptionnelCode === "string" ? body.congeExceptionnelCode.trim() : "";
+      const congeSub =
+        treatment === "CONGE_EXCEPTIONNEL" ? getCongeExceptionnelSubmotif(congeCodeRaw) : null;
+      if (treatment === "CONGE_EXCEPTIONNEL" && !congeSub) {
+        return NextResponse.json(
+          { error: "Merci de préciser le type de congé exceptionnel." },
+          { status: 400 },
+        );
+      }
+      const decidedAt = new Date().toISOString();
+      const reasonLabel = reasonLabelForNonDiscretionaryTreatment(
+        treatment,
+        congeSub?.code as CongeExceptionnelSubmotifCode | undefined,
+      );
+      const previousReason = String(current.data.reason || "").trim();
+      updated = {
+        ...updated,
+        managerDecision: "VALIDEE",
+        workflowStatus: current.justification?.fileUrl ? "JUSTIFICATIF_DEPOSE" : "A_TRAITER",
+        calendarVisible: true,
+        closedAt: null,
+        hoursTreatment: treatment,
+        staffPreferredTreatment: treatment,
+        staffPreferredMakeupSlots: null,
+        directionConfirmedMakeupSlots: null,
+        makeupSlotsRelanceAt: null,
+        data: {
+          ...updated.data,
+          reason: reasonLabel,
+          ...(treatment === "CONGE_EXCEPTIONNEL" && congeSub
+            ? {
+                congeExceptionnelCode: congeSub.code,
+                congeExceptionnelJoursSuggeres: congeSub.joursOuvrables,
+              }
+            : {
+                congeExceptionnelCode: null,
+                congeExceptionnelJoursSuggeres: null,
+              }),
+        },
+        history: [
+          ...(current.history || []),
+          {
+            at: decidedAt,
+            by: actor,
+            action: "RECLASSEMENT_ARRET_MALADIE",
+            note:
+              managerNote ||
+              (previousReason && previousReason.toLowerCase() !== reasonLabel.toLowerCase()
+                ? `Reclassée en ${reasonLabel.toLowerCase()} (motif initial : ${previousReason}).`
+                : `Reclassée en ${reasonLabel.toLowerCase()}.`),
+          },
+          {
+            at: decidedAt,
+            by: actor,
+            action: "DECISION_VALIDEE",
+            note: `Prise d'acte direction — ${reasonLabel.toLowerCase()}. Dossier transmis pour traitement administratif.`,
+          },
+        ],
+      };
     } else if (action === "MODIFIER_CALENDRIER") {
       const displayName = String(body?.displayName ?? current.displayName).trim();
       const reason = String(body?.reason ?? current.data.reason).trim();
@@ -928,7 +1127,7 @@ export async function PATCH(req: Request) {
       | { status: string; personnelId?: string | null; elementId?: string; reason?: string }
       | undefined;
 
-    if (action === "VALIDER") {
+    if (action === "VALIDER" || action === "RECLASSER_ARRET_MALADIE") {
       if (updated.workflowStatus === "CLOTUREE" && updated.adminTreatedAt) {
         try {
           updated = await applyPostValidationPrivacy(updated, index);
@@ -1014,7 +1213,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({
       success: true,
-      ...(action === "VALIDER"
+      ...(action === "VALIDER" || action === "RECLASSER_ARRET_MALADIE"
         ? {
             calendarVisible: updated.calendarVisible === true,
             validationRecipients: validationRecipients ?? [],

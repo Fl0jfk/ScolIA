@@ -6,6 +6,7 @@ import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getFamilleMessagingSettings } from "@/app/lib/famille-messaging-db";
 import { canInitiateFromMatrix } from "@/app/lib/famille-messaging-matrix";
 import { storeFamilleAttachmentFile } from "@/app/lib/famille-messaging-upload";
+import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
 
 export const maxDuration = 60;
 
@@ -14,12 +15,13 @@ export async function POST(req: NextRequest) {
   if (!gate.ok) return gate.response;
   const user = await safeCurrentUser();
   const roles = rolesFromUserLike(user);
+  const orgAdmin = isOrgAdminFromPublicMetadata(user?.publicMetadata);
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
     return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
   }
   const settings = await getFamilleMessagingSettings(etabId);
-  if (!canInitiateFromMatrix(roles, settings, { orgAdmin: user?.orgAdmin })) {
+  if (!canInitiateFromMatrix(roles, settings, { orgAdmin })) {
     return NextResponse.json({ error: "Action non autorisée (matrice)." }, { status: 403 });
   }
 

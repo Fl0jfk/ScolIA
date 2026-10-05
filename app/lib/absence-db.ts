@@ -1,9 +1,9 @@
 import "server-only";
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { absence, absenceHistory } from "@/db/schema";
-import type { AbsenceRecord } from "@/app/lib/absences-types";
+import { absence, absenceHistory, absenceMessage } from "@/db/schema";
+import type { AbsenceRecord, AbsenceThreadMessage } from "@/app/lib/absences-types";
 import { normalizeAbsenceRecord } from "@/app/lib/absences-types";
 import {
   toAbsenceDateOnly,
@@ -92,8 +92,15 @@ export function absenceRecordToRows(etablissementId: string, record: AbsenceReco
 export function rowsToAbsenceRecord(
   main: typeof absence.$inferSelect,
   historyRows: (typeof absenceHistory.$inferSelect)[],
+  messageRows: (typeof absenceMessage.$inferSelect)[] = [],
 ): AbsenceRecord {
   const sorted = [...historyRows].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sortedMessages = [...messageRows].sort((a, b) => {
+    const ta = new Date(a.at as string | Date).getTime();
+    const tb = new Date(b.at as string | Date).getTime();
+    if (ta !== tb) return ta - tb;
+    return String(a.id).localeCompare(String(b.id));
+  });
   const createdAt = toAbsenceIsoTimestamp(main.createdAt as string | Date);
   const updatedAt = toAbsenceIsoTimestamp(main.updatedAt as string | Date, createdAt);
   return normalizeAbsenceRecord({
@@ -160,6 +167,16 @@ export function rowsToAbsenceRecord(
     staffPreferredTreatment: main.staffPreferredTreatment ?? null,
     staffPreferredMakeupSlots: main.staffPreferredMakeupSlots ?? null,
     directionConfirmedMakeupSlots: main.directionConfirmedMakeupSlots ?? null,
+    messages: sortedMessages.map(
+      (m): AbsenceThreadMessage => ({
+        id: m.id,
+        at: toAbsenceIsoTimestamp(m.at as string | Date, updatedAt),
+        userId: m.userId ?? "",
+        userName: m.userName ?? "",
+        roleLabel: m.roleLabel ?? "",
+        text: m.text ?? "",
+      }),
+    ),
     history: sorted.map((h) => ({
       at: toAbsenceIsoTimestamp(h.at as string | Date, updatedAt),
       by: h.by,
@@ -186,16 +203,26 @@ export async function listAbsencesFromDb(etablissementId: string): Promise<Absen
     .select()
     .from(absenceHistory)
     .where(eq(absenceHistory.etablissementId, etablissementId));
+  const msgs = await db
+    .select()
+    .from(absenceMessage)
+    .where(eq(absenceMessage.etablissementId, etablissementId));
   const byAbsence = new Map<string, (typeof absenceHistory.$inferSelect)[]>();
   for (const h of hist) {
     const list = byAbsence.get(h.absenceId) ?? [];
     list.push(h);
     byAbsence.set(h.absenceId, list);
   }
+  const messagesByAbsence = new Map<string, (typeof absenceMessage.$inferSelect)[]>();
+  for (const m of msgs) {
+    const list = messagesByAbsence.get(m.absenceId) ?? [];
+    list.push(m);
+    messagesByAbsence.set(m.absenceId, list);
+  }
   const out: AbsenceRecord[] = [];
   for (const m of mains) {
     try {
-      out.push(rowsToAbsenceRecord(m, byAbsence.get(m.id) ?? []));
+      out.push(rowsToAbsenceRecord(m, byAbsence.get(m.id) ?? [], messagesByAbsence.get(m.id) ?? []));
     } catch (e) {
       console.error(`[absence-db] skip row ${m.id}`, e);
     }
@@ -220,7 +247,42 @@ export async function getAbsenceFromDb(
     .where(
       and(eq(absenceHistory.etablissementId, etablissementId), eq(absenceHistory.absenceId, id)),
     );
-  return rowsToAbsenceRecord(main, hist);
+  const msgs = await db
+    .select()
+    .from(absenceMessage)
+    .where(
+      and(eq(absenceMessage.etablissementId, etablissementId), eq(absenceMessage.absenceId, id)),
+    )
+    .orderBy(asc(absenceMessage.at));
+  return rowsToAbsenceRecord(main, hist, msgs);
+}
+
+/** Append-only : n’écrase jamais le fil (contrairement à l’historique workflow). */
+export async function appendAbsenceMessageInDb(
+  etablissementId: string,
+  absenceId: string,
+  message: AbsenceThreadMessage,
+): Promise<AbsenceThreadMessage> {
+  const db = getDb();
+  const at = parseTs(message.at) ?? new Date();
+  await db.insert(absenceMessage).values({
+    id: message.id,
+    etablissementId,
+    absenceId,
+    at,
+    userId: message.userId,
+    userName: message.userName,
+    roleLabel: message.roleLabel,
+    text: message.text,
+  });
+  await db
+    .update(absence)
+    .set({ updatedAt: at })
+    .where(and(eq(absence.etablissementId, etablissementId), eq(absence.id, absenceId)));
+  return {
+    ...message,
+    at: toAbsenceIsoTimestamp(at),
+  };
 }
 
 export async function upsertAbsenceInDb(

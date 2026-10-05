@@ -21,10 +21,13 @@ import { charlemagneP3Schema } from "./schema-charlemagne-p3";
 import { charlemagneP4Schema } from "./schema-charlemagne-p4";
 import { charlemagneP5Schema } from "./schema-charlemagne-p5";
 import { fichesDialogueSchema } from "./schema-fiches-dialogue";
+import { invitationSchema } from "./schema-invitation";
 import { messagingSchema } from "./schema-messaging";
+import { partenariatsSchema } from "./schema-partenariats";
 import { rdvInscriptionSchema } from "./schema-rdv-inscription";
 import { socleFaitsSchema } from "./schema-socle-faits";
 import { familleMessagingSchema } from "./schema-famille-messaging";
+import { scoliaChatSchema } from "./schema-scolia-chat";
 
 export { etablissement };
 export * from "./schema-ent-relational";
@@ -35,11 +38,15 @@ export * from "./schema-charlemagne-p3";
 export * from "./schema-charlemagne-p4";
 export * from "./schema-charlemagne-p5";
 export * from "./schema-fiches-dialogue";
+export * from "./schema-invitation";
 export * from "./schema-messaging";
+export * from "./schema-partenariats";
 export * from "./schema-portes-ouvertes";
 export * from "./schema-rdv-inscription";
 export * from "./schema-socle-faits";
 export * from "./schema-famille-messaging";
+export * from "./schema-scolia-chat";
+export * from "./schema-travel-image-catalog";
 
 /** Utilisateur Better-Auth (multi-tenant via etablissement_id). */
 export const user = pgTable(
@@ -948,10 +955,13 @@ export const appSchema = {
   ...charlemagneP4Schema,
   ...charlemagneP5Schema,
   ...fichesDialogueSchema,
+  ...invitationSchema,
   ...messagingSchema,
+  ...partenariatsSchema,
   ...rdvInscriptionSchema,
   ...socleFaitsSchema,
   ...familleMessagingSchema,
+  ...scoliaChatSchema,
 };
 
 export const schema = {

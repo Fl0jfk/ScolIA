@@ -362,9 +362,9 @@ export default function MessagingComposer({
   };
 
   return (
-    <div className="border-t border-slate-200 bg-white p-2">
+    <div className="border-t border-black/5 bg-[#eceeea]/40 p-2.5 sm:p-3">
       {replyTo ? (
-        <div className="mb-1 flex items-center justify-between rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-600">
+        <div className="mb-1.5 flex items-center justify-between rounded-2xl bg-white/80 px-2.5 py-1.5 text-xs text-[var(--dash-mid)]">
           <span className="truncate">Réponse à : {replyTo.body || "média"}</span>
           <button type="button" onClick={onClearReply} className="p-0.5">
             <IconX className="h-3.5 w-3.5" />
@@ -372,7 +372,7 @@ export default function MessagingComposer({
         </div>
       ) : null}
       {editing ? (
-        <div className="mb-1 flex items-center justify-between rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+        <div className="mb-1.5 flex items-center justify-between rounded-2xl bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
           <span>Modification du message</span>
           <button type="button" onClick={onClearEdit} className="p-0.5">
             <IconX className="h-3.5 w-3.5" />
@@ -381,7 +381,7 @@ export default function MessagingComposer({
       ) : null}
 
       {recording === "video" ? (
-        <div className="mb-2 overflow-hidden rounded-xl bg-slate-900">
+        <div className="mb-2 overflow-hidden rounded-2xl bg-[var(--dash-ink)]">
           <video
             ref={videoPreviewRef}
             muted
@@ -396,7 +396,7 @@ export default function MessagingComposer({
       ) : null}
 
       {recording === "audio" ? (
-        <p className="mb-2 rounded-lg bg-red-50 px-2 py-1.5 text-center text-xs font-medium text-red-700">
+        <p className="mb-2 rounded-2xl bg-rose-50 px-2 py-1.5 text-center text-xs font-medium text-rose-700">
           Enregistrement vocal… recliquez sur ■ pour envoyer
         </p>
       ) : null}
@@ -407,17 +407,17 @@ export default function MessagingComposer({
             <div key={`${p.file.name}-${i}`} className="relative">
               {p.previewUrl && p.file.type.startsWith("image/") ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.previewUrl} alt="" className="h-14 w-14 rounded object-cover" />
+                <img src={p.previewUrl} alt="" className="h-14 w-14 rounded-xl object-cover" />
               ) : p.previewUrl && p.file.type.startsWith("video/") ? (
-                <video src={p.previewUrl} className="h-14 w-14 rounded object-cover" muted />
+                <video src={p.previewUrl} className="h-14 w-14 rounded-xl object-cover" muted />
               ) : (
-                <div className="flex h-14 max-w-[8rem] items-center rounded bg-slate-100 px-2 text-[10px]">
+                <div className="flex h-14 max-w-[8rem] items-center rounded-xl bg-white px-2 text-[10px]">
                   <span className="truncate">{p.file.name}</span>
                 </div>
               )}
               <button
                 type="button"
-                className="absolute -right-1 -top-1 rounded-full bg-slate-800 p-0.5 text-white"
+                className="absolute -right-1 -top-1 rounded-full bg-[var(--dash-ink)] p-0.5 text-white"
                 onClick={() => {
                   if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
                   setPending((prev) => prev.filter((_, idx) => idx !== i));
@@ -430,10 +430,10 @@ export default function MessagingComposer({
         </div>
       ) : null}
 
-      {error ? <p className="mb-1 text-xs text-red-600">{error}</p> : null}
+      {error ? <p className="mb-1 text-xs text-rose-600">{error}</p> : null}
 
       <div
-        className="flex items-end gap-1"
+        className="flex items-end gap-1 rounded-[1.25rem] border border-black/6 bg-white p-1"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
@@ -466,7 +466,7 @@ export default function MessagingComposer({
           type="button"
           title="Pièce jointe"
           disabled={Boolean(editing) || disabled || Boolean(recording)}
-          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+          className="rounded-xl p-2 text-[var(--dash-mid)] transition hover:bg-black/[0.04] disabled:opacity-40"
           onClick={() => fileInputRef.current?.click()}
         >
           <IconPaperclip className="h-4 w-4" />
@@ -475,7 +475,7 @@ export default function MessagingComposer({
           type="button"
           title="Joindre une vidéo fichier"
           disabled={Boolean(editing) || disabled || Boolean(recording)}
-          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+          className="rounded-xl p-2 text-[var(--dash-mid)] transition hover:bg-black/[0.04] disabled:opacity-40"
           onClick={() => videoInputRef.current?.click()}
         >
           <IconVideo className="h-4 w-4" />
@@ -484,8 +484,8 @@ export default function MessagingComposer({
           type="button"
           title={recording === "audio" ? "Arrêter et envoyer" : "Message vocal"}
           disabled={Boolean(editing) || disabled || recording === "video"}
-          className={`rounded-lg p-2 hover:bg-slate-100 disabled:opacity-40 ${
-            recording === "audio" ? "text-red-600" : "text-slate-500"
+          className={`rounded-xl p-2 transition hover:bg-black/[0.04] disabled:opacity-40 ${
+            recording === "audio" ? "text-rose-600" : "text-[var(--dash-mid)]"
           }`}
           onClick={() =>
             recording === "audio" ? stopRecording() : void startRecording("audio")
@@ -503,7 +503,7 @@ export default function MessagingComposer({
           rows={1}
           disabled={disabled || sending || Boolean(recording)}
           placeholder="Écrire un message…"
-          className="max-h-28 min-h-[2.25rem] flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400"
+          className="max-h-28 min-h-[2.25rem] flex-1 resize-none border-none bg-transparent px-2 py-2 text-sm outline-none focus:ring-0"
           onChange={(e) => {
             setText(e.target.value);
             notifyTyping();
@@ -524,14 +524,14 @@ export default function MessagingComposer({
             Boolean(recording) ||
             (!text.trim() && pending.length === 0 && !editing)
           }
-          className="rounded-xl bg-sky-600 p-2 text-white hover:bg-sky-700 disabled:opacity-40"
+          className="rounded-xl bg-[var(--dash-ink)] p-2 text-white transition hover:opacity-90 disabled:opacity-40"
           onClick={() => void submit()}
         >
           <IconSend className="h-4 w-4" />
         </button>
       </div>
-      <p className="mt-1 text-[10px] text-slate-400">
-        Visio : bouton caméra en haut de la conversation. Vocal : clic micro, reclic pour envoyer.
+      <p className="mt-1.5 text-[10px] text-neutral-400">
+        Visio : bouton caméra en haut. Vocal : clic micro, reclic pour envoyer.
       </p>
     </div>
   );

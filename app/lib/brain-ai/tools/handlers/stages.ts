@@ -6,6 +6,7 @@ import {
   resolveStageViewerRole,
 } from "@/app/lib/stage-access";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
+import { listPrincipalClassesForUser } from "@/app/lib/stage-referents-config";
 import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures";
 import {
   getConventionsIndex,
@@ -31,10 +32,15 @@ export async function handleGetStagesOverview(ctx: BrainToolCtx): Promise<BrainT
   const [offers, conventionsIndex] = await Promise.all([getOffersIndex(), getConventionsIndex()]);
   const allConventions = await Promise.all(conventionsIndex.map((e) => getStageConvention(e.id)));
   const userEmail = (ctx.email || "").trim().toLowerCase();
+  const principalClassNames = canViewReferentConventions(ctx.roles)
+    ? await listPrincipalClassesForUser(ctx.userId)
+    : [];
   const conventions = allConventions
     .filter((c): c is NonNullable<typeof c> => Boolean(c))
     .filter((c) => c.status !== "archived" && c.status !== "draft")
-    .filter((c) => conventionVisibleToUser(c, ctx.roles, userEmail, ctx.userId!));
+    .filter((c) =>
+      conventionVisibleToUser(c, ctx.roles, userEmail, ctx.userId!, principalClassNames),
+    );
 
   const pendingOffers = offers.filter((o) => o.status === "pending");
   const adminQueue = conventions.filter(

@@ -81,6 +81,13 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/api/app/context",
   /** Messagerie bulles (overlay global) — auth session dans les routes. */
   "/api/messaging",
+  /**
+   * ScolIA (historique + upload PDF) — bulle / hub global.
+   * Auth + filtre élève bien-être dans les routes.
+   * Ne pas inclure /api/chatbot/ingest (réservé module chatbot-knowledge).
+   */
+  "/api/chatbot/conversations",
+  "/api/chatbot/upload",
   "/api/tenant/public",
   "/api/tenant/diagnostics",
   /** Compte : MDP / e-mail / events — sinon « Accès refusé à ce module » au premier login. */
@@ -134,7 +141,7 @@ const INTRANET_PLATFORM_MASTER_PREFIXES = [
 export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "documents",
-    pathPrefixes: ["/documents", "/api/documents", "/api/wopi"],
+    pathPrefixes: ["/documents", "/api/documents"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
@@ -161,7 +168,6 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/documents/writer",
       "/documents/calc",
       "/documents/impress",
-      "/documents/edit",
     ],
     allowedRoles: [
       ...DIRECTIONS,
@@ -181,7 +187,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       link: "/documents/office",
       external: false,
       description:
-        "Traitement de texte, tableur et présentation dans le navigateur (liés au cloud).",
+        "Créer et télécharger documents, tableurs et présentations (liés au cloud).",
     },
   },
   {
@@ -293,14 +299,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "agent-ia-ocr",
     pathPrefixes: ["/agentIAOCR", "/api/agentIAOCR", "/api/eleves", "/api/mef-secteurs", "/api/enseignants"],
     allowedRoles: ["administratif", "comptabilite", "surveillant", "cpe", ...DIRECTIONS],
-    dashboard: {
-      id: 10,
-      name: "Ajout de documents IA",
-      img: "",
-      link: "/agentIAOCR",
-      external: false,
-      variant: "agent-ia",
-    },
+    // Pas de tuile dashboard : dépôt via sidebar + page de suivi /agentIAOCR.
   },
   {
     id: "eleve-dossier",
@@ -341,6 +340,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/channels",
       external: false,
+      description: "Salons d’équipe — personnel : via Messagerie → Salons.",
     },
   },
   {
@@ -353,7 +353,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/messagerie",
       external: false,
-      description: "Messages 1:1 avec le personnel — bulles style Messenger.",
+      description: "Messages privés, groupes et salons — design unifié.",
     },
   },
   {
@@ -388,7 +388,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "evenements",
-    pathPrefixes: ["/etablissement/evenements", "/api/toolbox"],
+    pathPrefixes: [
+      "/etablissement/evenements",
+      "/api/toolbox",
+      "/api/invitation/pages",
+    ],
     excludePrefixes: ["/api/toolbox/class-allocation"],
     allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
     dashboard: {
@@ -397,7 +401,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/etablissement/evenements",
       external: false,
-      description: "Portes ouvertes, rentrée digitale (dont fournitures) et Secret Santa.",
+      description:
+        "Portes ouvertes, rentrée, Secret Santa, RDV inscription et fiches de dialogue.",
     },
   },
   {
@@ -643,6 +648,25 @@ export const INTRANET_MODULES: IntranetModule[] = [
       link: "/etablissement/rdv-inscription",
       external: false,
       description: "Prise de rendez-vous automatique direction via Google Agenda",
+    },
+  },
+  {
+    id: "partenariats",
+    pathPrefixes: [
+      "/etablissement/partenariats",
+      "/api/partenariats",
+    ],
+    excludePrefixes: [
+      "/api/partenariats/public",
+    ],
+    allowedRoles: [...DIRECTIONS, "administratif", "admin"],
+    dashboard: {
+      id: 246,
+      name: "Partenariats & offres",
+      img: "",
+      link: "/etablissement/partenariats",
+      external: false,
+      description: "Catalogue public des partenariats et offres (inscriptions en ligne)",
     },
   },
   {
@@ -994,7 +1018,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "scolia-ai",
-    pathPrefixes: ["/scolia-ai"],
+    pathPrefixes: ["/scolia-ai", "/api/chatbot/conversations", "/api/chatbot/upload"],
     allowedRoles: [...ROLES_EXCEPT_PARENT],
   },
   {
@@ -1246,7 +1270,6 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "groupes-pedagogiques",
     "stages",
     "fiches-dialogue",
-    "agent-ia-ocr",
     "certificates",
   ],
   "pillar-etablissement": [
@@ -1267,7 +1290,6 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "documents",
     "office",
     "qrcreator",
-    "channels",
     "assistance",
     "photocopies-couleur",
   ],

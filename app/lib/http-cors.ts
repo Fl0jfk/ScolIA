@@ -1,7 +1,7 @@
 import type { NextResponse } from "next/server";
 
 /**
- * Origines autorisées pour les fetch cross-site (Safari / iframe Collabora / sous-domaines).
+ * Origines autorisées pour les fetch cross-site (Safari / sous-domaines).
  */
 export function isAllowedWebOrigin(origin: string): boolean {
   const raw = origin.trim();
@@ -12,19 +12,6 @@ export function isAllowedWebOrigin(origin: string): boolean {
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
     if (host === "localhost" || host === "127.0.0.1") return true;
     if (host === "scolia.fr" || host.endsWith(".scolia.fr")) return true;
-    if (host.endsWith(".functions.fnc.fr-par.scw.cloud")) return true;
-    for (const candidate of [
-      process.env.COLLABORA_URL,
-      process.env.NEXT_PUBLIC_COLLABORA_URL,
-    ]) {
-      const v = candidate?.trim();
-      if (!v) continue;
-      try {
-        if (new URL(v).origin === url.origin) return true;
-      } catch {
-        /* ignore */
-      }
-    }
     return false;
   } catch {
     return false;

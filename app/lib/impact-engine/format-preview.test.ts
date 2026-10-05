@@ -9,7 +9,7 @@ test("formatImpactPreview — créneaux vidés + zéro planning", () => {
     participantCount: 24,
     participantLinkedCount: 24,
     wroteTeacherPlanningReplacement: false,
-    creneauxVides: [{ id: "1" }, { id: "2" }],
+    creneauxVides: [{ id: "1" }, { id: "2" }] as import("./types").CreneauVideSignal[],
     impacts: [
       {
         domaine: "resto",

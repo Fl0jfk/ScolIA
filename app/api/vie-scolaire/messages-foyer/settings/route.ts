@@ -12,6 +12,7 @@ import {
   FAMILLE_MESSAGING_ROLE_OPTIONS,
 } from "@/app/lib/famille-messaging-matrix";
 import { hasGlobalAdminRole } from "@/app/lib/intranet-role-utils";
+import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
 
 function canEditMatrix(roles: string[], orgAdmin?: boolean): boolean {
   if (orgAdmin || hasGlobalAdminRole(roles)) return true;
@@ -26,6 +27,7 @@ export async function GET() {
   if (!gate.ok) return gate.response;
   const user = await safeCurrentUser();
   const roles = rolesFromUserLike(user);
+  const orgAdmin = isOrgAdminFromPublicMetadata(user?.publicMetadata);
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
     return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
@@ -34,8 +36,8 @@ export async function GET() {
   return NextResponse.json({
     settings,
     roleOptions: FAMILLE_MESSAGING_ROLE_OPTIONS,
-    canEdit: canEditMatrix(roles, user?.orgAdmin),
-    canInitiate: canInitiateFromMatrix(roles, settings, { orgAdmin: user?.orgAdmin }),
+    canEdit: canEditMatrix(roles, orgAdmin),
+    canInitiate: canInitiateFromMatrix(roles, settings, { orgAdmin }),
   });
 }
 
@@ -45,7 +47,8 @@ export async function PATCH(req: Request) {
   const { userId } = gate.ctx;
   const user = await safeCurrentUser();
   const roles = rolesFromUserLike(user);
-  if (!canEditMatrix(roles, user?.orgAdmin)) {
+  const orgAdmin = isOrgAdminFromPublicMetadata(user?.publicMetadata);
+  if (!canEditMatrix(roles, orgAdmin)) {
     return NextResponse.json({ error: "Matrice réservée à la direction." }, { status: 403 });
   }
   const etabId = await resolveCurrentEtablissementId();

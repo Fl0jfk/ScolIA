@@ -4,8 +4,8 @@ import { NextResponse } from "next/server";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { canReviewPreconvention, canViewAllConventions, canViewReferentConventions } from "@/app/lib/stage-access";
-import { buildStageClassRoster, listStageRosterClassNames } from "@/app/lib/stage-class-roster";
+import { canReviewPreconvention, canBrowseStageConventions, canViewReferentConventions } from "@/app/lib/stage-access";
+import { buildStageClassRoster, listStageRosterClassNames, searchStageConventionsGlobal } from "@/app/lib/stage-class-roster";
 import {
   classNameMatchesStageSecteurs,
   resolveStageViewerSecteurs,
@@ -15,35 +15,46 @@ import {
   findReferentAssignments,
   getStageReferentsConfig,
   listClassesForReferentUser,
+  listPrincipalClassesForUser,
   userCanAssignStageReferentForClass,
 } from "@/app/lib/stage-referents-config";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
+import { createPerfTimer } from "@/app/lib/perf-timer";
 
 export async function GET(req: Request) {
+  const perf = createPerfTimer();
   try {
     const gate = await requireAuth();
     if (!gate.ok) return gate.response;
+    perf.mark("auth");
 
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
-    const isAdmin = canViewAllConventions(roles);
+    const canBrowseAll = canBrowseStageConventions(roles);
     const isReferent = canViewReferentConventions(roles);
 
-    if (!isAdmin && !isReferent) {
+    if (!canBrowseAll && !isReferent) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);
     const schoolYear = searchParams.get("schoolYear")?.trim() || currentStageSchoolYear();
     const requestedClass = searchParams.get("className")?.trim() || "";
+    const globalQuery = searchParams.get("q")?.trim() || "";
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
+    perf.mark("secteurs");
 
-    const referentClasses = user
-      ? await listClassesForReferentUser(gate.ctx.userId, schoolYear)
-      : [];
+    const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    const [referentClasses, principalClasses] = user
+      ? await Promise.all([
+          listClassesForReferentUser(gate.ctx.userId, schoolYear),
+          listPrincipalClassesForUser(gate.ctx.userId, schoolYear),
+        ])
+      : [[], []];
+    perf.mark("referent_classes");
 
     let availableClasses: string[];
-    if (isAdmin) {
+    if (canBrowseAll) {
       const fromRoster = await listStageRosterClassNames(schoolYear);
       availableClasses = [...new Set([...fromRoster, ...referentClasses])].sort((a, b) =>
         a.localeCompare(b, "fr", { sensitivity: "base" }),
@@ -51,6 +62,7 @@ export async function GET(req: Request) {
     } else {
       availableClasses = referentClasses;
     }
+    perf.mark("available_classes");
 
     if (viewerSecteurs.length > 0) {
       availableClasses = availableClasses.filter((c) =>
@@ -58,7 +70,22 @@ export async function GET(req: Request) {
       );
     }
 
-    if (availableClasses.length === 0 && !isAdmin) {
+    if (globalQuery.length >= 2) {
+      const globalResults = await searchStageConventionsGlobal(globalQuery, {
+        schoolYear,
+        allowedClasses: canBrowseAll ? null : availableClasses,
+      });
+      perf.mark("global_search");
+      return NextResponse.json({
+        schoolYear,
+        availableClasses,
+        globalResults,
+        roster: null,
+        perf: perf.snapshot(),
+      });
+    }
+
+    if (availableClasses.length === 0 && !canBrowseAll) {
       return NextResponse.json({
         schoolYear,
         availableClasses: [],
@@ -67,6 +94,7 @@ export async function GET(req: Request) {
         teachers: [],
         message:
           "Aucune classe ne vous est assignée. L'administratif doit vous désigner comme professeur principal / référent dans Stages → Réglages.",
+        perf: perf.snapshot(),
       });
     }
 
@@ -78,51 +106,139 @@ export async function GET(req: Request) {
         roster: null,
         canAssignReferent: false,
         teachers: [],
+        perf: perf.snapshot(),
       });
     }
 
-    if (!isAdmin && !referentClasses.some((c) => classKey(c) === classKey(className))) {
+    if (!canBrowseAll && !referentClasses.some((c) => classKey(c) === classKey(className))) {
       return NextResponse.json({ error: "Classe non autorisée." }, { status: 403 });
     }
 
-    const config = await getStageReferentsConfig(schoolYear);
-    const assignments = findReferentAssignments(config, className);
     const canAssignReferent =
       canReviewPreconvention(roles) ||
       (await userCanAssignStageReferentForClass(gate.ctx.userId, className, schoolYear));
+    perf.mark("can_assign");
 
-    let teachers: Array<{
-      externalUserId: string;
-      email: string;
-      displayName: string;
-    }> = [];
-    if (canAssignReferent) {
-      const members = await listDirectoryMembers();
-      teachers = members
-        .filter((m) => m.externalUserId && !m.pending)
-        .filter((m) => m.roles.includes("professeur"))
-        .map((m) => {
-          const lastName = String(m.lastName ?? "").trim();
-          const firstName = String(m.firstName ?? "").trim();
-          const byLastName = [lastName, firstName].filter(Boolean).join(" ");
-          return {
-            externalUserId: m.externalUserId,
-            email: m.email,
-            displayName: byLastName || m.displayName || m.email,
-            sortKey: `${lastName} ${firstName} ${m.email}`.trim(),
-          };
-        })
-        .sort((a, b) =>
-          a.sortKey.localeCompare(b.sortKey, "fr", { sensitivity: "base" }),
-        )
-        .map(({ externalUserId, email, displayName }) => ({
-          externalUserId,
-          email,
-          displayName,
-        }));
-    }
+    const [config, roster, members] = await Promise.all([
+      getStageReferentsConfig(schoolYear),
+      buildStageClassRoster(className, schoolYear),
+      canAssignReferent ? listDirectoryMembers() : Promise.resolve(null),
+    ]);
+    perf.mark("roster_build");
 
-    const roster = await buildStageClassRoster(className, schoolYear);
+    const assignments = findReferentAssignments(config, className);
+
+    const teachers =
+      members == null
+        ? []
+        : members
+            .filter((m) => m.externalUserId && !m.pending)
+            .filter((m) => m.roles.includes("professeur"))
+            .map((m) => {
+              const lastName = String(m.lastName ?? "").trim();
+              const firstName = String(m.firstName ?? "").trim();
+              const byLastName = [lastName, firstName].filter(Boolean).join(" ");
+              return {
+                externalUserId: m.externalUserId,
+                email: m.email,
+                displayName: byLastName || m.displayName || m.email,
+                sortKey: `${lastName} ${firstName} ${m.email}`.trim(),
+              };
+            })
+            .sort((a, b) =>
+              a.sortKey.localeCompare(b.sortKey, "fr", { sensitivity: "base" }),
+            )
+            .map(({ externalUserId, email, displayName }) => ({
+              externalUserId,
+              email,
+              displayName,
+            }));
+
+    const isPrincipalForClass = principalClasses.some(
+      (c) => classKey(c) === classKey(className),
+    );
+
+    /** Référent (non PP) : uniquement les élèves dont il est teacherReferent. */
+    const scopedStudents =
+      canBrowseAll || isPrincipalForClass
+        ? roster.students
+        : roster.students
+            .map((s) => ({
+              ...s,
+              conventions: s.conventions.filter((conv) => {
+                const refEmail = String(conv.teacherReferentEmail || "")
+                  .trim()
+                  .toLowerCase();
+                if (userEmail && refEmail && refEmail === userEmail) return true;
+                return false;
+              }),
+            }))
+            .filter((s) => s.conventions.length > 0)
+            .map((s) => {
+              const hasValide = s.conventions.some((c) => c.status === "signed");
+              const hasEnCours = s.conventions.some(
+                (c) =>
+                  c.status === "signatures_pending" ||
+                  c.status === "convention_ready" ||
+                  c.status === "admin_review" ||
+                  c.status === "preconvention_submitted" ||
+                  c.status === "convention_deposited",
+              );
+              const rosterStatus =
+                s.conventions.length > 1
+                  ? ("plusieurs" as const)
+                  : hasValide && !hasEnCours
+                    ? ("valide" as const)
+                    : hasEnCours
+                      ? ("en_cours" as const)
+                      : ("sans_stage" as const);
+              return { ...s, rosterStatus };
+            });
+
+    const scopedRoster = {
+      ...roster,
+      students: scopedStudents,
+      summary: {
+        total: scopedStudents.length,
+        sansStage: scopedStudents.filter((s) => s.rosterStatus === "sans_stage").length,
+        enCours: scopedStudents.filter((s) => s.rosterStatus === "en_cours").length,
+        valide: scopedStudents.filter((s) => s.rosterStatus === "valide").length,
+        plusieurs: scopedStudents.filter((s) => s.rosterStatus === "plusieurs").length,
+      },
+      note:
+        !canBrowseAll && !isPrincipalForClass
+          ? "Vue référent : uniquement les stagiaires dont vous êtes le professeur référent."
+          : roster.note,
+    };
+
+    const { loadElevePhotoIndex, resolveElevePhotoS3Key } = await import(
+      "@/app/lib/eleve-photos"
+    );
+    const photoIndex = await loadElevePhotoIndex().catch(
+      (): Awaited<ReturnType<typeof loadElevePhotoIndex>> => ({}),
+    );
+    const rosterWithPhotos = {
+      ...scopedRoster,
+      students: scopedRoster.students.map((s) => {
+        if (!s.eleveId) return { ...s, photoUrl: null as string | null };
+        const key = resolveElevePhotoS3Key(photoIndex, {
+          nom: s.nom,
+          prenom: s.prenom,
+          ine: s.ine,
+          photoKey: s.photoKey,
+        });
+        return {
+          ...s,
+          photoUrl: key
+            ? `/api/stages/eleve-photo?eleveId=${encodeURIComponent(s.eleveId)}`
+            : null,
+        };
+      }),
+    };
+    perf.mark("photos");
+
+    const { isValkeyConfigured, getValkey } = await import("@/app/lib/valkey");
+    const vk = getValkey();
 
     return NextResponse.json({
       schoolYear,
@@ -134,7 +250,24 @@ export async function GET(req: Request) {
       })),
       canAssignReferent,
       teachers,
-      roster,
+      roster: rosterWithPhotos,
+      viewerScope: canBrowseAll
+        ? "all"
+        : isPrincipalForClass
+          ? "principal"
+          : "referent",
+      cache: {
+        valkey: {
+          configured: isValkeyConfigured(),
+          ready: vk?.status === "ready",
+          status: vk?.status ?? (isValkeyConfigured() ? "connecting" : "absent"),
+        },
+      },
+      perf: {
+        ...perf.snapshot(),
+        className,
+        students: scopedStudents.length,
+      },
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

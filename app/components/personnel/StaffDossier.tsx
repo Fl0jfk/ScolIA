@@ -18,6 +18,7 @@ import {
   PERSONNEL_DROP_ACCEPT,
 } from "@/app/lib/personnel-upload-client";
 import PersonnelDropZone from "@/app/components/personnel/PersonnelDropZone";
+import PersonnelAbsenceValidatorField from "@/app/components/personnel/PersonnelAbsenceValidatorField";
 import { StaffDossierTabBar, staffDossierTabs, type StaffDossierTabId } from "@/app/components/personnel/StaffDossierTabBar";
 
 type Props = {
@@ -38,7 +39,7 @@ export default function StaffDossier({ record, canManage, sharedDocs = [], onRef
   const [msg, setMsg] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
-  const patch = async (body: Record<string, unknown>) => {
+  const patch = async (body: Record<string, unknown>): Promise<boolean> => {
     setBusy(true);
     setMsg(null);
     try {
@@ -51,8 +52,10 @@ export default function StaffDossier({ record, canManage, sharedDocs = [], onRef
       if (!res.ok) throw new Error(j.error || "Erreur");
       onRefresh();
       setModal(null);
+      return true;
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erreur");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -256,6 +259,18 @@ export default function StaffDossier({ record, canManage, sharedDocs = [], onRef
               </section>
 
               <RhStaffProfileFields key={record.updatedAt} profile={record.profile} showContract showBank />
+
+              <PersonnelAbsenceValidatorField
+                managerId={record.managerId}
+                disabled={busy}
+                onSave={async (nextManagerId) => {
+                  const ok = await patch({
+                    action: "update-absence-validator",
+                    managerId: nextManagerId,
+                  });
+                  if (!ok) throw new Error("Enregistrement impossible");
+                }}
+              />
 
               <div className="rounded-xl border border-dashed border-slate-200 p-4 bg-slate-50">
                 <p className="text-xs font-bold text-slate-600 mb-2">Variables document (aperçu)</p>

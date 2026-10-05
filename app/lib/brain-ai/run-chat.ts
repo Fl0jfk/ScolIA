@@ -10,9 +10,12 @@ import {
   normalizeConversationState,
   withPendingChoices,
   withPendingConfirmation,
+  withPendingFileUpload,
 } from "@/app/lib/brain-ai/conversation-state";
 import { executeBrainTool } from "@/app/lib/brain-ai/tools/execute";
 import { getBrainTool, mistralToolsForUser } from "@/app/lib/brain-ai/tools/registry";
+import { isBrainPermissionDenied } from "@/app/lib/brain-ai/permissions";
+import { loadScoliaPersonalSignalsBrief } from "@/app/lib/brain-ai/personal-signals";
 import { detectWizardStartTool } from "@/app/lib/brain-ai/wizard-intent";
 import {
   TRAVELS_CLASSES_AUTRES_LABEL,
@@ -20,10 +23,15 @@ import {
 } from "@/app/lib/travels-classes";
 import type {
   BrainChatResponse,
+  BrainClientAction,
   BrainCta,
   BrainConversationState,
+  BrainDocCatalog,
+  BrainDocCatalogGroup,
+  BrainDocCatalogItem,
   BrainPendingChoices,
   BrainPendingConfirmation,
+  BrainPendingFileUpload,
   BrainToolCtx,
   BrainToolResult,
 } from "@/app/lib/brain-ai/types";
@@ -88,6 +96,41 @@ function sleep(ms: number) {
 
 function normalizeLinks(text: string) {
   return text.replace(/\bwww\.[^\s<>"')\]]+/gi, (raw) => `https://${raw}`);
+}
+
+/** Liens proxy PDF dossier élève : inutilisables en `<a>` (besoin de la modale aperçu). */
+const ELEVE_DOC_FILE_PATH =
+  /\/api\/eleves\/[^)\s<>"']+\/documents\/[^)\s<>"']+\/file\/?[^)\s<>"']*/gi;
+
+/**
+ * Retire du texte les liens vers les pièces (markdown ou URL nues).
+ * Les CTAs UI ouvrent ces documents correctement — éviter le doublon cassé dans le chat.
+ */
+function stripEleveDocumentLinks(text: string): string {
+  let out = text.replace(
+    /\[([^\]]+)\]\(\s*\/api\/eleves\/[^)]+\/documents\/[^)]+\/file\/?[^)]*\)/gi,
+    "",
+  );
+  out = out.replace(ELEVE_DOC_FILE_PATH, "");
+  // Nettoyage lignes / puces laissées vides par les suppressions
+  out = out
+    .replace(/^[ \t]*[-•*]\s*$/gm, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  return out;
+}
+
+/** Outils dont la réponse structurée (summaryFr + ctas) doit primer sur le LLM. */
+function shouldMaterializeStructuredList(toolName: string, result: BrainToolResult): boolean {
+  if (!result.ok) return false;
+  if (toolName === "list_eleves_filtered") return true;
+  if (toolName === "open_eleve_dossier") {
+    const ctas = extractCtas(result.data);
+    return ctas.some((c) => c.preview);
+  }
+  return false;
 }
 
 async function fetchMistralWithRetry(body: unknown, apiKey: string, attempts = 3) {
@@ -216,7 +259,97 @@ function extractCtas(data: unknown): BrainCta[] {
   if (!Array.isArray(ctas)) return [];
   return ctas
     .filter((c): c is BrainCta => Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"))
-    .map((c) => ({ label: String((c as BrainCta).label || "Ouvrir"), href: (c as BrainCta).href }));
+    .map((c) => ({
+      label: String((c as BrainCta).label || "Ouvrir"),
+      href: (c as BrainCta).href,
+      ...((c as BrainCta).preview ? { preview: true as const } : {}),
+      ...((c as BrainCta).subtitle ? { subtitle: String((c as BrainCta).subtitle) } : {}),
+      ...((c as BrainCta).group ? { group: String((c as BrainCta).group) } : {}),
+    }));
+}
+
+function extractDocCatalog(data: unknown): BrainDocCatalog | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const raw = (data as { docCatalog?: unknown }).docCatalog;
+  if (!raw || typeof raw !== "object") return undefined;
+  const catalog = raw as BrainDocCatalog;
+  if (!Array.isArray(catalog.groups)) return undefined;
+  const groups: BrainDocCatalogGroup[] = [];
+  for (const g of catalog.groups) {
+    if (!g || typeof g !== "object" || !Array.isArray(g.items)) continue;
+    const items: BrainDocCatalogItem[] = [];
+    for (const item of g.items) {
+      if (!item || typeof item !== "object") continue;
+      const href = String(item.href || "").trim();
+      const title = String(item.title || "").trim();
+      if (!href || !title) continue;
+      items.push({
+        title,
+        href,
+        ...(item.subtitle ? { subtitle: String(item.subtitle) } : {}),
+        ...(item.preview ? { preview: true as const } : {}),
+        ...(item.dossierHref ? { dossierHref: String(item.dossierHref) } : {}),
+        ...(item.ext ? { ext: String(item.ext) } : {}),
+      });
+    }
+    if (items.length === 0) continue;
+    groups.push({
+      title: String(g.title || "—").trim() || "—",
+      count: Number.isFinite(g.count) ? Number(g.count) : items.length,
+      items,
+    });
+  }
+  if (groups.length === 0) return undefined;
+  const total = Number.isFinite(catalog.total)
+    ? Number(catalog.total)
+    : groups.reduce((acc, g) => acc + g.count, 0);
+  return {
+    title: String(catalog.title || "").trim() || `${total} document(s)`,
+    ...(catalog.kindLabel ? { kindLabel: String(catalog.kindLabel) } : {}),
+    total,
+    groups,
+  };
+}
+
+function extractClientActions(data: unknown): BrainClientAction[] {
+  if (!data || typeof data !== "object") return [];
+  const raw = (data as { clientActions?: unknown }).clientActions;
+  if (!Array.isArray(raw)) return [];
+  const out: BrainClientAction[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const type = String((item as { type?: string }).type || "");
+    if (type === "open_route") {
+      const href = String((item as { href?: string }).href || "").trim();
+      if (!href.startsWith("/")) continue;
+      out.push({
+        type: "open_route",
+        href,
+        label: String((item as { label?: string }).label || "Ouvrir"),
+      });
+      continue;
+    }
+    if (type === "open_eleve_dossier") {
+      const eleveId = String((item as { eleveId?: string }).eleveId || "").trim();
+      if (!eleveId) continue;
+      const subView =
+        String((item as { subView?: string }).subView || "") === "inscription"
+          ? "inscription"
+          : "dossier";
+      out.push({ type: "open_eleve_dossier", eleveId, subView });
+      continue;
+    }
+    if (type === "open_url_modal") {
+      const href = String((item as { href?: string }).href || "").trim();
+      if (!href.startsWith("/")) continue;
+      out.push({
+        type: "open_url_modal",
+        href,
+        title: String((item as { title?: string }).title || ""),
+      });
+    }
+  }
+  return out;
 }
 
 function applyChoiceToArgs(
@@ -318,6 +451,7 @@ function materializeToolTurn(
   result: BrainToolResult,
   ctas: BrainCta[],
   knowledgeMeta?: { domainId?: string; file?: string },
+  clientActions: BrainClientAction[] = [],
 ): BrainChatResponse {
   if (!result.ok && "needsChoices" in result && result.needsChoices) {
     const pendingChoices: BrainPendingChoices = {
@@ -336,7 +470,31 @@ function materializeToolTurn(
       conversationState: state,
       pendingConfirmation: null,
       pendingChoices,
+      pendingFileUpload: null,
       ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
+    };
+  }
+
+  if (!result.ok && "needsFileUpload" in result && result.needsFileUpload) {
+    const pendingFileUpload: BrainPendingFileUpload = {
+      tool: result.tool,
+      promptFr: result.promptFr,
+      draftArgs: result.draftArgs,
+      optional: result.optional,
+      accept: result.accept,
+    };
+    const state = withPendingFileUpload(conversationState, pendingFileUpload);
+    return {
+      answer: result.promptFr,
+      domain: knowledgeMeta?.domainId,
+      usedFile: knowledgeMeta?.file,
+      conversationState: state,
+      pendingConfirmation: null,
+      pendingChoices: null,
+      pendingFileUpload,
+      ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
     };
   }
 
@@ -354,24 +512,30 @@ function materializeToolTurn(
       conversationState: state,
       pendingConfirmation,
       pendingChoices: null,
+      pendingFileUpload: null,
       ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
     };
   }
 
   if (!result.ok) {
     return {
       answer: "error" in result ? result.error : "Échec de l'action.",
-      conversationState: withPendingChoices(
-        withPendingConfirmation(conversationState, null),
+      conversationState: withPendingFileUpload(
+        withPendingChoices(withPendingConfirmation(conversationState, null), null),
         null,
       ),
       pendingConfirmation: null,
       pendingChoices: null,
+      pendingFileUpload: null,
       ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
     };
   }
 
   const nextCtas = [...ctas, ...extractCtas(result.data)];
+  const nextActions = [...clientActions, ...extractClientActions(result.data)];
+  const docCatalog = extractDocCatalog(result.data);
   const follow =
     result.data && typeof result.data === "object" && "followUrl" in (result.data as object)
       ? String((result.data as { followUrl?: string }).followUrl || "")
@@ -380,16 +544,19 @@ function materializeToolTurn(
     nextCtas.push({ label: "Ouvrir", href: follow });
   }
   return {
-    answer: result.summaryFr || "Action effectuée.",
+    answer: stripEleveDocumentLinks(result.summaryFr || "Action effectuée."),
     domain: knowledgeMeta?.domainId,
     usedFile: knowledgeMeta?.file,
-    conversationState: withPendingChoices(
-      withPendingConfirmation(conversationState, null),
+    conversationState: withPendingFileUpload(
+      withPendingChoices(withPendingConfirmation(conversationState, null), null),
       null,
     ),
     pendingConfirmation: null,
     pendingChoices: null,
+    pendingFileUpload: null,
     ctas: nextCtas.length ? nextCtas : undefined,
+    ...(docCatalog ? { docCatalog } : {}),
+    clientActions: nextActions.length ? nextActions : undefined,
   };
 }
 
@@ -410,6 +577,12 @@ type RunBrainChatInput = {
     value?: string;
     values?: string[];
     draftArgs: Record<string, unknown>;
+  } | null;
+  /** Reprise après demande de dépôt de fichier. */
+  fileApply?: {
+    tool: string;
+    draftArgs: Record<string, unknown>;
+    skipPdf?: boolean;
   } | null;
   /** Pièces jointes déjà uploadées (PDF…). */
   attachments?: Array<{
@@ -448,8 +621,56 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   }
 
   const ctas: BrainCta[] = [];
+  const clientActions: BrainClientAction[] = [];
   let pendingConfirmation: BrainPendingConfirmation | null = null;
   let pendingChoices: BrainPendingChoices | null = null;
+
+  // Reprise après dépôt PDF (ou skip)
+  if (input.fileApply?.tool) {
+    const toolName = input.fileApply.tool;
+    const tool = getBrainTool(toolName);
+    if (!tool) {
+      return {
+        answer: "Action inconnue, impossible d'appliquer le fichier.",
+        conversationState,
+        pendingConfirmation: null,
+        pendingChoices: null,
+        pendingFileUpload: null,
+      };
+    }
+    const mergedArgs: Record<string, unknown> = {
+      ...(input.fileApply.draftArgs || {}),
+      ...(input.fileApply.skipPdf ? { skipPdf: true } : {}),
+    };
+    if (toolName === "create_photocopie_demand" && !input.fileApply.skipPdf) {
+      const atts = conversationState.slots.attachments;
+      if (Array.isArray(atts) && atts.length > 0) {
+        const docs = atts
+          .slice(-5)
+          .map((a) => {
+            const row = a as { key?: string; fileName?: string; contentType?: string };
+            if (!row?.key) return null;
+            return {
+              key: row.key,
+              fileName: row.fileName || "document.pdf",
+              contentType: row.contentType || "application/pdf",
+            };
+          })
+          .filter((d): d is { key: string; fileName: string; contentType: string } => Boolean(d));
+        if (docs.length > 0) {
+          mergedArgs.documents = docs;
+          mergedArgs.documentKey = docs[0].key;
+          mergedArgs.documentFileName = docs[0].fileName;
+          mergedArgs.documentContentType = docs[0].contentType;
+        }
+      }
+    }
+    const result = await executeBrainTool(toolName, mergedArgs, {
+      ...input.toolCtx,
+      confirmed: false,
+    });
+    return materializeToolTurn(conversationState, result, ctas, undefined, clientActions);
+  }
 
   // Choix UI (liste déroulante / multi / date) — rejoue l'outil sans passer par le LLM
   if (input.choiceApply?.tool && input.choiceApply.field) {
@@ -473,7 +694,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       ...input.toolCtx,
       confirmed: false,
     });
-    return materializeToolTurn(conversationState, result, ctas);
+    return materializeToolTurn(conversationState, result, ctas, undefined, clientActions);
   }
 
   // Confirmation directe (bouton UI) — fusionne éventuelle PJ récente dans les args photocopies
@@ -534,6 +755,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       };
     }
     ctas.push(...extractCtas(result.data));
+    clientActions.push(...extractClientActions(result.data));
     const follow =
       result.data && typeof result.data === "object" && "followUrl" in (result.data as object)
         ? String((result.data as { followUrl?: string }).followUrl || "")
@@ -545,6 +767,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       pendingConfirmation: null,
       pendingChoices: null,
       ctas: ctas.length ? ctas : undefined,
+      clientActions: clientActions.length ? clientActions : undefined,
     };
   }
 
@@ -584,25 +807,61 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     };
   }
 
-  const tools = mistralToolsForUser(signedIn);
+  const tools = mistralToolsForUser(signedIn, input.toolCtx);
+
+  const personalSignals = signedIn
+    ? await loadScoliaPersonalSignalsBrief(input.toolCtx)
+    : { brief: "", items: [], source: "empty" as const };
+  const personalBlock = personalSignals.brief
+    ? `\nContexte personnel (signaux intranet de cet utilisateur) :\n${personalSignals.brief}\n` +
+      `- Si l’utilisateur dit bonjour / « qu’est-ce que j’ai à faire » / « mes signatures » : mentionne ces points et propose d’ouvrir le lien ou d’agir (outil adapté).\n` +
+      `- Pour rafraîchir ou détailler : appelle get_my_pending_actions.\n` +
+      `- N’invente pas d’autres tâches hors cette liste / hors outils.\n`
+    : signedIn
+      ? `\nContexte personnel : aucun signal chargé pour l’instant — si on demande « à faire / signatures / file », appelle get_my_pending_actions.\n`
+      : "";
 
   const systemPrompt =
     `Tu es ScolIA, l'assistant institutionnel de l'établissement (Brain AI).\n` +
     `Réponds en français, précis, utile et concis.\n` +
+    (input.toolCtx.firstName
+      ? `L’utilisateur s’appelle ${input.toolCtx.firstName} — tu peux l’appeler par son prénom, ton professionnel.\n`
+      : "") +
     buildBrainAiClockContext() +
+    personalBlock +
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +
-    `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat…) — toujours préférer un outil pour l'actualité.\n` +
+    `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat, file personnelle…) — toujours préférer un outil pour l'actualité.\n` +
+    `Droits d'accès (OBLIGATOIRE) :\n` +
+    `- Tu n'as accès QU'AUX OUTILS listés dans cet appel. Ce filtre = les droits intranet de l'utilisateur.\n` +
+    `- Si l'utilisateur demande une action absente de ta liste d'outils : refuse clairement. Formulation type : « Vous n'êtes pas autorisé à effectuer cette action. Elle est restreinte selon votre profil — ScolIA ne peut pas contourner vos droits. »\n` +
+    `- INTERDIT d'inventer un contournement, de simuler le résultat, de « faire comme si », ou de donner des étapes pour passer outre.\n` +
+    `- Si un outil renvoie FORBIDDEN / MODULE_FORBIDDEN : reprends le message d'erreur tel quel, sans l'adoucir ni proposer de bypass.\n` +
     `Règles STRICTES (actions) :\n` +
     `- INTERDIT de demander en texte libre la salle, la date, les créneaux, le motif, etc.\n` +
     `- INTERDIT d'écrire « dites-moi… », « pour commencer… », « liste-moi les salles… ».\n` +
     `- Dès que l'utilisateur veut réserver / créer / déclarer : appelle IMMÉDIATEMENT l'outil correspondant AVEC {} (sans args). L'UI affiche listes déroulantes, dates et boutons.\n` +
-    `- create_reservation = réservation salle | create_trip = sortie/voyage | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
-    `- Pas d'accès RH / dossiers personnels / salaires. create_absence = soi uniquement.\n` +
-    `- Si des PDF sont joints (max 5), passe-les à create_photocopie_demand via documents[] (ou documentKey / documentFileName en mono).\n` +
+    `- OUVRIR ≠ CRÉER (critique) :\n` +
+    `  · « ouvre / ouvrir / montre / affiche / va sur / accède » une sortie, un séjour, un voyage → open_trip (JAMAIS create_trip).\n` +
+    `  · « ouvre les sorties / module voyages » sans nom → open_trip avec {} ou resolve_and_open.\n` +
+    `  · « crée / créer / nouvelle / démarrer » une sortie → create_trip.\n` +
+    `  · Même règle pour les autres modules : ouvrir un dossier → open_eleve_dossier ; créer un élève → create_eleve_preinscrit.\n` +
+    `- File perso : get_my_pending_actions (signaux à traiter, signatures, validations).\n` +
+    `- Classes : « 6ème A » / « sixième A » = 6A (pas 6E). Toujours garder la lettre de division.\n` +
+    `- create_reservation = réservation salle | create_trip = NOUVELLE sortie uniquement | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
+    `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe/pôle).\n` +
+    `- list_eleves_filtered : pour « tous les PAP du collège / d’une classe », appeler l’outil. L’UI affiche le catalogue complet groupé par classe — ne pas tronquer la liste dans le texte, juste confirmer le total et renvoyer vers les cartes.\n` +
+    `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_eleve_preinscrit | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | decide_rh_absence | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room | resend_stage_signatures.\n` +
+    `- Internat : get_internat_status | open_internat_appel | assign_internat_room.\n` +
+    `- Stages : get_stages_overview | resend_stage_signatures (relance e-mails / ouvrir convention).\n` +
+    `- RH absences (direction) : decide_rh_absence avec {} pour la file à valider.\n` +
+    `- Voyages : open_trip (ouvrir / lister existants) | list_trips_brief | get_trip_status | create_trip (créer neuf seulement).\n` +
+    `- create_absence = soi uniquement. create_accueil_absence = élèves (accueil). decide_rh_absence = file direction/validateur.\n` +
+    `- Photocopies : après les champs, l'UI demande le PDF (dépôt). Ne demande pas le PDF en texte libre.\n` +
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
     `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
     `- Liens en URL complète https://…\n` +
+    `- Pièces PAP/PAI/PPS/GEVASCO : INTERDIT de coller des liens /api/eleves/…/documents/…/file dans le texte. L’UI affiche le catalogue / les boutons d’ouverture. Dans le texte, cite le total et éventuellement le détail par classe (noms), sans liens.\n` +
     `Séjours scolaires (travels) :\n` +
     `- SIMPLE ≠ COMPLEX : SIMPLE n'a pas d'étape devis bus ; COMPLEX avec needsBus=true a Logistique puis Signature.\n` +
     `- À PROF_LOGISTICS : créateur peut « Choisir » un devis ; direction peut « Choisir et signer ».\n` +
@@ -680,7 +939,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     const toolCalls = msg?.tool_calls;
 
     if (!toolCalls?.length) {
-      const answer = normalizeLinks(msg?.content?.trim() || "");
+      const answer = stripEleveDocumentLinks(normalizeLinks(msg?.content?.trim() || ""));
       conversationState = withPendingConfirmation(conversationState, pendingConfirmation);
       conversationState = withPendingChoices(conversationState, pendingChoices);
       return {
@@ -700,6 +959,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         pendingConfirmation,
         pendingChoices,
         ctas: ctas.length ? ctas : undefined,
+        clientActions: clientActions.length ? clientActions : undefined,
       };
     }
 
@@ -747,12 +1007,41 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         confirmed: false,
       });
 
+      // Refus RBAC : réponse immédiate, sans laisser le modèle inventer un contournement.
+      if (
+        !result.ok &&
+        "code" in result &&
+        isBrainPermissionDenied(result.code) &&
+        !("needsConfirmation" in result) &&
+        !("needsChoices" in result) &&
+        !("needsFileUpload" in result)
+      ) {
+        return materializeToolTurn(
+          conversationState,
+          result,
+          ctas,
+          { domainId: knowledge.domain.id, file: knowledge.domain.file },
+          clientActions,
+        );
+      }
+
       if (!result.ok && "needsChoices" in result && result.needsChoices) {
         return materializeToolTurn(
           conversationState,
           result,
           ctas,
           { domainId: knowledge.domain.id, file: knowledge.domain.file },
+          clientActions,
+        );
+      }
+
+      if (!result.ok && "needsFileUpload" in result && result.needsFileUpload) {
+        return materializeToolTurn(
+          conversationState,
+          result,
+          ctas,
+          { domainId: knowledge.domain.id, file: knowledge.domain.file },
+          clientActions,
         );
       }
 
@@ -762,11 +1051,25 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
           result,
           ctas,
           { domainId: knowledge.domain.id, file: knowledge.domain.file },
+          clientActions,
         );
       }
 
       if (result.ok) {
+        // Listes PAP / ouverture pièce : réponse structurée (pas de liens inventés par le LLM).
+        // materializeToolTurn ré-extrait déjà ctas/actions depuis result → ne pas pré-pousser.
+        if (shouldMaterializeStructuredList(name, result)) {
+          return materializeToolTurn(
+            conversationState,
+            result,
+            ctas,
+            { domainId: knowledge.domain.id, file: knowledge.domain.file },
+            clientActions,
+          );
+        }
+
         ctas.push(...extractCtas(result.data));
+        clientActions.push(...extractClientActions(result.data));
         const follow =
           result.data && typeof result.data === "object" && "followUrl" in (result.data as object)
             ? String((result.data as { followUrl?: string }).followUrl || "")
@@ -776,11 +1079,49 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         }
       }
 
+      // Ne pas exposer les href PDF au LLM (sinon il les recolle en markdown cassé).
+      const toolPayloadForLlm = (() => {
+        if (!result.ok || !result.data || typeof result.data !== "object") return result;
+        const data = { ...(result.data as Record<string, unknown>) };
+        if (Array.isArray(data.eleves)) {
+          data.eleves = data.eleves.map((row) => {
+            if (!row || typeof row !== "object") return row;
+            const e = { ...(row as Record<string, unknown>) };
+            delete e.documents;
+            delete e.fileHref;
+            return e;
+          });
+        }
+        delete data.fileHref;
+        // Catalogue UI : résumé compact pour le LLM (les boutons sont côté chat).
+        if (data.docCatalog && typeof data.docCatalog === "object") {
+          const catalog = data.docCatalog as BrainDocCatalog;
+          data.docCatalog = {
+            title: catalog.title,
+            kindLabel: catalog.kindLabel,
+            total: catalog.total,
+            groups: (catalog.groups || []).map((g) => ({
+              title: g.title,
+              count: g.count,
+            })),
+          };
+        }
+        if (Array.isArray(data.ctas)) {
+          data.ctas = data.ctas.map((c) => {
+            if (!c || typeof c !== "object") return c;
+            const row = c as BrainCta;
+            if (!row.preview) return { label: row.label, href: row.href };
+            return { label: row.label, preview: true };
+          });
+        }
+        return { ...result, data };
+      })();
+
       messages.push({
         role: "tool",
         tool_call_id: call.id,
         name,
-        content: JSON.stringify(result),
+        content: JSON.stringify(toolPayloadForLlm),
       });
     }
   }
@@ -794,5 +1135,6 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     pendingConfirmation,
     pendingChoices,
     ctas: ctas.length ? ctas : undefined,
+    clientActions: clientActions.length ? clientActions : undefined,
   };
 }

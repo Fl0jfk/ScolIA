@@ -1,4 +1,4 @@
-/** Types communs bureautique (Collabora CODE / cloud Scola). */
+/** Types communs bureautique (création cloud + téléchargement local). */
 
 export type OfficeKind = "writer" | "calc" | "impress";
 

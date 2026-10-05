@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import {
   applyConventionSignature,
+  canAccessStageDiscussionViaLink,
   canRequestScheduleChange,
+  isStageConventionCancelled,
+  postStageDiscussionMessageViaToken,
   requestScheduleChange,
   requestSignConfirmCode,
   resolveSignTokenBySecureCode,
+  STAGE_CANCELLED_PUBLIC_MESSAGE,
 } from "@/app/lib/stage-workflow";
 import { roleStampsPdf } from "@/app/lib/stage-pdf-sign";
 import { loadReferentSignatureBytes } from "@/app/lib/stage-signature-store";
@@ -22,11 +26,17 @@ import {
 } from "@/app/lib/stage-types";
 import { getStageConstraintsPublicContext } from "@/app/lib/stage-constraints-config";
 import { stageCycleLabel } from "@/app/lib/stage-config";
+import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment-server";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
 const signPublicLimiter = createMemoryRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 20,
+});
+
+const discussionLimiter = createMemoryRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 40,
 });
 
 function mapScheduleDays(convention: NonNullable<Awaited<ReturnType<typeof getStageConvention>>>) {
@@ -71,6 +81,16 @@ export async function GET(req: Request) {
 
     const convention = await getStageConvention(ref.conventionId);
     if (!convention) return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
+    if (isStageConventionCancelled(convention)) {
+      return NextResponse.json(
+        {
+          cancelled: true,
+          error: STAGE_CANCELLED_PUBLIC_MESSAGE,
+          message: STAGE_CANCELLED_PUBLIC_MESSAGE,
+        },
+        { status: 410 },
+      );
+    }
 
     const signature = convention.signatures.find((s) => s.id === ref.signatureId);
     if (!signature) return NextResponse.json({ error: "Signature introuvable." }, { status: 404 });
@@ -90,11 +110,23 @@ export async function GET(req: Request) {
     const scheduleChangePending = Boolean(convention.scheduleChangeRequest);
     const canRequestSchedule =
       canRequestScheduleChange(convention, signature.role) && !scheduleChangePending;
+    const canDiscuss = canAccessStageDiscussionViaLink(signature.role);
     const constraints = await getStageConstraintsPublicContext({
       level: convention.student.level,
       className: convention.student.className,
       schoolYear: convention.schoolYear,
     });
+    const periodAlignment = await assessConventionPeriodAlignment(convention);
+
+    const discussionOnly = new URL(req.url).searchParams.get("discussion") === "1";
+    if (discussionOnly) {
+      if (!canDiscuss) {
+        return NextResponse.json({ error: "Accès discussion refusé." }, { status: 403 });
+      }
+      return NextResponse.json({
+        discussionMessages: convention.discussion?.messages ?? [],
+      });
+    }
 
     return NextResponse.json({
       convention: {
@@ -113,6 +145,7 @@ export async function GET(req: Request) {
         schedule: convention.schedule,
         hasPdf: Boolean(convention.uploadedPdf?.s3Key),
       },
+      periodAlignment,
       scheduleConstraints: {
         cycle: constraints.cycle,
         cycleLabel: stageCycleLabel(constraints.cycle),
@@ -134,10 +167,14 @@ export async function GET(req: Request) {
       needsDrawnSignature,
       hasStoredReferentSignature,
       canRequestScheduleChange: canRequestSchedule,
+      canDiscuss,
+      discussionMessages: canDiscuss ? (convention.discussion?.messages ?? []) : [],
       scheduleChangeRequest: convention.scheduleChangeRequest
         ? {
             requestedAt: convention.scheduleChangeRequest.requestedAt,
             note: convention.scheduleChangeRequest.note,
+            requestedByLabel: convention.scheduleChangeRequest.requestedByLabel,
+            source: convention.scheduleChangeRequest.source,
             previousPeriodLabel: formatPeriodRangeFr(
               convention.scheduleChangeRequest.previousSchedule.periodStart,
               convention.scheduleChangeRequest.previousSchedule.periodEnd,
@@ -149,6 +186,8 @@ export async function GET(req: Request) {
             requestedScheduleSummary: scheduleSummary(
               convention.scheduleChangeRequest.requestedSchedule,
             ),
+            requestedSchedule: convention.scheduleChangeRequest.requestedSchedule,
+            previousSchedule: convention.scheduleChangeRequest.previousSchedule,
           }
         : null,
       signingSuspended: scheduleChangePending,
@@ -217,8 +256,29 @@ export async function POST(req: Request) {
       return NextResponse.json({
         success: true,
         message:
-          "Demande envoyée à l'établissement. Les signatures sont suspendues jusqu'à validation.",
+          "Demande d'avenant envoyée. Les signatures sont suspendues jusqu'à validation de l'établissement.",
         scheduleChangeRequest: result.convention.scheduleChangeRequest ?? null,
+      });
+    }
+
+    if (action === "post_discussion_message") {
+      if (!(await discussionLimiter.allow(clientIpFromRequest(req)))) {
+        return NextResponse.json(
+          { error: "Trop de messages. Réessayez dans quelques minutes." },
+          { status: 429 },
+        );
+      }
+      const token = String(body.token ?? "").trim();
+      if (!token) return NextResponse.json({ error: "Jeton manquant." }, { status: 400 });
+      const result = await postStageDiscussionMessageViaToken({
+        token,
+        body: String(body.body ?? ""),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({
+        success: true,
+        message: result.message,
+        discussionMessages: result.convention.discussion?.messages ?? [],
       });
     }
 

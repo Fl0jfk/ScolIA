@@ -1,6 +1,6 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, SetStateAction, ReactNode } from "react";
 import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
 import TripAccompagnateursSelect, {
   accompagnateursToFormFields,
@@ -10,9 +10,6 @@ import { emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-fo
 import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import {
-  TripField,
-  TripFieldActions,
-  TripFieldValue,
   TripInput,
   TripSection,
   TripTextarea,
@@ -40,6 +37,7 @@ type TripOverviewFieldsPanelProps = {
   classOptions: string[];
   canEditEffectif: boolean;
   openEffectifModal: () => void;
+  openClassesModal: () => void;
   withBusLogistics: boolean;
   effectifChanged: boolean;
   cuisineOrderSent: boolean;
@@ -59,309 +57,425 @@ type TripOverviewFieldsPanelProps = {
   documentCount: number;
 };
 
+/** Tuile légère — demi-largeur desktop, zéro décoration. */
+function Tile({
+  icon,
+  label,
+  children,
+  action,
+}: {
+  icon: string;
+  label: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white px-4 py-3">
+      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <span aria-hidden className="opacity-80">
+          {icon}
+        </span>
+        {label}
+      </p>
+      <div className="mt-1.5 text-sm font-medium text-slate-800 leading-snug min-w-0">
+        {children}
+      </div>
+      {action ? <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">{action}</div> : null}
+    </div>
+  );
+}
+
+function LinkBtn({
+  onClick,
+  disabled,
+  children,
+  tone = "indigo",
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+  tone?: "indigo" | "amber" | "emerald";
+}) {
+  const tones = {
+    indigo: "text-indigo-600",
+    amber: "text-amber-700",
+    emerald: "text-emerald-700",
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`text-xs font-semibold hover:underline disabled:opacity-50 ${tones[tone]}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function EmptyValue() {
+  return <span className="text-slate-400 font-normal">—</span>;
+}
+
 export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
   const {
-    trip, isEditing, editedData, setEditedData, classOptions, canEditEffectif, openEffectifModal,
-    withBusLogistics, effectifChanged, cuisineOrderSent, cuisineChanged, loadingAction,
-    requestAmendedBusQuote, sendCuisineAmendment, dateLabel, canEditDates, datesChanged,
-    openDateModal, canAccessComptaTab, setHubTab, openBudgetModal, openCuisineModalFromEdit,
-    openCuisineModalForOwner, documentCount,
+    trip,
+    isEditing,
+    editedData,
+    setEditedData,
+    classOptions,
+    canEditEffectif,
+    openEffectifModal,
+    openClassesModal,
+    withBusLogistics,
+    effectifChanged,
+    cuisineOrderSent,
+    cuisineChanged,
+    loadingAction,
+    requestAmendedBusQuote,
+    sendCuisineAmendment,
+    dateLabel,
+    canEditDates,
+    datesChanged,
+    openDateModal,
+    canAccessComptaTab,
+    setHubTab,
+    openBudgetModal,
+    openCuisineModalFromEdit,
+    openCuisineModalForOwner,
   } = p;
+
+  const cuisineActive = Boolean(trip.data.piqueNiqueDetails?.active);
+  const mealCount = cuisineActive
+    ? getTotalMeals(trip.data.piqueNiqueDetails ?? emptyCuisineDetails())
+    : 0;
+  const cuisineDays = cuisineActive
+    ? Object.values(trip.data.piqueNiqueDetails?.daysSelection || {}).filter(Boolean).length
+    : 0;
+
+  const accompagnateursLabel = trip.data.nomsAccompagnateurs
+    ? String(trip.data.nomsAccompagnateurs)
+    : Number(trip.data.nbAccompagnateurs || 0) > 0
+      ? `${trip.data.nbAccompagnateurs} (noms à préciser)`
+      : "Aucun";
+
   return (
-      <TripSection title="Détails du dossier" subtitle="Informations logistiques et pédagogiques" icon="📋">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
-          <TripField label="Destination" span={2}>
-            <TripFieldValue value={trip.data.destination} multiline />
-          </TripField>
-          <TripField label="Classes concernées">
-            {isEditing ? (
-              <TripClassesMultiSelect
-                value={String(editedData.classes || "")}
-                options={classOptions}
-                onChange={(classes) => setEditedData({ ...editedData, classes })}
-              />
-            ) : (
-              <TripFieldValue value={trip.data.classes} />
-            )}
-          </TripField>
-          <TripField label="Accompagnateurs" span={2}>
-            {isEditing ? (
-              <div className="space-y-3">
-                <div>
-                  <span className="text-[9px] text-slate-400">Nombre (noms optionnels)</span>
-                  <TripInput
-                    type="number"
-                    min={0}
-                    value={editedData.nbAccompagnateurs}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      const named = formFieldsToAccompagnateurs({
-                        nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
-                        accompagnateurs: editedData.accompagnateurs,
-                      }).length;
-                      const n = Number(raw);
-                      const safe =
-                        Number.isFinite(n) && n >= 0
-                          ? Math.max(Math.floor(n), named)
-                          : named;
-                      setEditedData({ ...editedData, nbAccompagnateurs: safe });
-                    }}
-                  />
-                </div>
-                <TripAccompagnateursSelect
-                  value={formFieldsToAccompagnateurs({
+    <TripSection title="Détails du dossier" icon="📋">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Tile icon="📍" label="Destination">
+          {trip.data.destination ? (
+            <span className="line-clamp-2" title={trip.data.destination}>
+              {trip.data.destination}
+            </span>
+          ) : (
+            <EmptyValue />
+          )}
+        </Tile>
+
+        <Tile
+          icon="🏫"
+          label="Classes"
+          action={
+            !isEditing && canEditEffectif ? (
+              <LinkBtn onClick={openClassesModal}>Modifier</LinkBtn>
+            ) : undefined
+          }
+        >
+          {isEditing ? (
+            <TripClassesMultiSelect
+              value={String(editedData.classes || "")}
+              options={classOptions}
+              onChange={(classes) => setEditedData({ ...editedData, classes })}
+            />
+          ) : trip.data.classes ? (
+            <span className="line-clamp-2" title={trip.data.classes}>
+              {trip.data.classes}
+            </span>
+          ) : (
+            <EmptyValue />
+          )}
+        </Tile>
+
+        <Tile
+          icon="👥"
+          label="Effectifs"
+          action={
+            !isEditing ? (
+              <>
+                {canEditEffectif && (
+                  <LinkBtn onClick={openEffectifModal}>Modifier</LinkBtn>
+                )}
+                {withBusLogistics && effectifChanged && (
+                  <LinkBtn
+                    tone="amber"
+                    disabled={loadingAction === "amendment-quote"}
+                    onClick={() => requestAmendedBusQuote()}
+                  >
+                    Devis transport rectifié
+                  </LinkBtn>
+                )}
+                {cuisineOrderSent && cuisineActive && cuisineChanged && (
+                  <LinkBtn
+                    tone="emerald"
+                    disabled={loadingAction === "cuisine-amendment"}
+                    onClick={() => sendCuisineAmendment()}
+                  >
+                    Renvoyer cuisine
+                  </LinkBtn>
+                )}
+              </>
+            ) : undefined
+          }
+        >
+          {isEditing ? (
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <span className="text-[9px] text-slate-400">Élèves</span>
+                <TripInput
+                  type="number"
+                  value={editedData.nbEleves}
+                  onChange={(e) => setEditedData({ ...editedData, nbEleves: e.target.value })}
+                />
+              </div>
+              <div className="flex-1">
+                <span className="text-[9px] text-slate-400">Accomp.</span>
+                <TripInput
+                  type="number"
+                  min={0}
+                  value={editedData.nbAccompagnateurs}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const named = formFieldsToAccompagnateurs({
+                      nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
+                      accompagnateurs: editedData.accompagnateurs,
+                    }).length;
+                    const n = Number(raw);
+                    const safe =
+                      Number.isFinite(n) && n >= 0 ? Math.max(Math.floor(n), named) : named;
+                    setEditedData({ ...editedData, nbAccompagnateurs: safe });
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            <span>
+              {trip.data.nbEleves ?? 0} él. · {trip.data.nbAccompagnateurs || 0} acc.
+            </span>
+          )}
+        </Tile>
+
+        <Tile
+          icon="🧑‍🏫"
+          label="Accompagnateurs"
+          action={
+            !isEditing && canEditEffectif ? (
+              <LinkBtn onClick={openEffectifModal}>Modifier</LinkBtn>
+            ) : undefined
+          }
+        >
+          {isEditing ? (
+            <div className="space-y-2">
+              <TripInput
+                type="number"
+                min={0}
+                value={editedData.nbAccompagnateurs}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const named = formFieldsToAccompagnateurs({
                     nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
                     accompagnateurs: editedData.accompagnateurs,
-                  })}
-                  onChange={(accompagnateurs) =>
-                    setEditedData({
-                      ...editedData,
-                      ...accompagnateursToFormFields(accompagnateurs, {
-                        declaredNb: editedData.nbAccompagnateurs,
-                      }),
-                    })
-                  }
-                />
-              </div>
-            ) : (
+                  }).length;
+                  const n = Number(raw);
+                  const safe =
+                    Number.isFinite(n) && n >= 0 ? Math.max(Math.floor(n), named) : named;
+                  setEditedData({ ...editedData, nbAccompagnateurs: safe });
+                }}
+              />
+              <TripAccompagnateursSelect
+                value={formFieldsToAccompagnateurs({
+                  nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
+                  accompagnateurs: editedData.accompagnateurs,
+                })}
+                onChange={(accompagnateurs) =>
+                  setEditedData({
+                    ...editedData,
+                    ...accompagnateursToFormFields(accompagnateurs, {
+                      declaredNb: editedData.nbAccompagnateurs,
+                    }),
+                  })
+                }
+              />
+            </div>
+          ) : (
+            <span className="line-clamp-2 font-normal text-slate-700" title={accompagnateursLabel}>
+              {accompagnateursLabel}
+            </span>
+          )}
+        </Tile>
+
+        <Tile
+          icon="📅"
+          label="Dates"
+          action={
+            !isEditing ? (
               <>
-                <TripFieldValue
-                  value={
-                    trip.data.nomsAccompagnateurs
-                      ? `${trip.data.nbAccompagnateurs || 0} — ${trip.data.nomsAccompagnateurs}`
-                      : `${trip.data.nbAccompagnateurs || 0} accompagnateur(s)${
-                          Number(trip.data.nbAccompagnateurs || 0) > 0 ? " (noms à préciser)" : ""
-                        }`
-                  }
+                {canEditDates && <LinkBtn onClick={openDateModal}>Modifier</LinkBtn>}
+                {datesChanged && (
+                  <span className="text-[10px] font-semibold text-amber-700">
+                    Modifiées depuis l’envoi transport
+                  </span>
+                )}
+              </>
+            ) : undefined
+          }
+        >
+          {isEditing ? (
+            <div className="flex gap-2 flex-wrap">
+              <TripInput
+                type="date"
+                value={editedData.startDate || editedData.date || ""}
+                onChange={(e) =>
+                  setEditedData({
+                    ...editedData,
+                    startDate: e.target.value,
+                    date: e.target.value,
+                  })
+                }
+              />
+              {trip.type === "COMPLEX" && (
+                <TripInput
+                  type="date"
+                  value={editedData.endDate || ""}
+                  onChange={(e) => setEditedData({ ...editedData, endDate: e.target.value })}
                 />
+              )}
+            </div>
+          ) : (
+            <span>{dateLabel || <EmptyValue />}</span>
+          )}
+        </Tile>
+
+        <Tile icon="🕐" label="Horaires">
+          {isEditing ? (
+            <div className="flex gap-2">
+              <TripInput
+                placeholder="Départ"
+                value={editedData.startTime}
+                onChange={(e) => setEditedData({ ...editedData, startTime: e.target.value })}
+              />
+              <TripInput
+                placeholder="Retour"
+                value={editedData.endTime}
+                onChange={(e) => setEditedData({ ...editedData, endTime: e.target.value })}
+              />
+            </div>
+          ) : (
+            <span>
+              {trip.data.startTime || "—"} → {trip.data.endTime || "—"}
+            </span>
+          )}
+        </Tile>
+
+        <Tile
+          icon="💶"
+          label="Budget"
+          action={
+            !isEditing ? (
+              <>
                 {canEditEffectif && (
-                  <TripFieldActions>
-                    <button
-                      type="button"
-                      onClick={openEffectifModal}
-                      className="text-xs font-bold text-indigo-600 hover:underline"
-                    >
-                      Modifier effectifs &amp; accompagnateurs
-                    </button>
-                  </TripFieldActions>
-                )}
-              </>
-            )}
-          </TripField>
-          <TripField label="Effectifs">
-            {isEditing ? (
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <span className="text-[9px] text-slate-400">Élèves</span>
-                  <TripInput type="number" value={editedData.nbEleves} onChange={(e) => setEditedData({ ...editedData, nbEleves: e.target.value })} />
-                </div>
-                <div className="flex-1">
-                  <span className="text-[9px] text-slate-400">Accomp.</span>
-                  <TripInput
-                    type="number"
-                    min={0}
-                    value={editedData.nbAccompagnateurs}
-                    title="Nombre déclaré pour le transport — les noms peuvent être ajoutés ensuite"
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      const named = formFieldsToAccompagnateurs({
-                        nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
-                        accompagnateurs: editedData.accompagnateurs,
-                      }).length;
-                      const n = Number(raw);
-                      const safe =
-                        Number.isFinite(n) && n >= 0
-                          ? Math.max(Math.floor(n), named)
-                          : named;
-                      setEditedData({ ...editedData, nbAccompagnateurs: safe });
-                    }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
-                <TripFieldValue value={`${trip.data.nbEleves} élèves · ${trip.data.nbAccompagnateurs || "0"} accompagnateurs`} />
-                {(canEditEffectif ||
-                  (withBusLogistics && effectifChanged) ||
-                  (cuisineOrderSent && trip.data?.piqueNiqueDetails?.active && cuisineChanged)) && (
-                  <TripFieldActions>
-                    {canEditEffectif && (
-                      <button
-                        type="button"
-                        onClick={openEffectifModal}
-                        className="text-xs font-bold text-indigo-600 hover:underline"
-                      >
-                        Modifier l&apos;effectif
-                      </button>
-                    )}
-                    {withBusLogistics && effectifChanged && (
-                      <button
-                        type="button"
-                        onClick={() => requestAmendedBusQuote()}
-                        disabled={loadingAction === "amendment-quote"}
-                        className="text-xs font-bold text-amber-700 hover:underline disabled:opacity-50"
-                      >
-                        Demander un devis rectifié (transport)
-                      </button>
-                    )}
-                    {cuisineOrderSent && Boolean(trip.data?.piqueNiqueDetails?.active) && cuisineChanged && (
-                      <button
-                        type="button"
-                        onClick={() => sendCuisineAmendment()}
-                        disabled={loadingAction === "cuisine-amendment"}
-                        className="text-xs font-bold text-emerald-700 hover:underline disabled:opacity-50"
-                      >
-                        Renvoyer commande cuisine (annule et remplace)
-                      </button>
-                    )}
-                  </TripFieldActions>
-                )}
-              </>
-            )}
-          </TripField>
-          <TripField label="Dates">
-            {isEditing ? (
-              <div className="flex gap-2 flex-wrap">
-                <TripInput type="date" value={editedData.startDate || editedData.date || ""} onChange={(e) => setEditedData({ ...editedData, startDate: e.target.value, date: e.target.value })} />
-                {trip.type === "COMPLEX" && (
-                  <TripInput type="date" value={editedData.endDate || ""} onChange={(e) => setEditedData({ ...editedData, endDate: e.target.value })} />
-                )}
-              </div>
-            ) : (
-              <>
-                <TripFieldValue value={dateLabel} />
-                {(canEditDates || datesChanged) && (
-                  <TripFieldActions>
-                    {canEditDates && (
-                      <button type="button" onClick={openDateModal} className="text-xs font-bold text-indigo-600 hover:underline">
-                        Modifier dates & horaires
-                      </button>
-                    )}
-                    {datesChanged && (
-                      <p className="text-[10px] text-amber-700 font-semibold">Dates modifiées depuis le dernier envoi transport</p>
-                    )}
-                  </TripFieldActions>
-                )}
-              </>
-            )}
-          </TripField>
-          <TripField label="Horaires">
-            {isEditing ? (
-              <div className="flex gap-2">
-                <TripInput placeholder="Départ" value={editedData.startTime} onChange={(e) => setEditedData({ ...editedData, startTime: e.target.value })} />
-                <TripInput placeholder="Retour" value={editedData.endTime} onChange={(e) => setEditedData({ ...editedData, endTime: e.target.value })} />
-              </div>
-            ) : (
-              <TripFieldValue value={`Départ ${trip.data.startTime || "—"} · Retour ${trip.data.endTime || "—"}`} />
-            )}
-          </TripField>
-          <TripField label="Budget">
-            {isEditing ? (
-              <div className="flex items-center gap-2">
-                <TripInput type="number" className="max-w-[8rem]" value={editedData.coutTotal} onChange={(e) => setEditedData({ ...editedData, coutTotal: Number(e.target.value) })} />
-                <span className="text-xs font-bold text-slate-500">€ total</span>
-              </div>
-            ) : (
-              <div>
-                <TripFieldValue value={`${Math.round(Number(trip.data.coutTotal))} € prévisionnel`} />
-                {trip.data.finalTotalCost && (
-                  <p className="text-emerald-700 font-bold text-sm mt-1">
-                    Validé compta : {trip.data.finalTotalCost} € ({trip.data.costPerStudent} €/élève)
-                  </p>
+                  <LinkBtn onClick={openBudgetModal}>Modifier</LinkBtn>
                 )}
                 {canAccessComptaTab && (
-                  <button
-                    type="button"
-                    onClick={() => setHubTab("compta")}
-                    className="text-xs font-bold text-indigo-600 hover:underline mt-1 block"
-                  >
-                    Ouvrir l&apos;onglet Compta
-                  </button>
+                  <LinkBtn onClick={() => setHubTab("compta")}>Compta</LinkBtn>
                 )}
-                {canEditEffectif && (
-                  <TripFieldActions>
-                    <button
-                      type="button"
-                      onClick={openBudgetModal}
-                      className="text-xs font-bold text-indigo-600 hover:underline"
-                    >
-                      Modifier le budget prévisionnel
-                    </button>
-                  </TripFieldActions>
-                )}
-              </div>
-            )}
-          </TripField>
-          <TripField label="Restauration">
-            {isEditing ? (
-              <button
-                type="button"
-                onClick={openCuisineModalFromEdit}
-                className={`w-full p-4 rounded-xl border-2 flex items-center justify-between transition-all text-left ${
-                  editedData?.piqueNiqueDetails?.active ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-slate-50"
-                }`}
-              >
-                <div>
-                  <p className="font-bold text-slate-900 text-sm">Commande restauration</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {editedData?.piqueNiqueDetails?.active
-                      ? `${getTotalMeals(editedData.piqueNiqueDetails)} repas configurés`
-                      : "Configurer"}
-                  </p>
-                </div>
-                <span className="text-xl">🥪</span>
-              </button>
-            ) : (
-              <div>
-                <TripFieldValue value={Boolean(trip.data.piqueNiqueDetails?.active) ? "Commande cuisine configurée" : "Pas de commande cuisine"} />
-                {Boolean(trip.data.piqueNiqueDetails?.active) && (
-                  <>
-                    <span className="inline-block mt-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
-                      {getTotalMeals(trip.data.piqueNiqueDetails ?? emptyCuisineDetails())} repas ·{" "}
-                      {Object.values(trip.data.piqueNiqueDetails?.daysSelection || {}).filter(Boolean).length} jour(s)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setHubTab("cuisine")}
-                      className="mt-2 block text-xs font-bold text-emerald-700 hover:underline"
-                    >
-                      Voir le détail restauration →
-                    </button>
-                  </>
-                )}
-                {canEditEffectif && (
-                  <TripFieldActions>
-                    <button
-                      type="button"
-                      onClick={openCuisineModalForOwner}
-                      className="text-xs font-bold text-indigo-600 hover:underline"
-                    >
-                      {trip.data.piqueNiqueDetails?.active
-                        ? "Modifier la commande cuisine"
-                        : "Configurer une commande cuisine"}
-                    </button>
-                  </TripFieldActions>
-                )}
-              </div>
-            )}
-          </TripField>
-          <TripField label="Objectifs pédagogiques" span={2}>
-            {isEditing ? (
-              <TripTextarea value={editedData.objectifs} onChange={(e) => setEditedData({ ...editedData, objectifs: e.target.value })} />
-            ) : (
-              <TripFieldValue value={trip.data.objectifs || "Aucun objectif renseigné."} multiline />
-            )}
-          </TripField>
-        </div>
-        {documentCount > 0 && (
-          <p className="mt-6 text-xs text-slate-500">
-            {documentCount} document{documentCount > 1 ? "s" : ""} dans le dossier —{" "}
-            <button type="button" onClick={() => setHubTab("documents")} className="font-bold text-indigo-600 hover:underline">
-              voir l&apos;onglet Documents
-            </button>
-          </p>
-        )}
-      </TripSection>
+              </>
+            ) : undefined
+          }
+        >
+          {isEditing ? (
+            <div className="flex items-center gap-2">
+              <TripInput
+                type="number"
+                className="max-w-[8rem]"
+                value={editedData.coutTotal}
+                onChange={(e) =>
+                  setEditedData({ ...editedData, coutTotal: Number(e.target.value) })
+                }
+              />
+              <span className="text-xs text-slate-500">€</span>
+            </div>
+          ) : (
+            <span>
+              {Math.round(Number(trip.data.coutTotal) || 0)} €
+              {trip.data.finalTotalCost ? (
+                <span className="text-emerald-700 font-semibold">
+                  {" "}
+                  · validé {trip.data.finalTotalCost} €
+                </span>
+              ) : (
+                <span className="text-slate-400 font-normal"> prév.</span>
+              )}
+            </span>
+          )}
+        </Tile>
 
+        <Tile
+          icon="🥪"
+          label="Restauration"
+          action={
+            !isEditing ? (
+              <>
+                {cuisineActive && (
+                  <LinkBtn tone="emerald" onClick={() => setHubTab("cuisine")}>
+                    Détail
+                  </LinkBtn>
+                )}
+                {canEditEffectif && (
+                  <LinkBtn onClick={openCuisineModalForOwner}>
+                    {cuisineActive ? "Modifier" : "Configurer"}
+                  </LinkBtn>
+                )}
+              </>
+            ) : undefined
+          }
+        >
+          {isEditing ? (
+            <button
+              type="button"
+              onClick={openCuisineModalFromEdit}
+              className="text-left text-sm font-semibold text-indigo-600 hover:underline"
+            >
+              {editedData?.piqueNiqueDetails?.active
+                ? `${getTotalMeals(editedData.piqueNiqueDetails)} repas — modifier`
+                : "Configurer la commande"}
+            </button>
+          ) : cuisineActive ? (
+            <span>
+              {mealCount} repas · {cuisineDays} j.
+            </span>
+          ) : (
+            <span className="text-slate-400 font-normal">Aucune</span>
+          )}
+        </Tile>
+
+        <Tile icon="🎯" label="Objectifs">
+          {isEditing ? (
+            <TripTextarea
+              value={editedData.objectifs}
+              onChange={(e) => setEditedData({ ...editedData, objectifs: e.target.value })}
+            />
+          ) : trip.data.objectifs ? (
+            <span
+              className="line-clamp-3 font-normal text-slate-700 whitespace-pre-wrap"
+              title={trip.data.objectifs}
+            >
+              {trip.data.objectifs}
+            </span>
+          ) : (
+            <EmptyValue />
+          )}
+        </Tile>
+      </div>
+    </TripSection>
   );
 }

@@ -362,43 +362,127 @@
     {
       "idx": 51,
       "version": "7",
+      "when": 1787685000000,
+      "tag": "0050_rdv_inscription_reschedule",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1787690000000,
+      "tag": "0051_absence_message",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
       "when": 1787690000000,
       "tag": "0051_travel_participant_eleve_id",
       "breakpoints": true
     },
     {
-      "idx": 52,
+      "idx": 54,
+      "version": "7",
+      "when": 1787695000000,
+      "tag": "0052_rdv_inscription_regime",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
       "version": "7",
       "when": 1787700000000,
       "tag": "0052_socle_faits_administratifs",
       "breakpoints": true
     },
     {
-      "idx": 53,
+      "idx": 56,
       "version": "7",
       "when": 1787705000000,
       "tag": "0053_compta_etablissement",
       "breakpoints": true
     },
     {
-      "idx": 54,
+      "idx": 57,
+      "version": "7",
+      "when": 1787700000000,
+      "tag": "0053_fiches_dialogue_v3",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
       "version": "7",
       "when": 1787710000000,
       "tag": "0054_infirmerie_bloc",
       "breakpoints": true
     },
     {
-      "idx": 55,
+      "idx": 59,
+      "version": "7",
+      "when": 1787705000000,
+      "tag": "0054_invitation_ceremonie",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
       "version": "7",
       "when": 1787715000000,
       "tag": "0055_sante_pai",
       "breakpoints": true
     },
     {
-      "idx": 56,
+      "idx": 61,
+      "version": "7",
+      "when": 1787715000000,
+      "tag": "0055_scolia_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1787710000000,
+      "tag": "0056_messaging_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
       "version": "7",
       "when": 1787720000000,
       "tag": "0056_sante_inaptitude_eps",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1787725000000,
+      "tag": "0057_famille_messaging",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1787720000000,
+      "tag": "0057_invitation_eligible_situation",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1787730000000,
+      "tag": "0058_famille_messaging_pieces_matrice",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1787730000000,
+      "tag": "0058_travel_image_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1787740000000,
+      "tag": "0059_partenariats",
       "breakpoints": true
     }
   ]

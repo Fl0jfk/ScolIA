@@ -247,10 +247,53 @@ export default function LandingPage() {
                 ))}
               </ul>
               <p className="mt-4 text-xs text-stone-500">
+                <Link href="/confidentialite" className="font-semibold text-[#2F6B4A] hover:underline">
+                  Politique de confidentialité
+                </Link>
+                {" · "}
                 <Link href="/mentions-legales" className="font-semibold text-[#2F6B4A] hover:underline">
                   Mentions légales
                 </Link>
               </p>
+            </div>
+          </SectionReveal>
+        </section>
+
+        <section className="mx-auto max-w-5xl px-6 pb-12">
+          <SectionReveal>
+            <div className="rounded-3xl border border-[#D4DFC9] bg-white/70 px-6 py-8 md:px-10">
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#3D8A5C]">
+                Intégration Google Agenda
+              </p>
+              <h2 className="mt-2 text-2xl font-black text-[#14231A] md:text-3xl">
+                ScolIA — rendez-vous d&apos;inscription
+              </h2>
+              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-stone-600 md:text-base">
+                <strong className="text-[#14231A]">ScolIA</strong> propose un module de prise de
+                rendez-vous d&apos;inscription synchronisé avec{" "}
+                <strong className="text-[#14231A]">Google Agenda</strong>. Un compte Google
+                technique de l&apos;établissement se connecte à ScolIA ; les agendas des directions
+                sont partagés avec ce compte. ScolIA lit les créneaux disponibles, réserve ou
+                libère les événements, et envoie la confirmation aux familles — sans accéder à
+                Gmail, Drive ou d&apos;autres services Google.
+              </p>
+              <ul className="mt-4 space-y-2 text-sm text-stone-600">
+                <li className="flex gap-2">
+                  <span className="font-bold text-[#4ADE80]">→</span>
+                  Affichage des créneaux d&apos;inscription sur les agendas partagés
+                </li>
+                <li className="flex gap-2">
+                  <span className="font-bold text-[#4ADE80]">→</span>
+                  Réservation, modification et libération des événements Calendar
+                </li>
+                <li className="flex gap-2">
+                  <span className="font-bold text-[#4ADE80]">→</span>
+                  Données Google utilisées uniquement pour ce module — détails dans la{" "}
+                  <Link href="/confidentialite" className="font-semibold text-[#2F6B4A] hover:underline">
+                    politique de confidentialité
+                  </Link>
+                </li>
+              </ul>
             </div>
           </SectionReveal>
         </section>

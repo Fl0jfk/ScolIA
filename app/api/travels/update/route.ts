@@ -6,7 +6,10 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
-import { selectTravelCoverImage } from "@/app/lib/travels-select-cover-image";
+import {
+  formatTravelImageAttribution,
+  selectTravelCoverImage,
+} from "@/app/lib/travels-select-cover-image";
 import { normalizePublicImageUrl } from "@/app/lib/scola-image";
 import { notifyComptaTravelsPhase, type TravelsTripForNotify } from "@/app/lib/travels-notify";
 import { applyTravelsOwnerAssignment } from "@/app/lib/travels-owner-server";
@@ -35,8 +38,14 @@ export async function POST(req: Request) {
     if (!objectToSave.imageUrl) {
       try {
         const matchedImage = await selectTravelCoverImage({ title, destination });
-        objectToSave.imageUrl = normalizePublicImageUrl(matchedImage.url);
-        objectToSave.imageConfigId = matchedImage.id;
+        if (matchedImage?.url) {
+          objectToSave.imageUrl = normalizePublicImageUrl(matchedImage.url);
+          objectToSave.imageConfigId = matchedImage.id;
+          objectToSave.imageAttribution = formatTravelImageAttribution(matchedImage);
+          objectToSave.imageAuthor = matchedImage.author ?? null;
+          objectToSave.imageLicense = matchedImage.license ?? null;
+          objectToSave.imageAttributionUrl = matchedImage.attributionUrl ?? null;
+        }
       } catch (err) {
         console.error("Erreur IA:", err);
       }

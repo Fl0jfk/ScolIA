@@ -1,5 +1,13 @@
 import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
 import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { valkeyCached, valkeyDel, valkeyDeleteByPrefix, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
+import {
+  VALKEY_TTL,
+  valkeyKeyStagesConvention,
+  valkeyKeyStagesConventionsIndex,
+  valkeyPrefixStagesClassRoster,
+} from "@/app/lib/valkey-keys";
 import {
   STAGE_S3,
   type StageConvention,
@@ -29,6 +37,28 @@ function withSanitizedStudentEmail(convention: StageConvention): StageConvention
   };
 }
 
+async function stagesEtabId(): Promise<string | null> {
+  return resolveCurrentEtablissementId().catch(() => null);
+}
+
+async function invalidateStagesConventionsIndexCache(etabId: string | null): Promise<void> {
+  if (!etabId) return;
+  await valkeyDel(valkeyKeyStagesConventionsIndex(etabId));
+}
+
+async function invalidateStageConventionCache(
+  etabId: string | null,
+  conventionId: string,
+): Promise<void> {
+  if (!etabId || !conventionId.trim()) return;
+  await valkeyDel(valkeyKeyStagesConvention(etabId, conventionId.trim()));
+}
+
+async function invalidateStagesClassRosterCaches(etabId: string | null): Promise<void> {
+  if (!etabId) return;
+  await valkeyDeleteByPrefix(valkeyPrefixStagesClassRoster(etabId));
+}
+
 export async function getOffersIndex(): Promise<StageOfferIndexEntry[]> {
   const hit = await getJson<StageOfferIndexEntry[]>(STAGE_S3.offersIndex);
   return Array.isArray(hit?.data) ? hit.data : [];
@@ -39,12 +69,29 @@ async function saveOffersIndex(index: StageOfferIndexEntry[]) {
 }
 
 export async function getConventionsIndex(): Promise<StageConventionIndexEntry[]> {
-  const hit = await getJson<StageConventionIndexEntry[]>(STAGE_S3.conventionsIndex);
-  return Array.isArray(hit?.data) ? hit.data : [];
+  const load = async () => {
+    const hit = await getJson<StageConventionIndexEntry[]>(STAGE_S3.conventionsIndex);
+    return Array.isArray(hit?.data) ? hit.data : [];
+  };
+  const etabId = await stagesEtabId();
+  if (!etabId) return load();
+  return valkeyCached({
+    key: valkeyKeyStagesConventionsIndex(etabId),
+    ttlSeconds: VALKEY_TTL.stagesConventionsIndex,
+    loader: load,
+  });
 }
 
-async function saveConventionsIndex(index: StageConventionIndexEntry[]) {
+async function saveConventionsIndex(
+  index: StageConventionIndexEntry[],
+  etabId?: string | null,
+): Promise<void> {
   await putJson(STAGE_S3.conventionsIndex, index);
+  const id = etabId === undefined ? await stagesEtabId() : etabId;
+  if (id) {
+    // Write-through : les lecteurs suivants évitent un miss immédiat.
+    void valkeySetJson(valkeyKeyStagesConventionsIndex(id), index, VALKEY_TTL.stagesConventionsIndex);
+  }
 }
 
 export async function getStageOffer(id: string): Promise<StageOffer | null> {
@@ -71,13 +118,35 @@ export async function saveStageOffer(offer: StageOffer) {
 }
 
 export async function getStageConvention(id: string): Promise<StageConvention | null> {
-  const hit = await getJson<StageConvention>(STAGE_S3.convention(id));
+  const conventionId = id.trim();
+  if (!conventionId) return null;
+
+  const etabId = await stagesEtabId();
+  if (etabId) {
+    const cached = await valkeyGetJson<StageConvention>(
+      valkeyKeyStagesConvention(etabId, conventionId),
+    );
+    if (cached && typeof cached === "object" && "id" in cached && cached.id) {
+      return withSanitizedStudentEmail(cached);
+    }
+  }
+
+  const hit = await getJson<StageConvention>(STAGE_S3.convention(conventionId));
   if (!hit?.data) return null;
-  return withSanitizedStudentEmail(hit.data);
+  const data = withSanitizedStudentEmail(hit.data);
+  if (etabId) {
+    void valkeySetJson(
+      valkeyKeyStagesConvention(etabId, conventionId),
+      data,
+      VALKEY_TTL.stagesConvention,
+    );
+  }
+  return data;
 }
 
 export async function saveStageConvention(convention: StageConvention) {
   const sanitized = withSanitizedStudentEmail(convention);
+  const etabId = await stagesEtabId();
   await putJson(STAGE_S3.convention(sanitized.id), sanitized);
   const index = await getConventionsIndex();
   const entry: StageConventionIndexEntry = {
@@ -98,7 +167,24 @@ export async function saveStageConvention(convention: StageConvention) {
   const pos = index.findIndex((x) => x.id === sanitized.id);
   if (pos >= 0) index[pos] = entry;
   else index.unshift(entry);
-  await saveConventionsIndex(index);
+  await saveConventionsIndex(index, etabId);
+  if (etabId) {
+    void valkeySetJson(
+      valkeyKeyStagesConvention(etabId, sanitized.id),
+      sanitized,
+      VALKEY_TTL.stagesConvention,
+    );
+    // Le roster agrège plusieurs conventions : on invalide toutes les classes.
+    void invalidateStagesClassRosterCaches(etabId);
+  }
+}
+
+/** Invalide explicitement le cache (purge / scripts hors chemin save). */
+export async function invalidateStageConventionCaches(conventionId?: string): Promise<void> {
+  const etabId = await stagesEtabId();
+  await invalidateStagesConventionsIndexCache(etabId);
+  if (conventionId) await invalidateStageConventionCache(etabId, conventionId);
+  await invalidateStagesClassRosterCaches(etabId);
 }
 
 export async function listConventionsForDossier(
@@ -118,6 +204,11 @@ export async function listConventionsForDossier(
 export async function deleteSignTokenRef(token: string): Promise<void> {
   if (!token.trim()) return;
   await deleteJson(STAGE_S3.signToken(token));
+}
+
+export async function deleteStudentTokenRef(token: string): Promise<void> {
+  if (!token.trim()) return;
+  await deleteJson(STAGE_S3.studentToken(token));
 }
 
 export async function saveSignTokenRef(token: string, ref: StageSignTokenRef) {

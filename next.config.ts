@@ -61,7 +61,22 @@ const nextConfig: NextConfig = {
             protocol: 'https',
             hostname: 'images.unsplash.com',
             pathname: '/**',
-        }
+        },
+        {
+            protocol: 'https',
+            hostname: 'upload.wikimedia.org',
+            pathname: '/**',
+        },
+        {
+            protocol: 'https',
+            hostname: 'commons.wikimedia.org',
+            pathname: '/**',
+        },
+        {
+            protocol: 'https',
+            hostname: 'thumb.wikimedia.org',
+            pathname: '/**',
+        },
     ]
   },
   async headers() {
@@ -90,21 +105,6 @@ const nextConfig: NextConfig = {
         source: "/((?!api/)(?!documents/rentree/).*)",
         headers: securityHeaders,
       },
-    ];
-  },
-  async rewrites() {
-    const raw = process.env.COLLABORA_URL?.trim() || process.env.NEXT_PUBLIC_COLLABORA_URL?.trim();
-    if (!raw || process.env.OFFICE_SAME_ORIGIN === "1") return [];
-    let origin: string;
-    try {
-      origin = new URL(raw).origin;
-    } catch {
-      return [];
-    }
-    return [
-      { source: "/browser/:path*", destination: `${origin}/browser/:path*` },
-      { source: "/cool/:path*", destination: `${origin}/cool/:path*` },
-      { source: "/hosting/:path*", destination: `${origin}/hosting/:path*` },
     ];
   },
 };

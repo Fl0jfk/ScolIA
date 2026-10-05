@@ -212,7 +212,7 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
         title: "Liste des dossiers",
         body: "Toutes vos sorties apparaissent ici sous forme de cartes. Filtrez par établissement (École, Collège, Lycée, Groupe scolaire). Cliquez sur une carte pour ouvrir le dossier complet.",
         bullets: [
-          "Les sorties passées apparaissent grisées.",
+          "Pour la compta, les sorties passées restent visibles en grisé (facturation).",
           "Le bandeau coloré en haut de chaque carte indique l'établissement.",
         ],
       },

@@ -139,6 +139,129 @@ async function tryTypedGet<T>(
     const { listReservationBookings } = await import("@/app/lib/reservation-rooms-storage");
     return { data: (await listReservationBookings()) as T, key };
   }
+
+  // --- Stages : tables typées stage_* (plus de ent_collection pour ces chemins) ---
+  if (/^stages\//i.test(key)) {
+    const stagesHit = await tryStagesTypedGet<T>(key);
+    if (stagesHit !== undefined) return stagesHit;
+  }
+
+  return undefined;
+}
+
+async function tryStagesTypedGet<T>(
+  key: string,
+): Promise<{ data: T; key: string } | null | undefined> {
+  const {
+    stagesDbReady,
+    listConventionIndexFromDb,
+    getConventionFromDbOrMigrate,
+    listOfferIndexFromDb,
+    getOfferFromDbOrMigrate,
+    listApplicationsForOfferFromDb,
+    getSignTokenTyped,
+    getStudentTokenTyped,
+    getOfferCandidatureTokenTyped,
+    getSignCodeLookupTyped,
+    getStageTokenFromDb,
+  } = await import("@/app/lib/stage-db");
+  const etabId = await stagesDbReady();
+  if (!etabId) return undefined;
+
+  if (key === "stages/conventions-index.json") {
+    return { data: (await listConventionIndexFromDb(etabId)) as T, key };
+  }
+  if (key === "stages/offers-index.json") {
+    return { data: (await listOfferIndexFromDb(etabId)) as T, key };
+  }
+
+  const conventionMatch = /^stages\/conventions\/([^/]+)\.json$/i.exec(key);
+  if (conventionMatch) {
+    const row = await getConventionFromDbOrMigrate(etabId, conventionMatch[1]);
+    return row ? { data: row as T, key } : null;
+  }
+
+  const offerMatch = /^stages\/offers\/([^/]+)\.json$/i.exec(key);
+  if (offerMatch) {
+    const row = await getOfferFromDbOrMigrate(etabId, offerMatch[1]);
+    return row ? { data: row as T, key } : null;
+  }
+
+  const appsMatch = /^stages\/offer-applications\/([^/]+)\.json$/i.exec(key);
+  if (appsMatch) {
+    return {
+      data: (await listApplicationsForOfferFromDb(etabId, appsMatch[1])) as T,
+      key,
+    };
+  }
+
+  const signTok = /^stages\/sign-tokens\/([^/]+)\.json$/i.exec(key);
+  if (signTok) {
+    const row = await getSignTokenTyped(etabId, signTok[1]);
+    return row ? { data: row as T, key } : null;
+  }
+
+  const studentTok = /^stages\/student-tokens\/([^/]+)\.json$/i.exec(key);
+  if (studentTok) {
+    const row = await getStudentTokenTyped(etabId, studentTok[1]);
+    return row ? { data: row as T, key } : null;
+  }
+
+  const candTok = /^stages\/offer-candidature-tokens\/([^/]+)\.json$/i.exec(key);
+  if (candTok) {
+    const row = await getOfferCandidatureTokenTyped(etabId, candTok[1]);
+    return row ? { data: row as T, key } : null;
+  }
+
+  const signCode = /^stages\/sign-code-lookup\/([^/]+)\.json$/i.exec(key);
+  if (signCode) {
+    const row = await getSignCodeLookupTyped(etabId, signCode[1]);
+    return row ? { data: row as T, key } : null;
+  }
+
+  const periods = /^stages\/periods\/([^/]+)\.json$/i.exec(key);
+  if (periods) {
+    const row = await getStageTokenFromDb(etabId, "periods", periods[1]);
+    return row ? { data: row as T, key } : null;
+  }
+  const referents = /^stages\/referents\/([^/]+)\.json$/i.exec(key);
+  if (referents) {
+    const row = await getStageTokenFromDb(etabId, "referents", referents[1]);
+    return row ? { data: row as T, key } : null;
+  }
+  const constraints = /^stages\/constraints\/([^/]+)\.json$/i.exec(key);
+  if (constraints) {
+    const row = await getStageTokenFromDb(etabId, "constraints", constraints[1]);
+    return row ? { data: row as T, key } : null;
+  }
+  const watchers = /^stages\/watchers\/([^/]+)\.json$/i.exec(key);
+  if (watchers) {
+    const row = await getStageTokenFromDb(etabId, "watchers", watchers[1]);
+    return row ? { data: row as T, key } : null;
+  }
+
+  if (key === "stages/auto-purge-state.json") {
+    const row = await getStageTokenFromDb(etabId, "auto_purge", "state");
+    return row ? { data: row as T, key } : null;
+  }
+
+  const idOtp = /^stages\/identity-otp\/([^/]+)\.json$/i.exec(key);
+  if (idOtp) {
+    const row = await getStageTokenFromDb(etabId, "identity_otp", idOtp[1]);
+    return row ? { data: row as T, key } : null;
+  }
+  const idChoice = /^stages\/identity-recipient-choice\/([^/]+)\.json$/i.exec(key);
+  if (idChoice) {
+    const row = await getStageTokenFromDb(etabId, "identity_recipient_choice", idChoice[1]);
+    return row ? { data: row as T, key } : null;
+  }
+  const idProof = /^stages\/identity-proof\/([^/]+)\.json$/i.exec(key);
+  if (idProof) {
+    const row = await getStageTokenFromDb(etabId, "identity_proof", idProof[1]);
+    return row ? { data: row as T, key } : null;
+  }
+
+  // Binaires / chemins inconnus : laisser le repli collection (ne devrait pas arriver pour JSON métier).
   return undefined;
 }
 
@@ -250,6 +373,159 @@ async function tryTypedPut(relativePath: string, data: unknown): Promise<string 
     );
     return key;
   }
+
+  if (/^stages\//i.test(key)) {
+    const stagesPut = await tryStagesTypedPut(key, data);
+    if (stagesPut) return stagesPut;
+  }
+
+  return null;
+}
+
+async function tryStagesTypedPut(key: string, data: unknown): Promise<string | null> {
+  const {
+    stagesDbReady,
+    upsertConventionInDb,
+    upsertOfferInDb,
+    replaceOfferApplicationsInDb,
+    saveSignTokenTyped,
+    saveStudentTokenTyped,
+    saveOfferCandidatureTokenTyped,
+    saveSignCodeLookupTyped,
+    upsertStageTokenInDb,
+  } = await import("@/app/lib/stage-db");
+  const etabId = await stagesDbReady();
+  if (!etabId) throw new Error("[ent] Postgres requis pour stages");
+
+  // Indexes dérivés des tables typées — jamais de replace wipe.
+  if (key === "stages/conventions-index.json" || key === "stages/offers-index.json") {
+    return key;
+  }
+
+  const conventionMatch = /^stages\/conventions\/([^/]+)\.json$/i.exec(key);
+  if (conventionMatch) {
+    const c = data as import("@/app/lib/stage-types").StageConvention;
+    if (!c?.id) throw new Error("[ent] Convention stages sans id");
+    await upsertConventionInDb(etabId, c);
+    return key;
+  }
+
+  const offerMatch = /^stages\/offers\/([^/]+)\.json$/i.exec(key);
+  if (offerMatch) {
+    const o = data as import("@/app/lib/stage-types").StageOffer;
+    if (!o?.id) throw new Error("[ent] Offre stages sans id");
+    await upsertOfferInDb(etabId, o);
+    return key;
+  }
+
+  const appsMatch = /^stages\/offer-applications\/([^/]+)\.json$/i.exec(key);
+  if (appsMatch) {
+    const list = Array.isArray(data)
+      ? (data as import("@/app/lib/stage-types").StageOfferApplication[])
+      : [];
+    await replaceOfferApplicationsInDb(etabId, appsMatch[1], list);
+    return key;
+  }
+
+  const signTok = /^stages\/sign-tokens\/([^/]+)\.json$/i.exec(key);
+  if (signTok) {
+    await saveSignTokenTyped(
+      etabId,
+      signTok[1],
+      data as import("@/app/lib/stage-types").StageSignTokenRef,
+    );
+    return key;
+  }
+  const studentTok = /^stages\/student-tokens\/([^/]+)\.json$/i.exec(key);
+  if (studentTok) {
+    await saveStudentTokenTyped(
+      etabId,
+      studentTok[1],
+      data as import("@/app/lib/stage-types").StageStudentTokenRef,
+    );
+    return key;
+  }
+  const candTok = /^stages\/offer-candidature-tokens\/([^/]+)\.json$/i.exec(key);
+  if (candTok) {
+    await saveOfferCandidatureTokenTyped(
+      etabId,
+      candTok[1],
+      data as import("@/app/lib/stage-types").StageOfferCandidatureTokenRef,
+    );
+    return key;
+  }
+  const signCode = /^stages\/sign-code-lookup\/([^/]+)\.json$/i.exec(key);
+  if (signCode) {
+    await saveSignCodeLookupTyped(
+      etabId,
+      signCode[1],
+      data as import("@/app/lib/stage-types").StageSignCodeLookupRef,
+    );
+    return key;
+  }
+
+  const periods = /^stages\/periods\/([^/]+)\.json$/i.exec(key);
+  if (periods && data && typeof data === "object" && !Array.isArray(data)) {
+    await upsertStageTokenInDb(etabId, "periods", periods[1], data as Record<string, unknown>);
+    return key;
+  }
+  const referents = /^stages\/referents\/([^/]+)\.json$/i.exec(key);
+  if (referents && data && typeof data === "object" && !Array.isArray(data)) {
+    await upsertStageTokenInDb(etabId, "referents", referents[1], data as Record<string, unknown>);
+    return key;
+  }
+  const constraints = /^stages\/constraints\/([^/]+)\.json$/i.exec(key);
+  if (constraints && data && typeof data === "object" && !Array.isArray(data)) {
+    await upsertStageTokenInDb(
+      etabId,
+      "constraints",
+      constraints[1],
+      data as Record<string, unknown>,
+    );
+    return key;
+  }
+  const watchers = /^stages\/watchers\/([^/]+)\.json$/i.exec(key);
+  if (watchers && data && typeof data === "object" && !Array.isArray(data)) {
+    await upsertStageTokenInDb(etabId, "watchers", watchers[1], data as Record<string, unknown>);
+    return key;
+  }
+
+  if (key === "stages/auto-purge-state.json" && data && typeof data === "object") {
+    await upsertStageTokenInDb(
+      etabId,
+      "auto_purge",
+      "state",
+      data as Record<string, unknown>,
+    );
+    return key;
+  }
+
+  const idOtp = /^stages\/identity-otp\/([^/]+)\.json$/i.exec(key);
+  if (idOtp && data && typeof data === "object" && !Array.isArray(data)) {
+    await upsertStageTokenInDb(etabId, "identity_otp", idOtp[1], data as Record<string, unknown>);
+    return key;
+  }
+  const idChoice = /^stages\/identity-recipient-choice\/([^/]+)\.json$/i.exec(key);
+  if (idChoice && data && typeof data === "object" && !Array.isArray(data)) {
+    await upsertStageTokenInDb(
+      etabId,
+      "identity_recipient_choice",
+      idChoice[1],
+      data as Record<string, unknown>,
+    );
+    return key;
+  }
+  const idProof = /^stages\/identity-proof\/([^/]+)\.json$/i.exec(key);
+  if (idProof && data && typeof data === "object" && !Array.isArray(data)) {
+    await upsertStageTokenInDb(
+      etabId,
+      "identity_proof",
+      idProof[1],
+      data as Record<string, unknown>,
+    );
+    return key;
+  }
+
   return null;
 }
 
@@ -318,9 +594,58 @@ export async function listJsonRecordsInDir<T extends Record<string, unknown>>(
 }
 
 export async function deleteJsonFromPostgres(relativePath: string): Promise<void> {
+  const key = s3Key(relativePath);
+  if (/^stages\//i.test(key)) {
+    const deleted = await tryStagesTypedDelete(key);
+    if (deleted) return;
+  }
+
   const etabId = await collectionDbReady();
   if (!etabId) return;
   const { collection, recordId, singleton } = jsonPathToCollection(relativePath);
   const { deleteCollectionRecord } = await import("@/app/lib/ent-collection-db");
   await deleteCollectionRecord(etabId, collection, singleton ? "_" : recordId);
+}
+
+async function tryStagesTypedDelete(key: string): Promise<boolean> {
+  const { stagesDbReady, deleteStageTokenFromDb } = await import("@/app/lib/stage-db");
+  const etabId = await stagesDbReady();
+  if (!etabId) return false;
+
+  const signTok = /^stages\/sign-tokens\/([^/]+)\.json$/i.exec(key);
+  if (signTok) {
+    await deleteStageTokenFromDb(etabId, "sign", signTok[1]);
+    return true;
+  }
+  const studentTok = /^stages\/student-tokens\/([^/]+)\.json$/i.exec(key);
+  if (studentTok) {
+    await deleteStageTokenFromDb(etabId, "student", studentTok[1]);
+    return true;
+  }
+  const candTok = /^stages\/offer-candidature-tokens\/([^/]+)\.json$/i.exec(key);
+  if (candTok) {
+    await deleteStageTokenFromDb(etabId, "offer_candidature", candTok[1]);
+    return true;
+  }
+  const signCode = /^stages\/sign-code-lookup\/([^/]+)\.json$/i.exec(key);
+  if (signCode) {
+    await deleteStageTokenFromDb(etabId, "sign_code", signCode[1]);
+    return true;
+  }
+  const idOtp = /^stages\/identity-otp\/([^/]+)\.json$/i.exec(key);
+  if (idOtp) {
+    await deleteStageTokenFromDb(etabId, "identity_otp", idOtp[1]);
+    return true;
+  }
+  const idChoice = /^stages\/identity-recipient-choice\/([^/]+)\.json$/i.exec(key);
+  if (idChoice) {
+    await deleteStageTokenFromDb(etabId, "identity_recipient_choice", idChoice[1]);
+    return true;
+  }
+  const idProof = /^stages\/identity-proof\/([^/]+)\.json$/i.exec(key);
+  if (idProof) {
+    await deleteStageTokenFromDb(etabId, "identity_proof", idProof[1]);
+    return true;
+  }
+  return false;
 }

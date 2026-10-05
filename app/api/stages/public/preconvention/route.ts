@@ -12,13 +12,19 @@ import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 import {
   assertIdentityProof,
-  collectIdentityOtpRecipients,
   confirmIdentityOtpCode,
   createAndSendIdentityOtp,
   loadIdentityProof,
   subjectsMatch,
   type StageIdentitySubject,
 } from "@/app/lib/stage-identity-otp";
+import {
+  createIdentityRecipientChoiceSession,
+  discardIdentityRecipientChoiceSession,
+  listStageIdentityRecipientEmails,
+  loadIdentityRecipientChoiceSession,
+  resolveSelectedRecipientEmails,
+} from "@/app/lib/stage-identity-recipients";
 
 const preconventionLimiter = createMemoryRateLimiter({
   windowMs: 10 * 60 * 1000,
@@ -129,21 +135,63 @@ function buildIdentifySuccessPayload(
   };
 }
 
-async function startIdentityOtp(
+async function buildRecipientChoiceForLoaded(
   loaded: Extract<Awaited<ReturnType<typeof verifyAndLoadStudent>>, { ok: true }>,
   dateNaissance: string,
 ) {
-  const recipients = collectIdentityOtpRecipients([
-    loaded.eleve.email,
-    loaded.parent1Email,
-    loaded.parent2Email,
-  ]);
   const subject = identitySubjectFromLoaded(loaded, dateNaissance);
   const studentName = `${loaded.student.firstName} ${loaded.student.lastName}`.trim();
-  return createAndSendIdentityOtp({ subject, recipients, studentName });
+  const emails = await listStageIdentityRecipientEmails(loaded.eleve);
+  return createIdentityRecipientChoiceSession({ subject, studentName, emails });
 }
 
-/** Identification élève → OTP multi-mails → tableau de bord multi-stages. */
+async function sendOtpForChoiceSession(params: {
+  recipientSessionId: string;
+  selectedRecipientIds: string[];
+}) {
+  const session = await loadIdentityRecipientChoiceSession(params.recipientSessionId);
+  if (!session) {
+    return {
+      ok: false as const,
+      error: "Session expirée. Identifiez-vous à nouveau.",
+      status: 403 as const,
+    };
+  }
+  const recipients = resolveSelectedRecipientEmails(session, params.selectedRecipientIds);
+  if (recipients.length === 0) {
+    return {
+      ok: false as const,
+      error: "Sélectionnez au moins une adresse e-mail pour recevoir le code.",
+      status: 400 as const,
+    };
+  }
+
+  const otp = await createAndSendIdentityOtp({
+    subject: session.subject,
+    recipients,
+    studentName: session.studentName,
+  });
+  if (!otp.ok) {
+    return { ok: false as const, error: otp.error, status: 403 as const };
+  }
+  if (otp.sentCount === 0) {
+    return {
+      ok: false as const,
+      error:
+        "Impossible d'envoyer le code par e-mail pour le moment. Réessayez plus tard ou contactez le secrétariat.",
+      status: 503 as const,
+    };
+  }
+
+  return {
+    ok: true as const,
+    challengeId: otp.challengeId,
+    maskedRecipients: otp.maskedRecipients,
+    recipientSessionId: session.sessionId,
+  };
+}
+
+/** Identification élève → choix destinataires masqués → OTP → tableau de bord. */
 export async function POST(req: Request) {
   try {
     if (!(await preconventionLimiter.allow(clientIpFromRequest(req)))) {
@@ -196,7 +244,38 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: GENERIC_IDENTITY_ERROR }, { status: 403 });
       }
 
+      const recipientSessionId = String(body.recipientSessionId ?? "").trim();
+      if (recipientSessionId) {
+        await discardIdentityRecipientChoiceSession(recipientSessionId);
+      }
+
       return NextResponse.json(buildIdentifySuccessPayload(loaded, confirmed.proofToken));
+    }
+
+    if (action === "send_identity_otp") {
+      if (!(await identityLimiter.allow(clientIpFromRequest(req)))) {
+        return NextResponse.json({ error: GENERIC_IDENTITY_ERROR }, { status: 403 });
+      }
+      const recipientSessionId = String(body.recipientSessionId ?? "").trim();
+      const selectedRecipientIds = Array.isArray(body.selectedRecipientIds)
+        ? body.selectedRecipientIds.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+        : [];
+      if (!recipientSessionId) {
+        return NextResponse.json({ error: "Session destinataires manquante." }, { status: 400 });
+      }
+      const sent = await sendOtpForChoiceSession({ recipientSessionId, selectedRecipientIds });
+      if (!sent.ok) {
+        return NextResponse.json({ error: sent.error }, { status: sent.status });
+      }
+      return NextResponse.json({
+        success: true,
+        needsOtp: true,
+        challengeId: sent.challengeId,
+        recipientSessionId: sent.recipientSessionId,
+        maskedRecipients: sent.maskedRecipients,
+        message:
+          "Le code a été envoyé. Vérifiez aussi vos spams / courriers indésirables.",
+      });
     }
 
     const nom = String(body.nom ?? "").trim();
@@ -255,51 +334,92 @@ export async function POST(req: Request) {
         }
       }
 
-      const otp = await startIdentityOtp(loaded, dateNaissance);
-      if (!otp.ok) {
-        return NextResponse.json({ error: otp.error }, { status: 403 });
+      const choice = await buildRecipientChoiceForLoaded(loaded, dateNaissance);
+      if (!choice.ok) {
+        return NextResponse.json({ error: choice.error }, { status: 403 });
       }
-      if (otp.sentCount === 0) {
-        return NextResponse.json(
-          {
-            error:
-              "Impossible d'envoyer le code par e-mail pour le moment. Réessayez plus tard ou contactez le secrétariat.",
-          },
-          { status: 503 },
-        );
+
+      // Un seul destinataire → envoi immédiat (pas d'étape de choix).
+      if (choice.publicOptions.length === 1) {
+        const sent = await sendOtpForChoiceSession({
+          recipientSessionId: choice.session.sessionId,
+          selectedRecipientIds: [choice.publicOptions[0]!.id],
+        });
+        if (!sent.ok) {
+          return NextResponse.json({ error: sent.error }, { status: sent.status });
+        }
+        return NextResponse.json({
+          success: true,
+          needsOtp: true,
+          challengeId: sent.challengeId,
+          recipientSessionId: sent.recipientSessionId,
+          maskedRecipients: sent.maskedRecipients,
+          message:
+            "Le code a été envoyé. Vérifiez aussi vos spams / courriers indésirables.",
+        });
       }
 
       return NextResponse.json({
         success: true,
-        needsOtp: true,
-        challengeId: otp.challengeId,
-        maskedRecipients: otp.maskedRecipients,
+        needsOtpRecipientChoice: true,
+        recipientSessionId: choice.session.sessionId,
+        recipientOptions: choice.publicOptions,
         message:
-          "Le code a été envoyé. Vérifiez aussi vos spams / courriers indésirables.",
+          "Choisissez la ou les adresses (masquées) où envoyer le code d'accès.",
       });
     }
 
     if (action === "resend_identity_otp") {
-      const otp = await startIdentityOtp(loaded, dateNaissance);
-      if (!otp.ok) {
-        return NextResponse.json({ error: otp.error }, { status: 403 });
+      const recipientSessionId = String(body.recipientSessionId ?? "").trim();
+      const selectedRecipientIds = Array.isArray(body.selectedRecipientIds)
+        ? body.selectedRecipientIds.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+        : [];
+
+      if (recipientSessionId && selectedRecipientIds.length > 0) {
+        const sent = await sendOtpForChoiceSession({ recipientSessionId, selectedRecipientIds });
+        if (!sent.ok) {
+          return NextResponse.json({ error: sent.error }, { status: sent.status });
+        }
+        return NextResponse.json({
+          success: true,
+          needsOtp: true,
+          challengeId: sent.challengeId,
+          recipientSessionId: sent.recipientSessionId,
+          maskedRecipients: sent.maskedRecipients,
+          message:
+            "Un nouveau code a été envoyé. Pensez à vérifier vos spams / courriers indésirables.",
+        });
       }
-      if (otp.sentCount === 0) {
-        return NextResponse.json(
-          {
-            error:
-              "Impossible d'envoyer le code par e-mail pour le moment. Réessayez plus tard ou contactez le secrétariat.",
-          },
-          { status: 503 },
-        );
+
+      // Repli : reconstruire le choix (ex. session expirée).
+      const choice = await buildRecipientChoiceForLoaded(loaded, dateNaissance);
+      if (!choice.ok) {
+        return NextResponse.json({ error: choice.error }, { status: 403 });
+      }
+      if (choice.publicOptions.length === 1) {
+        const sent = await sendOtpForChoiceSession({
+          recipientSessionId: choice.session.sessionId,
+          selectedRecipientIds: [choice.publicOptions[0]!.id],
+        });
+        if (!sent.ok) {
+          return NextResponse.json({ error: sent.error }, { status: sent.status });
+        }
+        return NextResponse.json({
+          success: true,
+          needsOtp: true,
+          challengeId: sent.challengeId,
+          recipientSessionId: sent.recipientSessionId,
+          maskedRecipients: sent.maskedRecipients,
+          message:
+            "Un nouveau code a été envoyé. Pensez à vérifier vos spams / courriers indésirables.",
+        });
       }
       return NextResponse.json({
         success: true,
-        needsOtp: true,
-        challengeId: otp.challengeId,
-        maskedRecipients: otp.maskedRecipients,
-        message:
-          "Un nouveau code a été envoyé. Pensez à vérifier vos spams / courriers indésirables.",
+        needsOtpRecipientChoice: true,
+        recipientSessionId: choice.session.sessionId,
+        recipientOptions: choice.publicOptions,
+        message: "Resélectionnez une adresse pour renvoyer le code.",
       });
     }
 

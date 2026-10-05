@@ -48,7 +48,11 @@ env:
   REGION: ${{ secrets.REGION || 'fr-par' }}
 
 jobs:
+  typecheck:
+    uses: ./.github/workflows/typecheck-reusable.yml
+
   build-and-deploy:
+    needs: typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -82,14 +86,36 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # Scaleway attend un login sur registry/namespace (ex. rg.fr-par.scw.cloud/scolia).
+      # DNS runners GitHub parfois flaky vers rg.*.scw.cloud → retries.
       - name: Login container registry
         env:
           SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
-          # IMAGE_NAME = namespace/repo (ex. scolia/docslapro) → login sur namespace
           NS="${IMAGE_NAME%%/*}"
-          echo "${SECRET_ACCESS_KEY}" | docker login "${REGISTRY}/${NS}" -u nologin --password-stdin
+          TARGET="${REGISTRY}/${NS}"
+          max=5
+          attempt=1
+          while true; do
+            echo "DNS / login ${TARGET} (essai ${attempt}/${max})"
+            # Préflight DNS (aide au diagnostic ; échec non bloquant si dig absent)
+            if command -v dig >/dev/null 2>&1; then
+              dig +short +time=3 +tries=2 "${REGISTRY}" A || true
+              dig +short +time=3 +tries=2 "${REGISTRY}" AAAA || true
+            elif command -v getent >/dev/null 2>&1; then
+              getent hosts "${REGISTRY}" || true
+            fi
+            if echo "${SECRET_ACCESS_KEY}" | docker login "${TARGET}" -u nologin --password-stdin; then
+              echo "Login OK"
+              break
+            fi
+            if [ "${attempt}" -ge "${max}" ]; then
+              echo "::error::Échec docker login après ${max} essais (souvent DNS runner → ${REGISTRY}). Relancer le workflow."
+              exit 1
+            fi
+            sleep $((attempt * 10))
+            attempt=$((attempt + 1))
+          done
 
       # Build local puis push classique : contourne le bug BuildKit
       # « invalid content range » au push chunké vers rg.*.scw.cloud.

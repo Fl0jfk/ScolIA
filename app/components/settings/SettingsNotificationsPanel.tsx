@@ -188,7 +188,7 @@ export default function SettingsNotificationsPanel({
       >
         <SettingsField
           label="Validation — personnel OGEC"
-          hint="Personnes authentifiées qui acceptent ou refusent les absences du personnel OGEC. Plusieurs possibles. Liste vide = toute direction (historique)."
+          hint="Défaut pour les absences OGEC sans rattachement individuel sur la fiche RH. Liste vide = direction du lycée. Sur chaque fiche personnel, vous pouvez rattacher une personne à une autre validatrice (ex. école)."
           as="div"
         >
           <DirectoryPeoplePersonSelect

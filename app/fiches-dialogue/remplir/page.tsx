@@ -30,6 +30,8 @@ type PublicCtx = {
     elevePrenom: string;
     classeActuelle: string;
     eleveDateNaissance?: string | null;
+    eleveIne?: string | null;
+    eleveMef?: string | null;
     elevePhotoKey?: string | null;
     optionsActuelles: string[];
     statut: string;
@@ -68,6 +70,7 @@ type PublicCtx = {
   reponses: Array<{
     etapeId: string;
     auteurRole: string;
+    auteurLabel?: string | null;
     payload: Record<string, unknown>;
     submittedAt: string;
   }>;
@@ -92,6 +95,85 @@ function fieldVisible(field: Field, values: Record<string, string | string[] | b
   const curStr = Array.isArray(current) ? current.join(",") : String(current ?? "");
   if (Array.isArray(expected)) return expected.map(String).includes(curStr);
   return curStr === String(expected);
+}
+
+function emptyFieldValues(fields: Field[]): Record<string, string | string[] | boolean> {
+  const init: Record<string, string | string[] | boolean> = {};
+  for (const field of fields) {
+    if (field.type === "multiselect" || field.type === "etablissement_multi") {
+      init[field.id] = [];
+    } else if (field.type === "checkbox") init[field.id] = false;
+    else init[field.id] = "";
+  }
+  return init;
+}
+
+function applyFamillePrefill(
+  json: PublicCtx,
+  setters: {
+    setValues: (v: Record<string, string | string[] | boolean>) => void;
+    setComment: (v: string) => void;
+    setVoeuxEtab: (
+      v: Array<{ codeRne: string; label: string; chezNous?: boolean }>,
+    ) => void;
+    setAccepte: (v: boolean | null) => void;
+    setMotifRefus: (v: string) => void;
+    setSignerName: (v: string) => void;
+  },
+): boolean {
+  const fields = json.campagne.catalogue.fields as Field[];
+  const init = emptyFieldValues(fields);
+  const fam = [...json.reponses]
+    .filter((r) => r.auteurRole === "famille" && r.etapeId === json.etape.id)
+    .sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)))[0];
+
+  let hasPrefill = false;
+  if (fam?.payload && typeof fam.payload === "object") {
+    hasPrefill = true;
+    const payload = fam.payload;
+    if (json.etape.kind === "acceptation_famille") {
+      if (typeof payload.accepte === "boolean") setters.setAccepte(payload.accepte);
+      if (typeof payload.motifRefus === "string") setters.setMotifRefus(payload.motifRefus);
+    } else {
+      const rawValues =
+        payload.values && typeof payload.values === "object"
+          ? (payload.values as Record<string, unknown>)
+          : payload;
+      for (const field of fields) {
+        const raw = rawValues[field.id];
+        if (raw === undefined || raw === null) continue;
+        if (field.type === "multiselect" || field.type === "etablissement_multi") {
+          init[field.id] = Array.isArray(raw) ? (raw as string[]) : [String(raw)];
+        } else if (field.type === "checkbox") {
+          init[field.id] = Boolean(raw);
+        } else {
+          init[field.id] = String(raw);
+        }
+      }
+      if (typeof payload.comment === "string") setters.setComment(payload.comment);
+      if (Array.isArray(payload.etablissementsVoeux)) {
+        const voeux: Array<{ codeRne: string; label: string; chezNous?: boolean }> = [];
+        for (const v of payload.etablissementsVoeux) {
+          if (!v || typeof v !== "object") continue;
+          const row = v as { codeRne?: string; label?: string; chezNous?: boolean };
+          if (!row.codeRne || !row.label) continue;
+          voeux.push({
+            codeRne: String(row.codeRne),
+            label: String(row.label),
+            chezNous: Boolean(row.chezNous),
+          });
+        }
+        setters.setVoeuxEtab(voeux);
+      }
+    }
+    if (fam.auteurLabel?.trim()) setters.setSignerName(fam.auteurLabel.trim());
+  }
+
+  setters.setValues(init);
+  if (!fam?.auteurLabel?.trim()) {
+    setters.setSignerName(`${json.fiche.elevePrenom} ${json.fiche.eleveNom}`.trim());
+  }
+  return hasPrefill;
 }
 
 function RemplirInner() {
@@ -144,20 +226,30 @@ function RemplirInner() {
         `/api/fiches-dialogue/public?token=${encodeURIComponent(tok)}`,
         { cache: "no-store" },
       );
-      const json = await res.json();
+      const json = (await res.json()) as PublicCtx & { error?: string };
       if (!res.ok) throw new Error(json.error || "Lien invalide");
       setCtx(json);
       setToken(tok);
       setStep("form");
-      const init: Record<string, string | string[] | boolean> = {};
-      for (const field of json.campagne.catalogue.fields as Field[]) {
-        if (field.type === "multiselect" || field.type === "etablissement_multi") {
-          init[field.id] = [];
-        } else if (field.type === "checkbox") init[field.id] = false;
-        else init[field.id] = "";
+      setDone(false);
+      setRefused(false);
+      setNeedsParent2(false);
+      setConflictDone(false);
+      setComment("");
+      setVoeuxEtab([]);
+      setAccepte(null);
+      setMotifRefus("");
+      const hasPrefill = applyFamillePrefill(json, {
+        setValues,
+        setComment,
+        setVoeuxEtab,
+        setAccepte,
+        setMotifRefus,
+        setSignerName,
+      });
+      if (hasPrefill && json.etape.openForFamille) {
+        setInfo("Votre réponse précédente a été rechargée. Vous pouvez la modifier jusqu’à la date limite.");
       }
-      setValues(init);
-      setSignerName(`${json.fiche.elevePrenom} ${json.fiche.eleveNom}`.trim());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
       setStep("identify");
@@ -186,10 +278,12 @@ function RemplirInner() {
   const familleReponse = useMemo(() => {
     if (!ctx) return null;
     const fam = [...ctx.reponses]
-      .reverse()
-      .find((r) => r.auteurRole === "famille");
+      .filter((r) => r.auteurRole === "famille" && r.etapeId === ctx.etape.id)
+      .sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)))[0];
     return fam?.payload ?? null;
   }, [ctx]);
+
+  const hasExistingFamilleReponse = Boolean(familleReponse);
 
   async function onIdentify(e: React.FormEvent) {
     e.preventDefault();
@@ -454,6 +548,21 @@ function RemplirInner() {
               Date limite : {new Date(ctx.etape.closesAt).toLocaleString("fr-FR")}
             </p>
           )}
+          {ctx.etape.openForFamille ? (
+            <button
+              type="button"
+              className="mt-6 w-full rounded-2xl bg-emerald-800 px-4 py-3 font-bold text-white hover:bg-emerald-900"
+              onClick={() => {
+                setDone(false);
+                setInfo(
+                  "Formulaire rechargé avec votre dernière réponse. Modifiez puis validez à nouveau.",
+                );
+                if (token) void load(token);
+              }}
+            >
+              Modifier ma réponse
+            </button>
+          ) : null}
         </div>
       </main>
     );
@@ -657,29 +766,48 @@ function RemplirInner() {
 
       {step === "form" && ctx && (
         <form onSubmit={onSubmit} className="space-y-6">
-          <div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
-            <div className="h-20 w-20 overflow-hidden rounded-2xl bg-slate-100">
-              <div className="flex h-full w-full items-center justify-center text-2xl font-black text-sky-800">
-                {ctx.fiche.elevePrenom.slice(0, 1)}
-                {ctx.fiche.eleveNom.slice(0, 1)}
+          <div className="flex items-start gap-4 rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
+            <div className="h-24 w-20 shrink-0 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-slate-100">
+              <div className="flex h-full w-full flex-col items-center justify-center text-center text-xs font-bold text-sky-800">
+                <span className="text-2xl">
+                  {ctx.fiche.elevePrenom.slice(0, 1)}
+                  {ctx.fiche.eleveNom.slice(0, 1)}
+                </span>
+                <span className="mt-1 text-[10px] uppercase text-slate-400">Photo</span>
               </div>
             </div>
-            <div>
+            <div className="min-w-0 flex-1 space-y-1">
               <p className="text-xs font-bold uppercase tracking-wide text-sky-700">
-                Fiche de {ctx.fiche.elevePrenom}
+                Fiche de dialogue
               </p>
               <p className="text-xl font-black text-slate-900">
-                {ctx.fiche.elevePrenom} {ctx.fiche.eleveNom}
+                {ctx.fiche.eleveNom} {ctx.fiche.elevePrenom}
               </p>
-              <p className="text-sm text-slate-600">
-                {ctx.fiche.classeActuelle}
-                {ctx.fiche.eleveDateNaissance
-                  ? ` · ${String(ctx.fiche.eleveDateNaissance).slice(0, 10)}`
-                  : ""}
-              </p>
+              <dl className="grid gap-1 text-sm text-slate-700 sm:grid-cols-2">
+                <div>
+                  <dt className="inline text-slate-500">Classe : </dt>
+                  <dd className="inline font-semibold">{ctx.fiche.classeActuelle || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="inline text-slate-500">Naissance : </dt>
+                  <dd className="inline font-semibold">
+                    {ctx.fiche.eleveDateNaissance
+                      ? String(ctx.fiche.eleveDateNaissance).slice(0, 10)
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline text-slate-500">INE : </dt>
+                  <dd className="inline font-semibold">{ctx.fiche.eleveIne || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="inline text-slate-500">MEF : </dt>
+                  <dd className="inline font-semibold">{ctx.fiche.eleveMef || "—"}</dd>
+                </div>
+              </dl>
               {ctx.fiche.optionsActuelles?.length > 0 && (
                 <p className="mt-1 text-xs text-slate-500">
-                  Actuellement : {ctx.fiche.optionsActuelles.join(" · ")}
+                  LVA / LVB / options : {ctx.fiche.optionsActuelles.join(" · ")}
                 </p>
               )}
             </div>
@@ -693,6 +821,11 @@ function RemplirInner() {
                 Date limite : {new Date(ctx.etape.closesAt).toLocaleString("fr-FR")}
               </p>
             )}
+            {hasExistingFamilleReponse && ctx.etape.openForFamille ? (
+              <p className="mt-2 text-sm font-semibold text-sky-800">
+                Réponse déjà enregistrée — vous pouvez la rectifier ci-dessous.
+              </p>
+            ) : null}
             {!ctx.etape.openForFamille && (
               <p className="mt-2 text-sm font-semibold text-rose-700">
                 Cette étape n’est plus modifiable.
@@ -1037,7 +1170,11 @@ function RemplirInner() {
                 disabled={submitting || !ctx.etape.openForFamille}
                 className="w-full rounded-2xl bg-sky-700 px-4 py-3 font-bold text-white disabled:opacity-60"
               >
-                {submitting ? "Envoi…" : "Valider et signer"}
+                {submitting
+                  ? "Envoi…"
+                  : hasExistingFamilleReponse
+                    ? "Enregistrer les modifications"
+                    : "Valider et signer"}
               </button>
             </>
           )}

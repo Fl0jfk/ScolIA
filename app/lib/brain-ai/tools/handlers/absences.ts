@@ -12,6 +12,7 @@ import {
   purgeExpiredAbsences,
   saveOrMergeAbsenceRecord,
 } from "@/app/lib/absences-storage";
+import { resolveOgecValidatorForNewAbsence } from "@/app/lib/absences-ogec-validators";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { choicesResult } from "@/app/lib/brain-ai/choice-options";
 import {
@@ -25,8 +26,9 @@ import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 import { establishmentChoiceOptions, matchEstablishment } from "@/app/lib/establishment-catalog";
 
 const COMMON_REASONS = [
-  "Maladie",
+  "Arrêt de travail",
   "Enfant malade",
+  "Congé exceptionnel",
   "Rendez-vous médical",
   "Formation",
   "Congé",
@@ -276,6 +278,15 @@ export async function handleCreateAbsence(
   });
 
   const medicalTreatment = nonDiscretionaryTreatmentFromReason(reason);
+  const ogecValidator =
+    scope === "ogec"
+      ? await resolveOgecValidatorForNewAbsence({
+          subjectUserId: ctx.userId,
+          subjectEmail: ctx.email || "",
+          notifications: bundle.notifications,
+          establishments: bundle.establishments,
+        })
+      : null;
   const record: AbsenceRecord = {
     id,
     createdAt: now,
@@ -292,6 +303,7 @@ export async function handleCreateAbsence(
     data: {
       scope,
       etablissement: scope === "ogec" ? null : etablissement,
+      ...(ogecValidator ? { ogecValidator } : {}),
       periodType: period.periodType,
       startDate: period.startDate,
       endDate: period.endDate,

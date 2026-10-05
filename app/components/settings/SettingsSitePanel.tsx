@@ -9,7 +9,6 @@ import {
   settingsInputClass,
 } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
-import { DASHBOARD_ACCENT_OPTIONS } from "@/app/lib/dashboard-brand-presets";
 import { PLATFORM_ASSISTANCE_EMAIL } from "@/app/lib/platform-assistance-email";
 
 export default function SettingsSitePanel({
@@ -240,35 +239,6 @@ export default function SettingsSitePanel({
           ) : null}
         </div>
 
-        <div>
-          <p className={`mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] ${dash.textMid}`}>
-            Couleur du tableau de bord
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {DASHBOARD_ACCENT_OPTIONS.map((opt) => {
-              const selected = String(identity.dashboardAccent || "green") === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setIdentity({ ...identity, dashboardAccent: opt.id })}
-                  className={`flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition ${
-                    selected
-                      ? "border-[color:var(--dash-primary)]/40 bg-white/90 text-[var(--dash-ink)] shadow-sm ring-2 ring-[color:var(--dash-soft)]"
-                      : "border-white/70 bg-white/40 text-slate-700 hover:bg-white/70"
-                  }`}
-                >
-                  <span
-                    className="h-5 w-5 shrink-0 rounded-full border border-black/10 shadow-sm"
-                    style={{ backgroundColor: opt.swatch }}
-                    aria-hidden
-                  />
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </SettingsSection>
 
       <SettingsSection

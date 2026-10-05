@@ -6,10 +6,13 @@ import type { DashboardQuickLink } from "@/app/lib/dashboard-quick-links";
 import { dash } from "@/app/lib/dashboard-brand";
 import { normalizePublicImageUrl } from "@/app/lib/scola-image";
 
-function QuickLinkLetterFallback({ name }: { name: string }) {
+function QuickLinkLetterFallback({ name, className }: { name: string; className?: string }) {
   return (
     <div
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-[10px] font-bold text-stone-600"
+      className={
+        className ??
+        "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-[10px] font-bold text-stone-600"
+      }
       aria-hidden
     >
       {name.slice(0, 1).toUpperCase() || "?"}
@@ -17,7 +20,15 @@ function QuickLinkLetterFallback({ name }: { name: string }) {
   );
 }
 
-export function QuickLinkIcon({ src, name }: { src: string; name: string }) {
+export function QuickLinkIcon({
+  src,
+  name,
+  className,
+}: {
+  src: string;
+  name: string;
+  className?: string;
+}) {
   const resolved = normalizePublicImageUrl(src);
   const [broken, setBroken] = useState(false);
 
@@ -25,12 +36,15 @@ export function QuickLinkIcon({ src, name }: { src: string; name: string }) {
     setBroken(false);
   }, [resolved]);
 
+  const shell =
+    className ?? "relative h-7 w-7 shrink-0 overflow-hidden rounded-lg bg-stone-100";
+
   if (!resolved || broken) {
-    return <QuickLinkLetterFallback name={name} />;
+    return <QuickLinkLetterFallback name={name} className={shell} />;
   }
 
   return (
-    <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-lg bg-stone-100">
+    <div className={shell}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={resolved}

@@ -7,8 +7,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { useTravelsElevesClasses } from "@/app/hooks/useTravelsElevesClasses";
 import { matchEstablishment } from "@/app/lib/establishment-catalog";
-import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 import {
   formFieldsToAccompagnateurs,
   type TravelsAccompagnateur,
@@ -25,6 +25,7 @@ import {
   isValidEmailLoose,
   getModificationRequestNote,
   tripEffectifTotal,
+  isTripTravelDatePast,
   travelsListBudget,
   travelsListNbEleves,
 } from "@/app/lib/travels-trip-helpers";
@@ -32,6 +33,7 @@ import type { TravelsHubTab, TravelsTrip } from "@/app/lib/travels-types";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 import { TRAVELS_HUB_TABS, TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types";
 import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
+import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
@@ -42,7 +44,6 @@ import { TripInternalThreadPanel } from "@/app/components/travels/hub/TripIntern
 import { TripOverviewFieldsPanel } from "@/app/components/travels/hub/TripOverviewFieldsPanel";
 import { TripRemindersBanner } from "@/app/components/travels/hub/TripRemindersBanner";
 import { TripNextStepBanner } from "@/app/components/travels/hub/TripNextStepBanner";
-import TravelsOwnerRepairSection from "@/app/components/travels/TravelsOwnerRepairSection";
 import TravelsComptaSheetForm from "@/app/components/travels/TravelsComptaSheetForm";
 import type { TravelsComptaSheet } from "@/app/lib/travels-compta-sheet";
 import { comptaDocumentsFingerprint, comptaDefinitiveCostPerStudent, computeComptaSheetDerived } from "@/app/lib/travels-compta-sheet";
@@ -106,14 +107,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const tabFromUrl = searchParams.get("tab");
   const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
-  const classOptions = useMemo(
-    () =>
-      mergeTripClassCatalogs(
-        appCtx?.profRoom?.classesByPole,
-        appCtx?.domainPlanning?.classesByPole,
-      ),
-    [appCtx?.profRoom?.classesByPole, appCtx?.domainPlanning?.classesByPole],
-  );
+  const { classOptions } = useTravelsElevesClasses();
   const [hubTab, setHubTab] = useState<TravelsHubTab>(() => {
     const t = tabFromUrl as TravelsHubTab | null;
     return t && TRAVELS_HUB_TABS.some((x) => x.id === t) ? t : "overview";
@@ -137,6 +131,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const [draftNomsAccompagnateurs, setDraftNomsAccompagnateurs] = useState("");
   const [draftAccompagnateurs, setDraftAccompagnateurs] = useState<TravelsAccompagnateur[]>([]);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [showClassesModal, setShowClassesModal] = useState(false);
+  const [draftClasses, setDraftClasses] = useState("");
   const comptaTabAutoOpened = useRef<string | null>(null);
   const tripStatusRef = useRef(trip?.status);
   tripStatusRef.current = trip?.status;
@@ -179,6 +175,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     canAddDocuments,
     canUseInternalThread,
     canEditEffectif,
+    canEditDates,
+    canEditParentCom,
     isAdministratif,
     canReassignTripOwner,
     isGlobalAdmin,
@@ -794,6 +792,58 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
 
+  const remindTransportQuotes = async () => {
+    if (!isOwner && !canSign) {
+      return alert("Vous n'êtes pas autorisé(e) à relancer les demandes de devis.");
+    }
+    if (!trip?.id) return;
+    if (trip.data?.signedQuoteUrl) {
+      return alert(
+        "Un devis est déjà signé. Utilisez « Devis rectifié (effectif) » pour un avenant.",
+      );
+    }
+    const devisCount = Array.isArray(trip.receivedDevis) ? trip.receivedDevis.length : 0;
+    const snapAt = trip.data?.transportQuoteSnapshot?.sentAt;
+    const lastSent = snapAt
+      ? new Date(snapAt).toLocaleString("fr-FR")
+      : "jamais enregistré";
+    const msg =
+      devisCount === 0
+        ? `Relancer la demande de devis auprès de tous les transporteurs ?\n\nLes mêmes documents (PDF récap + programme éventuel) seront renvoyés.\nDernier envoi enregistré : ${lastSent}.`
+        : `Relancer la demande de devis auprès des transporteurs qui n'ont pas encore de devis rattaché ?\n\n${devisCount} devis déjà reçu${devisCount > 1 ? "s" : ""} — ceux-ci ne seront pas relancés.\nDernier envoi enregistré : ${lastSent}.`;
+    if (!confirm(msg)) return;
+
+    setLoadingAction("remind-transport-quotes");
+    try {
+      const res = await fetch("/api/travels/remind-transport-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tripId: trip.id,
+          userName: user?.fullName || "La Providence",
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Relance impossible.");
+      if (payload.trip) {
+        setTrip(payload.trip);
+        setEditedData(payload.trip?.data);
+      }
+      const sent = Array.isArray(payload.sentTo) ? payload.sentTo.length : 0;
+      const skipped = Number(payload.skippedAlreadyQuoted) || 0;
+      alert(
+        skipped > 0
+          ? `Relance envoyée à ${sent} transporteur${sent > 1 ? "s" : ""} (${skipped} déjà devis ignoré${skipped > 1 ? "s" : ""}).`
+          : `Relance envoyée à ${sent} transporteur${sent > 1 ? "s" : ""}.`,
+      );
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : "Erreur lors de la relance des demandes de devis.");
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
   const sendInitialCuisine = async (opts?: { skipConfirm?: boolean; tripRef?: TravelsTrip }) => {
     const tripRef = opts?.tripRef || trip;
     if (!tripRef?.data?.piqueNiqueDetails?.active) {
@@ -900,6 +950,11 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const openBudgetModal = () => {
     setDraftCoutTotal(String(trip.data?.coutTotal ?? ""));
     setShowBudgetModal(true);
+  };
+
+  const openClassesModal = () => {
+    setDraftClasses(String(trip.data?.classes ?? ""));
+    setShowClassesModal(true);
   };
 
   const cloneCuisineDetails = (src: TravelsTrip["data"]["piqueNiqueDetails"] | undefined) => {
@@ -1027,6 +1082,37 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (!saved) return alert("Impossible d'enregistrer le budget.");
     setShowBudgetModal(false);
     alert("Budget prévisionnel enregistré.");
+  };
+
+  const saveClassesChange = async () => {
+    const classes = draftClasses.trim();
+    if (!classes) {
+      return alert("Sélectionnez au moins une classe (ou Autres).");
+    }
+    const prev = String(trip.data?.classes || "").trim();
+    if (classes === prev) {
+      setShowClassesModal(false);
+      return alert("Aucun changement de classes.");
+    }
+    const updatedTrip: TravelsTrip = {
+      ...trip,
+      data: { ...trip.data, classes },
+      history: [
+        ...(trip.history || []),
+        {
+          date: new Date().toISOString(),
+          user: user?.fullName ?? undefined,
+          action: "CLASSES_MODIFIEES",
+          note: prev
+            ? `Classes : ${prev} → ${classes}`
+            : `Classes renseignées : ${classes}`,
+        },
+      ],
+    };
+    const saved = await saveUpdates(updatedTrip);
+    if (!saved) return alert("Impossible d'enregistrer les classes.");
+    setShowClassesModal(false);
+    alert("Classes enregistrées.");
   };
 
   const saveEffectifChange = async () => {
@@ -1411,6 +1497,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
   const withBusLogistics = complexNeedsBus(trip);
+  /** Direction / admin général / administratif — pas le seul demandeur. */
+  const canRequalifyToBus = canSign || isGlobalAdmin || isAdministratif;
   const etabForSign = trip.data?.etablissement || "";
   const transportSnapshot = trip.data?.transportQuoteSnapshot;
   const currentEffectifTotal =
@@ -1424,10 +1512,14 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     withBusLogistics &&
     (isOwner || canSign) &&
     Boolean(transportSnapshot || trip.data?.selectedBusQuote || trip.data?.signedQuoteUrl);
+  const canRemindTransportQuotes =
+    withBusLogistics &&
+    (isOwner || canSign) &&
+    !trip.data?.signedQuoteUrl &&
+    ["PROF_LOGISTICS", "EN_ATTENTE_BUS_SIGNATURE"].includes(String(trip.status));
   const cuisineOrderSent = cuisineOrderWasSent(trip);
   const cuisineOrderSentAt = resolveCuisineOrderSentAt(trip);
   const cuisineChanged = cuisineEffectifChanged(trip.data);
-  const canEditDates = canEditEffectif;
   const hasCuisineOrder = Boolean(trip.data.piqueNiqueDetails?.active);
   const participantCount = trip.data.participantEleves?.length || 0;
   const visibleHubTabs = TRAVELS_HUB_TABS.filter((t) => {
@@ -1530,6 +1622,16 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         </TripAlert>
       )}
 
+      {isTripTravelDatePast(trip) &&
+        trip.status !== "ANNULE" &&
+        trip.status !== "SEANCE_ANNULEE" && (
+          <TripAlert tone="muted" icon="📅" title="Séjour terminé">
+            {isCompta
+              ? "La sortie est passée : vous gardez la main sur la fiche compta, le prix, l’effectif et la liste des élèves pour finaliser la facturation."
+              : "La sortie est passée. La comptabilité peut encore modifier budget, prix et élèves pour la facturation."}
+          </TripAlert>
+        )}
+
       {trip.status === "BESOIN_MODIFICATION" && !isEditing && (
         <TripAlert
           tone="warning"
@@ -1570,17 +1672,17 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         }
         status={trip.status}
         statusPulse={trip.status === "BESOIN_MODIFICATION"}
+        coverImageUrl={normalizeTravelImageUrl(
+          (typeof trip.imageUrl === "string" && trip.imageUrl) ||
+            (typeof trip.data?.imageUrl === "string" ? trip.data.imageUrl : undefined),
+        )}
+        coverImageAttribution={
+          typeof trip.imageAttribution === "string" ? trip.imageAttribution : null
+        }
+        coverImageAttributionUrl={
+          typeof trip.imageAttributionUrl === "string" ? trip.imageAttributionUrl : null
+        }
       />
-
-      {canReassignTripOwner && (
-        <TravelsOwnerRepairSection
-          trip={trip}
-          onRepaired={(updated) => {
-            setTrip(updated);
-            setEditedData(updated.data);
-          }}
-        />
-      )}
 
       <TripQuickStats
         items={[
@@ -1666,6 +1768,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         <TripElevesListPanel
           trip={trip}
           canEdit={canEditEffectif}
+          isCompta={isCompta}
           onTripUpdated={(t) => {
             setTrip(t);
             setEditedData(t.data);
@@ -1676,7 +1779,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       {hubTab === "communication" && participantCount > 0 && (
         <TripParentComPanel
           trip={trip}
-          canEdit={canEditEffectif}
+          canEdit={canEditParentCom}
           onTripUpdated={(t) => {
             setTrip(t);
             setEditedData(t.data);
@@ -1686,7 +1789,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
 
       {trip.type === "SIMPLE" &&
         hubTab === "overview" &&
-        (isOwner || canSign) &&
+        canRequalifyToBus &&
         !["ANNULE", "SEANCE_ANNULEE", "REJETE"].includes(String(trip.status)) && (
           <TripAlert
             tone="warning"
@@ -1709,7 +1812,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           icon="ℹ️"
           title="Sans transport bus"
           action={
-            (isOwner || canSign) &&
+            canRequalifyToBus &&
             !["ANNULE", "SEANCE_ANNULEE", "REJETE"].includes(String(trip.status)) ? (
               <TripButton variant="secondary" size="sm" onClick={() => setHubTab("actions")}>
                 Activer le bus + devis
@@ -1729,6 +1832,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           loadingAction={loadingAction}
           canRequestAmendedQuote={canRequestAmendedQuote}
           requestAmendedBusQuote={requestAmendedBusQuote}
+          canRemindTransportQuotes={canRemindTransportQuotes}
+          remindTransportQuotes={remindTransportQuotes}
           canSign={canSign}
           skipTransportToCompta={skipTransportToCompta}
           openSecureFile={openSecureFile}
@@ -1766,6 +1871,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           classOptions={classOptions}
           canEditEffectif={canEditEffectif}
           openEffectifModal={openEffectifModal}
+          openClassesModal={openClassesModal}
           withBusLogistics={withBusLogistics}
           effectifChanged={effectifChanged}
           cuisineOrderSent={Boolean(cuisineOrderSent)}
@@ -1829,8 +1935,10 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       {hubTab === "actions" && (
         <TripActionsPanel
           trip={trip}
-          canManage={isOwner || canSign}
+          canManage={isOwner || canSign || isGlobalAdmin || isAdministratif}
+          canRequalify={canRequalifyToBus}
           isGlobalAdmin={isGlobalAdmin}
+          canReassignOwner={canReassignTripOwner}
           onTripUpdated={(t) => {
             setTrip(t);
             setEditedData(t.data);
@@ -1851,7 +1959,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         <TravelsComptaSheetForm
           tripId={trip.id}
           documentsRevision={comptaDocumentsFingerprint(trip)}
+          // Toujours éditable pour la compta (y compris séjours passés / validés) — facturation.
           readOnly={!isCompta}
+          tripEnded={isTripTravelDatePast(trip)}
           canValidateBudget={isCompta && trip.status === "EN_ATTENTE_COMPTA"}
           budgetValidated={Boolean(trip.data.comptaSheet?.budgetValidatedAt || trip.data.finalTotalCost)}
           onSaved={onComptaSheetSaved}
@@ -1919,6 +2029,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         draftCoutTotal={draftCoutTotal}
         setDraftCoutTotal={setDraftCoutTotal}
         saveBudgetChange={saveBudgetChange}
+        showClassesModal={showClassesModal}
+        setShowClassesModal={setShowClassesModal}
+        draftClasses={draftClasses}
+        setDraftClasses={setDraftClasses}
+        classOptions={classOptions}
+        saveClassesChange={saveClassesChange}
         cuisineFollowUp={cuisineFollowUp}
         setCuisineFollowUp={setCuisineFollowUp}
         runCuisineFollowUp={runCuisineFollowUp}

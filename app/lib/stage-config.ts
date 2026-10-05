@@ -1,5 +1,6 @@
 import { loadAppConfig } from "@/app/lib/app-config";
-import type { Establishment } from "@/app/lib/app-config-schemas";
+import { shouldShowGroupeScolaire } from "@/app/lib/app-config-establishments";
+import type { Establishment, SiteIdentity } from "@/app/lib/app-config-schemas";
 import {
   establishmentIdForStudentLevel,
   resolveDirectionSignatureDisplayUrlForLevel,
@@ -124,6 +125,34 @@ export function resolveStagesEstablishmentForStudent(
 ): Establishment | undefined {
   const kind = stageCycleKindFromStudent(studentLevel, className);
   return resolveStagesEstablishmentForCycle(establishments, kind);
+}
+
+/**
+ * Libellé établissement sur la convention PDF :
+ * cycle (Collège / Lycée / …) + nom du groupe scolaire / tenant s’il y en a un.
+ * Évite d’afficher uniquement « Collège » sans le nom de l’institution.
+ */
+export function resolveStageConventionSchoolDisplayName(
+  identity: Pick<SiteIdentity, "name" | "shortName" | "organizationKind">,
+  establishments: Establishment[],
+  cycleEst: Establishment | undefined,
+): string {
+  const groupName =
+    identity.shortName?.trim() ||
+    identity.name?.trim() ||
+    "Établissement scolaire";
+  const estLabel = cycleEst?.label?.trim() || "";
+  const showGroup =
+    identity.organizationKind === "groupe" || shouldShowGroupeScolaire(establishments);
+
+  if (
+    estLabel &&
+    showGroup &&
+    estLabel.localeCompare(groupName, "fr", { sensitivity: "accent" }) !== 0
+  ) {
+    return `${estLabel} — ${groupName}`;
+  }
+  return groupName;
 }
 
 /** Nom du directeur / de la directrice du cycle de l’élève (PDF RGPD, etc.). */

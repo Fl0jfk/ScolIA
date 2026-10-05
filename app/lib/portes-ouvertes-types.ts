@@ -103,6 +103,35 @@ export function cyclesFromActiveEstablishments(
   return ordered.length > 0 ? ordered : [...PORTES_OUVERTES_CYCLES];
 }
 
+/** Empreinte pour détecter une inscription en double (même créneau + mêmes infos). */
+export function portesOuvertesRegistrationFingerprint(r: {
+  slotId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  childFirstName?: string;
+  childLastName?: string;
+  cycle?: string | null;
+  classeSouhaitee?: string | null;
+}): string {
+  const norm = (v: string | null | undefined) =>
+    (v || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "");
+  return [
+    r.slotId,
+    norm(r.email),
+    norm(r.firstName),
+    norm(r.lastName),
+    norm(r.childFirstName),
+    norm(r.childLastName),
+    norm(r.cycle),
+    norm(r.classeSouhaitee),
+  ].join("|");
+}
+
 /** Libellé visite (cycle + enfant + classe) pour mails / listes. */
 export function portesOuvertesVisitLine(params: {
   cycle?: PortesOuvertesCycle;

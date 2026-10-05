@@ -54,6 +54,8 @@ export async function GET(req: Request) {
       elevePrenom: ctx.fiche.elevePrenom,
       classeActuelle: ctx.fiche.classeActuelle,
       eleveDateNaissance: ctx.fiche.eleveDateNaissance,
+      eleveIne: ctx.fiche.eleveIne,
+      eleveMef: ctx.fiche.eleveMef,
       elevePhotoKey: ctx.fiche.elevePhotoKey,
       optionsActuelles: ctx.fiche.optionsActuelles,
       statut: ctx.fiche.statut,
@@ -83,6 +85,7 @@ export async function GET(req: Request) {
     reponses: ctx.reponses.map((r) => ({
       etapeId: r.etapeId,
       auteurRole: r.auteurRole,
+      auteurLabel: r.auteurLabel,
       payload: r.payload,
       submittedAt: r.submittedAt,
     })),

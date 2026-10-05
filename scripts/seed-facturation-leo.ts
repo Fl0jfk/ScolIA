@@ -119,7 +119,7 @@ async function main() {
       autoriteParentale: true,
       contactUrgence: true,
       payeur: true,
-      recupereEnfant: true,
+      peutRecuperer: true,
     });
   } else {
     await db

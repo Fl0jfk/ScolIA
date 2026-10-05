@@ -1,12 +1,22 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 
 import { canSignTravelsDirectionForEtab } from "@/app/lib/establishments";
-import { isTripOwner, isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
-import { userHasAdministratifRole, userHasComptaRoleFromMetadata } from "@/app/lib/travels-roles";
+import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
+import {
+  canReassignTravelsOwner,
+  userHasComptaRoleFromMetadata,
+} from "@/app/lib/travels-roles";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
 export function userHasComptaRole(user: { publicMetadata?: Record<string, unknown> } | null): boolean {
   return userHasComptaRoleFromMetadata(user?.publicMetadata);
+}
+
+/** Administratif intranet ou administrateur général (rôle `admin`). */
+function userIsTravelsStaffAdmin(
+  user: { publicMetadata?: Record<string, unknown> | null } | null,
+): boolean {
+  return canReassignTravelsOwner(user);
 }
 
 /** Consultation fiche compta : comptabilité, direction (établissement) ou administratif — pas les professeurs créateurs seuls. */
@@ -15,7 +25,7 @@ async function userCanViewComptaSheet(
   trip: TravelsTrip,
 ): Promise<boolean> {
   if (userHasComptaRole(user)) return true;
-  if (userHasAdministratifRole(user)) return true;
+  if (userIsTravelsStaffAdmin(user)) return true;
   return canSignTravelsDirectionForEtab(user, trip.data?.etablissement);
 }
 
@@ -48,13 +58,17 @@ export async function assertTravelsTripAccess(
   const isOwner = isTripOwnerOrCreator(trip, user);
   const canSign = await canSignTravelsDirectionForEtab(user, etab);
   const isCompta = userHasComptaRole(user);
-  const isAdmin = userHasAdministratifRole(user);
+  const isAdmin = userIsTravelsStaffAdmin(user);
 
-  if (opts?.requireDirection && !canSign) {
-    return { ok: false, status: 403, error: "Réservé à la direction de l'établissement." };
+  if (opts?.requireDirection && !canSign && !isAdmin) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Réservé à la direction, à l'administratif ou à l'administrateur général.",
+    };
   }
 
-  if (opts?.requireOwnerOrDirection && !isOwner && !canSign && !isCompta) {
+  if (opts?.requireOwnerOrDirection && !isOwner && !canSign && !isCompta && !isAdmin) {
     return { ok: false, status: 403, error: "Vous n'êtes pas autorisé(e) sur ce dossier." };
   }
 
@@ -64,4 +78,3 @@ export async function assertTravelsTripAccess(
 
   return { ok: true, user };
 }
-

@@ -1,11 +1,11 @@
 import "../globals.css";
-import Header from "../components/Header/Header";
 import ScolaAmbientBackground from "../components/ScolaAmbientBackground";
 import OnboardingGate from "../components/onboarding/OnboardingGate";
 import ModuleTourProvider from "../components/module-tour/ModuleTourProvider";
 import TenantCanonicalHostGuard from "../components/TenantCanonicalHostGuard";
 import TenantBillingBanner from "../components/billing/TenantBillingBanner";
 import SupervisionBanner from "../components/supervision/SupervisionBanner";
+import IntranetShell from "../components/shell/IntranetShell";
 import { AdminBootstrapProvider } from "../contexts/admin-bootstrap";
 import { DataProvider } from "../contexts/data";
 import { Metadata } from "next";
@@ -28,9 +28,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <OnboardingGate>
               <ModuleTourProvider>
                 <SupervisionBanner />
-                <Header />
                 <TenantBillingBanner />
-                {children}
+                <IntranetShell>{children}</IntranetShell>
               </ModuleTourProvider>
             </OnboardingGate>
           </Suspense>

@@ -6,6 +6,7 @@ import {
   resolveStagesDirectionEmail,
   stageCycleKindFromStudent,
 } from "@/app/lib/stage-config";
+import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment-server";
 
 export type PendingStageSignature = {
   conventionId: string;
@@ -19,6 +20,9 @@ export type PendingStageSignature = {
   periodEnd: string;
   signLink: string;
   validatedAt?: string;
+  /** Stage hors périodes officielles — alerte visuelle obligatoire. */
+  outsideOfficialPeriod?: boolean;
+  outsideOfficialPeriodMessage?: string;
 };
 
 function hasDirectionRole(roles: string[]): boolean {
@@ -80,11 +84,16 @@ export async function listPendingSignaturesForUser(
   userEmail: string,
   userId?: string,
   roles: string[] = [],
+  opts?: { includePeriodAlignment?: boolean },
 ): Promise<PendingStageSignature[]> {
   const out: PendingStageSignature[] = [];
+  const includePeriodAlignment = opts?.includePeriodAlignment !== false;
 
   for (const c of conventions) {
     if (c.status !== "signatures_pending") continue;
+    const alignment = includePeriodAlignment
+      ? await assessConventionPeriodAlignment(c)
+      : null;
     for (const sig of c.signatures) {
       if (!(await signatureAwaitingUser(sig, c, userEmail, userId, roles))) continue;
       out.push({
@@ -99,6 +108,8 @@ export async function listPendingSignaturesForUser(
         periodEnd: c.schedule.periodEnd,
         signLink: `/stages/signer?token=${encodeURIComponent(sig.signToken!)}`,
         validatedAt: c.adminReview?.at,
+        outsideOfficialPeriod: alignment?.outside,
+        outsideOfficialPeriodMessage: alignment?.outside ? alignment.shortMessage : undefined,
       });
     }
   }

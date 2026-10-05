@@ -19,6 +19,7 @@ import {
   isProfesseurOnly,
 } from "@/app/lib/famille-messaging-matrix";
 import { listClassesForTeacherUser } from "@/app/lib/class-allocation-teachers";
+import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
 
 export async function GET() {
   const gate = await requireAuth();
@@ -26,12 +27,13 @@ export async function GET() {
   const { userId } = gate.ctx;
   const user = await safeCurrentUser();
   const roles = rolesFromUserLike(user);
+  const orgAdmin = isOrgAdminFromPublicMetadata(user?.publicMetadata);
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
     return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
   }
   const settings = await getFamilleMessagingSettings(etabId);
-  if (!canInitiateFromMatrix(roles, settings, { orgAdmin: user?.orgAdmin })) {
+  if (!canInitiateFromMatrix(roles, settings, { orgAdmin })) {
     return NextResponse.json({ error: "Action non autorisée (matrice)." }, { status: 403 });
   }
 
@@ -47,7 +49,7 @@ export async function GET() {
     threads,
     foyers,
     settings,
-    canBroadcast: canBroadcastFromMatrix(roles, settings, { orgAdmin: user?.orgAdmin }),
+    canBroadcast: canBroadcastFromMatrix(roles, settings, { orgAdmin }),
     assignedClasses,
   });
 }
@@ -58,12 +60,13 @@ export async function POST(req: Request) {
   const { userId } = gate.ctx;
   const user = await safeCurrentUser();
   const roles = rolesFromUserLike(user);
+  const orgAdmin = isOrgAdminFromPublicMetadata(user?.publicMetadata);
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
     return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
   }
   const settings = await getFamilleMessagingSettings(etabId);
-  if (!canInitiateFromMatrix(roles, settings, { orgAdmin: user?.orgAdmin })) {
+  if (!canInitiateFromMatrix(roles, settings, { orgAdmin })) {
     return NextResponse.json({ error: "Action non autorisée (matrice)." }, { status: 403 });
   }
 
@@ -101,7 +104,7 @@ export async function POST(req: Request) {
     }
 
     if (body.broadcast) {
-      if (!canBroadcastFromMatrix(roles, settings, { orgAdmin: user?.orgAdmin })) {
+      if (!canBroadcastFromMatrix(roles, settings, { orgAdmin })) {
         return NextResponse.json(
           { error: "Diffusion non autorisée (matrice)." },
           { status: 403 },

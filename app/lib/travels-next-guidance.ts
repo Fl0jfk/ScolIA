@@ -202,14 +202,14 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
         what: "Les transporteurs doivent renvoyer leurs devis. Dès qu’un devis apparaît dans Transport, le créateur peut le « Choisir », ou la direction peut « Choisir et signer » en une seule fois.",
         steps: [
           "Ouvrez l’onglet Transport pour vérifier l’état des demandes de devis.",
-          "Attendez qu’au moins un devis apparaisse dans la liste.",
-          "Ensuite : créateur → bouton « Choisir », ou direction → bouton « Choisir et signer ».",
+          "Si rien n’arrive : bouton « Relancer les demandes de devis » (renvoie PDF + programme aux transporteurs).",
+          "Dès qu’un devis apparaît : créateur → « Choisir », ou direction → « Choisir et signer ».",
         ],
         youMustAct: false,
         whileWaiting: isOwner
-          ? "Ce n’est pas encore le moment de choisir : il faut d’abord un devis dans la liste. Vous pouvez relancer les transporteurs si besoin."
+          ? "Ce n’est pas encore le moment de choisir : il faut d’abord un devis dans la liste. Utilisez « Relancer les demandes de devis » dans l’onglet Transport si besoin."
           : canSign
-            ? "Tant qu’aucun devis n’est listé, le bouton « Choisir et signer » n’est pas utilisable."
+            ? "Tant qu’aucun devis n’est listé, le bouton « Choisir et signer » n’est pas utilisable. Vous pouvez « Relancer les demandes de devis » dans Transport."
             : "Créateur ou direction devront choisir un devis dès qu’il sera reçu.",
         ctaTab: "transport",
         ctaLabel: "Ouvrir Transport",
@@ -306,7 +306,7 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
         : "En attente de la comptabilité.",
       what: isCompta
         ? "Sans validation budget, la direction ne pourra pas faire la validation finale."
-        : "Le transport (si besoin) est passé. Seule la compta peut valider les finances pour débloquer la suite.",
+        : "Seule la comptabilité peut valider le budget pour débloquer la suite.",
       steps: isCompta
         ? [
             "Ouvrez l’onglet Compta.",

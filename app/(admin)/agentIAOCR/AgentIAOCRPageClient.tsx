@@ -256,9 +256,12 @@ function OneDriveUpDocsOCRAIContent() {
   }, [applyOneDriveSession, loadElevesCount, loadMefCounts]);
 
   useEffect(() => {
-    if (searchParams.get("upload") !== "1") return;
+    if (searchParams.get("upload") !== "1" && searchParams.get("suivi") !== "1") return;
     requestAnimationFrame(() => {
-      const el = document.getElementById("ocr-drop-standard");
+      const el =
+        document.getElementById("ocr-drop-standard") ||
+        document.getElementById("ocr-results") ||
+        document.querySelector("[data-ocr-suivi]");
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
       el?.classList.add("ring-4", "ring-violet-400");
       window.setTimeout(() => el?.classList.remove("ring-4", "ring-violet-400"), 2500);

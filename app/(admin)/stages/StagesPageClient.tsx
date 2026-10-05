@@ -8,10 +8,17 @@ import { useOneDriveConnection } from "@/app/hooks/useOneDriveConnection";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
 import StageConventionDetail from "@/app/components/stages/StageConventionDetail";
-import StagesBoardPanel from "@/app/components/stages/StagesBoardPanel";
+import StagesBoardPanel, {
+  resolveBoardQuickReviewKind,
+} from "@/app/components/stages/StagesBoardPanel";
+import StageOfflineCreateModal from "@/app/components/stages/StageOfflineCreateModal";
+import StageSignaturesDrawer, {
+  type StageSignaturePanelData,
+} from "@/app/components/stages/StageSignaturesDrawer";
 import type {
   StageTab,
   StagesHubBoard,
+  StagesHubBoardCard,
 } from "@/app/components/stages/stages-hub-types";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -67,6 +74,7 @@ function StagesContent() {
     convention: StageConvention;
     studentLink: string | null;
     signLinks: Array<{ role: string; label: string; link: string; email?: string }>;
+    periodAlignment?: import("@/app/lib/stage-period-alignment").StagePeriodAlignment | null;
     eleveMatch?: {
       matchedEleve: {
         ine?: string;
@@ -95,14 +103,40 @@ function StagesContent() {
   const [filingConventionId, setFilingConventionId] = useState<string | null>(null);
   const [adminReviewNote, setAdminReviewNote] = useState("");
   const [adminEditing, setAdminEditing] = useState(false);
+  const [offlineModalOpen, setOfflineModalOpen] = useState(false);
+  const [offlinePreset, setOfflinePreset] = useState<{
+    firstName: string;
+    lastName: string;
+    className: string;
+    ine?: string;
+  } | null>(null);
+  const [classeRefreshToken, setClasseRefreshToken] = useState(0);
+  const [signaturesDrawerOpen, setSignaturesDrawerOpen] = useState(false);
+  const [signaturesDrawerLoading, setSignaturesDrawerLoading] = useState(false);
+  const [signaturesDrawerError, setSignaturesDrawerError] = useState<string | null>(null);
+  const [signaturesDrawerData, setSignaturesDrawerData] =
+    useState<StageSignaturePanelData | null>(null);
+  const [signaturesDrawerBusyId, setSignaturesDrawerBusyId] = useState<string | null>(null);
+  const [boardQuickReviewBusyId, setBoardQuickReviewBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
+    const t0 = performance.now();
     try {
       const bRes = await fetch("/api/stages", { cache: "no-store" });
       const b = await bRes.json();
       if (!bRes.ok) throw new Error(b?.error || "Erreur");
       setBoard(b);
+      const clientMs = Math.round(performance.now() - t0);
+      console.info("[ScolIA][stages/hub]", {
+        clientMs,
+        server: b?.perf ?? null,
+        valkey: b?.cache?.valkey ?? null,
+      });
+      // Préchauffe le suivi classe (Valkey) pendant que l’utilisateur lit le tableau de bord.
+      if (b?.permissions?.canViewClassRoster) {
+        void fetch("/api/stages/class-roster", { cache: "no-store" }).catch(() => undefined);
+      }
       if ((b.myPendingSignatures?.length ?? 0) > 0) {
         try {
           const sigRes = await fetch("/api/stages/my-signature", { cache: "no-store" });
@@ -151,6 +185,96 @@ function StagesContent() {
     setSelectedId(null);
   }, []);
 
+  const closeSignaturesDrawer = useCallback(() => {
+    setSignaturesDrawerOpen(false);
+    setSignaturesDrawerError(null);
+    setSignaturesDrawerBusyId(null);
+  }, []);
+
+  const openSignaturesPanel = useCallback(async (card: StagesHubBoardCard) => {
+    setSignaturesDrawerOpen(true);
+    setSignaturesDrawerLoading(true);
+    setSignaturesDrawerError(null);
+    setSignaturesDrawerData({
+      id: card.id,
+      status: card.status,
+      statusLabel: "Signatures en cours",
+      studentName:
+        card.studentName ||
+        (card.student
+          ? `${card.student.firstName} ${card.student.lastName}`.trim()
+          : "Élève"),
+      className: card.className || "",
+      companyName: card.companyName || card.company?.name || "—",
+      periodStart: "",
+      periodEnd: "",
+      canResend: false,
+      photoUrl: card.photoUrl,
+      signatureSummary: {
+        total: 0,
+        signed: 0,
+        pending: 0,
+        refused: 0,
+        complete: false,
+        items: [],
+      },
+    });
+    try {
+      const res = await fetch(`/api/stages/conventions/${card.id}/signature-panel`, {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as StageSignaturePanelData & { error?: string };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setSignaturesDrawerData({
+        ...data,
+        photoUrl: card.photoUrl ?? data.photoUrl,
+      });
+    } catch (e: unknown) {
+      setSignaturesDrawerError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSignaturesDrawerLoading(false);
+    }
+  }, []);
+
+  async function resendSignatureFromDrawer(signatureId: string) {
+    if (!signaturesDrawerData) return;
+    const conventionId = signaturesDrawerData.id;
+    setSignaturesDrawerBusyId(signatureId);
+    setSignaturesDrawerError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${conventionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resend_signature", signatureId }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        mail?: { sent?: boolean; reason?: string };
+        email?: string;
+      };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setMsg(
+        data.mail?.sent
+          ? `Relance envoyée à ${data.email || "le signataire"}.`
+          : `Relance non envoyée (${data.mail?.reason || "erreur"}).`,
+      );
+      const refresh = await fetch(`/api/stages/conventions/${conventionId}/signature-panel`, {
+        cache: "no-store",
+      });
+      const refreshed = (await refresh.json()) as StageSignaturePanelData & { error?: string };
+      if (refresh.ok) {
+        setSignaturesDrawerData((prev) => ({
+          ...refreshed,
+          photoUrl: prev?.photoUrl ?? refreshed.photoUrl,
+        }));
+      }
+    } catch (e: unknown) {
+      setSignaturesDrawerError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSignaturesDrawerBusyId(null);
+    }
+  }
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -180,6 +304,15 @@ function StagesContent() {
 
   async function adminReview(approved: boolean) {
     if (!detail) return;
+    if (
+      approved &&
+      detail.periodAlignment?.outside &&
+      !window.confirm(
+        `ATTENTION — ce stage est HORS PÉRIODE OFFICIELLE.\n\n${detail.periodAlignment.message}\n\nVoulez-vous vraiment valider et lancer les signatures malgré tout ?`,
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
@@ -210,6 +343,119 @@ function StagesContent() {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Valider / refuser depuis le tableau de bord sans ouvrir le suivi classe. */
+  async function boardQuickReview(card: StagesHubBoardCard, approved: boolean) {
+    const kind = resolveBoardQuickReviewKind(card);
+    const student =
+      card.studentName ||
+      (card.student
+        ? `${card.student.firstName} ${card.student.lastName}`.trim()
+        : "cet élève");
+    const company = card.companyName || card.company?.name || "—";
+    const dates =
+      card.periodLabel ||
+      (card.periodStart && card.periodEnd
+        ? `${card.periodStart} → ${card.periodEnd}`
+        : "non renseignées");
+    const hours = card.hoursSummary || "non renseignés";
+    const periodLine = card.periodAlignment
+      ? card.periodAlignment.outside
+        ? `⚠ HORS PÉRIODE OFFICIELLE — ${card.periodAlignment.shortMessage}`
+        : card.periodAlignment.status === "aligned"
+          ? `✓ ${card.periodAlignment.referencePeriodLabel || card.periodAlignment.shortMessage}`
+          : card.periodAlignment.shortMessage
+      : null;
+
+    if (
+      kind === "schedule" &&
+      approved &&
+      !window.confirm(
+        [
+          `Appliquer l’avenant pour ${student} ?`,
+          `Entreprise : ${company}`,
+          card.requestedPeriodLabel
+            ? `Dates : ${card.requestedPeriodLabel}`
+            : `Dates : ${dates}`,
+          `Horaires : ${hours}`,
+          periodLine || "",
+          "",
+          "Si des signatures sont en cours ou déjà déposées, elles seront annulées et chaque signataire devra re-signer.",
+        ]
+          .filter((line) => line !== "")
+          .join("\n"),
+      )
+    ) {
+      return;
+    }
+    if (kind === "deposit" && approved) {
+      const confirmLines = [
+        `Valider le dépôt de ${student} et lancer les signatures ?`,
+        "",
+        `Entreprise : ${company}`,
+        `Dates : ${dates}`,
+        `Horaires : ${hours}`,
+      ];
+      if (periodLine) confirmLines.push(`Période officielle : ${periodLine}`);
+      if (card.periodAlignment?.outside) {
+        confirmLines.push(
+          "",
+          "ATTENTION — ce stage est hors des périodes définies pour la classe.",
+        );
+      }
+      if (!window.confirm(confirmLines.join("\n"))) return;
+    }
+
+    const action =
+      kind === "tutor_email"
+        ? "review_tutor_email_change"
+        : kind === "schedule"
+          ? "review_schedule_change"
+          : "admin_review";
+
+    setBoardQuickReviewBusyId(card.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${card.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, approved }),
+      });
+      const data = (await res.json()) as { error?: string; message?: string };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      if (kind === "tutor_email") {
+        setMsg(
+          data.message ||
+            (approved
+              ? "E-mail tuteur mis à jour — demande de signature renvoyée."
+              : "Demande d’e-mail tuteur refusée."),
+        );
+      } else if (kind === "schedule") {
+        setMsg(
+          data.message ||
+            (approved
+              ? "Avenant appliqué — signatures réinitialisées si nécessaire."
+              : "Demande d’avenant refusée."),
+        );
+      } else {
+        setMsg(
+          approved
+            ? card.status === "convention_deposited"
+              ? "Dépôt validé — e-mails de signature envoyés."
+              : "Convention validée — signatures lancées."
+            : card.status === "convention_deposited"
+              ? "Dépôt refusé."
+              : "Renvoyé pour correction.",
+        );
+      }
+      setClasseRefreshToken((n) => n + 1);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBoardQuickReviewBusyId(null);
     }
   }
 
@@ -280,6 +526,63 @@ function StagesContent() {
     }
   }
 
+  async function bulkResendSignatures(filters: {
+    secteur: "all" | "ecole" | "college" | "lycee";
+    className: string;
+    pendingConventionCount: number;
+  }) {
+    const scopeParts: string[] = [];
+    if (filters.secteur !== "all") {
+      const labels = { ecole: "École", college: "Collège", lycee: "Lycée" } as const;
+      scopeParts.push(labels[filters.secteur]);
+    }
+    if (filters.className && filters.className !== "all") {
+      scopeParts.push(`classe ${filters.className}`);
+    }
+    const scopeLabel = scopeParts.length > 0 ? ` (${scopeParts.join(" · ")})` : "";
+    const ok = window.confirm(
+      `Relancer tous les signataires qui n’ont pas encore signé pour les ${filters.pendingConventionCount} convention(s) en cours${scopeLabel} ?\n\nChaque personne encore en attente recevra un e-mail avec son lien de signature.`,
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/conventions/resend-signatures-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secteur: filters.secteur === "all" ? undefined : filters.secteur,
+          className:
+            !filters.className || filters.className === "all"
+              ? undefined
+              : filters.className,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        conventionsWithPending?: number;
+        pendingTotal?: number;
+        sentCount?: number;
+        failedCount?: number;
+      };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      const sent = data.sentCount ?? 0;
+      const pending = data.pendingTotal ?? 0;
+      const conventions = data.conventionsWithPending ?? 0;
+      const failed = data.failedCount ?? 0;
+      setMsg(
+        failed > 0
+          ? `Relance groupée : ${sent} e-mail(s) envoyé(s) sur ${pending} signataire(s) en attente (${conventions} convention(s)) — ${failed} convention(s) avec échec partiel.`
+          : `Relance groupée : ${sent} e-mail(s) envoyé(s) à ${pending} signataire(s) en attente sur ${conventions} convention(s).`,
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function reviewTutorEmailChange(approved: boolean) {
     if (!detail) return;
     setBusy(true);
@@ -314,7 +617,7 @@ function StagesContent() {
     if (
       approved &&
       !window.confirm(
-        "Valider cette modification ? Toutes les signatures (déjà déposées ou en attente) seront annulées et chaque signataire devra re-signer.",
+        "Appliquer cet avenant ? Si des signatures sont en cours ou déjà déposées, elles seront annulées et chaque signataire devra re-signer.",
       )
     ) {
       return;
@@ -334,14 +637,62 @@ function StagesContent() {
           ...detail,
           convention: data.convention,
           signLinks: data.signLinks ?? detail.signLinks,
+          periodAlignment: data.periodAlignment ?? detail.periodAlignment,
         });
       }
       setMsg(
         data.message ||
           (approved
-            ? "Horaires mis à jour — signatures réinitialisées."
-            : "Demande de modification refusée."),
+            ? "Avenant appliqué — signatures réinitialisées si nécessaire."
+            : "Demande d'avenant refusée."),
       );
+      await loadDetail(detail.convention.id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function proposeAmendment(payload: {
+    schedule: import("@/app/lib/stage-types").StageSchedule;
+    note: string;
+    stagePeriodId?: string;
+    stageLabel?: string;
+  }) {
+    if (!detail) return;
+    if (
+      !window.confirm(
+        "Envoyer cette demande d'avenant aux parties (responsable légal, tuteur, direction, professeur référent) ?",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "propose_amendment",
+          schedule: payload.schedule,
+          note: payload.note,
+          stagePeriodId: payload.stagePeriodId,
+          stageLabel: payload.stageLabel,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      if (data.convention) {
+        setDetail({
+          ...detail,
+          convention: data.convention,
+          periodAlignment: data.periodAlignment ?? detail.periodAlignment,
+        });
+      }
+      setMsg(data.message || "Demande d'avenant envoyée.");
       await loadDetail(detail.convention.id);
       await load();
     } catch (e: unknown) {
@@ -354,7 +705,7 @@ function StagesContent() {
   async function addSignatory() {
     if (!detail) return;
     const role = window.prompt(
-      "Rôle (professeur_referent | professeur_principal | direction | parent | tuteur_entreprise) :",
+      "Rôle (professeur_referent | professeur_principal | direction | parent | tuteur_entreprise | rh_entreprise) :",
       "professeur_referent",
     );
     if (!role) return;
@@ -438,6 +789,32 @@ function StagesContent() {
       setDetail({ ...detail, convention: data.convention });
       setMsg("Signature annulée — nouvelle demande envoyée au signataire.");
       await loadDetail(detail.convention.id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteStage(confirmWord: string) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "cancel",
+          confirm: confirmWord,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      closeDetail();
+      setMsg("Stage supprimé — liens de signature invalidés.");
+      setClasseRefreshToken((n) => n + 1);
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -577,9 +954,20 @@ function StagesContent() {
         <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <p className="font-semibold">Vue professeur principal / référent</p>
           <p className="mt-1 text-blue-800">
-            Consultez l&apos;onglet <strong>Suivi classe</strong> : ouvrez un élève pour voir ses
-            conventions, validez et suivez les signatures. Votre paraphe sera ajouté directement sur
-            le PDF.
+            Professeur principal : toute votre classe. Référent stage : uniquement les
+            stagiaires dont vous êtes le référent. Consultez l&apos;onglet{" "}
+            <strong>Suivi classe</strong> et le tableau de bord pour suivre les signatures.
+          </p>
+        </div>
+      )}
+
+      {permissions?.consultOnly && !permissions?.referentOnly && (
+        <div className="mb-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          <p className="font-semibold">Consultation stages</p>
+          <p className="mt-1 text-sky-900">
+            Vous voyez les classes dont vous êtes professeur principal, et les stagiaires
+            dont vous êtes le référent. Les validations et relances restent réservées à
+            l&apos;administratif / direction.
           </p>
         </div>
       )}
@@ -624,10 +1012,16 @@ function StagesContent() {
           }}
           selectedConventionId={selectedId}
           focusClassName={focusClassName}
+          refreshToken={classeRefreshToken}
           canFileOneDrive={Boolean(permissions?.canFileToOneDrive && od.oneDriveEnabled)}
           oneDriveConnected={od.connected}
           onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
           filingConventionId={filingConventionId}
+          canCreateOffline={Boolean(permissions?.canReviewPreconvention)}
+          onCreateOffline={(preset) => {
+            setOfflinePreset(preset);
+            setOfflineModalOpen(true);
+          }}
           detailSlot={
             detail && detail.convention.id === selectedId ? (
               <StageConventionDetail
@@ -663,6 +1057,12 @@ function StagesContent() {
                 onFileToOneDrive={() => void fileToOneDrive()}
                 onReviewTutorEmailChange={(approved) => void reviewTutorEmailChange(approved)}
                 onReviewScheduleChange={(approved) => void reviewScheduleChange(approved)}
+                onProposeAmendment={(payload) => void proposeAmendment(payload)}
+                onDeleteStage={
+                  permissions?.canReviewPreconvention
+                    ? (confirmWord) => void deleteStage(confirmWord)
+                    : undefined
+                }
               />
             ) : null
           }
@@ -674,8 +1074,55 @@ function StagesContent() {
           board={board}
           permissions={permissions}
           onLoadDetail={(id) => void loadDetail(id)}
+          onOpenSignaturesPanel={(card) => void openSignaturesPanel(card)}
+          onQuickReview={(card, approved) => void boardQuickReview(card, approved)}
+          quickReviewBusyId={boardQuickReviewBusyId}
+          onCreateOffline={
+            permissions?.canReviewPreconvention
+              ? () => {
+                  setOfflinePreset(null);
+                  setOfflineModalOpen(true);
+                }
+              : undefined
+          }
+          onBulkResendSignatures={
+            permissions?.canReviewPreconvention
+              ? (filters) => void bulkResendSignatures(filters)
+              : undefined
+          }
+          bulkResendBusy={busy}
         />
       )}
+
+      <StageSignaturesDrawer
+        open={signaturesDrawerOpen}
+        loading={signaturesDrawerLoading}
+        error={signaturesDrawerError}
+        data={signaturesDrawerData}
+        busySignatureId={signaturesDrawerBusyId}
+        onClose={closeSignaturesDrawer}
+        onResend={(signatureId) => void resendSignatureFromDrawer(signatureId)}
+        onOpenFull={() => {
+          const id = signaturesDrawerData?.id;
+          closeSignaturesDrawer();
+          if (id) void loadDetail(id);
+        }}
+      />
+
+      <StageOfflineCreateModal
+        open={offlineModalOpen}
+        presetStudent={offlinePreset}
+        onClose={() => {
+          setOfflineModalOpen(false);
+          setOfflinePreset(null);
+        }}
+        onCreated={(conventionId) => {
+          setMsg("Stage hors plateforme enregistré — convention signée (PDF papier).");
+          void load();
+          void loadDetail(conventionId);
+          setTab("classe");
+        }}
+      />
 
       {tab === "repas" && permissions?.canViewRepasAbsences && (
         <section className="mb-8 rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">

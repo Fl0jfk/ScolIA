@@ -3,15 +3,20 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { StageConvention } from "@/app/lib/stage-types";
-import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-config";
+import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-types";
 import type { StageConventionCard } from "@/app/lib/stage-signature-summary";
-import { STAGE_CONVENTION_STATUS_LABELS, formatCompanyAddress } from "@/app/lib/stage-types";
+import {
+  STAGE_CANCELLED_PUBLIC_MESSAGE,
+  STAGE_CONVENTION_STATUS_LABELS,
+  formatCompanyAddress,
+} from "@/app/lib/stage-types";
 import { formatPeriodRangeFr } from "@/app/lib/stage-schedule";
 import {
   clearPreconventionDeviceMemory,
   readPreconventionDeviceMemory,
   writePreconventionDeviceMemory,
 } from "@/app/lib/stage-preconvention-device-memory";
+import StageCancelledPublicPage from "@/app/components/stages/StageCancelledPublicPage";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 import StageOtpCodeInput from "@/app/components/stages/StageOtpCodeInput";
@@ -76,7 +81,7 @@ function StagePreconventionPublicContent() {
   const contextIdentity = usePublicSiteIdentity();
   const [fetchedIdentity, setFetchedIdentity] = useState<PublicSiteIdentity | null>(null);
 
-  const [step, setStep] = useState<"identity" | "otp" | "dashboard" | "form">(
+  const [step, setStep] = useState<"identity" | "otp_recipients" | "otp" | "dashboard" | "form">(
     tokenFromUrl ? "form" : "identity",
   );
   const [nom, setNom] = useState("");
@@ -97,6 +102,7 @@ function StagePreconventionPublicContent() {
     previousEmail: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelled, setCancelled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [reminders, setReminders] = useState<StagePeriodReminder[]>([]);
@@ -121,6 +127,11 @@ function StagePreconventionPublicContent() {
   const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
   const [otpMaskedRecipients, setOtpMaskedRecipients] = useState<string[]>([]);
   const [identityOtpCode, setIdentityOtpCode] = useState("");
+  const [recipientSessionId, setRecipientSessionId] = useState<string | null>(null);
+  const [recipientOptions, setRecipientOptions] = useState<Array<{ id: string; masked: string }>>(
+    [],
+  );
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>([]);
   const [restoringDevice, setRestoringDevice] = useState(() => {
     if (tokenFromUrl) return false;
     return Boolean(readPreconventionDeviceMemory());
@@ -185,6 +196,9 @@ function StagePreconventionPublicContent() {
     setOtpChallengeId(null);
     setOtpMaskedRecipients([]);
     setIdentityOtpCode("");
+    setRecipientSessionId(null);
+    setRecipientOptions([]);
+    setSelectedRecipientIds([]);
     setStep("identity");
     setError(null);
     setInfoMsg(null);
@@ -239,7 +253,13 @@ function StagePreconventionPublicContent() {
       cache: "no-store",
     });
     const data = await res.json();
+    if (res.status === 410 || data?.cancelled === true) {
+      setCancelled(true);
+      setError(data?.message || data?.error || STAGE_CANCELLED_PUBLIC_MESSAGE);
+      return;
+    }
     if (!res.ok) throw new Error(data?.error || "Lien invalide");
+    setCancelled(false);
     setConvention(data.convention);
     setReadOnly(data.readOnly === true);
     setCanRequestTutorEmailChange(data.canRequestTutorEmailChange === true);
@@ -365,6 +385,9 @@ function StagePreconventionPublicContent() {
     setOtpChallengeId(null);
     setOtpMaskedRecipients([]);
     setIdentityOtpCode("");
+    setRecipientSessionId(null);
+    setRecipientOptions([]);
+    setSelectedRecipientIds([]);
     rememberIdentity({
       nom: (identity?.nom || preview.lastName || nom).trim(),
       prenom: (identity?.prenom || preview.firstName || prenom).trim(),
@@ -376,11 +399,15 @@ function StagePreconventionPublicContent() {
   }
 
   function enterOtpStep(data: {
-    challengeId: string;
+    challengeId?: string;
+    recipientSessionId?: string;
     maskedRecipients?: string[];
     message?: string;
   }) {
     setOtpChallengeId(String(data.challengeId ?? "").trim() || null);
+    if (data.recipientSessionId) {
+      setRecipientSessionId(String(data.recipientSessionId).trim() || null);
+    }
     setOtpMaskedRecipients(
       Array.isArray(data.maskedRecipients)
         ? data.maskedRecipients.map((r) => String(r)).filter(Boolean)
@@ -391,6 +418,38 @@ function StagePreconventionPublicContent() {
     setInfoMsg(
       data.message ||
         "Le code a été envoyé. Vérifiez aussi vos spams / courriers indésirables.",
+    );
+  }
+
+  function enterRecipientChoiceStep(data: {
+    recipientSessionId?: string;
+    recipientOptions?: Array<{ id?: string; masked?: string }>;
+    message?: string;
+  }) {
+    const options = Array.isArray(data.recipientOptions)
+      ? data.recipientOptions
+          .map((o) => ({
+            id: String(o?.id ?? "").trim(),
+            masked: String(o?.masked ?? "").trim(),
+          }))
+          .filter((o) => o.id && o.masked)
+      : [];
+    setRecipientSessionId(String(data.recipientSessionId ?? "").trim() || null);
+    setRecipientOptions(options);
+    setSelectedRecipientIds(options.map((o) => o.id));
+    setOtpChallengeId(null);
+    setOtpMaskedRecipients([]);
+    setIdentityOtpCode("");
+    setStep("otp_recipients");
+    setInfoMsg(
+      data.message ||
+        "Choisissez la ou les adresses (masquées) où envoyer le code d'accès.",
+    );
+  }
+
+  function toggleRecipientId(id: string) {
+    setSelectedRecipientIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
 
@@ -437,6 +496,11 @@ function StagePreconventionPublicContent() {
     setDateNaissance(creds.dateNaissance);
     if (creds.classe) setClasse(creds.classe.trim());
 
+    if (data?.needsOtpRecipientChoice === true && data.recipientSessionId) {
+      enterRecipientChoiceStep(data);
+      return { ok: true as const, needsOtpRecipientChoice: true as const };
+    }
+
     if (data?.needsOtp === true && data.challengeId) {
       enterOtpStep(data);
       return { ok: true as const, needsOtp: true as const };
@@ -444,6 +508,31 @@ function StagePreconventionPublicContent() {
 
     applyIdentifySuccess(data, creds);
     return { ok: true as const };
+  }
+
+  async function sendIdentityOtpToSelected(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!recipientSessionId || selectedRecipientIds.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/public/preconvention", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "send_identity_otp",
+          recipientSessionId,
+          selectedRecipientIds,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Envoi impossible");
+      enterOtpStep(data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirmIdentityOtp(e?: React.FormEvent) {
@@ -459,6 +548,7 @@ function StagePreconventionPublicContent() {
           action: "confirm_identity_otp",
           challengeId: otpChallengeId,
           code: identityOtpCode,
+          recipientSessionId: recipientSessionId || undefined,
         }),
       });
       const data = await res.json();
@@ -487,12 +577,19 @@ function StagePreconventionPublicContent() {
         body: JSON.stringify(
           identityPayload({
             action: "resend_identity_otp",
+            recipientSessionId: recipientSessionId || undefined,
+            selectedRecipientIds:
+              selectedRecipientIds.length > 0 ? selectedRecipientIds : undefined,
           }),
         ),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Renvoi impossible");
-      enterOtpStep(data);
+      if (data?.needsOtpRecipientChoice === true) {
+        enterRecipientChoiceStep(data);
+      } else {
+        enterOtpStep(data);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -644,6 +741,12 @@ function StagePreconventionPublicContent() {
       .finally(() => setBusy(false));
   }
 
+  if (cancelled) {
+    return (
+      <StageCancelledPublicPage message={error || STAGE_CANCELLED_PUBLIC_MESSAGE} />
+    );
+  }
+
   if (restoringDevice) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6">
@@ -759,13 +862,76 @@ function StagePreconventionPublicContent() {
           </form>
         )}
 
+        {step === "otp_recipients" && !token && (
+          <form
+            onSubmit={(e) => void sendIdentityOtpToSelected(e)}
+            className="mt-6 space-y-4 text-sm"
+          >
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 space-y-2">
+              <p className="text-sm font-bold text-[#1F3D2B]">Où envoyer le code ?</p>
+              <p className="text-xs text-stone-700 leading-relaxed">
+                Sélectionnez une ou plusieurs adresses connues. Elles sont affichées
+                partiellement pour protéger la vie privée — jamais en entier.
+              </p>
+            </div>
+            <fieldset className="space-y-2">
+              <legend className="sr-only">Adresses masquées</legend>
+              {recipientOptions.map((opt) => {
+                const checked = selectedRecipientIds.includes(opt.id);
+                return (
+                  <label
+                    key={opt.id}
+                    className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 ${
+                      checked
+                        ? "border-emerald-400 bg-emerald-50"
+                        : "border-stone-200 bg-white"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-[#2F6B4A]"
+                      checked={checked}
+                      onChange={() => toggleRecipientId(opt.id)}
+                      disabled={busy}
+                    />
+                    <span className="font-mono text-xs font-semibold text-[#1F3D2B]">
+                      {opt.masked}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+            <button
+              type="submit"
+              disabled={busy || selectedRecipientIds.length === 0}
+              className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {busy ? "Envoi…" : "Envoyer le code →"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setRecipientSessionId(null);
+                setRecipientOptions([]);
+                setSelectedRecipientIds([]);
+                setInfoMsg(null);
+                setStep("identity");
+              }}
+              className="text-xs font-semibold text-stone-600 underline"
+            >
+              ← Modifier l&apos;identité
+            </button>
+          </form>
+        )}
+
         {step === "otp" && !token && (
           <form onSubmit={(e) => void confirmIdentityOtp(e)} className="mt-6 space-y-4 text-sm">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 space-y-2">
               <p className="text-sm font-bold text-[#1F3D2B]">Le code a été envoyé</p>
               <p className="text-xs text-stone-700 leading-relaxed">
-                Un même code à 6 chiffres a été envoyé à toutes les adresses connues (élève et
-                responsables). Saisissez-le ci-dessous pour accéder à vos stages.
+                Un même code à 6 chiffres a été envoyé aux adresses sélectionnées.
+                Saisissez-le ci-dessous pour accéder à vos stages.
               </p>
               {otpMaskedRecipients.length > 0 && (
                 <ul className="text-xs text-[#1F3D2B] space-y-1">
@@ -807,6 +973,14 @@ function StagePreconventionPublicContent() {
                 type="button"
                 disabled={busy}
                 onClick={() => {
+                  if (recipientOptions.length > 1) {
+                    setOtpChallengeId(null);
+                    setOtpMaskedRecipients([]);
+                    setIdentityOtpCode("");
+                    setInfoMsg(null);
+                    setStep("otp_recipients");
+                    return;
+                  }
                   setOtpChallengeId(null);
                   setOtpMaskedRecipients([]);
                   setIdentityOtpCode("");
@@ -815,7 +989,9 @@ function StagePreconventionPublicContent() {
                 }}
                 className="text-xs font-semibold text-stone-600 underline"
               >
-                ← Modifier l&apos;identité
+                {recipientOptions.length > 1
+                  ? "← Changer d'adresse"
+                  : "← Modifier l'identité"}
               </button>
             </div>
           </form>

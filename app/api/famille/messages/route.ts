@@ -40,10 +40,11 @@ export async function POST(req: Request) {
   if (body.action !== "reply" || !body.threadId?.trim()) {
     return NextResponse.json({ error: "Action invalide." }, { status: 400 });
   }
+  const threadId = body.threadId.trim();
 
   const foyerIds = new Set(gate.ctx.foyers.map((f) => f.id));
   const threads = await listFamilleThreadsForFoyers(gate.ctx.etablissementId, [...foyerIds]);
-  const owned = threads.find((t) => t.id === body.threadId.trim());
+  const owned = threads.find((t) => t.id === threadId);
   if (!owned || !foyerIds.has(owned.foyerId)) {
     return NextResponse.json({ error: "Conversation introuvable." }, { status: 404 });
   }

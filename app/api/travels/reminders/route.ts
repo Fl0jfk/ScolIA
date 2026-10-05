@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { resolveSession } from "@/app/lib/intranet-session";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { getJson, putJson } from "@/app/lib/s3-storage";
 import { computeTripReminders, complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import { getTravelTrip, listTravelsIndex, saveTravelTrip } from "@/app/lib/travels-storage";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
@@ -22,44 +22,43 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const tripId = url.searchParams.get("tripId");
 
-  const indexHit = await getJson<TravelsTrip[]>("travels/index.json");
-  const index = Array.isArray(indexHit?.data) ? indexHit.data : [];
-
-  try {
-    const { travelsDbReady } = await import("@/app/lib/travel-db");
-    const { purgeExpiredParentBlogsForEtablissement } = await import(
-      "@/app/lib/travels-parent-blog"
-    );
-    const etabId = await travelsDbReady();
-    if (etabId) await purgeExpiredParentBlogsForEtablissement(etabId);
-  } catch (purgeErr) {
-    console.error("[reminders] parent-blog purge", purgeErr);
-  }
+  // Purge en arrière-plan : ne doit pas bloquer le chargement des rappels.
+  void (async () => {
+    try {
+      const { travelsDbReady } = await import("@/app/lib/travel-db");
+      const { purgeExpiredParentBlogsForEtablissement } = await import(
+        "@/app/lib/travels-parent-blog"
+      );
+      const etabId = await travelsDbReady();
+      if (etabId) await purgeExpiredParentBlogsForEtablissement(etabId);
+    } catch (purgeErr) {
+      console.error("[reminders] parent-blog purge", purgeErr);
+    }
+  })();
 
   if (tripId) {
-    const hit = await getJson<TravelsTrip>(`travels/${tripId}.json`);
-    const trip = hit?.data;
+    const trip = await getTravelTrip(tripId);
     if (!trip) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
     return NextResponse.json({ reminders: computeTripReminders(trip) });
   }
 
-  const reminders: Array<ReturnType<typeof computeTripReminders>[number] & {
-    tripTitle?: string;
-    tripDestination?: string;
-  }> = [];
-  for (const summary of index.slice(0, 200)) {
-    if (!summary?.id) continue;
-    const hit = await getJson<TravelsTrip>(`travels/${summary.id}.json`);
-    if (hit?.data) {
-      const trip = hit.data;
-      reminders.push(
-        ...computeTripReminders(trip).map((r) => ({
-          ...r,
-          tripTitle: trip.data?.title,
-          tripDestination: trip.data?.destination,
-        })),
-      );
+  // Postgres (+ Valkey) — plus de N× GET S3 séquentiels (très lent).
+  const index = await listTravelsIndex();
+  const reminders: Array<
+    ReturnType<typeof computeTripReminders>[number] & {
+      tripTitle?: string;
+      tripDestination?: string;
     }
+  > = [];
+  for (const trip of index.slice(0, 200)) {
+    if (!trip?.id) continue;
+    reminders.push(
+      ...computeTripReminders(trip).map((r) => ({
+        ...r,
+        tripTitle: trip.data?.title,
+        tripDestination: trip.data?.destination,
+      })),
+    );
   }
 
   return NextResponse.json({ reminders, count: reminders.length });
@@ -85,8 +84,7 @@ export async function POST(req: Request) {
     const reminderId = String(body.reminderId || "");
     if (!tripId) return NextResponse.json({ error: "tripId requis" }, { status: 400 });
 
-    const hit = await getJson<TravelsTrip>(`travels/${tripId}.json`);
-    const trip = hit?.data;
+    const trip = await getTravelTrip(tripId);
     if (!trip?.ownerEmail) {
       return NextResponse.json({ error: "Dossier ou email créateur introuvable" }, { status: 404 });
     }
@@ -191,7 +189,7 @@ export async function POST(req: Request) {
         },
       },
     };
-    await putJson(`travels/${tripId}.json`, updatedTrip);
+    await saveTravelTrip(updatedTrip);
 
     return NextResponse.json({ success: true, reminder });
   } catch (e) {

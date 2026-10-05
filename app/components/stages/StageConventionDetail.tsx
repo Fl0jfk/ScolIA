@@ -1,23 +1,32 @@
 "use client";
 
-import type { ReactNode } from "react";
-import type { StageConvention } from "@/app/lib/stage-types";
+import { useMemo, useState, type ReactNode } from "react";
+import type { StageConvention, StageSchedule } from "@/app/lib/stage-types";
 import {
+  STAGE_CANCEL_CONFIRM_WORD,
   STAGE_CONVENTION_STATUS_LABELS,
   STAGE_OFFER_KIND_LABELS,
   formatCompanyAddress,
+  isOfflinePaperConvention,
+  stageCompanyRhDisplayName,
 } from "@/app/lib/stage-types";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
-import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
+import StageScheduleEditor from "@/app/components/stages/StageScheduleEditor";
 import StageSchedulePanel from "@/app/components/stages/StageSchedulePanel";
+import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
+import StageOutOfPeriodAlert from "@/app/components/stages/StageOutOfPeriodAlert";
+import StageDiscussionChat from "@/app/components/stages/StageDiscussionChat";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
 import { formatPeriodRangeFr } from "@/app/lib/stage-schedule";
+import type { StagePeriodAlignment } from "@/app/lib/stage-period-alignment";
+import { suggestScheduleForOfficialPeriod } from "@/app/lib/stage-period-alignment";
 import type { StagesHubPermissions } from "@/app/components/stages/stages-hub-types";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 
 export type StageConventionDetailData = {
   convention: StageConvention;
   signLinks: Array<{ role: string; label: string; link: string; email?: string }>;
+  periodAlignment?: StagePeriodAlignment | null;
   eleveMatch?: {
     matchedEleve: {
       ine?: string;
@@ -66,6 +75,8 @@ export default function StageConventionDetail({
   onFileToOneDrive,
   onReviewTutorEmailChange,
   onReviewScheduleChange,
+  onProposeAmendment,
+  onDeleteStage,
 }: {
   detail: StageConventionDetailData;
   permissions: StagesHubPermissions | undefined;
@@ -91,10 +102,44 @@ export default function StageConventionDetail({
   onFileToOneDrive: () => void;
   onReviewTutorEmailChange: (approved: boolean) => void;
   onReviewScheduleChange: (approved: boolean) => void;
+  onProposeAmendment: (payload: {
+    schedule: StageSchedule;
+    note: string;
+    stagePeriodId?: string;
+    stageLabel?: string;
+  }) => void;
+  onDeleteStage?: (confirmWord: string) => void;
 }) {
   const c = detail.convention;
+  const offlinePaper = isOfflinePaperConvention(c);
   const canShowOneDriveFiling = permissions?.canFileToOneDrive && c.status === "signed";
   const canShowEleveDossierFiling = permissions?.canReviewPreconvention && c.status === "signed";
+  const alignment = detail.periodAlignment;
+  const canProposeAmendment =
+    Boolean(permissions?.canReviewPreconvention) &&
+    !c.scheduleChangeRequest &&
+    (c.status === "admin_review" ||
+      c.status === "convention_deposited" ||
+      c.status === "signatures_pending" ||
+      c.status === "signed");
+  const canDeleteStage =
+    Boolean(permissions?.canReviewPreconvention) &&
+    Boolean(onDeleteStage) &&
+    c.status !== "cancelled" &&
+    c.status !== "archived";
+
+  const [amendOpen, setAmendOpen] = useState(false);
+  const [amendNote, setAmendNote] = useState(
+    "La première semaine choisie n'est pas compatible avec le calendrier scolaire : les élèves seront en cours. Merci d'accepter le calage sur la période officielle.",
+  );
+  const suggestedSchedule = useMemo(() => {
+    const ref = alignment?.referencePeriod;
+    if (ref) return suggestScheduleForOfficialPeriod(c.schedule, ref);
+    return c.schedule;
+  }, [alignment?.referencePeriod, c.schedule]);
+  const [amendSchedule, setAmendSchedule] = useState<StageSchedule>(suggestedSchedule);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   return (
     <div className="mt-3 space-y-4 rounded-xl border border-[#2F6B4A]/25 bg-[#f7faf8] p-4">
@@ -106,6 +151,7 @@ export default function StageConventionDetail({
           </p>
           <p className="text-xs text-stone-600">
             {STAGE_CONVENTION_STATUS_LABELS[c.status]}
+            {offlinePaper ? " · hors plateforme" : ""}
           </p>
         </div>
         <button
@@ -117,11 +163,116 @@ export default function StageConventionDetail({
         </button>
       </div>
 
+      <StageOutOfPeriodAlert alignment={alignment} />
+
+      {offlinePaper && (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+          Convention enregistrée hors plateforme (PDF déjà signé sur papier). Aucun circuit de
+          signatures électroniques n&apos;a été lancé.
+        </p>
+      )}
+
       <div className="max-w-md">
         <StageSignatureProgress summary={buildSignatureSummary(c)} />
       </div>
 
       {!adminEditing && <ConventionInfoSummary convention={c} />}
+
+      {permissions?.canReviewPreconvention && (
+        <StageDiscussionChat
+          conventionId={c.id}
+          initialMessages={c.discussion?.messages ?? []}
+          authorHint="Secrétariat / établissement"
+          title="Discussion avenant / convention"
+        />
+      )}
+
+      {canProposeAmendment && (
+        <div className="rounded-xl border-2 border-indigo-300 bg-indigo-50 px-4 py-3 space-y-3">
+          <p className="text-sm font-black text-indigo-950">Demande d&apos;avenant</p>
+          <p className="text-xs text-indigo-900 leading-relaxed">
+            Proposez de nouvelles dates (période officielle) et un motif court. Un e-mail part aux
+            responsables légaux, au tuteur, à la direction et au professeur référent avec leur lien
+            — ils peuvent discuter et répondre uniquement via ce lien.
+          </p>
+          {!amendOpen ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setAmendSchedule(suggestedSchedule);
+                setAmendOpen(true);
+              }}
+              className="rounded-lg bg-indigo-800 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+            >
+              Ouvrir une demande d&apos;avenant
+            </button>
+          ) : (
+            <div className="space-y-3">
+              {alignment?.officialPeriods?.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {alignment.officialPeriods.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() =>
+                        setAmendSchedule(suggestScheduleForOfficialPeriod(c.schedule, p))
+                      }
+                      className="rounded-lg border border-indigo-400 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-900"
+                    >
+                      Caler sur {p.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <StageScheduleEditor
+                value={amendSchedule}
+                onChange={setAmendSchedule}
+                title="Nouvelles dates / horaires proposés"
+              />
+              <label className="block text-xs font-semibold text-indigo-950">
+                Motif (envoyé aux parties)
+                <textarea
+                  className="mt-1 w-full rounded-lg border border-indigo-300 px-3 py-2 text-sm min-h-[72px] bg-white"
+                  value={amendNote}
+                  onChange={(e) => setAmendNote(e.target.value)}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy || !amendNote.trim()}
+                  onClick={() => {
+                    const ref = alignment?.officialPeriods.find(
+                      (p) =>
+                        p.periodStart === amendSchedule.periodStart &&
+                        p.periodEnd === amendSchedule.periodEnd,
+                    );
+                    onProposeAmendment({
+                      schedule: amendSchedule,
+                      note: amendNote.trim(),
+                      stagePeriodId: ref?.id,
+                      stageLabel: ref?.label,
+                    });
+                    setAmendOpen(false);
+                  }}
+                  className="rounded-lg bg-indigo-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  Envoyer la demande d&apos;avenant
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setAmendOpen(false)}
+                  className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {permissions?.canReviewPreconvention && c.tutorEmailChangeRequest && (
         <div className="rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-3 space-y-3">
@@ -167,11 +318,12 @@ export default function StageConventionDetail({
       {permissions?.canReviewPreconvention && c.scheduleChangeRequest && (
         <div className="rounded-xl border-2 border-orange-400 bg-orange-50 px-4 py-3 space-y-3">
           <p className="text-sm font-black text-orange-950">
-            Demande tuteur — modifier période / jours / horaires
+            Demande d&apos;avenant — période / jours / horaires
           </p>
           <p className="text-xs text-orange-900 leading-relaxed">
             Demandé par :{" "}
-            <strong>{c.scheduleChangeRequest.requestedByLabel || "Tuteur entreprise"}</strong>
+            <strong>{c.scheduleChangeRequest.requestedByLabel || "Signataire"}</strong>
+            {c.scheduleChangeRequest.source === "staff" ? " (établissement)" : " (via lien)"}
             {c.scheduleChangeRequest.note ? (
               <>
                 <br />
@@ -224,7 +376,7 @@ export default function StageConventionDetail({
               onClick={() => onReviewScheduleChange(true)}
               className="rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
             >
-              Valider et relancer toutes les signatures
+              Valider et appliquer l&apos;avenant
             </button>
             <button
               type="button"
@@ -237,6 +389,15 @@ export default function StageConventionDetail({
           </div>
         </div>
       )}
+
+      {permissions?.canReviewPreconvention &&
+        (c.status === "admin_review" || c.status === "convention_deposited") &&
+        alignment?.outside && (
+          <p className="rounded-lg border-2 border-rose-500 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-950">
+            Validation bloquée visuellement : ce stage est hors période officielle. Corrigez les
+            dates ou ouvrez un avenant avant de lancer les signatures.
+          </p>
+        )}
 
       {c.stageAbsenceIds && c.stageAbsenceIds.length > 0 && c.schedule.periodStart && c.schedule.periodEnd && (
         <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
@@ -266,7 +427,9 @@ export default function StageConventionDetail({
         >
           Télécharger PDF à jour
         </a>
-        {permissions?.canReviewPreconvention && c.status === "signatures_pending" && (
+        {permissions?.canReviewPreconvention &&
+          !offlinePaper &&
+          c.status === "signatures_pending" && (
           <button
             type="button"
             onClick={onResendSignatures}
@@ -277,6 +440,7 @@ export default function StageConventionDetail({
           </button>
         )}
         {permissions?.canReviewPreconvention &&
+          !offlinePaper &&
           (c.status === "signatures_pending" || c.status === "signed") && (
             <button
               type="button"
@@ -456,15 +620,27 @@ export default function StageConventionDetail({
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wide text-stone-600">Signataires</h3>
           <ul className="mt-2 space-y-2">
-            {c.signatures.map((sig) => {
+            {(() => {
+              const summary = buildSignatureSummary(c);
+              const nonBlockingById = new Map(
+                summary.items.map((item) => [item.id, Boolean(item.nonBlocking)]),
+              );
+              return c.signatures.map((sig) => {
               const pending = sig.status === "en_attente" && Boolean(sig.signToken);
               const signed = sig.status === "signe";
+              const nonBlocking = nonBlockingById.get(sig.id) === true;
               return (
                 <li
                   key={sig.id}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm"
+                  className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                    nonBlocking
+                      ? "border-stone-200 bg-stone-50 text-stone-600"
+                      : "border-stone-200 bg-white"
+                  }`}
                 >
-                  <span className="font-medium">{sig.label}</span>
+                  <span className={`font-medium ${nonBlocking ? "line-through decoration-stone-400" : ""}`}>
+                    {sig.label}
+                  </span>
                   {sig.signEmail ? (
                     <span className="text-xs text-stone-500">({sig.signEmail})</span>
                   ) : null}
@@ -472,12 +648,19 @@ export default function StageConventionDetail({
                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
                       {sig.signMethod === "paper_upload" ? "Signé (papier)" : "Signé"}
                     </span>
+                  ) : nonBlocking ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-stone-300 bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-stone-600">
+                      <span aria-hidden className="text-sm font-black leading-none">
+                        ×
+                      </span>
+                      Optionnel
+                    </span>
                   ) : (
                     <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
                       En attente
                     </span>
                   )}
-                  {permissions?.canReviewPreconvention && pending && (
+                  {permissions?.canReviewPreconvention && pending && !nonBlocking && (
                     <>
                       <button
                         type="button"
@@ -517,10 +700,75 @@ export default function StageConventionDetail({
                   )}
                 </li>
               );
-            })}
+            });
+            })()}
           </ul>
         </div>
       )}
+
+      {canDeleteStage ? (
+        <div className="rounded-xl border border-rose-300 bg-rose-50/80 px-4 py-3 space-y-3">
+          <div>
+            <p className="text-sm font-bold text-rose-950">Supprimer ce stage</p>
+            <p className="mt-1 text-xs leading-relaxed text-rose-900/90">
+              Action réservée à l&apos;administratif. Le dossier est annulé de A à Z : signatures,
+              liens envoyés et préconvention deviennent inutilisables. Irréversible.
+            </p>
+          </div>
+          {!deleteOpen ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setDeleteConfirm("");
+                setDeleteOpen(true);
+              }}
+              className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+            >
+              Supprimer le stage…
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-rose-950">
+                Pour confirmer, tapez{" "}
+                <span className="font-mono text-rose-700">{STAGE_CANCEL_CONFIRM_WORD}</span>
+                <input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder={STAGE_CANCEL_CONFIRM_WORD}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="mt-1 w-full max-w-xs rounded-lg border border-rose-300 bg-white px-3 py-2 font-mono text-sm"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeleteConfirm("");
+                  }}
+                  className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    deleteConfirm.trim().toLowerCase() !== STAGE_CANCEL_CONFIRM_WORD
+                  }
+                  onClick={() => onDeleteStage?.(deleteConfirm.trim())}
+                  className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  {busy ? "Suppression…" : "Confirmer la suppression"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -569,11 +817,25 @@ function ConventionInfoSummary({ convention }: { convention: StageConvention }) 
             </>
           ) : null}
         </InfoRow>
-        {company.rhEmail ? (
+        {(stageCompanyRhDisplayName(company) || company.rhEmail) ? (
           <InfoRow label="RH entreprise">
-            <a className="text-[#2F6B4A] underline" href={`mailto:${company.rhEmail}`}>
-              {company.rhEmail}
-            </a>
+            {stageCompanyRhDisplayName(company) || null}
+            {company.rhEmail?.includes("@") ? (
+              <>
+                {stageCompanyRhDisplayName(company) ? <br /> : null}
+                <a className="text-[#2F6B4A] underline" href={`mailto:${company.rhEmail}`}>
+                  {company.rhEmail}
+                </a>
+              </>
+            ) : company.rhEmail ? (
+              <>
+                {stageCompanyRhDisplayName(company) ? <br /> : null}
+                <span className="text-amber-800 text-xs">
+                  E-mail manquant ou invalide (« {company.rhEmail} ») — corriger pour envoyer le lien
+                  de signature.
+                </span>
+              </>
+            ) : null}
           </InfoRow>
         ) : null}
         <InfoRow label="Responsable légal 1">

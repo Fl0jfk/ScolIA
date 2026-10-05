@@ -431,7 +431,7 @@ export async function openPrevueScolarite(
     await db
       .update(eleveScolarite)
       .set({
-        ...(opts.classe !== undefined ? { classe: opts.classe.trim() || null } : {}),
+        ...(opts.classe !== undefined ? { classe: opts.classe?.trim() || null } : {}),
         ...(opts.siteId !== undefined ? { siteId: opts.siteId } : {}),
         statut: "prevue",
         ...(opts.etablissementPrecedent !== undefined

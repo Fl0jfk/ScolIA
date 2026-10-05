@@ -134,6 +134,19 @@ export function notificationCountForModule(
     .reduce((sum, n) => sum + n.count, 0);
 }
 
+/**
+ * Total des notifications d’un espace (pilier) — agrège tous les modules
+ * rattachés via `moduleIdToPillarId` (ex. absences / HSE → Comptabilité & RH).
+ */
+export function notificationCountForPillar(
+  pillarId: DashboardPillarId,
+  notifications: DashboardNotification[],
+): number {
+  return notifications
+    .filter((n) => n.count > 0 && moduleIdToPillarId(n.moduleId) === pillarId)
+    .reduce((sum, n) => sum + n.count, 0);
+}
+
 export type DashboardSignals = {
   shortcuts: DashboardShortcut[];
   todayNews: DashboardTodayNewsItem[];
@@ -803,17 +816,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         pillarOnly: true,
       });
     }
-  }
-
-  // —— Services : OCR documents ——
-  if (has("agent-ia-ocr")) {
-    shortcuts.push({
-      id: "ocr",
-      pillarId: "administratif",
-      moduleId: "agent-ia-ocr",
-      href: moduleHref("agent-ia-ocr"),
-      label: "Ajout de documents IA",
-    });
   }
 
   // —— Élèves : certificats (stables) ——
@@ -1519,14 +1521,14 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     {
       moduleId: "office",
       label: "Bureautique",
-      detail: "Texte, tableur et présentation dans le navigateur",
+      detail: "Créer et télécharger texte, tableur et présentation",
     },
     {
       moduleId: "qrcreator",
       label: "QR Code",
       detail: "Créer un QR code avec le logo de l'établissement",
     },
-    { moduleId: "channels", label: "Salons" },
+    { moduleId: "channels", label: "Salons", detail: "Via la messagerie" },
     { moduleId: "assistance", label: "Assistance" },
   ];
   for (const s of stableServices) {

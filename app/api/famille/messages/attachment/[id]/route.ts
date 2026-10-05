@@ -6,6 +6,7 @@ import { getAttachmentById } from "@/app/lib/famille-messaging-db";
 import { getSignedReadUrl } from "@/app/lib/s3-storage";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
 
 async function resolveAttachmentAccess(attachmentId: string) {
   const famille = await requireFamilleAccess();
@@ -32,7 +33,7 @@ async function resolveAttachmentAccess(attachmentId: string) {
       x.includes("viescolaire")
     );
   });
-  if (!isStaff && !user?.orgAdmin) {
+  if (!isStaff && !isOrgAdminFromPublicMetadata(user?.publicMetadata)) {
     return { ok: false as const, status: 403, error: "Action non autorisée." };
   }
   const etabId = await resolveCurrentEtablissementId();
@@ -56,7 +57,7 @@ export async function GET(
   if (att.s3Key) {
     try {
       const url = await getSignedReadUrl(att.s3Key, 3600);
-      return NextResponse.redirect(url);
+      if (url) return NextResponse.redirect(url);
     } catch {
       /* fallthrough inline */
     }

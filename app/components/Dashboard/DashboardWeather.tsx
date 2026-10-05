@@ -14,7 +14,12 @@ type WeatherPayload = {
   icon: string;
 };
 
-export default function DashboardWeather() {
+type Props = {
+  /** Variante dense pour la sidebar (logo + météo sur une ligne). */
+  compact?: boolean;
+};
+
+export default function DashboardWeather({ compact = false }: Props) {
   const [weather, setWeather] = useState<WeatherPayload | null>(null);
 
   useEffect(() => {
@@ -29,6 +34,34 @@ export default function DashboardWeather() {
       cancelled = true;
     };
   }, []);
+
+  if (compact) {
+    if (!weather || weather.temperature === null) {
+      return (
+        <div
+          className="flex w-full flex-col items-center justify-center gap-0.5 animate-pulse"
+          aria-hidden
+          title="Chargement météo"
+        >
+          <span className="h-7 w-7 rounded-full bg-stone-200/70" />
+          <span className="h-6 w-10 rounded bg-stone-200/70" />
+        </div>
+      );
+    }
+    return (
+      <div
+        className="flex w-full flex-col items-center justify-center gap-0 leading-none"
+        title={`Météo à ${weather.location}${weather.label ? ` — ${weather.label}` : ""}`}
+      >
+        <span className="text-3xl leading-none" aria-hidden>
+          {weather.icon}
+        </span>
+        <span className={`text-xl font-black tabular-nums tracking-tight ${dash.ink}`}>
+          {weather.temperature}°
+        </span>
+      </div>
+    );
+  }
 
   if (!weather || weather.temperature === null) {
     return (

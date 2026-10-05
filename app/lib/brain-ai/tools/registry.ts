@@ -1,7 +1,8 @@
-import type { BrainToolDefinition } from "@/app/lib/brain-ai/types";
+import type { BrainToolCtx, BrainToolDefinition } from "@/app/lib/brain-ai/types";
+import { assertToolPermissions } from "@/app/lib/brain-ai/permissions";
 import { handleCreateAbsence } from "@/app/lib/brain-ai/tools/handlers/absences";
 import { handleCreateHseDemand, handleListHseDemands } from "@/app/lib/brain-ai/tools/handlers/hse";
-import { handleGetInternatStatus } from "@/app/lib/brain-ai/tools/handlers/internat";
+import { handleGetInternatStatus, handleAssignInternatRoom, handleOpenInternatAppel } from "@/app/lib/brain-ai/tools/handlers/internat";
 import { handleOcrModuleStatus } from "@/app/lib/brain-ai/tools/handlers/ocr";
 import {
   handleCreatePhotocopie,
@@ -14,6 +15,7 @@ import {
 } from "@/app/lib/brain-ai/tools/handlers/rooms";
 import { handleCreateRequest } from "@/app/lib/brain-ai/tools/handlers/requests";
 import { handleGetStagesOverview } from "@/app/lib/brain-ai/tools/handlers/stages";
+import { handleResendStageSignatures } from "@/app/lib/brain-ai/tools/handlers/stages-signatures";
 import {
   handleCreateTrip,
   handleGetTripStatus,
@@ -25,13 +27,31 @@ import {
   handleGetWeekSheetToday,
 } from "@/app/lib/brain-ai/tools/handlers/week-sheet";
 import {
+  handleListDestinations,
+  handleResolveAndOpen,
+} from "@/app/lib/brain-ai/tools/handlers/navigation";
+import {
+  handleOpenEleveDossier,
+  handleSearchEleves,
+  handleUpdateEleveRegime,
+} from "@/app/lib/brain-ai/tools/handlers/eleves";
+import {
+  handleCancelAccueilAbsence,
+  handleCreateAccueilAbsence,
+} from "@/app/lib/brain-ai/tools/handlers/accueil-absences";
+import { handleListElevesFiltered } from "@/app/lib/brain-ai/tools/handlers/eleves-filtered";
+import { handleUpdateEleveGrilleRepas } from "@/app/lib/brain-ai/tools/handlers/eleve-grille-repas";
+import { handleCreateElevePreinscrit } from "@/app/lib/brain-ai/tools/handlers/eleve-create";
+import { handleOpenTrip } from "@/app/lib/brain-ai/tools/handlers/open-trip";
+import { handleDecideRhAbsence } from "@/app/lib/brain-ai/tools/handlers/rh-absences";
+import { handleGetMyPendingActions } from "@/app/lib/brain-ai/personal-signals";
+import {
   handleGetEdt,
   handleGetEleve,
   handleGetGrilleRepas,
   handleGetPresenceJour,
   handleGetTenantContext,
   handleGetVoyage,
-  handleSearchEleves,
 } from "@/app/lib/brain-ai/tools/handlers/core-read";
 import {
   handleCloseAppel,
@@ -40,6 +60,53 @@ import {
 } from "@/app/lib/brain-ai/tools/handlers/vs-appels";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
+  {
+    name: "get_my_pending_actions",
+    description:
+      "File personnelle de l’utilisateur : signatures stages, absences à valider, photocopies, demandes… d’après ses signaux intranet. Utiliser pour « qu’est-ce que j’ai à faire », « mes signatures », « à traiter ».",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    pathPrefix: "/dashboard",
+    moduleId: "dashboard-week-sheet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetMyPendingActions,
+  },
+  {
+    name: "resolve_and_open",
+    description:
+      "Ouvre une page de l’intranet (modale ou navigation). Utiliser dès que l’utilisateur veut aller sur un module / une page / un écran. Passer query (texte libre) ou destinationId ou href.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Ex. sorties scolaires, photocopies, absences" },
+        destinationId: { type: "string" },
+        href: { type: "string", description: "Chemin interne /…" },
+        label: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/dashboard",
+    moduleId: "dashboard-week-sheet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleResolveAndOpen,
+  },
+  {
+    name: "list_destinations",
+    description: "Liste les pages / modules accessibles (optionnellement filtrés par query).",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/dashboard",
+    moduleId: "dashboard-week-sheet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleListDestinations,
+  },
   {
     name: "get_tenant_context",
     description:
@@ -53,13 +120,11 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   },
   {
     name: "search_eleves",
-    description:
-      "Recherche d’élèves (nom, prénom, INE, classe). Homonymes → choix. Accueil : liste sans foyer.",
+    description: "Recherche des élèves par nom/prénom (dossiers). Retourne id, classe, régime.",
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string" },
-        limit: { type: "number" },
+        query: { type: "string", description: "Nom et/ou prénom" },
       },
       required: ["query"],
       additionalProperties: false,
@@ -69,6 +134,29 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: handleSearchEleves,
+  },
+  {
+    name: "open_eleve_dossier",
+    description:
+      "Ouvre le dossier élève (ou les documents d’inscription) en modale, ou directement un document d’accompagnement (PAP/PAI/PPS/GEVASCO) en aperçu PDF. Passer eleveId ou query (nom). documentKind=pap|pai|pps|gevasco pour ouvrir la pièce. subView=inscription pour les docs d’inscription.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+        subView: { type: "string", enum: ["dossier", "inscription"] },
+        documentKind: {
+          type: "string",
+          description: "pap | pai | pps | gevasco — ouvre le PDF directement",
+        },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleOpenEleveDossier,
   },
   {
     name: "get_eleve",
@@ -108,6 +196,139 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: handleGetPresenceJour,
+  },
+  {
+    name: "update_eleve_regime",
+    description:
+      "Change le régime d’un élève (interne / demi-pensionnaire / externe). Demande toujours confirmation UI. Passer eleveId ou query + regime.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+        regime: {
+          type: "string",
+          description: "interne | demi_pension | externe (ou libellé FR)",
+        },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleUpdateEleveRegime,
+  },
+  {
+    name: "list_eleves_filtered",
+    description:
+      "Liste les élèves filtrés par classe/pôle et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP du collège », « PAP de 6ème B ». « 6ème A » / « sixième A » = classe 6A (pas 6E). Affiche un catalogue groupé par classe avec aperçu PDF cliquable pour chaque document — ne pas inventer de liens.",
+    parameters: {
+      type: "object",
+      properties: {
+        classe: {
+          type: "string",
+          description:
+            "Classe (ex. 6ème A, 6A) ou pôle entier (Collège, Lycée, École). Garder la lettre de division si précisée.",
+        },
+        accompagnement: {
+          type: "string",
+          description: "pap | pai | pps | gevasco | any",
+        },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleListElevesFiltered,
+  },
+  {
+    name: "create_accueil_absence",
+    description:
+      "Déclare une absence ou un retard élève à l’accueil (aujourd’hui, multi-jours, ou horaires). Wizard + confirmation. Ex. « Paul est absent 2 jours ».",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Nom élève" },
+        subjectId: { type: "string" },
+        eleveNature: { type: "string", enum: ["absence", "retard"] },
+        mode: { type: "string", enum: ["today", "multi_day", "hours"] },
+        startDate: { type: "string" },
+        endDate: { type: "string" },
+        days: { type: "number", description: "Nombre de jours (raccourci multi_day)" },
+        startTime: { type: "string" },
+        endTime: { type: "string" },
+        motif: { type: "string" },
+        canal: { type: "string", enum: ["telephone", "physique", "mail"] },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "accueil-absences",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleCreateAccueilAbsence,
+  },
+  {
+    name: "cancel_accueil_absence",
+    description:
+      "Annule une absence/retard élève déclarée à l’accueil (board du jour). Passer query (nom) ou absenceId.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        absenceId: { type: "string" },
+        date: { type: "string", description: "YYYY-MM-DD (défaut aujourd’hui)" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "accueil-absences",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleCancelAccueilAbsence,
+  },
+  {
+    name: "update_eleve_grille_repas",
+    description:
+      "Modifie la grille repas d’un élève (nb de midi / jours). Ex. « 3 repas par semaine », preset 3|4|5|0. Confirmation UI.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+        repasParSemaine: { type: "number" },
+        preset: { type: "string" },
+        days: { type: "string", description: "lun,mar,jeu" },
+        soir: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleUpdateEleveGrilleRepas,
+  },
+  {
+    name: "open_trip",
+    description:
+      "Ouvre un séjour / sortie scolaire EXISTANT (voir, afficher, accéder). Si plusieurs matchent, propose un choix. Passer tripId ou query. IMPORTANT : pour « ouvre / montre / va sur » une sortie → TOUJOURS cet outil, JAMAIS create_trip.",
+    parameters: {
+      type: "object",
+      properties: {
+        tripId: { type: "string" },
+        query: { type: "string", description: "Titre ou destination (vide = liste récente)" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/travels",
+    moduleId: "travels",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleOpenTrip,
   },
   {
     name: "get_edt",
@@ -237,7 +458,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_trip",
     description:
-      "Démarre / poursuit un wizard de sortie scolaire. Appeler immédiatement (même sans args) : type → titre → lieu → dates → établissement → classes → effectif → confirmation.",
+      "Crée une NOUVELLE sortie scolaire (wizard). Uniquement si l’utilisateur dit créer / nouvelle / démarrer une sortie. INTERDIT si « ouvre », « montre », « va sur », « affiche » une sortie → utiliser open_trip.",
     parameters: {
       type: "object",
       properties: {
@@ -524,15 +745,70 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     handler: async (ctx) => handleGetStagesOverview(ctx),
   },
   {
-    name: "get_internat_status",
+    name: "resend_stage_signatures",
     description:
-      "Statut live internat : effectifs, occupation, appel du soir, incidents 30j (agrégats, pas de dossiers nominatifs sensibles).",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-    pathPrefix: "/gestion-internat",
-    moduleId: "internat",
+      "Relance les e-mails de signature d’une convention de stage (file signatures_pending). Sans args : propose la liste. Passer query (nom élève) ou conventionId. openOnly=true pour ouvrir sans relancer.",
+    parameters: {
+      type: "object",
+      properties: {
+        conventionId: { type: "string" },
+        query: { type: "string", description: "Nom élève / entreprise" },
+        openOnly: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/stages",
+    moduleId: "stages",
     requiresAuth: true,
-    mutates: false,
-    handler: async (ctx) => handleGetInternatStatus(ctx),
+    mutates: true,
+    handler: handleResendStageSignatures,
+  },
+  {
+    name: "decide_rh_absence",
+    description:
+      "File direction / validateur OGEC : lister les absences RH en attente, puis valider ou refuser (avec choix du traitement des heures si besoin). Appeler avec {} pour ouvrir la file.",
+    parameters: {
+      type: "object",
+      properties: {
+        absenceId: { type: "string" },
+        query: { type: "string", description: "Nom de l’agent" },
+        decision: { type: "string", enum: ["VALIDER", "REFUSER"] },
+        hoursTreatment: {
+          type: "string",
+          description: "RATTRAPAGE | DEDUCTION_SALAIRE | RATTRAPAGE_INTERNE | DECLARATION_RECTORAT | DECLARATION_ONISE…",
+        },
+        managerNote: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/absences",
+    moduleId: "absences",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleDecideRhAbsence,
+  },
+  {
+    name: "create_eleve_preinscrit",
+    description:
+      "Crée un dossier élève préinscrit (direction / admin / administratif). Wizard : nom → prénom → e-mail parent → confirmation. Ouvre ensuite les docs d’inscription.",
+    parameters: {
+      type: "object",
+      properties: {
+        nom: { type: "string" },
+        prenom: { type: "string" },
+        parentEmail: { type: "string" },
+        parentPhone: { type: "string" },
+        parentFirstName: { type: "string" },
+        parentLastName: { type: "string" },
+        classe: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleCreateElevePreinscrit,
   },
   {
     name: "open_appel",
@@ -602,14 +878,73 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     mutates: true,
     handler: handleCloseAppel,
   },
+  {
+    name: "get_internat_status",
+    description:
+      "Statut live internat : effectifs, occupation, appel du soir, incidents 30j (agrégats, pas de dossiers nominatifs sensibles).",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    pathPrefix: "/gestion-internat",
+    moduleId: "internat",
+    requiresAuth: true,
+    mutates: false,
+    handler: async (ctx) => handleGetInternatStatus(ctx),
+  },
+  {
+    name: "open_internat_appel",
+    description: "Ouvre l’écran d’appel du soir internat.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    pathPrefix: "/gestion-internat",
+    moduleId: "internat",
+    requiresAuth: true,
+    mutates: false,
+    handler: async (ctx) => handleOpenInternatAppel(ctx),
+  },
+  {
+    name: "assign_internat_room",
+    description:
+      "Affecte un interne à une chambre (ou retire). Wizard : élève → chambre libre → confirmation.",
+    parameters: {
+      type: "object",
+      properties: {
+        studentId: { type: "string" },
+        query: { type: "string", description: "Nom de l’interne" },
+        roomId: { type: "string" },
+        roomQuery: { type: "string", description: "Libellé chambre" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/gestion-internat",
+    moduleId: "internat",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleAssignInternatRoom,
+  },
 ];
 
 export function getBrainTool(name: string): BrainToolDefinition | undefined {
   return BRAIN_TOOLS.find((t) => t.name === name);
 }
 
-export function mistralToolsForUser(signedIn: boolean) {
-  const tools = signedIn ? BRAIN_TOOLS : BRAIN_TOOLS.filter((t) => !t.requiresAuth);
+/**
+ * Outils exposés au modèle : filtrés par auth + droits module intranet.
+ * Un outil absent de la liste = l’utilisateur n’y a pas accès (le prompt l’indique).
+ */
+export function mistralToolsForUser(
+  signedIn: boolean,
+  ctx?: Pick<BrainToolCtx, "userId" | "roles" | "isOrgAdmin" | "audience" | "etablissementId">,
+) {
+  let tools = signedIn ? BRAIN_TOOLS : BRAIN_TOOLS.filter((t) => !t.requiresAuth);
+  if (ctx && signedIn) {
+    const gateCtx: BrainToolCtx = {
+      userId: ctx.userId,
+      roles: ctx.roles,
+      isOrgAdmin: ctx.isOrgAdmin,
+      audience: ctx.audience,
+      etablissementId: ctx.etablissementId ?? null,
+      confirmed: false,
+    };
+    tools = tools.filter((t) => assertToolPermissions(gateCtx, t).ok);
+  }
   return tools.map((t) => ({
     type: "function" as const,
     function: {

@@ -10,17 +10,19 @@ import {
 import { isDocumentKeyReferencedInLegacy } from "@/app/lib/absences-legacy-convocations";
 import { isSensitiveAbsenceContent } from "@/app/lib/absences-privacy";
 import {
-  normalizeAbsenceRecord,
-  resolveAbsenceScope,
-  type AbsenceRecord,
-} from "@/app/lib/absences-types";
-import {
   absencesDbReady,
+  appendAbsenceMessageInDb,
   deleteAbsenceFromDb,
   getAbsenceFromDb,
   listAbsencesFromDb,
   upsertAbsenceInDb,
 } from "@/app/lib/absence-db";
+import { attachOgecValidatorsFromPersonnel } from "@/app/lib/absences-ogec-validators";
+import type { AbsenceRecord, AbsenceThreadMessage } from "@/app/lib/absences-types";
+import {
+  normalizeAbsenceRecord,
+  resolveAbsenceScope,
+} from "@/app/lib/absences-types";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
@@ -29,7 +31,8 @@ import { resolveTravelsS3ObjectKey } from "@/app/lib/travels-s3";
 export async function getAbsenceIndex(): Promise<AbsenceRecord[]> {
   const etabId = await absencesDbReady();
   if (!etabId) return [];
-  return listAbsencesFromDb(etabId);
+  const rows = await listAbsencesFromDb(etabId);
+  return attachOgecValidatorsFromPersonnel(rows);
 }
 
 /** @deprecated Interdit — risque de wipe. Utiliser saveAbsenceRecord (upsert unitaire). */
@@ -42,7 +45,19 @@ export async function saveAbsenceIndex(_index: AbsenceRecord[]): Promise<never> 
 export async function getAbsenceRecord(id: string): Promise<AbsenceRecord | null> {
   const etabId = await absencesDbReady();
   if (!etabId) return null;
-  return getAbsenceFromDb(etabId, id);
+  const row = await getAbsenceFromDb(etabId, id);
+  if (!row) return null;
+  const [enriched] = await attachOgecValidatorsFromPersonnel([row]);
+  return enriched ?? row;
+}
+
+export async function appendAbsenceThreadMessage(
+  absenceId: string,
+  message: AbsenceThreadMessage,
+): Promise<AbsenceThreadMessage> {
+  const etabId = await absencesDbReady();
+  if (!etabId) throw new Error("[absences] Postgres requis");
+  return appendAbsenceMessageInDb(etabId, absenceId, message);
 }
 
 export async function saveAbsenceRecord(record: AbsenceRecord) {

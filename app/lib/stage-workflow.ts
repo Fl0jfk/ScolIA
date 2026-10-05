@@ -27,14 +27,24 @@ import {
   normalizePaperUploadToPdf,
 } from "@/app/lib/stage-external-signature-store";
 import {
+  STAGE_S3,
   STAGE_SIGNER_ROLE_LABELS,
+  STAGE_CANCEL_CONFIRM_WORD,
+  STAGE_CANCELLED_PUBLIC_MESSAGE,
   canStageSignerUsePaperUpload,
   conventionAllSignaturesValidated,
   currentStageSchoolYear,
   isExternalStageSignerRole,
+  isStageConventionCancelled,
   isStageSignatureFullyValidated,
+  stageCompanyRhDisplayName,
+  STAGE_AMENDMENT_LINK_ROLES,
+  STAGE_DISCUSSION_LINK_ROLES,
+  stageCompanyWantsRhSigner,
   stageUid,
   type StageConvention,
+  type StageDiscussionMessage,
+  type StageInternshipKind,
   type StageSchedule,
   type StageSignMethod,
   type StageSignature,
@@ -46,6 +56,8 @@ import {
   notifyParentEmailVerification,
   notifyParentTutorEmailFailed,
   notifyStageAdminRejected,
+  notifyStageAmendmentProposed,
+  notifyStageDiscussionMessage,
   notifyStageFullySigned,
   notifyStagePreconventionSubmitted,
   notifyStageScheduleChangeRequested,
@@ -151,22 +163,32 @@ async function buildDefaultSignatures(convention: StageConvention): Promise<Stag
     convention.student.className,
   );
 
-  const sigs: Array<{ role: StageSignerRole; email?: string }> = [
+  const rhEmail = convention.company.rhEmail?.trim() || "";
+  const wantsRh =
+    stageCompanyWantsRhSigner(convention.company) && isValidEmail(rhEmail);
+  const rhName = stageCompanyRhDisplayName(convention.company);
+
+  const sigs: Array<{ role: StageSignerRole; email?: string; label?: string }> = [
     { role: "parent", email: resolveParent1Email(convention) },
     { role: "parent_2", email: resolveParent2Email(convention) },
     { role: "tuteur_entreprise", email: convention.company.tutorEmail },
-    { role: "rh_entreprise", email: convention.company.rhEmail },
+    {
+      role: "rh_entreprise",
+      email: wantsRh ? rhEmail : undefined,
+      label: rhName
+        ? `${STAGE_SIGNER_ROLE_LABELS.rh_entreprise} — ${rhName}`
+        : STAGE_SIGNER_ROLE_LABELS.rh_entreprise,
+    },
     { role: "professeur_referent", email: convention.teacherReferent.email },
     { role: "direction", email: directionEmail },
   ];
 
   return sigs
-    .filter((s) => s.role !== "rh_entreprise" || s.email)
     .filter((s) => s.email?.trim())
     .map((s) => ({
       id: stageUid("sig"),
       role: s.role,
-      label: STAGE_SIGNER_ROLE_LABELS[s.role],
+      label: s.label || STAGE_SIGNER_ROLE_LABELS[s.role],
       status: "en_attente" as const,
       signEmail: s.email!.trim(),
     }));
@@ -332,6 +354,20 @@ async function validateConventionForSubmit(convention: StageConvention): Promise
   }
   if (!isValidEmail(convention.company.tutorEmail)) {
     return "E-mail du tuteur en entreprise invalide.";
+  }
+  if (stageCompanyWantsRhSigner(convention.company)) {
+    const rhFirst = convention.company.rhFirstName?.trim() || "";
+    const rhLast = convention.company.rhLastName?.trim() || "";
+    const rhEmail = convention.company.rhEmail?.trim() || "";
+    if (!rhFirst || !rhLast) {
+      return "RH supplémentaire : indiquez le prénom et le nom.";
+    }
+    if (!rhEmail) {
+      return "RH supplémentaire : l'e-mail est obligatoire pour envoyer le lien de signature.";
+    }
+    if (!isValidEmail(rhEmail)) {
+      return "RH supplémentaire : e-mail invalide (ex. prenom.nom@entreprise.fr).";
+    }
   }
   const parent1 = resolveParent1Email(convention);
   const parent2 = resolveParent2Email(convention);
@@ -628,16 +664,20 @@ function scheduleFingerprint(schedule: StageSchedule): string {
   return JSON.stringify(normalizeStageSchedule(schedule));
 }
 
-/** Le tuteur peut demander une correction de période / jours / horaires pendant les signatures. */
+/** Parties autorisées à demander un avenant via le lien pendant les signatures. */
 export function canRequestScheduleChange(convention: StageConvention, role: StageSignerRole): boolean {
-  if (convention.status !== "signatures_pending") return false;
-  if (role !== "tuteur_entreprise") return false;
-  const tutorSig = convention.signatures.find((s) => s.role === "tuteur_entreprise");
-  if (!tutorSig || tutorSig.status === "refuse") return false;
+  if (convention.status !== "signatures_pending" && convention.status !== "signed") return false;
+  if (!STAGE_AMENDMENT_LINK_ROLES.includes(role)) return false;
+  const sig = convention.signatures.find((s) => s.role === role);
+  if (!sig || sig.status === "refuse") return false;
   return true;
 }
 
-/** Demande tuteur : nouvelle période / horaires (sans application immédiate). */
+export function canAccessStageDiscussionViaLink(role: StageSignerRole): boolean {
+  return STAGE_DISCUSSION_LINK_ROLES.includes(role);
+}
+
+/** Demande d'avenant via lien signature (sans application immédiate). */
 export async function requestScheduleChange(params: {
   token: string;
   schedule: unknown;
@@ -657,13 +697,13 @@ export async function requestScheduleChange(params: {
     return {
       ok: false,
       error:
-        "Seul le tuteur en entreprise peut demander une modification pendant les signatures en cours.",
+        "Vous ne pouvez pas demander un avenant pour cette convention (rôle ou statut non autorisé).",
     };
   }
   if (convention.scheduleChangeRequest) {
     return {
       ok: false,
-      error: "Une demande de modification est déjà en attente de validation administrative.",
+      error: "Une demande d'avenant est déjà en attente de validation administrative.",
     };
   }
 
@@ -679,6 +719,7 @@ export async function requestScheduleChange(params: {
   }
 
   const now = new Date().toISOString();
+  const byLabel = signature.label || STAGE_SIGNER_ROLE_LABELS[signature.role];
   let next: StageConvention = {
     ...convention,
     scheduleChangeRequest: {
@@ -686,22 +727,158 @@ export async function requestScheduleChange(params: {
       previousSchedule: normalizeStageSchedule(convention.schedule),
       requestedAt: now,
       requestedByRole: signature.role,
-      requestedByLabel: signature.label || STAGE_SIGNER_ROLE_LABELS[signature.role],
+      requestedByLabel: byLabel,
       note: params.note?.trim() || undefined,
+      source: "sign_link",
     },
     updatedAt: now,
   };
   next = pushHistory(
     next,
-    signature.label || "Tuteur entreprise",
-    "HORAIRES_MODIF_DEMANDE",
+    byLabel,
+    "AVENANT_DEMANDE",
     `${convention.schedule.periodStart}→${convention.schedule.periodEnd} → ${requestedSchedule.periodStart}→${requestedSchedule.periodEnd}`,
   );
   await saveStageConvention(next);
   void notifyStageScheduleChangeRequested(next).catch((e) =>
     console.error("[stages] notify schedule change request:", e),
   );
+  void notifyStageAmendmentProposed(next).catch((e) =>
+    console.error("[stages] notify amendment parties:", e),
+  );
   return { ok: true, convention: next };
+}
+
+/**
+ * Demande d'avenant initiée par l'établissement (secrétariat / direction).
+ * Suspend les signatures jusqu'à application ; notifie les parties via leurs liens.
+ */
+export async function proposeStaffScheduleAmendment(params: {
+  convention: StageConvention;
+  schedule: unknown;
+  note?: string;
+  byName: string;
+  stagePeriodId?: string;
+  stageLabel?: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const convention = params.convention;
+  if (
+    convention.status !== "admin_review" &&
+    convention.status !== "signatures_pending" &&
+    convention.status !== "signed" &&
+    convention.status !== "convention_deposited"
+  ) {
+    return {
+      ok: false,
+      error: "Un avenant n'est possible qu'en validation, signatures en cours, ou convention signée.",
+    };
+  }
+  if (convention.scheduleChangeRequest) {
+    return {
+      ok: false,
+      error: "Une demande d'avenant est déjà en attente.",
+    };
+  }
+
+  const requestedSchedule = normalizeStageSchedule(params.schedule);
+  const scheduleError = await validateConventionScheduleRules(convention, requestedSchedule);
+  if (scheduleError) return { ok: false, error: scheduleError };
+
+  if (scheduleFingerprint(requestedSchedule) === scheduleFingerprint(convention.schedule)) {
+    return {
+      ok: false,
+      error: "Aucune modification détectée par rapport à la période et aux horaires actuels.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const note =
+    params.note?.trim() ||
+    "Avenant demandé par l'établissement : une partie des dates initiales n'est pas compatible avec le calendrier scolaire (élèves en cours).";
+
+  let next: StageConvention = {
+    ...convention,
+    stagePeriodId: params.stagePeriodId?.trim() || convention.stagePeriodId,
+    stageLabel: params.stageLabel?.trim() || convention.stageLabel,
+    scheduleChangeRequest: {
+      requestedSchedule,
+      previousSchedule: normalizeStageSchedule(convention.schedule),
+      requestedAt: now,
+      requestedByRole: "secretariat",
+      requestedByLabel: params.byName.trim() || "Établissement",
+      note,
+      source: "staff",
+    },
+    updatedAt: now,
+  };
+  next = pushHistory(
+    next,
+    params.byName.trim() || "Établissement",
+    "AVENANT_PROPOSE_ETABLISSEMENT",
+    `${convention.schedule.periodStart}→${convention.schedule.periodEnd} → ${requestedSchedule.periodStart}→${requestedSchedule.periodEnd}`,
+  );
+  await saveStageConvention(next);
+  void notifyStageScheduleChangeRequested(next).catch((e) =>
+    console.error("[stages] notify staff amendment (admin):", e),
+  );
+  void notifyStageAmendmentProposed(next).catch((e) =>
+    console.error("[stages] notify staff amendment (parties):", e),
+  );
+  return { ok: true, convention: next };
+}
+
+export async function postStageDiscussionMessage(params: {
+  convention: StageConvention;
+  authorRole: StageSignerRole | "secretariat";
+  authorLabel: string;
+  body: string;
+}): Promise<{ ok: true; convention: StageConvention; message: StageDiscussionMessage } | { ok: false; error: string }> {
+  const text = params.body.trim();
+  if (!text) return { ok: false, error: "Message vide." };
+  if (text.length > 2000) return { ok: false, error: "Message trop long (2000 caractères max)." };
+
+  const now = new Date().toISOString();
+  const message: StageDiscussionMessage = {
+    id: stageUid("msg"),
+    at: now,
+    authorRole: params.authorRole,
+    authorLabel: params.authorLabel.trim() || STAGE_SIGNER_ROLE_LABELS[params.authorRole as StageSignerRole] || "Participant",
+    body: text,
+  };
+  const prev = params.convention.discussion?.messages ?? [];
+  const next: StageConvention = {
+    ...params.convention,
+    discussion: { messages: [...prev, message].slice(-200) },
+    updatedAt: now,
+  };
+  await saveStageConvention(next);
+  void notifyStageDiscussionMessage(next, message).catch((e) =>
+    console.error("[stages] notify discussion message:", e),
+  );
+  return { ok: true, convention: next, message };
+}
+
+export async function postStageDiscussionMessageViaToken(params: {
+  token: string;
+  body: string;
+}): Promise<{ ok: true; convention: StageConvention; message: StageDiscussionMessage } | { ok: false; error: string }> {
+  const ref = await getSignTokenRef(params.token);
+  if (!ref) return { ok: false, error: "Lien invalide." };
+  const convention = await getStageConvention(ref.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+  const signature = convention.signatures.find((s) => s.id === ref.signatureId);
+  if (!signature || signature.signToken !== params.token) {
+    return { ok: false, error: "Signature introuvable." };
+  }
+  if (!canAccessStageDiscussionViaLink(signature.role)) {
+    return { ok: false, error: "Votre rôle n'a pas accès à cette discussion." };
+  }
+  return postStageDiscussionMessage({
+    convention,
+    authorRole: signature.role,
+    authorLabel: signature.label || STAGE_SIGNER_ROLE_LABELS[signature.role],
+    body: params.body,
+  });
 }
 
 /** Réinitialise toutes les signatures (y compris déjà déposées) et régénère les jetons. */
@@ -746,7 +923,7 @@ async function resetAllSignaturesForResign(
   };
 }
 
-/** Validation / refus administratif d'une demande de modification d'horaires. */
+/** Validation / refus administratif d'une demande d'avenant (dates / horaires). */
 export async function reviewScheduleChangeRequest(params: {
   convention: StageConvention;
   approved: boolean;
@@ -755,7 +932,7 @@ export async function reviewScheduleChangeRequest(params: {
 }): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
   const req = params.convention.scheduleChangeRequest;
   if (!req?.requestedSchedule) {
-    return { ok: false, error: "Aucune demande de modification d'horaires en attente." };
+    return { ok: false, error: "Aucune demande d'avenant en attente." };
   }
 
   if (!params.approved) {
@@ -768,7 +945,7 @@ export async function reviewScheduleChangeRequest(params: {
     next = pushHistory(
       next,
       params.byName,
-      "HORAIRES_MODIF_REFUSEE",
+      "AVENANT_REFUSE",
       params.note?.trim() ||
         `${req.previousSchedule.periodStart}→${req.previousSchedule.periodEnd} conservée`,
     );
@@ -776,13 +953,16 @@ export async function reviewScheduleChangeRequest(params: {
     return { ok: true, convention: next };
   }
 
-  if (
-    params.convention.status !== "signatures_pending" &&
-    params.convention.status !== "signed"
-  ) {
+  const allowedStatuses = [
+    "admin_review",
+    "convention_deposited",
+    "signatures_pending",
+    "signed",
+  ] as const;
+  if (!allowedStatuses.includes(params.convention.status as (typeof allowedStatuses)[number])) {
     return {
       ok: false,
-      error: "La demande ne peut être appliquée que si des signatures sont en cours ou complètes.",
+      error: "La demande ne peut être appliquée dans l'état actuel de la convention.",
     };
   }
 
@@ -803,23 +983,32 @@ export async function reviewScheduleChangeRequest(params: {
   next = pushHistory(
     next,
     params.byName,
-    "HORAIRES_MODIF_VALIDEE",
+    "AVENANT_APPLIQUE",
     params.note?.trim() ||
       `${req.previousSchedule.periodStart}→${req.previousSchedule.periodEnd} → ${requestedSchedule.periodStart}→${requestedSchedule.periodEnd}`,
   );
-  next = await resetAllSignaturesForResign(next);
-  next = pushHistory(
-    next,
-    "Système",
-    "SIGNATURES_REINITIALISEES",
-    "Suite à la modification des horaires — tous les signataires doivent re-signer.",
-  );
+
+  const needsResign =
+    params.convention.status === "signatures_pending" || params.convention.status === "signed";
+
+  if (needsResign) {
+    next = await resetAllSignaturesForResign(next);
+    next = pushHistory(
+      next,
+      "Système",
+      "SIGNATURES_REINITIALISEES",
+      "Suite à l'avenant — tous les signataires doivent re-signer.",
+    );
+  }
+
   next = await generateAndStoreConventionPdf(next);
   await saveStageConvention(next);
 
-  void notifyAllStageSignatureRequests(next).catch((e) =>
-    console.error("[stages] notify resign after schedule change:", e),
-  );
+  if (needsResign) {
+    void notifyAllStageSignatureRequests(next).catch((e) =>
+      console.error("[stages] notify resign after schedule change:", e),
+    );
+  }
   void import("@/app/lib/stage-absences-sync").then((m) =>
     m.resyncStageAbsencesForConvention(next).then((r) => {
       if (!r.ok) console.warn("[stages] absence stage resync:", r.error);
@@ -856,6 +1045,11 @@ export async function reviewPreconvention(
       console.error("[stages] notify reject:", e),
     );
     return next;
+  }
+
+  const validationError = await validateConventionForSubmit(convention);
+  if (validationError) {
+    throw new Error(validationError);
   }
 
   let next: StageConvention = {
@@ -975,6 +1169,9 @@ export async function applyConventionSignature(params: {
 
   const convention = await getStageConvention(ref.conventionId);
   if (!convention) return { ok: false, error: "Convention introuvable." };
+  if (isStageConventionCancelled(convention)) {
+    return { ok: false, error: STAGE_CANCELLED_PUBLIC_MESSAGE };
+  }
 
   const sig = convention.signatures.find((s) => s.id === ref.signatureId);
   if (!sig) return { ok: false, error: "Signature introuvable." };
@@ -982,7 +1179,7 @@ export async function applyConventionSignature(params: {
     return {
       ok: false,
       error:
-        "Une demande de modification des horaires est en attente de validation administrative. La signature est suspendue jusqu'à décision.",
+        "Une demande d'avenant (dates / horaires) est en attente de validation administrative. La signature est suspendue jusqu'à décision.",
     };
   }
   if (sig.status === "signe" && sig.reviewStatus !== "rejected") {
@@ -1189,7 +1386,7 @@ export async function requestSignConfirmCode(
     return {
       ok: false,
       error:
-        "Une demande de modification des horaires est en attente. Impossible d'envoyer un code pour le moment.",
+        "Une demande d'avenant est en attente. Impossible d'envoyer un code pour le moment.",
     };
   }
   if (sig.status === "signe" && sig.reviewStatus !== "rejected") {
@@ -1836,10 +2033,296 @@ export async function createPublicPreconventionDraft(student: {
   return { convention, studentLink };
 }
 
+/**
+ * Enregistrement administratif d'une convention entièrement réalisée hors ScolIA
+ * (papier déjà signé). Statut `signed` immédiat, PDF stocké tel quel, aucun circuit
+ * de signatures électroniques ni e-mail de demande de signature.
+ */
+export async function createAdminOfflineSignedConvention(params: {
+  by: string;
+  byName: string;
+  student: {
+    firstName: string;
+    lastName: string;
+    className: string;
+    level?: string;
+    dateNaissance?: string;
+    email?: string;
+    matchedEleveIne?: string;
+  };
+  company: {
+    name: string;
+    address: string;
+    postalCode?: string;
+    city?: string;
+    siret?: string;
+    activity?: string;
+    tutorName?: string;
+    tutorEmail?: string;
+    tutorPhone?: string;
+  };
+  periodStart: string;
+  periodEnd: string;
+  internshipKind?: StageInternshipKind;
+  stageLabel?: string;
+  note?: string;
+  pdfBytes: Uint8Array;
+  pdfFileName: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const firstName = params.student.firstName.trim();
+  const lastName = params.student.lastName.trim();
+  const className = params.student.className.trim();
+  const companyName = params.company.name.trim();
+  const companyAddress = params.company.address.trim();
+  const periodStart = params.periodStart.trim().slice(0, 10);
+  const periodEnd = params.periodEnd.trim().slice(0, 10);
+
+  if (!firstName || !lastName) {
+    return { ok: false, error: "Nom et prénom de l'élève requis." };
+  }
+  if (!className) {
+    return { ok: false, error: "Classe de l'élève requise." };
+  }
+  if (!companyName) {
+    return { ok: false, error: "Raison sociale de l'entreprise requise." };
+  }
+  if (!companyAddress) {
+    return { ok: false, error: "Adresse de l'entreprise requise." };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+    return { ok: false, error: "Période de stage invalide (format AAAA-MM-JJ)." };
+  }
+  if (periodEnd < periodStart) {
+    return { ok: false, error: "La date de fin doit être postérieure au début." };
+  }
+  if (!params.pdfBytes?.length) {
+    return { ok: false, error: "PDF de la convention signée requis." };
+  }
+  if (params.pdfBytes.length > 15 * 1024 * 1024) {
+    return { ok: false, error: "Le PDF dépasse 15 Mo." };
+  }
+
+  const header = Buffer.from(params.pdfBytes.slice(0, 5)).toString("ascii");
+  if (!header.startsWith("%PDF")) {
+    return { ok: false, error: "Le fichier n'est pas un PDF valide." };
+  }
+
+  const now = new Date().toISOString();
+  const conventionId = stageUid("conv");
+  const safeFileName = (params.pdfFileName || "convention-signee.pdf")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 120) || "convention-signee.pdf";
+  const s3Key = STAGE_S3.conventionUpload(conventionId, safeFileName);
+
+  const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+  const { getTenantDataS3Client } = await import("@/app/lib/s3-clients");
+  const { getBucketName } = await import("@/app/lib/s3-storage");
+  const s3Client = await getTenantDataS3Client();
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: await getBucketName(),
+      Key: s3Key,
+      Body: Buffer.from(params.pdfBytes),
+      ContentType: "application/pdf",
+    }),
+  );
+
+  const dateNaissance =
+    normalizeEleveDateNaissance(params.student.dateNaissance ?? "") || undefined;
+  let schedule = defaultStageSchedule("uniform_week");
+  schedule = {
+    ...schedule,
+    periodStart,
+    periodEnd,
+  };
+  if (dateNaissance) {
+    const age = ageInYearsAt(dateNaissance, periodStart);
+    if (age != null && age < 15) {
+      const under15Template = {
+        hasLunchBreak: true as const,
+        morningStart: "08:00",
+        morningEnd: "12:00",
+        afternoonStart: "13:00",
+        afternoonEnd: "15:00",
+      };
+      schedule = {
+        ...schedule,
+        presenceWeekdays: [...STAGE_DEFAULT_WEEKDAYS],
+        days: buildUniformWeekDays(under15Template, STAGE_DEFAULT_WEEKDAYS),
+      };
+    }
+  }
+
+  const internshipKind: StageInternshipKind =
+    params.internshipKind === "pfmp" ||
+    params.internshipKind === "job_ete" ||
+    params.internshipKind === "autre"
+      ? params.internshipKind
+      : "stage_observation";
+
+  let convention: StageConvention = {
+    id: conventionId,
+    schoolYear: currentStageSchoolYear(),
+    status: "signed",
+    internshipKind,
+    stageLabel: params.stageLabel?.trim() || undefined,
+    student: {
+      firstName,
+      lastName,
+      className,
+      level: params.student.level?.trim() || inferStudentLevelFromClass(className),
+      dateNaissance,
+      email: sanitizeElevePersonalEmail(params.student.email),
+    },
+    company: {
+      name: companyName,
+      address: companyAddress,
+      postalCode: params.company.postalCode?.trim() || undefined,
+      city: params.company.city?.trim() || undefined,
+      siret: normalizeSiret(params.company.siret) || undefined,
+      activity: params.company.activity?.trim() || "—",
+      tutorName: params.company.tutorName?.trim() || "—",
+      tutorEmail: params.company.tutorEmail?.trim() || "",
+      tutorPhone: params.company.tutorPhone?.trim() || undefined,
+    },
+    schedule,
+    teacherReferent: { name: "", email: "" },
+    signatures: [],
+    createdAt: now,
+    updatedAt: now,
+    createdBy: {
+      role: "staff",
+      userId: params.by,
+      name: params.byName,
+    },
+    history: [
+      {
+        at: now,
+        by: params.byName,
+        action: "IMPORT_HORS_PLATEFORME",
+        note:
+          params.note?.trim() ||
+          "Convention déjà signée hors plateforme (PDF papier) — aucun circuit de signatures.",
+      },
+    ],
+    uploadedPdf: {
+      s3Key,
+      fileName: safeFileName,
+      uploadedAt: now,
+      source: "paper_signed",
+    },
+    ocrMeta: params.student.matchedEleveIne
+      ? {
+          extractedAt: now,
+          matchedEleveIne: params.student.matchedEleveIne.trim().toUpperCase(),
+          matchScore: 100,
+          raw: { offlineImport: true },
+        }
+      : {
+          extractedAt: now,
+          matchScore: 0,
+          raw: { offlineImport: true },
+        },
+    adminReview: {
+      at: now,
+      by: params.by,
+      byName: params.byName,
+      approved: true,
+      note: "Import hors plateforme — PDF déjà signé",
+    },
+  };
+
+  convention = await ensureClassRegisteredForStages(
+    convention.student.className,
+    convention.schoolYear,
+  ).then(async () => ensureConventionReferent(convention));
+  convention = await ensureStudentAccessToken(convention);
+  await saveStageConvention(convention);
+
+  void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
+    m.finalizeSignedConventionDestinations(convention).catch((e) =>
+      console.error("[stages] finalize offline import:", e),
+    ),
+  );
+
+  return { ok: true, convention };
+}
+
 export async function resolveConventionByStudentToken(token: string) {
   const ref = await getStudentTokenRef(token);
   if (!ref) return null;
   return getStageConvention(ref.conventionId);
+}
+
+/** Phrase de confirmation obligatoire côté UI + API pour supprimer un stage. */
+export { STAGE_CANCEL_CONFIRM_WORD, STAGE_CANCELLED_PUBLIC_MESSAGE, isStageConventionCancelled };
+
+/**
+ * Annule / supprime un stage de A à Z : statut cancelled, signatures neutralisées.
+ * Les anciens liens publics affichent une page d'annulation.
+ */
+export async function cancelStageConvention(params: {
+  conventionId: string;
+  byName: string;
+  note?: string;
+  confirmWord: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const confirm = params.confirmWord.trim().toLowerCase();
+  if (confirm !== STAGE_CANCEL_CONFIRM_WORD) {
+    return {
+      ok: false,
+      error: `Pour confirmer, tapez exactement « ${STAGE_CANCEL_CONFIRM_WORD} ».`,
+    };
+  }
+
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+  if (convention.status === "cancelled") {
+    return { ok: false, error: "Ce stage est déjà annulé." };
+  }
+  if (convention.status === "archived") {
+    return { ok: false, error: "Ce stage est archivé et ne peut plus être modifié." };
+  }
+
+  const now = new Date().toISOString();
+  // Les jetons restent consultables pour afficher « stage annulé » sur les anciens liens,
+  // mais les signatures sont neutralisées (plus de signToken côté convention).
+  const signatures = convention.signatures.map((sig) => ({
+    ...sig,
+    status: "en_attente" as const,
+    signedAt: undefined,
+    signedBy: undefined,
+    signMethod: undefined,
+    signaturePngS3Key: undefined,
+    paperUploadS3Key: undefined,
+    paperUploadFileName: undefined,
+    reviewStatus: undefined,
+    reviewNote: undefined,
+    reviewedAt: undefined,
+    reviewedBy: undefined,
+    signConfirmCode: undefined,
+    signConfirmCodeSentAt: undefined,
+    signToken: undefined,
+    signSecureCode: undefined,
+    signSentAt: undefined,
+  }));
+
+  let next: StageConvention = {
+    ...convention,
+    status: "cancelled",
+    signatures,
+    scheduleChangeRequest: undefined,
+    tutorEmailChangeRequest: undefined,
+    updatedAt: now,
+  };
+  next = pushHistory(
+    next,
+    params.byName,
+    "ANNULEE",
+    params.note?.trim() || "Stage supprimé par l'administratif — liens de signature invalidés.",
+  );
+  await saveStageConvention(next);
+  return { ok: true, convention: next };
 }
 
 export function normalizeConventionInput(raw: unknown, base?: StageConvention): StageConvention {
@@ -1895,6 +2378,12 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       tutorName: str(companyRaw.tutorName, base?.company.tutorName),
       tutorEmail: str(companyRaw.tutorEmail, base?.company.tutorEmail),
       tutorPhone: str(companyRaw.tutorPhone, base?.company.tutorPhone) || undefined,
+      rhExtraSigner:
+        typeof companyRaw.rhExtraSigner === "boolean"
+          ? companyRaw.rhExtraSigner
+          : base?.company.rhExtraSigner,
+      rhFirstName: str(companyRaw.rhFirstName, base?.company.rhFirstName) || undefined,
+      rhLastName: str(companyRaw.rhLastName, base?.company.rhLastName) || undefined,
       rhEmail: str(companyRaw.rhEmail, base?.company.rhEmail) || undefined,
     },
     schedule: normalizeStageSchedule(o.schedule ?? base?.schedule),
@@ -1933,6 +2422,7 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
     })(),
     tutorEmailChangeRequest: base?.tutorEmailChangeRequest,
     scheduleChangeRequest: base?.scheduleChangeRequest,
+    discussion: base?.discussion,
     adminReview: base?.adminReview,
     signatures: base?.signatures ?? [],
     createdAt: base?.createdAt ?? new Date().toISOString(),

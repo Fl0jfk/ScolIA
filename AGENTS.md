@@ -43,8 +43,7 @@ Runtime labo : `SCOLA_ENV=lab` / `NEXT_PUBLIC_SCOLA_ENV=lab` → bandeau ambre. 
 | Sync schéma (dev) | `npx drizzle-kit push --force` |
 | Tests OCR match | `npm run test:ocr-match` |
 | Lint | `npm run lint` |
-| Valkey local (optionnel) | `docker run -d --name scolia-valkey -p 6379:6379 valkey/valkey:8` puis `VALKEY_URL=redis://127.0.0.1:6379` |
-| Collabora CODE (bureautique) | Local : `docker compose -f docker-compose.collabora.yml up -d` + `COLLABORA_URL` / `WOPI_HOST`. Prod Scaleway : container `collabora-code` (`COLLABORA_URL=https://containerscolia1c9956df-collabora-code.functions.fnc.fr-par.scw.cloud`, `WOPI_HOST=https://lpnb.scolia.fr` — hôte tenant TLS valide, pas l’apex) |
+| Valkey local (optionnel) | `docker run -d --name scolia-valkey -p 6379:6379 valkey/valkey:8` puis `VALKEY_URL=redis://127.0.0.1:6379`. **Prod : en veille** — pas d’instance Scaleway RED1 pour l’instant (coût) ; code conservé, sans `VALKEY_URL` ou avec `VALKEY_DISABLED=1` → repli mémoire + Postgres. |
 
 ## Compte de test local (après `seed:dev`)
 
@@ -126,9 +125,9 @@ La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enr
 
 ## RDV inscriptions (Google Agenda)
 
-Module `rdv-inscription` : pages publiques `/rdv-inscription/[direction]` (une par direction) listant les créneaux Google dont le titre contient le motif configuré (défaut « rendez-vous inscription »). Paramétrage : `/etablissement/rdv-inscription`. OAuth compte technique (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) ; chaque directrice partage son agenda avec ce compte. Migrations : `drizzle/0042_rdv_inscription.sql` … `0046_rdv_inscription_eleve_reconfirm.sql`.
+Module `rdv-inscription` : pages publiques `/rdv-inscription/[direction]` (une par direction) listant les créneaux Google dont le titre contient le motif configuré (défaut « rendez-vous inscription »). Paramétrage : `/etablissement/rdv-inscription`. OAuth compte technique (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) ; chaque directrice partage son agenda avec ce compte. Migrations : `drizzle/0042_rdv_inscription.sql` … `0052_rdv_inscription_regime.sql`. Admin Suivi : supprimer (remet libre) ou « Demander un autre créneau » (retire le créneau + mail d’excuse avec lien tokenisé `/rdv-inscription/rebook`).
 
-Flux parent : e-mail d’abord → matching protégé (pool = enfants liés au contact) → confirmation interactive → niveau → créneau → double opt-in mail → lien dossier `/eleves/dossier/[id]/inscription` dans Google Agenda. Relance J-7 « toujours OK ? » via `POST /api/rdv-inscription/reconfirm-cron` (`RDV_INSCRIPTION_CRON_SECRET` ou `TRAVELS_CRON_SECRET`) — le silence ne supprime pas le RDV.
+Flux parent : e-mail d’abord (gate) → matching protégé (pool = enfants liés au contact) → confirmation interactive → niveau → créneau → saisie `CONFIRME` → confirmation immédiate + mail récap/.ics (pas de 2ᵉ opt-in) → lien dossier `/eleves/dossier/[id]/inscription` dans Google Agenda. Si RDV déjà actif(s) pour l’élève : liste des créneaux + « Modifier mon créneau » (les anciens sont remis libres). Admin : « Confirmer maintenant » / « Supprimer » (libération Google + mail parent avec rappel des RDV restants) ; listing trié par date de réservation. Relance J-7 « toujours OK ? » via `POST /api/rdv-inscription/reconfirm-cron` (`RDV_INSCRIPTION_CRON_SECRET` ou `TRAVELS_CRON_SECRET`) — le silence ne supprime pas le RDV.
 
 ## Hors scope sans confirmation explicite
 

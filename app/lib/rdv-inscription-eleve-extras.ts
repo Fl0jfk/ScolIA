@@ -2,8 +2,12 @@ import "server-only";
 
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { eleveDocument, eleveScolarite } from "@/db/schema";
+import { eleve, eleveDocument, eleveScolarite } from "@/db/schema";
 import { defaultAccompagnementDocumentTitle } from "@/app/lib/eleve-pap";
+import {
+  isRdvInscriptionRegime,
+  rdvRegimeToCanonicalLabel,
+} from "@/app/lib/rdv-inscription-gcal-format";
 import type { RdvInscriptionBookingRow } from "@/app/lib/rdv-inscription-types";
 
 /** Après confirmation RDV : PAP → tiroir santé + établissement d’origine sur scolarité. */
@@ -15,7 +19,18 @@ export async function attachRdvBookingExtrasToEleve(opts: {
   const db = getDb();
   const { booking, eleveId, etablissementId } = opts;
 
-  if (booking.etablissementOrigineLabel) {
+  if (isRdvInscriptionRegime(booking.regime)) {
+    const canonical = rdvRegimeToCanonicalLabel(booking.regime);
+    await db
+      .update(eleve)
+      .set({
+        regime: canonical,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, eleveId)));
+  }
+
+  if (booking.etablissementOrigineLabel || isRdvInscriptionRegime(booking.regime)) {
     const rows = await db
       .select({ id: eleveScolarite.id })
       .from(eleveScolarite)
@@ -27,33 +42,54 @@ export async function attachRdvBookingExtrasToEleve(opts: {
       )
       .orderBy(desc(eleveScolarite.createdAt))
       .limit(1);
+    const demiPension = booking.regime === "DP";
     if (rows[0]) {
       await db
         .update(eleveScolarite)
         .set({
-          etablissementPrecedent: booking.etablissementOrigineLabel,
+          ...(booking.etablissementOrigineLabel
+            ? { etablissementPrecedent: booking.etablissementOrigineLabel }
+            : {}),
+          ...(isRdvInscriptionRegime(booking.regime) ? { demiPension } : {}),
           updatedAt: new Date(),
         })
         .where(eq(eleveScolarite.id, rows[0].id));
-    } else {
+    } else if (booking.etablissementOrigineLabel) {
       await db.insert(eleveScolarite).values({
         etablissementId,
         eleveId,
         classe: booking.niveauLabel,
         statut: "prevue",
         etablissementPrecedent: booking.etablissementOrigineLabel,
+        demiPension,
       });
     }
   }
 
   if (booking.papS3Key) {
     const title = defaultAccompagnementDocumentTitle("pap");
+    const mimeType = booking.papMimeType || "application/pdf";
+    try {
+      const { looksLikePdfUpload, stripBlankPagesInS3Object } = await import(
+        "@/app/lib/pdf-strip-blank-pages"
+      );
+      if (
+        looksLikePdfUpload({
+          mimeType,
+          s3Key: booking.papS3Key,
+        })
+      ) {
+        await stripBlankPagesInS3Object(booking.papS3Key);
+      }
+    } catch (stripErr) {
+      console.warn("[rdv-inscription] strip blank pages PAP (non bloquant)", stripErr);
+    }
     await db.insert(eleveDocument).values({
       etablissementId,
       eleveId,
       tiroir: "sante",
       title,
-      mimeType: booking.papMimeType || "application/pdf",
+      mimeType,
       s3Key: booking.papS3Key,
       confidentialite: "sante",
       source: "rdv-inscription",

@@ -3,8 +3,9 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { canViewAllConventions, canViewReferentConventions } from "@/app/lib/stage-access";
+import { canBrowseStageConventions, canViewReferentConventions } from "@/app/lib/stage-access";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
+import { listPrincipalClassesForUser } from "@/app/lib/stage-referents-config";
 import {
   buildFreshConventionPdfDownload,
   isScoliaGeneratedConventionPdf,
@@ -20,7 +21,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
-    if (!canViewAllConventions(roles) && !canViewReferentConventions(roles)) {
+    if (!canBrowseStageConventions(roles) && !canViewReferentConventions(roles)) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
@@ -31,7 +32,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
-    if (!conventionVisibleToUser(convention, roles, userEmail, gate.ctx.userId)) {
+    const principalClassNames = canViewReferentConventions(roles)
+      ? await listPrincipalClassesForUser(gate.ctx.userId)
+      : [];
+    if (
+      !conventionVisibleToUser(
+        convention,
+        roles,
+        userEmail,
+        gate.ctx.userId,
+        principalClassNames,
+      )
+    ) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 

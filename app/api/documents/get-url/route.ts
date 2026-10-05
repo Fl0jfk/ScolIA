@@ -22,12 +22,15 @@ export async function GET(req: NextRequest) {
   const scope = (searchParams.get("scope") || "personal") as DocumentScope;
   const shareId = searchParams.get("shareId");
   const relPath = searchParams.get("path") || searchParams.get("key") || "";
+  const forceDownload =
+    searchParams.get("download") === "1" || searchParams.get("download") === "true";
 
   if (!relPath) {
     return NextResponse.json({ error: "Fichier absent." }, { status: 400 });
   }
 
-  const fileShareId = parseFileShareIdFromRel(relPath);
+  const fileShareId =
+    searchParams.get("fileShareId")?.trim() || parseFileShareIdFromRel(relPath);
   let storageKey: string;
 
   if (fileShareId) {
@@ -43,7 +46,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const url = await getSignedReadUrl(storageKey, 3600);
+    const downloadName = forceDownload
+      ? relPath.replace(/\/+$/, "").split("/").pop() || "document"
+      : undefined;
+    const url = await getSignedReadUrl(storageKey, 3600, {
+      ...(downloadName ? { downloadFileName: downloadName } : {}),
+    });
     if (!url) return NextResponse.json({ error: "Fichier introuvable." }, { status: 404 });
 
     await writeDataAccessAudit({

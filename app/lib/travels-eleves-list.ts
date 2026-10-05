@@ -1,5 +1,7 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { getTotalMeals } from "@/app/lib/travels-cuisine-form";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import { splitClassesValue } from "@/app/lib/travels-classes";
 import type { TravelsParticipantEleve, TravelsTripData } from "@/app/lib/travels-types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -62,6 +64,57 @@ export function toParticipantEleve(
   };
 }
 
+/** Tri listes nominatives : classe d’abord, puis nom / prénom. */
+export function compareParticipantsByClasseThenName(
+  a: { nom: string; prenom: string; classe?: string | null },
+  b: { nom: string; prenom: string; classe?: string | null },
+): number {
+  const ca = String(a.classe || "").trim();
+  const cb = String(b.classe || "").trim();
+  const classCmp = ca.localeCompare(cb, "fr", { sensitivity: "base", numeric: true });
+  if (classCmp !== 0) return classCmp;
+  const nomCmp = String(a.nom || "").localeCompare(String(b.nom || ""), "fr", {
+    sensitivity: "base",
+  });
+  if (nomCmp !== 0) return nomCmp;
+  return String(a.prenom || "").localeCompare(String(b.prenom || ""), "fr", {
+    sensitivity: "base",
+  });
+}
+
+/** Lignes Excel nominatives (tri classe → nom → prénom). */
+export type ElevesListExcelRow = {
+  Nom: string;
+  Prénom: string;
+  Classe: string;
+};
+
+export function buildElevesListExcelRows(
+  participants: Array<{ nom: string; prenom: string; classe?: string | null }>,
+): ElevesListExcelRow[] {
+  return participants
+    .slice()
+    .sort(compareParticipantsByClasseThenName)
+    .map((p) => ({
+      Nom: String(p.nom || "").trim(),
+      Prénom: String(p.prenom || "").trim(),
+      Classe: String(p.classe || "").trim(),
+    }));
+}
+
+/** Nom de fichier sûr pour le téléchargement Excel de la liste élèves. */
+export function elevesListExcelFilename(tripLabel?: string | null): string {
+  const raw = String(tripLabel || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+  const stamp = new Date().toISOString().slice(0, 10);
+  return `liste-eleves${raw ? `-${raw}` : ""}-${stamp}.xlsx`;
+}
+
 /** Nombre de paniers attribués dans la liste nominative. */
 export function countPanierRepasAssigned(participants: TravelsParticipantEleve[]): number {
   return participants.filter((p) => p.panierRepas === true).length;
@@ -91,9 +144,7 @@ export function buildPanierRepasListCsv(participants: TravelsParticipantEleve[])
   const header = "Nom;Prénom;Classe;INE";
   const rows = withPanier
     .slice()
-    .sort((a, b) =>
-      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
-    )
+    .sort(compareParticipantsByClasseThenName)
     .map((p) =>
       [p.nom, p.prenom, p.classe || "", p.ine.startsWith("local:") ? "" : p.ine]
         .map((c) => csvCell(String(c)))
@@ -108,14 +159,30 @@ export function buildPanierRepasListCsv(participants: TravelsParticipantEleve[])
  * (les noms peuvent arriver après le chiffre, comme pour le transport).
  * Mode « exact » : à la confirmation de liste, le compte suit le nominatif.
  */
+function mergeTripClassesWithParticipants(
+  declaredRaw: string | null | undefined,
+  participants: TravelsParticipantEleve[],
+): string {
+  const declared = splitClassesValue(String(declaredRaw || ""));
+  const fromParticipants = participants
+    .map((p) => String(p.classe || "").trim())
+    .filter(Boolean);
+  const merged: string[] = [];
+  for (const cls of [...declared, ...fromParticipants]) {
+    if (!cls) continue;
+    if (merged.some((m) => schoolClassesMatch(m, cls))) continue;
+    merged.push(cls);
+  }
+  merged.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true }));
+  return merged.join(", ");
+}
+
 export function applyParticipantElevesToTripData(
   data: TravelsTripData,
   participants: TravelsParticipantEleve[],
   opts?: { resetConfirmation?: boolean; syncNbEleves?: "max" | "exact" },
 ): TravelsTripData {
-  const classes = [...new Set(participants.map((p) => p.classe).filter(Boolean) as string[])].sort(
-    (a, b) => a.localeCompare(b, "fr"),
-  );
+  const classesMerged = mergeTripClassesWithParticipants(data.classes, participants);
   const declaredRaw = Number(data.nbEleves);
   const declared =
     Number.isFinite(declaredRaw) && declaredRaw >= 0 ? Math.floor(declaredRaw) : 0;
@@ -128,7 +195,8 @@ export function applyParticipantElevesToTripData(
     ...data,
     participantEleves: participants,
     nbEleves,
-    classes: classes.length > 0 ? classes.join(", ") : data.classes,
+    // Union déclaration + classes présentes dans la liste (ne pas écraser un choix overview).
+    classes: classesMerged || data.classes,
   };
   if (opts?.resetConfirmation) {
     next.listeElevesStatus = "draft";
@@ -148,9 +216,7 @@ function buildElevesListCsv(participants: TravelsParticipantEleve[]): string {
   const header = "Nom;Prénom;Classe;INE";
   const rows = participants
     .slice()
-    .sort((a, b) =>
-      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
-    )
+    .sort(compareParticipantsByClasseThenName)
     .map((p) =>
       [p.nom, p.prenom, p.classe || "", p.ine.startsWith("local:") ? "" : p.ine]
         .map((c) => csvCell(String(c)))
@@ -167,9 +233,7 @@ export function buildElevesListCsvForTransporter(
   const header = "Nom;Prénom;Classe;Email parent;Tél. parent";
   const rows = participants
     .slice()
-    .sort((a, b) =>
-      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
-    )
+    .sort(compareParticipantsByClasseThenName)
     .map((p) => {
       const full = elevesByKey.get(eleveParticipantKey(p)) || elevesByKey.get(p.ine);
       const emails = full ? collectParticipantParentEmails(full) : [];

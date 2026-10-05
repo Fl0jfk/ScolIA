@@ -105,6 +105,9 @@ export function TripHeroHeader({
   etablissement,
   status,
   statusPulse,
+  coverImageUrl,
+  coverImageAttribution,
+  coverImageAttributionUrl,
 }: {
   title: string;
   typeLabel: string;
@@ -113,12 +116,43 @@ export function TripHeroHeader({
   etablissement?: string;
   status: string;
   statusPulse?: boolean;
+  coverImageUrl?: string | null;
+  coverImageAttribution?: string | null;
+  coverImageAttributionUrl?: string | null;
 }) {
   const etabEmoji = establishmentKindEmoji(inferEstablishmentKind({ label: etablissement }));
 
   return (
     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white shadow-xl">
-      <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_top_right,white,transparent_55%)]" />
+      {coverImageUrl ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={coverImageUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover opacity-35"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-900/75 to-indigo-950/55" />
+        </>
+      ) : (
+        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_top_right,white,transparent_55%)]" />
+      )}
+      {coverImageAttribution ? (
+        <div className="absolute bottom-2 right-3 z-10 max-w-[70%] text-right">
+          {coverImageAttributionUrl ? (
+            <a
+              href={coverImageAttributionUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] text-white/55 hover:text-white/80 underline-offset-2 hover:underline"
+            >
+              Photo : {coverImageAttribution}
+            </a>
+          ) : (
+            <span className="text-[10px] text-white/55">Photo : {coverImageAttribution}</span>
+          )}
+        </div>
+      ) : null}
       <div className="relative px-6 sm:px-8 py-6 sm:py-8">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="space-y-3 min-w-0">
@@ -161,11 +195,17 @@ export function TripQuickStats({
       {items.map((item) => (
         <div
           key={item.label}
-          className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm"
+          className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3.5 shadow-sm hover:border-indigo-100 hover:shadow-md transition-all"
         >
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{item.label}</p>
-          <p className="mt-1 text-sm font-bold text-slate-800 truncate" title={item.value}>
-            {item.icon && <span className="mr-1">{item.icon}</span>}
+          <div className="flex items-center gap-2 mb-1.5">
+            {item.icon && (
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-sm">
+                {item.icon}
+              </span>
+            )}
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{item.label}</p>
+          </div>
+          <p className="text-sm font-bold text-slate-800 truncate" title={item.value}>
             {item.value}
           </p>
           {item.action}

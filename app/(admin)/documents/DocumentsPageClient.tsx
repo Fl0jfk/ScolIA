@@ -33,6 +33,7 @@ import {
   type QuotaInfo,
   type ShareInfo,
 } from "@/app/lib/documents-page-model";
+import { downloadCloudDocument } from "@/app/lib/documents-download-client";
 
 export default function DocumentsPage() {
   const { isLoaded, user } = useSessionUser();
@@ -250,41 +251,24 @@ export default function DocumentsPage() {
   const handleOpenFile = async (relPath: string) => {
     setOpeningFile(relPath);
     try {
-      const ext = relPath.includes(".")
-        ? relPath.split(".").pop()?.toLowerCase() || ""
-        : "";
-      const officeExts = new Set([
-        "odt",
-        "ods",
-        "odp",
-        "doc",
-        "docx",
-        "xls",
-        "xlsx",
-        "csv",
-        "ppt",
-        "pptx",
-        "rtf",
-      ]);
-      if (officeExts.has(ext)) {
-        const params = new URLSearchParams({
-          scope,
-          path: relPath,
-        });
-        if (shareId) params.set("shareId", shareId);
-        if (isVirtualFileSharePath(relPath)) {
-          params.set("scope", "fileshare");
-          params.set("fileShareId", fileShareIdFromPath(relPath));
-        }
-        window.location.href = `/documents/edit?${params.toString()}`;
-        return;
-      }
-      const params = new URLSearchParams({ scope, path: relPath });
+      const params = new URLSearchParams({ scope, path: relPath, download: "1" });
       if (shareId) params.set("shareId", shareId);
+      if (isVirtualFileSharePath(relPath)) {
+        params.set("scope", "fileshare");
+        params.set("fileShareId", fileShareIdFromPath(relPath));
+      }
       const res = await fetch(`/api/documents/get-url?${params}`);
       const data = await res.json();
-      if (data.url) window.open(data.url, "_blank", "noopener,noreferrer");
-      else setError(data.error || "Ouverture impossible.");
+      if (data.url) {
+        const a = document.createElement("a");
+        a.href = data.url as string;
+        a.download = relPath.replace(/\/+$/, "").split("/").pop() || "document";
+        a.rel = "noopener";
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else setError(data.error || "Téléchargement impossible.");
     } catch {
       setError("Erreur lors de l'ouverture du fichier.");
     } finally {
@@ -312,7 +296,17 @@ export default function DocumentsPage() {
         setError(data.error || "Création impossible.");
         return;
       }
-      window.location.href = data.editUrl as string;
+      const dl = await downloadCloudDocument({
+        scope: String(data.scope || scope),
+        path: String(data.relPath || ""),
+        shareId: data.shareId ? String(data.shareId) : shareId,
+        fileName: data.fileName ? String(data.fileName) : undefined,
+      });
+      if (!dl.ok) {
+        setError(dl.error);
+        return;
+      }
+      await fetchDocuments();
     } catch {
       setError("Erreur lors de la création.");
     } finally {

@@ -6,6 +6,7 @@ import type { TravelsTrip } from "@/app/lib/travels-types";
 import TripAccompagnateursSelect, {
   accompagnateursToFormFields,
 } from "@/app/components/travels/TripAccompagnateursSelect";
+import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
 import { TripButton, TripInput, TripTextarea } from "@/app/components/travels/TripDetailUI";
 
 type TripDetailsModalsProps = {
@@ -33,6 +34,12 @@ type TripDetailsModalsProps = {
   draftCoutTotal: string;
   setDraftCoutTotal: (v: string) => void;
   saveBudgetChange: () => void;
+  showClassesModal: boolean;
+  setShowClassesModal: (v: boolean) => void;
+  draftClasses: string;
+  setDraftClasses: (v: string) => void;
+  classOptions: string[];
+  saveClassesChange: () => void;
   cuisineFollowUp: { mode: "initial" | "amendment"; savedTrip: TravelsTrip } | null;
   setCuisineFollowUp: (v: TripDetailsModalsProps["cuisineFollowUp"]) => void;
   runCuisineFollowUp: () => void;
@@ -73,7 +80,8 @@ export function TripDetailsModals(p: TripDetailsModalsProps) {
     draftAccompagnateurs, setDraftAccompagnateurs,
     saveEffectifChange, effectifFollowUp, setEffectifFollowUp,
     runEffectifFollowUp, showBudgetModal, setShowBudgetModal, draftCoutTotal, setDraftCoutTotal,
-    saveBudgetChange, cuisineFollowUp, setCuisineFollowUp, runCuisineFollowUp, showDateModal,
+    saveBudgetChange, showClassesModal, setShowClassesModal, draftClasses, setDraftClasses,
+    classOptions, saveClassesChange, cuisineFollowUp, setCuisineFollowUp, runCuisineFollowUp, showDateModal,
     setShowDateModal, draftStartDate, setDraftStartDate, draftEndDate, setDraftEndDate,
     draftStartTime, setDraftStartTime, draftEndTime, setDraftEndTime, saveDateChange,
     dateFollowUp, setDateFollowUp, runDateFollowUp, showCuisineModal, isEditing,
@@ -242,6 +250,34 @@ export function TripDetailsModals(p: TripDetailsModalsProps) {
                 Annuler
               </TripButton>
               <TripButton variant="primary" className="flex-1" onClick={saveBudgetChange}>
+                Enregistrer
+              </TripButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showClassesModal && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[75] p-4">
+          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold text-slate-900 mb-1">Modifier les classes</h2>
+            <p className="text-sm text-slate-500 mb-6">
+              Même catalogue que l’onglet Élèves. Les classes déjà présentes dans la liste
+              nominative restent associées au dossier.
+            </p>
+            <div className="mb-6">
+              <TripClassesMultiSelect
+                required
+                value={draftClasses}
+                options={classOptions}
+                onChange={setDraftClasses}
+              />
+            </div>
+            <div className="flex gap-3">
+              <TripButton variant="secondary" className="flex-1" onClick={() => setShowClassesModal(false)}>
+                Annuler
+              </TripButton>
+              <TripButton variant="primary" className="flex-1" onClick={saveClassesChange}>
                 Enregistrer
               </TripButton>
             </div>

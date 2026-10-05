@@ -41,6 +41,16 @@ export const VALKEY_TTL = {
   siecleExports: 45,
   /** Roster internat (S3, partagé entre instances) */
   internatStudents: 45,
+  /** Index conventions de stage (liste légère) */
+  stagesConventionsIndex: 45,
+  /** Convention de stage individuelle */
+  stagesConvention: 60,
+  /** Roster suivi classe (invalidé à la sauvegarde convention) */
+  stagesClassRoster: 90,
+  /** Index liste séjours / voyages (payload complet — miss = batch Postgres) */
+  travelsIndex: 90,
+  /** Dossier séjour individuel */
+  travelsTrip: 60,
 } as const;
 
 const NS = "scola";
@@ -161,4 +171,38 @@ export function valkeyKeySiecleExports(etablissementId: string): string {
 
 export function valkeyKeyInternatStudents(etablissementId: string): string {
   return `${NS}:internat:students:${etablissementId}`;
+}
+
+export function valkeyKeyStagesConventionsIndex(etablissementId: string): string {
+  return `${NS}:stages:conv-index:${etablissementId}`;
+}
+
+export function valkeyKeyStagesConvention(
+  etablissementId: string,
+  conventionId: string,
+): string {
+  return `${NS}:stages:conv:${etablissementId}:${conventionId}`;
+}
+
+export function valkeyKeyStagesClassRoster(
+  etablissementId: string,
+  schoolYear: string,
+  classNameKey: string,
+): string {
+  return `${NS}:stages:roster:${etablissementId}:${schoolYear}:${classNameKey}`;
+}
+
+export function valkeyPrefixStagesClassRoster(etablissementId: string): string {
+  return `${NS}:stages:roster:${etablissementId}:`;
+}
+
+export function valkeyKeyTravelsIndex(etablissementId: string): string {
+  return `${NS}:travels:index:${etablissementId}`;
+}
+
+export function valkeyKeyTravelTrip(
+  etablissementId: string,
+  tripId: string,
+): string {
+  return `${NS}:travels:trip:${etablissementId}:${tripId}`;
 }

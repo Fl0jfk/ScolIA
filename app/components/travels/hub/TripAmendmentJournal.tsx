@@ -96,7 +96,7 @@ function buildJournalEntries(trip: TravelsTrip): JournalEntry[] {
     if (!h.date) continue;
     const action = h.action || "";
     let category: JournalEntry["category"] = "workflow";
-    if (action === "EFFECTIF_MODIFIE") category = "effectif";
+    if (action === "EFFECTIF_MODIFIE" || action === "CLASSES_MODIFIEES") category = "effectif";
     if (action === "ANNULE") category = "annulation";
     if (action.includes("cuisine")) category = "cuisine";
     if (action.includes("transport") || action.includes("Avenant") || action.includes("transporteur")) {

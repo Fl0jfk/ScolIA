@@ -26,6 +26,7 @@ import type {
   MessagingMessageType,
   MessagingPeer,
   MessagingReactionDto,
+  MessagingReceiptStatus,
   MessagingSendAttachmentInput,
   MessagingUserDto,
 } from "@/app/lib/messaging/types";
@@ -305,6 +306,7 @@ async function toMessageDto(
   attachments: MessagingAttachmentRow[],
   reactions: MessagingReactionRow[],
   replyPreview: string | null,
+  receiptStatus?: MessagingReceiptStatus,
 ): Promise<MessagingMessageDto> {
   return {
     id: row.id,
@@ -320,7 +322,62 @@ async function toMessageDto(
     createdAt: row.createdAt.toISOString(),
     attachments: await enrichAttachments(attachments),
     reactions: reactionDtos(reactions),
+    ...(receiptStatus ? { receiptStatus } : {}),
   };
+}
+
+type PeerReceiptCursor = {
+  userId: string;
+  lastReadAt: Date | null;
+  lastDeliveredAt: Date | null;
+};
+
+function receiptForMessage(
+  messageCreatedAt: Date,
+  peers: PeerReceiptCursor[],
+): MessagingReceiptStatus {
+  if (peers.length === 0) return "sent";
+  const createdMs = messageCreatedAt.getTime();
+  const allRead = peers.every(
+    (p) => p.lastReadAt != null && p.lastReadAt.getTime() >= createdMs,
+  );
+  if (allRead) return "read";
+  const allDelivered = peers.every((p) => {
+    const deliveredMs = Math.max(
+      p.lastDeliveredAt?.getTime() ?? 0,
+      p.lastReadAt?.getTime() ?? 0,
+    );
+    return deliveredMs >= createdMs;
+  });
+  if (allDelivered) return "delivered";
+  return "sent";
+}
+
+async function loadPeerReceiptCursors(
+  etablissementId: string,
+  conversationId: string,
+  excludeUserId: string,
+): Promise<PeerReceiptCursor[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      userId: messagingParticipant.userId,
+      lastReadAt: messagingParticipant.lastReadAt,
+      lastDeliveredAt: messagingParticipant.lastDeliveredAt,
+    })
+    .from(messagingParticipant)
+    .where(
+      and(
+        eq(messagingParticipant.etablissementId, etablissementId),
+        eq(messagingParticipant.conversationId, conversationId),
+        ne(messagingParticipant.userId, excludeUserId),
+      ),
+    );
+  return rows.map((r) => ({
+    userId: r.userId,
+    lastReadAt: r.lastReadAt ?? null,
+    lastDeliveredAt: r.lastDeliveredAt ?? null,
+  }));
 }
 
 async function loadAttachmentsForMessages(
@@ -731,10 +788,11 @@ export async function listMessages(
     .map((r) => r.replyToId)
     .filter((id): id is string => Boolean(id));
 
-  const [attachmentsMap, reactionsMap, replyPreviews] = await Promise.all([
+  const [attachmentsMap, reactionsMap, replyPreviews, peerReceipts] = await Promise.all([
     loadAttachmentsForMessages(etablissementId, messageIds),
     loadReactionsForMessages(etablissementId, messageIds),
     loadReplyPreviews(etablissementId, replyToIds),
+    loadPeerReceiptCursors(etablissementId, conversationId, userId),
   ]);
 
   const messages = await Promise.all(
@@ -745,6 +803,9 @@ export async function listMessages(
         attachmentsMap.get(row.id) ?? [],
         reactionsMap.get(row.id) ?? [],
         row.replyToId ? (replyPreviews.get(row.replyToId) ?? null) : null,
+        row.senderId === userId
+          ? receiptForMessage(row.createdAt, peerReceipts)
+          : undefined,
       ),
     ),
   );
@@ -890,6 +951,7 @@ export async function sendMessage(
     attachmentRows,
     [],
     null,
+    "sent",
   );
 
   if (input.replyToId) {
@@ -1148,6 +1210,49 @@ export async function setReaction(
   return { added, reactions };
 }
 
+export async function markDelivered(
+  etablissementId: string,
+  conversationId: string,
+  userId: string,
+  messageId?: string | null,
+): Promise<{ lastDeliveredAt: string; lastDeliveredMessageId: string | null }> {
+  await assertParticipant(etablissementId, conversationId, userId);
+  const db = getDb();
+  const last = await lastMessageForConversation(etablissementId, conversationId);
+  const now = new Date();
+  const lastDeliveredMessageId = messageId?.trim() || last?.id || null;
+
+  await db
+    .update(messagingParticipant)
+    .set({
+      lastDeliveredAt: now,
+      lastDeliveredMessageId,
+    })
+    .where(
+      and(
+        eq(messagingParticipant.etablissementId, etablissementId),
+        eq(messagingParticipant.conversationId, conversationId),
+        eq(messagingParticipant.userId, userId),
+      ),
+    );
+
+  const userIds = await participantUserIds(etablissementId, conversationId);
+  void bustMessagingCaches(etablissementId, conversationId, userIds);
+  publish({
+    type: "delivered",
+    etablissementId,
+    userIds,
+    payload: {
+      conversationId,
+      userId,
+      lastDeliveredAt: now.toISOString(),
+      lastDeliveredMessageId,
+    },
+  });
+
+  return { lastDeliveredAt: now.toISOString(), lastDeliveredMessageId };
+}
+
 export async function markRead(
   etablissementId: string,
   conversationId: string,
@@ -1161,7 +1266,12 @@ export async function markRead(
 
   await db
     .update(messagingParticipant)
-    .set({ lastReadAt: now, lastReadMessageId })
+    .set({
+      lastReadAt: now,
+      lastReadMessageId,
+      lastDeliveredAt: now,
+      lastDeliveredMessageId: lastReadMessageId,
+    })
     .where(
       and(
         eq(messagingParticipant.etablissementId, etablissementId),
@@ -1171,7 +1281,18 @@ export async function markRead(
     );
 
   const userIds = await participantUserIds(etablissementId, conversationId);
-  void cacheInvalidateMessagingForUsers(etablissementId, [userId]);
+  void bustMessagingCaches(etablissementId, conversationId, userIds);
+  publish({
+    type: "delivered",
+    etablissementId,
+    userIds,
+    payload: {
+      conversationId,
+      userId,
+      lastDeliveredAt: now.toISOString(),
+      lastDeliveredMessageId: lastReadMessageId,
+    },
+  });
   publish({
     type: "read",
     etablissementId,

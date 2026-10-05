@@ -15,6 +15,8 @@ export type StagesHubPermissions = {
   canManageReferents: boolean;
   canViewRepasAbsences?: boolean;
   referentOnly: boolean;
+  /** Prof / staff en consultation seule (pas de validation ni relance). */
+  consultOnly?: boolean;
   watcherOnly?: boolean;
   canViewClassRoster: boolean;
 };
@@ -26,9 +28,31 @@ export type StagesHubBoardCard = {
   studentName?: string;
   companyName?: string;
   className?: string;
+  /** ecole | college | lycee — pour filtre tableau de bord. */
+  secteur?: "ecole" | "college" | "lycee" | null;
   status: string;
+  /** Photo élève (URL signée), si disponible. */
+  photoUrl?: string | null;
+  /** Pastille courte : Stage | Convention | Horaires | E-mail tuteur. */
+  depositKind?: string | null;
   tutorEmailChangePending?: boolean;
   scheduleChangePending?: boolean;
+  /** Dates du stage (ISO). */
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  /** Libellé FR des dates, ex. « du lundi 12 mai au vendredi 23 mai ». */
+  periodLabel?: string | null;
+  /** Résumé des horaires (jours + plages). */
+  hoursSummary?: string | null;
+  /** Alignement vs périodes officielles de la classe (file dépôts). */
+  periodAlignment?: {
+    status: "no_official_periods" | "aligned" | "outside";
+    outside: boolean;
+    shortMessage: string;
+    referencePeriodLabel?: string | null;
+  } | null;
+  /** Avenant : dates demandées (si différentes). */
+  requestedPeriodLabel?: string | null;
 };
 
 export type StagesHubBoard = {

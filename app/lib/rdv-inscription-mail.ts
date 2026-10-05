@@ -3,15 +3,57 @@ import "server-only";
 import { buildCalendarEventIcs } from "@/app/lib/calendar-ics";
 import { escapeHtml } from "@/app/lib/escape-html";
 import { buildRdvInscriptionIcsLocation } from "@/app/lib/rdv-inscription-contact";
-import { formatRdvAttendeeLabel } from "@/app/lib/rdv-inscription-gcal-format";
+import { buildRdvInscriptionGcalSummary, formatRdvAttendeeLabel } from "@/app/lib/rdv-inscription-gcal-format";
 import type {
   RdvInscriptionBookingRow,
   RdvInscriptionDirectionPageSettings,
 } from "@/app/lib/rdv-inscription-types";
+import { RDV_RESCHEDULE_PRESET_MOTIF } from "@/app/lib/rdv-inscription-types";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 
 function parentDisplayName(booking: RdvInscriptionBookingRow): string {
   return [booking.parentFirstName, booking.parentLastName].filter(Boolean).join(" ");
+}
+
+function papSummaryLabel(booking: RdvInscriptionBookingRow): string {
+  if (booking.hasPap === "yes") {
+    if (booking.papS3Key) return "oui (déposé en ligne)";
+    if (booking.papBringToRdv) return "oui — à apporter au rendez-vous";
+    return "oui";
+  }
+  if (booking.hasPap === "no") return "non";
+  return "";
+}
+
+/** Lignes métier communes mails direction / ICS (origine, PAP, régime…). */
+function bookingDetailLines(booking: RdvInscriptionBookingRow): string[] {
+  const pap = papSummaryLabel(booking);
+  return [
+    booking.niveauLabel ? `Niveau demandé : ${booking.niveauLabel}` : "",
+    booking.regime ? `Régime : ${booking.regime}` : "",
+    booking.etablissementOrigineLabel
+      ? `Établissement d’origine : ${booking.etablissementOrigineLabel}`
+      : "",
+    pap ? `PAP : ${pap}` : "",
+  ].filter(Boolean);
+}
+
+function bookingDetailHtmlItems(booking: RdvInscriptionBookingRow): string {
+  const pap = papSummaryLabel(booking);
+  return [
+    booking.niveauLabel
+      ? `<li><strong>Niveau demandé :</strong> ${escapeHtml(booking.niveauLabel)}</li>`
+      : "",
+    booking.regime
+      ? `<li><strong>Régime :</strong> ${escapeHtml(booking.regime)}</li>`
+      : "",
+    booking.etablissementOrigineLabel
+      ? `<li><strong>Établissement d’origine :</strong> ${escapeHtml(booking.etablissementOrigineLabel)}</li>`
+      : "",
+    pap ? `<li><strong>PAP :</strong> ${escapeHtml(pap)}</li>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
 }
 
 function formatSlotFr(startAt: string, endAt: string): string {
@@ -120,9 +162,12 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
   const parentName = parentDisplayName(opts.booking);
   const presentLabel = formatRdvAttendeeLabel(opts.booking.rdvAttendee);
   const mailTitle = `${opts.page.title} — ${opts.directionLabel}`;
-  const gcalTitle = `RDV inscription — ${opts.booking.studentLastName.trim().toUpperCase()} ${opts.booking.studentFirstName.trim()}${
-    opts.booking.niveauLabel?.trim() ? ` — ${opts.booking.niveauLabel.trim()}` : ""
-  }`;
+  const gcalTitle = buildRdvInscriptionGcalSummary({
+    studentLastName: opts.booking.studentLastName,
+    studentFirstName: opts.booking.studentFirstName,
+    niveauLabel: opts.booking.niveauLabel,
+    regime: opts.booking.regime,
+  });
 
   const ics = buildCalendarEventIcs({
     title: gcalTitle,
@@ -130,7 +175,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
       `Rendez-vous d’inscription (${opts.directionLabel}).`,
       opts.directriceName ? `Avec : ${opts.directriceName}` : "",
       `Élève : ${student}`,
-      opts.booking.niveauLabel ? `Niveau demandé : ${opts.booking.niveauLabel}` : "",
+      ...bookingDetailLines(opts.booking),
       parentName ? `Parent : ${parentName}` : "",
       presentLabel ? `Présent au RDV : ${presentLabel}` : "",
       // Téléphone : uniquement dans LOCATION (icsLocation), pas dans la description.
@@ -213,11 +258,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
                 ? `<li><strong>Présent au RDV :</strong> ${escapeHtml(formatRdvAttendeeLabel(opts.booking.rdvAttendee))}</li>`
                 : ""
             }
-            ${
-              opts.booking.niveauLabel
-                ? `<li><strong>Niveau demandé :</strong> ${escapeHtml(opts.booking.niveauLabel)}</li>`
-                : ""
-            }
+            ${bookingDetailHtmlItems(opts.booking)}
             ${
               opts.booking.eleveId
                 ? `<li><strong>Dossier :</strong> /eleves/dossier/${escapeHtml(opts.booking.eleveId)}/inscription</li>`
@@ -313,7 +354,7 @@ export async function sendRdvInscriptionCreatedPreinscritNotify(opts: {
         (aucune fiche élève trouvée pour ces coordonnées parent).</p>
         <ul>
           <li><strong>Élève :</strong> ${escapeHtml(student)}</li>
-          <li><strong>Niveau demandé :</strong> ${escapeHtml(opts.booking.niveauLabel || "—")}</li>
+          ${bookingDetailHtmlItems(opts.booking)}
           <li><strong>E-mail :</strong> ${escapeHtml(opts.booking.parentEmail)}</li>
           <li><strong>Tél. :</strong> ${escapeHtml(opts.booking.parentPhone)}</li>
           ${
@@ -361,5 +402,227 @@ export async function sendRdvInscriptionCancelledByParentNotify(opts: {
     return { sent: true };
   } catch {
     return { sent: false };
+  }
+}
+
+/** Mail parent : créneau retiré par l’établissement + invitation à en choisir un autre. */
+export async function sendRdvInscriptionRescheduleRequestMail(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  booking: RdvInscriptionBookingRow;
+  directionLabel: string;
+  rebookUrl: string;
+  adminNote?: string | null;
+}): Promise<{ sent: boolean; error?: string }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  if (!smtp || !transporter) {
+    return {
+      sent: false,
+      error: "SMTP non configuré — créneau retiré sans e-mail parent.",
+    };
+  }
+
+  const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
+  const cancelledSlot = formatSlotFr(opts.booking.startAt, opts.booking.endAt);
+  const mailTitle = `${opts.page.title} — ${opts.directionLabel}`;
+  const note = opts.adminNote?.trim() || "";
+  const noteHtml = note
+    ? `<p><strong>Précision de l’établissement :</strong> ${escapeHtml(note)}</p>`
+    : "";
+
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to: opts.booking.parentEmail,
+      subject: `Nouveau créneau à choisir — ${mailTitle}`,
+      html: `
+        <p>Bonjour,</p>
+        <p>${escapeHtml(RDV_RESCHEDULE_PRESET_MOTIF)}</p>
+        ${noteHtml}
+        <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
+        <strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}<br/>
+        <strong>Créneau précédent :</strong> ${escapeHtml(cancelledSlot)}</p>
+        <p>Ce créneau n’est plus disponible. Merci de <strong>choisir un autre créneau</strong> via le bouton ci-dessous (lien valable 14 jours) :</p>
+        <p style="margin:24px 0">
+          <a href="${escapeHtml(opts.rebookUrl)}"
+             style="display:inline-block;background:#0369a1;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700">
+            Choisir un autre créneau
+          </a>
+        </p>
+        <p style="font-size:12px;color:#64748b">Si le bouton ne fonctionne pas, copiez ce lien :<br/>
+          <a href="${escapeHtml(opts.rebookUrl)}">${escapeHtml(opts.rebookUrl)}</a>
+        </p>
+        <p>Cordialement,<br/>L’établissement</p>
+      `,
+    });
+    return { sent: true };
+  } catch (e) {
+    return {
+      sent: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/** Mail parent : un créneau a été annulé par l’établissement + rappel des RDV encore actifs. */
+export async function sendRdvInscriptionCancelledByAdminMail(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  cancelled: RdvInscriptionBookingRow;
+  directionLabel: string;
+  remaining: RdvInscriptionBookingRow[];
+  remainingDirectionLabels?: Record<string, string>;
+}): Promise<{ sent: boolean; error?: string }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  if (!smtp || !transporter) {
+    return {
+      sent: false,
+      error: "SMTP non configuré — créneau annulé sans e-mail parent.",
+    };
+  }
+
+  const student = `${opts.cancelled.studentFirstName} ${opts.cancelled.studentLastName}`;
+  const cancelledSlot = formatSlotFr(opts.cancelled.startAt, opts.cancelled.endAt);
+  const mailTitle = `${opts.page.title} — ${opts.directionLabel}`;
+
+  const remainingHtml =
+    opts.remaining.length === 0
+      ? `<p>Vous n’avez <strong>plus aucun</strong> rendez-vous d’inscription actif pour cet élève.</p>`
+      : `<p><strong>Vos rendez-vous encore actifs :</strong></p>
+        <ul>
+          ${opts.remaining
+            .map((b) => {
+              const dir =
+                opts.remainingDirectionLabels?.[b.directionSlug] || b.directionSlug;
+              const slot = formatSlotFr(b.startAt, b.endAt);
+              const niveau = b.niveauLabel ? ` · ${b.niveauLabel}` : "";
+              return `<li><strong>${escapeHtml(dir)}</strong> — ${escapeHtml(slot)}${escapeHtml(niveau)}</li>`;
+            })
+            .join("")}
+        </ul>`;
+
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to: opts.cancelled.parentEmail,
+      subject: `Créneau annulé — ${mailTitle}`,
+      html: `
+        <p>Bonjour,</p>
+        <p>Le créneau suivant a été <strong>supprimé</strong> par l’établissement :</p>
+        <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
+        <strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}<br/>
+        <strong>Créneau :</strong> ${escapeHtml(cancelledSlot)}</p>
+        ${remainingHtml}
+        <p>Si vous avez une question, contactez l’établissement.</p>
+        <p>Cordialement,<br/>L’établissement</p>
+      `,
+    });
+    return { sent: true };
+  } catch (e) {
+    return {
+      sent: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/** Mail parent : le créneau a été modifié par l’établissement (avec ICS à jour). */
+export async function sendRdvInscriptionSlotChangedByAdminMail(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  booking: RdvInscriptionBookingRow;
+  previousStartAt: string;
+  previousEndAt: string;
+  directionLabel: string;
+  directriceName?: string | null;
+  adminNote?: string | null;
+}): Promise<{ sent: boolean; error?: string }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  if (!smtp || !transporter) {
+    return {
+      sent: false,
+      error: "SMTP non configuré — créneau modifié sans e-mail parent.",
+    };
+  }
+
+  const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
+  const previousSlot = formatSlotFr(opts.previousStartAt, opts.previousEndAt);
+  const newSlot = formatSlotFr(opts.booking.startAt, opts.booking.endAt);
+  const location = opts.page.location.trim();
+  const icsLocation = buildRdvInscriptionIcsLocation(location);
+  const parentName = parentDisplayName(opts.booking);
+  const presentLabel = formatRdvAttendeeLabel(opts.booking.rdvAttendee);
+  const mailTitle = `${opts.page.title} — ${opts.directionLabel}`;
+  const gcalTitle = buildRdvInscriptionGcalSummary({
+    studentLastName: opts.booking.studentLastName,
+    studentFirstName: opts.booking.studentFirstName,
+    niveauLabel: opts.booking.niveauLabel,
+    regime: opts.booking.regime,
+  });
+  const note = opts.adminNote?.trim() || "";
+  const noteHtml = note
+    ? `<p><strong>Précision de l’établissement :</strong> ${escapeHtml(note)}</p>`
+    : "";
+
+  const ics = buildCalendarEventIcs({
+    title: gcalTitle,
+    description: [
+      `Rendez-vous d’inscription (${opts.directionLabel}) — créneau modifié.`,
+      opts.directriceName ? `Avec : ${opts.directriceName}` : "",
+      `Élève : ${student}`,
+      ...bookingDetailLines(opts.booking),
+      parentName ? `Parent : ${parentName}` : "",
+      presentLabel ? `Présent au RDV : ${presentLabel}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    location: icsLocation,
+    startAt: opts.booking.startAt,
+    endAt: opts.booking.endAt,
+    uid: `rdv-inscription-${opts.booking.id}@scola`,
+    prodId: "-//Scola//RDV inscription//FR",
+    alarms: [
+      {
+        trigger: "-P7D",
+        description: `Rappel RDV inscription — ${student}`,
+      },
+    ],
+  });
+
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to: opts.booking.parentEmail,
+      subject: `Créneau modifié — ${mailTitle}`,
+      html: `
+        <p>Bonjour,</p>
+        <p>Suite à un échange avec l’établissement, votre rendez-vous d’inscription a été
+        <strong>modifié</strong>.</p>
+        ${noteHtml}
+        <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
+        <strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}<br/>
+        <strong>Ancien créneau :</strong> ${escapeHtml(previousSlot)}<br/>
+        <strong>Nouveau créneau :</strong> ${escapeHtml(newSlot)}
+        <br/><strong>Lieu :</strong> ${escapeHtml(icsLocation)}
+        ${opts.directriceName ? `<br/><strong>Avec :</strong> ${escapeHtml(opts.directriceName)}` : ""}
+        </p>
+        <p>Un fichier calendrier (.ics) à jour est joint à cet e-mail — remplacez l’ancien
+        rendez-vous dans votre agenda si besoin.</p>
+        <p>Cordialement,<br/>L’établissement</p>
+      `,
+      attachments: [
+        {
+          filename: "rdv-inscription.ics",
+          content: ics,
+          contentType: "text/calendar",
+        },
+      ],
+    });
+    return { sent: true };
+  } catch (e) {
+    return {
+      sent: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }

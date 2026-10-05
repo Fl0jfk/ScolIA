@@ -25,6 +25,11 @@ type ChatRequest = {
     values?: string[];
     draftArgs: Record<string, unknown>;
   } | null;
+  fileApply?: {
+    tool: string;
+    draftArgs: Record<string, unknown>;
+    skipPdf?: boolean;
+  } | null;
   attachments?: Array<{ key: string; fileName: string; contentType?: string }>;
 };
 
@@ -54,10 +59,11 @@ export async function POST(req: Request) {
     const message = (body.message ?? "").trim();
     const confirm = Boolean(body.confirm);
     const choiceApply = body.choiceApply?.tool ? body.choiceApply : null;
+    const fileApply = body.fileApply?.tool ? body.fileApply : null;
     const audience = body.audience === "private" ? "private" : "public";
     const history = Array.isArray(body.history) ? body.history.slice(-12) : [];
 
-    if (!message && !(confirm && body.confirmAction?.tool) && !choiceApply) {
+    if (!message && !(confirm && body.confirmAction?.tool) && !choiceApply && !fileApply) {
       return NextResponse.json({ error: "message requis" }, { status: 400 });
     }
 
@@ -94,7 +100,15 @@ export async function POST(req: Request) {
 
     const mistralKey = (await getMistralApiKey()) ?? null;
     const result = await runBrainChat({
-      message: message || (confirm ? "(confirmation)" : choiceApply ? "(choix)" : "(confirmation)"),
+      message:
+        message ||
+        (confirm
+          ? "(confirmation)"
+          : choiceApply
+            ? "(choix)"
+            : fileApply
+              ? "(fichier)"
+              : "(confirmation)"),
       audience: toolCtx.audience,
       history,
       apiKey: mistralKey,
@@ -103,6 +117,7 @@ export async function POST(req: Request) {
       confirm,
       confirmAction: body.confirmAction ?? null,
       choiceApply,
+      fileApply,
       attachments: Array.isArray(body.attachments) ? body.attachments : undefined,
     });
 

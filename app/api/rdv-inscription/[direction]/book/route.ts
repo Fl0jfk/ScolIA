@@ -63,6 +63,12 @@ export async function POST(req: Request, ctx: Ctx) {
         ? attendeeRaw
         : undefined;
 
+    const regimeRaw = String(body.regime || "")
+      .trim()
+      .toUpperCase();
+    const regime =
+      regimeRaw === "DP" || regimeRaw === "EXT" || regimeRaw === "INT" ? regimeRaw : undefined;
+
     const result = await bookPublicRdvInscription(slug, {
       eventId: String(body.eventId || "").trim(),
       studentFirstName: String(body.studentFirstName || "").trim(),
@@ -73,6 +79,7 @@ export async function POST(req: Request, ctx: Ctx) {
       parentLastName: String(body.parentLastName || "").trim() || undefined,
       rdvAttendee,
       niveauId: String(body.niveauId || "").trim(),
+      regime,
       eleveId: body.eleveId ? String(body.eleveId).trim() : null,
       createNew: body.createNew === true || body.createNew === "true" || body.createNew === 1,
       studentDateNaissance: body.studentDateNaissance
@@ -97,6 +104,7 @@ export async function POST(req: Request, ctx: Ctx) {
       etablissementOrigineAdresse: body.etablissementOrigineAdresse
         ? String(body.etablissementOrigineAdresse).trim()
         : null,
+      confirmTyped: String(body.confirmTyped || "").trim(),
     });
 
     if (!result.ok) {
@@ -105,15 +113,27 @@ export async function POST(req: Request, ctx: Ctx) {
 
     return NextResponse.json({
       success: true,
-      pending: true,
+      pending: false,
       bookingId: result.booking.id,
       startAt: result.booking.startAt,
       endAt: result.booking.endAt,
       mailWarning: result.mailWarning || undefined,
       message:
-        "Un e-mail vient de vous être envoyé : cliquez sur le lien pour valider votre créneau.",
+        "Rendez-vous confirmé. Un e-mail de confirmation avec fichier calendrier (.ics) vous a été envoyé.",
     });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const raw = e instanceof Error ? e.message : String(e);
+    const isNetwork =
+      /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|network|UND_ERR|inaccessible \(réseau\)/i.test(
+        raw,
+      );
+    return NextResponse.json(
+      {
+        error: isNetwork
+          ? "Impossible de joindre Google Agenda pour réserver (réseau). Réessayez dans un instant."
+          : raw || "Réservation impossible.",
+      },
+      { status: 502 },
+    );
   }
 }

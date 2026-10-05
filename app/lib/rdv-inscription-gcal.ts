@@ -42,19 +42,81 @@ function encodeCalendarId(calendarId: string): string {
   return encodeURIComponent(calendarId);
 }
 
+const GCAL_FETCH_TIMEOUT_MS = 20_000;
+const GCAL_FETCH_MAX_ATTEMPTS = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Cause réseau undici souvent cachée dans `error.cause` (ex. ECONNRESET). */
+function describeNetworkError(err: unknown): string {
+  const parts: string[] = [];
+  let cur: unknown = err;
+  for (let depth = 0; depth < 4 && cur; depth += 1) {
+    if (cur instanceof Error) {
+      const code =
+        "code" in cur && typeof (cur as { code?: unknown }).code === "string"
+          ? (cur as { code: string }).code
+          : null;
+      parts.push(code ? `${cur.message} (${code})` : cur.message);
+      cur = cur.cause;
+      continue;
+    }
+    parts.push(String(cur));
+    break;
+  }
+  return parts.filter(Boolean).join(" ← ") || "erreur réseau";
+}
+
+function isTransientGoogleNetworkError(err: unknown): boolean {
+  const blob = describeNetworkError(err);
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR|socket|network|aborted|timeout/i.test(
+    blob,
+  );
+}
+
+function googleNetworkError(err: unknown): Error {
+  const detail = describeNetworkError(err);
+  return new Error(
+    `Google Calendar inaccessible (réseau). Réessayez dans un instant. Détail : ${detail}`,
+  );
+}
+
 async function gcalFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  return fetch(`${GCAL_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
+  const url = `${GCAL_BASE}${path}`;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= GCAL_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const externalSignal = init?.signal;
+      const timeoutSignal = AbortSignal.timeout(GCAL_FETCH_TIMEOUT_MS);
+      const signal =
+        externalSignal && typeof AbortSignal.any === "function"
+          ? AbortSignal.any([externalSignal, timeoutSignal])
+          : timeoutSignal;
+
+      return await fetch(url, {
+        ...init,
+        signal,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          ...(init?.headers || {}),
+        },
+      });
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientGoogleNetworkError(e) || attempt === GCAL_FETCH_MAX_ATTEMPTS) {
+        throw googleNetworkError(e);
+      }
+      await sleep(300 * 2 ** (attempt - 1));
+    }
+  }
+  throw googleNetworkError(lastErr);
 }
 
 function eventStartEnd(ev: GCalEvent): { startAt: string; endAt: string } | null {
@@ -99,25 +161,37 @@ async function listCalendarEventsInHorizon(opts: {
   if (!calendarId) return { now, items: [] };
 
   const horizon = new Date(now.getTime() + Math.max(1, opts.horizonDays) * 24 * 60 * 60 * 1000);
-  const params = new URLSearchParams({
-    timeMin: now.toISOString(),
-    timeMax: horizon.toISOString(),
-    singleEvents: "true",
-    orderBy: "startTime",
-    maxResults: "250",
-  });
+  const items: GCalEvent[] = [];
+  let pageToken: string | undefined;
 
-  const res = await gcalFetch(
-    opts.accessToken,
-    `/calendars/${encodeCalendarId(calendarId)}/events?${params.toString()}`,
-  );
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Google Calendar list events (${res.status}) : ${body.slice(0, 400)}`);
+  // Sans pagination, maxResults=250 coupe les créneaux lointains sur un agenda chargé
+  // (réunions / cours avant décembre → les RDV de décembre n’apparaissent jamais).
+  for (let page = 0; page < 20; page += 1) {
+    const params = new URLSearchParams({
+      timeMin: now.toISOString(),
+      timeMax: horizon.toISOString(),
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const res = await gcalFetch(
+      opts.accessToken,
+      `/calendars/${encodeCalendarId(calendarId)}/events?${params.toString()}`,
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Google Calendar list events (${res.status}) : ${body.slice(0, 400)}`);
+    }
+
+    const data = (await res.json()) as { items?: GCalEvent[]; nextPageToken?: string };
+    if (data.items?.length) items.push(...data.items);
+    pageToken = data.nextPageToken?.trim() || undefined;
+    if (!pageToken) break;
   }
 
-  const data = (await res.json()) as { items?: GCalEvent[] };
-  return { now, items: data.items || [] };
+  return { now, items };
 }
 
 export async function listAvailableInscriptionSlots(opts: {
@@ -165,6 +239,7 @@ export async function listAvailableInscriptionSlotsDetailed(opts: {
     }
 
     if (isScolaHeldEvent(ev)) continue;
+    if (/^annul[eé]/i.test(summary)) continue;
     if (!eventTitleMatchesPattern(summary, opts.titlePattern)) continue;
 
     slots.push({
@@ -216,12 +291,25 @@ export async function holdInscriptionCalendarEvent(opts: {
   bookingId: string;
   accessToken?: string;
 }): Promise<HoldCalendarEventResult> {
-  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
-  const current = await getCalendarEvent({
-    calendarId: opts.calendarId,
-    eventId: opts.eventId,
-    accessToken,
-  });
+  let accessToken: string;
+  let current: GCalEvent | null;
+  try {
+    accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+    current = await getCalendarEvent({
+      calendarId: opts.calendarId,
+      eventId: opts.eventId,
+      accessToken,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      reason: "error",
+      message: /réseau|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|UND_ERR/i.test(msg)
+        ? "Impossible de joindre Google Agenda (réseau). Réessayez dans un instant."
+        : msg || "Impossible de réserver le créneau.",
+    };
+  }
   if (!current?.id) {
     return { ok: false, reason: "not_found", message: "Créneau introuvable." };
   }
@@ -254,20 +342,32 @@ export async function holdInscriptionCalendarEvent(opts: {
   };
 
   const ifMatch = current.etag?.trim();
-  const res = await gcalFetch(
-    accessToken,
-    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}`,
-    {
-      method: "PATCH",
-      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
-      body: JSON.stringify({
-        extendedProperties: {
-          private: priv,
-          shared: current.extendedProperties?.shared || undefined,
-        },
-      }),
-    },
-  );
+  let res: Response;
+  try {
+    res = await gcalFetch(
+      accessToken,
+      `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}`,
+      {
+        method: "PATCH",
+        headers: ifMatch ? { "If-Match": ifMatch } : undefined,
+        body: JSON.stringify({
+          extendedProperties: {
+            private: priv,
+            shared: current.extendedProperties?.shared || undefined,
+          },
+        }),
+      },
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      reason: "error",
+      message: /réseau|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|UND_ERR/i.test(msg)
+        ? "Impossible de joindre Google Agenda (réseau). Réessayez dans un instant."
+        : msg || "Impossible de réserver le créneau.",
+    };
+  }
 
   if (res.status === 412) {
     return {
@@ -353,6 +453,7 @@ export async function confirmInscriptionCalendarEvent(opts: {
   parentLastName?: string | null;
   rdvAttendee?: "madame" | "monsieur" | "les_deux" | null;
   niveauLabel?: string | null;
+  regime?: "DP" | "EXT" | "INT" | string | null;
   dossierInscriptionUrl?: string | null;
   hasPap?: "yes" | "no" | null;
   papBringToRdv?: boolean;
@@ -406,14 +507,21 @@ export async function confirmInscriptionCalendarEvent(opts: {
     studentLastName: opts.studentLastName,
     studentFirstName: opts.studentFirstName,
     niveauLabel: opts.niveauLabel,
+    regime: opts.regime,
   });
   const parentName = [opts.parentFirstName?.trim(), opts.parentLastName?.trim()]
     .filter(Boolean)
     .join(" ");
   const presentLabel = formatRdvAttendeeLabel(opts.rdvAttendee);
+  const regimeCode = String(opts.regime || "")
+    .trim()
+    .toUpperCase();
   const descriptionLines = [
     `Élève : ${opts.studentFirstName.trim()} ${opts.studentLastName.trim()}`,
     opts.niveauLabel?.trim() ? `Niveau demandé : ${opts.niveauLabel.trim()}` : "",
+    regimeCode === "DP" || regimeCode === "EXT" || regimeCode === "INT"
+      ? `Régime : ${regimeCode}`
+      : "",
     opts.etablissementOrigineLabel?.trim()
       ? `Établissement d’origine : ${opts.etablissementOrigineLabel.trim()}`
       : "",
@@ -554,6 +662,23 @@ export async function cancelConfirmedInscriptionEvent(opts: {
   bookingId: string;
   accessToken?: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
+  return retireInscriptionCalendarSlot({
+    ...opts,
+    reasonLine: "Annulé par le parent (reconfirmation J-7).",
+  });
+}
+
+/**
+ * Retire un créneau (pending ou confirmé) sans le remettre libre :
+ * titre ANNULÉ, transparent, props ScolIA effacées — ne réapparaît pas dans la liste publique.
+ */
+export async function retireInscriptionCalendarSlot(opts: {
+  calendarId: string;
+  eventId: string;
+  bookingId: string;
+  reasonLine?: string;
+  accessToken?: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
   const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
   const current = await getCalendarEvent({
     calendarId: opts.calendarId,
@@ -564,23 +689,33 @@ export async function cancelConfirmedInscriptionEvent(opts: {
     return { ok: true };
   }
 
+  const priv: Record<string, string> = {
+    ...(current.extendedProperties?.private || {}),
+  };
+  const owned =
+    !priv[SCOLA_BOOKING_ID_PROP] || priv[SCOLA_BOOKING_ID_PROP] === opts.bookingId;
+  if (!owned) {
+    return {
+      ok: false,
+      message: "Créneau rattaché à une autre réservation — retrait refusé.",
+    };
+  }
+
   const summary = (current.summary || "").trim();
   const newSummary = summary.startsWith("ANNULÉ")
     ? summary
     : `ANNULÉ — ${summary || "Rendez-vous"}`;
   const desc = [
     (current.description || "").trim(),
-    "Annulé par le parent (reconfirmation J-7).",
+    opts.reasonLine?.trim() || "Créneau retiré par l’établissement.",
     `Réf. : ${opts.bookingId}`,
   ]
     .filter(Boolean)
     .join("\n");
 
-  const priv: Record<string, string> = {
-    ...(current.extendedProperties?.private || {}),
-  };
   delete priv[SCOLA_BOOKED_PROP];
   delete priv[SCOLA_PENDING_PROP];
+  delete priv[SCOLA_BOOKING_ID_PROP];
 
   const res = await gcalFetch(
     accessToken,
@@ -603,7 +738,72 @@ export async function cancelConfirmedInscriptionEvent(opts: {
     const body = await res.text();
     return {
       ok: false,
-      message: `Annulation Google échouée (${res.status}): ${body.slice(0, 200)}`,
+      message: `Retrait Google échoué (${res.status}): ${body.slice(0, 200)}`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Remet un créneau confirmé à l’état « libre » (titre motif, sans props ScolIA)
+ * pour qu’il réapparaisse dans la liste publique.
+ */
+export async function restoreInscriptionCalendarSlot(opts: {
+  calendarId: string;
+  eventId: string;
+  bookingId: string;
+  restoreTitle: string;
+  accessToken?: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const current = await getCalendarEvent({
+    calendarId: opts.calendarId,
+    eventId: opts.eventId,
+    accessToken,
+  });
+  if (!current?.id) {
+    return { ok: true };
+  }
+
+  const priv: Record<string, string> = {
+    ...(current.extendedProperties?.private || {}),
+  };
+  const owned =
+    !priv[SCOLA_BOOKING_ID_PROP] || priv[SCOLA_BOOKING_ID_PROP] === opts.bookingId;
+  if (!owned) {
+    return {
+      ok: false,
+      message: "Créneau rattaché à une autre réservation — restauration refusée.",
+    };
+  }
+
+  delete priv[SCOLA_BOOKED_PROP];
+  delete priv[SCOLA_PENDING_PROP];
+  delete priv[SCOLA_BOOKING_ID_PROP];
+
+  const restoreTitle = opts.restoreTitle.trim() || "Rendez-vous inscription";
+  const res = await gcalFetch(
+    accessToken,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=none`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        summary: restoreTitle,
+        description: "",
+        transparency: "opaque",
+        attendees: [],
+        extendedProperties: {
+          private: priv,
+          shared: current.extendedProperties?.shared || undefined,
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    return {
+      ok: false,
+      message: `Restauration Google échouée (${res.status}): ${body.slice(0, 200)}`,
     };
   }
   return { ok: true };

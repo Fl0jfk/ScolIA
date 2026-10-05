@@ -21,6 +21,9 @@ export const STAGE_S3 = {
   watchersConfig: (schoolYear: string) => `stages/watchers/${schoolYear}.json`,
   /** Challenge OTP connexion préconvention (courte durée). */
   identityOtpChallenge: (challengeId: string) => `stages/identity-otp/${challengeId}.json`,
+  /** Choix des destinataires OTP (adresses masquées, courte durée). */
+  identityRecipientChoice: (sessionId: string) =>
+    `stages/identity-recipient-choice/${sessionId}.json`,
   /** Preuve d'identité post-OTP (session courte pour create / reprise appareil). */
   identityProof: (proofToken: string) => `stages/identity-proof/${proofToken}.json`,
   referentSignature: (externalUserId: string) => `signatures/users/${externalUserId}.png`,
@@ -139,6 +142,37 @@ export type StageSignatureStatus = "en_attente" | "signe" | "refuse";
 /** Mode de signature choisi par le signataire externe (parent, entreprise). */
 export type StageSignMethod = "code_confirm" | "touch" | "paper_upload";
 
+/** Message du mini-chat convention (lien signature / intranet). */
+export type StageDiscussionMessage = {
+  id: string;
+  at: string;
+  authorRole: StageSignerRole | "secretariat";
+  authorLabel: string;
+  body: string;
+};
+
+/** Rôles autorisés à participer au fil via le lien de signature. */
+export const STAGE_DISCUSSION_LINK_ROLES: StageSignerRole[] = [
+  "direction",
+  "parent",
+  "parent_2",
+  "tuteur_entreprise",
+  "rh_entreprise",
+  "professeur_referent",
+  "professeur_principal",
+];
+
+/** Rôles autorisés à demander un avenant via le lien de signature. */
+export const STAGE_AMENDMENT_LINK_ROLES: StageSignerRole[] = [
+  "direction",
+  "parent",
+  "parent_2",
+  "tuteur_entreprise",
+  "rh_entreprise",
+  "professeur_referent",
+  "professeur_principal",
+];
+
 /** Validation administrative d'une signature soumise. */
 export type StageSignatureReviewStatus = "pending" | "accepted" | "rejected";
 
@@ -214,8 +248,34 @@ export type StageCompanyInfo = {
   tutorName: string;
   tutorEmail: string;
   tutorPhone?: string;
+  /**
+   * Case « RH / signataire entreprise supplémentaire ».
+   * Si true : prénom, nom et e-mail RH deviennent obligatoires pour pouvoir signer.
+   */
+  rhExtraSigner?: boolean;
+  rhFirstName?: string;
+  rhLastName?: string;
   rhEmail?: string;
 };
+
+/** Prénom + nom du RH supplémentaire (affichage PDF / fiche). */
+export function stageCompanyRhDisplayName(
+  company: Pick<StageCompanyInfo, "rhFirstName" | "rhLastName">,
+): string {
+  return [company.rhFirstName?.trim(), company.rhLastName?.trim()].filter(Boolean).join(" ");
+}
+
+/** L’élève / l’admin a demandé un signataire RH en plus du tuteur. */
+export function stageCompanyWantsRhSigner(company: StageCompanyInfo): boolean {
+  if (company.rhExtraSigner === false) return false;
+  if (company.rhExtraSigner === true) return true;
+  // Legacy : un champ RH déjà renseigné (ex. seul l’e-mail).
+  return Boolean(
+    company.rhEmail?.trim() ||
+      company.rhFirstName?.trim() ||
+      company.rhLastName?.trim(),
+  );
+}
 
 /** Adresse entreprise complète pour affichage / PDF. */
 export function formatCompanyAddress(company: Pick<StageCompanyInfo, "address" | "postalCode" | "city">): string {
@@ -264,16 +324,25 @@ export type StageConvention = {
     note?: string;
   };
   /**
-   * Demande tuteur (lien signature) de modification période / jours / horaires.
+   * Demande d'avenant (dates / jours / horaires) via lien signature ou secrétariat.
    * Appliquée seulement après validation administrative — invalide alors toutes les signatures.
    */
   scheduleChangeRequest?: {
     requestedSchedule: StageSchedule;
     previousSchedule: StageSchedule;
     requestedAt: string;
-    requestedByRole: StageSignerRole;
+    requestedByRole: StageSignerRole | "secretariat";
     requestedByLabel: string;
     note?: string;
+    /** Origine de la demande (école vs partie via lien). */
+    source?: "sign_link" | "staff";
+  };
+  /**
+   * Mini-fil de discussion (direction, RL, tuteur, prof référent, RH, secrétariat).
+   * Accessible uniquement via le lien de signature (ou intranet stages).
+   */
+  discussion?: {
+    messages: StageDiscussionMessage[];
   };
   adminReview?: {
     at: string;
@@ -318,7 +387,7 @@ export type StageConvention = {
     /**
      * Origine du fichier principal :
      * - scolia_generated : PDF reconstruit depuis la préconvention
-     * - paper_signed : scan papier (signature manuscrite conservée) + annexe e-sign
+     * - paper_signed : scan papier (signature manuscrite conservée) ou import admin hors plateforme
      * - external_upload : dépôt élève / OCR
      */
     source?: "scolia_generated" | "paper_signed" | "external_upload";
@@ -406,6 +475,19 @@ export const STAGE_CONVENTION_STATUS_LABELS: Record<StageConventionStatus, strin
   archived: "Archivée",
 };
 
+/** Confirmation obligatoire pour supprimer un stage (admin). */
+export const STAGE_CANCEL_CONFIRM_WORD = "supprimer";
+
+/** Message affiché sur les liens publics après annulation. */
+export const STAGE_CANCELLED_PUBLIC_MESSAGE =
+  "Cette demande de stage a été annulée. Les liens de signature ne sont plus valides.";
+
+export function isStageConventionCancelled(
+  convention: { status: StageConventionStatus } | null | undefined,
+): boolean {
+  return convention?.status === "cancelled" || convention?.status === "archived";
+}
+
 export const STAGE_SIGNER_ROLE_LABELS: Record<StageSignerRole, string> = {
   eleve: "Élève",
   parent: "Responsable légal 1",
@@ -441,14 +523,27 @@ export function canStageSignerUsePaperUpload(role: StageSignerRole): boolean {
   return role === "tuteur_entreprise" || role === "rh_entreprise";
 }
 
+/**
+ * Convention créée / importée par l'admin alors que le PDF était déjà entièrement
+ * signé hors ScolIA (papier) — aucun circuit de signatures électroniques.
+ */
+export function isOfflinePaperConvention(convention: StageConvention): boolean {
+  if (convention.status !== "signed") return false;
+  if (convention.signatures.length > 0) return false;
+  if (convention.uploadedPdf?.source === "paper_signed") return true;
+  return convention.history.some((h) => h.action === "IMPORT_HORS_PLATEFORME");
+}
+
 export function isParentStageSignerRole(role: StageSignerRole): boolean {
   return role === "parent" || role === "parent_2";
 }
 
 /**
  * Convention complète quand tous les signataires requis ont validé.
- * Parents : les deux peuvent être invités et signer ; dès qu'un des deux a signé,
- * l'exigence « responsable légal » est satisfaite (l'autre n'est pas bloquant).
+ * Parents : les deux restent invitables et peuvent signer tant que d'autres
+ * signataires sont en cours. Dès qu'un parent a signé et que tous les
+ * non-parents ont validé, l'exigence « responsable légal » est satisfaite
+ * (le second parent n'est plus bloquant — dernière signature skippable).
  */
 export function conventionAllSignaturesValidated(signatures: StageSignature[]): boolean {
   if (signatures.length === 0) return false;

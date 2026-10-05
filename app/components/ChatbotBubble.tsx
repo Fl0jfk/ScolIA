@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   Fragment,
   useCallback,
@@ -21,9 +20,18 @@ import {
   saveScoliaMemory,
   SCOLIA_AI_NAME,
   SCOLIA_AI_PAGE_PATH,
+  type ScoliaMemoryCta,
+  type ScoliaMemoryDocCatalog,
   type ScoliaMemoryMessage,
 } from "@/app/lib/brain-ai/scolia-memory";
-import { SCOLIA_ASK_EVENT, type ScoliaAskDetail } from "@/app/lib/brain-ai/scolia-ask";
+import { SCOLIA_ASK_EVENT, SCOLIA_OPEN_EVENT, type ScoliaAskDetail, type ScoliaOpenDetail } from "@/app/lib/brain-ai/scolia-ask";
+import {
+  ScoliaUrlModal,
+  useScoliaClientActions,
+} from "@/app/components/scolia/ScoliaClientActions";
+import BrainDocCatalogPanel from "@/app/components/scolia/BrainDocCatalogPanel";
+import { useEleveDossierModalOptional } from "@/app/components/shell/EleveDossierModalProvider";
+import type { BrainClientAction } from "@/app/lib/brain-ai/types";
 
 type PendingConfirmation = {
   tool: string;
@@ -40,19 +48,57 @@ type PendingChoices = {
   selectionType?: "single" | "multi" | "date" | "text";
 };
 
-type BrainCta = { label: string; href: string };
+type PendingFileUpload = {
+  tool: string;
+  promptFr: string;
+  draftArgs: Record<string, unknown>;
+  optional?: boolean;
+  accept?: string;
+};
+
+type BrainCta = ScoliaMemoryCta;
 
 type PendingFile = {
   file: File;
   name: string;
 };
 
-type LayoutMode = "window" | "expanded";
+const ELEVE_DOC_FILE_HREF =
+  /^\/api\/eleves\/[^/]+\/documents\/[^/]+\/file\/?$/;
 
-function renderMessageContent(content: string) {
-  const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+function isEleveDocumentHref(href: string): boolean {
+  return ELEVE_DOC_FILE_HREF.test((href.split("?")[0] || "").trim());
+}
+
+function linkPillClass(onDark: boolean): string {
+  return onDark
+    ? "inline-flex max-w-full items-center gap-1 truncate rounded-full bg-white/15 px-2.5 py-0.5 text-[13px] font-semibold text-[var(--dash-lime)] no-underline ring-1 ring-white/20 transition hover:bg-white/25"
+    : "inline-flex max-w-full items-center gap-1 truncate rounded-full bg-[color:var(--dash-lime)]/55 px-2.5 py-0.5 text-[13px] font-semibold text-[var(--dash-ink)] no-underline ring-1 ring-black/5 transition hover:bg-[color:var(--dash-lime)]";
+}
+
+function shortUrlLabel(rawUrl: string): string {
+  try {
+    const u = new URL(rawUrl);
+    const path = u.pathname === "/" ? "" : u.pathname;
+    const label = `${u.hostname}${path}`;
+    return label.length > 42 ? `${label.slice(0, 40)}…` : label;
+  } catch {
+    return rawUrl.length > 42 ? `${rawUrl.slice(0, 40)}…` : rawUrl;
+  }
+}
+
+function renderMessageContent(
+  content: string,
+  opts: {
+    onDark?: boolean;
+    onPreviewHref?: (href: string, label: string) => void;
+  } = {},
+) {
+  const onDark = opts.onDark ?? false;
+  const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g;
   const urlRegex = /\bhttps?:\/\/[^\s<>"')\]]+/g;
   const lines = content.split("\n");
+  const pill = linkPillClass(onDark);
 
   return lines.map((line, lineIndex) => {
     const nodes: Array<string | ReactElement> = [];
@@ -72,9 +118,10 @@ function renderMessageContent(content: string) {
             href={rawUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sky-700 underline break-all"
+            className={pill}
+            title={rawUrl}
           >
-            {rawUrl}
+            {shortUrlLabel(rawUrl)}
           </a>,
         );
         plainCursor = end;
@@ -84,22 +131,37 @@ function renderMessageContent(content: string) {
 
     for (const match of line.matchAll(markdownLinkRegex)) {
       const full = match[0];
-      const label = match[1];
-      const href = match[2];
+      const label = match[1] || "Ouvrir";
+      const href = match[2] || "";
       const start = match.index ?? 0;
       const end = start + full.length;
       if (start > cursor) pushPlainWithUrls(line.slice(cursor, start));
-      nodes.push(
-        <a
-          key={`md_${lineIndex}_${key++}`}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sky-700 underline break-all"
-        >
-          {label}
-        </a>,
-      );
+      const external = href.startsWith("http");
+      if (isEleveDocumentHref(href) && opts.onPreviewHref) {
+        nodes.push(
+          <button
+            key={`md_${lineIndex}_${key++}`}
+            type="button"
+            onClick={() => opts.onPreviewHref?.(href, label)}
+            className={pill}
+            title={label}
+          >
+            {label}
+          </button>,
+        );
+      } else {
+        nodes.push(
+          <a
+            key={`md_${lineIndex}_${key++}`}
+            href={href}
+            {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            className={pill}
+            title={href}
+          >
+            {label}
+          </a>,
+        );
+      }
       cursor = end;
     }
     if (cursor < line.length) pushPlainWithUrls(line.slice(cursor));
@@ -111,6 +173,79 @@ function renderMessageContent(content: string) {
       </Fragment>
     );
   });
+}
+
+function ChatMessageActions({
+  ctas,
+  onPreview,
+  onOpenDossier,
+  onNavigate,
+}: {
+  ctas: BrainCta[];
+  onPreview: (href: string, label: string) => void;
+  onOpenDossier: ((eleveId: string) => void) | null;
+  onNavigate: (href: string) => void;
+}) {
+  if (ctas.length === 0) return null;
+
+  const previewCount = ctas.filter((c) => c.preview).length;
+  const heading =
+    previewCount > 0 && previewCount === ctas.length
+      ? "Documents"
+      : previewCount > 0
+        ? "Documents & fiches"
+        : "Liens";
+
+  return (
+    <div className="mt-2.5 overflow-hidden rounded-2xl border border-black/8 bg-[#f4f5f3]">
+      <p className="border-b border-black/5 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
+        {heading}
+      </p>
+      <ul className="divide-y divide-black/5">
+        {ctas.map((c, idx) => {
+          const dossierMatch = c.href.match(/^\/eleves\/dossier\/([^/?#]+)\/?$/);
+          const isPreview = Boolean(c.preview) || isEleveDocumentHref(c.href);
+          const onClick = () => {
+            if (isPreview) {
+              onPreview(c.href, c.label);
+              return;
+            }
+            if (dossierMatch && onOpenDossier) {
+              onOpenDossier(dossierMatch[1]!);
+              return;
+            }
+            onNavigate(c.href);
+          };
+          return (
+            <li key={`${c.href}_${c.label}_${idx}`}>
+              <button
+                type="button"
+                onClick={onClick}
+                className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white"
+              >
+                <span
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold ${
+                    isPreview
+                      ? "bg-[color:var(--dash-lime)]/70 text-[var(--dash-ink)]"
+                      : "bg-[var(--dash-ink)] text-white"
+                  }`}
+                  aria-hidden
+                >
+                  {isPreview ? "PDF" : "→"}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--dash-ink)]">
+                  {c.label}
+                </span>
+                <span className="shrink-0 text-[11px] font-semibold text-neutral-400 transition group-hover:text-[var(--dash-ink)]">
+                  Ouvrir
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 async function uploadPdf(file: File): Promise<{ key: string; fileName: string; contentType: string }> {
@@ -137,38 +272,41 @@ async function uploadPdf(file: File): Promise<{ key: string; fileName: string; c
 type Props = {
   /** Mode page dédiée (/scolia-ai) — pas de bulle flottante. */
   pageMode?: boolean;
+  /** Intégré dans un layout parent (hub dashboard) — hauteur 100% au lieu de 100dvh. */
+  embedded?: boolean;
 };
 
-export default function ChatbotBubble({ pageMode = false }: Props) {
+export default function ChatbotBubble({ pageMode = false, embedded = false }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const { isSignedIn } = useSessionUser();
+  const { runActions, urlModal, closeUrlModal, openUrlPreview } = useScoliaClientActions();
+  const dossierModal = useEleveDossierModalOptional();
   const [open, setOpen] = useState(pageMode);
-  const [layout, setLayout] = useState<LayoutMode>(pageMode ? "expanded" : "window");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [interimSpeech, setInterimSpeech] = useState("");
   const [input, setInput] = useState("");
   const [mounted, setMounted] = useState(false);
-  /** ≥1024px : bulle flottante + boutons Mac. En dessous : plein écran + croix. */
-  const [isDesktopChat, setIsDesktopChat] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [memoryReady, setMemoryReady] = useState(false);
   const [messages, setMessages] = useState<ScoliaMemoryMessage[]>([defaultWelcomeMessage()]);
   const [conversationState, setConversationState] = useState<Record<string, unknown> | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [pendingChoices, setPendingChoices] = useState<PendingChoices | null>(null);
+  const [pendingFileUpload, setPendingFileUpload] = useState<PendingFileUpload | null>(null);
   const [choiceDraft, setChoiceDraft] = useState("");
   const [choiceMulti, setChoiceMulti] = useState<string[]>([]);
-  const [ctas, setCtas] = useState<BrainCta[]>([]);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const scrollYRef = useRef(0);
+  /** Texte final dicté — envoyé auto quand le micro s’arrête. */
+  const voiceFinalRef = useRef("");
+  const sendRef = useRef<(opts?: { message?: string }) => void>(() => undefined);
 
   const hidden = useMemo(() => {
     if (pageMode) return false;
@@ -181,10 +319,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
   useEffect(() => {
     setMounted(true);
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const syncDesktop = () => setIsDesktopChat(mq.matches);
-    syncDesktop();
-    mq.addEventListener("change", syncDesktop);
     const supported = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
     setSpeechSupported(supported);
     const mem = loadScoliaMemory();
@@ -195,7 +329,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       setPendingChoices(mem.pendingChoices ?? null);
     }
     setMemoryReady(true);
-    return () => mq.removeEventListener("change", syncDesktop);
   }, []);
 
   useEffect(() => {
@@ -209,7 +342,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   }, [messages, conversationState, pendingConfirmation, pendingChoices, memoryReady]);
 
   useEffect(() => {
-    if (!open || pageMode || layout !== "expanded") return;
+    if (!open || pageMode) return;
     const body = document.body;
     const html = document.documentElement;
     const previousBodyOverflow = body.style.overflow;
@@ -221,7 +354,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       html.style.overscrollBehavior = "";
       window.scrollTo(0, scrollYRef.current);
     };
-  }, [open, layout, pageMode]);
+  }, [open, pageMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -231,16 +364,13 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   }, [messages, loading, open, listening, pendingConfirmation, pendingChoices]);
 
   useEffect(() => {
-    if (!open || pageMode || layout === "expanded") return;
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (panelRef.current?.contains(target)) return;
-      if (buttonRef.current?.contains(target)) return;
-      setOpen(false);
+    if (!open || pageMode) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [open, pageMode, layout]);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, pageMode]);
 
   const stopVoice = useCallback(() => {
     try {
@@ -256,6 +386,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   const startVoiceInput = () => {
     if (!speechSupported || loading) return;
     if (listening) {
+      // Arrêt manuel : onend enverra le texte dicté.
       stopVoice();
       return;
     }
@@ -269,6 +400,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
     recognitionRef.current = recognition;
+    voiceFinalRef.current = "";
     setListening(true);
     setInterimSpeech("");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -282,15 +414,33 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       }
       if (interim) setInterimSpeech(interim.trim());
       if (finalText.trim()) {
-        setInput((prev) => (prev ? `${prev} ${finalText.trim()}` : finalText.trim()));
+        const chunk = finalText.trim();
+        voiceFinalRef.current = voiceFinalRef.current
+          ? `${voiceFinalRef.current} ${chunk}`
+          : chunk;
+        setInput(voiceFinalRef.current);
         setInterimSpeech("");
       }
     };
-    recognition.onerror = () => stopVoice();
+    recognition.onerror = () => {
+      recognitionRef.current = null;
+      setListening(false);
+      setInterimSpeech("");
+      // En cas d’erreur après du texte final, on envoie quand même.
+      const text = voiceFinalRef.current.trim();
+      voiceFinalRef.current = "";
+      if (text) sendRef.current({ message: text });
+    };
     recognition.onend = () => {
       recognitionRef.current = null;
       setListening(false);
       setInterimSpeech("");
+      const text = voiceFinalRef.current.trim();
+      voiceFinalRef.current = "";
+      if (text) {
+        setInput("");
+        sendRef.current({ message: text });
+      }
     };
     recognition.start();
   };
@@ -306,14 +456,22 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       values?: string[];
       draftArgs: Record<string, unknown>;
     } | null;
+    fileApply?: {
+      tool: string;
+      draftArgs: Record<string, unknown>;
+      skipPdf?: boolean;
+    } | null;
     files?: PendingFile[];
   }) => {
     const message = (opts?.message ?? input).trim();
     const isConfirm = Boolean(opts?.confirm && opts.confirmAction?.tool);
     const isChoice = Boolean(opts?.choiceApply?.tool);
+    const isFileApply = Boolean(opts?.fileApply?.tool);
     const filesToSend = opts?.files ?? pendingFiles;
-    if ((!message && !isConfirm && !isChoice && filesToSend.length === 0) || loading) return;
-    if (!isConfirm && !isChoice) {
+    if ((!message && !isConfirm && !isChoice && !isFileApply && filesToSend.length === 0) || loading) return;
+    // Évite un double envoi si stopVoice déclenche onend pendant un send manuel.
+    voiceFinalRef.current = "";
+    if (!isConfirm && !isChoice && !isFileApply) {
       setInput("");
       setPendingFiles([]);
     }
@@ -324,12 +482,14 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             ? opts!.choiceApply!.values.join(", ")
             : opts!.choiceApply!.value || "Choix")
         : "")
+      || (isFileApply
+        ? (opts!.fileApply!.skipPdf ? "Continuer sans PDF" : "PDF joint")
+        : "")
       || (filesToSend.length ? `(fichier : ${filesToSend.map((f) => f.name).join(", ")})` : "");
     if (userLabel) {
       setMessages((prev) => [...prev, { role: "user", content: userLabel }]);
     }
     setLoading(true);
-    setCtas([]);
     stopVoice();
     try {
       let attachments: Array<{ key: string; fileName: string; contentType: string }> | undefined;
@@ -338,21 +498,31 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         for (const pf of filesToSend) {
           attachments.push(await uploadPdf(pf.file));
         }
+        setPendingFiles([]);
       }
 
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: message || (isConfirm ? "(confirmation)" : isChoice ? "(choix)" : "Voici un document joint."),
+          message:
+            message ||
+            (isConfirm
+              ? "(confirmation)"
+              : isChoice
+                ? "(choix)"
+                : isFileApply
+                  ? "(fichier)"
+                  : "Voici un document joint."),
           audience: isSignedIn ? "private" : "public",
-          history: messages.slice(-10),
+          history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
           conversationState: conversationState || undefined,
           confirm: isConfirm,
           confirmAction: isConfirm
             ? { tool: opts!.confirmAction!.tool, args: opts!.confirmAction!.args }
             : undefined,
           choiceApply: isChoice ? opts!.choiceApply : undefined,
+          fileApply: isFileApply ? opts!.fileApply : undefined,
           attachments,
         }),
       });
@@ -374,23 +544,95 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         setChoiceDraft("");
         setChoiceMulti([]);
       }
-      if (Array.isArray(data.ctas)) {
-        setCtas(
-          data.ctas.filter(
-            (c: unknown): c is BrainCta =>
-              Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"),
-          ),
-        );
+      if (data.pendingFileUpload?.tool) {
+        setPendingFileUpload(data.pendingFileUpload as PendingFileUpload);
       } else {
-        setCtas([]);
+        setPendingFileUpload(null);
       }
+      const nextCtas: BrainCta[] = Array.isArray(data.ctas)
+        ? data.ctas
+            .filter(
+              (c: unknown): c is BrainCta =>
+                Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"),
+            )
+            .map((c: BrainCta) => ({
+              label: String(c.label || "Ouvrir"),
+              href: c.href,
+              ...(c.preview ? { preview: true as const } : {}),
+              ...(c.subtitle ? { subtitle: String(c.subtitle) } : {}),
+              ...(c.group ? { group: String(c.group) } : {}),
+            }))
+        : [];
+      const nextDocCatalog: ScoliaMemoryDocCatalog | undefined = (() => {
+        const raw = data.docCatalog;
+        if (!raw || typeof raw !== "object" || !Array.isArray(raw.groups)) return undefined;
+        const groups = raw.groups
+          .filter(
+            (g: unknown): g is ScoliaMemoryDocCatalog["groups"][number] =>
+              Boolean(g && typeof g === "object" && Array.isArray((g as { items?: unknown }).items)),
+          )
+          .map((g: ScoliaMemoryDocCatalog["groups"][number]) => ({
+            title: String(g.title || "—"),
+            count: Number(g.count) || g.items.length,
+            items: g.items
+              .filter(
+                (it: unknown) =>
+                  Boolean(
+                    it &&
+                      typeof it === "object" &&
+                      typeof (it as { href?: unknown }).href === "string" &&
+                      typeof (it as { title?: unknown }).title === "string",
+                  ),
+              )
+              .map((it: ScoliaMemoryDocCatalog["groups"][number]["items"][number]) => ({
+                title: String(it.title),
+                href: String(it.href),
+                ...(it.subtitle ? { subtitle: String(it.subtitle) } : {}),
+                ...(it.preview ? { preview: true as const } : {}),
+                ...(it.dossierHref ? { dossierHref: String(it.dossierHref) } : {}),
+                ...(it.ext ? { ext: String(it.ext) } : {}),
+              })),
+          }))
+          .filter((g: ScoliaMemoryDocCatalog["groups"][number]) => g.items.length > 0);
+        if (groups.length === 0) return undefined;
+        return {
+          title: String(raw.title || `${raw.total || 0} document(s)`),
+          ...(raw.kindLabel ? { kindLabel: String(raw.kindLabel) } : {}),
+          total: Number(raw.total) || groups.reduce((a: number, g: { count: number }) => a + g.count, 0),
+          groups,
+        };
+      })();
+      const answerText = data.answer || data.error || "Je ne peux pas répondre pour le moment.";
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: data.answer || data.error || "Je ne peux pas répondre pour le moment.",
+          content: answerText,
+          ...(nextCtas.length > 0 ? { ctas: nextCtas } : {}),
+          ...(nextDocCatalog ? { docCatalog: nextDocCatalog } : {}),
         },
       ]);
+      if (Array.isArray(data.clientActions)) {
+        runActions(data.clientActions as BrainClientAction[]);
+      }
+      // Persistance serveur (best-effort) — historique multi-appareils
+      if (isSignedIn && data.conversationState?.conversationId) {
+        const convId = String(data.conversationState.conversationId);
+        const toPersist: Array<{ role: "user" | "assistant"; content: string }> = [];
+        if (userLabel) toPersist.push({ role: "user", content: userLabel });
+        toPersist.push({ role: "assistant", content: answerText });
+        void fetch(`/api/chatbot/conversations/${encodeURIComponent(convId)}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: toPersist,
+            state: data.conversationState,
+            titleHint: userLabel || undefined,
+          }),
+        }).catch(() => {
+          /* ignore */
+        });
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -401,7 +643,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     }
   };
 
-  const sendRef = useRef(send);
   sendRef.current = send;
 
   useEffect(() => {
@@ -418,8 +659,17 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         void sendRef.current({ message: prompt });
       }, 50);
     };
+    const onOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent<ScoliaOpenDetail>).detail;
+      setOpen(true);
+      if (detail?.draft?.trim()) setInput(detail.draft.trim());
+    };
     window.addEventListener(SCOLIA_ASK_EVENT, onAsk as EventListener);
-    return () => window.removeEventListener(SCOLIA_ASK_EVENT, onAsk as EventListener);
+    window.addEventListener(SCOLIA_OPEN_EVENT, onOpen as EventListener);
+    return () => {
+      window.removeEventListener(SCOLIA_ASK_EVENT, onAsk as EventListener);
+      window.removeEventListener(SCOLIA_OPEN_EVENT, onOpen as EventListener);
+    };
   }, []);
 
   const confirmPending = () => {
@@ -549,240 +799,182 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     setPendingChoices(null);
     setChoiceDraft("");
     setChoiceMulti([]);
-    setCtas([]);
     setPendingFiles([]);
     setInput("");
   };
 
-  const openExpanded = () => {
-    setLayout("expanded");
-    setOpen(true);
-  };
-
-  const collapseToWindow = () => {
+  const closeChat = () => {
     if (pageMode) {
       router.push("/dashboard");
       return;
     }
-    setLayout("window");
+    setOpen(false);
   };
 
   if (hidden) return null;
 
-  const isExpanded = pageMode || layout === "expanded";
+  /** Toujours le mode conversation large (page dédiée ou modale centrale). */
+  const isExpanded = true;
 
   const renderChatBody = () => (
     <div
-      className={`relative h-full flex flex-col ${dragOver ? "ring-2 ring-emerald-400/60 ring-inset" : ""}`}
+      className={`relative flex h-full flex-col ${dragOver ? "ring-2 ring-[color:var(--dash-lime)]/70 ring-inset" : ""}`}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
       {dragOver ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-emerald-50/80 backdrop-blur-[2px]">
-          <div className="rounded-2xl border-2 border-dashed border-emerald-500 bg-white/90 px-6 py-5 text-center shadow-lg">
-            <p className="text-sm font-semibold text-emerald-900">Déposez votre PDF ici</p>
-            <p className="mt-1 text-[11px] text-emerald-800/80">ScolIA l’ajoutera à la conversation</p>
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[color:var(--dash-soft-muted)]/90 backdrop-blur-[2px]">
+          <div className="rounded-[1.5rem] border-2 border-dashed border-[var(--dash-ink)] bg-white/95 px-6 py-5 text-center shadow-lg">
+            <p className="text-sm font-semibold text-[var(--dash-ink)]">Déposez votre PDF ici</p>
+            <p className="mt-1 text-[11px] text-neutral-600">ScolIA l’ajoutera à la conversation</p>
           </div>
         </div>
       ) : null}
-      {/* Header */}
-      <div
-        className={`relative flex items-center gap-3 border-b ${
-          isExpanded
-            ? "justify-between border-white/10 bg-transparent px-5 py-4 pt-[max(16px,env(safe-area-inset-top))]"
-            : "justify-between border-white/45 bg-white/45 px-3 py-2.5 pt-[max(10px,env(safe-area-inset-top))] text-[var(--dash-ink,#14231A)] backdrop-blur-xl"
-        }`}
-      >
-        {!pageMode && !isExpanded ? (
-          <>
-            {/* Desktop : boutons type Mac */}
-            <div className="z-[1] hidden w-14 shrink-0 items-center gap-1.5 lg:flex" aria-label="Contrôles fenêtre">
-              <button
-                type="button"
-                title="Fermer"
-                onClick={() => setOpen(false)}
-                className="h-3 w-3 rounded-full bg-[#ff5f57] shadow-sm hover:brightness-110"
-              />
-              <button
-                type="button"
-                title="Réduire"
-                onClick={() => setOpen(false)}
-                className="h-3 w-3 rounded-full bg-[#febc2e] shadow-sm hover:brightness-110"
-              />
-              <button
-                type="button"
-                title="Agrandir"
-                onClick={openExpanded}
-                className="h-3 w-3 rounded-full bg-[#28c840] shadow-sm hover:brightness-110"
-              />
+
+      {!embedded ? (
+        <div className="relative flex items-center justify-between gap-3 border-b border-black/5 bg-white/85 px-5 py-3.5 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-md">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)]">
+              <ScoliaAiMark size="sm" inverted fill />
             </div>
-            {/* Mobile / tablette : croix de fermeture */}
-            <button
-              type="button"
-              title="Fermer"
-              aria-label={`Fermer ${SCOLIA_AI_NAME}`}
-              onClick={() => setOpen(false)}
-              className="z-[1] flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-white/80 text-slate-600 hover:bg-white hover:text-slate-900 lg:hidden"
-            >
-              <span className="text-lg leading-none" aria-hidden>
-                ×
-              </span>
-            </button>
-          </>
-        ) : (
-          <div className="flex min-w-0 items-center gap-2">
             <div className="min-w-0">
-              <ScoliaAiMark size={isExpanded ? "lg" : "sm"} rain={false} />
-              {isExpanded ? (
-                <p className="mt-1 truncate text-[11px] text-slate-500">
-                  Assistant de votre établissement
-                </p>
-              ) : null}
+              <p className="truncate text-sm font-bold text-[var(--dash-ink)]">{SCOLIA_AI_NAME}</p>
+              <p className="truncate text-[11px] text-neutral-500">Assistant de votre établissement</p>
             </div>
           </div>
-        )}
 
-        {!isExpanded && !pageMode ? (
-          <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-            <ScoliaAiMark size="sm" rain={false} />
-          </div>
-        ) : null}
-
-        <div
-          className={`z-[1] flex shrink-0 items-center gap-2 ${
-            !isExpanded && !pageMode ? "w-9 justify-end lg:w-14" : ""
-          }`}
-        >
-          {isExpanded && !pageMode ? (
-            <button
-              type="button"
-              onClick={collapseToWindow}
-              className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-white"
-            >
-              Réduire
-            </button>
-          ) : null}
-          {isExpanded ? (
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={resetConversation}
-              className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-white"
+              className="rounded-2xl border border-black/8 bg-white px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-ink)] transition hover:bg-[color:var(--dash-soft-muted)]"
             >
               Nouvelle conversation
             </button>
-          ) : null}
-          {pageMode ? (
-            <Link href="/dashboard" className="text-[11px] text-slate-600 hover:text-slate-900">
-              Fermer
-            </Link>
-          ) : isExpanded ? (
             <button
               type="button"
-              onClick={() => {
-                setOpen(false);
-                setLayout("window");
-              }}
-              className="text-[11px] text-slate-600 hover:text-slate-900"
+              onClick={closeChat}
+              className="flex h-9 w-9 items-center justify-center rounded-2xl border border-black/8 bg-white text-lg leading-none text-neutral-600 transition hover:bg-[color:var(--dash-soft-muted)] hover:text-[var(--dash-ink)]"
+              aria-label={`Fermer ${SCOLIA_AI_NAME}`}
+              title="Fermer"
             >
-              Fermer
+              ×
             </button>
-          ) : (
-            <span className="hidden w-3 lg:inline" aria-hidden />
-          )}
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        ref={messagesRef}
+        className="relative min-h-0 flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-[#f4f5f3] via-white to-white px-4 py-5 sm:px-7"
+      >
+        <div className="mx-auto w-full max-w-2xl space-y-4">
+          {messages.length <= 1 ? (
+            <div className="flex flex-col items-center justify-center px-2 py-10 text-center sm:py-16">
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1.35rem] bg-[var(--dash-ink)] shadow-sm ring-4 ring-[color:var(--dash-lime)]/30">
+                <ScoliaAiMark size="lg" inverted fill />
+              </div>
+              <p className="mt-5 max-w-sm text-[15px] font-medium leading-relaxed text-[var(--dash-ink)]">
+                Posez une question, dictez au micro, ou glissez un PDF.
+              </p>
+              <p className="mt-2 max-w-sm text-xs leading-relaxed text-neutral-500">
+                L’historique reste ici. Les actions importantes vous seront toujours confirmées.
+              </p>
+            </div>
+          ) : null}
+          {messages.map((m, i) => {
+            if (messages.length <= 1 && m.role === "assistant") return null;
+            const isUser = m.role === "user";
+            const messageCtas = !isUser && Array.isArray(m.ctas) ? m.ctas : [];
+            const messageCatalog = !isUser && m.docCatalog ? m.docCatalog : null;
+            return (
+              <div
+                key={i}
+                className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
+              >
+                {!isUser ? (
+                  <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)]">
+                    <ScoliaAiMark size="sm" inverted fill />
+                  </div>
+                ) : null}
+                <div
+                  className={`min-w-0 ${
+                    messageCatalog
+                      ? "w-full max-w-[min(96%,42rem)]"
+                      : "max-w-[min(92%,36rem)]"
+                  }`}
+                >
+                  <div
+                    className={`px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+                      isUser
+                        ? "rounded-[1.35rem] rounded-br-md bg-[var(--dash-ink)] text-white shadow-sm"
+                        : "rounded-[1.35rem] rounded-bl-md border border-black/6 bg-white text-[var(--dash-ink)] shadow-[0_1px_0_rgba(0,0,0,0.03)]"
+                    }`}
+                  >
+                    {renderMessageContent(m.content, {
+                      onDark: isUser,
+                      onPreviewHref: openUrlPreview,
+                    })}
+                  </div>
+                  {!isUser && messageCatalog ? (
+                    <BrainDocCatalogPanel
+                      catalog={messageCatalog}
+                      onPreview={openUrlPreview}
+                      onOpenDossier={
+                        dossierModal
+                          ? (eleveId) => {
+                              dossierModal.open(eleveId);
+                            }
+                          : null
+                      }
+                      onNavigate={(href) => {
+                        if (!pageMode) setOpen(false);
+                        router.push(href);
+                      }}
+                    />
+                  ) : null}
+                  {!isUser && !messageCatalog && messageCtas.length > 0 ? (
+                    <ChatMessageActions
+                      ctas={messageCtas}
+                      onPreview={openUrlPreview}
+                      onOpenDossier={
+                        dossierModal
+                          ? (eleveId) => {
+                              dossierModal.open(eleveId);
+                            }
+                          : null
+                      }
+                      onNavigate={(href) => {
+                        if (!pageMode) setOpen(false);
+                        router.push(href);
+                      }}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+          {renderExtras()}
         </div>
       </div>
 
-      {/* Messages */}
-      <div
-        ref={messagesRef}
-        className={`relative flex-1 min-h-0 overflow-y-auto ${
-          isExpanded
-            ? "px-4 sm:px-8 py-6 space-y-4"
-            : "space-y-2 bg-gradient-to-b from-white/40 via-emerald-50/15 to-sky-50/20 p-3"
-        }`}
-      >
-        {isExpanded ? (
-          <div className="mx-auto w-full max-w-2xl space-y-4">
-            {messages.length <= 1 ? (
-              <div className="flex flex-col items-center justify-center py-10 sm:py-16 text-center">
-                <ScoliaAiMark size="lg" />
-                <p className="mt-4 max-w-md text-sm text-slate-600 leading-relaxed">
-                  Posez une question, dictez au micro, ou glissez un PDF ici quand j’en ai besoin.
-                </p>
-              </div>
-            ) : null}
-            {(messages.length <= 1 ? [] : messages).map((m, i) => (
-              <div
-                key={i}
-                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[92%] rounded-3xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
-                    m.role === "user"
-                      ? "bg-slate-900 text-white rounded-br-lg"
-                      : "bg-white/80 text-slate-800 border border-slate-200/70 shadow-sm rounded-bl-lg backdrop-blur-md"
-                  }`}
-                >
-                  {renderMessageContent(m.content)}
-                </div>
-              </div>
-            ))}
-            {renderExtras()}
-          </div>
-        ) : (
-          <>
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={`rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap shadow-sm backdrop-blur-md ${
-                  m.role === "user"
-                    ? "ml-8 border border-emerald-200/50 bg-emerald-100/55 text-emerald-950"
-                    : "mr-8 border border-white/70 bg-white/65 text-[var(--dash-ink,#14231A)]"
-                }`}
-              >
-                {renderMessageContent(m.content)}
-              </div>
-            ))}
-            {renderExtras()}
-          </>
-        )}
-      </div>
-
       {/* Composer */}
-      <div
-        className={`border-t ${
-          isExpanded
-            ? "border-slate-200/70 bg-transparent px-4 sm:px-8 py-3 pb-[max(16px,env(safe-area-inset-bottom))]"
-            : "border-white/50 bg-white/45 p-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-xl"
-        }`}
-      >
-        <div className={isExpanded ? "mx-auto w-full max-w-2xl" : ""}>
+      <div className="border-t border-black/5 bg-white/90 px-4 py-3 pb-[max(16px,env(safe-area-inset-bottom))] backdrop-blur-md sm:px-7">
+        <div className="mx-auto w-full max-w-2xl">
           {listening ? (
             <div className="mb-2 flex items-center gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/90 px-3 py-2">
               <span className="relative flex h-8 w-8 items-center justify-center">
-                <span className="absolute inset-0 rounded-full bg-rose-400/30 animate-ping" />
-                <span className="absolute inset-1 rounded-full bg-rose-400/40 animate-pulse" />
+                <span className="absolute inset-0 animate-ping rounded-full bg-rose-400/30" />
+                <span className="absolute inset-1 animate-pulse rounded-full bg-rose-400/40" />
                 <span className="relative h-3 w-3 rounded-full bg-rose-500" />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-semibold text-rose-900">Écoute en cours…</p>
-                <p className="text-[11px] text-rose-800/80 truncate">
+                <p className="truncate text-[11px] text-rose-800/80">
                   {interimSpeech || "Parlez, je vous écoute"}
                 </p>
-              </div>
-              <div className="flex items-end gap-0.5 h-6" aria-hidden>
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <span
-                    key={i}
-                    className="w-1 rounded-full bg-rose-500 animate-pulse"
-                    style={{
-                      height: `${8 + ((i * 5) % 14)}px`,
-                      animationDelay: `${i * 0.12}s`,
-                    }}
-                  />
-                ))}
               </div>
               <button
                 type="button"
@@ -799,12 +991,12 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               {pendingFiles.map((f, idx) => (
                 <span
                   key={`${f.name}_${idx}`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] text-slate-700"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-black/8 bg-[color:var(--dash-soft-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--dash-ink)]"
                 >
                   PDF · {f.name}
                   <button
                     type="button"
-                    className="text-slate-400 hover:text-slate-700"
+                    className="text-neutral-400 hover:text-[var(--dash-ink)]"
                     onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
                   >
                     ×
@@ -814,13 +1006,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             </div>
           ) : null}
 
-          <div
-            className={`flex items-end gap-2 ${
-              isExpanded
-                ? "rounded-2xl border border-slate-200/80 bg-white px-3 py-2"
-                : "rounded-2xl border border-white/70 bg-white/80 px-2 py-1.5 shadow-sm backdrop-blur-md"
-            }`}
-          >
+          <div className="flex items-end gap-2 rounded-[1.35rem] border border-black/8 bg-[#f7f8f6] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
             <input
               ref={fileInputRef}
               type="file"
@@ -833,7 +1019,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               disabled={loading || !isSignedIn}
               title={isSignedIn ? "Joindre un PDF" : "Connectez-vous pour joindre un PDF"}
               onClick={() => fileInputRef.current?.click()}
-              className="shrink-0 rounded-xl px-2 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+              className="shrink-0 rounded-xl px-2.5 py-2 text-sm text-neutral-600 transition hover:bg-white disabled:opacity-40"
             >
               📎
             </button>
@@ -847,16 +1033,16 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
                   void send();
                 }
               }}
-              placeholder={listening ? "Écoute…" : "Votre message…"}
-              className="flex-1 resize-none bg-transparent px-1 py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none max-h-32 overflow-y-auto"
+              placeholder={listening ? "Parlez… (envoi auto à la fin)" : "Message à ScolIA…"}
+              className="max-h-32 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-base text-[var(--dash-ink)] placeholder:text-neutral-400 focus:outline-none sm:text-sm"
             />
             <button
               type="button"
               onClick={startVoiceInput}
               disabled={!speechSupported || loading}
-              title={speechSupported ? (listening ? "Arrêter l’écoute" : "Dicter") : "Dictée non supportée"}
+              title={speechSupported ? (listening ? "Arrêter et envoyer" : "Dicter (envoi auto)") : "Dictée non supportée"}
               className={`shrink-0 rounded-xl px-2.5 py-2 text-sm font-bold disabled:opacity-40 ${
-                listening ? "bg-rose-500 text-white" : "hover:bg-slate-100 text-slate-700"
+                listening ? "bg-rose-500 text-white" : "text-neutral-700 hover:bg-white"
               }`}
             >
               🎤
@@ -865,15 +1051,22 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               type="button"
               onClick={() => void send()}
               disabled={loading || (!input.trim() && pendingFiles.length === 0)}
-              className={`shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
-                isExpanded
-                  ? "bg-slate-900 hover:bg-black"
-                  : "bg-[#064028]/90 shadow-sm hover:bg-[#052e1c]"
-              }`}
+              className="shrink-0 rounded-2xl bg-[var(--dash-ink)] px-3.5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
             >
               {loading ? "…" : "Envoyer"}
             </button>
           </div>
+          {embedded ? (
+            <div className="mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={resetConversation}
+                className="text-[11px] font-medium text-neutral-500 transition hover:text-[var(--dash-ink)]"
+              >
+                Nouvelle conversation
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1026,6 +1219,63 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             </button>
           </div>
         ) : null}
+        {pendingFileUpload ? (
+          <div className="rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50/80 px-3 py-3 space-y-2">
+            <p className="text-[12px] font-semibold text-indigo-950">{pendingFileUpload.promptFr}</p>
+            {pendingFiles.length > 0 ? (
+              <p className="text-[11px] text-indigo-800">
+                Prêt : {pendingFiles.map((f) => f.name).join(", ")}
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-4 text-sm font-medium text-indigo-900 hover:bg-indigo-50"
+              >
+                Glisser un PDF ici ou cliquer pour choisir
+              </button>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={loading || pendingFiles.length === 0}
+                onClick={() => {
+                  if (!pendingFileUpload) return;
+                  const draft = pendingFileUpload.draftArgs;
+                  setPendingFileUpload(null);
+                  void send({
+                    fileApply: { tool: pendingFileUpload.tool, draftArgs: draft },
+                    files: pendingFiles,
+                  });
+                }}
+                className="rounded-lg bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+              >
+                Continuer avec le PDF
+              </button>
+              {pendingFileUpload.optional ? (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    if (!pendingFileUpload) return;
+                    const draft = pendingFileUpload.draftArgs;
+                    setPendingFileUpload(null);
+                    void send({
+                      fileApply: {
+                        tool: pendingFileUpload.tool,
+                        draftArgs: draft,
+                        skipPdf: true,
+                      },
+                    });
+                  }}
+                  className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-900"
+                >
+                  Sans PDF
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {pendingConfirmation ? (
           <div
             className={`rounded-2xl border border-amber-300/70 bg-amber-50/90 p-3 space-y-2 ${
@@ -1069,32 +1319,16 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             </div>
           </div>
         ) : null}
-        {ctas.length > 0 ? (
-          <div className={`flex flex-wrap gap-1.5 ${isExpanded ? "" : "mr-4"}`}>
-            {ctas.map((c) => (
-              <Link
-                key={`${c.href}_${c.label}`}
-                href={c.href}
-                onClick={() => {
-                  if (!pageMode) setOpen(false);
-                }}
-                className="text-[11px] rounded-lg bg-slate-900/90 text-white px-2.5 py-1.5 font-semibold hover:bg-black"
-              >
-                {c.label}
-              </Link>
-            ))}
-          </div>
-        ) : null}
         {loading ? (
           <div
-            className={`rounded-2xl px-3 py-2 text-sm bg-white/80 border border-slate-200 ${
+            className={`rounded-2xl border border-black/6 bg-white px-3 py-2.5 text-sm shadow-sm ${
               isExpanded ? "w-fit" : "mr-8"
             }`}
           >
-            <div className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
-              <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
-              <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" />
+            <div className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-[var(--dash-ink)] animate-bounce [animation-delay:-0.2s]" />
+              <span className="h-2 w-2 rounded-full bg-[var(--dash-ink)] animate-bounce [animation-delay:-0.1s]" />
+              <span className="h-2 w-2 rounded-full bg-[color:var(--dash-lime)] animate-bounce" />
             </div>
           </div>
         ) : null}
@@ -1104,74 +1338,54 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
   if (pageMode) {
     return (
-      <div className="min-h-[100dvh] w-full bg-[radial-gradient(ellipse_at_top,_#e8f0ff_0%,_#f8fafc_45%,_#eef2ff_100%)]">
-        <div className="mx-auto flex h-[100dvh] w-full max-w-5xl flex-col">{renderChatBody()}</div>
-      </div>
+      <>
+        <div
+          className={
+            embedded
+              ? "flex h-full min-h-0 w-full flex-col bg-transparent"
+              : "min-h-[100dvh] w-full bg-[radial-gradient(ellipse_at_top,_#eef2ff_0%,_#f8fafc_50%,_#f1f5f9_100%)]"
+          }
+        >
+          <div
+            className={
+              embedded
+                ? "flex h-full min-h-0 w-full flex-col"
+                : "mx-auto flex h-[100dvh] w-full max-w-4xl flex-col"
+            }
+          >
+            {renderChatBody()}
+          </div>
+        </div>
+        {urlModal ? (
+          <ScoliaUrlModal href={urlModal.href} title={urlModal.title} onClose={closeUrlModal} />
+        ) : null}
+      </>
     );
   }
 
-  const windowOpen = open && mounted && layout === "window";
+  if (!mounted || !open) return null;
 
   return (
     <>
-      {open && layout === "expanded" ? (
-        <div className="fixed inset-0 z-[120] bg-[radial-gradient(ellipse_at_top,_rgba(232,240,255,0.97)_0%,_rgba(248,250,252,0.98)_50%,_rgba(238,242,255,0.97)_100%)] backdrop-blur-xl">
-          <div className="mx-auto flex h-[100dvh] w-full max-w-5xl flex-col">{renderChatBody()}</div>
-        </div>
-      ) : null}
-
-      {windowOpen ? (
-        <div
-          className="fixed inset-0 z-[120] bg-slate-900/20 lg:hidden"
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6">
+        <button
+          type="button"
+          className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
+          aria-label="Fermer ScolIA"
           onClick={() => setOpen(false)}
-          aria-hidden
         />
-      ) : null}
-
-      {windowOpen ? (
         <div
           ref={panelRef}
-          className="fixed inset-0 z-[120] h-[100dvh] overflow-hidden rounded-none border-0 bg-white/55 backdrop-blur-2xl lg:inset-auto lg:right-4 lg:bottom-20 lg:h-[580px] lg:w-[min(92vw,400px)] lg:rounded-[1.5rem] lg:border lg:border-white/55 lg:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)]"
+          role="dialog"
+          aria-modal="true"
+          aria-label={SCOLIA_AI_NAME}
+          className="relative z-[1] flex h-[min(88dvh,820px)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_32px_80px_-28px_rgba(15,23,42,0.45)]"
         >
-          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
-            <div className="absolute -left-10 -top-12 h-40 w-40 rounded-full bg-emerald-200/25 blur-3xl" />
-            <div className="absolute -right-8 bottom-0 h-36 w-36 rounded-full bg-sky-200/20 blur-3xl" />
-            <div className="absolute inset-[1px] rounded-none border border-white/40 lg:rounded-[calc(1.5rem-1px)]" />
-          </div>
-          <div className="relative flex h-full flex-col">{renderChatBody()}</div>
+          {renderChatBody()}
         </div>
-      ) : null}
-
-      {/* Mobile/tablette : on ne monte pas l’icône si le chat est ouvert (sinon elle masque Envoyer). */}
-      {!open || isDesktopChat ? (
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={() => {
-            if (open && layout === "expanded") {
-              setLayout("window");
-              return;
-            }
-            if (open) {
-              setOpen(false);
-              setLayout("window");
-              return;
-            }
-            setLayout("window");
-            setOpen(true);
-          }}
-          className="fixed bottom-4 right-4 z-[130] flex h-14 w-14 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-emerald-400/25 bg-[#052e1c]/78 shadow-[0_14px_34px_rgba(5,46,28,0.45)] backdrop-blur-xl transition-all hover:scale-[1.04] hover:border-emerald-300/40 hover:bg-[#064028]/82 active:scale-[0.97]"
-          aria-label={open ? `Réduire ${SCOLIA_AI_NAME}` : `Ouvrir ${SCOLIA_AI_NAME}`}
-        >
-          <span
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(52,211,153,0.35),transparent_52%),linear-gradient(160deg,rgba(255,255,255,0.12),transparent_42%)]"
-            aria-hidden
-          />
-          <span className="pointer-events-none absolute inset-[1px] rounded-full border border-white/15" aria-hidden />
-          <span className="relative h-full w-full">
-            <ScoliaAiMark size="md" inverted fill />
-          </span>
-        </button>
+      </div>
+      {urlModal ? (
+        <ScoliaUrlModal href={urlModal.href} title={urlModal.title} onClose={closeUrlModal} />
       ) : null}
     </>
   );

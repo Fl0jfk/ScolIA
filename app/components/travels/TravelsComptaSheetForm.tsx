@@ -30,6 +30,8 @@ type Props = {
   tripId: string;
   documentsRevision?: string;
   readOnly?: boolean;
+  /** Séjour dont la date de fin est passée — la fiche reste éditable pour la facturation. */
+  tripEnded?: boolean;
   canValidateBudget?: boolean;
   budgetValidated?: boolean;
   variant?: "inline" | "modal";
@@ -189,6 +191,7 @@ export default function TravelsComptaSheetForm({
   tripId,
   documentsRevision = "",
   readOnly = false,
+  tripEnded = false,
   canValidateBudget = false,
   budgetValidated = false,
   variant = "inline",
@@ -690,7 +693,9 @@ export default function TravelsComptaSheetForm({
           <p className="mt-1 text-sm text-slate-500">
             {readOnly
               ? "Consultation de la fiche budget — modification réservée à la comptabilité."
-              : "Saisie et synchronisation automatique avec les documents. Le budget définitif n'est transmis à la direction qu'après validation en bas de page."}
+              : tripEnded
+                ? "Séjour terminé : vous pouvez continuer à modifier cette fiche pour finaliser la facturation. Les enregistrements restent actifs."
+                : "Saisie et synchronisation automatique avec les documents. Le budget définitif n'est transmis à la direction qu'après validation en bas de page."}
           </p>
         </div>
         <div className="text-right text-xs font-bold flex flex-col items-end gap-2">

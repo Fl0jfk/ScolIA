@@ -1,11 +1,12 @@
 import {
   canReviewPreconvention,
   canViewAllConventions,
+  canViewReferentConventions,
 } from "@/app/lib/stage-access";
 import { classKey } from "@/app/lib/stage-referents-config";
 import type { StageWatcherAssignment } from "@/app/lib/stage-watchers-config";
 import { conventionMatchesWatcherAssignments } from "@/app/lib/stage-watchers-config";
-import type { StageConvention } from "@/app/lib/stage-types";
+import type { StageConvention, StageConventionIndexEntry } from "@/app/lib/stage-types";
 
 function conventionMatchesReferent(
   convention: StageConvention,
@@ -19,36 +20,61 @@ function conventionMatchesReferent(
   return false;
 }
 
-function canViewReferentConventions(roles: string[]) {
-  return roles.includes("professeur");
-}
-
-function conventionMatchesReferentClass(
+function conventionMatchesPrincipalClass(
   convention: StageConvention,
-  referentClassNames: string[],
+  principalClassNames: string[],
 ): boolean {
-  if (referentClassNames.length === 0) return false;
+  if (principalClassNames.length === 0) return false;
   const classK = classKey(convention.student.className);
-  return referentClassNames.some((c) => classKey(c) === classK);
+  return principalClassNames.some((c) => classKey(c) === classK);
 }
 
+/**
+ * Filtre rapide sur l’index (sans charger la convention) — PP / référent / admin.
+ * Les watchers (CPE…) doivent passer par `conventionVisibleToUser` après chargement.
+ */
+export function indexEntryVisibleToUser(
+  entry: StageConventionIndexEntry,
+  roles: string[],
+  userEmail: string,
+  principalClassNames?: string[],
+): boolean {
+  if (canViewAllConventions(roles) || canReviewPreconvention(roles)) return true;
+  if (!canViewReferentConventions(roles)) return false;
+  const email = userEmail.trim().toLowerCase();
+  const refEmail = entry.teacherReferentEmail?.trim().toLowerCase();
+  if (refEmail && email && refEmail === email) return true;
+  if (principalClassNames?.length) {
+    const classK = classKey(entry.className);
+    return principalClassNames.some((c) => classKey(c) === classK);
+  }
+  return false;
+}
+
+/**
+ * Visibilité d'une convention :
+ * - admin / direction / surveillant : tout
+ * - watchers : périmètre affectation
+ * - professeur principal : toute sa classe
+ * - professeur référent : uniquement les stagiaires où il est teacherReferent
+ */
 export function conventionVisibleToUser(
   convention: StageConvention,
   roles: string[],
   userEmail: string,
   userId?: string,
-  referentClassNames?: string[],
+  /** Classes où l'utilisateur est PP (pas les seules affectations référent). */
+  principalClassNames?: string[],
   watcherAssignments?: StageWatcherAssignment[],
 ): boolean {
-  if (canViewAllConventions(roles)) return true;
-  if (canReviewPreconvention(roles)) return true;
+  if (canViewAllConventions(roles) || canReviewPreconvention(roles)) return true;
   if (watcherAssignments && watcherAssignments.length > 0) {
     if (conventionMatchesWatcherAssignments(convention, watcherAssignments)) return true;
   }
   if (canViewReferentConventions(roles)) {
     if (conventionMatchesReferent(convention, userEmail, userId)) return true;
-    if (referentClassNames?.length) {
-      return conventionMatchesReferentClass(convention, referentClassNames);
+    if (principalClassNames?.length) {
+      return conventionMatchesPrincipalClass(convention, principalClassNames);
     }
     return false;
   }

@@ -5,6 +5,8 @@ import {
   submitPreconvention,
   requestTutorEmailChange,
   canRequestTutorEmailChange,
+  isStageConventionCancelled,
+  STAGE_CANCELLED_PUBLIC_MESSAGE,
 } from "@/app/lib/stage-workflow";
 import { saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
@@ -54,6 +56,16 @@ export async function GET(req: Request) {
 
     const convention = await resolveConventionByStudentToken(token);
     if (!convention) return NextResponse.json({ error: "Lien invalide." }, { status: 404 });
+    if (isStageConventionCancelled(convention)) {
+      return NextResponse.json(
+        {
+          cancelled: true,
+          error: STAGE_CANCELLED_PUBLIC_MESSAGE,
+          message: STAGE_CANCELLED_PUBLIC_MESSAGE,
+        },
+        { status: 410 },
+      );
+    }
 
     const studentPhotoUrl = await resolveStudentPhotoUrl(convention);
 
@@ -123,6 +135,12 @@ export async function PATCH(req: Request) {
 
     const existing = await resolveConventionByStudentToken(token);
     if (!existing) return NextResponse.json({ error: "Lien invalide." }, { status: 404 });
+    if (isStageConventionCancelled(existing)) {
+      return NextResponse.json(
+        { cancelled: true, error: STAGE_CANCELLED_PUBLIC_MESSAGE },
+        { status: 410 },
+      );
+    }
 
     const action = String(body.action ?? "save");
 

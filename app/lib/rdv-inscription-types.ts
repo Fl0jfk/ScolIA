@@ -55,6 +55,9 @@ export type RdvInscriptionMatchStatus = "confirmed" | "created";
 
 export type RdvInscriptionReconfirmStatus = "pending" | "ok" | "cancelled";
 
+/** Codes régime demandés par le parent (titre Google Agenda). */
+export type RdvInscriptionRegime = "DP" | "EXT" | "INT";
+
 export type RdvInscriptionBookingRow = {
   id: string;
   directionId: string;
@@ -76,6 +79,8 @@ export type RdvInscriptionBookingRow = {
   rdvAttendee: "madame" | "monsieur" | "les_deux" | null;
   niveauId: string | null;
   niveauLabel: string | null;
+  /** DP | EXT | INT — null sur les anciens bookings. */
+  regime: RdvInscriptionRegime | null;
   eleveId: string | null;
   matchStatus: RdvInscriptionMatchStatus | null;
   createNew: boolean;
@@ -93,8 +98,19 @@ export type RdvInscriptionBookingRow = {
   reconfirmStatus: RdvInscriptionReconfirmStatus | null;
   reconfirmMailSentAt: string | null;
   reconfirmedAt: string | null;
+  /** Note libre admin (demande de rechoix). */
+  adminCancelNote: string | null;
+  /**
+   * true si le RDV a été annulé avec demande de rechoix (token présent) :
+   * l’admin peut renvoyer le mail avec le bon lien.
+   */
+  rescheduleLinkAvailable: boolean;
   createdAt: string;
 };
+
+/** Motif fixe inclus dans le mail « Demander un autre créneau ». */
+export const RDV_RESCHEDULE_PRESET_MOTIF =
+  "Nous sommes désolés : la direction ne pourra finalement pas être présente au rendez-vous que vous aviez choisi.";
 
 export type RdvInscriptionBookInput = {
   eventId: string;
@@ -107,6 +123,8 @@ export type RdvInscriptionBookInput = {
   /** madame | monsieur | les_deux */
   rdvAttendee?: "madame" | "monsieur" | "les_deux";
   niveauId: string;
+  /** DP | EXT | INT */
+  regime?: RdvInscriptionRegime;
   /** Élève confirmé par le parent (matching interactif). */
   eleveId?: string | null;
   /** Création d’un nouveau préinscrit à la validation e-mail. */
@@ -121,7 +139,15 @@ export type RdvInscriptionBookInput = {
   etablissementOrigineRne?: string | null;
   etablissementOrigineLabel?: string | null;
   etablissementOrigineAdresse?: string | null;
+  /**
+   * Anti-clic trop rapide : le parent doit retaper « CONFIRME »
+   * (insensible à la casse / accents).
+   */
+  confirmTyped?: string;
 };
+
+/** Phrase à retaper pour valider une réservation publique. */
+export const RDV_BOOK_CONFIRM_PHRASE = "CONFIRME";
 
 export const DEFAULT_RDV_INSCRIPTION_TITLE = "Rendez-vous d’inscription";
 export const DEFAULT_RDV_INSCRIPTION_PATTERN = "rendez-vous inscription";

@@ -50,20 +50,20 @@ jobs:
       - name: Vérifier secrets labo (jamais le conteneur prod)
         id: lab_secrets
         env:
-          SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
-          NEXT_PUBLIC_LAB_APP_URL: ${{ secrets.NEXT_PUBLIC_LAB_APP_URL }}
+          HAS_SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY != '' }}
+          HAS_LAB_APP_URL: ${{ secrets.NEXT_PUBLIC_LAB_APP_URL != '' }}
+          HAS_LAB_CONTAINER: ${{ secrets.SCW_LAB_CONTAINER_ID != '' }}
           SCW_LAB_CONTAINER_ID: ${{ secrets.SCW_LAB_CONTAINER_ID }}
           SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
         run: |
           set -euo pipefail
           missing=0
-          for name in SECRET_ACCESS_KEY NEXT_PUBLIC_LAB_APP_URL SCW_LAB_CONTAINER_ID; do
-            if [ -z "${!name}" ]; then
-              echo "::warning::Secret labo manquant : $name — voir docs/labo-florian.md"
+          for name in HAS_SECRET_ACCESS_KEY HAS_LAB_APP_URL HAS_LAB_CONTAINER; do
+            if [ "${!name}" != "true" ]; then
+              echo "::warning::Secret labo manquant — voir docs/labo-florian.md ($name)"
               missing=1
             else
-              eval "len=\${#${name}}"
-              echo "$name : présent (${len} caractères)"
+              echo "$name : présent"
             fi
           done
           if [ -n "${SCW_LAB_CONTAINER_ID:-}" ] && [ -n "${SCW_CONTAINER_ID:-}" ] \
@@ -84,12 +84,12 @@ jobs:
 
       - name: Login container registry
         if: steps.lab_secrets.outputs.ready == 'true'
-        env:
-          SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
-        run: |
-          set -euo pipefail
-          NS="${IMAGE_NAME%%/*}"
-          echo "${SECRET_ACCESS_KEY}" | docker login "${REGISTRY}/${NS}" -u nologin --password-stdin
+        uses: docker/login-action@v3
+        with:
+          # Namespace registry (= segment avant / dans IMAGE_NAME, défaut scolia).
+          registry: ${{ format('{0}/scolia', env.REGISTRY) }}
+          username: nologin
+          password: ${{ secrets.SECRET_ACCESS_KEY }}
 
       - name: Build image lab (tags :lab + :lab-sha — pas :latest)
         if: steps.lab_secrets.outputs.ready == 'true'
@@ -140,7 +140,7 @@ jobs:
       - name: Redeploy conteneur LABO
         if: steps.lab_secrets.outputs.ready == 'true'
         env:
-          SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
+          SCW_API_TOKEN: ${{ secrets.SECRET_ACCESS_KEY }}
           SCW_LAB_CONTAINER_ID: ${{ secrets.SCW_LAB_CONTAINER_ID }}
           REGION: ${{ env.REGION }}
           REGISTRY: ${{ env.REGISTRY }}
@@ -151,9 +151,9 @@ jobs:
           IMAGE_REF="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
           BASE="https://api.scaleway.com/containers/v1/regions/${REGION}/containers/${SCW_LAB_CONTAINER_ID}"
 
-          echo "Labo ${SCW_LAB_CONTAINER_ID} → ${IMAGE_REF}"
+          echo "Labo container → ${IMAGE_REF}"
           code=$(curl -sS -o /tmp/container.json -w "%{http_code}" \
-            -H "X-Auth-Token: ${SECRET_ACCESS_KEY}" \
+            -H "X-Auth-Token: ${SCW_API_TOKEN}" \
             "${BASE}") || true
           if [ "$code" != "200" ]; then
             echo "::error::Conteneur labo introuvable (HTTP $code) : $(cat /tmp/container.json)"
@@ -163,7 +163,7 @@ jobs:
           echo "Conteneur labo : $name"
 
           upd=$(curl -sS -o /tmp/container-upd.json -w "%{http_code}" -X PATCH \
-            -H "X-Auth-Token: ${SECRET_ACCESS_KEY}" \
+            -H "X-Auth-Token: ${SCW_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"registry_image\":\"${IMAGE_REF}\"}" \
             "${BASE}")
@@ -173,7 +173,7 @@ jobs:
           fi
 
           redeploy=$(curl -sS -o /tmp/container-redeploy.json -w "%{http_code}" -X POST \
-            -H "X-Auth-Token: ${SECRET_ACCESS_KEY}" \
+            -H "X-Auth-Token: ${SCW_API_TOKEN}" \
             -H "Content-Type: application/json" \
             -d '{}' \
             "${BASE}/redeploy") || true

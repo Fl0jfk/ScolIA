@@ -1,11 +1,13 @@
 import type { AbsencePeriodType } from "@/app/lib/absence-period";
 import {
+  forcedHoursTreatmentForNonDiscretionaryAbsence,
   formatTransmissionSummary,
   isNonDiscretionaryAbsence,
   isNonDiscretionaryTreatment,
   isRattrapageTreatment,
   isRectoratDeclarationTreatment,
   needsMakeupSlotsFromStaff,
+  nonDiscretionaryKindLabel,
   suggestHoursTreatmentFromPreference,
   type AbsenceHoursTreatment,
 } from "@/app/lib/absence-hours-treatment";
@@ -30,6 +32,12 @@ export type AbsenceItem = {
   data: {
     scope: AbsenceScope;
     etablissement: Etablissement | null;
+    /** Validateur nominatif OGEC (rattachement fiche RH). */
+    ogecValidator?: {
+      email: string;
+      userId?: string;
+      label?: string;
+    } | null;
     periodType?: AbsencePeriodType | null;
     startDate: string;
     endDate: string;
@@ -37,6 +45,8 @@ export type AbsenceItem = {
     endTime?: string | null;
     reason: string;
     details: string;
+    congeExceptionnelCode?: string | null;
+    congeExceptionnelJoursSuggeres?: number | null;
   };
   workflowStatus: AbsenceWorkflowStatus;
   managerDecision: AbsenceDecision;
@@ -57,6 +67,14 @@ export type AbsenceItem = {
   staffPreferredTreatment?: string | null;
   staffPreferredMakeupSlots?: string | null;
   directionConfirmedMakeupSlots?: string | null;
+  messages?: Array<{
+    id: string;
+    at: string;
+    userId: string;
+    userName: string;
+    roleLabel: string;
+    text: string;
+  }>;
 };
 
 export function itemDecision(item: AbsenceItem): AbsenceDecision {
@@ -84,10 +102,11 @@ export function validationConfirmMessage(
   hoursTreatment?: AbsenceHoursTreatment | string | null,
 ) {
   if (isNonDiscretionaryAbsence(item) || isNonDiscretionaryTreatment(hoursTreatment)) {
-    const kind =
-      hoursTreatment === "ENFANT_MALADE" || item.data.reason.toLowerCase().includes("enfant")
-        ? "enfant malade"
-        : "maladie";
+    const forced =
+      (isNonDiscretionaryTreatment(hoursTreatment)
+        ? hoursTreatment
+        : null) || forcedHoursTreatmentForNonDiscretionaryAbsence(item);
+    const kind = nonDiscretionaryKindLabel(forced);
     const dest =
       item.data.scope === "ogec"
         ? "La comptabilité / RH traite ensuite le dossier."
@@ -112,8 +131,8 @@ export function transmissionLabel(item: AbsenceItem) {
   if (item.workflowStatus !== "CLOTUREE") {
     if (isNonDiscretionaryTreatment(item.hoursTreatment)) {
       return item.data.scope === "ogec"
-        ? "Validée — traitement des heures (maladie / enfant malade) en cours à la comptabilité / RH."
-        : "Validée — traitement des heures (maladie / enfant malade) en cours au secrétariat.";
+        ? "Validée — traitement des heures (arrêt de travail / enfant malade / congé exceptionnel) en cours à la comptabilité / RH."
+        : "Validée — traitement des heures (arrêt de travail / enfant malade / congé exceptionnel) en cours au secrétariat.";
     }
     if (item.data.scope === "ogec") {
       return "Validée par la direction — en traitement RH.";
@@ -126,8 +145,8 @@ export function transmissionLabel(item: AbsenceItem) {
   if (item.adminTreatedAt) {
     if (isNonDiscretionaryTreatment(item.hoursTreatment)) {
       return item.data.scope === "ogec"
-        ? "Traitée par la RH (maladie / enfant malade)."
-        : "Traitée administrativement (maladie / enfant malade).";
+        ? "Traitée par la RH (arrêt de travail / enfant malade / congé exceptionnel)."
+        : "Traitée administrativement (arrêt de travail / enfant malade / congé exceptionnel).";
     }
     return item.data.scope === "ogec"
       ? "Traitée par la RH."

@@ -140,6 +140,46 @@ export async function listClassesForReferentUser(
   )].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 
+/**
+ * Classes où l'utilisateur est professeur principal (voit toute la classe).
+ * Compat : classe sans PP explicite → tout assigné historique compte comme PP.
+ */
+export async function listPrincipalClassesForUser(
+  externalUserId: string,
+  schoolYear?: string,
+): Promise<string[]> {
+  const id = externalUserId.trim();
+  if (!id) return [];
+  const year = schoolYear?.trim() || currentStageSchoolYear();
+  const config = await getStageReferentsConfig(year);
+  if (!config) return [];
+
+  const byClass = new Map<string, StageClassReferentAssignment[]>();
+  for (const a of config.assignments) {
+    const key = classKey(a.className);
+    const list = byClass.get(key) ?? [];
+    list.push(a);
+    byClass.set(key, list);
+  }
+
+  const out = new Set<string>();
+  for (const list of byClass.values()) {
+    const hasExplicitPrincipal = list.some((a) => a.role === "professeur_principal");
+    for (const a of list) {
+      if (a.externalUserId !== id) continue;
+      if (a.role === "professeur_principal") {
+        out.add(a.className);
+        continue;
+      }
+      if (!hasExplicitPrincipal) {
+        out.add(a.className);
+      }
+    }
+  }
+
+  return [...out].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+}
+
 /** True si l'utilisateur est PP (ou seul assigné historique) sur la classe. */
 export async function userCanAssignStageReferentForClass(
   externalUserId: string,

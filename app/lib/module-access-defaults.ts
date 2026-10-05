@@ -77,6 +77,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
   professeur: [
     // Appels + notes saisie (occupancy / Rejoindre) ; carnet oui, sanctions non (CPE).
     "eleve-dossier",
+    "stages",
     "certificates",
     "organigramme",
     "documents",

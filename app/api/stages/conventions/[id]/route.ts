@@ -9,6 +9,8 @@ import {
   addConventionSignatory,
   markConventionSignatureManual,
   normalizeConventionInput,
+  postStageDiscussionMessage,
+  proposeStaffScheduleAmendment,
   removeConventionSignatory,
   reviewConventionSignature,
   revokeConventionSignature,
@@ -19,7 +21,7 @@ import {
   syncProfReferentSignatory,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
-import { ensureConventionReferent, listClassesForReferentUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
+import { ensureConventionReferent, listPrincipalClassesForUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
 import {
   getStageWatchersConfig,
   listWatcherAssignmentsForUser,
@@ -34,6 +36,7 @@ import {
   resolveOneDriveProfileForConvention,
 } from "@/app/lib/stage-eleve-match";
 import { resolveOneDriveProfileForUserServer } from "@/app/lib/onedrive-user-profiles.server";
+import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment-server";
 
 import { stageActorFirstName } from "@/app/lib/stage-actor-name";
 
@@ -53,8 +56,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     if (!convention) return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
-    const referentClassNames = canViewReferentConventions(roles)
-      ? await listClassesForReferentUser(gate.ctx.userId)
+    const principalClassNames = canViewReferentConventions(roles)
+      ? await listPrincipalClassesForUser(gate.ctx.userId)
       : [];
     const watchers = await getStageWatchersConfig(convention.schoolYear || currentStageSchoolYear());
     const watcherAssignments = listWatcherAssignmentsForUser(watchers, gate.ctx.userId);
@@ -64,7 +67,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         roles,
         userEmail,
         gate.ctx.userId,
-        referentClassNames,
+        principalClassNames,
         watcherAssignments,
       ) &&
       !roles.includes("parent")
@@ -85,9 +88,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const targetProfile = await resolveOneDriveProfileForConvention(convention, directoryProfile);
     const eleveMatch = await matchEleveForConvention(convention, targetProfile);
     const conventionSecteur = await resolveConventionSecteur(convention);
+    const periodAlignment = await assessConventionPeriodAlignment(convention);
+
+    if (new URL(_req.url).searchParams.get("discussion") === "1") {
+      return NextResponse.json({
+        discussionMessages: convention.discussion?.messages ?? [],
+      });
+    }
 
     return NextResponse.json({
       convention,
+      periodAlignment,
       studentLink: convention.studentAccessToken
         ? `/stages/eleve?token=${encodeURIComponent(convention.studentAccessToken)}`
         : null,
@@ -398,9 +409,55 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         success: true,
         convention: result.convention,
         signLinks,
+        periodAlignment: await assessConventionPeriodAlignment(result.convention),
         message: approved
-          ? "Horaires mis à jour — toutes les signatures ont été réinitialisées et les e-mails renvoyés."
-          : "Demande de modification d'horaires refusée.",
+          ? "Avenant appliqué — PDF régénéré ; signatures réinitialisées si nécessaire."
+          : "Demande d'avenant refusée.",
+      });
+    }
+
+    if (action === "propose_amendment") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const result = await proposeStaffScheduleAmendment({
+        convention,
+        schedule: body.schedule,
+        note: String(body.note ?? "").trim() || undefined,
+        byName: displayName(user),
+        stagePeriodId: String(body.stagePeriodId ?? "").trim() || undefined,
+        stageLabel: String(body.stageLabel ?? "").trim() || undefined,
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({
+        success: true,
+        convention: result.convention,
+        periodAlignment: await assessConventionPeriodAlignment(result.convention),
+        message:
+          "Demande d'avenant envoyée aux parties (responsable légal, tuteur, direction, professeur référent) avec leurs liens.",
+      });
+    }
+
+    if (action === "post_discussion_message") {
+      const canPost =
+        canReviewPreconvention(roles) ||
+        canViewAllConventions(roles) ||
+        canViewReferentConventions(roles);
+      if (!canPost) {
+        return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
+      }
+      const result = await postStageDiscussionMessage({
+        convention,
+        authorRole: "secretariat",
+        authorLabel: String(body.authorLabel ?? "").trim() || displayName(user),
+        body: String(body.body ?? ""),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({
+        success: true,
+        message: result.message,
+        discussionMessages: result.convention.discussion?.messages ?? [],
+        convention: result.convention,
       });
     }
 
@@ -515,22 +572,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (!canReviewPreconvention(roles)) {
         return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
       }
-      convention = {
-        ...convention,
-        status: "cancelled",
-        updatedAt: new Date().toISOString(),
-        history: [
-          ...convention.history,
-          {
-            at: new Date().toISOString(),
-            by: displayName(user),
-            action: "ANNULEE",
-            note: String(body.note ?? "").trim() || undefined,
-          },
-        ],
-      };
-      await saveStageConvention(convention);
-      return NextResponse.json({ success: true, convention });
+      const { cancelStageConvention } = await import("@/app/lib/stage-workflow");
+      const result = await cancelStageConvention({
+        conventionId: id,
+        byName: displayName(user),
+        note: String(body.note ?? "").trim() || undefined,
+        confirmWord: String(body.confirm ?? body.confirmWord ?? ""),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, convention: result.convention });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

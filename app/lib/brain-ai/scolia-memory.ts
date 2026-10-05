@@ -4,9 +4,44 @@ export const SCOLIA_AI_NAME = "ScolIA";
 const SCOLIA_AI_MEMORY_KEY = "scolia-ai-memory-v1";
 export const SCOLIA_AI_PAGE_PATH = "/scolia-ai";
 
+export type ScoliaMemoryCta = {
+  label: string;
+  href: string;
+  /** Aperçu PDF (PAP/PAI…) via modale, pas une navigation. */
+  preview?: boolean;
+  subtitle?: string;
+  group?: string;
+};
+
+export type ScoliaMemoryDocCatalogItem = {
+  title: string;
+  subtitle?: string;
+  href: string;
+  preview?: boolean;
+  dossierHref?: string;
+  ext?: string;
+};
+
+export type ScoliaMemoryDocCatalogGroup = {
+  title: string;
+  count: number;
+  items: ScoliaMemoryDocCatalogItem[];
+};
+
+export type ScoliaMemoryDocCatalog = {
+  title: string;
+  kindLabel?: string;
+  total: number;
+  groups: ScoliaMemoryDocCatalogGroup[];
+};
+
 export type ScoliaMemoryMessage = {
   role: "user" | "assistant";
   content: string;
+  /** Actions / pièces rattachées au tour (persistées avec l’historique). */
+  ctas?: ScoliaMemoryCta[];
+  /** Catalogue documents groupé (PAP par classe, etc.). */
+  docCatalog?: ScoliaMemoryDocCatalog;
 };
 
 type ScoliaMemorySnapshot = {
@@ -33,7 +68,7 @@ export function defaultWelcomeMessage(): ScoliaMemoryMessage {
   return {
     role: "assistant",
     content:
-      `Bonjour, je suis ${SCOLIA_AI_NAME}. Posez votre question, glissez un PDF si besoin, ou dictez au micro — réservation de salle, demandes, absences, photocopies, feuille de semaine, séjours…`,
+      `Bonjour, je suis ${SCOLIA_AI_NAME}. Parlez au micro ou écrivez — j’ouvre les pages (dossiers élèves, sorties, salles…) et j’agis avec votre validation.`,
   };
 }
 

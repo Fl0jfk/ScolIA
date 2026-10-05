@@ -16,7 +16,7 @@ import { getJson } from "@/app/lib/s3-storage";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { loadWeekSheetData } from "@/app/lib/dashboard-week-sheet-storage";
 import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures";
-import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
+import { loadSignaturesPendingStageConventions } from "@/app/lib/stage-convention-load";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { resolveStageViewerRole } from "@/app/lib/stage-access";
 import { INTRANET_MODULES, rolesAllowModule } from "@/app/lib/intranet-modules";
@@ -400,14 +400,24 @@ export async function GET() {
     let stagesPendingSignatures = 0;
     if (accessibleModuleIds.has("stages") && resolveStageViewerRole(roles)) {
       try {
-        const conventionsIndex = await getConventionsIndex();
-        const all = await Promise.all(conventionsIndex.map((e) => getStageConvention(e.id)));
+        // Ne charge que les conventions en signatures_pending (pas tout l’index),
+        // avec parallélisme plafonné — évite de saturer Postgres au chargement du dashboard.
+        const pendingConventions = await loadSignaturesPendingStageConventions();
         const userEmail = email.trim().toLowerCase();
-        const conventions = all
-          .filter((c): c is NonNullable<typeof c> => Boolean(c))
-          .filter((c) => conventionVisibleToUser(c, roles, userEmail, userId));
+        const { listPrincipalClassesForUser } = await import(
+          "@/app/lib/stage-referents-config"
+        );
+        const { canViewReferentConventions } = await import("@/app/lib/stage-access");
+        const principalClassNames = canViewReferentConventions(roles)
+          ? await listPrincipalClassesForUser(userId)
+          : [];
+        const conventions = pendingConventions.filter((c) =>
+          conventionVisibleToUser(c, roles, userEmail, userId, principalClassNames),
+        );
         stagesPendingSignatures = (
-          await listPendingSignaturesForUser(conventions, userEmail, userId, roles)
+          await listPendingSignaturesForUser(conventions, userEmail, userId, roles, {
+            includePeriodAlignment: false,
+          })
         ).length;
       } catch {
         /* ignore */

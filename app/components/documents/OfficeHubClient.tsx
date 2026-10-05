@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import { downloadCloudDocument } from "@/app/lib/documents-download-client";
 import { OFFICE_KIND_META, type OfficeKind } from "@/app/lib/office-types";
 import { dash } from "@/app/lib/dashboard-brand";
 
@@ -17,7 +17,6 @@ type RecentRow = {
   fileShareId?: string | null;
   sharedLabel?: string;
   touchedAt?: string;
-  editUrl: string;
 };
 
 const ALL_KINDS: OfficeKind[] = ["writer", "calc", "impress"];
@@ -29,11 +28,11 @@ type Props = {
 
 export default function OfficeHubClient({ kind }: Props) {
   const suite = !kind;
-  const router = useRouter();
   const [personal, setPersonal] = useState<RecentRow[]>([]);
   const [shared, setShared] = useState<RecentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState<OfficeKind | null>(null);
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<RecentRow[] | null>(null);
@@ -42,8 +41,8 @@ export default function OfficeHubClient({ kind }: Props) {
   const kindParam = kind || "all";
   const title = suite ? "Bureautique" : OFFICE_KIND_META[kind].label;
   const description = suite
-    ? "Créez et ouvrez vos documents, tableurs et présentations — enregistrés dans votre cloud."
-    : "Fichiers ouverts dans le navigateur, enregistrés dans votre cloud personnel.";
+    ? "Créez des documents, tableurs et présentations — stockés dans votre cloud, à télécharger pour les ouvrir."
+    : "Fichiers stockés dans votre cloud : téléchargement pour ouverture locale (Word, Excel, LibreOffice…).";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,6 +90,26 @@ export default function OfficeHubClient({ kind }: Props) {
     return () => clearTimeout(t);
   }, [query, kindParam]);
 
+  const onDownload = async (row: RecentRow) => {
+    const key = `${row.scope}:${row.shareId || ""}:${row.fileShareId || ""}:${row.relPath}`;
+    setDownloadingKey(key);
+    setError(null);
+    try {
+      const result = await downloadCloudDocument({
+        scope: row.scope,
+        path: row.relPath,
+        shareId: row.shareId,
+        fileShareId: row.fileShareId,
+        fileName: row.fileName,
+      });
+      if (!result.ok) setError(result.error);
+    } catch {
+      setError("Erreur réseau.");
+    } finally {
+      setDownloadingKey(null);
+    }
+  };
+
   const onCreate = async (createKind: OfficeKind) => {
     setCreating(createKind);
     setError(null);
@@ -105,7 +124,17 @@ export default function OfficeHubClient({ kind }: Props) {
         setError(data.error || "Création impossible.");
         return;
       }
-      router.push(data.editUrl);
+      const result = await downloadCloudDocument({
+        scope: String(data.scope || "personal"),
+        path: String(data.relPath || ""),
+        shareId: data.shareId ? String(data.shareId) : null,
+        fileName: data.fileName ? String(data.fileName) : undefined,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      await load();
     } catch {
       setError("Erreur réseau.");
     } finally {
@@ -171,7 +200,7 @@ export default function OfficeHubClient({ kind }: Props) {
                 </span>
                 <span className={`text-sm font-semibold ${dash.ink}`}>{meta.label}</span>
                 <span className="text-xs font-semibold text-[var(--dash-primary)]">
-                  {creating === k ? "Création…" : meta.newLabel}
+                  {creating === k ? "Création…" : `${meta.newLabel} (télécharger)`}
                 </span>
               </button>
             );
@@ -184,7 +213,9 @@ export default function OfficeHubClient({ kind }: Props) {
           disabled={creating !== null}
           className="w-full sm:w-auto rounded-xl bg-[var(--dash-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
         >
-          {creating === kind ? "Création…" : OFFICE_KIND_META[kind].newLabel}
+          {creating === kind
+            ? "Création…"
+            : `${OFFICE_KIND_META[kind].newLabel} (télécharger)`}
         </button>
       )}
 
@@ -206,6 +237,8 @@ export default function OfficeHubClient({ kind }: Props) {
             rows={searchResults}
             empty="Aucun fichier trouvé."
             showKind={suite}
+            downloadingKey={downloadingKey}
+            onDownload={onDownload}
           />
         ) : null}
       </div>
@@ -217,12 +250,16 @@ export default function OfficeHubClient({ kind }: Props) {
             rows={personal}
             empty={loading ? "Chargement…" : emptyHint}
             showKind={suite}
+            downloadingKey={downloadingKey}
+            onDownload={onDownload}
           />
           <FileList
             title="Mes documents partagés"
             rows={shared}
             empty={loading ? "Chargement…" : "Aucun document partagé pour l’instant."}
             showKind={suite}
+            downloadingKey={downloadingKey}
+            onDownload={onDownload}
           />
         </>
       ) : null}
@@ -235,11 +272,15 @@ function FileList({
   rows,
   empty,
   showKind,
+  downloadingKey,
+  onDownload,
 }: {
   title: string;
   rows: RecentRow[];
   empty: string;
   showKind?: boolean;
+  downloadingKey: string | null;
+  onDownload: (row: RecentRow) => void | Promise<void>;
 }) {
   return (
     <section className="mt-8">
@@ -250,13 +291,17 @@ function FileList({
         <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
           {rows.map((row) => {
             const kindMeta = row.kind ? OFFICE_KIND_META[row.kind] : null;
+            const key = `${row.scope}:${row.shareId || ""}:${row.fileShareId || ""}:${row.relPath}`;
+            const busy = downloadingKey === key;
             return (
               <li
-                key={`${row.scope}-${row.shareId || ""}-${row.fileShareId || ""}-${row.relPath}`}
+                key={key}
               >
-                <Link
-                  href={row.editUrl}
-                  className="flex flex-col gap-0.5 px-4 py-3 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+                <button
+                  type="button"
+                  onClick={() => void onDownload(row)}
+                  disabled={busy}
+                  className="flex w-full flex-col gap-0.5 px-4 py-3 text-left hover:bg-slate-50 disabled:opacity-60 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     {showKind && kindMeta ? (
@@ -265,14 +310,15 @@ function FileList({
                       </span>
                     ) : null}
                     <span className={`truncate text-sm font-medium ${dash.ink}`}>
-                      {row.fileName}
+                      {busy ? "Téléchargement…" : row.fileName}
                     </span>
                   </span>
                   <span className={`text-xs ${dash.textMid}`}>
                     {showKind && kindMeta ? `${kindMeta.shortLabel} · ` : ""}
                     {row.sharedLabel || (row.scope === "personal" ? "Cloud perso" : "Partagé")}
+                    {" · Télécharger"}
                   </span>
-                </Link>
+                </button>
               </li>
             );
           })}

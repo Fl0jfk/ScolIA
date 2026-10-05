@@ -10,7 +10,13 @@ import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { Establishment } from "@/app/lib/app-config-schemas";
-import { EVENEMENTS_RDV_INSCRIPTION_CARD, EVENEMENTS_TOOLS_META, type EvenementToolId } from "@/app/lib/evenements-tools";
+import {
+  EVENEMENTS_FICHES_DIALOGUE_CARD,
+  EVENEMENTS_INVITATIONS_CARD,
+  EVENEMENTS_RDV_INSCRIPTION_CARD,
+  EVENEMENTS_TOOLS_META,
+  type EvenementToolId,
+} from "@/app/lib/evenements-tools";
 import {
   formatParisHm,
   getParisParts,
@@ -696,6 +702,29 @@ export default function EvenementsHubClient() {
               );
             })}
             <article
+              className={`rounded-2xl border p-5 flex flex-col gap-3 ${EVENEMENTS_INVITATIONS_CARD.accent}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h2 className="text-lg font-black leading-tight">
+                  {EVENEMENTS_INVITATIONS_CARD.title}
+                </h2>
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide opacity-70">
+                  {EVENEMENTS_INVITATIONS_CARD.season}
+                </span>
+              </div>
+              <p className="text-sm opacity-90 flex-1">
+                {EVENEMENTS_INVITATIONS_CARD.description}
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Link
+                  href={EVENEMENTS_INVITATIONS_CARD.adminHref}
+                  className="inline-flex rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                >
+                  Configurer
+                </Link>
+              </div>
+            </article>
+            <article
               className={`rounded-2xl border p-5 flex flex-col gap-3 ${EVENEMENTS_RDV_INSCRIPTION_CARD.accent}`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -712,6 +741,29 @@ export default function EvenementsHubClient() {
               <div className="flex flex-wrap gap-2 pt-1">
                 <Link
                   href={EVENEMENTS_RDV_INSCRIPTION_CARD.adminHref}
+                  className="inline-flex rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                >
+                  Configurer
+                </Link>
+              </div>
+            </article>
+            <article
+              className={`rounded-2xl border p-5 flex flex-col gap-3 ${EVENEMENTS_FICHES_DIALOGUE_CARD.accent}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h2 className="text-lg font-black leading-tight">
+                  {EVENEMENTS_FICHES_DIALOGUE_CARD.title}
+                </h2>
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide opacity-70">
+                  {EVENEMENTS_FICHES_DIALOGUE_CARD.season}
+                </span>
+              </div>
+              <p className="text-sm opacity-90 flex-1">
+                {EVENEMENTS_FICHES_DIALOGUE_CARD.description}
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Link
+                  href={EVENEMENTS_FICHES_DIALOGUE_CARD.adminHref}
                   className="inline-flex rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
                 >
                   Configurer

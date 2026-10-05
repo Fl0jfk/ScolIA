@@ -106,9 +106,10 @@ export default function AbsencesProcessorsPanel() {
       <div className="rounded-3xl border border-slate-200 bg-white p-5">
         <h3 className="font-black text-slate-900">Qui valide les absences du personnel OGEC ?</h3>
         <p className="mt-1 text-sm text-slate-600">
-          Choisissez une ou plusieurs personnes déjà authentifiées sur la plateforme. Seules elles
-          pourront accepter ou refuser les absences OGEC (en plus des administrateurs). Si la liste
-          est vide, le comportement historique s’applique (toute direction).
+          Défaut pour le personnel OGEC sans rattachement individuel. Liste vide = direction du
+          lycée. Pour rattacher une personne à une autre validatrice (ex. Séverine Colas → Mme
+          Plantec), ouvrez sa fiche RH → « Absences — qui valide ? ». Après validation, le dossier
+          reste traité par la compta / RH.
         </p>
         <div className="mt-3">
           <DirectoryPeoplePersonSelect

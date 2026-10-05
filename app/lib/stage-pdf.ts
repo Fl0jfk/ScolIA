@@ -10,6 +10,7 @@ import {
   STAGE_OFFER_KIND_LABELS,
   STAGE_SIGNER_ROLE_LABELS,
   formatCompanyAddress,
+  stageCompanyRhDisplayName,
   type StageConvention,
   type StageSignature,
 } from "@/app/lib/stage-types";
@@ -25,6 +26,7 @@ export type StageConventionPdfSchoolContext = {
   schoolName: string;
   schoolAddress: string;
   schoolPhone?: string;
+  /** @deprecated Non affiché sur la convention (téléphone seul). */
   schoolMail?: string;
   rgpdContact: string;
   insuranceText: string;
@@ -1011,7 +1013,6 @@ export async function renderStageConventionPdf(
   const schoolName = school.schoolName || "Etablissement scolaire";
   const schoolAddress = school.schoolAddress || "";
   const schoolPhone = school.schoolPhone || "";
-  const schoolMail = school.schoolMail || "";
   const rgpdContact = school.rgpdContact || "la direction de l'etablissement";
   const insurance = school.insuranceText?.trim() || DEFAULT_INSURANCE;
 
@@ -1067,7 +1068,17 @@ export async function renderStageConventionPdf(
     { label: "Nom", value: convention.company.tutorName },
     { label: "E-mail", value: convention.company.tutorEmail },
     { label: "Téléphone", value: convention.company.tutorPhone || "" },
-    { label: "RH", value: convention.company.rhEmail || "" },
+    {
+      label: "RH",
+      value: (() => {
+        const rhName = stageCompanyRhDisplayName(convention.company);
+        const rhEmail = convention.company.rhEmail?.trim() || "";
+        if (rhName && rhEmail.includes("@")) return `${rhName} — ${rhEmail}`;
+        if (rhName) return rhName;
+        if (rhEmail.includes("@")) return rhEmail;
+        return "";
+      })(),
+    },
   ]);
 
   const yCards2 = yCards - cardH - cardGap;
@@ -1084,12 +1095,12 @@ export async function renderStageConventionPdf(
     { label: "Nom", value: schoolName },
     { label: "Adresse", value: schoolAddress },
     {
-      label: "Contact",
-      value: [schoolPhone, schoolMail].filter(Boolean).join(" — "),
+      label: "Téléphone",
+      value: schoolPhone,
     },
     {
-      label: "Référent",
-      value: `${convention.teacherReferent.name} (${convention.teacherReferent.email})`,
+      label: "Prof. référent",
+      value: convention.teacherReferent.name?.trim() || "",
     },
   ]);
   ctx.y = yCards2 - cardH - 12;
@@ -1189,7 +1200,6 @@ export async function buildStageConventionPdf(convention: StageConvention): Prom
   const { loadSchoolLogoForPdf } = await import("@/app/lib/pdf-branding");
   const [bundle, logo] = await Promise.all([loadAppConfig(), loadSchoolLogoForPdf()]);
 
-  const schoolName = bundle.identity.name || "Établissement scolaire";
   const schoolAddress =
     bundle.identity.address?.full ||
     bundle.identity.address?.fullCompact ||
@@ -1199,9 +1209,11 @@ export async function buildStageConventionPdf(convention: StageConvention): Prom
     ]
       .filter(Boolean)
       .join(" - ");
-  const { resolveStagesDirectorName, resolveStagesEstablishmentForStudent } = await import(
-    "@/app/lib/stage-config",
-  );
+  const {
+    resolveStageConventionSchoolDisplayName,
+    resolveStagesDirectorName,
+    resolveStagesEstablishmentForStudent,
+  } = await import("@/app/lib/stage-config");
   const cycleEst = resolveStagesEstablishmentForStudent(
     bundle.establishments,
     convention.student.level,
@@ -1214,7 +1226,11 @@ export async function buildStageConventionPdf(convention: StageConvention): Prom
     )) ||
     cycleEst?.directorName ||
     "la direction de l'établissement";
-  const establishmentDisplayName = cycleEst?.label?.trim() || schoolName;
+  const establishmentDisplayName = resolveStageConventionSchoolDisplayName(
+    bundle.identity,
+    bundle.establishments,
+    cycleEst,
+  );
 
   let logoPayload: StageConventionPdfLogo | null = null;
   if (logo?.dataUri) {
@@ -1238,10 +1254,9 @@ export async function buildStageConventionPdf(convention: StageConvention): Prom
     schoolName: establishmentDisplayName,
     schoolAddress,
     schoolPhone: bundle.identity.phone?.display || "",
-    schoolMail: bundle.identity.assistanceEmail || "",
     rgpdContact,
     insuranceText: bundle.notifications.stagesInsuranceText?.trim() || DEFAULT_INSURANCE,
-    accentHex: bundle.identity.dashboardAccent,
+    accentHex: "#D4FF37",
     logo: logoPayload,
   });
 }

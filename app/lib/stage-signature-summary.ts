@@ -18,8 +18,9 @@ export type StageSignatureProgressItem = {
   reviewStatus?: StageSignature["reviewStatus"];
   signMethod?: StageSignature["signMethod"];
   /**
-   * Parent encore en attente alors que l'autre responsable a déjà signé :
-   * n'empêche pas la clôture du circuit.
+   * Parent encore en attente alors que l'autre a déjà signé ET que tous les
+   * autres signataires ont validé : dernière signature optionnelle (skippable).
+   * Tant que d'autres signataires sont en cours, les deux parents restent actifs.
    */
   nonBlocking?: boolean;
 };
@@ -59,14 +60,24 @@ function parentSiblingAlreadySigned(
   );
 }
 
+/** True si tous les signataires hors parents ont déjà validé. */
+function allNonParentSignaturesValidated(all: StageSignature[]): boolean {
+  const others = all.filter((s) => !isParentStageSignerRole(s.role));
+  if (others.length === 0) return true;
+  return others.every(isStageSignatureFullyValidated);
+}
+
 function mapSignature(
   sig: StageSignature,
   all: StageSignature[],
 ): StageSignatureProgressItem {
+  // Skip du 2ᵉ parent uniquement quand il serait la dernière signature attendue
+  // (l'autre parent a signé + tout le reste est OK). Sinon les deux restent actifs.
   const nonBlocking =
     !isStageSignatureFullyValidated(sig) &&
     sig.status !== "refuse" &&
-    parentSiblingAlreadySigned(sig, all);
+    parentSiblingAlreadySigned(sig, all) &&
+    allNonParentSignaturesValidated(all);
 
   return {
     id: sig.id,
@@ -81,50 +92,39 @@ function mapSignature(
 }
 
 /**
- * Compte les unités « requises » : chaque signataire non-parent compte 1,
- * et le groupe parent (1 et/ou 2) compte pour 1 au total.
+ * Compte chaque signature individuellement (affichage 4/5, etc.).
+ * La règle métier « un seul parent suffit pour clôturer » reste dans
+ * `conventionAllSignaturesValidated` / `complete`, pas dans ce ratio.
  */
-function requiredSignatureUnits(signatures: StageSignature[]): {
+function countSignatureProgress(signatures: StageSignature[]): {
   total: number;
   signed: number;
   pending: number;
   refused: number;
 } {
-  const parentSigs = signatures.filter((s) => isParentStageSignerRole(s.role));
-  const otherSigs = signatures.filter((s) => !isParentStageSignerRole(s.role));
-
-  let signed = otherSigs.filter(isStageSignatureFullyValidated).length;
-  let refused = otherSigs.filter((s) => s.status === "refuse").length;
-  let pending =
-    otherSigs.length -
-    otherSigs.filter(isStageSignatureFullyValidated).length -
-    refused;
-  let total = otherSigs.length;
-
-  if (parentSigs.length > 0) {
-    total += 1;
-    if (parentSigs.some(isStageSignatureFullyValidated)) {
-      signed += 1;
-    } else if (parentSigs.every((s) => s.status === "refuse")) {
-      refused += 1;
-    } else {
-      pending += 1;
-    }
+  let signed = 0;
+  let pending = 0;
+  let refused = 0;
+  for (const sig of signatures) {
+    if (isStageSignatureFullyValidated(sig)) signed += 1;
+    else if (sig.status === "refuse") refused += 1;
+    else pending += 1;
   }
-
-  return { total, signed, pending, refused };
+  return { total: signatures.length, signed, pending, refused };
 }
 
 export function buildSignatureSummary(convention: StageConvention): StageSignatureSummary {
   const signatures = convention.signatures;
   const items = signatures.map((sig) => mapSignature(sig, signatures));
-  const units = requiredSignatureUnits(signatures);
+  const units = countSignatureProgress(signatures);
   return {
     total: units.total,
     signed: units.signed,
     pending: units.pending,
     refused: units.refused,
-    complete: conventionAllSignaturesValidated(signatures),
+    // Import hors plateforme (PDF déjà signé, aucune signature e-sign) : complet.
+    complete:
+      convention.status === "signed" || conventionAllSignaturesValidated(signatures),
     items,
   };
 }

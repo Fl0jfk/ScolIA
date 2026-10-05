@@ -86,5 +86,5 @@ export function professeurMayAccessEleveDossier(opts: {
 
 /** Modules du pilier Administratif visibles pour un prof (vue réduite). */
 export const ADMINISTRATIF_PROF_MODULE_IDS = ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS
-  ? (["eleve-dossier", "certificates"] as const)
-  : (["certificates"] as const);
+  ? (["eleve-dossier", "stages", "certificates"] as const)
+  : (["stages", "certificates"] as const);

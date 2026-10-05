@@ -66,6 +66,10 @@ export async function searchAnnuaireEducation(opts: {
   const cp = (opts.cp || "").replace(/\D+/g, "").slice(0, 5);
   if (cp.length === 5) {
     clauses.push(`code_postal='${escapeOdsqlString(cp)}'`);
+  } else if (cp.length === 2 || cp.length === 3) {
+    // « 76 » / « 076 » parfois saisis dans le champ CP côté parent.
+    const deptFromCp = cp.length === 2 ? `0${cp}` : cp;
+    clauses.push(`code_departement='${escapeOdsqlString(deptFromCp)}'`);
   }
 
   const deptRaw = (opts.dept || "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();

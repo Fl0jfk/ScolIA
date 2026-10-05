@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
@@ -8,7 +8,6 @@ import {
   rdvInscriptionConfig,
   rdvInscriptionDirection,
 } from "@/db/schema";
-import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   DEFAULT_RDV_DIRECTIONS,
   DEFAULT_RDV_INSCRIPTION_CONSENT,
@@ -22,9 +21,37 @@ import {
 } from "@/app/lib/rdv-inscription-types";
 
 async function requireEtabId(explicit?: string): Promise<string> {
-  const id = explicit || (await resolveCurrentEtablissementId());
-  if (!id) throw new Error("Établissement introuvable (tenant).");
-  return id;
+  if (explicit?.trim()) return explicit.trim();
+  try {
+    const { getTenant } = await import("@/app/lib/tenant-context");
+    const { ensureEtablissementFromTenant } = await import("@/app/lib/etablissement-db");
+    const tenant = await getTenant();
+    return await ensureEtablissementFromTenant(tenant);
+  } catch (e) {
+    const parts: string[] = [];
+    let cur: unknown = e;
+    for (let i = 0; i < 4 && cur; i += 1) {
+      if (cur instanceof Error) {
+        parts.push(cur.message);
+        cur = (cur as Error & { cause?: unknown }).cause;
+      } else {
+        parts.push(String(cur));
+        break;
+      }
+    }
+    const msg = parts.join(" | ");
+    if (/CONNECT_TIMEOUT|ECONNRESET|ECONNREFUSED|too many clients|53300|connection/i.test(msg)) {
+      throw new Error(
+        "Base de données injoignable (délai dépassé). Réessayez dans un instant.",
+      );
+    }
+    if (/Tenant introuvable/i.test(msg)) {
+      throw new Error(parts[0] || msg);
+    }
+    throw new Error(
+      "Établissement introuvable (tenant). Vérifiez la connexion base / le tenant local.",
+    );
+  }
 }
 
 function requireDb() {
@@ -109,6 +136,8 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
         : null,
     niveauId: row.niveauId,
     niveauLabel: row.niveauLabel,
+    regime:
+      row.regime === "DP" || row.regime === "EXT" || row.regime === "INT" ? row.regime : null,
     eleveId: row.eleveId,
     matchStatus,
     createNew: row.createNew === 1,
@@ -126,6 +155,9 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
     reconfirmStatus,
     reconfirmMailSentAt: toIso(row.reconfirmMailSentAt),
     reconfirmedAt: toIso(row.reconfirmedAt),
+    adminCancelNote: row.adminCancelNote?.trim() || null,
+    rescheduleLinkAvailable:
+      mapBookingStatus(row.status) === "cancelled" && Boolean(row.rescheduleToken?.trim()),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -516,6 +548,7 @@ export async function insertRdvInscriptionBooking(input: {
   rdvAttendee?: "madame" | "monsieur" | "les_deux" | null;
   niveauId?: string | null;
   niveauLabel?: string | null;
+  regime?: "DP" | "EXT" | "INT" | null;
   eleveId?: string | null;
   createNew?: boolean;
   hasPap?: "yes" | "no" | null;
@@ -561,6 +594,10 @@ export async function insertRdvInscriptionBooking(input: {
         : null,
     niveauId: input.niveauId?.trim() || null,
     niveauLabel: input.niveauLabel?.trim() || null,
+    regime:
+      input.regime === "DP" || input.regime === "EXT" || input.regime === "INT"
+        ? input.regime
+        : null,
     eleveId: input.eleveId?.trim() || null,
     createNew: input.createNew ? 1 : 0,
     hasPap: input.hasPap === "yes" || input.hasPap === "no" ? input.hasPap : null,
@@ -636,6 +673,30 @@ export async function findBookingByConfirmToken(
   return { ...mapBooking(row), etablissementId: row.etablissementId };
 }
 
+export async function findRdvInscriptionBookingById(opts: {
+  bookingId: string;
+  etablissementId?: string;
+}): Promise<(RdvInscriptionBookingRow & { etablissementId: string }) | null> {
+  const bookingId = opts.bookingId.trim();
+  if (!bookingId) return null;
+  if (!isDatabaseConfigured()) return null;
+  const etabId = await requireEtabId(opts.etablissementId);
+  const db = requireDb();
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, etabId),
+        eq(rdvInscriptionBooking.id, bookingId),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return { ...mapBooking(row), etablissementId: row.etablissementId };
+}
+
 export async function markRdvInscriptionBookingConfirmed(opts: {
   bookingId: string;
   etablissementId: string;
@@ -659,6 +720,68 @@ export async function markRdvInscriptionBookingConfirmed(opts: {
       reconfirmStatus: opts.reconfirmToken ? "pending" : undefined,
       updatedAt: new Date(),
     })
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+/** Déplace une réservation active vers un autre événement Google (ou resynchronise les horaires). */
+export async function updateRdvInscriptionBookingSlot(opts: {
+  bookingId: string;
+  etablissementId: string;
+  googleEventId: string;
+  googleCalendarId?: string;
+  googleHtmlLink?: string | null;
+  startAt: Date;
+  endAt: Date;
+  /** Si true, force le statut confirmé (ex. modification admin). */
+  forceConfirmed?: boolean;
+}): Promise<RdvInscriptionBookingRow | null> {
+  const db = requireDb();
+  const patch: {
+    googleEventId: string;
+    googleCalendarId?: string;
+    googleHtmlLink: string | null;
+    startAt: Date;
+    endAt: Date;
+    updatedAt: Date;
+    status?: string;
+    confirmedAt?: Date;
+    confirmToken?: null;
+    confirmExpiresAt?: null;
+  } = {
+    googleEventId: opts.googleEventId.trim(),
+    googleHtmlLink: opts.googleHtmlLink ?? null,
+    startAt: opts.startAt,
+    endAt: opts.endAt,
+    updatedAt: new Date(),
+  };
+  if (opts.googleCalendarId?.trim()) {
+    patch.googleCalendarId = opts.googleCalendarId.trim();
+  }
+  if (opts.forceConfirmed) {
+    patch.status = "confirmed";
+    patch.confirmedAt = new Date();
+    patch.confirmToken = null;
+    patch.confirmExpiresAt = null;
+  }
+  await db
+    .update(rdvInscriptionBooking)
+    .set(patch)
     .where(
       and(
         eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
@@ -861,7 +984,7 @@ export async function listRdvInscriptionBookings(opts?: {
 }): Promise<RdvInscriptionBookingRow[]> {
   const etabId = await requireEtabId(opts?.etablissementId);
   const db = requireDb();
-  const limit = Math.min(200, Math.max(1, opts?.limit ?? 100));
+  const limit = Math.min(300, Math.max(1, opts?.limit ?? 200));
   const conditions = [eq(rdvInscriptionBooking.etablissementId, etabId)];
   if (opts?.directionSlug) {
     conditions.push(eq(rdvInscriptionBooking.directionSlug, opts.directionSlug.trim().toLowerCase()));
@@ -870,7 +993,198 @@ export async function listRdvInscriptionBookings(opts?: {
     .select()
     .from(rdvInscriptionBooking)
     .where(and(...conditions))
-    .orderBy(desc(rdvInscriptionBooking.startAt))
+    // Plus récentes réservations en premier (pas la date du créneau).
+    .orderBy(desc(rdvInscriptionBooking.createdAt))
     .limit(limit);
   return rows.map(mapBooking);
+}
+
+/** RDV actifs (pending non expiré / confirmed) pour un élève (optionnellement une direction). */
+export async function listActiveBookingsForEleve(opts: {
+  eleveId: string;
+  directionSlug?: string;
+  etablissementId?: string;
+}): Promise<Array<RdvInscriptionBookingRow & { etablissementId: string }>> {
+  const eleveId = opts.eleveId.trim();
+  if (!eleveId) return [];
+  const etabId = await requireEtabId(opts.etablissementId);
+  const db = requireDb();
+  const now = new Date();
+  const conditions = [
+    eq(rdvInscriptionBooking.etablissementId, etabId),
+    eq(rdvInscriptionBooking.eleveId, eleveId),
+    inArray(rdvInscriptionBooking.status, ["pending", "confirmed"]),
+  ];
+  if (opts.directionSlug?.trim()) {
+    conditions.push(
+      eq(rdvInscriptionBooking.directionSlug, opts.directionSlug.trim().toLowerCase()),
+    );
+  }
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(and(...conditions))
+    .orderBy(desc(rdvInscriptionBooking.createdAt));
+
+  return rows
+    .filter((r) => {
+      if (r.status === "confirmed") return true;
+      if (r.status === "pending") {
+        if (!r.confirmExpiresAt) return true;
+        return r.confirmExpiresAt.getTime() > now.getTime();
+      }
+      return false;
+    })
+    .map((r) => ({ ...mapBooking(r), etablissementId: r.etablissementId }));
+}
+
+export async function markRdvInscriptionBookingCancelled(opts: {
+  bookingId: string;
+  etablissementId: string;
+}): Promise<RdvInscriptionBookingRow | null> {
+  const db = requireDb();
+  await db
+    .update(rdvInscriptionBooking)
+    .set({
+      status: "cancelled",
+      confirmToken: null,
+      confirmExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+        inArray(rdvInscriptionBooking.status, ["pending", "confirmed"]),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+/** Annulation admin avec demande de rechoix (token + note). */
+export async function markRdvInscriptionBookingCancelledForReschedule(opts: {
+  bookingId: string;
+  etablissementId: string;
+  adminCancelNote: string | null;
+  rescheduleToken: string;
+  rescheduleTokenExpiresAt: Date;
+}): Promise<RdvInscriptionBookingRow | null> {
+  const db = requireDb();
+  const note = opts.adminCancelNote?.trim() || null;
+  await db
+    .update(rdvInscriptionBooking)
+    .set({
+      status: "cancelled",
+      confirmToken: null,
+      confirmExpiresAt: null,
+      adminCancelNote: note,
+      rescheduleToken: opts.rescheduleToken,
+      rescheduleTokenExpiresAt: opts.rescheduleTokenExpiresAt,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+        inArray(rdvInscriptionBooking.status, ["pending", "confirmed"]),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+/**
+ * Renouvelle le token de rechoix sur un RDV déjà annulé avec demande de rechoix.
+ * Ne crée pas de token sur une simple suppression (sans reschedule_token).
+ */
+export async function refreshRdvInscriptionRescheduleToken(opts: {
+  bookingId: string;
+  etablissementId: string;
+  rescheduleToken: string;
+  rescheduleTokenExpiresAt: Date;
+  adminCancelNote?: string | null;
+}): Promise<(RdvInscriptionBookingRow & { rescheduleToken: string }) | null> {
+  const db = requireDb();
+  const patch: Partial<typeof rdvInscriptionBooking.$inferInsert> = {
+    rescheduleToken: opts.rescheduleToken,
+    rescheduleTokenExpiresAt: opts.rescheduleTokenExpiresAt,
+    updatedAt: new Date(),
+  };
+  if (opts.adminCancelNote !== undefined) {
+    patch.adminCancelNote = opts.adminCancelNote?.trim() || null;
+  }
+  await db
+    .update(rdvInscriptionBooking)
+    .set(patch)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+        eq(rdvInscriptionBooking.status, "cancelled"),
+        isNotNull(rdvInscriptionBooking.rescheduleToken),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  if (!row?.rescheduleToken) return null;
+  return {
+    ...mapBooking(row),
+    rescheduleToken: row.rescheduleToken,
+  };
+}
+
+export async function findBookingByRescheduleToken(
+  token: string,
+): Promise<
+  | (RdvInscriptionBookingRow & {
+      etablissementId: string;
+      rescheduleToken: string;
+      rescheduleTokenExpiresAt: Date | null;
+    })
+  | null
+> {
+  const trimmed = String(token || "").trim();
+  if (!trimmed) return null;
+  const db = requireDb();
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(eq(rdvInscriptionBooking.rescheduleToken, trimmed))
+    .limit(1);
+  const row = rows[0];
+  if (!row?.rescheduleToken) return null;
+  return {
+    ...mapBooking(row),
+    etablissementId: row.etablissementId,
+    rescheduleToken: row.rescheduleToken,
+    rescheduleTokenExpiresAt: row.rescheduleTokenExpiresAt,
+  };
 }

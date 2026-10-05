@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
 import type { MailPreviewType } from "@/app/lib/travels-mail-preview";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
@@ -13,6 +12,7 @@ import {
   formatImpactPreviewLines,
   type ImpactPreviewLike,
 } from "@/app/lib/impact-engine/format-preview";
+import TravelsOwnerRepairSection from "@/app/components/travels/TravelsOwnerRepairSection";
 
 function existingTransportRequest(trip: TravelsTrip) {
   const tr = trip.data.transportRequest;
@@ -29,12 +29,17 @@ function existingTransportRequest(trip: TravelsTrip) {
 export function TripActionsPanel({
   trip,
   canManage,
+  /** Requalification SIMPLE/COMPLEX → bus : direction, admin général, administratif (pas le seul demandeur). */
+  canRequalify = false,
   isGlobalAdmin = false,
+  canReassignOwner = false,
   onTripUpdated,
 }: {
   trip: TravelsTrip;
   canManage: boolean;
+  canRequalify?: boolean;
   isGlobalAdmin?: boolean;
+  canReassignOwner?: boolean;
   onTripUpdated: (trip: TravelsTrip) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -46,7 +51,7 @@ export function TripActionsPanel({
   const [impactBanner, setImpactBanner] = useState<string[] | null>(null);
 
   const canRequalifyToBus =
-    canManage &&
+    canRequalify &&
     !complexNeedsBus(trip) &&
     (trip.type === "SIMPLE" || trip.type === "COMPLEX") &&
     !["ANNULE", "SEANCE_ANNULEE", "REJETE"].includes(String(trip.status));
@@ -203,6 +208,9 @@ export function TripActionsPanel({
           </TripAlert>
         </div>
       ) : null}
+      {canReassignOwner && (
+        <TravelsOwnerRepairSection trip={trip} onRepaired={onTripUpdated} />
+      )}
       <TripSection title="Actions du sas voyage" subtitle="Export, annulation, aperçus mails" icon="⚡">
         <div className="grid gap-4 sm:grid-cols-2">
           {canRequalifyToBus && (
@@ -262,12 +270,11 @@ export function TripActionsPanel({
               <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="relative h-28 w-full sm:w-44 shrink-0 overflow-hidden rounded-lg bg-slate-200">
                   {coverUrl ? (
-                    <Image
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
                       src={coverUrl}
                       alt={trip.data?.title || "Image de présentation"}
-                      fill
-                      className="object-cover"
-                      sizes="176px"
+                      className="absolute inset-0 h-full w-full object-cover"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-3xl">🎒</div>

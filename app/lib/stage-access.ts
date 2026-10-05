@@ -39,6 +39,14 @@ export function canViewAllConventions(roles: string[]) {
   return canReviewPreconvention(roles) || roles.includes("surveillant");
 }
 
+/**
+ * Consultation large (admin / direction / surveillant).
+ * Les professeurs restent scopés PP / référent via conventionVisibleToUser.
+ */
+export function canBrowseStageConventions(roles: string[]) {
+  return canViewAllConventions(roles);
+}
+
 /** Visu stages sans signature — CPE (et restauration pour les repas). */
 export function canViewStageWatchScope(roles: string[]) {
   return roles.includes("cpe") || roles.includes("accueil") || roles.includes("administratif");

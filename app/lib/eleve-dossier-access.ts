@@ -672,6 +672,8 @@ export type EleveAccompagnementDoc = {
 export type EleveAccompagnementListItem = {
   kind: AccompagnementKind;
   documentId: string;
+  anneeLabel: string | null;
+  createdAt: Date;
 };
 
 export async function listEleveLatestAccompagnementByKind(opts: {
@@ -690,6 +692,7 @@ export async function listEleveLatestAccompagnementByKind(opts: {
       title: eleveDocument.title,
       fileUrl: eleveDocument.fileUrl,
       confidentialite: eleveDocument.confidentialite,
+      anneeLabel: eleveDocument.anneeLabel,
       createdAt: eleveDocument.createdAt,
     })
     .from(eleveDocument)
@@ -702,7 +705,12 @@ export async function listEleveLatestAccompagnementByKind(opts: {
     )
     .orderBy(desc(eleveDocument.createdAt));
 
-  const latestByEleve = new Map<string, Map<AccompagnementKind, string>>();
+  type LatestDoc = {
+    documentId: string;
+    anneeLabel: string | null;
+    createdAt: Date;
+  };
+  const latestByEleve = new Map<string, Map<AccompagnementKind, LatestDoc>>();
   for (const doc of docs) {
     if (doc.confidentialite === "restreint" || doc.confidentialite === "sante") continue;
     if (!doc.fileUrl) continue;
@@ -714,7 +722,11 @@ export async function listEleveLatestAccompagnementByKind(opts: {
       latestByEleve.set(doc.eleveId, byKind);
     }
     if (byKind.has(kind)) continue;
-    byKind.set(kind, doc.id);
+    byKind.set(kind, {
+      documentId: doc.id,
+      anneeLabel: doc.anneeLabel ?? null,
+      createdAt: doc.createdAt,
+    });
   }
 
   const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
@@ -722,8 +734,17 @@ export async function listEleveLatestAccompagnementByKind(opts: {
     out.set(
       eleveId,
       kindOrder.flatMap((kind) => {
-        const documentId = byKind.get(kind);
-        return documentId ? [{ kind, documentId }] : [];
+        const hit = byKind.get(kind);
+        return hit
+          ? [
+              {
+                kind,
+                documentId: hit.documentId,
+                anneeLabel: hit.anneeLabel,
+                createdAt: hit.createdAt,
+              },
+            ]
+          : [];
       }),
     );
   }

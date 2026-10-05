@@ -46,6 +46,9 @@ export type MessagingReactionDto = {
   count?: number;
 };
 
+/** Accusé côté expéditeur : envoyé → distribué → lu. */
+export type MessagingReceiptStatus = "sent" | "delivered" | "read";
+
 export type MessagingMessageDto = {
   id: string;
   conversationId: string;
@@ -60,6 +63,8 @@ export type MessagingMessageDto = {
   createdAt: string;
   attachments: MessagingAttachmentDto[];
   reactions: MessagingReactionDto[];
+  /** Présent sur les messages dont on est l’auteur (ticks Messenger). */
+  receiptStatus?: MessagingReceiptStatus;
 };
 
 export type MessagingConversationDto = {
@@ -85,6 +90,7 @@ export type MessagingConversationDto = {
 export type MessagingSseEventType =
   | "message"
   | "read"
+  | "delivered"
   | "typing"
   | "reaction"
   | "conversation_updated"

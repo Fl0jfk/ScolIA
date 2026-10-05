@@ -1,7 +1,11 @@
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments, shouldShowGroupeScolaire } from "@/app/lib/app-config-establishments";
 import { withDefaultProfRoomSubjects } from "@/app/lib/prof-room-defaults";
-import { resolveClassesByPoleCatalog, resolveProfRoomClassesByPole } from "@/app/lib/school-classes-catalog";
+import {
+  resolveClassesByPoleCatalog,
+  resolveProfRoomClassesByPole,
+  resolveSchoolClassQuery,
+} from "@/app/lib/school-classes-catalog";
 import { getJson } from "@/app/lib/s3-storage";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
 import type { BrainPendingChoices, BrainToolResult } from "@/app/lib/brain-ai/types";
@@ -34,6 +38,8 @@ export function matchCatalogValue(raw: string, catalog: string[]): string | null
   const lower = t.toLowerCase();
   const ci = catalog.find((c) => c.toLowerCase() === lower);
   if (ci) return ci;
+  const resolved = resolveSchoolClassQuery(t, catalog);
+  if (resolved.match) return resolved.match;
   const compact = lower.replace(/[\s_-]+/g, "");
   const loose = catalog.find((c) => c.toLowerCase().replace(/[\s_-]+/g, "") === compact);
   return loose || null;
