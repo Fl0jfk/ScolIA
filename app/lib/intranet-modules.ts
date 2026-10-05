@@ -142,6 +142,14 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "documents",
     pathPrefixes: ["/documents", "/api/documents"],
+    // Bureautique : routes dédiées (module `office`) — ne pas hériter du cloud personnel.
+    excludePrefixes: [
+      "/documents/office",
+      "/documents/writer",
+      "/documents/calc",
+      "/documents/impress",
+      "/api/documents/office",
+    ],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
@@ -168,18 +176,10 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/documents/writer",
       "/documents/calc",
       "/documents/impress",
+      "/api/documents/office",
     ],
-    allowedRoles: [
-      ...DIRECTIONS,
-      "administratif",
-      "comptabilite",
-      "surveillant",
-      "cpe",
-      "professeur",
-      "maintenance",
-      "infirmerie",
-      "psychologue",
-    ],
+    // Masqué temporairement (serveur Scaleway bureautique coupé / coût) — UI + routes, tous rôles.
+    allowedRoles: [],
     dashboard: {
       id: 11,
       name: "Bureautique",
@@ -1143,6 +1143,9 @@ export function rolesAllowModule(
   /** Garde anti-cycle (absences→rh / pillar→enfants). */
   _stack?: Set<string>,
 ): boolean {
+  // Bureautique : masquée temporairement (serveur Scaleway coupé / coût), tous rôles y compris orgAdmin / master.
+  if (module.id === "office") return false;
+
   if (hasMasterRole(roles)) return true;
   // Admin établissement (flag ou rôle) : tous les modules du tenant.
   if (isOrgAdmin || hasGlobalAdminRole(roles)) return true;
@@ -1163,14 +1166,6 @@ export function rolesAllowModule(
       ) {
         return true;
       }
-    }
-
-    // Bureautique : mêmes droits que le Cloud personnel.
-    if (module.id === "office") {
-      const docs = getIntranetModuleById("documents");
-      return docs
-        ? rolesAllowModule(roles, docs, isOrgAdmin, access, userRef, stack)
-        : false;
     }
 
     // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
@@ -1288,7 +1283,6 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "requests-staff",
     "domain-planning",
     "documents",
-    "office",
     "qrcreator",
     "assistance",
     "photocopies-couleur",
