@@ -562,12 +562,15 @@ export async function listAccueilBoard(
       secteur: r.eleveSecteur,
       classe,
     });
+    const fromAppel = r.source === "appel";
     return {
       id: r.id,
       kind: "eleve" as const,
       displayName: `${r.elevePrenom} ${r.eleveNom}`.trim(),
       subtitle: [
+        fromAppel ? "Appel de classe" : null,
         nature === "retard" ? "Retard" : "Absence",
+        fromAppel && r.appelMatiere ? r.appelMatiere : null,
         classe,
         cycleLabel(cycle) || null,
         formatPeriodSubtitle({
@@ -585,7 +588,7 @@ export async function listAccueilBoard(
       heureFin: r.heureFin,
       motif: r.motif,
       createdByNom: r.createdByNom,
-      source: "accueil",
+      source: fromAppel ? "appel" : "accueil",
       eleveNature: nature,
       cycle,
       classe,

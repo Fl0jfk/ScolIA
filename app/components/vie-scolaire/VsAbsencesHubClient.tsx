@@ -11,8 +11,10 @@ import ModuleTabNav, { type ModuleTabItem } from "@/app/components/module-chrome
 import { useData } from "@/app/contexts/data";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { useSessionUser } from "@/app/hooks/useAppUser";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
+import { canConsultAbsencesHubTab } from "@/app/lib/vs-absences-hub-access";
 
 export type AbsencesHubTab = "declarer" | "consulter" | "appels";
 
@@ -25,7 +27,9 @@ function resolveDefaultTab(
   // Accueil : priorité déclaration. CPE / VS : priorité consultation si dispo.
   if (hasRole(roles, "accueil") && available.includes("declarer")) return "declarer";
   if (
-    (hasRole(roles, "cpe") || hasRole(roles, "surveillant")) &&
+    (isAnyDirectionRole(roles) ||
+      hasRole(roles, "cpe") ||
+      hasRole(roles, "surveillant")) &&
     available.includes("consulter")
   ) {
     return "consulter";
@@ -52,13 +56,11 @@ export default function VsAbsencesHubClient() {
         hasRole(roles, "surveillant") ||
         hasRole(roles, "comptabilite")));
 
-  const canConsulter =
-    isOrgAdmin ||
-    Boolean(accessibleModuleIds?.has("absences-accueil-consultation")) ||
-    (accessibleModuleIds === null &&
-      (hasRole(roles, "cpe") ||
-        hasRole(roles, "surveillant") ||
-        hasRole(roles, "administratif")));
+  const canConsulter = canConsultAbsencesHubTab({
+    isOrgAdmin,
+    accessibleModuleIds,
+    roles,
+  });
 
   // Appels : uniquement si le module est réellement accessible (sinon WIP masqué).
   const canAppels = isOrgAdmin || Boolean(accessibleModuleIds?.has("vs-appels"));
@@ -128,7 +130,7 @@ export default function VsAbsencesHubClient() {
             : tab === "declarer"
               ? "Déclarer une absence au standard."
               : tab === "consulter"
-                ? "Consulter les absences saisies à l’accueil."
+                ? "Consulter les absences (accueil et appels de classe)."
                 : "Appel de présence en classe."
         }
       />

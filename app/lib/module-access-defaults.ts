@@ -57,6 +57,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   "internat",
   "vs-calendrier",
   "vs-appels",
+  "vs-absences",
   "accueil-absences",
   "absences-accueil-consultation",
   "accueil-portes-ouvertes",
