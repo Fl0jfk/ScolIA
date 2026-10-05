@@ -101,10 +101,24 @@ export async function GET(req: Request) {
       const stored = await loadReferentSignatureBytes(convention.teacherReferent.userId);
       hasStoredReferentSignature = Boolean(stored?.length);
     }
+    if (signature.role === "professeur_principal") {
+      const { resolvePrincipalSignerForClass } = await import("@/app/lib/stage-referents-config");
+      const principal = await resolvePrincipalSignerForClass(
+        convention.student.className,
+        convention.schoolYear,
+      );
+      if (principal?.externalUserId) {
+        const stored = await loadReferentSignatureBytes(principal.externalUserId);
+        hasStoredReferentSignature = Boolean(stored?.length);
+      }
+    }
 
     const isExternal = isExternalStageSignerRole(signature.role);
     const needsDrawnSignature =
-      !isExternal && signature.role === "professeur_referent" && stampsPdf && !hasStoredReferentSignature;
+      !isExternal &&
+      (signature.role === "professeur_referent" || signature.role === "professeur_principal") &&
+      stampsPdf &&
+      !hasStoredReferentSignature;
 
     const scheduleDays = mapScheduleDays(convention);
     const scheduleChangePending = Boolean(convention.scheduleChangeRequest);

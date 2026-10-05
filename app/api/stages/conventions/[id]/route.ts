@@ -18,7 +18,6 @@ import {
   reviewScheduleChangeRequest,
   reviewTutorEmailChangeRequest,
   submitPreconvention,
-  syncProfReferentSignatory,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent, listPrincipalClassesForUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
@@ -196,16 +195,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           },
         ],
       };
-      if (convention.status === "signatures_pending" || convention.status === "convention_ready") {
-        convention = await syncProfReferentSignatory(convention, {
-          name,
-          email,
-          userId: externalUserId,
-          byName: displayName(user),
-        });
-      } else {
-        await saveStageConvention(convention);
-      }
+      await saveStageConvention(convention);
+      const { upsertStudentReferentAssignments } = await import("@/app/lib/stage-referent-students");
+      const { stageRosterStudentKey } = await import("@/app/lib/stage-referents-config");
+      await upsertStudentReferentAssignments({
+        className: convention.student.className,
+        schoolYear: convention.schoolYear,
+        updatedBy: displayName(user),
+        teacher: { externalUserId, name, email },
+        students: [
+          {
+            key: stageRosterStudentKey(convention.student.lastName, convention.student.firstName),
+            studentName: `${convention.student.firstName} ${convention.student.lastName}`.trim(),
+          },
+        ],
+      }).catch((err) => console.warn("[stages] map élève référent:", err));
       return NextResponse.json({ success: true, convention });
     }
 

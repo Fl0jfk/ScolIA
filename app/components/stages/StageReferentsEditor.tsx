@@ -231,10 +231,9 @@ export default function StageReferentsEditor({
       )}
 
       <p className="text-sm text-stone-600">
-        Pour chaque classe : un <strong>professeur principal</strong> (peut déléguer un référent
-        stage par élève) et un ou plusieurs <strong>professeurs référents</strong> stages. Ce
-        n&apos;est pas forcément la même personne. Les professeurs n&apos;ont pas accès aux
-        réglages.
+        Pour chaque classe : un <strong>professeur principal</strong> (signe la convention) et un ou
+        plusieurs <strong>professeurs référents</strong> (suivi des stagiaires, sans signature).
+        La répartition élève par élève se fait dans Suivi classe.
       </p>
 
       {updatedAt && (

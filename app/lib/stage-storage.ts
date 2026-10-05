@@ -59,6 +59,11 @@ async function invalidateStagesClassRosterCaches(etabId: string | null): Promise
   await valkeyDeleteByPrefix(valkeyPrefixStagesClassRoster(etabId));
 }
 
+export async function invalidateStageClassRosterCaches(): Promise<void> {
+  const etabId = await stagesEtabId();
+  await invalidateStagesClassRosterCaches(etabId);
+}
+
 export async function getOffersIndex(): Promise<StageOfferIndexEntry[]> {
   const hit = await getJson<StageOfferIndexEntry[]>(STAGE_S3.offersIndex);
   return Array.isArray(hit?.data) ? hit.data : [];

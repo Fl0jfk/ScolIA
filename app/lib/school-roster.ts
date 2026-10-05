@@ -7,9 +7,10 @@ import {
   replaceSchoolRosterInDb,
   resolveCurrentEtablissementId,
 } from "@/app/lib/ent-core-db";
-import { classKey } from "@/app/lib/stage-referents-config";
 import {
+  classKey,
   saveStageReferentsConfig,
+  getStageReferentsConfig,
   type StageClassReferentAssignment,
 } from "@/app/lib/stage-referents-config";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
@@ -44,18 +45,21 @@ export async function loadSchoolRoster(): Promise<SchoolRosterConfig> {
 
 async function syncStageReferentsFromRoster(config: SchoolRosterConfig): Promise<void> {
   const year = currentStageSchoolYear();
-  const assignments: StageClassReferentAssignment[] = config.classAssignments.map((a) => ({
+  const existing = await getStageReferentsConfig(year);
+  const principals: StageClassReferentAssignment[] = config.classAssignments.map((a) => ({
     className: a.className,
     externalUserId: a.externalUserId,
     name: a.name,
     email: a.email,
     role: "professeur_principal" as const,
   }));
+  const referents = (existing?.assignments ?? []).filter((a) => a.role === "professeur_referent");
   await saveStageReferentsConfig({
     schoolYear: year,
     updatedAt: new Date().toISOString(),
     updatedBy: config.updatedBy,
-    assignments,
+    assignments: [...principals, ...referents],
+    studentAssignments: existing?.studentAssignments ?? [],
   });
 }
 
