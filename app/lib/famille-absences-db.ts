@@ -3,6 +3,7 @@ import "server-only";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, vsAbsenceEleve } from "@/db/schema";
+import { sqlExcludeStageVsAbsences } from "@/app/lib/vs-absences-stage";
 
 export type FamilleAbsenceRow = {
   id: string;
@@ -48,6 +49,7 @@ export async function listFamilleAbsences(
       and(
         eq(vsAbsenceEleve.etablissementId, etablissementId),
         inArray(vsAbsenceEleve.eleveId, eleveIds),
+        sqlExcludeStageVsAbsences(),
       ),
     )
     .orderBy(desc(vsAbsenceEleve.dateDebut))

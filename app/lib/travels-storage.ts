@@ -30,6 +30,13 @@ export async function invalidateTravelsCaches(
 export async function listTravelsIndex(): Promise<TravelsTrip[]> {
   const etabId = await travelsDbReady();
   if (!etabId) return [];
+  return listTravelsForEtablissement(etabId);
+}
+
+/** Liste index voyages pour un établissement (clé cache = UUID tenant). */
+export async function listTravelsForEtablissement(etablissementId: string): Promise<TravelsTrip[]> {
+  const etabId = etablissementId.trim();
+  if (!etabId) return [];
   return valkeyCached({
     key: valkeyKeyTravelsIndex(etabId),
     ttlSeconds: VALKEY_TTL.travelsIndex,

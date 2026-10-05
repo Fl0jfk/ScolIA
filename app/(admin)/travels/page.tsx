@@ -13,7 +13,7 @@ import {
 } from "@/app/components/travels/TravelsRemindersModal";
 import type { TravelsDirectionDashboard } from "@/app/lib/travels-direction-dashboard";
 import {
-  isTripTravelDatePast,
+  filterTripsForModuleList,
   travelsTripMatchesSearch,
 } from "@/app/lib/travels-trip-helpers";
 import type { TravelsTrip } from "@/app/lib/travels-types";
@@ -36,7 +36,6 @@ import {
 } from "@/app/lib/module-tour-actions";
 import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
-import { hasRole } from "@/app/lib/intranet-role-utils";
 
 type TravelsMainTab = "dossiers" | "settings";
 
@@ -56,11 +55,6 @@ function TripDashboardContent() {
     if (Array.isArray(fromContext) && fromContext.length > 0) return fromContext;
     return rolesFromUserLike(user);
   }, [appCtx?.session?.intranetRoles, user]);
-  /** Passés visibles (grisés) uniquement pour la compta — facturation. */
-  const isCompta = useMemo(
-    () => roles.includes("comptabilité") || hasRole(roles, "comptabilite"),
-    [roles],
-  );
   const canOpenTrip = useMemo(
     () =>
       canEnterTravelsDetail({
@@ -168,23 +162,13 @@ function TripDashboardContent() {
 
   const filteredTrips = useMemo(() => {
     const defaultLabel = etabFilterOptions.showGroupe ? GROUPE_SCOLAIRE_LABEL : etabFilterOptions.labels[0] || "";
-    const list = trips.filter((t) => {
-      // Annulés / rejetés : hors liste pour tout le monde.
-      if (t.status === "ANNULE" || t.status === "SEANCE_ANNULEE" || t.status === "REJETE") return false;
-      // Passés : hors liste opérationnelle, sauf pour la compta (grisés, facturation).
-      if (isTripTravelDatePast(t) && !isCompta) return false;
-      if (filterEtab && (t.data?.etablissement || defaultLabel) !== filterEtab) return false;
-      return travelsTripMatchesSearch(t, searchQuery);
+    return filterTripsForModuleList(trips, {
+      matchesSearch: (t) => travelsTripMatchesSearch(t, searchQuery),
+    }).filter((t) => {
+      if (!filterEtab) return true;
+      return (t.data?.etablissement || defaultLabel) === filterEtab;
     });
-    if (!isCompta) return list;
-    // Compta : actifs d'abord, passés ensuite (grisés en bas).
-    return [...list].sort((a, b) => {
-      const aPast = isTripTravelDatePast(a);
-      const bPast = isTripTravelDatePast(b);
-      if (aPast !== bPast) return aPast ? 1 : -1;
-      return 0;
-    });
-  }, [trips, filterEtab, searchQuery, etabFilterOptions, isCompta]);
+  }, [trips, filterEtab, searchQuery, etabFilterOptions]);
 
   if (!isLoaded || !isSignedIn) return null;
 

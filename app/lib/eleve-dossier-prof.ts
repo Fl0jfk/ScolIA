@@ -14,6 +14,7 @@ import {
 } from "@/app/lib/eleve-dossier-scope";
 import { isExcludedFromDossierList } from "@/app/lib/eleve-dossier-catalog";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import { chunkArray } from "@/app/lib/db-in-chunks";
 
 function identityPersonKey(nom: string, prenom: string): string {
   const norm = (s: string) =>
@@ -95,20 +96,24 @@ async function latestSiteByEleveId(
   const out = new Map<string, string | null>();
   if (!eleveIds.length) return out;
   const db = getDb();
-  const rows = await db
-    .select({
-      eleveId: eleveScolarite.eleveId,
-      siteId: eleveScolarite.siteId,
-      createdAt: eleveScolarite.createdAt,
-    })
-    .from(eleveScolarite)
-    .where(
-      and(
-        eq(eleveScolarite.etablissementId, etablissementId),
-        inArray(eleveScolarite.eleveId, eleveIds),
-      ),
-    )
-    .orderBy(desc(eleveScolarite.createdAt));
+  const rows: Array<{ eleveId: string; siteId: string | null; createdAt: Date }> = [];
+  for (const batch of chunkArray(eleveIds)) {
+    const part = await db
+      .select({
+        eleveId: eleveScolarite.eleveId,
+        siteId: eleveScolarite.siteId,
+        createdAt: eleveScolarite.createdAt,
+      })
+      .from(eleveScolarite)
+      .where(
+        and(
+          eq(eleveScolarite.etablissementId, etablissementId),
+          inArray(eleveScolarite.eleveId, batch),
+        ),
+      )
+      .orderBy(desc(eleveScolarite.createdAt));
+    rows.push(...part);
+  }
 
   for (const row of rows) {
     if (!out.has(row.eleveId)) {
