@@ -197,6 +197,12 @@ export function valkeyPrefixStagesClassRoster(etablissementId: string): string {
 }
 
 export function valkeyKeyTravelsIndex(etablissementId: string): string {
+  /** v2 : ne plus servir un index `[]` figé (ancien ENT_CORE_DB / tenant). */
+  return `${NS}:travels:index:v2:${etablissementId}`;
+}
+
+/** Clé index voyages avant bump v2 — purge au invalidate. */
+export function valkeyKeyTravelsIndexLegacy(etablissementId: string): string {
   return `${NS}:travels:index:${etablissementId}`;
 }
 

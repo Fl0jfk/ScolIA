@@ -105,7 +105,7 @@ export default function EleveInscriptionDocsClient({
     setError(null);
     try {
       const res = await fetch(
-        `/api/eleves/${encodeURIComponent(id)}/dossier?part=extras`,
+        `/api/eleves/${encodeURIComponent(id)}/dossier?part=extras&focus=inscription`,
         { cache: "no-store" },
       );
       const json = (await res.json()) as DossierPayload & { error?: string };
