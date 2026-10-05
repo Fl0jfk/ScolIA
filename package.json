@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "NODE_OPTIONS='--disable-warning=DEP0040' next start",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
     "test:ocr-match": "npx tsx --test app/lib/ocr-eleve-match.test.ts",
     "test:stage-db": "npx tsx --test app/lib/stage-db-roundtrip.test.ts",
     "ent:migrate-stages": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/migrate-stages-to-typed.mjs",
