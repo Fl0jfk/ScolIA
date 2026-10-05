@@ -138,7 +138,8 @@ export function isValidEmailLoose(s: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
 
-function daysUntilTrip(data: TravelsTripData): number | null {
+function daysUntilTrip(data: TravelsTripData | undefined): number | null {
+  if (!data) return null;
   const raw = data.startDate || data.date;
   if (!raw) return null;
   const tripDate = new Date(raw);
@@ -257,13 +258,14 @@ export type TripReminder = {
 
 export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
   const out: TripReminder[] = [];
-  const days = daysUntilTrip(trip.data);
-  const status = trip.status;
-  const sent = trip.data.remindersSent || {};
+  const data = trip.data ?? ({} as TravelsTripData);
+  const days = daysUntilTrip(data);
+  const status = trip.status ?? "";
+  const sent = data.remindersSent || {};
 
   if (status === "ANNULE" || status === "REJETE" || status === "SEANCE_ANNULEE") return out;
 
-  if (trip.data.piqueNiqueDetails?.active && trip.data.cuisineOrderSentAt && days != null && days <= 15 && days >= 0) {
+  if (data.piqueNiqueDetails?.active && data.cuisineOrderSentAt && days != null && days <= 15 && days >= 0) {
     out.push({
       id: `${trip.id}_cuisine_j15`,
       tripId: trip.id,
@@ -275,7 +277,7 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
   }
 
   if (days != null && days <= 14 && days >= 0 && status === "VALIDE") {
-    const cal = trip.data.parentCalendar || defaultParentCalendarFromTrip(trip.data);
+    const cal = data.parentCalendar || defaultParentCalendarFromTrip(data);
     if (!calendarHasDepotAndRecuperation(cal)) {
       out.push({
         id: `${trip.id}_parent_meeting`,
@@ -302,7 +304,7 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
 
   if (
     complexNeedsBus(trip) &&
-    trip.data.pendingAmendedQuote &&
+    data.pendingAmendedQuote &&
     !["VALIDE", "FINALISE_DIR_ATTENTE_ELEVES", "REJETE", "ANNULE"].includes(status)
   ) {
     out.push({
@@ -327,7 +329,7 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
   }
 
   const listeConfirmed =
-    trip.data.listeElevesStatus === "confirmed" && (trip.data.participantEleves?.length || 0) > 0;
+    data.listeElevesStatus === "confirmed" && (data.participantEleves?.length || 0) > 0;
 
   if (
     !listeConfirmed &&

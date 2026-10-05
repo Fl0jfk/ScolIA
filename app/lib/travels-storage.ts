@@ -47,7 +47,7 @@ export async function listTravelsForEtablissement(etablissementId: string): Prom
     return hit;
   }
 
-  const fresh = await listTravelsFromDb(etabId);
+  const fresh = await listTravelsFromDb(etabId, { forListIndex: true });
   if (fresh.length > 0) {
     void valkeySetJson(key, fresh, VALKEY_TTL.travelsIndex);
   } else if (hit !== null && hit !== undefined) {

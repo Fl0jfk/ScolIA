@@ -82,6 +82,7 @@ import { listCarnetForEleve } from "@/app/lib/vs-carnet-db";
 import { countFacturesEnRetardForEleve } from "@/app/lib/facturation-db";
 import { listGroupesForEleve } from "@/app/lib/groupes-pedagogiques-db";
 import { parisDateKey } from "@/app/lib/paris-time";
+import { chunkArray } from "@/app/lib/db-in-chunks";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -387,19 +388,28 @@ export async function GET(req: Request, ctx: Ctx) {
   }> = [];
   if (links.length) {
     const foyerIds = [...new Set(links.map((l) => l.foyerId))];
-    const [foyerRows, respRows] = await Promise.all([
-      db
-        .select()
-        .from(foyer)
-        .where(and(eq(foyer.etablissementId, etabId), inArray(foyer.id, foyerIds))),
-      db
-        .select()
-        .from(foyerResponsable)
-        .where(
-          and(eq(foyerResponsable.etablissementId, etabId), inArray(foyerResponsable.foyerId, foyerIds)),
-        )
-        .orderBy(asc(foyerResponsable.rang)),
-    ]);
+    const foyerRows: (typeof foyer.$inferSelect)[] = [];
+    const respRows: (typeof foyerResponsable.$inferSelect)[] = [];
+    for (const batch of chunkArray(foyerIds)) {
+      const [batchFoyers, batchResps] = await Promise.all([
+        db
+          .select()
+          .from(foyer)
+          .where(and(eq(foyer.etablissementId, etabId), inArray(foyer.id, batch))),
+        db
+          .select()
+          .from(foyerResponsable)
+          .where(
+            and(
+              eq(foyerResponsable.etablissementId, etabId),
+              inArray(foyerResponsable.foyerId, batch),
+            ),
+          )
+          .orderBy(asc(foyerResponsable.rang)),
+      ]);
+      foyerRows.push(...batchFoyers);
+      respRows.push(...batchResps);
+    }
     const foyerById = new Map(foyerRows.map((f) => [f.id, f]));
     const respByFoyer = new Map<string, typeof respRows>();
     for (const r of respRows) {
@@ -440,58 +450,71 @@ export async function GET(req: Request, ctx: Ctx) {
       d.createdAt instanceof Date ? d.createdAt.toISOString() : String(d.createdAt ?? ""),
   }));
 
-  const pendingAccessRequests =
-    needDocs && loadHeavyExtras
-      ? await db
-          .select({
-            id: documentAccessRequest.id,
-            documentId: documentAccessRequest.documentId,
-            requesterUserId: documentAccessRequest.requesterUserId,
-            durationDays: documentAccessRequest.durationDays,
-            note: documentAccessRequest.note,
-            createdAt: documentAccessRequest.createdAt,
-            docTitle: eleveDocument.title,
-            docTiroir: eleveDocument.tiroir,
-            docConfidentialite: eleveDocument.confidentialite,
-          })
-          .from(documentAccessRequest)
-          .innerJoin(eleveDocument, eq(documentAccessRequest.documentId, eleveDocument.id))
-          .where(
-            and(
-              eq(documentAccessRequest.etablissementId, etabId),
-              eq(eleveDocument.eleveId, id),
-              eq(documentAccessRequest.status, "pending"),
-            ),
-          )
-          .orderBy(desc(documentAccessRequest.createdAt))
-          .limit(50)
-          .then((rows) =>
-            rows
-              .filter((r) =>
-                canDecideDocumentAccessGrant(
-                  {
-                    tiroir: r.docTiroir,
-                    title: r.docTitle,
-                    confidentialite: r.docConfidentialite,
-                  },
-                  roles,
-                  { orgAdmin, platformAdmin },
-                ),
-              )
-              .map((r) => ({
-                id: r.id,
-                documentId: r.documentId,
-                requesterUserId: r.requesterUserId,
-                durationDays: r.durationDays,
-                note: r.note,
-                createdAt:
-                  r.createdAt instanceof Date
-                    ? r.createdAt.toISOString()
-                    : String(r.createdAt ?? ""),
-                docTitle: r.docTitle,
-              })),
-          )
-      : [];
+  let pendingAccessRequests: Array<{
+    id: string;
+    documentId: string;
+    requesterUserId: string;
+    durationDays: number;
+    note: string | null;
+    createdAt: string;
+    docTitle: string;
+  }> = [];
+  if (needDocs && loadHeavyExtras) {
+    try {
+      pendingAccessRequests = await db
+        .select({
+          id: documentAccessRequest.id,
+          documentId: documentAccessRequest.documentId,
+          requesterUserId: documentAccessRequest.requesterUserId,
+          durationDays: documentAccessRequest.durationDays,
+          note: documentAccessRequest.note,
+          createdAt: documentAccessRequest.createdAt,
+          docTitle: eleveDocument.title,
+          docTiroir: eleveDocument.tiroir,
+          docConfidentialite: eleveDocument.confidentialite,
+        })
+        .from(documentAccessRequest)
+        .innerJoin(eleveDocument, eq(documentAccessRequest.documentId, eleveDocument.id))
+        .where(
+          and(
+            eq(documentAccessRequest.etablissementId, etabId),
+            eq(eleveDocument.eleveId, id),
+            eq(documentAccessRequest.status, "pending"),
+          ),
+        )
+        .orderBy(desc(documentAccessRequest.createdAt))
+        .limit(50)
+        .then((rows) =>
+          rows
+            .filter((r) =>
+              canDecideDocumentAccessGrant(
+                {
+                  tiroir: r.docTiroir,
+                  title: r.docTitle,
+                  confidentialite: r.docConfidentialite,
+                },
+                roles,
+                { orgAdmin, platformAdmin },
+              ),
+            )
+            .map((r) => ({
+              id: r.id,
+              documentId: r.documentId,
+              requesterUserId: r.requesterUserId,
+              durationDays: r.durationDays,
+              note: r.note,
+              createdAt:
+                r.createdAt instanceof Date
+                  ? r.createdAt.toISOString()
+                  : String(r.createdAt ?? ""),
+              docTitle: r.docTitle,
+            })),
+        );
+    } catch (pendingErr) {
+      console.error("[eleves/dossier] pendingAccessRequests", pendingErr);
+      pendingAccessRequests = [];
+    }
+  }
 
   type AccompagnementPayload = {
     kind: "pap" | "pai" | "pps" | "gevasco";
@@ -685,12 +708,30 @@ export async function GET(req: Request, ctx: Ctx) {
     }
   }
 
+  let canDeleteElevePermanent = false;
+  try {
+    canDeleteElevePermanent = (
+      await import("@/app/lib/eleve-delete-permanent")
+    ).canDeleteElevePermanently(roles, { orgAdmin, platformAdmin });
+  } catch (permErr) {
+    console.warn("[eleves/dossier] canDeleteElevePermanent", permErr);
+  }
+
+  const elevePayload = profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row;
+  const scolaritesPayload = scolarites.map((s) => ({
+    ...s,
+    createdAt:
+      s.createdAt instanceof Date ? s.createdAt.toISOString() : String(s.createdAt ?? ""),
+    updatedAt:
+      s.updatedAt instanceof Date ? s.updatedAt.toISOString() : String(s.updatedAt ?? ""),
+  }));
+
   return NextResponse.json({
     part: loadExtras ? "extras" : "core",
     focus: inscriptionFocus ? focus : undefined,
-    eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
+    eleve: elevePayload,
     sections,
-    scolarites,
+    scolarites: scolaritesPayload,
     groupes: needScol ? groupesEleve : [],
     foyers: needFamille ? foyers : [],
     classmates,
@@ -722,10 +763,7 @@ export async function GET(req: Request, ctx: Ctx) {
         orgAdmin,
         platformAdmin,
       }),
-      canDeleteElevePermanent: (await import("@/app/lib/eleve-delete-permanent")).canDeleteElevePermanently(
-        roles,
-        { orgAdmin, platformAdmin },
-      ),
+      canDeleteElevePermanent,
       profRestrictedView,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),

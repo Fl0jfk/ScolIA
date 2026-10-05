@@ -63,7 +63,16 @@ function parseTs(raw: string | undefined | null): Date | null {
 /** Postgres travel table — aligné sur la liste élèves (pas de garde ENT_CORE_DB). */
 export async function travelsDbReady(): Promise<string | null> {
   if (!isDatabaseConfigured()) return null;
-  return resolveCurrentEtablissementId();
+  const fromTenant = await resolveCurrentEtablissementId();
+  if (fromTenant) return fromTenant;
+  try {
+    const { getAppSession } = await import("@/app/lib/app-session");
+    const session = await getAppSession();
+    const id = session?.user?.etablissementId?.trim();
+    return id || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -71,12 +80,21 @@ export async function travelsDbReady(): Promise<string | null> {
  * Important perf : 1 requête mains + 4 requêtes enfants en batch (pas de N+1).
  * Avec Postgres distant, l’ancien hydrate séquentiel par dossier coûtait souvent 10–30s.
  */
-export async function listTravelsFromDb(etablissementId: string): Promise<TravelsTrip[]> {
+export type ListTravelsFromDbOptions = {
+  /** Liste module / rappels : pas besoin de messages ni historique (perf + taille JSON). */
+  forListIndex?: boolean;
+};
+
+export async function listTravelsFromDb(
+  etablissementId: string,
+  opts?: ListTravelsFromDbOptions,
+): Promise<TravelsTrip[]> {
   const db = getDb();
   const mains = await db.select().from(travel).where(eq(travel.etablissementId, etablissementId));
   if (mains.length === 0) return [];
 
   const ids = mains.map((m) => m.id);
+  const skipHeavy = opts?.forListIndex === true;
   const [allAttrs, allParticipants, allHistory, allMessages] = await Promise.all([
     db
       .select()
@@ -93,24 +111,28 @@ export async function listTravelsFromDb(etablissementId: string): Promise<Travel
           inArray(travelParticipant.travelId, ids),
         ),
       ),
-    db
-      .select()
-      .from(travelHistory)
-      .where(
-        and(
-          eq(travelHistory.etablissementId, etablissementId),
-          inArray(travelHistory.travelId, ids),
-        ),
-      ),
-    db
-      .select()
-      .from(travelMessage)
-      .where(
-        and(
-          eq(travelMessage.etablissementId, etablissementId),
-          inArray(travelMessage.travelId, ids),
-        ),
-      ),
+    skipHeavy
+      ? Promise.resolve([] as TravelHistoryRow[])
+      : db
+          .select()
+          .from(travelHistory)
+          .where(
+            and(
+              eq(travelHistory.etablissementId, etablissementId),
+              inArray(travelHistory.travelId, ids),
+            ),
+          ),
+    skipHeavy
+      ? Promise.resolve([] as TravelMessageRow[])
+      : db
+          .select()
+          .from(travelMessage)
+          .where(
+            and(
+              eq(travelMessage.etablissementId, etablissementId),
+              inArray(travelMessage.travelId, ids),
+            ),
+          ),
   ]);
 
   const attrsByTrip = groupByTravelId(allAttrs);
@@ -231,7 +253,7 @@ function assembleTravel(
     history: [...parts.history]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((h) => ({
-        date: h.at,
+        date: String(h.at ?? ""),
         user: h.by,
         action: h.action,
         ...(h.note ? { note: h.note } : {}),
@@ -243,7 +265,7 @@ function assembleTravel(
         user: msg.userLabel,
         role: msg.role,
         text: msg.body,
-        date: msg.at,
+        date: String(msg.at ?? ""),
       })),
     ...(rootExtras.receivedDevis
       ? { receivedDevis: rootExtras.receivedDevis as TravelsTrip["receivedDevis"] }
