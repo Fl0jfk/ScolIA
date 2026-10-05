@@ -16,10 +16,17 @@ import {
   resolveEleveIdsByIneKeys,
 } from "@/app/lib/travel-participant-resolve";
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import { chunkArray } from "@/app/lib/db-in-chunks";
+import {
+  listTravelParticipantsForTripIds,
+  queryTravelParticipants,
+  type TravelParticipantReadRow,
+} from "@/app/lib/travel-db-participant-read";
 
 type TravelMain = typeof travel.$inferSelect;
 type TravelAttrRow = typeof travelAttr.$inferSelect;
 type TravelParticipantRow = typeof travelParticipant.$inferSelect;
+type TravelParticipantAssemblyRow = TravelParticipantReadRow | TravelParticipantRow;
 type TravelHistoryRow = typeof travelHistory.$inferSelect;
 type TravelMessageRow = typeof travelMessage.$inferSelect;
 
@@ -95,22 +102,22 @@ export async function listTravelsFromDb(
 
   const ids = mains.map((m) => m.id);
   const skipHeavy = opts?.forListIndex === true;
-  const [allAttrs, allParticipants, allHistory, allMessages] = await Promise.all([
-    db
+
+  const allAttrs: TravelAttrRow[] = [];
+  for (const batch of chunkArray(ids)) {
+    const part = await db
       .select()
       .from(travelAttr)
       .where(
-        and(eq(travelAttr.etablissementId, etablissementId), inArray(travelAttr.travelId, ids)),
-      ),
-    db
-      .select()
-      .from(travelParticipant)
-      .where(
-        and(
-          eq(travelParticipant.etablissementId, etablissementId),
-          inArray(travelParticipant.travelId, ids),
-        ),
-      ),
+        and(eq(travelAttr.etablissementId, etablissementId), inArray(travelAttr.travelId, batch)),
+      );
+    allAttrs.push(...part);
+  }
+
+  const participantsPromise = listTravelParticipantsForTripIds(db, etablissementId, ids);
+
+  const [allParticipants, allHistory, allMessages] = await Promise.all([
+    participantsPromise,
     skipHeavy
       ? Promise.resolve([] as TravelHistoryRow[])
       : db
@@ -140,14 +147,22 @@ export async function listTravelsFromDb(
   const historyByTrip = groupByTravelId(allHistory);
   const messagesByTrip = groupByTravelId(allMessages);
 
-  return mains.map((m) =>
-    assembleTravel(m, {
-      attrs: attrsByTrip.get(m.id) ?? [],
-      participants: participantsByTrip.get(m.id) ?? [],
-      history: historyByTrip.get(m.id) ?? [],
-      messages: messagesByTrip.get(m.id) ?? [],
-    }),
-  );
+  const trips: TravelsTrip[] = [];
+  for (const m of mains) {
+    try {
+      trips.push(
+        assembleTravel(m, {
+          attrs: attrsByTrip.get(m.id) ?? [],
+          participants: participantsByTrip.get(m.id) ?? [],
+          history: historyByTrip.get(m.id) ?? [],
+          messages: messagesByTrip.get(m.id) ?? [],
+        }),
+      );
+    } catch (assembleErr) {
+      console.error("[travel-db] assembleTravel list", m.id, assembleErr);
+    }
+  }
+  return trips;
 }
 
 export async function getTravelFromDb(
@@ -178,7 +193,7 @@ function assembleTravel(
   m: TravelMain,
   parts: {
     attrs: TravelAttrRow[];
-    participants: TravelParticipantRow[];
+    participants: TravelParticipantAssemblyRow[];
     history: TravelHistoryRow[];
     messages: TravelMessageRow[];
   },
@@ -200,7 +215,7 @@ function assembleTravel(
       droitImageOk: p.droitImageOk !== false,
       panierRepas: p.panierRepas === true,
       ...(p.classe ? { classe: p.classe } : {}),
-      ...(p.eleveId ? { eleveId: p.eleveId } : {}),
+      ...("eleveId" in p && p.eleveId ? { eleveId: p.eleveId } : {}),
     }));
 
   const attrStart =
@@ -280,15 +295,13 @@ async function hydrateTravel(etablissementId: string, m: TravelMain): Promise<Tr
       .select()
       .from(travelAttr)
       .where(and(eq(travelAttr.etablissementId, etablissementId), eq(travelAttr.travelId, m.id))),
-    db
-      .select()
-      .from(travelParticipant)
-      .where(
-        and(
-          eq(travelParticipant.etablissementId, etablissementId),
-          eq(travelParticipant.travelId, m.id),
-        ),
+    queryTravelParticipants(
+      db,
+      and(
+        eq(travelParticipant.etablissementId, etablissementId),
+        eq(travelParticipant.travelId, m.id),
       ),
+    ),
     db
       .select()
       .from(travelHistory)

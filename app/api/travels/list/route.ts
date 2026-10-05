@@ -29,6 +29,14 @@ export async function GET(req: Request) {
     return NextResponse.json(sortedTrips);
   } catch (error) {
     console.error("[travels/list GET]", error);
-    return NextResponse.json([]);
+    const detail = error instanceof Error ? error.message : String(error);
+    return NextResponse.json(
+      {
+        error: "Impossible de charger les voyages.",
+        code: "TRAVELS_LIST_ERROR",
+        detail,
+      },
+      { status: 503 },
+    );
   }
 }
