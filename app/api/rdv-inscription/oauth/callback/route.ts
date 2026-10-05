@@ -12,7 +12,10 @@ import {
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
 async function redirectAdmin(query: string) {
-  const url = await tenantAbsolutePath(`/etablissement/rdv-inscription?${query}`);
+  const params = new URLSearchParams(query);
+  // Après OAuth : atterrir sur Réglages (le Suivi est l’onglet par défaut sans `tab`).
+  if (!params.has("tab")) params.set("tab", "reglages");
+  const url = await tenantAbsolutePath(`/etablissement/rdv-inscription?${params.toString()}`);
   return NextResponse.redirect(url);
 }
 

@@ -53,10 +53,36 @@ function formatWhen(iso: string | null | undefined): string {
   });
 }
 
+function normalizeBookingSearch(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function bookingMatchesSearch(b: RdvInscriptionBookingRow, needle: string): boolean {
+  if (!needle) return true;
+  const haystack = normalizeBookingSearch(
+    [
+      b.studentFirstName,
+      b.studentLastName,
+      b.parentFirstName,
+      b.parentLastName,
+      b.parentEmail,
+      b.parentPhone,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  return needle.split(/\s+/).filter(Boolean).every((token) => haystack.includes(token));
+}
+
 function readTabFromUrl(): AdminTab {
-  if (typeof window === "undefined") return "reglages";
+  if (typeof window === "undefined") return "suivi";
   const t = new URLSearchParams(window.location.search).get("tab");
-  return t === "suivi" ? "suivi" : "reglages";
+  // Défaut = suivi (usage quotidien). `tab=suivi` reste accepté pour les anciens liens.
+  return t === "reglages" ? "reglages" : "suivi";
 }
 
 function readDirectionFilterFromUrl(): string {
@@ -74,8 +100,9 @@ export default function RdvInscriptionAdminClient() {
   const [testSlots, setTestSlots] = useState<RdvInscriptionSlot[] | null>(null);
   const [sampleTitles, setSampleTitles] = useState<string[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
-  const [tab, setTab] = useState<AdminTab>("reglages");
+  const [tab, setTab] = useState<AdminTab>("suivi");
   const [directionFilter, setDirectionFilter] = useState<string>("");
+  const [bookingSearch, setBookingSearch] = useState("");
   const [rescheduleTarget, setRescheduleTarget] = useState<{
     id: string;
     studentLabel: string;
@@ -136,7 +163,8 @@ export default function RdvInscriptionAdminClient() {
 
   function syncUrl(nextTab: AdminTab, nextDirection: string) {
     const url = new URL(window.location.href);
-    if (nextTab === "reglages") url.searchParams.delete("tab");
+    // Suivi = onglet par défaut → pas de `tab` dans l’URL.
+    if (nextTab === "suivi") url.searchParams.delete("tab");
     else url.searchParams.set("tab", nextTab);
     if (!nextDirection) url.searchParams.delete("direction");
     else url.searchParams.set("direction", nextDirection);
@@ -161,10 +189,17 @@ export default function RdvInscriptionAdminClient() {
     return map;
   }, [data?.directions]);
 
+  const bookingSearchNeedle = useMemo(
+    () => normalizeBookingSearch(bookingSearch),
+    [bookingSearch],
+  );
+
   const filteredBookings = useMemo(() => {
-    if (!directionFilter) return bookings;
-    return bookings.filter((b) => b.directionSlug === directionFilter);
-  }, [bookings, directionFilter]);
+    return bookings.filter((b) => {
+      if (directionFilter && b.directionSlug !== directionFilter) return false;
+      return bookingMatchesSearch(b, bookingSearchNeedle);
+    });
+  }, [bookings, directionFilter, bookingSearchNeedle]);
 
   const bookingCountsByDirection = useMemo(() => {
     const counts = new Map<string, number>();
@@ -374,17 +409,6 @@ export default function RdvInscriptionAdminClient() {
       >
         <button
           type="button"
-          onClick={() => selectTab("reglages")}
-          className={`rounded-full px-4 py-2 text-sm font-bold transition ${
-            tab === "reglages"
-              ? "bg-[var(--dash-ink)] text-white shadow-sm"
-              : "border border-black/8 bg-white text-slate-600 hover:border-black/20"
-          }`}
-        >
-          Réglages
-        </button>
-        <button
-          type="button"
           onClick={() => selectTab("suivi")}
           className={`rounded-full px-4 py-2 text-sm font-bold transition ${
             tab === "suivi"
@@ -404,6 +428,17 @@ export default function RdvInscriptionAdminClient() {
               {bookings.length}
             </span>
           ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => selectTab("reglages")}
+          className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+            tab === "reglages"
+              ? "bg-[var(--dash-ink)] text-white shadow-sm"
+              : "border border-black/8 bg-white text-slate-600 hover:border-black/20"
+          }`}
+        >
+          Réglages
         </button>
       </nav>
 
@@ -791,45 +826,60 @@ export default function RdvInscriptionAdminClient() {
             </button>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2 border-b border-slate-100 pb-3">
-            <button
-              type="button"
-              onClick={() => selectDirectionFilter("")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                !directionFilter
-                  ? "bg-slate-900 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Tous
-              <span className="ml-1.5 tabular-nums opacity-80">{bookings.length}</span>
-            </button>
-            {directions.map((d) => {
-              const count = bookingCountsByDirection.get(d.slug) || 0;
-              const active = directionFilter === d.slug;
-              return (
-                <button
-                  key={d.id}
-                  type="button"
-                  onClick={() => selectDirectionFilter(d.slug)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                    active
-                      ? "bg-sky-700 text-white"
-                      : "bg-sky-50 text-sky-800 ring-1 ring-sky-200 hover:bg-sky-100"
-                  }`}
-                >
-                  {d.label}
-                  <span className="ml-1.5 tabular-nums opacity-80">{count}</span>
-                </button>
-              );
-            })}
+          <div className="mt-4 space-y-3 border-b border-slate-100 pb-3">
+            <label className="block">
+              <span className="sr-only">Rechercher un rendez-vous</span>
+              <input
+                type="search"
+                value={bookingSearch}
+                onChange={(e) => setBookingSearch(e.target.value)}
+                placeholder="Rechercher par nom, prénom (élève ou contact)…"
+                autoComplete="off"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => selectDirectionFilter("")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                  !directionFilter
+                    ? "bg-slate-900 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                Tous
+                <span className="ml-1.5 tabular-nums opacity-80">{bookings.length}</span>
+              </button>
+              {directions.map((d) => {
+                const count = bookingCountsByDirection.get(d.slug) || 0;
+                const active = directionFilter === d.slug;
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => selectDirectionFilter(d.slug)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                      active
+                        ? "bg-sky-700 text-white"
+                        : "bg-sky-50 text-sky-800 ring-1 ring-sky-200 hover:bg-sky-100"
+                    }`}
+                  >
+                    {d.label}
+                    <span className="ml-1.5 tabular-nums opacity-80">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {filteredBookings.length === 0 ? (
             <p className="mt-4 text-sm text-slate-500">
               {bookings.length === 0
                 ? "Aucune réservation pour l’instant."
-                : "Aucune réservation pour ce filtre."}
+                : bookingSearchNeedle
+                  ? "Aucun rendez-vous ne correspond à cette recherche."
+                  : "Aucune réservation pour ce filtre."}
             </p>
           ) : (
             <div className="mt-3 overflow-x-auto">
