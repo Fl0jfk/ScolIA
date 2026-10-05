@@ -20,6 +20,7 @@ import {
   shouldPreserveAbsenceOnPresentLine,
   type AppelSlotRef,
 } from "@/app/lib/vs-appels-slot";
+import { sqlExcludeStageVsAbsences } from "@/app/lib/vs-absences-stage";
 
 export type AppelLigneStatut = "present" | "absent" | "retard" | "dispense";
 export type AbsenceType = "absence" | "retard";
@@ -561,7 +562,11 @@ export async function listAbsencesATraiter(
     .from(vsAbsenceEleve)
     .innerJoin(eleve, eq(eleve.id, vsAbsenceEleve.eleveId))
     .where(
-      and(eq(vsAbsenceEleve.etablissementId, etablissementId), eq(vsAbsenceEleve.statut, statut)),
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.statut, statut),
+        sqlExcludeStageVsAbsences(),
+      ),
     )
     .orderBy(desc(vsAbsenceEleve.dateDebut), asc(eleve.nom))
     .limit(limit);
@@ -677,6 +682,7 @@ export async function countAbsencesATraiter(etablissementId: string): Promise<nu
       and(
         eq(vsAbsenceEleve.etablissementId, etablissementId),
         eq(vsAbsenceEleve.statut, "a_traiter"),
+        sqlExcludeStageVsAbsences(),
       ),
     );
   return row?.n ?? 0;
@@ -696,6 +702,7 @@ export async function countAbsencesJustifFamilleEnAttente(
         eq(vsAbsenceEleve.statut, "a_traiter"),
         eq(vsAbsenceEleve.justifie, false),
         sql`nullif(trim(${vsAbsenceEleve.motif}), '') is not null`,
+        sqlExcludeStageVsAbsences(),
       ),
     );
   return row?.n ?? 0;

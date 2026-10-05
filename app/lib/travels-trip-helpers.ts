@@ -192,6 +192,34 @@ export function isTripTravelDatePast(trip: {
   return endMs < todayStartMs();
 }
 
+const TRAVELS_LIST_CLOSED_STATUSES = new Set(["ANNULE", "SEANCE_ANNULEE", "REJETE"]);
+
+type TripListRow = { status?: string; type?: string; data?: TravelsTripData };
+
+/** Liste module voyages : hors annulés ; séjours passés conservés (grisés en UI), actifs en premier. */
+export function filterTripsForModuleList<T extends TripListRow>(
+  trips: T[],
+  opts?: { matchesSearch?: (trip: T) => boolean },
+): T[] {
+  const matchSearch = opts?.matchesSearch ?? (() => true);
+  const list = trips.filter((t) => {
+    const status = String(t.status || "");
+    if (TRAVELS_LIST_CLOSED_STATUSES.has(status)) return false;
+    return matchSearch(t);
+  });
+  return sortTripsActiveBeforePast(list);
+}
+
+/** Séjours en cours / à venir d'abord, terminés ensuite (cartes grisées). */
+export function sortTripsActiveBeforePast<T extends TripListRow>(trips: T[]): T[] {
+  return [...trips].sort((a, b) => {
+    const aPast = isTripTravelDatePast(a);
+    const bPast = isTripTravelDatePast(b);
+    if (aPast !== bPast) return aPast ? 1 : -1;
+    return 0;
+  });
+}
+
 const TRIP_PURGE_AFTER_MS = 365 * 24 * 60 * 60 * 1000;
 
 /** À retirer de l'index : séjour terminé depuis plus d'un an. */
