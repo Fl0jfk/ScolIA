@@ -14,7 +14,7 @@ export const METIER_EVENT_TYPES = {
 
 export type MetierEventType = (typeof METIER_EVENT_TYPES)[keyof typeof METIER_EVENT_TYPES];
 
-export type MetierAggregate = "eleve" | "scolarite" | "foyer" | "regime";
+export type MetierAggregate = "eleve" | "scolarite" | "foyer" | "regime" | "appel";
 
 export type MetierEventRecord = {
   etablissementId: string;

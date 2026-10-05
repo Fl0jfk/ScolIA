@@ -2,21 +2,23 @@ import { NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
-  closeAppel,
   getAppelWithLignes,
-  getOrCreateAppel,
   listAppelsForDate,
   listAppelsManquants,
   listElevesForClasse,
   listElevesForGroupeAppel,
-  saveAppelLignes,
   listAccueilCoveringForEleves,
   type VsAppelLigneInput,
 } from "@/app/lib/vs-absences-db";
 import {
-  jourSemaineFromIsoDate,
-  listEdtCreneauxForJour,
-} from "@/app/lib/vs-calendrier-db";
+  closeAppelAction,
+  listCreneauxAppelForActor,
+  openAppelForCreneau,
+  saveAppelLignesAction,
+} from "@/app/lib/vs-appels-actions";
+import { assertProfesseurCanAccessAppel } from "@/app/lib/vs-appels-access";
+import { isOrgAdminFromAppUser } from "@/app/lib/auth-roles-db";
+import { jourSemaineFromIsoDate } from "@/app/lib/vs-calendrier-db";
 import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
 import { requireAppUser } from "@/app/lib/app-session";
 import { getPresenceJour } from "@/app/lib/occupancy";
@@ -58,6 +60,23 @@ async function occupancyBadgesForEleves(
   }
 }
 
+function appelActorFromGate(
+  gate: { ctx: { userId: string; user: { id: string; firstName?: string | null; lastName?: string | null; name?: string | null; roles: string[] } } },
+  appUser: { ok: boolean; user?: { id: string; firstName?: string | null; lastName?: string | null; name?: string | null } },
+) {
+  const displayName = appUser.ok
+    ? [appUser.user!.firstName, appUser.user!.lastName].filter(Boolean).join(" ") ||
+      appUser.user!.name ||
+      "Enseignant"
+    : "Enseignant";
+  return {
+    userId: appUser.ok ? appUser.user!.id : gate.ctx.userId,
+    displayName,
+    roles: gate.ctx.user.roles,
+    isOrgAdmin: isOrgAdminFromAppUser(gate.ctx.user),
+  };
+}
+
 export async function GET(req: Request) {
   const gate = await requireModule("vs-appels");
   if (!gate.ok) return gate.response;
@@ -65,12 +84,23 @@ export async function GET(req: Request) {
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
+  const appUser = await requireAppUser();
+  const actor = appelActorFromGate(gate, appUser);
+
   const url = new URL(req.url);
   const appelId = url.searchParams.get("appelId")?.trim();
   const classe = url.searchParams.get("classe")?.trim();
   const date = url.searchParams.get("date")?.trim();
 
   if (appelId) {
+    try {
+      await assertProfesseurCanAccessAppel(etabId, appelId, actor);
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Accès refusé." },
+        { status: 403 },
+      );
+    }
     const data = await getAppelWithLignes(etabId, appelId);
     if (!data) return NextResponse.json({ error: "Appel introuvable." }, { status: 404 });
     const lignes = await withPhotoUrls(
@@ -105,7 +135,7 @@ export async function GET(req: Request) {
   if (date) {
     const jour = jourSemaineFromIsoDate(date);
     const [creneaux, appels, manquants] = await Promise.all([
-      listEdtCreneauxForJour(etabId, jour, { classe }),
+      listCreneauxAppelForActor(etabId, date, actor, { classe }),
       listAppelsForDate(etabId, date),
       listAppelsManquants(etabId, { dateAppel: date }),
     ]);
@@ -135,6 +165,7 @@ export async function POST(req: Request) {
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
   const appUser = await requireAppUser();
+  const actor = appelActorFromGate(gate, appUser);
   const body = (await req.json().catch(() => ({}))) as {
     action?: string;
     appelId?: string;
@@ -152,55 +183,25 @@ export async function POST(req: Request) {
   try {
     if (action === "create") {
       const dateAppel = String(body.dateAppel || "").trim();
-      let classe = String(body.classe || "").trim();
       if (!dateAppel) {
         return NextResponse.json({ error: "dateAppel requis." }, { status: 400 });
       }
 
-      let heureDebut = body.heureDebut || null;
-      let heureFin = body.heureFin || null;
-      let matiereLibelle = body.matiereLibelle || null;
-      const creneauId = body.creneauId || null;
-      let groupeId: string | null = null;
-
-      if (creneauId) {
-        const jour = jourSemaineFromIsoDate(dateAppel);
-        const creneaux = await listEdtCreneauxForJour(etabId, jour);
-        const creneau = creneaux.find((c) => c.id === creneauId);
-        if (creneau) {
-          heureDebut = heureDebut || creneau.heureDebut;
-          heureFin = heureFin || creneau.heureFin;
-          matiereLibelle =
-            matiereLibelle || creneau.matiereLibelle || creneau.enseignantNom || null;
-          groupeId = creneau.groupeId ?? null;
-          if (!classe) {
-            classe = creneau.groupeCode || creneau.classe || "";
-          }
-        }
-      }
-
-      if (!classe && !groupeId) {
-        return NextResponse.json({ error: "dateAppel et classe (ou créneau groupe) requis." }, { status: 400 });
-      }
-      if (!classe && groupeId) {
-        classe = "groupe";
-      }
-
-      const enseignantNom = appUser.ok
-        ? [appUser.user.firstName, appUser.user.lastName].filter(Boolean).join(" ") ||
-          appUser.user.name ||
-          null
-        : null;
-      const appel = await getOrCreateAppel(etabId, {
-        dateAppel,
-        classe,
-        creneauId,
-        heureDebut,
-        heureFin,
-        matiereLibelle,
-        enseignantUserId: appUser.ok ? appUser.user.id : null,
-        enseignantNom,
-      });
+      const opened = await openAppelForCreneau(
+        etabId,
+        {
+          dateAppel,
+          creneauId: body.creneauId || null,
+          classe: body.classe,
+          heureDebut: body.heureDebut,
+          heureFin: body.heureFin,
+          matiereLibelle: body.matiereLibelle,
+        },
+        actor,
+      );
+      const { appel, groupeId, classe } = opened;
+      const heureDebut = appel.heureDebut;
+      const heureFin = appel.heureFin;
       const eleves = groupeId
         ? await listElevesForGroupeAppel(etabId, groupeId)
         : await listElevesForClasse(etabId, classe);
@@ -239,17 +240,15 @@ export async function POST(req: Request) {
       if (!appelId || !Array.isArray(body.lignes)) {
         return NextResponse.json({ error: "appelId et lignes requis." }, { status: 400 });
       }
-      const result = await saveAppelLignes(etabId, appelId, body.lignes);
-      const data = await getAppelWithLignes(etabId, appelId);
-      return NextResponse.json({ ...result, ...data });
+      const data = await saveAppelLignesAction(etabId, appelId, body.lignes, actor);
+      return NextResponse.json(data);
     }
 
     if (action === "close") {
       const appelId = String(body.appelId || "").trim();
       if (!appelId) return NextResponse.json({ error: "appelId requis." }, { status: 400 });
-      const appel = await closeAppel(etabId, appelId);
-      if (!appel) return NextResponse.json({ error: "Appel introuvable." }, { status: 404 });
-      return NextResponse.json({ appel });
+      const closed = await closeAppelAction(etabId, appelId, actor);
+      return NextResponse.json(closed);
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

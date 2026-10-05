@@ -33,6 +33,11 @@ import {
   handleGetVoyage,
   handleSearchEleves,
 } from "@/app/lib/brain-ai/tools/handlers/core-read";
+import {
+  handleCloseAppel,
+  handleOpenAppel,
+  handleSaveAppelLignes,
+} from "@/app/lib/brain-ai/tools/handlers/vs-appels";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
@@ -528,6 +533,74 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: async (ctx) => handleGetInternatStatus(ctx),
+  },
+  {
+    name: "open_appel",
+    description:
+      "Ouvre (ou récupère) la feuille d’appel d’un créneau EDT pour une date. Prof : ses créneaux uniquement. Confirmation UI obligatoire.",
+    parameters: {
+      type: "object",
+      properties: {
+        dateAppel: { type: "string", description: "YYYY-MM-DD" },
+        creneauId: { type: "string" },
+      },
+      required: ["dateAppel", "creneauId"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "vs-appels",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleOpenAppel,
+  },
+  {
+    name: "save_appel_lignes",
+    description:
+      "Enregistre les lignes présent/absent/retard d’une feuille d’appel ouverte. Même handler que l’UI. Confirmation obligatoire.",
+    parameters: {
+      type: "object",
+      properties: {
+        appelId: { type: "string" },
+        lignes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              eleveId: { type: "string" },
+              statut: { type: "string" },
+              retardMinutes: { type: "number" },
+              note: { type: "string" },
+            },
+            required: ["eleveId", "statut"],
+          },
+        },
+      },
+      required: ["appelId", "lignes"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "vs-appels",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleSaveAppelLignes,
+  },
+  {
+    name: "close_appel",
+    description:
+      "Clôture l’appel : statut clos, absences CPE (source appel), événement attendance.call_completed. Confirmation obligatoire.",
+    parameters: {
+      type: "object",
+      properties: {
+        appelId: { type: "string" },
+      },
+      required: ["appelId"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "vs-appels",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleCloseAppel,
   },
 ];
 

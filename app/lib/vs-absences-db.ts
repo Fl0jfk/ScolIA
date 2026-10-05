@@ -14,6 +14,12 @@ import {
   type AccueilAbsenceCanal,
 } from "@/app/lib/accueil-absences-types";
 import { listEleveIdsEnSortieOnDate } from "@/app/lib/occupancy";
+import { emitAttendanceCallCompleted } from "@/app/lib/vs-appels-events";
+import {
+  appelAbsenceSlotsConflict,
+  shouldPreserveAbsenceOnPresentLine,
+  type AppelSlotRef,
+} from "@/app/lib/vs-appels-slot";
 
 export type AppelLigneStatut = "present" | "absent" | "retard" | "dispense";
 export type AbsenceType = "absence" | "retard";
@@ -229,11 +235,16 @@ export async function saveAppelLignes(
   if (!appel) throw new Error("Appel introuvable.");
   if (appel.statut === "clos") throw new Error("Appel déjà clos.");
 
-  const enSortie = await listEleveIdsEnSortieOnDate({
-    etablissementId,
-    date: asDateKey(appel.dateAppel) || String(appel.dateAppel).slice(0, 10),
-    eleveIds: lignes.map((l) => l.eleveId),
-  });
+  let enSortie = new Set<string>();
+  try {
+    enSortie = await listEleveIdsEnSortieOnDate({
+      etablissementId,
+      date: asDateKey(appel.dateAppel) || String(appel.dateAppel).slice(0, 10),
+      eleveIds: lignes.map((l) => l.eleveId),
+    });
+  } catch (err) {
+    console.error("[vs-appels] occupancy en_sortie indisponible", err);
+  }
 
   let saved = 0;
   for (const ligne of lignes) {
@@ -275,16 +286,7 @@ export async function saveAppelLignes(
         await upsertAbsenceFromAppelLigne(etablissementId, appel, ligne.eleveId, statut);
       }
     } else {
-      await db
-        .delete(vsAbsenceEleve)
-        .where(
-          and(
-            eq(vsAbsenceEleve.etablissementId, etablissementId),
-            eq(vsAbsenceEleve.appelId, appelId),
-            eq(vsAbsenceEleve.eleveId, ligne.eleveId),
-            eq(vsAbsenceEleve.statut, "a_traiter"),
-          ),
-        );
+      await reconcileAbsenceWhenLignePresent(etablissementId, appelId, ligne.eleveId);
     }
   }
 
@@ -296,15 +298,122 @@ export async function saveAppelLignes(
   return { saved };
 }
 
+function appelSlotRef(appel: typeof vsAppel.$inferSelect): AppelSlotRef {
+  const dateKey = asDateKey(appel.dateAppel) || String(appel.dateAppel).slice(0, 10);
+  return {
+    dateAppel: dateKey,
+    heureDebut: appel.heureDebut,
+    heureFin: appel.heureFin,
+    creneauId: appel.creneauId,
+  };
+}
+
+async function listActiveAppelAbsencesForEleveOnDate(
+  etablissementId: string,
+  eleveId: string,
+  dateIso: string,
+) {
+  const db = getDb();
+  const day = asDateKey(dateIso) || dateIso;
+  const rows = await db
+    .select({
+      id: vsAbsenceEleve.id,
+      appelId: vsAbsenceEleve.appelId,
+      dateDebut: vsAbsenceEleve.dateDebut,
+      dateFin: vsAbsenceEleve.dateFin,
+      heureDebut: vsAbsenceEleve.heureDebut,
+      heureFin: vsAbsenceEleve.heureFin,
+      statut: vsAbsenceEleve.statut,
+      motif: vsAbsenceEleve.motif,
+      justifie: vsAbsenceEleve.justifie,
+      noteCpe: vsAbsenceEleve.noteCpe,
+    })
+    .from(vsAbsenceEleve)
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.eleveId, eleveId),
+        eq(vsAbsenceEleve.source, "appel"),
+      ),
+    );
+  return rows.filter(
+    (r) =>
+      r.statut !== "classee" &&
+      datesOverlap(asDateKey(r.dateDebut), asDateKey(r.dateFin), day, day),
+  );
+}
+
+export async function reconcileAbsenceWhenLignePresent(
+  etablissementId: string,
+  appelId: string,
+  eleveId: string,
+): Promise<void> {
+  const db = getDb();
+  const [existing] = await db
+    .select({
+      id: vsAbsenceEleve.id,
+      motif: vsAbsenceEleve.motif,
+      justifie: vsAbsenceEleve.justifie,
+      statut: vsAbsenceEleve.statut,
+      noteCpe: vsAbsenceEleve.noteCpe,
+    })
+    .from(vsAbsenceEleve)
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.appelId, appelId),
+        eq(vsAbsenceEleve.eleveId, eleveId),
+      ),
+    )
+    .limit(1);
+  if (!existing) return;
+
+  if (shouldPreserveAbsenceOnPresentLine(existing)) {
+    await db
+      .update(vsAbsenceEleve)
+      .set({
+        statut: "classee",
+        noteCpe: "Corrigée : repassé présent sur la feuille d’appel (historique conservé).",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(vsAbsenceEleve.etablissementId, etablissementId), eq(vsAbsenceEleve.id, existing.id)),
+      );
+    return;
+  }
+
+  await db
+    .delete(vsAbsenceEleve)
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.appelId, appelId),
+        eq(vsAbsenceEleve.eleveId, eleveId),
+        eq(vsAbsenceEleve.statut, "a_traiter"),
+      ),
+    );
+}
+
 async function upsertAbsenceFromAppelLigne(
   etablissementId: string,
   appel: typeof vsAppel.$inferSelect,
   eleveId: string,
   type: "absent" | "retard",
-) {
+): Promise<string | null> {
   const db = getDb();
   const absenceType: AbsenceType = type === "retard" ? "retard" : "absence";
-  await db
+  const slot = appelSlotRef(appel);
+  const dateKey = slot.dateAppel;
+
+  const siblings = await listActiveAppelAbsencesForEleveOnDate(etablissementId, eleveId, dateKey);
+  const conflict = siblings.find((s) =>
+    appelAbsenceSlotsConflict(slot, s, appel.id),
+  );
+  if (conflict && conflict.appelId !== appel.id) {
+    return conflict.id;
+  }
+
+  const [row] = await db
     .insert(vsAbsenceEleve)
     .values({
       etablissementId,
@@ -312,27 +421,109 @@ async function upsertAbsenceFromAppelLigne(
       appelId: appel.id,
       dateDebut: appel.dateAppel,
       dateFin: appel.dateAppel,
+      heureDebut: appel.heureDebut || null,
+      heureFin: appel.heureFin || null,
       type: absenceType,
       statut: "a_traiter",
       justifie: false,
+      source: "appel",
     })
     .onConflictDoUpdate({
       target: [vsAbsenceEleve.etablissementId, vsAbsenceEleve.appelId, vsAbsenceEleve.eleveId],
       set: {
         type: absenceType,
+        heureDebut: appel.heureDebut || null,
+        heureFin: appel.heureFin || null,
         updatedAt: new Date(),
       },
-    });
+    })
+    .returning({ id: vsAbsenceEleve.id });
+  return row?.id ?? null;
 }
 
-export async function closeAppel(etablissementId: string, appelId: string) {
+export type CloseAppelResult = {
+  appel: typeof vsAppel.$inferSelect;
+  metierEventType: string;
+  absenceIds: string[];
+};
+
+export async function finalizeAppelAbsencesFromLignes(
+  etablissementId: string,
+  appel: typeof vsAppel.$inferSelect,
+  lignes: Array<{ eleveId: string; statut: string }>,
+): Promise<string[]> {
+  let enSortie = new Set<string>();
+  try {
+    enSortie = await listEleveIdsEnSortieOnDate({
+      etablissementId,
+      date: asDateKey(appel.dateAppel) || String(appel.dateAppel).slice(0, 10),
+      eleveIds: lignes.map((l) => l.eleveId),
+    });
+  } catch (err) {
+    console.error("[vs-appels] occupancy en_sortie indisponible", err);
+  }
+  const absenceIds: string[] = [];
+  for (const ligne of lignes) {
+    if (!isNonPresent(ligne.statut)) continue;
+    if (enSortie.has(ligne.eleveId)) continue;
+    const covered = await eleveHasAccueilCoveringSlot(etablissementId, ligne.eleveId, {
+      date: appel.dateAppel,
+      heureDebut: appel.heureDebut,
+      heureFin: appel.heureFin,
+    });
+    if (covered) continue;
+    const id = await upsertAbsenceFromAppelLigne(
+      etablissementId,
+      appel,
+      ligne.eleveId,
+      ligne.statut === "retard" ? "retard" : "absent",
+    );
+    if (id) absenceIds.push(id);
+  }
+  return absenceIds;
+}
+
+export async function closeAppel(
+  etablissementId: string,
+  appelId: string,
+  opts?: { actorUserId?: string | null },
+): Promise<CloseAppelResult | null> {
   const db = getDb();
+  const data = await getAppelWithLignes(etablissementId, appelId);
+  if (!data) return null;
+
+  const absenceIds = await finalizeAppelAbsencesFromLignes(
+    etablissementId,
+    data.appel,
+    data.lignes,
+  );
+
+  const absentEleveIds = data.lignes
+    .filter((l) => isNonPresent(l.statut))
+    .map((l) => l.eleveId);
+
   const [row] = await db
     .update(vsAppel)
     .set({ statut: "clos", closAt: new Date(), updatedAt: new Date() })
     .where(and(eq(vsAppel.etablissementId, etablissementId), eq(vsAppel.id, appelId)))
     .returning();
-  return row ?? null;
+  if (!row) return null;
+
+  await emitAttendanceCallCompleted({
+    etablissementId,
+    appelId: row.id,
+    dateAppel: asDateKey(row.dateAppel) || String(row.dateAppel).slice(0, 10),
+    creneauId: row.creneauId,
+    classe: row.classe,
+    absentEleveIds,
+    actorUserId: opts?.actorUserId ?? null,
+  });
+
+  return {
+    appel: row,
+    metierEventType: "attendance.call_completed",
+    absenceIds,
+  };
 }
 
 export async function listAbsencesATraiter(

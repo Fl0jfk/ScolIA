@@ -130,7 +130,7 @@ export default function VsAbsencesHubClient() {
             : tab === "declarer"
               ? "Déclarer une absence au standard."
               : tab === "consulter"
-                ? "Consulter les absences saisies à l’accueil."
+                ? "Consulter les absences (accueil et appels de classe)."
                 : "Appel de présence en classe."
         }
       />
