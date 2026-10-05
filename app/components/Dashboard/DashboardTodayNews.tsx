@@ -233,7 +233,7 @@ export default function DashboardTodayNews({
   if (variant === "sidebar") {
     return (
       <div
-        className="flex w-full items-start gap-2 overflow-hidden px-0.5 py-0.5"
+        className="flex w-full items-start gap-2 overflow-hidden px-0.5 py-0"
         aria-label="Actualité du jour"
         title={error || success || current?.title || "Actualité du jour"}
       >

@@ -174,12 +174,12 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="space-y-0.5 px-1.5 pb-0 pt-0">
-          <div className="flex items-center gap-1">
+        <div className="space-y-0 px-1.5 pb-0 pt-0">
+          <div className="flex h-[5.25rem] items-center gap-1">
             <Link
               href={homeHref}
               onClick={onCloseMobile}
-              className="flex min-w-0 flex-1 items-center justify-start transition hover:opacity-90"
+              className="flex h-full min-w-0 flex-1 items-center justify-start overflow-hidden transition hover:opacity-90"
               title={logoAlt}
               aria-label={logoAlt}
             >
@@ -188,23 +188,23 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                   <Image
                     src={customLogoUrl}
                     alt={logoAlt}
-                    width={160}
-                    height={160}
+                    width={180}
+                    height={180}
                     unoptimized
-                    className="h-32 w-32 object-contain object-left"
+                    className="h-[7.5rem] w-[7.5rem] max-w-none object-contain object-[left_55%]"
                   />
                 ) : (
                   <Image
                     src={Logo}
                     alt={logoAlt}
-                    width={160}
-                    height={160}
-                    className="h-32 w-32 object-contain object-left"
+                    width={180}
+                    height={180}
+                    className="h-[7.5rem] w-[7.5rem] max-w-none object-contain object-[left_55%]"
                   />
                 )
               ) : null}
             </Link>
-            <div className="w-[4.75rem] shrink-0 pr-0.5">
+            <div className="flex h-full w-[4.75rem] shrink-0 items-center pr-0.5">
               <DashboardWeather compact />
             </div>
             <button
