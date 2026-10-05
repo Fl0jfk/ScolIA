@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import { dash } from "@/app/lib/dashboard-brand";
 import type {
   RdvInscriptionBookingRow,
   RdvInscriptionConfigPublic,
@@ -10,6 +14,9 @@ import type {
   RdvInscriptionSlot,
 } from "@/app/lib/rdv-inscription-types";
 import { RDV_RESCHEDULE_PRESET_MOTIF } from "@/app/lib/rdv-inscription-types";
+
+const FIELD = dash.field;
+const FIELD_LABEL = dash.fieldLabel;
 
 type AdminPayload = {
   config: RdvInscriptionConfigPublic;
@@ -209,6 +216,18 @@ export default function RdvInscriptionAdminClient() {
     return counts;
   }, [bookings]);
 
+  const bookingStatusCounts = useMemo(() => {
+    let pending = 0;
+    let confirmed = 0;
+    let other = 0;
+    for (const b of bookings) {
+      if (b.status === "pending") pending += 1;
+      else if (b.status === "confirmed") confirmed += 1;
+      else other += 1;
+    }
+    return { pending, confirmed, other, total: bookings.length };
+  }, [bookings]);
+
   async function put(body: Record<string, unknown>) {
     setBusy(true);
     setMessage(null);
@@ -379,91 +398,85 @@ export default function RdvInscriptionAdminClient() {
   }
 
   if (loading && !data) {
-    return <p className="p-6 text-slate-600">Chargement…</p>;
+    return (
+      <ModulePageShell maxWidthClass="max-w-[90rem]">
+        <p className={`text-sm ${dash.textMid}`}>Chargement…</p>
+      </ModulePageShell>
+    );
   }
   if (!data) {
     return (
-      <div className="p-6">
-        <p className="text-red-700">{error || "Erreur"}</p>
-        <button type="button" className="mt-3 underline" onClick={() => void load()}>
-          Réessayer
-        </button>
-      </div>
+      <ModulePageShell maxWidthClass="max-w-[90rem]">
+        <ModuleCard bodyClassName="p-6">
+          <p className="text-sm font-semibold text-red-700">{error || "Erreur"}</p>
+          <ModuleButton className="mt-4" variant="secondary" onClick={() => void load()}>
+            Réessayer
+          </ModuleButton>
+        </ModuleCard>
+      </ModulePageShell>
     );
   }
 
   const { config, directions, google, publicLinks, oauthRedirectUri, oauthStartPath } = data;
 
   return (
-    <ModulePageShell maxWidthClass="max-w-4xl">
-      <div className="space-y-6">
+    <ModulePageShell maxWidthClass="max-w-[90rem]">
+      <div className="space-y-5">
       <ModulePageHeader
         eyebrow="Établissement"
         title="RDV inscription direction"
-        description="Paramétrage des agendas et suivi des réservations parents (école, collège, lycée)."
+        description="Suivi des réservations parents et paramétrage des agendas (école, collège, lycée)."
+        actions={
+          tab === "suivi" ? (
+            <ModuleButton
+              variant="secondary"
+              disabled={loading || busy}
+              onClick={() => void load()}
+            >
+              Actualiser
+            </ModuleButton>
+          ) : null
+        }
       />
 
-      <nav
-        className="mb-6 flex flex-wrap gap-2"
-        aria-label="Sections RDV inscription"
-      >
-        <button
-          type="button"
-          onClick={() => selectTab("suivi")}
-          className={`rounded-full px-4 py-2 text-sm font-bold transition ${
-            tab === "suivi"
-              ? "bg-[var(--dash-ink)] text-white shadow-sm"
-              : "border border-black/8 bg-white text-slate-600 hover:border-black/20"
-          }`}
-        >
-          Suivi
-          {bookings.length > 0 ? (
-            <span
-              className={`ml-1.5 inline-flex min-w-[1.25rem] justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums ${
-                tab === "suivi"
-                  ? "bg-[var(--dash-lime)] text-[var(--dash-ink)]"
-                  : "bg-[color:var(--dash-lime)]/80 text-[var(--dash-ink)]"
-              }`}
-            >
-              {bookings.length}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          onClick={() => selectTab("reglages")}
-          className={`rounded-full px-4 py-2 text-sm font-bold transition ${
-            tab === "reglages"
-              ? "bg-[var(--dash-ink)] text-white shadow-sm"
-              : "border border-black/8 bg-white text-slate-600 hover:border-black/20"
-          }`}
-        >
-          Réglages
-        </button>
-      </nav>
+      <ModuleTabNav
+        className="mb-1"
+        tabs={[
+          { id: "suivi", label: "Suivi" },
+          { id: "reglages", label: "Réglages" },
+        ]}
+        active={tab}
+        onChange={(id) => selectTab(id)}
+        badges={{ suivi: bookings.length }}
+      />
 
       {message ? (
-        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+        <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           {message}
         </p>
       ) : null}
       {error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
         </p>
       ) : null}
 
       {tab === "reglages" ? (
-        <div className="space-y-8">
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-900">Compte Google technique</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Connectez un compte Google, puis demandez à chaque directrice de{" "}
-              <strong>partager son agenda</strong> avec ce compte (droits de modification des
-              événements).
-            </p>
+        <div className="grid gap-4 lg:grid-cols-12">
+          <ModuleCard className="lg:col-span-5" bodyClassName="flex h-full flex-col gap-4 p-5 sm:p-6">
+            <div>
+              <p className={FIELD_LABEL}>Compte Google</p>
+              <h2 className={`mt-1 text-lg font-semibold tracking-tight ${dash.ink}`}>
+                Compte technique
+              </h2>
+              <p className={`mt-1 text-sm ${dash.textMid}`}>
+                Connectez un compte Google, puis demandez à chaque directrice de{" "}
+                <strong>partager son agenda</strong> avec ce compte (droits de modification des
+                événements).
+              </p>
+            </div>
             {!google.clientConfigured ? (
-              <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <p className="rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 Configurez <code className="font-mono text-xs">GOOGLE_CLIENT_ID</code> et{" "}
                 <code className="font-mono text-xs">GOOGLE_CLIENT_SECRET</code> (ou secrets.google du
                 tenant). URI de redirection à enregistrer dans Google Cloud :{" "}
@@ -472,24 +485,23 @@ export default function RdvInscriptionAdminClient() {
                 </code>
               </p>
             ) : null}
-            <div className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               {google.linked ? (
                 <>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-900">
+                  <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-900">
                     Lié
                     {google.linkedEmail ? ` — ${google.linkedEmail}` : ""}
                   </span>
-                  <button
-                    type="button"
+                  <ModuleButton
+                    variant="secondary"
                     disabled={busy}
                     onClick={() => void put({ action: "unlink-google" })}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                   >
                     Déconnecter
-                  </button>
+                  </ModuleButton>
                   <a
                     href={oauthStartPath}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    className={`inline-flex items-center rounded-xl border bg-white px-4 py-2.5 text-sm font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
                   >
                     Reconnecter
                   </a>
@@ -498,7 +510,7 @@ export default function RdvInscriptionAdminClient() {
                 <>
                   <a
                     href={oauthStartPath}
-                    className="inline-flex items-center gap-1 rounded-md bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800"
+                    className={`inline-flex items-center rounded-xl px-4 py-2.5 text-sm ${dash.btnPrimary}`}
                   >
                     Connecter Google Agenda
                   </a>
@@ -513,7 +525,7 @@ export default function RdvInscriptionAdminClient() {
               )}
             </div>
             <form
-              className="mt-4"
+              className="mt-auto space-y-3 border-t border-black/6 pt-4"
               onSubmit={(e) => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
@@ -523,236 +535,292 @@ export default function RdvInscriptionAdminClient() {
                 });
               }}
             >
-              <label className="flex items-center gap-2 text-sm">
+              <label className={`flex items-center gap-2 text-sm ${dash.ink}`}>
                 <input type="checkbox" name="enabled" defaultChecked={config.enabled} />
                 <span className="font-semibold">
                   Coupe-circuit global (désactiver toutes les pages)
                 </span>
               </label>
-              <button
-                type="submit"
-                disabled={busy}
-                className="mt-2 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-60"
-              >
+              <ModuleButton type="submit" variant="secondary" disabled={busy}>
                 Enregistrer
-              </button>
+              </ModuleButton>
             </form>
-          </section>
+          </ModuleCard>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-900">Directions & agendas</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Paramétrez chaque direction indépendamment (agenda, textes, motif Google, notif
-              secrétariat, horizon).
-            </p>
-            <div className="mt-4 space-y-6">
-              {directions.map((d) => (
-                <form
-                  key={`${d.id}-${d.eventTitlePattern}-${d.notifyEmail || ""}-${d.horizonDays}-${d.title}`}
-                  className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-2"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const fd = new FormData(e.currentTarget);
-                    void put({
-                      action: "save-direction",
-                      direction: {
-                        id: d.id,
-                        slug: String(fd.get("slug") || d.slug),
-                        label: String(fd.get("label") || ""),
-                        googleCalendarId: String(fd.get("googleCalendarId") || ""),
-                        directriceDisplayName:
-                          String(fd.get("directriceDisplayName") || "") || null,
-                        title: String(fd.get("title") || ""),
-                        intro: String(fd.get("intro") || ""),
-                        eventTitlePattern: String(fd.get("eventTitlePattern") || ""),
-                        notifyEmail: String(fd.get("notifyEmail") || "") || null,
-                        location: String(fd.get("location") || ""),
-                        consentLabel: String(fd.get("consentLabel") || ""),
-                        horizonDays: Number(fd.get("horizonDays") || 60),
-                        active: fd.get("active") === "on",
-                        sortOrder: Number(fd.get("sortOrder") || d.sortOrder),
-                      },
-                    });
-                  }}
-                >
-                  <div className="sm:col-span-2 border-b border-slate-200 pb-2">
-                    <p className="text-base font-bold text-slate-900">{d.label}</p>
-                  </div>
-                  <label className="block text-sm">
-                    <span className="font-semibold">Libellé</span>
-                    <input
-                      name="label"
-                      defaultValue={d.label}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="font-semibold">Slug URL</span>
-                    <input
-                      name="slug"
-                      defaultValue={d.slug}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-xs"
-                    />
-                  </label>
-                  <label className="block text-sm sm:col-span-2">
-                    <span className="font-semibold">Google Calendar ID</span>
-                    <input
-                      name="googleCalendarId"
-                      defaultValue={d.googleCalendarId}
-                      placeholder="directrice@ecole.fr"
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-xs"
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="font-semibold">Nom directrice (affiché)</span>
-                    <input
-                      name="directriceDisplayName"
-                      defaultValue={d.directriceDisplayName || ""}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="font-semibold">Ordre</span>
-                    <input
-                      name="sortOrder"
-                      type="number"
-                      defaultValue={d.sortOrder}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="block text-sm sm:col-span-2">
-                    <span className="font-semibold">Titre page publique</span>
-                    <input
-                      name="title"
-                      defaultValue={d.title}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="block text-sm sm:col-span-2">
-                    <span className="font-semibold">Introduction</span>
-                    <textarea
-                      name="intro"
-                      rows={2}
-                      defaultValue={d.intro}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="block text-sm sm:col-span-2">
-                    <span className="font-semibold">Texte recherché dans le titre Google</span>
-                    <input
-                      name="eventTitlePattern"
-                      defaultValue={d.eventTitlePattern}
-                      placeholder="RDV inscription"
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                    <span className="mt-1 block text-xs text-slate-500">
-                      Exactement ce que cette directrice écrit dans le titre (casse/accents ignorés).
-                      Plusieurs formulations :{" "}
-                      <code className="font-mono">RDV inscription | rendez-vous inscription</code>.
-                    </span>
-                  </label>
-                  <label className="block text-sm">
-                    <span className="font-semibold">Horizon (jours)</span>
-                    <input
-                      name="horizonDays"
-                      type="number"
-                      min={7}
-                      max={180}
-                      defaultValue={d.horizonDays}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="font-semibold">E-mail notif secrétariat</span>
-                    <input
-                      name="notifyEmail"
-                      type="email"
-                      defaultValue={d.notifyEmail || ""}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="font-semibold">Lieu</span>
-                    <input
-                      name="location"
-                      defaultValue={d.location}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="block text-sm sm:col-span-2">
-                    <span className="font-semibold">Libellé consentement</span>
-                    <input
-                      name="consentLabel"
-                      defaultValue={d.consentLabel}
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                    <input type="checkbox" name="active" defaultChecked={d.active} />
-                    <span className="font-semibold">Direction active (page publique)</span>
-                  </label>
-                  <div className="flex flex-wrap gap-2 sm:col-span-2">
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-60"
-                    >
-                      Enregistrer
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy || !google.linked || !d.googleCalendarId}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
-                      onClick={async () => {
-                        setTestSlots(null);
-                        setSampleTitles([]);
-                        const json = await put({ action: "test-slots", directionId: d.id });
-                        if (json && "slots" in json) {
-                          const payload = json as {
-                            slots: RdvInscriptionSlot[];
-                            count?: number;
-                            titlePattern?: string;
-                            upcomingEventCount?: number;
-                            sampleTitles?: string[];
-                          };
-                          setTestSlots(payload.slots);
-                          setSampleTitles(payload.sampleTitles || []);
-                          const count = payload.count ?? 0;
-                          const upcoming = payload.upcomingEventCount ?? 0;
-                          const motif = payload.titlePattern || d.eventTitlePattern;
-                          if (count > 0) {
-                            setMessage(
-                              `${count} créneau(x) libre(s) sur « ${d.label} » (motif « ${motif} »).`,
-                            );
-                          } else if (upcoming === 0) {
-                            setMessage(
-                              `0 créneau sur « ${d.label} » : aucun événement à venir sur cet agenda dans l’horizon. Vérifiez le Calendar ID et le partage avec le compte Google lié.`,
-                            );
-                          } else {
-                            setMessage(
-                              `0 créneau libre sur « ${d.label} » pour le motif « ${motif} », alors que ${upcoming} événement(s) à venir ont été lus. Adaptez le texte recherché de cette direction.`,
-                            );
-                          }
-                        }
-                      }}
-                    >
-                      Tester les créneaux
-                    </button>
-                  </div>
-                </form>
-              ))}
+          <ModuleCard className="lg:col-span-7" bodyClassName="flex h-full flex-col gap-4 p-5 sm:p-6">
+            <div>
+              <p className={FIELD_LABEL}>Parents</p>
+              <h2 className={`mt-1 text-lg font-semibold tracking-tight ${dash.ink}`}>
+                Liens publics
+              </h2>
+              <p className={`mt-1 text-sm ${dash.textMid}`}>
+                À envoyer aux familles pour prendre rendez-vous avec chaque direction.
+              </p>
             </div>
-            {testSlots && testSlots.length > 0 ? (
-              <ul className="mt-4 space-y-1 text-sm text-slate-700">
-                {testSlots.map((s) => (
-                  <li key={s.eventId}>
-                    {formatSlot(s.startAt, s.endAt)} — {s.title}
+            {publicLinks.length === 0 ? (
+              <p className={`text-sm ${dash.textMid}`}>
+                Activez au moins une direction avec un calendarId pour obtenir un lien.
+              </p>
+            ) : (
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {publicLinks.map((l) => (
+                  <li
+                    key={l.slug}
+                    className="flex flex-col justify-between gap-3 rounded-2xl border border-black/6 bg-[color:var(--dash-soft-muted)]/40 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className={`font-semibold ${dash.ink}`}>{l.label}</p>
+                      <a
+                        href={l.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 block break-all text-xs text-[var(--dash-primary)] hover:underline"
+                      >
+                        {l.url}
+                      </a>
+                    </div>
+                    <ModuleButton
+                      variant="secondary"
+                      className="self-start !px-3 !py-1.5 !text-xs"
+                      onClick={() => void copyLink(l.url)}
+                    >
+                      {copied === l.url ? "Copié" : "Copier"}
+                    </ModuleButton>
                   </li>
                 ))}
               </ul>
+            )}
+          </ModuleCard>
+
+          <div className="space-y-3 lg:col-span-12">
+            <div>
+              <p className={FIELD_LABEL}>Configuration</p>
+              <h2 className={`mt-1 text-lg font-semibold tracking-tight ${dash.ink}`}>
+                Directions & agendas
+              </h2>
+              <p className={`mt-1 text-sm ${dash.textMid}`}>
+                Paramétrez chaque direction indépendamment (agenda, textes, motif Google, notif
+                secrétariat, horizon).
+              </p>
+            </div>
+            <div className="grid gap-4 xl:grid-cols-2">
+              {directions.map((d) => (
+                <ModuleCard
+                  key={`${d.id}-${d.eventTitlePattern}-${d.notifyEmail || ""}-${d.horizonDays}-${d.title}`}
+                  bodyClassName="p-5 sm:p-6"
+                >
+                  <form
+                    className="grid gap-3 sm:grid-cols-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const fd = new FormData(e.currentTarget);
+                      void put({
+                        action: "save-direction",
+                        direction: {
+                          id: d.id,
+                          slug: String(fd.get("slug") || d.slug),
+                          label: String(fd.get("label") || ""),
+                          googleCalendarId: String(fd.get("googleCalendarId") || ""),
+                          directriceDisplayName:
+                            String(fd.get("directriceDisplayName") || "") || null,
+                          title: String(fd.get("title") || ""),
+                          intro: String(fd.get("intro") || ""),
+                          eventTitlePattern: String(fd.get("eventTitlePattern") || ""),
+                          notifyEmail: String(fd.get("notifyEmail") || "") || null,
+                          location: String(fd.get("location") || ""),
+                          consentLabel: String(fd.get("consentLabel") || ""),
+                          horizonDays: Number(fd.get("horizonDays") || 60),
+                          active: fd.get("active") === "on",
+                          sortOrder: Number(fd.get("sortOrder") || d.sortOrder),
+                        },
+                      });
+                    }}
+                  >
+                    <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2 border-b border-black/6 pb-3">
+                      <p className={`text-base font-semibold ${dash.ink}`}>{d.label}</p>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                          d.active
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {d.active ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Libellé</span>
+                      <input name="label" defaultValue={d.label} className={`mt-1.5 ${FIELD}`} />
+                    </label>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Slug URL</span>
+                      <input
+                        name="slug"
+                        defaultValue={d.slug}
+                        className={`mt-1.5 font-mono text-xs ${FIELD}`}
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className={FIELD_LABEL}>Google Calendar ID</span>
+                      <input
+                        name="googleCalendarId"
+                        defaultValue={d.googleCalendarId}
+                        placeholder="directrice@ecole.fr"
+                        className={`mt-1.5 font-mono text-xs ${FIELD}`}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Nom directrice (affiché)</span>
+                      <input
+                        name="directriceDisplayName"
+                        defaultValue={d.directriceDisplayName || ""}
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Ordre</span>
+                      <input
+                        name="sortOrder"
+                        type="number"
+                        defaultValue={d.sortOrder}
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className={FIELD_LABEL}>Titre page publique</span>
+                      <input name="title" defaultValue={d.title} className={`mt-1.5 ${FIELD}`} />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className={FIELD_LABEL}>Introduction</span>
+                      <textarea
+                        name="intro"
+                        rows={2}
+                        defaultValue={d.intro}
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className={FIELD_LABEL}>Texte recherché dans le titre Google</span>
+                      <input
+                        name="eventTitlePattern"
+                        defaultValue={d.eventTitlePattern}
+                        placeholder="RDV inscription"
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                      <span className={`mt-1 block text-xs ${dash.textMid}`}>
+                        Exactement ce que cette directrice écrit dans le titre (casse/accents
+                        ignorés). Plusieurs formulations :{" "}
+                        <code className="font-mono">
+                          RDV inscription | rendez-vous inscription
+                        </code>
+                        .
+                      </span>
+                    </label>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Horizon (jours)</span>
+                      <input
+                        name="horizonDays"
+                        type="number"
+                        min={7}
+                        max={180}
+                        defaultValue={d.horizonDays}
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>E-mail notif secrétariat</span>
+                      <input
+                        name="notifyEmail"
+                        type="email"
+                        defaultValue={d.notifyEmail || ""}
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Lieu</span>
+                      <input
+                        name="location"
+                        defaultValue={d.location}
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className={FIELD_LABEL}>Libellé consentement</span>
+                      <input
+                        name="consentLabel"
+                        defaultValue={d.consentLabel}
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                    </label>
+                    <label className={`flex items-center gap-2 text-sm sm:col-span-2 ${dash.ink}`}>
+                      <input type="checkbox" name="active" defaultChecked={d.active} />
+                      <span className="font-semibold">Direction active (page publique)</span>
+                    </label>
+                    <div className="flex flex-wrap gap-2 sm:col-span-2">
+                      <ModuleButton type="submit" disabled={busy}>
+                        Enregistrer
+                      </ModuleButton>
+                      <ModuleButton
+                        type="button"
+                        variant="secondary"
+                        disabled={busy || !google.linked || !d.googleCalendarId}
+                        onClick={async () => {
+                          setTestSlots(null);
+                          setSampleTitles([]);
+                          const json = await put({ action: "test-slots", directionId: d.id });
+                          if (json && "slots" in json) {
+                            const payload = json as {
+                              slots: RdvInscriptionSlot[];
+                              count?: number;
+                              titlePattern?: string;
+                              upcomingEventCount?: number;
+                              sampleTitles?: string[];
+                            };
+                            setTestSlots(payload.slots);
+                            setSampleTitles(payload.sampleTitles || []);
+                            const count = payload.count ?? 0;
+                            const upcoming = payload.upcomingEventCount ?? 0;
+                            const motif = payload.titlePattern || d.eventTitlePattern;
+                            if (count > 0) {
+                              setMessage(
+                                `${count} créneau(x) libre(s) sur « ${d.label} » (motif « ${motif} »).`,
+                              );
+                            } else if (upcoming === 0) {
+                              setMessage(
+                                `0 créneau sur « ${d.label} » : aucun événement à venir sur cet agenda dans l’horizon. Vérifiez le Calendar ID et le partage avec le compte Google lié.`,
+                              );
+                            } else {
+                              setMessage(
+                                `0 créneau libre sur « ${d.label} » pour le motif « ${motif} », alors que ${upcoming} événement(s) à venir ont été lus. Adaptez le texte recherché de cette direction.`,
+                              );
+                            }
+                          }
+                        }}
+                      >
+                        Tester les créneaux
+                      </ModuleButton>
+                    </div>
+                  </form>
+                </ModuleCard>
+              ))}
+            </div>
+            {testSlots && testSlots.length > 0 ? (
+              <ModuleCard bodyClassName="p-4 sm:p-5">
+                <p className={`text-sm font-semibold ${dash.ink}`}>Créneaux libres (aperçu)</p>
+                <ul className={`mt-2 space-y-1 text-sm ${dash.textMid}`}>
+                  {testSlots.map((s) => (
+                    <li key={s.eventId}>
+                      {formatSlot(s.startAt, s.endAt)} — {s.title}
+                    </li>
+                  ))}
+                </ul>
+              </ModuleCard>
             ) : null}
             {sampleTitles.length > 0 && (!testSlots || testSlots.length === 0) ? (
-              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <ModuleCard
+                className="border-amber-200/80 bg-amber-50/70"
+                bodyClassName="p-4 sm:p-5 text-sm text-amber-950"
+              >
                 <p className="font-semibold">Titres d’événements vus sur l’agenda (aperçu) :</p>
                 <ul className="mt-1 list-disc pl-5">
                   {sampleTitles.map((t) => (
@@ -765,339 +833,337 @@ export default function RdvInscriptionAdminClient() {
                   Copiez un fragment dans « Texte recherché dans le titre Google » de cette
                   direction, enregistrez, puis retestez.
                 </p>
-              </div>
+              </ModuleCard>
             ) : null}
-          </section>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-900">Liens publics à envoyer aux parents</h2>
-            {publicLinks.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">
-                Activez au moins une direction avec un calendarId pour obtenir un lien.
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {publicLinks.map((l) => (
-                  <li
-                    key={l.slug}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-100 bg-slate-50 px-3 py-2"
-                  >
-                    <div>
-                      <p className="font-semibold text-slate-800">{l.label}</p>
-                      <a
-                        href={l.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="break-all text-xs text-sky-700 hover:underline"
-                      >
-                        {l.url}
-                      </a>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void copyLink(l.url)}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold"
-                    >
-                      {copied === l.url ? "Copié" : "Copier"}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          </div>
         </div>
       ) : (
-        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">Suivi des rendez-vous</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Réservations récentes, triées par date de prise (la plus récente en haut). Les
-                créneaux remplacés apparaissent en « Annulé ».
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <ModuleCard bodyClassName="p-4 sm:p-5">
+              <p className={FIELD_LABEL}>Total</p>
+              <p className={`mt-2 text-3xl font-semibold tracking-tight ${dash.ink}`}>
+                {bookingStatusCounts.total}
+              </p>
+              <p className={`mt-1 text-xs ${dash.textMid}`}>rendez-vous listés</p>
+            </ModuleCard>
+            <ModuleCard bodyClassName="p-4 sm:p-5">
+              <p className={FIELD_LABEL}>Confirmés</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-emerald-700">
+                {bookingStatusCounts.confirmed}
+              </p>
+              <p className={`mt-1 text-xs ${dash.textMid}`}>prêts pour la direction</p>
+            </ModuleCard>
+            <ModuleCard bodyClassName="p-4 sm:p-5">
+              <p className={FIELD_LABEL}>En attente</p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-700">
+                {bookingStatusCounts.pending}
+              </p>
+              <p className={`mt-1 text-xs ${dash.textMid}`}>
+                + {bookingStatusCounts.other} annulé / expiré
+              </p>
+            </ModuleCard>
+          </div>
+
+          <ModuleCard bodyClassName="p-5 sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className={`text-lg font-semibold tracking-tight ${dash.ink}`}>
+                  Suivi des rendez-vous
+                </h2>
+                <p className={`mt-1 text-sm ${dash.textMid}`}>
+                  Triés par date de prise (plus récent en haut). Les créneaux remplacés
+                  apparaissent en « Annulé ».
+                </p>
+              </div>
+              <p className={`text-sm font-semibold tabular-nums ${dash.textMid}`}>
+                {filteredBookings.length}
+                <span className="font-normal"> affiché{filteredBookings.length > 1 ? "s" : ""}</span>
               </p>
             </div>
-            <button
-              type="button"
-              disabled={loading || busy}
-              onClick={() => void load()}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Actualiser
-            </button>
-          </div>
 
-          <div className="mt-4 space-y-3 border-b border-slate-100 pb-3">
-            <label className="block">
-              <span className="sr-only">Rechercher un rendez-vous</span>
-              <input
-                type="search"
-                value={bookingSearch}
-                onChange={(e) => setBookingSearch(e.target.value)}
-                placeholder="Rechercher par nom, prénom (élève ou contact)…"
-                autoComplete="off"
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => selectDirectionFilter("")}
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                  !directionFilter
-                    ? "bg-slate-900 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                Tous
-                <span className="ml-1.5 tabular-nums opacity-80">{bookings.length}</span>
-              </button>
-              {directions.map((d) => {
-                const count = bookingCountsByDirection.get(d.slug) || 0;
-                const active = directionFilter === d.slug;
-                return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => selectDirectionFilter(d.slug)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                      active
-                        ? "bg-sky-700 text-white"
-                        : "bg-sky-50 text-sky-800 ring-1 ring-sky-200 hover:bg-sky-100"
-                    }`}
-                  >
-                    {d.label}
-                    <span className="ml-1.5 tabular-nums opacity-80">{count}</span>
-                  </button>
-                );
-              })}
+            <div className="mt-5 space-y-3 border-b border-black/6 pb-4">
+              <label className="block">
+                <span className="sr-only">Rechercher un rendez-vous</span>
+                <input
+                  type="search"
+                  value={bookingSearch}
+                  onChange={(e) => setBookingSearch(e.target.value)}
+                  placeholder="Rechercher par nom, prénom (élève ou contact)…"
+                  autoComplete="off"
+                  className={FIELD}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => selectDirectionFilter("")}
+                  className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${
+                    !directionFilter
+                      ? "bg-[var(--dash-ink)] text-white"
+                      : `border border-black/8 bg-white ${dash.ink} ${dash.hoverBorder}`
+                  }`}
+                >
+                  Tous
+                  <span className="ml-1.5 tabular-nums opacity-80">{bookings.length}</span>
+                </button>
+                {directions.map((d) => {
+                  const count = bookingCountsByDirection.get(d.slug) || 0;
+                  const active = directionFilter === d.slug;
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => selectDirectionFilter(d.slug)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${
+                        active
+                          ? "bg-[var(--dash-primary)] text-white"
+                          : `border border-black/8 bg-white ${dash.ink} ${dash.hoverBorder}`
+                      }`}
+                    >
+                      {d.label}
+                      <span className="ml-1.5 tabular-nums opacity-80">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
 
-          {filteredBookings.length === 0 ? (
-            <p className="mt-4 text-sm text-slate-500">
-              {bookings.length === 0
-                ? "Aucune réservation pour l’instant."
-                : bookingSearchNeedle
-                  ? "Aucun rendez-vous ne correspond à cette recherche."
-                  : "Aucune réservation pour ce filtre."}
-            </p>
-          ) : (
-            <div className="mt-3 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b text-slate-500">
-                    <th className="py-2 pr-3 font-semibold">Réservé le</th>
-                    <th className="py-2 pr-3 font-semibold">Créneau</th>
-                    <th className="py-2 pr-3 font-semibold">Élève</th>
-                    <th className="py-2 pr-3 font-semibold">Contact</th>
-                    <th className="py-2 pr-3 font-semibold">Statut</th>
-                    <th className="py-2 font-semibold">Agenda</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBookings.map((b) => {
-                    const dirLabel =
-                      directionLabelBySlug.get(b.directionSlug) || b.directionSlug;
-                    return (
-                      <tr key={b.id} className="border-b border-slate-100">
-                        <td className="py-2 pr-3 whitespace-nowrap text-xs text-slate-600">
-                          {formatWhen(b.createdAt)}
-                          {b.confirmedAt ? (
-                            <>
-                              <br />
-                              <span className="text-emerald-700">
-                                Conf. {formatWhen(b.confirmedAt)}
-                              </span>
-                            </>
-                          ) : null}
-                        </td>
-                        <td className="py-2 pr-3 whitespace-nowrap">
-                          <span className="text-xs font-semibold text-sky-800">{dirLabel}</span>
-                          <br />
-                          {formatSlot(b.startAt, b.endAt)}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {b.studentFirstName} {b.studentLastName}
-                          {b.niveauLabel ? (
-                            <>
-                              <br />
-                              <span className="text-xs text-slate-500">
-                                Niveau demandé : {b.niveauLabel}
-                                {b.regime ? ` · ${b.regime}` : ""}
-                              </span>
-                            </>
-                          ) : b.regime ? (
-                            <>
-                              <br />
-                              <span className="text-xs text-slate-500">Régime : {b.regime}</span>
-                            </>
-                          ) : null}
-                          {b.etablissementOrigineLabel ? (
-                            <>
-                              <br />
-                              <span className="text-xs text-slate-600">
-                                Origine : {b.etablissementOrigineLabel}
-                              </span>
-                            </>
-                          ) : null}
-                          {b.hasPap === "yes" ? (
-                            <>
-                              <br />
-                              <span className="text-xs text-amber-800">
-                                PAP : oui
-                                {b.papS3Key
-                                  ? " (déposé)"
-                                  : b.papBringToRdv
-                                    ? " — à apporter"
-                                    : ""}
-                              </span>
-                            </>
-                          ) : b.hasPap === "no" ? (
-                            <>
-                              <br />
-                              <span className="text-xs text-slate-500">PAP : non</span>
-                            </>
-                          ) : null}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {[b.parentFirstName, b.parentLastName].filter(Boolean).join(" ") || (
-                            <span className="text-slate-400">—</span>
-                          )}
-                          {b.rdvAttendee ? (
-                            <>
-                              <br />
-                              <span className="text-xs text-slate-500">
-                                Présent :{" "}
-                                {b.rdvAttendee === "madame"
-                                  ? "Madame"
-                                  : b.rdvAttendee === "monsieur"
-                                    ? "Monsieur"
-                                    : "Les deux"}
-                              </span>
-                            </>
-                          ) : null}
-                          <br />
-                          <a
-                            className="text-sky-700 hover:underline"
-                            href={`mailto:${b.parentEmail}`}
-                          >
-                            {b.parentEmail}
-                          </a>
-                          <br />
-                          <span className="text-slate-600">{b.parentPhone}</span>
-                        </td>
-                        <td className="py-2 pr-3">
-                          <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
-                              b.status === "confirmed"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : b.status === "pending"
-                                  ? "bg-amber-100 text-amber-900"
-                                  : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            {b.status === "confirmed"
-                              ? "Confirmé"
-                              : b.status === "pending"
-                                ? "En attente mail"
-                                : b.status === "expired"
-                                  ? "Expiré"
-                                  : "Annulé"}
-                          </span>
-                          {b.status === "pending" ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() =>
-                                void confirmPendingBooking(
-                                  b.id,
-                                  `${b.studentFirstName} ${b.studentLastName}`,
-                                )
-                              }
-                              className="mt-1.5 block text-xs font-semibold text-sky-700 hover:underline disabled:opacity-50"
+            {filteredBookings.length === 0 ? (
+              <p className={`mt-6 text-sm ${dash.textMid}`}>
+                {bookings.length === 0
+                  ? "Aucune réservation pour l’instant."
+                  : bookingSearchNeedle
+                    ? "Aucun rendez-vous ne correspond à cette recherche."
+                    : "Aucune réservation pour ce filtre."}
+              </p>
+            ) : (
+              <div className="mt-4 -mx-1 overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead>
+                    <tr className={`border-b border-black/6 text-xs uppercase tracking-[0.14em] ${dash.textMid}`}>
+                      <th className="py-3 pr-4 font-semibold">Réservé le</th>
+                      <th className="py-3 pr-4 font-semibold">Créneau</th>
+                      <th className="py-3 pr-4 font-semibold">Élève</th>
+                      <th className="py-3 pr-4 font-semibold">Contact</th>
+                      <th className="py-3 pr-4 font-semibold">Statut</th>
+                      <th className="py-3 font-semibold">Agenda</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBookings.map((b) => {
+                      const dirLabel =
+                        directionLabelBySlug.get(b.directionSlug) || b.directionSlug;
+                      return (
+                        <tr
+                          key={b.id}
+                          className="border-b border-black/5 align-top last:border-b-0"
+                        >
+                          <td className={`py-3.5 pr-4 whitespace-nowrap text-xs ${dash.textMid}`}>
+                            {formatWhen(b.createdAt)}
+                            {b.confirmedAt ? (
+                              <>
+                                <br />
+                                <span className="text-emerald-700">
+                                  Conf. {formatWhen(b.confirmedAt)}
+                                </span>
+                              </>
+                            ) : null}
+                          </td>
+                          <td className="py-3.5 pr-4 whitespace-nowrap">
+                            <span className="text-xs font-semibold text-[var(--dash-primary)]">
+                              {dirLabel}
+                            </span>
+                            <br />
+                            <span className={dash.ink}>{formatSlot(b.startAt, b.endAt)}</span>
+                          </td>
+                          <td className={`py-3.5 pr-4 ${dash.ink}`}>
+                            <span className="font-semibold">
+                              {b.studentFirstName} {b.studentLastName}
+                            </span>
+                            {b.niveauLabel ? (
+                              <>
+                                <br />
+                                <span className={`text-xs ${dash.textMid}`}>
+                                  Niveau demandé : {b.niveauLabel}
+                                  {b.regime ? ` · ${b.regime}` : ""}
+                                </span>
+                              </>
+                            ) : b.regime ? (
+                              <>
+                                <br />
+                                <span className={`text-xs ${dash.textMid}`}>
+                                  Régime : {b.regime}
+                                </span>
+                              </>
+                            ) : null}
+                            {b.etablissementOrigineLabel ? (
+                              <>
+                                <br />
+                                <span className={`text-xs ${dash.textMid}`}>
+                                  Origine : {b.etablissementOrigineLabel}
+                                </span>
+                              </>
+                            ) : null}
+                            {b.hasPap === "yes" ? (
+                              <>
+                                <br />
+                                <span className="text-xs text-amber-800">
+                                  PAP : oui
+                                  {b.papS3Key
+                                    ? " (déposé)"
+                                    : b.papBringToRdv
+                                      ? " — à apporter"
+                                      : ""}
+                                </span>
+                              </>
+                            ) : b.hasPap === "no" ? (
+                              <>
+                                <br />
+                                <span className={`text-xs ${dash.textMid}`}>PAP : non</span>
+                              </>
+                            ) : null}
+                          </td>
+                          <td className="py-3.5 pr-4">
+                            {[b.parentFirstName, b.parentLastName].filter(Boolean).join(" ") || (
+                              <span className={dash.textMid}>—</span>
+                            )}
+                            {b.rdvAttendee ? (
+                              <>
+                                <br />
+                                <span className={`text-xs ${dash.textMid}`}>
+                                  Présent :{" "}
+                                  {b.rdvAttendee === "madame"
+                                    ? "Madame"
+                                    : b.rdvAttendee === "monsieur"
+                                      ? "Monsieur"
+                                      : "Les deux"}
+                                </span>
+                              </>
+                            ) : null}
+                            <br />
+                            <a
+                              className="text-[var(--dash-primary)] hover:underline"
+                              href={`mailto:${b.parentEmail}`}
                             >
-                              Confirmer maintenant
-                            </button>
-                          ) : null}
-                          {b.status === "pending" || b.status === "confirmed" ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={busy || changeSlotLoading}
-                                onClick={() => void openChangeSlot(b)}
-                                className="mt-1.5 block text-xs font-semibold text-sky-800 hover:underline disabled:opacity-50"
-                              >
-                                Modifier le créneau
-                              </button>
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => {
-                                  setRescheduleNote("");
-                                  setRescheduleTarget({
-                                    id: b.id,
-                                    studentLabel: `${b.studentFirstName} ${b.studentLastName}`,
-                                    slotLabel: formatSlot(b.startAt, b.endAt),
-                                  });
-                                }}
-                                className="mt-1.5 block text-xs font-semibold text-amber-800 hover:underline disabled:opacity-50"
-                              >
-                                Demander un autre créneau
-                              </button>
+                              {b.parentEmail}
+                            </a>
+                            <br />
+                            <span className={dash.textMid}>{b.parentPhone}</span>
+                          </td>
+                          <td className="py-3.5 pr-4">
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                b.status === "confirmed"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : b.status === "pending"
+                                    ? "bg-amber-100 text-amber-900"
+                                    : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              {b.status === "confirmed"
+                                ? "Confirmé"
+                                : b.status === "pending"
+                                  ? "En attente mail"
+                                  : b.status === "expired"
+                                    ? "Expiré"
+                                    : "Annulé"}
+                            </span>
+                            {b.status === "pending" ? (
                               <button
                                 type="button"
                                 disabled={busy}
                                 onClick={() =>
-                                  void cancelBooking(
+                                  void confirmPendingBooking(
                                     b.id,
                                     `${b.studentFirstName} ${b.studentLastName}`,
-                                    formatSlot(b.startAt, b.endAt),
                                   )
                                 }
-                                className="mt-1.5 block text-xs font-semibold text-red-700 hover:underline disabled:opacity-50"
+                                className="mt-1.5 block text-xs font-semibold text-[var(--dash-primary)] hover:underline disabled:opacity-50"
                               >
-                                Supprimer
+                                Confirmer maintenant
                               </button>
-                            </>
-                          ) : null}
-                          {b.rescheduleLinkAvailable ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() =>
-                                void resendRescheduleMail(
-                                  b.id,
-                                  `${b.studentFirstName} ${b.studentLastName}`,
-                                )
-                              }
-                              className="mt-1.5 block text-xs font-semibold text-amber-800 hover:underline disabled:opacity-50"
-                            >
-                              Renvoyer le lien de rechoix
-                            </button>
-                          ) : null}
-                        </td>
-                        <td className="py-2">
-                          {b.googleHtmlLink ? (
-                            <a
-                              href={b.googleHtmlLink}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-sky-700 hover:underline"
-                            >
-                              Ouvrir
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+                            ) : null}
+                            {b.status === "pending" || b.status === "confirmed" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={busy || changeSlotLoading}
+                                  onClick={() => void openChangeSlot(b)}
+                                  className="mt-1.5 block text-xs font-semibold text-[var(--dash-primary)] hover:underline disabled:opacity-50"
+                                >
+                                  Modifier le créneau
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setRescheduleNote("");
+                                    setRescheduleTarget({
+                                      id: b.id,
+                                      studentLabel: `${b.studentFirstName} ${b.studentLastName}`,
+                                      slotLabel: formatSlot(b.startAt, b.endAt),
+                                    });
+                                  }}
+                                  className="mt-1.5 block text-xs font-semibold text-amber-800 hover:underline disabled:opacity-50"
+                                >
+                                  Demander un autre créneau
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    void cancelBooking(
+                                      b.id,
+                                      `${b.studentFirstName} ${b.studentLastName}`,
+                                      formatSlot(b.startAt, b.endAt),
+                                    )
+                                  }
+                                  className="mt-1.5 block text-xs font-semibold text-red-700 hover:underline disabled:opacity-50"
+                                >
+                                  Supprimer
+                                </button>
+                              </>
+                            ) : null}
+                            {b.rescheduleLinkAvailable ? (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() =>
+                                  void resendRescheduleMail(
+                                    b.id,
+                                    `${b.studentFirstName} ${b.studentLastName}`,
+                                  )
+                                }
+                                className="mt-1.5 block text-xs font-semibold text-amber-800 hover:underline disabled:opacity-50"
+                              >
+                                Renvoyer le lien de rechoix
+                              </button>
+                            ) : null}
+                          </td>
+                          <td className="py-3.5">
+                            {b.googleHtmlLink ? (
+                              <a
+                                href={b.googleHtmlLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 font-semibold text-[var(--dash-primary)] hover:underline"
+                              >
+                                Ouvrir
+                              </a>
+                            ) : (
+                              <span className={dash.textMid}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </ModuleCard>
+        </div>
       )}
 
       {rescheduleTarget ? (
@@ -1114,7 +1180,7 @@ export default function RdvInscriptionAdminClient() {
           }}
         >
           <div
-            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="w-full max-w-lg rounded-[1.75rem] border border-black/6 bg-white p-5 shadow-xl sm:p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 id="reschedule-title" className="text-lg font-bold text-slate-900">
@@ -1183,7 +1249,7 @@ export default function RdvInscriptionAdminClient() {
           }}
         >
           <div
-            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-[1.75rem] border border-black/6 bg-white p-5 shadow-xl sm:p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 id="change-slot-title" className="text-lg font-bold text-slate-900">
