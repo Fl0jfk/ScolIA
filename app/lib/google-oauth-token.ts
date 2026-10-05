@@ -29,6 +29,14 @@ export function buildGoogleAuthorizeUrl(opts: {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
+const OAUTH_FETCH_TIMEOUT_MS = 20_000;
+/** Même politique que `gcalFetch` (Calendar) : 3 essais + backoff. */
+const OAUTH_FETCH_MAX_ATTEMPTS = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function describeOAuthNetworkError(err: unknown): string {
   const parts: string[] = [];
   let cur: unknown = err;
@@ -48,56 +56,72 @@ function describeOAuthNetworkError(err: unknown): string {
   return parts.filter(Boolean).join(" ← ") || "erreur réseau";
 }
 
+function isTransientOAuthNetworkError(err: unknown): boolean {
+  const blob = describeOAuthNetworkError(err);
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR|socket|network|aborted|timeout/i.test(
+    blob,
+  );
+}
+
+function oauthNetworkFailureBody(err: unknown): string {
+  const detail = describeOAuthNetworkError(err);
+  return isTransientOAuthNetworkError(err)
+    ? `Impossible de joindre Google OAuth (réseau) : ${detail}`
+    : detail;
+}
+
 export async function postGoogleOAuthToken(
   params: URLSearchParams,
 ): Promise<{ ok: true; tokens: GoogleOAuthTokens } | { ok: false; status: number; body: string }> {
-  let res: Response;
-  try {
-    res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params,
-      signal: AbortSignal.timeout(20_000),
-    });
-  } catch (e) {
-    const detail = describeOAuthNetworkError(e);
-    return {
-      ok: false,
-      status: 502,
-      body: /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR|network|timeout/i.test(
-        detail,
-      )
-        ? `Impossible de joindre Google OAuth (réseau) : ${detail}`
-        : detail,
-    };
-  }
-  const body = await res.text();
-  if (!res.ok) return { ok: false, status: res.status, body };
-  let parsed: {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-  };
-  try {
-    parsed = JSON.parse(body) as {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= OAUTH_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    let res: Response;
+    try {
+      res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params,
+        signal: AbortSignal.timeout(OAUTH_FETCH_TIMEOUT_MS),
+      });
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientOAuthNetworkError(e) || attempt === OAUTH_FETCH_MAX_ATTEMPTS) {
+        return { ok: false, status: 502, body: oauthNetworkFailureBody(e) };
+      }
+      await sleep(300 * 2 ** (attempt - 1));
+      continue;
+    }
+
+    const body = await res.text();
+    if (!res.ok) return { ok: false, status: res.status, body };
+    let parsed: {
       access_token?: string;
       refresh_token?: string;
       expires_in?: number;
     };
-  } catch {
-    return { ok: false, status: res.status, body };
+    try {
+      parsed = JSON.parse(body) as {
+        access_token?: string;
+        refresh_token?: string;
+        expires_in?: number;
+      };
+    } catch {
+      return { ok: false, status: res.status, body };
+    }
+    if (!parsed.access_token) {
+      return { ok: false, status: res.status, body: body || "Réponse sans access_token." };
+    }
+    return {
+      ok: true,
+      tokens: {
+        accessToken: parsed.access_token,
+        refreshToken: parsed.refresh_token?.trim() || undefined,
+        expiresIn: typeof parsed.expires_in === "number" ? parsed.expires_in : undefined,
+      },
+    };
   }
-  if (!parsed.access_token) {
-    return { ok: false, status: res.status, body: body || "Réponse sans access_token." };
-  }
-  return {
-    ok: true,
-    tokens: {
-      accessToken: parsed.access_token,
-      refreshToken: parsed.refresh_token?.trim() || undefined,
-      expiresIn: typeof parsed.expires_in === "number" ? parsed.expires_in : undefined,
-    },
-  };
+
+  return { ok: false, status: 502, body: oauthNetworkFailureBody(lastErr) };
 }
 
 export function googleAuthorizationCodeParams(opts: {
