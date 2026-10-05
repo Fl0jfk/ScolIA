@@ -2,35 +2,9 @@ import { NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import { requireTenantId } from "@/app/lib/tenant-scope";
-import {
-  compareTripsByTravelDate,
-  isTripEligibleForPurge,
-} from "@/app/lib/travels-trip-helpers";
+import { compareTripsByTravelDate } from "@/app/lib/travels-trip-helpers";
 import { normalizeTripImageFields } from "@/app/lib/travels-image-url";
-import type { TravelsTrip } from "@/app/lib/travels-types";
-import { listTravelsIndex } from "@/app/lib/travels-storage";
-import { deleteTravelFromDb, travelsDbReady } from "@/app/lib/travel-db";
-
-async function purgeOldTrips(trips: TravelsTrip[]): Promise<TravelsTrip[]> {
-  const expired = trips.filter(isTripEligibleForPurge);
-  if (expired.length === 0) return trips;
-
-  const expiredIds = new Set(expired.map((t) => String(t.id)));
-  const etabId = await travelsDbReady();
-  await Promise.all(
-    expired.map(async (t) => {
-      const id = String(t.id);
-      if (etabId) {
-        await deleteTravelFromDb(etabId, id).catch((err) => {
-          console.error(`[travels/list] purge ${id}:`, err);
-        });
-      }
-    }),
-  );
-
-  const remaining = trips.filter((t) => !expiredIds.has(String(t.id)));
-  return remaining;
-}
+import { listTravelsForEtablissement } from "@/app/lib/travels-storage";
 
 export async function GET(req: Request) {
   const gate = await requireModule("travels");
@@ -40,9 +14,8 @@ export async function GET(req: Request) {
   if (!tenant.ok) return tenant.response;
 
   try {
-    const trips = await listTravelsIndex();
-    const afterPurge = await purgeOldTrips(trips);
-    const sortedTrips = [...afterPurge].sort(compareTripsByTravelDate).map(normalizeTripImageFields);
+    const trips = await listTravelsForEtablissement(tenant.ctx.etablissementId);
+    const sortedTrips = [...trips].sort(compareTripsByTravelDate).map(normalizeTripImageFields);
 
     await writeDataAccessAudit({
       etablissementId: tenant.ctx.etablissementId,

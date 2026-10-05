@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray } from "drizzle-orm";
-import { getDb } from "@/db/index";
+import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
   travel,
   travelAttr,
@@ -10,10 +10,7 @@ import {
   travelParticipant,
 } from "@/db/schema";
 import { flattenToAttrs, inflateFromAttrs } from "@/app/lib/ent-attr-codec";
-import {
-  isEntCoreDbEnabled,
-  resolveCurrentEtablissementId,
-} from "@/app/lib/ent-core-db";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   normalizeParticipantIneKey,
   resolveEleveIdsByIneKeys,
@@ -63,8 +60,9 @@ function parseTs(raw: string | undefined | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Postgres travel table — aligné sur la liste élèves (pas de garde ENT_CORE_DB). */
 export async function travelsDbReady(): Promise<string | null> {
-  if (!isEntCoreDbEnabled()) return null;
+  if (!isDatabaseConfigured()) return null;
   return resolveCurrentEtablissementId();
 }
 
@@ -183,14 +181,20 @@ function assembleTravel(
       ...(p.eleveId ? { eleveId: p.eleveId } : {}),
     }));
 
+  const attrStart =
+    typeof dataFromAttrs.startDate === "string" ? dataFromAttrs.startDate : undefined;
+  const attrEnd = typeof dataFromAttrs.endDate === "string" ? dataFromAttrs.endDate : undefined;
+  const attrDate = typeof dataFromAttrs.date === "string" ? dataFromAttrs.date : undefined;
+
   const data = {
     ...dataFromAttrs,
     title: m.title ?? undefined,
     destination: m.destination ?? undefined,
     etablissement: m.siteLabel ?? undefined,
     classes: m.classes ?? undefined,
-    startDate: m.startDate ?? undefined,
-    endDate: m.endDate ?? undefined,
+    startDate: m.startDate ?? attrStart ?? attrDate ?? undefined,
+    endDate: m.endDate ?? attrEnd ?? undefined,
+    date: attrDate ?? m.startDate ?? undefined,
     startTime: m.startTime ?? undefined,
     endTime: m.endTime ?? undefined,
     nbEleves: m.nbEleves ?? undefined,

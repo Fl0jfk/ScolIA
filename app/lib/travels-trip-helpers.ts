@@ -4,6 +4,7 @@ import {
   defaultParentCalendarFromTrip,
 } from "@/app/lib/travels-parent-calendar";
 import { formatCuisineDateFR } from "@/app/lib/travels-cuisine-shared";
+import { parseTravelDayStartMs } from "@/app/lib/travels-date-parse";
 
 /** Motif affiché quand le dossier est en « Modifications demandées » (pas la dernière ligne d'historique). */
 export function getModificationRequestNote(trip: {
@@ -157,11 +158,7 @@ function todayStartMs(): number {
 /** Timestamp (début de journée) du séjour pour tri / comparaison. */
 function tripTravelStartMs(trip: { data?: TravelsTripData }): number | null {
   const raw = trip.data?.startDate || trip.data?.date;
-  if (!raw) return null;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return null;
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+  return parseTravelDayStartMs(raw);
 }
 
 /** Dernier jour du séjour (fin pour les voyages, date unique pour les sorties). */
@@ -175,11 +172,7 @@ function tripTravelEndMs(trip: {
     trip.type === "COMPLEX"
       ? d.endDate || d.startDate || d.date
       : d.date || d.startDate;
-  if (!raw) return null;
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return null;
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
+  return parseTravelDayStartMs(raw);
 }
 
 /** Séjour terminé (dernier jour strictement avant aujourd'hui). */

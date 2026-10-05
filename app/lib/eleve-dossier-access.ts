@@ -21,6 +21,7 @@ import {
   type AccompagnementKind,
 } from "@/app/lib/eleve-pap";
 import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
+import { chunkArray } from "@/app/lib/db-in-chunks";
 
 function isExactAdmin(roles: string[]): boolean {
   return roles.includes("admin") || hasGlobalAdminRole(roles);
@@ -685,25 +686,37 @@ export async function listEleveLatestAccompagnementByKind(opts: {
   if (ids.length === 0) return out;
 
   const db = getDb();
-  const docs = await db
-    .select({
-      id: eleveDocument.id,
-      eleveId: eleveDocument.eleveId,
-      title: eleveDocument.title,
-      fileUrl: eleveDocument.fileUrl,
-      confidentialite: eleveDocument.confidentialite,
-      anneeLabel: eleveDocument.anneeLabel,
-      createdAt: eleveDocument.createdAt,
-    })
-    .from(eleveDocument)
-    .where(
-      and(
-        eq(eleveDocument.etablissementId, opts.etablissementId),
-        eq(eleveDocument.tiroir, "sante"),
-        inArray(eleveDocument.eleveId, ids),
-      ),
-    )
-    .orderBy(desc(eleveDocument.createdAt));
+  const docs: Array<{
+    id: string;
+    eleveId: string;
+    title: string;
+    fileUrl: string | null;
+    confidentialite: string;
+    anneeLabel: string | null;
+    createdAt: Date;
+  }> = [];
+  for (const batch of chunkArray(ids)) {
+    const part = await db
+      .select({
+        id: eleveDocument.id,
+        eleveId: eleveDocument.eleveId,
+        title: eleveDocument.title,
+        fileUrl: eleveDocument.fileUrl,
+        confidentialite: eleveDocument.confidentialite,
+        anneeLabel: eleveDocument.anneeLabel,
+        createdAt: eleveDocument.createdAt,
+      })
+      .from(eleveDocument)
+      .where(
+        and(
+          eq(eleveDocument.etablissementId, opts.etablissementId),
+          eq(eleveDocument.tiroir, "sante"),
+          inArray(eleveDocument.eleveId, batch),
+        ),
+      )
+      .orderBy(desc(eleveDocument.createdAt));
+    docs.push(...part);
+  }
 
   type LatestDoc = {
     documentId: string;
