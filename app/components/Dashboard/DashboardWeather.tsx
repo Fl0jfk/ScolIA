@@ -39,24 +39,24 @@ export default function DashboardWeather({ compact = false }: Props) {
     if (!weather || weather.temperature === null) {
       return (
         <div
-          className="flex w-full flex-col items-center justify-center gap-1 animate-pulse"
+          className="flex w-full flex-col items-center justify-center gap-1 py-0.5 animate-pulse"
           aria-hidden
           title="Chargement météo"
         >
-          <span className="h-6 w-6 rounded-full bg-stone-200/70" />
-          <span className="h-5 w-9 rounded bg-stone-200/70" />
+          <span className="h-7 w-7 rounded-full bg-stone-200/70" />
+          <span className="h-6 w-10 rounded bg-stone-200/70" />
         </div>
       );
     }
     return (
       <div
-        className="flex w-full flex-col items-center justify-center gap-0.5"
+        className="flex w-full flex-col items-center justify-center gap-0 py-0.5"
         title={`Météo à ${weather.location}${weather.label ? ` — ${weather.label}` : ""}`}
       >
-        <span className="text-2xl leading-none" aria-hidden>
+        <span className="text-3xl leading-none" aria-hidden>
           {weather.icon}
         </span>
-        <span className={`text-lg font-black tabular-nums tracking-tight ${dash.ink}`}>
+        <span className={`text-xl font-black tabular-nums tracking-tight ${dash.ink}`}>
           {weather.temperature}°
         </span>
       </div>

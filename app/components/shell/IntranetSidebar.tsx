@@ -174,12 +174,12 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="space-y-0.5 px-2.5 pb-0 pt-0.5">
-          <div className="flex items-center gap-0.5">
+        <div className="space-y-0.5 px-1.5 pb-0 pt-0">
+          <div className="flex items-center gap-1">
             <Link
               href={homeHref}
               onClick={onCloseMobile}
-              className="flex min-w-0 basis-2/3 items-center justify-center transition hover:opacity-90"
+              className="flex min-w-0 flex-1 items-center justify-start transition hover:opacity-90"
               title={logoAlt}
               aria-label={logoAlt}
             >
@@ -188,23 +188,23 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                   <Image
                     src={customLogoUrl}
                     alt={logoAlt}
-                    width={128}
-                    height={128}
+                    width={160}
+                    height={160}
                     unoptimized
-                    className="h-24 w-24 object-contain"
+                    className="h-32 w-32 object-contain object-left"
                   />
                 ) : (
                   <Image
                     src={Logo}
                     alt={logoAlt}
-                    width={128}
-                    height={128}
-                    className="h-24 w-24 object-contain"
+                    width={160}
+                    height={160}
+                    className="h-32 w-32 object-contain object-left"
                   />
                 )
               ) : null}
             </Link>
-            <div className="basis-1/3 shrink-0">
+            <div className="w-[4.75rem] shrink-0 pr-0.5">
               <DashboardWeather compact />
             </div>
             <button
