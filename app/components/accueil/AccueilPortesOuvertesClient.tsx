@@ -578,12 +578,12 @@ export default function AccueilPortesOuvertesClient({
   }, [board, vue, canParam]);
 
   return (
-    <ModulePageShell>
+    <ModulePageShell maxWidthClass="max-w-[1800px]" className="min-h-[calc(100vh-2rem)]">
       <ModulePageHeader
         title="Portes ouvertes"
         description={
           vue === "planning"
-            ? "Planning du jour style tableur : ajoutez un visiteur dès qu’un parent appelle."
+            ? "Planning du jour : un créneau = une carte, visiteurs en ligne. Ajoutez dès qu’un parent appelle."
             : "Équipe des créneaux (profs, OGEC, ambassadeurs). La grille horaire se configure dans Événements."
         }
         actions={(() => {
@@ -630,18 +630,20 @@ export default function AccueilPortesOuvertesClient({
       ) : null}
 
       {board && vue === "planning" ? (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {!board.publicEnabled ? (
-            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               Les portes ouvertes ne sont pas marquées activées côté paramétrage — vérifiez Événements.
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
-            <label className="block">
-              <span className="text-[11px] font-bold uppercase text-slate-500">Journée</span>
+          <div className="grid gap-3 rounded-[1.75rem] border border-slate-200/80 bg-white p-4 shadow-[0_8px_30px_-18px_rgba(15,23,42,0.28)] ring-1 ring-black/5 sm:grid-cols-[1fr_1fr_auto] sm:items-end sm:gap-4 sm:p-5">
+            <label className="block min-w-0">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Journée
+              </span>
               <select
-                className="mt-1 block min-w-[14rem] rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold"
+                className="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm font-semibold"
                 value={dayKey}
                 onChange={(e) => setDayKey(e.target.value)}
               >
@@ -656,10 +658,12 @@ export default function AccueilPortesOuvertesClient({
                 )}
               </select>
             </label>
-            <label className="block">
-              <span className="text-[11px] font-bold uppercase text-slate-500">Établissement</span>
+            <label className="block min-w-0">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Établissement
+              </span>
               <select
-                className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold"
+                className="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm font-semibold"
                 value={cycleFilter}
                 onChange={(e) =>
                   setCycleFilter(e.target.value === "all" ? "all" : (e.target.value as PortesOuvertesCycle))
@@ -673,25 +677,26 @@ export default function AccueilPortesOuvertesClient({
                 ))}
               </select>
             </label>
-            <p className="pb-2 text-sm text-slate-600">
-              {daySlots.length} créneau(x)
-              {dayKey ? ` — ${formatSlotDayLabel(dayKey)}` : ""}
-            </p>
-            <div className="ml-auto flex flex-col items-end pb-1">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                Réservations
-                {cycleFilter === "all"
-                  ? ""
-                  : ` · ${board.cycleLabels[cycleFilter] || PORTES_OUVERTES_CYCLE_LABELS[cycleFilter]}`}
-              </span>
-              <span className="text-2xl font-black tabular-nums text-violet-900">
-                {dayReservationsCount}
-              </span>
+            <div className="flex items-center justify-between gap-4 rounded-2xl bg-violet-50/90 px-4 py-3 ring-1 ring-violet-100 sm:min-w-[11rem] sm:flex-col sm:items-end sm:justify-center">
+              <div className="text-left sm:text-right">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-violet-700/80">
+                  Réservations
+                  {cycleFilter === "all"
+                    ? ""
+                    : ` · ${board.cycleLabels[cycleFilter] || PORTES_OUVERTES_CYCLE_LABELS[cycleFilter]}`}
+                </p>
+                <p className="text-3xl font-black tabular-nums leading-none text-violet-950">
+                  {dayReservationsCount}
+                </p>
+              </div>
+              <p className="text-xs font-semibold text-slate-500 sm:text-right">
+                {daySlots.length} créneau{daySlots.length > 1 ? "x" : ""}
+              </p>
             </div>
           </div>
 
           {daySlots.length === 0 ? (
-            <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               Aucun créneau pour cette journée. Configurez la grille dans{" "}
               <Link
                 href="/etablissement/evenements?tab=portes-ouvertes"
@@ -702,203 +707,197 @@ export default function AccueilPortesOuvertesClient({
               ou l’onglet Paramétrage.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <table className="min-w-full border-collapse text-sm">
-                <thead>
-                  <tr className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                    <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 font-bold">
-                      Départ
-                    </th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-bold">Visite</th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-bold">Places</th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-bold">Équipe</th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-bold min-w-[22rem]">
-                      Visiteurs
-                    </th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-bold">Ajouter</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {daySlots.map((slot) => {
-                    const regs = regsForSlot(slot.id);
-                    const staff = (board.staff || []).filter((x) => x.slotId === slot.id);
-                    const encadrants = staff.filter(
-                      (x) => x.role === "enseignant" || x.role === "personnel",
-                    );
-                    const ambassadeurs = staff.filter((x) => x.role === "ambassadeur");
-                    const rem =
-                      cycleFilter === "all"
-                        ? slot.remaining
-                        : remainingForSlot(slot, cycleFilter);
-                    const registeredShown = registeredCountForSlot(slot);
-                    const full = rem === 0;
-                    return (
-                      <tr key={slot.id} className="align-top border-b border-slate-100">
-                        <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-3">
-                          <div className="font-black text-violet-900">
-                            {formatParisTimeLabel(slot.startAt)}
-                          </div>
-                          <div className="text-xs text-slate-500">{slot.label}</div>
-                          {slot.cycle ? (
-                            <div className="mt-1 text-[11px] font-semibold text-slate-500">
-                              {board.cycleLabels[slot.cycle] ||
-                                PORTES_OUVERTES_CYCLE_LABELS[slot.cycle]}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-3 whitespace-nowrap text-slate-700">
-                          {formatParisHm(slot.startAt)} – {formatParisHm(slot.endAt)}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span
-                            className={`inline-flex rounded-lg px-2 py-1 text-xs font-bold ${
-                              full
-                                ? "bg-rose-100 text-rose-800"
-                                : "bg-emerald-50 text-emerald-800"
-                            }`}
-                          >
-                            {slot.maxPlaces
-                              ? `${registeredShown}/${slot.maxPlaces}`
-                              : `${registeredShown}`}
+            <div className="flex flex-col gap-4">
+              {daySlots.map((slot) => {
+                const regs = regsForSlot(slot.id);
+                const staff = (board.staff || []).filter((x) => x.slotId === slot.id);
+                const encadrants = staff.filter(
+                  (x) => x.role === "enseignant" || x.role === "personnel",
+                );
+                const ambassadeurs = staff.filter((x) => x.role === "ambassadeur");
+                const rem =
+                  cycleFilter === "all"
+                    ? slot.remaining
+                    : remainingForSlot(slot, cycleFilter);
+                const registeredShown = registeredCountForSlot(slot);
+                const full = rem === 0;
+                const cycleLabel = slot.cycle
+                  ? board.cycleLabels[slot.cycle] || PORTES_OUVERTES_CYCLE_LABELS[slot.cycle]
+                  : null;
+                return (
+                  <article
+                    key={slot.id}
+                    className={`overflow-hidden rounded-[1.75rem] bg-white shadow-[0_8px_30px_-18px_rgba(15,23,42,0.3)] ring-1 ${
+                      full ? "ring-rose-200/80" : slot.isPast ? "opacity-75 ring-slate-200" : "ring-black/5"
+                    }`}
+                  >
+                    <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-violet-50/40 px-4 py-4 sm:px-5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                          <h3 className="text-2xl font-black tracking-tight text-violet-950 tabular-nums sm:text-3xl">
+                            {formatParisHm(slot.startAt)}
+                          </h3>
+                          <span className="text-sm font-semibold text-slate-500">
+                            → {formatParisHm(slot.endAt)}
                           </span>
-                        </td>
-                        <td className="px-3 py-3 text-xs text-slate-600">
-                          {encadrants.length === 0 && ambassadeurs.length === 0 ? (
-                            <span className="text-slate-400">—</span>
-                          ) : (
-                            <div className="space-y-1">
-                              {encadrants.map((p) => (
-                                <div key={p.id}>
-                                  <span className="font-semibold text-slate-800">
-                                    {p.displayName}
-                                  </span>
-                                  <span className="ml-1 text-slate-400">
-                                    {p.role === "personnel" ? "OGEC" : "prof"}
-                                  </span>
-                                </div>
-                              ))}
-                              {ambassadeurs.map((p) => (
-                                <div key={p.id}>
-                                  <span className="font-semibold text-slate-800">
-                                    {p.displayName}
-                                  </span>
-                                  <span className="ml-1 text-slate-400">élève</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          {regs.length === 0 ? (
-                            <p className="text-xs text-slate-400">Aucun visiteur</p>
-                          ) : (
-                            <ul className="space-y-2">
-                              {regs.map((r) => {
-                                const isDuplicate = duplicateRegistrationIds.has(r.id);
-                                return (
-                                <li
-                                  key={r.id}
-                                  className={`rounded-lg border px-2.5 py-2 ${
-                                    isDuplicate
-                                      ? "border-amber-300 bg-amber-50/90"
-                                      : "border-slate-100 bg-slate-50/80"
-                                  }`}
-                                >
-                                  <div className="flex flex-wrap items-start justify-between gap-2">
-                                    <div>
-                                      <div className="font-semibold text-slate-900">
-                                        {visitorLabel(r)}
-                                        {r.visitedAt ? (
-                                          <span className="ml-1 text-emerald-700">✓</span>
-                                        ) : null}
-                                        {isDuplicate ? (
-                                          <span className="ml-2 rounded-md bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                                            Doublon
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                      <div className="text-[11px] text-slate-500">
-                                        {[r.classeSouhaitee, r.phone, r.email]
-                                          .filter(Boolean)
-                                          .join(" · ")}
-                                      </div>
-                                      {r.childFirstName || r.childLastName ? (
-                                        <div className="text-[11px] text-slate-500">
-                                          Contact : {r.firstName} {r.lastName}
-                                        </div>
+                          {cycleLabel ? (
+                            <span className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-bold text-slate-700 ring-1 ring-slate-200">
+                              {cycleLabel}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600">{slot.label}</p>
+                        {(encadrants.length > 0 || ambassadeurs.length > 0) ? (
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {encadrants.map((p) => (
+                              <span
+                                key={p.id}
+                                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700"
+                              >
+                                <span className="text-slate-900">{p.displayName}</span>
+                                <span className="text-slate-400">
+                                  {p.role === "personnel" ? "OGEC" : "prof"}
+                                </span>
+                              </span>
+                            ))}
+                            {ambassadeurs.map((p) => (
+                              <span
+                                key={p.id}
+                                className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-800 ring-1 ring-violet-100"
+                              >
+                                <span>{p.displayName}</span>
+                                <span className="text-violet-400">élève</span>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-slate-400">Équipe non assignée</p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex rounded-xl px-3 py-1.5 text-sm font-black tabular-nums ${
+                            full
+                              ? "bg-rose-100 text-rose-800"
+                              : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
+                          }`}
+                        >
+                          {slot.maxPlaces
+                            ? `${registeredShown}/${slot.maxPlaces}`
+                            : `${registeredShown}`}{" "}
+                          <span className="ml-1 font-semibold opacity-70">places</span>
+                        </span>
+                        <button
+                          type="button"
+                          disabled={busy || full || Boolean(slot.isPast)}
+                          onClick={() => openAdd(slot)}
+                          className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-violet-800 disabled:opacity-40"
+                        >
+                          + Ajouter
+                        </button>
+                      </div>
+                    </header>
+
+                    <div className="px-4 py-4 sm:px-5 sm:py-5">
+                      {regs.length === 0 ? (
+                        <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center text-sm text-slate-500">
+                          Aucun visiteur sur ce créneau
+                        </p>
+                      ) : (
+                        <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                          {regs.map((r) => {
+                            const isDuplicate = duplicateRegistrationIds.has(r.id);
+                            return (
+                              <li
+                                key={r.id}
+                                className={`flex min-h-[7.5rem] flex-col justify-between rounded-2xl border px-3.5 py-3 ${
+                                  isDuplicate
+                                    ? "border-amber-300 bg-amber-50/90"
+                                    : r.visitedAt
+                                      ? "border-emerald-200 bg-emerald-50/50"
+                                      : "border-slate-200/90 bg-slate-50/70"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <p className="truncate text-sm font-bold text-slate-900">
+                                      {visitorLabel(r)}
+                                      {r.visitedAt ? (
+                                        <span className="ml-1 text-emerald-700">✓</span>
                                       ) : null}
-                                    </div>
-                                    <div className="flex flex-col items-end gap-1">
-                                      <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-                                        <input
-                                          type="checkbox"
-                                          checked={Boolean(r.visitedAt)}
-                                          disabled={busy}
-                                          onChange={(e) =>
-                                            void toggleVisited(r, e.target.checked)
-                                          }
-                                        />
-                                        Visite
-                                      </label>
-                                      {r.upcoming ? (
-                                        <>
-                                          <button
-                                            type="button"
-                                            disabled={busy}
-                                            className="text-[11px] font-bold text-violet-700 underline disabled:opacity-50"
-                                            onClick={() => openEdit(r)}
-                                          >
-                                            Modifier
-                                          </button>
-                                          {isDuplicate ? (
-                                            <button
-                                              type="button"
-                                              disabled={busy}
-                                              className="text-[11px] font-bold text-amber-800 underline disabled:opacity-50"
-                                              onClick={() =>
-                                                void removeRegistration(r, {
-                                                  silent: true,
-                                                  reason: "duplicate",
-                                                })
-                                              }
-                                            >
-                                              Supprimer doublon
-                                            </button>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              disabled={busy}
-                                              className="text-[11px] font-bold text-rose-700 underline disabled:opacity-50"
-                                              onClick={() => void removeRegistration(r)}
-                                            >
-                                              Supprimer
-                                            </button>
-                                          )}
-                                        </>
-                                      ) : null}
-                                    </div>
+                                    </p>
+                                    {isDuplicate ? (
+                                      <span className="rounded-md bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                        Doublon
+                                      </span>
+                                    ) : null}
                                   </div>
-                                </li>
-                                );
-                              })}
-                            </ul>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          <button
-                            type="button"
-                            disabled={busy || full || Boolean(slot.isPast)}
-                            onClick={() => openAdd(slot)}
-                            className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
-                          >
-                            + Ajouter
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                                  <p className="mt-1 truncate text-[11px] text-slate-500">
+                                    {[r.classeSouhaitee, r.phone].filter(Boolean).join(" · ") ||
+                                      r.email}
+                                  </p>
+                                  {r.childFirstName || r.childLastName ? (
+                                    <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                                      Contact : {r.firstName} {r.lastName}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200/60 pt-2">
+                                  <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(r.visitedAt)}
+                                      disabled={busy}
+                                      onChange={(e) => void toggleVisited(r, e.target.checked)}
+                                    />
+                                    Visite
+                                  </label>
+                                  {r.upcoming ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        className="text-[11px] font-bold text-violet-700 underline disabled:opacity-50"
+                                        onClick={() => openEdit(r)}
+                                      >
+                                        Modifier
+                                      </button>
+                                      {isDuplicate ? (
+                                        <button
+                                          type="button"
+                                          disabled={busy}
+                                          className="text-[11px] font-bold text-amber-800 underline disabled:opacity-50"
+                                          onClick={() =>
+                                            void removeRegistration(r, {
+                                              silent: true,
+                                              reason: "duplicate",
+                                            })
+                                          }
+                                        >
+                                          Doublon
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={busy}
+                                          className="text-[11px] font-bold text-rose-700 underline disabled:opacity-50"
+                                          onClick={() => void removeRegistration(r)}
+                                        >
+                                          Supprimer
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : null}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </div>
