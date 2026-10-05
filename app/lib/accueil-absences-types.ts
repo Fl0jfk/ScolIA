@@ -43,7 +43,7 @@ export type AccueilBoardRow = {
   heureFin: string | null;
   motif: string | null;
   createdByNom: string | null;
-  source: "accueil";
+  source: AccueilVsSource;
   /** Élèves : absence ou retard. */
   eleveNature?: AccueilEleveNature | null;
   /** Élèves / professeurs : école / collège / lycée. */

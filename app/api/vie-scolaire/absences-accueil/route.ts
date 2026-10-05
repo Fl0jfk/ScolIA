@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireModule } from "@/app/lib/intranet-auth";
+import { requireAnyModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { parisDateKey } from "@/app/lib/paris-time";
 import { canSeeAccueilBoardKind } from "@/app/lib/accueil-absences-access";
@@ -13,7 +13,10 @@ const CancelSchema = z.object({
 });
 
 export async function GET(req: Request) {
-  const gate = await requireModule(ABSENCES_ACCUEIL_CONSULTATION_MODULE_ID);
+  const gate = await requireAnyModule([
+    ABSENCES_ACCUEIL_CONSULTATION_MODULE_ID,
+    "vs-absences",
+  ]);
   if (!gate.ok) return gate.response;
 
   const etabId = await resolveCurrentEtablissementId();
@@ -32,7 +35,10 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const gate = await requireModule(ABSENCES_ACCUEIL_CONSULTATION_MODULE_ID);
+  const gate = await requireAnyModule([
+    ABSENCES_ACCUEIL_CONSULTATION_MODULE_ID,
+    "vs-absences",
+  ]);
   if (!gate.ok) return gate.response;
 
   const etabId = await resolveCurrentEtablissementId();

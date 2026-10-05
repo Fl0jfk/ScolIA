@@ -813,7 +813,7 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
   if (!day) return [];
   const db = getDb();
   // Pas de filtre date en SQL (comparaisons date/string parfois fragiles selon le driver) :
-  // on charge les absences accueil de l’établissement puis on filtre en JS — même pattern
+  // on charge les absences accueil + appel de l’établissement puis on filtre en JS — même pattern
   // que listAccueilCoveringForEleves. leftJoin : une ligne orpheline reste visible.
   const rows = await db
     .select({
@@ -830,15 +830,28 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
       motif: vsAbsenceEleve.motif,
       type: vsAbsenceEleve.type,
       statut: vsAbsenceEleve.statut,
+      source: vsAbsenceEleve.source,
       createdByNom: vsAbsenceEleve.createdByNom,
+      appelEnseignantNom: vsAppel.enseignantNom,
+      appelMatiere: vsAppel.matiereLibelle,
     })
     .from(vsAbsenceEleve)
     .leftJoin(
       eleve,
       and(eq(eleve.id, vsAbsenceEleve.eleveId), eq(eleve.etablissementId, etablissementId)),
     )
+    .leftJoin(
+      vsAppel,
+      and(
+        eq(vsAppel.id, vsAbsenceEleve.appelId),
+        eq(vsAppel.etablissementId, etablissementId),
+      ),
+    )
     .where(
-      and(eq(vsAbsenceEleve.etablissementId, etablissementId), eq(vsAbsenceEleve.source, "accueil")),
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        inArray(vsAbsenceEleve.source, ["accueil", "appel"]),
+      ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom), desc(vsAbsenceEleve.createdAt));
 
@@ -853,6 +866,11 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
       eleveSecteur: r.eleveSecteur ?? null,
       dateDebut: asDateKey(r.dateDebut),
       dateFin: asDateKey(r.dateFin),
+      createdByNom:
+        r.createdByNom?.trim() ||
+        r.appelEnseignantNom?.trim() ||
+        (r.source === "appel" ? "Appel de classe" : null),
+      appelMatiere: r.appelMatiere ?? null,
     }));
 }
 
