@@ -6,6 +6,7 @@ import {
   type VsAppelActor,
 } from "@/app/lib/vs-appels-actions";
 import type { VsAppelLigneInput } from "@/app/lib/vs-absences-db";
+import { vsAppelCloseConfirmMessageFr } from "@/app/lib/vs-appels-ui";
 
 function actorFromCtx(ctx: BrainToolCtx): VsAppelActor {
   const displayName =
@@ -133,7 +134,7 @@ export async function handleCloseAppel(
       needsConfirmation: true,
       tool: "close_appel",
       args: { appelId },
-      summaryFr: `Clôturer l’appel ${appelId} et transmettre les absences au suivi CPE ?`,
+      summaryFr: vsAppelCloseConfirmMessageFr(appelId),
     };
   }
 

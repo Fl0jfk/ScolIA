@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { vsAppelCloseConfirmMessageFr } from "@/app/lib/vs-appels-ui";
 
 type LigneStatut = "present" | "absent" | "retard" | "dispense";
 
@@ -221,6 +222,10 @@ export default function VsAppelsClient({ embedded = false }: { embedded?: boolea
 
   const save = async (closeAfter = false) => {
     if (!appelId) return;
+    if (closeAfter) {
+      const ok = window.confirm(vsAppelCloseConfirmMessageFr(appelId));
+      if (!ok) return;
+    }
     setBusy(true);
     setError(null);
     try {

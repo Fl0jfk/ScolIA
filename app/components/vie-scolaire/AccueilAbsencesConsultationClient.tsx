@@ -5,6 +5,10 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { parisDateKey } from "@/app/lib/paris-time";
 import {
+  ABSENCES_CONSULTATION_EMPTY_DATE_FR,
+  ABSENCES_CONSULTATION_STANDALONE_DESCRIPTION,
+  ABSENCES_CONSULTATION_STANDALONE_TITLE,
+  canAnnulerAccueilBoardRow,
   cycleLabel,
   type AccueilBoardKind,
   type AccueilBoardRow,
@@ -317,7 +321,7 @@ export default function AccueilAbsencesConsultationClient({
         ) : filtered.length === 0 ? (
           <p className="px-6 py-12 text-center text-sm text-slate-500">
             {rows.length === 0
-              ? "Aucune absence déclarée à l’accueil pour cette date."
+              ? ABSENCES_CONSULTATION_EMPTY_DATE_FR
               : "Aucun résultat pour ce filtre."}
           </p>
         ) : (
@@ -355,7 +359,7 @@ export default function AccueilAbsencesConsultationClient({
                       Déclaré par {r.createdByNom}
                     </p>
                   ) : null}
-                  {r.kind === "eleve" ? (
+                  {canAnnulerAccueilBoardRow(r) ? (
                     <button
                       type="button"
                       disabled={busy || deletingId === r.id}
@@ -380,8 +384,8 @@ export default function AccueilAbsencesConsultationClient({
     <ModulePageShell>
       <ModulePageHeader
         eyebrow="Vie scolaire"
-        title="Absences déclarées à l’accueil"
-        description="Élèves et professeurs signalés absents par le standard. Filtrez par niveau (école / collège / lycée) ou classe ; les professeurs suivent le niveau choisi à la déclaration. Corrigez une erreur de saisie si besoin."
+        title={ABSENCES_CONSULTATION_STANDALONE_TITLE}
+        description={ABSENCES_CONSULTATION_STANDALONE_DESCRIPTION}
         actions={refreshBtn}
       />
       {body}

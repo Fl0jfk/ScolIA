@@ -14,6 +14,7 @@ import { useSessionUser } from "@/app/hooks/useAppUser";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
+import { ABSENCES_CONSULTATION_TAB_LABEL } from "@/app/lib/accueil-absences-types";
 import { canConsultAbsencesHubTab } from "@/app/lib/vs-absences-hub-access";
 
 export type AbsencesHubTab = "declarer" | "consulter" | "appels";
@@ -98,7 +99,7 @@ export default function VsAbsencesHubClient() {
     { id: "declarer", label: "Absence accueil", icon: "☎️", hidden: !canDeclarer },
     {
       id: "consulter",
-      label: "Absences déclarées à l'accueil",
+      label: ABSENCES_CONSULTATION_TAB_LABEL,
       icon: "📋",
       hidden: !canConsulter,
     },
