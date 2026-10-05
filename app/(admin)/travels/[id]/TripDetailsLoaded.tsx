@@ -107,6 +107,10 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const tabFromUrl = searchParams.get("tab");
   const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
+  const assistanceCardDownloadUrl = useMemo(() => {
+    const key = appCtx?.travelsOptions?.assistanceCardS3Key?.trim();
+    return key ? "/api/travels/assistance-card?raw=1" : null;
+  }, [appCtx?.travelsOptions?.assistanceCardS3Key]);
   const { classOptions } = useTravelsElevesClasses();
   const [hubTab, setHubTab] = useState<TravelsHubTab>(() => {
     const t = tabFromUrl as TravelsHubTab | null;
@@ -1719,6 +1723,18 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           },
         ]}
       />
+
+      {assistanceCardDownloadUrl ? (
+        <div className="mt-3 flex justify-end">
+          <TripButton
+            variant="secondary"
+            size="sm"
+            onClick={() => window.open(assistanceCardDownloadUrl, "_blank", "noopener,noreferrer")}
+          >
+            Carte d&apos;assistance
+          </TripButton>
+        </div>
+      ) : null}
 
       <TripWorkflowStepper
         steps={currentSteps}
