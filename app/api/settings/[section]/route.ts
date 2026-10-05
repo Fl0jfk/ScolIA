@@ -88,7 +88,8 @@ export async function PUT(req: Request, ctx: { params: Promise<{ section: string
     } else if (section === "integrations") {
       await saveIntegrations(parseIntegrations(body));
     } else if (section === "travels") {
-      await saveTravelsModule(parseTravelsModule(body));
+      const current = await loadAppConfig();
+      await saveTravelsModule(parseTravelsModule({ ...current.travels, ...body }));
     } else if (section === "timetable-grids") {
       await saveTimetableGrids(parseTimetableGridsConfig(body));
     } else if (section === "teaching-groups") {
