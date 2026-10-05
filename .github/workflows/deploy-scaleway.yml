@@ -1,3 +1,7 @@
+# PRODUCTION — se déclenche uniquement sur `main`.
+# Ne pas ajouter `dev` ni `feature/*` à `on.push.branches` : ce serait un
+# déploiement prod. Intégration = branche `dev` ; prod = merge validé vers `main`.
+#
 # Build + push image Docker vers le registry, puis redéploie le conteneur.
 #
 # ── Secrets GitHub (Settings → Secrets and variables → Actions → Secrets) ──

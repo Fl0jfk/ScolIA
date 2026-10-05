@@ -1,9 +1,10 @@
 import "server-only";
 
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, vsSanction, vsSanctionType } from "@/db/schema";
 import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
+import { createCarnetEntree } from "@/app/lib/vs-carnet-db";
 
 const DEFAULT_TYPES: Array<{ code: string; libelle: string; gravite: number; ordre: number }> = [
   { code: "MOT_CARNET", libelle: "Observation / mot carnet", gravite: 1, ordre: 1 },
@@ -107,6 +108,8 @@ export async function createSanction(
     motif?: string | null;
     createdByUserId?: string | null;
     createdByNom?: string | null;
+    /** Si true, crée aussi une entrée carnet (accusé famille). Défaut : types légers. */
+    notifyCarnet?: boolean;
   },
 ) {
   const db = getDb();
@@ -125,7 +128,11 @@ export async function createSanction(
   if (!eleveRow) throw new Error("Élève introuvable.");
 
   const [typeRow] = await db
-    .select({ id: vsSanctionType.id })
+    .select({
+      id: vsSanctionType.id,
+      code: vsSanctionType.code,
+      libelle: vsSanctionType.libelle,
+    })
     .from(vsSanctionType)
     .where(
       and(
@@ -150,7 +157,73 @@ export async function createSanction(
       createdByNom: input.createdByNom || null,
     })
     .returning();
-  return row;
+  if (!row) throw new Error("Création sanction impossible.");
+
+  const lightCodes = new Set(["MOT_CARNET", "AVERT", "AVERT_CD"]);
+  // notifyCarnet: true → toujours ; false → jamais ; undefined → types légers.
+  const shouldNotifyCarnet =
+    input.notifyCarnet === true
+      ? true
+      : input.notifyCarnet === false
+        ? false
+        : lightCodes.has(typeRow.code);
+
+  let carnetId: string | null = null;
+  if (shouldNotifyCarnet) {
+    const corps =
+      input.motif?.trim() ||
+      `Sanction enregistrée : ${typeRow.libelle} (${dateSanction}).`;
+    const carnet = await createCarnetEntree(etablissementId, {
+      eleveId,
+      dateEntree: dateSanction,
+      categorie: "correspondance",
+      titre: `Sanction — ${typeRow.libelle}`,
+      corps,
+      visibleFamille: true,
+      createdByUserId: input.createdByUserId || null,
+      createdByNom: input.createdByNom || null,
+    });
+    carnetId = carnet?.id ?? null;
+  }
+
+  return { sanction: row, carnetId, typeCode: typeRow.code, typeLibelle: typeRow.libelle };
+}
+
+export async function listSanctionsForFamille(
+  etablissementId: string,
+  eleveIds: string[],
+  opts?: { limit?: number },
+) {
+  if (!eleveIds.length) return [];
+  const db = getDb();
+  const limit = Math.min(Math.max(Number(opts?.limit) || 40, 1), 100);
+  return db
+    .select({
+      id: vsSanction.id,
+      eleveId: vsSanction.eleveId,
+      eleveNom: eleve.nom,
+      elevePrenom: eleve.prenom,
+      eleveClasse: eleve.classe,
+      typeCode: vsSanctionType.code,
+      typeLibelle: vsSanctionType.libelle,
+      gravite: vsSanctionType.gravite,
+      dateSanction: vsSanction.dateSanction,
+      motif: vsSanction.motif,
+      createdByNom: vsSanction.createdByNom,
+      createdAt: vsSanction.createdAt,
+    })
+    .from(vsSanction)
+    .innerJoin(eleve, eq(eleve.id, vsSanction.eleveId))
+    .innerJoin(vsSanctionType, eq(vsSanctionType.id, vsSanction.typeId))
+    .where(
+      and(
+        eq(vsSanction.etablissementId, etablissementId),
+        eq(vsSanction.statut, "active"),
+        inArray(vsSanction.eleveId, eleveIds),
+      ),
+    )
+    .orderBy(desc(vsSanction.dateSanction), desc(vsSanction.createdAt))
+    .limit(limit);
 }
 
 export async function annulerSanction(etablissementId: string, id: string) {

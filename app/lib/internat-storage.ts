@@ -54,22 +54,32 @@ export async function saveInternatRoster(roster: InternatRosterFile) {
 }
 
 const INTERNAT_MEM_CACHE_MS = 45_000;
-let roomsCache: { at: number; data: InternatRoom[] } | null = null;
-let studentsCache: { at: number; data: InternatStudent[] } | null = null;
+const roomsCacheByTenant = new Map<string, { at: number; data: InternatRoom[] }>();
+const studentsCacheByTenant = new Map<string, { at: number; data: InternatStudent[] }>();
+
+async function internatCacheKey(): Promise<string> {
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  if (etabId) return `etab:${etabId}`;
+  const { resolveCacheTenantSlug } = await import("@/app/lib/cache-tenant-key");
+  return `slug:${await resolveCacheTenantSlug()}`;
+}
 
 export async function getInternatRooms(): Promise<InternatRoom[]> {
-  if (roomsCache && Date.now() - roomsCache.at < INTERNAT_MEM_CACHE_MS) {
-    return roomsCache.data;
+  const key = await internatCacheKey();
+  const hitMem = roomsCacheByTenant.get(key);
+  if (hitMem && Date.now() - hitMem.at < INTERNAT_MEM_CACHE_MS) {
+    return hitMem.data;
   }
   const hit = await getJson<InternatRoom[]>(INTERNAT_S3.rooms);
   const data = Array.isArray(hit?.data) ? hit.data : [];
-  roomsCache = { at: Date.now(), data };
+  roomsCacheByTenant.set(key, { at: Date.now(), data });
   return data;
 }
 
 export async function saveInternatRooms(rooms: InternatRoom[]) {
   await putJson(INTERNAT_S3.rooms, rooms);
-  roomsCache = { at: Date.now(), data: rooms };
+  const key = await internatCacheKey();
+  roomsCacheByTenant.set(key, { at: Date.now(), data: rooms });
 }
 
 export async function getInternatBuildings(): Promise<InternatBuilding[]> {
@@ -82,8 +92,10 @@ export async function saveInternatBuildings(buildings: InternatBuilding[]) {
 }
 
 export async function getInternatStudents(): Promise<InternatStudent[]> {
-  if (studentsCache && Date.now() - studentsCache.at < INTERNAT_MEM_CACHE_MS) {
-    return studentsCache.data;
+  const key = await internatCacheKey();
+  const hitMem = studentsCacheByTenant.get(key);
+  if (hitMem && Date.now() - hitMem.at < INTERNAT_MEM_CACHE_MS) {
+    return hitMem.data;
   }
   const etabId = await resolveCurrentEtablissementId().catch(() => null);
   const loadFromS3 = async () => {
@@ -97,13 +109,14 @@ export async function getInternatStudents(): Promise<InternatStudent[]> {
         loader: loadFromS3,
       })
     : await loadFromS3();
-  studentsCache = { at: Date.now(), data };
+  studentsCacheByTenant.set(key, { at: Date.now(), data });
   return data;
 }
 
 export async function saveInternatStudents(students: InternatStudent[]) {
   await putJson(INTERNAT_S3.students, students);
-  studentsCache = { at: Date.now(), data: students };
+  const key = await internatCacheKey();
+  studentsCacheByTenant.set(key, { at: Date.now(), data: students });
   const etabId = await resolveCurrentEtablissementId().catch(() => null);
   if (etabId) await valkeyDel(valkeyKeyInternatStudents(etabId));
 }

@@ -40,17 +40,15 @@ export type DashboardShortcutTone = "neutral" | "info" | "action" | "warn";
 
 /**
  * Notifs dashboard vie scolaire (absences / justificatifs / appels manquants).
- * Désactivé temporairement — remettre à `true` pour les réafficher.
+ * Activé : matin ENT — signaux ops sur le dashboard.
  */
-export const ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS = false;
-export const ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS = false;
+export const ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS = true;
+export const ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS = true;
 /**
  * Raccourcis dashboard pour vs-appels / vs-absences / sanctions / carnet.
- * Laisser `false` tant que ces modules ont `allowedRoles: []` (WIP).
- * Quand on réactive les rôles, repasser à `true` — les vues seront fusionnées
- * dans la tuile « Absences » (slides).
+ * Activé : modules VS matin utilisables (sanctions + carnet démasqués).
  */
-export const ENABLE_VS_WIP_DASHBOARD_SHORTCUTS = false;
+export const ENABLE_VS_WIP_DASHBOARD_SHORTCUTS = true;
 
 /** Slide d’un carrousel (salles en cours, sorties du jour, multi-signaux…). */
 export type DashboardShortcutSlide = {
@@ -253,6 +251,13 @@ type DashboardSignalsInput = {
     title: string;
     detail: string;
   }>;
+  /**
+   * Créneaux EDT potentiellement vidés (tous les attendus `en_sortie`).
+   * File process impact-engine — direction / CPE.
+   */
+  creneauxVidesCount?: number;
+  /** Premier travelId concerné (lien détail si unique). */
+  creneauxVidesTravelId?: string | null;
 };
 
 function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
@@ -465,6 +470,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     facturesEnRetard = 0,
     anneeScolaireLabel = null,
     unseenAccompagnementAlerts = [],
+    creneauxVidesCount = 0,
+    creneauxVidesTravelId = null,
   } = input;
 
   const shortcuts: DashboardShortcut[] = [];
@@ -482,6 +489,40 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     const travelsHome = moduleHref("travels");
     const todayTrips = tripsToday(trips);
     const weekTrips = tripsThisWeek(trips);
+
+    // Signaux créneaux vidés (impact-engine) — direction / CPE / admin, pas l’UI appels.
+    if (
+      creneauxVidesCount > 0 &&
+      (isDirectionRole(roles) ||
+        hasRole(roles, "cpe") ||
+        hasRole(roles, "admin") ||
+        hasRole(roles, "orgAdmin"))
+    ) {
+      const href =
+        creneauxVidesTravelId && canEnterTravelsDetail({ roles })
+          ? `/travels/${creneauxVidesTravelId}`
+          : travelsHome;
+      pushNotif({
+        id: "travels-creneaux-vides",
+        moduleId: "travels",
+        label: "Créneaux vidés",
+        count: creneauxVidesCount,
+        href,
+        detail:
+          "Cours où tous les élèves attendus sont en sortie — signal VS, pas de remplacement inventé",
+      });
+      shortcuts.push({
+        id: "travels-creneaux-vides",
+        pillarId: "vie_scolaire",
+        moduleId: "travels",
+        href,
+        label: "Créneaux vidés",
+        rich: true,
+        badge: String(creneauxVidesCount),
+        detail: "Occupancy : classes 100 % en sortie",
+        tone: "warn",
+      });
+    }
 
     if (canSeeTodayTripHighlight(roles) && todayTrips.length > 0) {
       const first = todayTrips[0]!;
@@ -785,6 +826,43 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       moduleId: "certificates",
       href: moduleHref("certificates"),
       label: "Parcours & certificats",
+    });
+  }
+
+  // —— Facturation familles ——
+  if (has("facturation-familles")) {
+    shortcuts.push({
+      id: "facturation-familles",
+      pillarId: "compta_rh",
+      moduleId: "facturation-familles",
+      href: moduleHref("facturation-familles") || "/facturation",
+      label: "Facturation familles",
+      detail: "Tarifs, factures, encaissements",
+      tone: "neutral",
+    });
+  }
+
+  if (has("compta-etablissement")) {
+    shortcuts.push({
+      id: "compta-etablissement",
+      pillarId: "compta_rh",
+      moduleId: "compta-etablissement",
+      href: moduleHref("compta-etablissement") || "/compta",
+      label: "Compta établissement",
+      detail: "Caisse, banque, dépenses",
+      tone: "neutral",
+    });
+  }
+
+  if (has("paie-etablissement")) {
+    shortcuts.push({
+      id: "paie-etablissement",
+      pillarId: "compta_rh",
+      moduleId: "paie-etablissement",
+      href: moduleHref("paie-etablissement") || "/paie",
+      label: "Paie établissement",
+      detail: "Périodes et éléments",
+      tone: "neutral",
     });
   }
 

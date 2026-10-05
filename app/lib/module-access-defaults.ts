@@ -34,6 +34,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   "stages",
   "certificates",
   "notes",
+  "cahier-texte",
   "groupes-pedagogiques",
   // Établissement
   "admin-settings",
@@ -55,10 +56,16 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   // Vie scolaire
   "internat",
   "vs-calendrier",
+  "vs-appels",
+  "vs-absences",
   "accueil-absences",
   "absences-accueil-consultation",
   "accueil-portes-ouvertes",
   "rdv-inscription",
+  "sante",
+  "vs-sanctions",
+  "vs-carnet",
+  "messages-foyer",
   // Compta & RH
   "rh",
   "absences",
@@ -68,7 +75,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
 
 export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
   professeur: [
-    // Pas de boîte à outils ni vie scolaire (appels / absences élèves / carnet) par défaut.
+    // Appels + notes saisie (occupancy / Rejoindre) ; carnet oui, sanctions non (CPE).
     "eleve-dossier",
     "stages",
     "certificates",
@@ -83,6 +90,11 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "photocopies-couleur",
     "assistance",
     "vs-calendrier",
+    "vs-appels",
+    "notes",
+    "cahier-texte",
+    "vs-carnet",
+    "messages-foyer",
     "rh",
     "absences",
     "demandes-hse",
@@ -93,6 +105,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "stages",
     "certificates",
     "notes",
+    "cahier-texte",
     "groupes-pedagogiques",
     "organigramme",
     "evenements",
@@ -108,6 +121,10 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "assistance",
     "internat",
     "vs-calendrier",
+    "vs-appels",
+    "vs-absences",
+    "vs-sanctions",
+    "vs-carnet",
     "accueil-absences",
     "accueil-portes-ouvertes",
     "rdv-inscription",
@@ -147,6 +164,9 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "rh",
     "absences",
     "mon-planning",
+    "facturation-familles",
+    "compta-etablissement",
+    "paie-etablissement",
   ],
   maintenance: [
     "organigramme",
@@ -207,6 +227,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "stages",
     "certificates",
     "notes",
+    "cahier-texte",
     "groupes-pedagogiques",
     "organigramme",
     "documents",
@@ -219,6 +240,10 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "assistance",
     "internat",
     "vs-calendrier",
+    "vs-appels",
+    "vs-absences",
+    "vs-sanctions",
+    "vs-carnet",
     "accueil-absences",
     "absences-accueil-consultation",
     "rh",

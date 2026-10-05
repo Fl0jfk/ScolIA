@@ -36,6 +36,11 @@ import {
   isTripSelectedClass,
   prioritizeClassesForTrip,
 } from "@/app/lib/travels-classes";
+import {
+  formatImpactPreviewAlert,
+  formatImpactPreviewLines,
+  type ImpactPreviewLike,
+} from "@/app/lib/impact-engine/format-preview";
 
 type Props = {
   trip: TravelsTrip;
@@ -69,6 +74,37 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
   );
   /** Activer la page de suivi parents (blog) à la confirmation. */
   const [activateParentBlog, setActivateParentBlog] = useState(false);
+  const [impactBanner, setImpactBanner] = useState<string[] | null>(null);
+  const [voyageExtraits, setVoyageExtraits] = useState<
+    Array<{ eleveId: string; eleveNom: string; elevePrenom: string; libelle: string }>
+  >([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/travels/sante-extraits?tripId=${encodeURIComponent(trip.id)}`,
+          { cache: "no-store", credentials: "include" },
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          extraits?: Array<{
+            eleveId: string;
+            eleveNom: string;
+            elevePrenom: string;
+            libelle: string;
+          }>;
+        };
+        if (cancelled || !res.ok) return;
+        setVoyageExtraits(data.extraits ?? []);
+      } catch {
+        if (!cancelled) setVoyageExtraits([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trip.id, trip.data.participantEleves, trip.data.listeElevesStatus]);
 
   const needsBus = complexNeedsBus(trip);
   const horairesRequired = parentHorairesRequiredForTrip(trip);
@@ -526,6 +562,8 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Confirmation impossible");
       if (j.trip) onTripUpdated(j.trip as TravelsTrip);
+      const impactLines = formatImpactPreviewLines(j.impactPreview as ImpactPreviewLike | null);
+      if (impactLines.length > 0) setImpactBanner(impactLines);
       const bits = [
         j.sentTo?.length ? `Transporteur : ${j.sentTo.length} envoi(s)` : null,
         j.parentsNotified
@@ -541,6 +579,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
           ? "Commande cuisine envoyée au chef + liste « qui mange » à la collègue décompte."
           : null,
         j.cuisineError ? `Cuisine non envoyée : ${j.cuisineError}` : null,
+        formatImpactPreviewAlert(j.impactPreview as ImpactPreviewLike | null) || null,
       ].filter(Boolean);
       alert(bits.length ? `Liste confirmée.\n${bits.join("\n")}` : "Liste confirmée.");
     } catch (e) {
@@ -647,6 +686,35 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
               : " Pour une sortie de proximité, les horaires parents restent facultatifs."}
           </TripAlert>
         )}
+
+        {impactBanner && impactBanner.length > 0 ? (
+          <TripAlert tone="info" icon="🧠" title="Impacts (cerveau)">
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-sm">
+              {impactBanner.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </TripAlert>
+        ) : null}
+
+        {voyageExtraits.length > 0 ? (
+          <TripAlert tone="warning" icon="🩺" title="Extraits santé voyage (PAI / protocole)">
+            <p className="mt-1 text-sm">
+              À emporter pour ce voyage — signal diffusé uniquement (pas le dossier médical).
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-sm">
+              {voyageExtraits.map((ex) => (
+                <li key={`${ex.eleveId}-${ex.libelle}`}>
+                  <strong>
+                    {ex.elevePrenom} {ex.eleveNom}
+                  </strong>
+                  {" — "}
+                  {ex.libelle}
+                </li>
+              ))}
+            </ul>
+          </TripAlert>
+        ) : null}
 
         {!confirmed && (
           <TripAlert tone="info" icon="ℹ️" title="À quoi sert cette liste ?">

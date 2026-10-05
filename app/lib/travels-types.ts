@@ -61,12 +61,17 @@ export type TravelsHistoryEntry = {
   note?: string;
 };
 
-/** Élève inscrit sur une sortie (snapshot depuis eleves.json). */
+/** Élève inscrit sur une sortie.
+ * `ine` / nom / classe = snapshot document (CSV gelé).
+ * `eleveId` = lien live optionnel (occupancy) — peut être absent si INE orphelin.
+ */
 export type TravelsParticipantEleve = {
   ine: string;
   nom: string;
   prenom: string;
   classe?: string;
+  /** UUID `eleve.id` résolu à l'écriture (nullable côté lecture si orphelin). */
+  eleveId?: string | null;
   /** Défaut true — responsabilité établissement (rappel UI). */
   droitImageOk: boolean;
   /** Panier repas demandé pour cet élève (si commande cuisine active). */

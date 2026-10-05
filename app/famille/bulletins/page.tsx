@@ -1,10 +1,14 @@
-import FamilleBulletinsClient from "@/app/components/famille/FamilleBulletinsClient";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata = {
-  title: "Bulletins — Espace famille",
-};
+type Props = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
-/** Portail famille V1 (web de test — cible prod = app mobile). */
-export default function FamilleBulletinsPage() {
-  return <FamilleBulletinsClient />;
+export default async function FamilleLegacybulletinsRedirect({ searchParams }: Props) {
+  const sp = (await searchParams) || {};
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (typeof v === "string") qs.set(k, v);
+    else if (Array.isArray(v) && v[0]) qs.set(k, v[0]);
+  }
+  const q = qs.toString();
+  permanentRedirect(q ? `/quotidien/bulletins?${q}` : `/quotidien/bulletins`);
 }

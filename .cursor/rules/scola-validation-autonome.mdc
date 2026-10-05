@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Validation Autonome (Self-Healing)
 
-Après **toute** feature, module ou correctif majeur, ne pas rendre la main avant :
+Après **toute** feature, module ou correctif majeur, ne pas rendre la main avant la validation technique ci-dessous.
 
 ## 1. BDD (MCP PostgreSQL ou `psql`)
 

@@ -20,6 +20,7 @@ import {
   handleCreateTrip,
   handleGetTripStatus,
   handleListTripsBrief,
+  handlePreviewVoyageImpacts,
 } from "@/app/lib/brain-ai/tools/handlers/travels";
 import {
   handleGetWeekSheetRange,
@@ -44,6 +45,19 @@ import { handleCreateElevePreinscrit } from "@/app/lib/brain-ai/tools/handlers/e
 import { handleOpenTrip } from "@/app/lib/brain-ai/tools/handlers/open-trip";
 import { handleDecideRhAbsence } from "@/app/lib/brain-ai/tools/handlers/rh-absences";
 import { handleGetMyPendingActions } from "@/app/lib/brain-ai/personal-signals";
+import {
+  handleGetEdt,
+  handleGetEleve,
+  handleGetGrilleRepas,
+  handleGetPresenceJour,
+  handleGetTenantContext,
+  handleGetVoyage,
+} from "@/app/lib/brain-ai/tools/handlers/core-read";
+import {
+  handleCloseAppel,
+  handleOpenAppel,
+  handleSaveAppelLignes,
+} from "@/app/lib/brain-ai/tools/handlers/vs-appels";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
@@ -94,6 +108,17 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     handler: handleListDestinations,
   },
   {
+    name: "get_tenant_context",
+    description:
+      "Contexte établissement courant (slug, sites, présence d’un site internat). À appeler avant de parler d’internat ou multi-sites.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    pathPrefix: "/api/dashboard/signals",
+    moduleId: "dashboard-week-sheet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetTenantContext,
+  },
+  {
     name: "search_eleves",
     description: "Recherche des élèves par nom/prénom (dossiers). Retourne id, classe, régime.",
     parameters: {
@@ -132,6 +157,45 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: handleOpenEleveDossier,
+  },
+  {
+    name: "get_eleve",
+    description:
+      "Fiche élève filtrée par droits dossier (identité / scolarité / famille). Pas de création. Prof hors classe → refus.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetEleve,
+  },
+  {
+    name: "get_presence_jour",
+    description:
+      "Où est l’élève / la classe aujourd’hui (occupancy) : en_sortie, en_stage, a_infirmerie, absent_vs, hors_etablissement, en_cours… " +
+      "en_sortie / a_infirmerie ≠ absence bulletin. Params : eleveId | query | classe, date optionnelle.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+        classe: { type: "string" },
+        date: { type: "string", description: "YYYY-MM-DD (défaut aujourd’hui Paris)" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetPresenceJour,
   },
   {
     name: "update_eleve_regime",
@@ -266,7 +330,60 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     mutates: false,
     handler: handleOpenTrip,
   },
-
+  {
+    name: "get_edt",
+    description:
+      "Créneaux EDT ScolIA (`edt_creneau`) pour une date / classe. Étiquette source — grille non STS auto.",
+    parameters: {
+      type: "object",
+      properties: {
+        date: { type: "string" },
+        classe: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/calendrier",
+    moduleId: "vs-calendrier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetEdt,
+  },
+  {
+    name: "get_voyage",
+    description:
+      "Dossier voyage + liste participants live (eleve_id). Orthogonal à get_trip_status (workflow). Accueil : résumé sans fiche.",
+    parameters: {
+      type: "object",
+      properties: {
+        tripId: { type: "string" },
+      },
+      required: ["tripId"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/travels",
+    moduleId: "travels",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetVoyage,
+  },
+  {
+    name: "get_grille_repas",
+    description:
+      "Droit repas élève (grille scolarité). Ops cantine = unavailable. Pas d’allergies inventées.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+      },
+      required: ["eleveId"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetGrilleRepas,
+  },
   {
     name: "get_week_sheet_today",
     description:
@@ -363,6 +480,26 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: true,
     handler: handleCreateTrip,
+  },
+  {
+    name: "preview_voyage_impacts",
+    description:
+      "Calcule les impacts A/B/C/D d’une sortie scolaire (créneaux EDT potentiellement vidés, " +
+      "questions resto/internat/accompagnateurs). Orthogonal à get_trip_status (workflow). " +
+      "Ne décide pas et n’écrit pas le planning. Paramètres : tripId ou query.",
+    parameters: {
+      type: "object",
+      properties: {
+        tripId: { type: "string" },
+        query: { type: "string", description: "Titre ou destination partielle" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/travels",
+    moduleId: "travels",
+    requiresAuth: true,
+    mutates: false,
+    handler: handlePreviewVoyageImpacts,
   },
   {
     name: "list_rooms",
@@ -674,6 +811,74 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     handler: handleCreateElevePreinscrit,
   },
   {
+    name: "open_appel",
+    description:
+      "Ouvre (ou récupère) la feuille d’appel d’un créneau EDT pour une date. Prof : ses créneaux uniquement. Confirmation UI obligatoire.",
+    parameters: {
+      type: "object",
+      properties: {
+        dateAppel: { type: "string", description: "YYYY-MM-DD" },
+        creneauId: { type: "string" },
+      },
+      required: ["dateAppel", "creneauId"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "vs-appels",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleOpenAppel,
+  },
+  {
+    name: "save_appel_lignes",
+    description:
+      "Enregistre les lignes présent/absent/retard d’une feuille d’appel ouverte. Même handler que l’UI. Confirmation obligatoire.",
+    parameters: {
+      type: "object",
+      properties: {
+        appelId: { type: "string" },
+        lignes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              eleveId: { type: "string" },
+              statut: { type: "string" },
+              retardMinutes: { type: "number" },
+              note: { type: "string" },
+            },
+            required: ["eleveId", "statut"],
+          },
+        },
+      },
+      required: ["appelId", "lignes"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "vs-appels",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleSaveAppelLignes,
+  },
+  {
+    name: "close_appel",
+    description:
+      "Clôture l’appel : statut clos, absences CPE (source appel), événement attendance.call_completed. Confirmation obligatoire.",
+    parameters: {
+      type: "object",
+      properties: {
+        appelId: { type: "string" },
+      },
+      required: ["appelId"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/absences",
+    moduleId: "vs-appels",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleCloseAppel,
+  },
+  {
     name: "get_internat_status",
     description:
       "Statut live internat : effectifs, occupation, appel du soir, incidents 30j (agrégats, pas de dossiers nominatifs sensibles).",
@@ -726,7 +931,7 @@ export function getBrainTool(name: string): BrainToolDefinition | undefined {
  */
 export function mistralToolsForUser(
   signedIn: boolean,
-  ctx?: Pick<BrainToolCtx, "userId" | "roles" | "isOrgAdmin" | "audience">,
+  ctx?: Pick<BrainToolCtx, "userId" | "roles" | "isOrgAdmin" | "audience" | "etablissementId">,
 ) {
   let tools = signedIn ? BRAIN_TOOLS : BRAIN_TOOLS.filter((t) => !t.requiresAuth);
   if (ctx && signedIn) {
@@ -735,6 +940,7 @@ export function mistralToolsForUser(
       roles: ctx.roles,
       isOrgAdmin: ctx.isOrgAdmin,
       audience: ctx.audience,
+      etablissementId: ctx.etablissementId ?? null,
       confirmed: false,
     };
     tools = tools.filter((t) => assertToolPermissions(gateCtx, t).ok);

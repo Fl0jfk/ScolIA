@@ -108,9 +108,10 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/abonnement-suspendu",
   "/api/onboarding/status",
   "/api/billing/tenant/status",
-  /** Portail famille / app mobile parents — hors modules intranet staff. */
+  /** Portail quotidien familles — hors modules intranet staff. */
   "/api/famille",
   "/famille",
+  "/quotidien",
   "/api/eleve",
   "/api/mobile",
   "/app-mobile",
@@ -685,28 +686,73 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/vie-scolaire/appels",
       "/vie-scolaire/absences",
       "/api/vie-scolaire/appels",
+      "/api/vie-scolaire/presence-jour",
     ],
-    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
-    // Tuile absorbée dans « Absences » (accueil-absences) dès réactivation des rôles.
-    allowedRoles: [],
+    // Réactivé après socle occupancy : l’appel lit en_sortie / stage (hors bulletin pour sortie).
+    // Feuille du jour = lecture occupancy « où est X ».
+    allowedRoles: [...DIRECTIONS, "cpe", "professeur", "surveillant", "administratif", "accueil"],
+    dashboard: {
+      id: 244,
+      name: "Appels",
+      img: "",
+      link: "/vie-scolaire/presence",
+      external: false,
+      description: "Appel + feuille du jour (où est X) — occupancy, sortie ≠ bulletin.",
+    },
   },
   {
     id: "vs-absences",
     pathPrefixes: ["/api/vie-scolaire/absences"],
-    // Module masqué — suivi absents élèves dans Appels (presence) ; hub Absences = accueil.
-    allowedRoles: [],
+    // Suivi CPE des absents + justificatifs familles (onglet Présence).
+    // Registre VS = ScolIA (`vs_absence_eleve`) ; Charlemagne = immigration only.
+    allowedRoles: [...DIRECTIONS, "cpe", "administratif", "surveillant", "admin"],
   },
   {
     id: "vs-sanctions",
     pathPrefixes: ["/vie-scolaire/sanctions", "/api/vie-scolaire/sanctions"],
-    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
-    allowedRoles: [],
+    // Réactivé : saisie CPE + lecture familles (matin ENT). Catalogue court, pas Charlemagne-parité.
+    allowedRoles: [...DIRECTIONS, "cpe", "administratif", "surveillant", "admin"],
+    dashboard: {
+      id: 62,
+      name: "Sanctions",
+      img: "",
+      link: "/vie-scolaire/sanctions",
+      external: false,
+      description: "Avertissements, colles, exclusions de cours — visibles familles.",
+    },
   },
   {
     id: "vs-carnet",
-    pathPrefixes: ["/vie-scolaire/carnet", "/api/vie-scolaire/carnet"],
-    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
-    allowedRoles: [],
+    pathPrefixes: [
+      "/vie-scolaire/carnet",
+      "/api/vie-scolaire/carnet",
+      "/vie-scolaire/messages-foyer",
+      "/api/vie-scolaire/messages-foyer",
+    ],
+    // Réactivé : carnet de liaison unidirectionnel établissement → famille + accusé.
+    // Messages-foyer = canal texte bi-directionnel (Value Gate communication familles).
+    allowedRoles: [...DIRECTIONS, "cpe", "administratif", "professeur", "surveillant", "admin"],
+    dashboard: {
+      id: 63,
+      name: "Carnet de liaison",
+      img: "",
+      link: "/vie-scolaire/carnet",
+      external: false,
+      description: "Messages aux familles et accusés de lecture.",
+    },
+  },
+  {
+    id: "messages-foyer",
+    pathPrefixes: ["/vie-scolaire/messages-foyer", "/api/vie-scolaire/messages-foyer"],
+    allowedRoles: [...DIRECTIONS, "cpe", "administratif", "admin"],
+    dashboard: {
+      id: 64,
+      name: "Messages familles",
+      img: "",
+      link: "/vie-scolaire/messages-foyer",
+      external: false,
+      description: "Échanges texte établissement ↔ foyer (hors Messenger staff).",
+    },
   },
   {
     id: "stages",
@@ -793,7 +839,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "notes",
     pathPrefixes: ["/notes", "/api/notes"],
-    allowedRoles: [...DIRECTIONS, "administratif", "admin", "cpe"],
+    // Professeur : saisie du quotidien (face app native plus tard ; intranet staff en attendant).
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "cpe", "professeur"],
     dashboard: {
       id: 51,
       name: "Notes & bulletins",
@@ -801,6 +848,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
       link: "/notes/espace",
       external: false,
       description: "Référentiels, saisie, compétences LSU collège et bulletins PDF.",
+    },
+  },
+  {
+    id: "cahier-texte",
+    pathPrefixes: ["/cahier-texte", "/api/cahier-texte"],
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "cpe", "professeur"],
+    dashboard: {
+      id: 53,
+      name: "Cahier de textes",
+      img: "",
+      link: "/cahier-texte",
+      external: false,
+      description: "Leçon et travail à faire — visible familles.",
     },
   },
   {
@@ -820,19 +880,80 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "facturation-familles",
     pathPrefixes: ["/facturation", "/api/facturation"],
     allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
-    // Tuile dashboard masquée : module pas encore prêt.
+    dashboard: {
+      id: 70,
+      name: "Facturation familles",
+      img: "",
+      link: "/facturation",
+      external: false,
+      description: "Tarifs, factures, encaissements — foyer payeur.",
+    },
+  },
+  {
+    id: "compta-etablissement",
+    pathPrefixes: ["/compta", "/api/compta"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
+    dashboard: {
+      id: 71,
+      name: "Compta établissement",
+      img: "",
+      link: "/compta",
+      external: false,
+      description: "Caisse, banque, dépenses — partie simple.",
+    },
+  },
+  {
+    id: "paie-etablissement",
+    pathPrefixes: ["/paie", "/api/paie"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
+    dashboard: {
+      id: 72,
+      name: "Paie établissement",
+      img: "",
+      link: "/paie",
+      external: false,
+      description: "Périodes et éléments — pas de DSN.",
+    },
   },
   {
     id: "sante",
-    pathPrefixes: ["/sante"],
-    allowedRoles: ["infirmerie", "psychologue"],
+    pathPrefixes: ["/sante", "/api/sante"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "admin",
+      "administratif",
+      "cpe",
+      "surveillant",
+      "infirmerie",
+      "psychologue",
+    ],
     dashboard: {
       id: 52,
       name: "Espace santé",
       img: "",
       link: "/sante/espace",
       external: false,
-      description: "Infirmerie, PAP et suivi santé des élèves.",
+      description: "Passages infirmerie, PAI, extraits, médicaments, accidents.",
+    },
+  },
+  {
+    id: "passages",
+    pathPrefixes: ["/passages", "/api/passages"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "admin",
+      "administratif",
+      "accueil",
+      "cpe",
+      "surveillant",
+    ],
+    dashboard: {
+      id: 53,
+      name: "Passages & cantine",
+      img: "",
+      link: "/passages",
+      external: false,
+      description: "Portail, self et prévision repas (droit / pris).",
     },
   },
   {
@@ -1054,15 +1175,6 @@ export function rolesAllowModule(
 
     // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
     if (module.id === "pilotage-eleves") return false;
-    // Vie scolaire (appels, absences, sanctions, carnet) : masqués en UI — modules en dev.
-    if (
-      module.id === "vs-appels" ||
-      module.id === "vs-absences" ||
-      module.id === "vs-sanctions" ||
-      module.id === "vs-carnet"
-    ) {
-      return false;
-    }
 
     // Dossiers élèves : masqué pour les profs si le flag d’accès est désactivé.
     if (
@@ -1154,6 +1266,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   "pillar-administratif": [
     "eleve-dossier",
     "notes",
+    "cahier-texte",
     "groupes-pedagogiques",
     "stages",
     "fiches-dialogue",
@@ -1183,10 +1296,14 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   "pillar-vie-scolaire": [
     "internat",
     "vs-calendrier",
+    "vs-appels",
+    "vs-sanctions",
+    "vs-carnet",
     "accueil-absences",
     "groupes-pedagogiques",
+    "passages",
   ],
-  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse"],
+  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse", "facturation-familles", "compta-etablissement", "paie-etablissement"],
 };
 
 export function canAccessIntranetPath(

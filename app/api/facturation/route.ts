@@ -3,13 +3,18 @@ import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   annulerFacture,
+  createAvoirFromFacture,
   createFactureBrouillon,
   emitFacture,
   enregistrerEncaissementFacture,
   generateFacturePdf,
+  listEcheancesFacture,
+  listEncaissementsFacture,
   listFactures,
+  listImpayesFacturation,
   listTarifs,
   noterRelanceFacture,
+  setEcheancierFacture,
   solderFacture,
   upsertFoyerFacturation,
   upsertTarif,
@@ -23,13 +28,40 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const view = url.searchParams.get("view") || "all";
-  const [tarifs, factures] = await Promise.all([
+  const [tarifs, factures, impayes] = await Promise.all([
     listTarifs(etabId),
     listFactures(etabId, {
       foyerId: url.searchParams.get("foyerId") || undefined,
     }),
+    listImpayesFacturation(etabId),
   ]);
-  return NextResponse.json({ tarifs, factures, view });
+
+  const echeancesByFactureId: Record<string, Awaited<ReturnType<typeof listEcheancesFacture>>> =
+    {};
+  const encaissementsByFactureId: Record<
+    string,
+    Awaited<ReturnType<typeof listEncaissementsFacture>>
+  > = {};
+
+  await Promise.all(
+    factures.slice(0, 80).map(async (f) => {
+      const [ech, enc] = await Promise.all([
+        listEcheancesFacture(etabId, f.id),
+        listEncaissementsFacture(etabId, f.id),
+      ]);
+      if (ech.length) echeancesByFactureId[f.id] = ech;
+      if (enc.length) encaissementsByFactureId[f.id] = enc;
+    }),
+  );
+
+  return NextResponse.json({
+    tarifs,
+    factures,
+    impayes,
+    echeancesByFactureId,
+    encaissementsByFactureId,
+    view,
+  });
 }
 
 export async function POST(req: Request) {
@@ -88,6 +120,13 @@ export async function POST(req: Request) {
       const row = await annulerFacture(etabId, String(body.factureId || ""));
       return NextResponse.json({ ok: true, facture: row });
     }
+    if (action === "createAvoir") {
+      const avoir = await createAvoirFromFacture(etabId, String(body.factureId || ""), {
+        montant: body.montant,
+        motif: body.motif ? String(body.motif) : undefined,
+      });
+      return NextResponse.json({ ok: true, facture: avoir });
+    }
     if (action === "noterRelance") {
       const result = await noterRelanceFacture(
         etabId,
@@ -95,6 +134,14 @@ export async function POST(req: Request) {
         body.note ? String(body.note) : undefined,
       );
       return NextResponse.json({ ok: true, ...result });
+    }
+    if (action === "setEcheancier") {
+      const echeances = await setEcheancierFacture(etabId, String(body.factureId || ""), {
+        nbMensualites: body.nbMensualites != null ? Number(body.nbMensualites) : undefined,
+        premiereDate: body.premiereDate ? String(body.premiereDate) : undefined,
+        echeances: Array.isArray(body.echeances) ? body.echeances : undefined,
+      });
+      return NextResponse.json({ ok: true, echeances });
     }
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
   } catch (e) {

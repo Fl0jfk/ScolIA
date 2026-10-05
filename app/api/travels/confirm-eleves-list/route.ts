@@ -481,6 +481,14 @@ export async function POST(req: Request) {
       ),
     );
 
+    let impactPreview: unknown = null;
+    try {
+      const { onTravelListeConfirmed } = await import("@/app/lib/impact-engine");
+      impactPreview = await onTravelListeConfirmed({ trip: updatedTrip as TravelsTrip });
+    } catch (impactErr) {
+      console.error("[confirm-eleves-list] impact-engine", impactErr);
+    }
+
     return NextResponse.json({
       success: true,
       trip: updatedTrip,
@@ -493,6 +501,7 @@ export async function POST(req: Request) {
       finalizedAfterListe: wasAwaitingListe,
       cuisineSent,
       cuisineError,
+      impactPreview,
     });
   } catch (e) {
     console.error("[confirm-eleves-list]", e);

@@ -178,15 +178,24 @@ export async function PATCH(req: Request) {
     })
     .returning();
 
-  const { eleveScolarite } = await import("@/db/schema");
-  await db.insert(eleveScolarite).values({
+  const { openPrevueScolarite } = await import("@/app/lib/eleve-core/port");
+  const { recordMetierEvent } = await import("@/app/lib/eleve-core/journal");
+  const { METIER_EVENT_TYPES } = await import("@/app/lib/eleve-core/events");
+  await openPrevueScolarite({
     etablissementId: etabId,
     eleveId: created.id,
-    siteId: pre.siteId,
     classe: pre.niveauVise,
-    statut: "prevue",
-    demiPension: pre.demiPension,
+    siteId: pre.siteId,
     etablissementPrecedent: pre.etablissementPrecedent,
+    demiPension: pre.demiPension,
+  });
+  await recordMetierEvent({
+    etablissementId: etabId,
+    type: METIER_EVENT_TYPES.ELEVE_CREATED,
+    aggregate: "eleve",
+    aggregateId: created.id,
+    eleveId: created.id,
+    payload: { status: "preinscrit", source: "preinscription" },
   });
 
   await db

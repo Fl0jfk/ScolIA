@@ -59,8 +59,8 @@ async function ensureActualiteDomain(): Promise<string> {
         "voyage",
         "séjour",
         "sortie",
-        "aujourd'hui",
         "planning",
+        // Pas « aujourd'hui » : la présence live = occupancy, pas ce RAG.
       ],
     });
     index.updatedAt = new Date().toISOString().slice(0, 10);

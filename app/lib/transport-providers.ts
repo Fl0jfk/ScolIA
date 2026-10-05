@@ -2,22 +2,23 @@ import { loadAppConfig, invalidateAppConfigCache } from "@/app/lib/app-config";
 
 export type TransportProvider = { name: string; email: string };
 
-let cachedProviders: TransportProvider[] | null = null;
-let cacheAt = 0;
+const providersCacheByTenant = new Map<string, { at: number; providers: TransportProvider[] }>();
 const CACHE_MS = 45_000;
 
 function invalidateTransportProvidersCache() {
-  cachedProviders = null;
-  cacheAt = 0;
+  providersCacheByTenant.clear();
   invalidateAppConfigCache();
 }
 
 export async function getTransportProviders(): Promise<TransportProvider[]> {
-  if (cachedProviders && Date.now() - cacheAt < CACHE_MS) return cachedProviders;
+  const { resolveCacheTenantSlug } = await import("@/app/lib/cache-tenant-key");
+  const slug = await resolveCacheTenantSlug();
+  const hit = providersCacheByTenant.get(slug);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.providers;
   const config = await loadAppConfig();
-  cachedProviders = config.travels.transportProviders.map((p) => ({ ...p }));
-  cacheAt = Date.now();
-  return cachedProviders;
+  const providers = config.travels.transportProviders.map((p) => ({ ...p }));
+  providersCacheByTenant.set(slug, { at: Date.now(), providers });
+  return providers;
 }
 
 const norm = (e: string) => e.trim().toLowerCase();

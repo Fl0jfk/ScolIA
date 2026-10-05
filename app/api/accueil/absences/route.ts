@@ -9,6 +9,10 @@ import {
   declareAccueilAbsence,
   listAccueilBoard,
 } from "@/app/lib/accueil-absences-db";
+import {
+  ACCUEIL_EN_SORTIE_CODE,
+  AccueilEnSortieConflictError,
+} from "@/app/lib/accueil-absence-occupancy";
 
 const DeclareSchema = z.object({
   kind: z.enum(["eleve", "enseignant", "personnel"]),
@@ -23,6 +27,8 @@ const DeclareSchema = z.object({
   eleveNature: z.enum(["absence", "retard"]).optional(),
   /** Professeurs : école / collège / lycée (libellé établissement). */
   etablissement: z.string().min(1).max(120).optional().nullable(),
+  /** Élèves : passer outre le garde-fou `en_sortie`. */
+  force: z.boolean().optional(),
 });
 
 const CancelSchema = z.object({
@@ -71,6 +77,7 @@ export async function POST(req: Request) {
       canal: body.canal || "telephone",
       eleveNature: body.kind === "eleve" ? body.eleveNature || "absence" : undefined,
       etablissement: body.kind === "eleve" ? undefined : body.etablissement || undefined,
+      force: body.force === true,
       actor: {
         userId: gate.ctx.user.id,
         name:
@@ -83,6 +90,27 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ ok: true, ...created });
   } catch (err) {
+    const conflict =
+      err instanceof AccueilEnSortieConflictError
+        ? err
+        : err &&
+            typeof err === "object" &&
+            "code" in err &&
+            (err as { code?: string }).code === ACCUEIL_EN_SORTIE_CODE &&
+            "hits" in err
+          ? (err as AccueilEnSortieConflictError)
+          : null;
+    if (conflict) {
+      return NextResponse.json(
+        {
+          error: conflict.message,
+          code: ACCUEIL_EN_SORTIE_CODE,
+          enSortie: conflict.hits,
+          canForce: true,
+        },
+        { status: 409 },
+      );
+    }
     const message = err instanceof Error ? err.message : "Enregistrement impossible.";
     return NextResponse.json({ error: message }, { status: 400 });
   }

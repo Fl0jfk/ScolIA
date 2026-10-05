@@ -17,7 +17,8 @@ export type DataAccessResourceType =
   | "travel"
   | "document"
   | "settings"
-  | "members";
+  | "members"
+  | "brain_tool";
 
 function requestMeta(req?: Request): { ip: string | null; userAgent: string | null } {
   const ip =

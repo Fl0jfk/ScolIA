@@ -15,11 +15,21 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
   account,
+  anneeScolaire,
+  edtCreneau,
+  eleve,
   etablissement,
+  noteDevoir,
+  noteMatiere,
+  notePeriode,
+  noteTypeDevoir,
+  noteValeur,
   twoFactor,
   user,
   userMembership,
   userRole,
+  vsAbsenceEleve,
+  vsCarnetEntree,
 } from "../db/schema";
 
 function loadEnvFile(path: string) {
@@ -44,11 +54,17 @@ function loadEnvFile(path: string) {
 loadEnvFile(".env.local");
 loadEnvFile(".env");
 
-/** Identifiants publics de démo locale — jamais en production. */
+const isLabSeed =
+  (process.env.SCOLA_ENV || process.env.NEXT_PUBLIC_SCOLA_ENV || "")
+    .trim()
+    .toLowerCase() === "lab" ||
+  (process.env.SCOLA_ENV || "").trim().toLowerCase() === "labo";
+
+/** Identifiants publics de démo locale / labo — jamais en production réelle. */
 export const DEV_SEED = {
   slug: "default",
-  etabName: "Instance de développement",
-  dataBucket: "scola-dev",
+  etabName: isLabSeed ? "Labo ScolIA (hors prod)" : "Instance de développement",
+  dataBucket: isLabSeed ? "scola-lab" : "scola-dev",
   email: "admin@localhost.dev",
   password: "DevLocalPass1!",
   /** Secret TOTP en clair (32 car.) — chiffré avec BETTER_AUTH_SECRET avant insertion. */
@@ -56,6 +72,19 @@ export const DEV_SEED = {
   firstName: "Admin",
   lastName: "Local",
   userId: "dev-local-admin",
+} as const;
+
+/** Compte parent local — portail `/famille` (sans MFA pour démo justifs). */
+export const DEV_PARENT_SEED = {
+  email: "parent@localhost.dev",
+  password: "DevParentPass1!",
+  firstName: "Parent",
+  lastName: "Local",
+  userId: "dev-local-parent",
+  childSourceKey: "brain-test:justif-famille",
+  childNom: "JUSTIF",
+  childPrenom: "Leo",
+  childClasse: "4B",
 } as const;
 
 async function main() {
@@ -92,7 +121,17 @@ async function main() {
       etab = created;
       console.log(`[seed] établissement créé: ${etab.slug} (${etab.id})`);
     } else {
-      console.log(`[seed] établissement existant: ${etab.slug} (${etab.id})`);
+      if (etab.name !== DEV_SEED.etabName || etab.dataBucket !== DEV_SEED.dataBucket) {
+        const [updated] = await db
+          .update(etablissement)
+          .set({ name: DEV_SEED.etabName, dataBucket: DEV_SEED.dataBucket })
+          .where(eq(etablissement.id, etab.id))
+          .returning();
+        etab = updated;
+        console.log(`[seed] établissement aligné: ${etab.name} (${etab.slug})`);
+      } else {
+        console.log(`[seed] établissement existant: ${etab.slug} (${etab.id})`);
+      }
     }
 
     let [u] = await db.select().from(user).where(eq(user.id, DEV_SEED.userId)).limit(1);
@@ -224,6 +263,391 @@ async function main() {
       });
     }
 
+    // —— Parent démo (justifs absences /famille) ——
+    let [parentUser] = await db
+      .select()
+      .from(user)
+      .where(eq(user.id, DEV_PARENT_SEED.userId))
+      .limit(1);
+    if (!parentUser) {
+      [parentUser] = await db
+        .select()
+        .from(user)
+        .where(eq(user.email, DEV_PARENT_SEED.email))
+        .limit(1);
+    }
+    if (!parentUser) {
+      const [created] = await db
+        .insert(user)
+        .values({
+          id: DEV_PARENT_SEED.userId,
+          name: `${DEV_PARENT_SEED.firstName} ${DEV_PARENT_SEED.lastName}`,
+          email: DEV_PARENT_SEED.email,
+          emailVerified: true,
+          etablissementId: etab.id,
+          externalUserId: DEV_PARENT_SEED.userId,
+          firstName: DEV_PARENT_SEED.firstName,
+          lastName: DEV_PARENT_SEED.lastName,
+          platformAdmin: false,
+          orgAdmin: false,
+          mustChangePassword: false,
+          twoFactorEnabled: false,
+        })
+        .returning();
+      parentUser = created;
+      console.log(`[seed] parent créé: ${parentUser.email}`);
+    } else {
+      await db
+        .update(user)
+        .set({
+          etablissementId: etab.id,
+          emailVerified: true,
+          orgAdmin: false,
+          twoFactorEnabled: false,
+          firstName: DEV_PARENT_SEED.firstName,
+          lastName: DEV_PARENT_SEED.lastName,
+          name: `${DEV_PARENT_SEED.firstName} ${DEV_PARENT_SEED.lastName}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(user.id, parentUser.id));
+      console.log(`[seed] parent mis à jour: ${parentUser.email}`);
+    }
+
+    const parentHashed = await hashPassword(DEV_PARENT_SEED.password);
+    const [parentAccount] = await db
+      .select()
+      .from(account)
+      .where(and(eq(account.userId, parentUser.id), eq(account.providerId, "credential")))
+      .limit(1);
+    if (parentAccount) {
+      await db
+        .update(account)
+        .set({
+          password: parentHashed,
+          issuer: "local:credential",
+          accountId: parentUser.id,
+          updatedAt: new Date(),
+        })
+        .where(eq(account.id, parentAccount.id));
+    } else {
+      await db.insert(account).values({
+        id: crypto.randomUUID(),
+        issuer: "local:credential",
+        accountId: parentUser.id,
+        providerId: "credential",
+        userId: parentUser.id,
+        password: parentHashed,
+      });
+    }
+    await db.delete(twoFactor).where(eq(twoFactor.userId, parentUser.id));
+
+    await db
+      .insert(userMembership)
+      .values({
+        userId: parentUser.id,
+        etablissementId: etab.id,
+        context: "famille",
+        active: true,
+      })
+      .onConflictDoUpdate({
+        target: [userMembership.userId, userMembership.etablissementId],
+        set: { active: true, context: "famille", updatedAt: new Date() },
+      });
+
+    const [parentRole] = await db
+      .select()
+      .from(userRole)
+      .where(
+        and(
+          eq(userRole.userId, parentUser.id),
+          eq(userRole.etablissementId, etab.id),
+          eq(userRole.role, "parent"),
+        ),
+      )
+      .limit(1);
+    if (!parentRole) {
+      await db.insert(userRole).values({
+        etablissementId: etab.id,
+        userId: parentUser.id,
+        role: "parent",
+      });
+    }
+
+    let [child] = await db
+      .select()
+      .from(eleve)
+      .where(
+        and(
+          eq(eleve.etablissementId, etab.id),
+          eq(eleve.sourceKey, DEV_PARENT_SEED.childSourceKey),
+        ),
+      )
+      .limit(1);
+    if (!child) {
+      const [created] = await db
+        .insert(eleve)
+        .values({
+          etablissementId: etab.id,
+          sourceKey: DEV_PARENT_SEED.childSourceKey,
+          ine: "INEJUSTIF001",
+          nom: DEV_PARENT_SEED.childNom,
+          prenom: DEV_PARENT_SEED.childPrenom,
+          folderName: `${DEV_PARENT_SEED.childNom} ${DEV_PARENT_SEED.childPrenom}`,
+          status: "inscrit",
+          classe: DEV_PARENT_SEED.childClasse,
+          parentEmail: DEV_PARENT_SEED.email,
+        })
+        .returning();
+      child = created;
+      console.log(`[seed] enfant justif créé: ${child.prenom} ${child.nom}`);
+    } else {
+      await db
+        .update(eleve)
+        .set({
+          parentEmail: DEV_PARENT_SEED.email,
+          classe: DEV_PARENT_SEED.childClasse,
+          updatedAt: new Date(),
+        })
+        .where(eq(eleve.id, child.id));
+    }
+
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
+    const [existingAbs] = await db
+      .select()
+      .from(vsAbsenceEleve)
+      .where(
+        and(
+          eq(vsAbsenceEleve.etablissementId, etab.id),
+          eq(vsAbsenceEleve.eleveId, child.id),
+          eq(vsAbsenceEleve.dateDebut, today),
+          eq(vsAbsenceEleve.source, "appel"),
+        ),
+      )
+      .limit(1);
+    if (!existingAbs) {
+      await db.insert(vsAbsenceEleve).values({
+        etablissementId: etab.id,
+        eleveId: child.id,
+        dateDebut: today,
+        dateFin: today,
+        type: "absence",
+        statut: "a_traiter",
+        justifie: false,
+        motif: null,
+        source: "appel",
+        createdByNom: "seed:dev",
+      });
+      console.log(`[seed] absence a_traiter du jour pour ${child.prenom}`);
+    }
+
+    // —— Notes démo (saisie → parent voit sans clôture) ——
+    const existingMatieres = await db
+      .select()
+      .from(noteMatiere)
+      .where(eq(noteMatiere.etablissementId, etab.id));
+    if (!existingMatieres.length) {
+      for (const m of [
+        { code: "MATHS", libelle: "Mathématiques" },
+        { code: "FRAN", libelle: "Français" },
+        { code: "HG", libelle: "Histoire-Géographie" },
+        { code: "AGL1", libelle: "Anglais LV1" },
+        { code: "EPS", libelle: "EPS" },
+      ]) {
+        await db.insert(noteMatiere).values({
+          etablissementId: etab.id,
+          code: m.code,
+          libelle: m.libelle,
+        });
+      }
+      console.log("[seed] matières notes créées");
+    }
+    const [anneeCourante] = await db
+      .select()
+      .from(anneeScolaire)
+      .where(and(eq(anneeScolaire.etablissementId, etab.id), eq(anneeScolaire.isCurrent, true)))
+      .limit(1);
+    const existingPeriodes = await db
+      .select()
+      .from(notePeriode)
+      .where(eq(notePeriode.etablissementId, etab.id));
+    if (!existingPeriodes.length) {
+      for (const p of [
+        { code: "T1", libelle: "1er trimestre", ordre: 1 },
+        { code: "T2", libelle: "2e trimestre", ordre: 2 },
+        { code: "T3", libelle: "3e trimestre", ordre: 3 },
+      ]) {
+        await db.insert(notePeriode).values({
+          etablissementId: etab.id,
+          code: p.code,
+          libelle: p.libelle,
+          ordre: p.ordre,
+          statut: "ouverte",
+          anneeScolaireId: anneeCourante?.id ?? null,
+        });
+      }
+      console.log("[seed] périodes notes créées");
+    }
+    for (const t of [
+      { code: "DS", libelle: "Devoir surveillé" },
+      { code: "DM", libelle: "Devoir maison" },
+    ]) {
+      await db
+        .insert(noteTypeDevoir)
+        .values({ etablissementId: etab.id, code: t.code, libelle: t.libelle })
+        .onConflictDoNothing();
+    }
+
+    const [maths] = await db
+      .select()
+      .from(noteMatiere)
+      .where(and(eq(noteMatiere.etablissementId, etab.id), eq(noteMatiere.code, "MATHS")))
+      .limit(1);
+    const [t1] = await db
+      .select()
+      .from(notePeriode)
+      .where(and(eq(notePeriode.etablissementId, etab.id), eq(notePeriode.code, "T1")))
+      .limit(1);
+    if (maths && t1) {
+      const [existingDevoir] = await db
+        .select()
+        .from(noteDevoir)
+        .where(
+          and(
+            eq(noteDevoir.etablissementId, etab.id),
+            eq(noteDevoir.libelle, "Contrôle seed JUSTIF"),
+            eq(noteDevoir.classe, DEV_PARENT_SEED.childClasse),
+          ),
+        )
+        .limit(1);
+      let devoirId = existingDevoir?.id;
+      if (!devoirId) {
+        const [createdDevoir] = await db
+          .insert(noteDevoir)
+          .values({
+            etablissementId: etab.id,
+            matiereId: maths.id,
+            periodeId: t1.id,
+            classe: DEV_PARENT_SEED.childClasse,
+            libelle: "Contrôle seed JUSTIF",
+            dateDevoir: today,
+            coefficient: "1",
+            createdByUserId: DEV_SEED.userId,
+          })
+          .returning();
+        devoirId = createdDevoir.id;
+        console.log(`[seed] devoir notes créé: ${createdDevoir.libelle}`);
+      }
+      const [existingNote] = await db
+        .select()
+        .from(noteValeur)
+        .where(
+          and(
+            eq(noteValeur.etablissementId, etab.id),
+            eq(noteValeur.devoirId, devoirId),
+            eq(noteValeur.eleveId, child.id),
+          ),
+        )
+        .limit(1);
+      if (!existingNote) {
+        await db.insert(noteValeur).values({
+          etablissementId: etab.id,
+          devoirId,
+          eleveId: child.id,
+          valeur: "14.5",
+          absent: false,
+          dispense: false,
+          appreciation: "Bon travail — seed démo notes famille",
+        });
+        console.log(`[seed] note 14.5 pour ${child.prenom} ${child.nom}`);
+      }
+    }
+
+    // —— EDT démo classe 4B (famille /famille/edt) ——
+    const matieresEdt = await db
+      .select()
+      .from(noteMatiere)
+      .where(eq(noteMatiere.etablissementId, etab.id));
+    const matiereIdByCode = new Map(matieresEdt.map((m) => [m.code, m.id]));
+    const edtSlots: Array<{
+      jour: number;
+      debut: string;
+      fin: string;
+      code: string;
+      enseignant: string;
+      salle: string;
+    }> = [
+      { jour: 1, debut: "08:00", fin: "09:00", code: "MATHS", enseignant: "Mme Dupont", salle: "B12" },
+      { jour: 1, debut: "10:00", fin: "11:00", code: "FRAN", enseignant: "M. Martin", salle: "A03" },
+      { jour: 2, debut: "08:00", fin: "09:00", code: "HG", enseignant: "Mme Bernard", salle: "C01" },
+      { jour: 2, debut: "09:00", fin: "10:00", code: "AGL1", enseignant: "Ms Smith", salle: "B08" },
+      { jour: 3, debut: "08:00", fin: "09:00", code: "MATHS", enseignant: "Mme Dupont", salle: "B12" },
+      { jour: 3, debut: "10:00", fin: "12:00", code: "EPS", enseignant: "M. Leroy", salle: "Gymnase" },
+      { jour: 4, debut: "08:00", fin: "09:00", code: "FRAN", enseignant: "M. Martin", salle: "A03" },
+      { jour: 4, debut: "11:00", fin: "12:00", code: "HG", enseignant: "Mme Bernard", salle: "C01" },
+      { jour: 5, debut: "08:00", fin: "09:00", code: "AGL1", enseignant: "Ms Smith", salle: "B08" },
+      { jour: 5, debut: "09:00", fin: "10:00", code: "MATHS", enseignant: "Mme Dupont", salle: "B12" },
+    ];
+    let edtInserted = 0;
+    for (const slot of edtSlots) {
+      const [existing] = await db
+        .select({ id: edtCreneau.id })
+        .from(edtCreneau)
+        .where(
+          and(
+            eq(edtCreneau.etablissementId, etab.id),
+            eq(edtCreneau.classe, DEV_PARENT_SEED.childClasse),
+            eq(edtCreneau.jourSemaine, slot.jour),
+            eq(edtCreneau.heureDebut, slot.debut),
+            eq(edtCreneau.heureFin, slot.fin),
+          ),
+        )
+        .limit(1);
+      if (existing) continue;
+      await db.insert(edtCreneau).values({
+        etablissementId: etab.id,
+        jourSemaine: slot.jour,
+        heureDebut: slot.debut,
+        heureFin: slot.fin,
+        classe: DEV_PARENT_SEED.childClasse,
+        matiereId: matiereIdByCode.get(slot.code) ?? null,
+        enseignantNom: slot.enseignant,
+        salle: slot.salle,
+        semaine: "AB",
+        anneeScolaireId: anneeCourante?.id ?? null,
+      });
+      edtInserted += 1;
+    }
+    if (edtInserted > 0) {
+      console.log(`[seed] ${edtInserted} créneaux EDT ${DEV_PARENT_SEED.childClasse}`);
+    }
+
+    // —— Carnet de liaison démo (staff → famille + signature) ——
+    const [existingCarnet] = await db
+      .select({ id: vsCarnetEntree.id })
+      .from(vsCarnetEntree)
+      .where(
+        and(
+          eq(vsCarnetEntree.etablissementId, etab.id),
+          eq(vsCarnetEntree.eleveId, child.id),
+          eq(vsCarnetEntree.titre, "Seed carnet JUSTIF"),
+        ),
+      )
+      .limit(1);
+    if (!existingCarnet) {
+      await db.insert(vsCarnetEntree).values({
+        etablissementId: etab.id,
+        eleveId: child.id,
+        dateEntree: today,
+        categorie: "information",
+        titre: "Seed carnet JUSTIF",
+        corps: "Message de test : merci de signer ce carnet pour valider la boucle famille.",
+        visibleFamille: true,
+        createdByUserId: DEV_SEED.userId,
+        createdByNom: "seed:dev CPE",
+      });
+      console.log(`[seed] entrée carnet pour ${child.prenom} ${child.nom}`);
+    }
+
     console.log(
       JSON.stringify(
         {
@@ -231,8 +655,17 @@ async function main() {
           email: DEV_SEED.email,
           password: DEV_SEED.password,
           totpSecret: DEV_SEED.totpSecret,
+          parentEmail: DEV_PARENT_SEED.email,
+          parentPassword: DEV_PARENT_SEED.password,
+          parentChild: `${DEV_PARENT_SEED.childPrenom} ${DEV_PARENT_SEED.childNom}`,
           slug: DEV_SEED.slug,
           signInUrl: "http://localhost:3000/auth/sign-in?dev_tenant=default",
+          familleUrl: "http://localhost:3000/famille/absences?dev_tenant=default",
+          familleNotesUrl: "http://localhost:3000/famille/notes?dev_tenant=default",
+          familleEdtUrl: "http://localhost:3000/famille/edt?dev_tenant=default",
+          familleCarnetUrl: "http://localhost:3000/famille/carnet?dev_tenant=default",
+          carnetStaffUrl: "http://localhost:3000/vie-scolaire/carnet?dev_tenant=default",
+          notesSaisieUrl: "http://localhost:3000/notes/saisie?dev_tenant=default",
           totpHelper: "npm run seed:dev:totp",
         },
         null,

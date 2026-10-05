@@ -25,6 +25,8 @@ import { invitationSchema } from "./schema-invitation";
 import { messagingSchema } from "./schema-messaging";
 import { partenariatsSchema } from "./schema-partenariats";
 import { rdvInscriptionSchema } from "./schema-rdv-inscription";
+import { socleFaitsSchema } from "./schema-socle-faits";
+import { familleMessagingSchema } from "./schema-famille-messaging";
 import { scoliaChatSchema } from "./schema-scolia-chat";
 
 export { etablissement };
@@ -41,6 +43,8 @@ export * from "./schema-messaging";
 export * from "./schema-partenariats";
 export * from "./schema-portes-ouvertes";
 export * from "./schema-rdv-inscription";
+export * from "./schema-socle-faits";
+export * from "./schema-famille-messaging";
 export * from "./schema-scolia-chat";
 export * from "./schema-travel-image-catalog";
 
@@ -417,6 +421,69 @@ export const eleveScolarite = pgTable(
     index("eleve_scolarite_eleve_idx").on(t.etablissementId, t.eleveId),
     index("eleve_scolarite_site_idx").on(t.etablissementId, t.siteId),
     index("eleve_scolarite_annee_idx").on(t.etablissementId, t.anneeScolaireId),
+    uniqueIndex("eleve_scolarite_one_en_cours_uidx")
+      .on(t.etablissementId, t.eleveId)
+      .where(sql`${t.statut} = 'en_cours'`),
+    uniqueIndex("eleve_scolarite_one_active_per_year_uidx")
+      .on(t.etablissementId, t.eleveId, t.anneeScolaireId)
+      .where(sql`${t.statut} in ('en_cours', 'prevue') and ${t.anneeScolaireId} is not null`),
+  ],
+);
+
+/**
+ * Périodes de régime (interne / DP / externe) rattachées à une scolarité annuelle.
+ * SoT datée pour la facturation : DP jusqu’au 14/01, interne à partir du 15/01.
+ */
+export const eleveRegimePeriode = pgTable(
+  "eleve_regime_periode",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id")
+      .notNull()
+      .references(() => eleve.id, { onDelete: "cascade" }),
+    scolariteId: uuid("scolarite_id")
+      .notNull()
+      .references(() => eleveScolarite.id, { onDelete: "cascade" }),
+    /** Libellé canonique Interne | Demi-pension | Externe (ou brut si inconnu). */
+    regime: text("regime").notNull(),
+    dateDebut: date("date_debut").notNull(),
+    /** Null = période encore ouverte. */
+    dateFin: date("date_fin"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("eleve_regime_periode_eleve_idx").on(t.etablissementId, t.eleveId),
+    index("eleve_regime_periode_scolarite_idx").on(t.etablissementId, t.scolariteId),
+    uniqueIndex("eleve_regime_periode_open_uidx")
+      .on(t.etablissementId, t.eleveId, t.scolariteId)
+      .where(sql`${t.dateFin} is null`),
+  ],
+);
+
+/** Journal métier transversal (élève / scolarité / foyer). Pas un bus, pas de DELETE. */
+export const metierEvent = pgTable(
+  "metier_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    aggregate: text("aggregate").notNull(),
+    aggregateId: uuid("aggregate_id").notNull(),
+    eleveId: uuid("eleve_id").references(() => eleve.id, { onDelete: "set null" }),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    actorUserId: text("actor_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("metier_event_etab_created_idx").on(t.etablissementId, t.createdAt),
+    index("metier_event_etab_type_idx").on(t.etablissementId, t.type),
+    index("metier_event_eleve_idx").on(t.etablissementId, t.eleveId),
   ],
 );
 
@@ -455,6 +522,8 @@ export const foyerResponsable = pgTable(
     autoriteParentale: boolean("autorite_parentale").notNull().default(false),
     contactUrgence: boolean("contact_urgence").notNull().default(false),
     payeur: boolean("payeur").notNull().default(false),
+    /** Personne autorisée à récupérer l’enfant. Distinct de l’autorité, du payeur et de l’urgence. */
+    peutRecuperer: boolean("peut_recuperer").notNull().default(false),
     rang: integer("rang").notNull().default(1),
     userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -860,6 +929,8 @@ export const appSchema = {
   etablissementSite,
   eleve,
   eleveScolarite,
+  eleveRegimePeriode,
+  metierEvent,
   foyer,
   foyerResponsable,
   eleveFoyerLink,
@@ -888,6 +959,8 @@ export const appSchema = {
   ...messagingSchema,
   ...partenariatsSchema,
   ...rdvInscriptionSchema,
+  ...socleFaitsSchema,
+  ...familleMessagingSchema,
   ...scoliaChatSchema,
 };
 
@@ -903,6 +976,8 @@ export type AnneeScolaireRow = typeof anneeScolaire.$inferSelect;
 export type EtablissementSiteRow = typeof etablissementSite.$inferSelect;
 export type EleveRow = typeof eleve.$inferSelect;
 export type EleveScolariteRow = typeof eleveScolarite.$inferSelect;
+export type EleveRegimePeriodeRow = typeof eleveRegimePeriode.$inferSelect;
+export type MetierEventRow = typeof metierEvent.$inferSelect;
 export type FoyerRow = typeof foyer.$inferSelect;
 export type FoyerResponsableRow = typeof foyerResponsable.$inferSelect;
 export type EleveDocumentRow = typeof eleveDocument.$inferSelect;

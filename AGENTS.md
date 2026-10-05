@@ -2,6 +2,36 @@
 
 Repo **docslapro / ScolIA** : ENT / intranet scolaire (Next.js App Router, Drizzle, PostgreSQL, Better-Auth).
 
+## Contraintes utilisateur (déjà décidées)
+
+- **`main` = production.** Ne jamais y pousser un lot métier. Travail sur **`dev`**.
+- **Deux faces, un cerveau.** Intranet web pour le personnel. Familles, élèves et professeurs : applications natives **SwiftUI** et **Kotlin / Jetpack Compose** (pas Expo) plus un client web dédié. Pas de second logiciel.
+
+## Git — production protégée
+
+| Branche | Rôle |
+|---------|------|
+| **`main`** | Production. Un push déclenche `.github/workflows/deploy-scaleway.yml` (conteneur Scaleway réel). |
+| **`dev`** | Intégration architecture / lots métier. Branche de travail des agents. |
+| `feature/…` | Optionnel, à partir de `dev`, puis merge dans `dev`. |
+
+**Jamais** de `git push origin main` pour un lot métier. Passage prod = validation humaine puis merge `dev` → `main`.
+
+Tests = Postgres **local** `127.0.0.1` (`install.sh`). Pas de migration / seed / wipe sur la RDB Scaleway. `scripts/apply-migrations-direct.mjs` refuse une URL non locale sauf `ALLOW_PROD_MIGRATION=1` (validation humaine obligatoire).
+
+## Labo Florian (hors prod)
+
+Voir `docs/labo-florian.md`. Conteneur Scaleway **séparé** + Postgres labo + seed Leo. Workflow `.github/workflows/deploy-lab.yml` sur push `dev` (tags `:lab`, jamais `:latest`).
+
+| Action | Commande |
+|--------|----------|
+| Bootstrap labo (schéma + seed) | `SCOLA_ENV=lab ALLOW_LAB_MIGRATION=1 DATABASE_URL=… npm run seed:labo` |
+| TOTP admin seed | `npm run seed:dev:totp` |
+
+Runtime labo : `SCOLA_ENV=lab` / `NEXT_PUBLIC_SCOLA_ENV=lab` → bandeau ambre. **Interdit** : pointer le labo sur la RDB prod ou `SCW_CONTAINER_ID` prod.
+
+**Démo Florian (Cloud Agent)** : Forwarded Ports → 3000 → `/demo` (boutons parent / staff). Voir `docs/demo-one-click.md`.
+
 ## Commandes essentielles
 
 | Action | Commande |
@@ -24,7 +54,16 @@ Repo **docslapro / ScolIA** : ENT / intranet scolaire (Next.js App Router, Drizz
 | Mot de passe | `DevLocalPass1!` |
 | TOTP | secret `DEVLOCALTOTPSECRET00000000000001` — générer le code via `npm run seed:dev:totp` |
 
-Ce compte est **orgAdmin** + rôle `admin`, MFA déjà activée. Ne jamais utiliser ces identifiants en production.
+Compte **parent** (portail `/famille`, absences / justifs) :
+
+| Champ | Valeur |
+|-------|--------|
+| E-mail | `parent@localhost.dev` |
+| Mot de passe | `DevParentPass1!` |
+| MFA | non (démo locale) |
+| Enfant seed | Léo JUSTIF (classe 4B) |
+
+Ces comptes sont locaux uniquement. Ne jamais utiliser ces identifiants en production.
 
 Tenant local mono-instance : slug `default`, cookie/query `dev_tenant` (voir `app/lib/local-dev.ts`).
 
@@ -34,8 +73,8 @@ Incohérence connue dans l’historique Drizzle : `0000_initial.sql` est déjà 
 
 | Contexte | Méthode |
 |----------|---------|
-| **Dev / Cloud Agent (base locale)** | `npx drizzle-kit push --force` (aligne sur `db/schema.ts`) |
-| **Prod / Scaleway (déjà peuplée)** | `node scripts/apply-migrations-direct.mjs` (backfill jusqu’à `0013` puis apply) |
+| **Dev / Cloud Agent (base locale)** | `npx drizzle-kit push --force` — **uniquement** si `DATABASE_URL` = `127.0.0.1` |
+| **Prod / Scaleway** | `node scripts/apply-migrations-direct.mjs` **interdit** sans validation humaine + `ALLOW_PROD_MIGRATION=1` |
 
 Ne pas « corriger » `0002` à la légère : la prod repose sur le backfill. Documenter tout changement de stratégie ici.
 
@@ -80,9 +119,9 @@ node .cursor/tools/browser.mjs http://localhost:3000
 - Auth cible : **Better-Auth uniquement** (pas NextAuth / Clerk).
 - Secrets : uniquement `process.env` / dashboard Secrets — jamais committer `.env.local`.
 
-## Absences accueil & Charlemagne
+## Absences accueil & registre VS
 
-La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enregistre le signal jour J (élèves → `vs_absence_eleve`, profs / OGEC → table `absence` RH). Charlemagne reste l’outil officiel de vie scolaire tant que le pont n’est pas branché. Point d’accroche : `app/lib/absences-sync/port.ts` (`noop` aujourd’hui). Les absences profs saisies à l’accueil passent par la validation direction, puis calendrier + mail secrétariat (déclaration rectorat), comme le circuit RH classique.
+La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enregistre le signal jour J (élèves → `vs_absence_eleve`, profs / OGEC → table `absence` RH). **Registre VS cible = ScolIA** (`vs_absence_eleve`, appels, sanctions, carnet). Charlemagne = **immigration only** (import / migration) — le pont runtime `app/lib/absences-sync/port.ts` reste `noop` volontairement. Les absences profs saisies à l’accueil passent par la validation direction, puis calendrier + mail secrétariat (déclaration rectorat), comme le circuit RH classique.
 
 ## RDV inscriptions (Google Agenda)
 
@@ -93,6 +132,8 @@ Flux parent : e-mail d’abord (gate) → matching protégé (pool = enfants li�
 ## Hors scope sans confirmation explicite
 
 - Mutations prod Scaleway (RDB, buckets, containers)
+- `git push origin main` / merge vers `main`
+- `scripts/apply-migrations-direct.mjs` ou `drizzle-kit push` contre une URL non locale
 - Envoi d’e-mails réels (SMTP)
 - Import massif SIECLE / données élèves réelles
 
@@ -119,7 +160,7 @@ Non requis pour booter localement. Utile pour OCR / S3 / MCP Scaleway / cache Va
 
 - `MISTRAL_API_KEY`
 - `SCW_ACCESS_KEY`, `SCW_SECRET_KEY`, `SCW_DEFAULT_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`
-- `MCP_DATABASE_URL` (Postgres Scaleway lecture seule, si tests contre la vraie base)
+- `MCP_DATABASE_URL` — **ne pas** y mettre l’URL RDB prod pour tester ; cette VM = `127.0.0.1`
 - `VALKEY_URL` (ou `REDIS_URL`) — cache partagé auth / messagerie / dossiers / dashboard. Sans URL, l’app tourne avec repli mémoire + Postgres.
 
 ### Fichiers env Cloud

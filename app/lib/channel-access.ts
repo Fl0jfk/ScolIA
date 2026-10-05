@@ -10,10 +10,11 @@ const FAMILY_ROLE = new Set(["parent", "eleve"]);
 /** Préfixes autorisés pour parent-only / élève-only (app + APIs). */
 export const APP_ONLY_ALLOWED_PREFIXES = [
   "/app-mobile",
+  "/quotidien",
   "/api/famille",
   "/api/eleve",
   "/api/mobile",
-  "/famille", // coque web temporaire en attendant le store
+  "/famille", // redirect legacy → /quotidien
   "/api/auth",
   "/api/account",
   "/api/app/context",
@@ -25,6 +26,8 @@ export const APP_ONLY_ALLOWED_PREFIXES = [
   "/sso-callback",
   "/auth",
   "/connexion",
+  "/demo",
+  "/api/demo",
 ] as const;
 
 export function isFamilyOnlyRoleSet(roles: string[]): boolean {
@@ -41,7 +44,7 @@ export function hasStaffCapableRole(roles: string[]): boolean {
 
 /**
  * Cible du logo établissement (header public / intranet).
- * Personnel interne connecté → dashboard ; parent, élève ou visiteur → portail rentrée.
+ * Personnel interne connecté → dashboard ; parent / élève → portail quotidien ; visiteur → rentrée.
  */
 export function resolveEstablishmentLogoHomeHref(opts: {
   isSignedIn: boolean;
@@ -55,7 +58,7 @@ export function resolveEstablishmentLogoHomeHref(opts: {
   if (!opts.isSignedIn) return fallback;
   if (opts.orgAdmin || opts.platformAdmin) return "/dashboard";
   if (hasStaffCapableRole(opts.roles)) return "/dashboard";
-  return fallback;
+  return "/quotidien";
 }
 
 export function isAppOnlyAllowedPath(pathname: string): boolean {

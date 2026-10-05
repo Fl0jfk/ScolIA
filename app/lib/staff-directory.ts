@@ -25,27 +25,31 @@ type StaffDirectoryRow = {
   validUntil?: string;
 };
 
-let cachedRows: StaffDirectoryRow[] | null = null;
-let cacheAt = 0;
+const staffDirectoryCacheByTenant = new Map<
+  string,
+  { at: number; rows: StaffDirectoryRow[] }
+>();
 const CACHE_MS = 45_000;
 
 function invalidateStaffDirectoryCache() {
-  cachedRows = null;
-  cacheAt = 0;
+  staffDirectoryCacheByTenant.clear();
   invalidateAppConfigCache();
 }
 
 export async function loadStaffDirectoryRows(): Promise<StaffDirectoryRow[]> {
-  if (cachedRows && Date.now() - cacheAt < CACHE_MS) return cachedRows;
+  const { resolveCacheTenantSlug } = await import("@/app/lib/cache-tenant-key");
+  const slug = await resolveCacheTenantSlug();
+  const hit = staffDirectoryCacheByTenant.get(slug);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.rows;
   const config = await loadAppConfig();
-  cachedRows = config.staffDirectory.map((r) => ({
+  const rows = config.staffDirectory.map((r) => ({
     email: r.email,
     branchId: r.branchId,
     role: r.role,
     validUntil: r.validUntil,
   }));
-  cacheAt = Date.now();
-  return cachedRows;
+  staffDirectoryCacheByTenant.set(slug, { at: Date.now(), rows });
+  return rows;
 }
 
 function isStaffRowActive(row: StaffDirectoryRow, now = new Date()): boolean {

@@ -54,13 +54,14 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/requests/parent-portal",
   "/api/supplies/send",
   "/api/supplies/pdf",
-  "/api/chatbot",
   "/api/site/public",
   "/api/site/header-logo",
   "/api/public/site/posts",
   "/api/tenant/public",
   "/api/tenants/public",
   "/connexion",
+  "/demo",
+  "/api/demo(.*)",
   "/plateforme",
   "/sign-in(.*)",
   "/sign-up(.*)",
@@ -104,6 +105,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
 
 const VISITOR_EXACT = new Set([
   "/connexion",
+  "/demo",
   "/plateforme",
   "/mentions-legales",
   "/confidentialite",

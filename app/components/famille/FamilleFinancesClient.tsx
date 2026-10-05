@@ -98,7 +98,7 @@ function FinancesContent({ eleveId }: { eleveId: string | null }) {
                 className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3"
               >
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+                  <p className="text-xs font-bold uppercase tracking-wide text-teal-800">
                     Facturation foyer
                   </p>
                   <p className="font-semibold text-slate-900">{block.foyer.label}</p>

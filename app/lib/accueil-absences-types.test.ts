@@ -1,6 +1,30 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { absenceCoversSlot, asDateKey, datesOverlap, timesOverlap } from "./accueil-absences-types";
+import {
+  absenceCoversSlot,
+  asDateKey,
+  canAnnulerAccueilBoardRow,
+  datesOverlap,
+  timesOverlap,
+  type AccueilBoardRow,
+} from "./accueil-absences-types";
+
+function boardRow(overrides: Partial<AccueilBoardRow>): AccueilBoardRow {
+  return {
+    id: "id-1",
+    kind: "eleve",
+    displayName: "Test",
+    subtitle: "",
+    dateDebut: "2026-10-05",
+    dateFin: "2026-10-05",
+    heureDebut: null,
+    heureFin: null,
+    motif: null,
+    createdByNom: null,
+    source: "accueil",
+    ...overrides,
+  };
+}
 
 test("asDateKey normalise string et Date UTC minuit", () => {
   assert.equal(asDateKey("2026-09-02"), "2026-09-02");
@@ -45,4 +69,10 @@ test("absenceCoversSlot accueil vs appel", () => {
     }),
     false,
   );
+});
+
+test("canAnnulerAccueilBoardRow — accueil élève seulement", () => {
+  assert.equal(canAnnulerAccueilBoardRow(boardRow({ source: "accueil" })), true);
+  assert.equal(canAnnulerAccueilBoardRow(boardRow({ source: "appel" })), false);
+  assert.equal(canAnnulerAccueilBoardRow(boardRow({ kind: "professeur", source: "accueil" })), false);
 });

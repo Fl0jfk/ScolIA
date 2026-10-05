@@ -1,18 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireMobileStaffAccess } from "@/app/lib/mobile-auth";
+import { getAppelWithLignes, listElevesForClasse, type VsAppelLigneInput } from "@/app/lib/vs-absences-db";
 import {
-  closeAppel,
-  getAppelWithLignes,
-  getOrCreateAppel,
-  listElevesForClasse,
-  listElevesForGroupeAppel,
-  saveAppelLignes,
-  type VsAppelLigneInput,
-} from "@/app/lib/vs-absences-db";
-import {
-  jourSemaineFromIsoDate,
-  listEdtCreneauxForJour,
-} from "@/app/lib/vs-calendrier-db";
+  closeAppelAction,
+  openAppelForCreneau,
+  saveAppelLignesAction,
+} from "@/app/lib/vs-appels-actions";
 import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
 
 /**
@@ -78,54 +71,32 @@ export async function POST(req: Request) {
   try {
     if (action === "create") {
       const dateAppel = String(body.dateAppel || "").trim();
-      let classe = String(body.classe || "").trim();
       if (!dateAppel) {
         return NextResponse.json({ error: "dateAppel requis." }, { status: 400 });
       }
 
-      let heureDebut = body.heureDebut || null;
-      let heureFin = body.heureFin || null;
-      let matiereLibelle = body.matiereLibelle || null;
-      const creneauId = body.creneauId || null;
-      let groupeId: string | null = null;
-
-      if (creneauId) {
-        const jour = jourSemaineFromIsoDate(dateAppel);
-        const creneaux = await listEdtCreneauxForJour(etabId, jour);
-        const creneau = creneaux.find((c) => c.id === creneauId);
-        if (creneau) {
-          heureDebut = heureDebut || creneau.heureDebut;
-          heureFin = heureFin || creneau.heureFin;
-          matiereLibelle =
-            matiereLibelle || creneau.matiereLibelle || creneau.enseignantNom || null;
-          groupeId = creneau.groupeId ?? null;
-          if (!classe) {
-            classe = creneau.groupeCode || creneau.classe || "";
-          }
-        }
-      }
-
-      if (!classe && !groupeId) {
-        return NextResponse.json(
-          { error: "dateAppel et classe (ou créneau groupe) requis." },
-          { status: 400 },
-        );
-      }
-      if (!classe && groupeId) classe = "groupe";
-
-      const appel = await getOrCreateAppel(etabId, {
-        dateAppel,
-        classe,
-        creneauId,
-        heureDebut,
-        heureFin,
-        matiereLibelle,
-        enseignantUserId: gate.ctx.authUserId,
-        enseignantNom: gate.ctx.name,
-      });
-      const eleves = groupeId
-        ? await listElevesForGroupeAppel(etabId, groupeId)
-        : await listElevesForClasse(etabId, classe);
+      const actor = {
+        userId: gate.ctx.authUserId,
+        displayName: gate.ctx.name,
+        roles: gate.ctx.roles,
+        isOrgAdmin: false,
+      };
+      const opened = await openAppelForCreneau(
+        etabId,
+        {
+          dateAppel,
+          creneauId: body.creneauId || null,
+          classe: body.classe,
+          heureDebut: body.heureDebut,
+          heureFin: body.heureFin,
+          matiereLibelle: body.matiereLibelle,
+        },
+        actor,
+      );
+      const { appel, groupeId: gid, classe: cls } = opened;
+      const eleves = gid
+        ? await (await import("@/app/lib/vs-absences-db")).listElevesForGroupeAppel(etabId, gid)
+        : await listElevesForClasse(etabId, cls);
       const urls = await resolvePhotoUrlsForEleves(eleves);
       const existing = await getAppelWithLignes(etabId, appel.id);
       return NextResponse.json({
@@ -141,9 +112,14 @@ export async function POST(req: Request) {
       if (!appelId || !Array.isArray(body.lignes)) {
         return NextResponse.json({ error: "appelId et lignes requis." }, { status: 400 });
       }
-      const result = await saveAppelLignes(etabId, appelId, body.lignes);
-      const data = await getAppelWithLignes(etabId, appelId);
-      return NextResponse.json({ channel: "mobile", ...result, ...data });
+      const actor = {
+        userId: gate.ctx.authUserId,
+        displayName: gate.ctx.name,
+        roles: gate.ctx.roles,
+        isOrgAdmin: false,
+      };
+      const data = await saveAppelLignesAction(etabId, appelId, body.lignes, actor);
+      return NextResponse.json({ channel: "mobile", ...data });
     }
 
     if (action === "close") {
@@ -151,9 +127,14 @@ export async function POST(req: Request) {
       if (!appelId) {
         return NextResponse.json({ error: "appelId requis." }, { status: 400 });
       }
-      const appel = await closeAppel(etabId, appelId);
-      if (!appel) return NextResponse.json({ error: "Appel introuvable." }, { status: 404 });
-      return NextResponse.json({ channel: "mobile", appel });
+      const actor = {
+        userId: gate.ctx.authUserId,
+        displayName: gate.ctx.name,
+        roles: gate.ctx.roles,
+        isOrgAdmin: false,
+      };
+      const closed = await closeAppelAction(etabId, appelId, actor);
+      return NextResponse.json({ channel: "mobile", ...closed });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

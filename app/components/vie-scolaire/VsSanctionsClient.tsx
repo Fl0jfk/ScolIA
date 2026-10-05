@@ -30,6 +30,7 @@ export default function VsSanctionsClient() {
   const [typeId, setTypeId] = useState("");
   const [dateSanction, setDateSanction] = useState(todayIso());
   const [motif, setMotif] = useState("");
+  const [notifyCarnet, setNotifyCarnet] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -80,11 +81,15 @@ export default function VsSanctionsClient() {
       const res = await fetch("/api/vie-scolaire/sanctions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eleveId, typeId, dateSanction, motif }),
+        body: JSON.stringify({ eleveId, typeId, dateSanction, motif, notifyCarnet }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Création impossible");
-      setMessage("Sanction enregistrée.");
+      setMessage(
+        data.carnetId
+          ? "Sanction enregistrée — entrée carnet créée pour la famille."
+          : "Sanction enregistrée.",
+      );
       setMotif("");
       setEleveId("");
       setEleveLabel("");
@@ -121,7 +126,8 @@ export default function VsSanctionsClient() {
       <header>
         <h1 className="text-2xl font-black text-slate-900">Sanctions</h1>
         <p className="text-sm text-slate-600 mt-1">
-          Catalogue court — avertissement, colle, exclusion de cours, blâme. Pas de permis à points.
+          Catalogue court — avertissement, colle, exclusion de cours, blâme. Visible familles ;
+          option carnet pour l’accusé de lecture. Pas de permis à points.
         </p>
       </header>
 
@@ -195,6 +201,14 @@ export default function VsSanctionsClient() {
             className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             placeholder="Faits succincts…"
           />
+        </label>
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <input
+            type="checkbox"
+            checked={notifyCarnet}
+            onChange={(e) => setNotifyCarnet(e.target.checked)}
+          />
+          Notifier la famille via le carnet (accusé de lecture)
         </label>
         <button
           type="button"

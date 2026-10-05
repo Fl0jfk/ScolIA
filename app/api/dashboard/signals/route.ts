@@ -46,6 +46,10 @@ import { getPersonnelIndex } from "@/app/lib/personnel-storage";
 import { getPersonnelLeaveRequests } from "@/app/lib/personnel-leave-storage";
 import { PERSONNEL_LEAVE_TYPE_LABELS } from "@/app/lib/personnel-types";
 import {
+  absencesToLeaveSpans,
+  mergeLeaveSpans,
+} from "@/app/lib/absences-leave-spans";
+import {
   findCurrentActivity,
   schoolWeekParity,
   type LeaveSpan,
@@ -528,6 +532,16 @@ export async function GET() {
                 label: PERSONNEL_LEAVE_TYPE_LABELS[r.type] || r.type,
               }));
           }
+          try {
+            const absIndex = await getAbsenceIndex();
+            const absenceSpans = absencesToLeaveSpans(absIndex, {
+              personnelId: leavePersonnelId || null,
+              userId,
+            });
+            leaves = mergeLeaveSpans(leaves, absenceSpans);
+          } catch {
+            // Absences RH optionnelles pour le signal « maintenant ».
+          }
           let zone: "A" | "B" | "C" | null = null;
           try {
             const cfg = await loadAppConfig();
@@ -582,6 +596,8 @@ export async function GET() {
       title: string;
       detail: string;
     }> = [];
+    let creneauxVidesCount = 0;
+    let creneauxVidesTravelId: string | null = null;
 
     try {
       const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
@@ -589,6 +605,26 @@ export async function GET() {
       const etabId = await resolveCurrentEtablissementId();
       if (etabId) {
         anneeScolaireLabel = (await resolveAnneeCouranteMeta(etabId)).label;
+        try {
+          const { countFacturesEnRetard } = await import("@/app/lib/facturation-db");
+          const { parisDateKey } = await import("@/app/lib/paris-time");
+          facturesEnRetard = await countFacturesEnRetard(etabId, parisDateKey(new Date()));
+        } catch {
+          facturesEnRetard = 0;
+        }
+        try {
+          const { loadCreneauVideSignalsForDashboard } = await import("@/app/lib/impact-engine");
+          const { parisDateKey } = await import("@/app/lib/paris-time");
+          const signals = await loadCreneauVideSignalsForDashboard({
+            etablissementId: etabId,
+            date: parisDateKey(new Date()),
+          });
+          creneauxVidesCount = signals.length;
+          const travelIds = [...new Set(signals.map((s) => s.travelId).filter(Boolean))];
+          creneauxVidesTravelId = travelIds.length === 1 ? travelIds[0]! : null;
+        } catch (err) {
+          console.warn("[dashboard/signals] creneaux vides", err);
+        }
         if (
           accessibleModuleIds.has("eleve-dossier") &&
           businessUserId &&
@@ -730,6 +766,8 @@ export async function GET() {
         facturesEnRetard,
         anneeScolaireLabel,
         unseenAccompagnementAlerts,
+        creneauxVidesCount,
+        creneauxVidesTravelId,
       });
       void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
       return NextResponse.json(signals);

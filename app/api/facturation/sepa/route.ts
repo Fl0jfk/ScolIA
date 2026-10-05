@@ -25,7 +25,10 @@ export async function POST(req: Request) {
     ? factures.filter((f) => factureIds.includes(f.id))
     : factures.filter((f) => f.statut === "emise");
 
-  if (!selected.length) {
+  /** Avoirs = crédit foyer — jamais en prélèvement debit. */
+  const selectedDebits = selected.filter((f) => f.nature !== "avoir");
+
+  if (!selectedDebits.length) {
     return NextResponse.json({ error: "Aucune facture émise à prélever." }, { status: 400 });
   }
 
@@ -33,7 +36,7 @@ export async function POST(req: Request) {
   const db = getDb();
   const debits: SepaDebitRow[] = [];
 
-  for (const fac of selected) {
+  for (const fac of selectedDebits) {
     const ff = await getFoyerFacturation(etabId, fac.foyerId);
     if (!ff?.acceptePrelevement || !ff.iban || !ff.rum) continue;
 

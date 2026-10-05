@@ -18,6 +18,11 @@ import {
   type PersonnelLeaveRequest,
 } from "@/app/lib/personnel-types";
 import {
+  absencesToLeaveSpans,
+  mergeLeaveSpans,
+} from "@/app/lib/absences-leave-spans";
+import type { AbsenceRecord } from "@/app/lib/absences-types";
+import {
   findCurrentActivity,
   schoolWeekParity,
   type LeaveSpan,
@@ -93,9 +98,10 @@ export default function MonPlanningClient() {
     setLoading(true);
     setError(null);
     try {
-      const [planRes, leaveRes] = await Promise.all([
+      const [planRes, leaveRes, absRes] = await Promise.all([
         fetch("/api/rh/planning", { cache: "no-store" }),
         fetch("/api/personnel/leaves", { cache: "no-store" }),
+        fetch("/api/absences", { cache: "no-store" }),
       ]);
       const j = await planRes.json();
       if (!planRes.ok) throw new Error(j.error || "Chargement impossible");
@@ -110,7 +116,9 @@ export default function MonPlanningClient() {
       const z = j.schoolHolidayZone;
       setSchoolHolidayZone(z === "A" || z === "B" || z === "C" ? z : null);
       const pid = j.personnelId as string | undefined;
+      const selfUserId = user?.id || null;
 
+      let leaveSpans: LeaveSpan[] = [];
       if (leaveRes.ok) {
         const lj = await leaveRes.json();
         const requests = (lj.requests || []) as PersonnelLeaveRequest[];
@@ -122,24 +130,34 @@ export default function MonPlanningClient() {
             : j.canManage
               ? []
               : validated;
-        setLeaves(
-          scoped.map((r) => ({
-            startDate: r.startDate,
-            endDate: r.endDate,
-            type: r.type,
-            label: PERSONNEL_LEAVE_TYPE_LABELS[r.type] || r.type,
-          })),
-        );
-      } else {
-        setLeaves([]);
+        leaveSpans = scoped.map((r) => ({
+          startDate: r.startDate,
+          endDate: r.endDate,
+          type: r.type,
+          label: PERSONNEL_LEAVE_TYPE_LABELS[r.type] || r.type,
+        }));
       }
+
+      // Absences RH validées → même overlay LeaveSpan (trou de cours).
+      let absenceSpans: LeaveSpan[] = [];
+      if (absRes.ok) {
+        const absList = (await absRes.json()) as AbsenceRecord[];
+        if (Array.isArray(absList)) {
+          absenceSpans = absencesToLeaveSpans(absList, {
+            personnelId: pid || null,
+            userId: selfUserId,
+          });
+        }
+      }
+
+      setLeaves(mergeLeaveSpans(leaveSpans, absenceSpans));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
       setPlanning(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isLoaded) return;

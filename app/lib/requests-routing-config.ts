@@ -43,7 +43,12 @@ const TAG_MATCH_MIN_SCORE = 3;
 const AMBIGUITY_RATIO = 0.85;
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 
-let cache: { at: number; config: RequestsRoutingConfig } | null = null;
+const routingCacheByTenant = new Map<string, { at: number; config: RequestsRoutingConfig }>();
+
+async function routingCacheKey(): Promise<string> {
+  const { resolveCacheTenantSlug } = await import("@/app/lib/cache-tenant-key");
+  return resolveCacheTenantSlug();
+}
 
 async function loadEstablishmentsForRouting(): Promise<Establishment[]> {
   try {
@@ -68,7 +73,7 @@ async function loadEstablishmentsForRouting(): Promise<Establishment[]> {
 }
 
 function invalidateRequestsRoutingCache() {
-  cache = null;
+  routingCacheByTenant.clear();
 }
 
 /** Assure la présence de la file RH même sur une config tenant plus ancienne. */
@@ -93,7 +98,9 @@ function ensureBuiltinRhRouting(config: RequestsRoutingConfig): RequestsRoutingC
 }
 
 export async function getRequestsRoutingConfig(): Promise<RequestsRoutingConfig> {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.config;
+  const key = await routingCacheKey();
+  const hit = routingCacheByTenant.get(key);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.config;
   let config: RequestsRoutingConfig;
   try {
     const raw = await getJson<{ data?: unknown }>(ROUTING_KEY);
@@ -119,7 +126,7 @@ export async function getRequestsRoutingConfig(): Promise<RequestsRoutingConfig>
       config = syncDirectionQueuesFromTasks(config);
     }
   }
-  cache = { at: Date.now(), config };
+  routingCacheByTenant.set(key, { at: Date.now(), config });
   return config;
 }
 

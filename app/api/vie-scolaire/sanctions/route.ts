@@ -44,6 +44,7 @@ export async function POST(req: Request) {
     typeId?: string;
     dateSanction?: string;
     motif?: string;
+    notifyCarnet?: boolean;
   };
 
   try {
@@ -52,15 +53,20 @@ export async function POST(req: Request) {
         appUser.user.name ||
         null
       : null;
-    const row = await createSanction(etabId, {
+    const result = await createSanction(etabId, {
       eleveId: String(body.eleveId || ""),
       typeId: String(body.typeId || ""),
       dateSanction: String(body.dateSanction || ""),
       motif: body.motif,
       createdByUserId: appUser.ok ? appUser.user.id : null,
       createdByNom,
+      notifyCarnet: body.notifyCarnet,
     });
-    return NextResponse.json({ sanction: row });
+    return NextResponse.json({
+      sanction: result.sanction,
+      carnetId: result.carnetId,
+      typeLibelle: result.typeLibelle,
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Création impossible." },
