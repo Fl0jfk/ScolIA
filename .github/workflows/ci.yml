@@ -1,0 +1,16 @@
+# Vérifications rapides sur PR et push main (sans deploy / registry).
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    uses: ./.github/workflows/typecheck-reusable.yml

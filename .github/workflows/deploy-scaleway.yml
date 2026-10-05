@@ -44,7 +44,11 @@ env:
   REGION: ${{ secrets.REGION || 'fr-par' }}
 
 jobs:
+  typecheck:
+    uses: ./.github/workflows/typecheck-reusable.yml
+
   build-and-deploy:
+    needs: typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
