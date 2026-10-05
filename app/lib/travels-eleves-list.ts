@@ -1,5 +1,7 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { getTotalMeals } from "@/app/lib/travels-cuisine-form";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import { splitClassesValue } from "@/app/lib/travels-classes";
 import type { TravelsParticipantEleve, TravelsTripData } from "@/app/lib/travels-types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -157,14 +159,30 @@ export function buildPanierRepasListCsv(participants: TravelsParticipantEleve[])
  * (les noms peuvent arriver après le chiffre, comme pour le transport).
  * Mode « exact » : à la confirmation de liste, le compte suit le nominatif.
  */
+function mergeTripClassesWithParticipants(
+  declaredRaw: string | null | undefined,
+  participants: TravelsParticipantEleve[],
+): string {
+  const declared = splitClassesValue(String(declaredRaw || ""));
+  const fromParticipants = participants
+    .map((p) => String(p.classe || "").trim())
+    .filter(Boolean);
+  const merged: string[] = [];
+  for (const cls of [...declared, ...fromParticipants]) {
+    if (!cls) continue;
+    if (merged.some((m) => schoolClassesMatch(m, cls))) continue;
+    merged.push(cls);
+  }
+  merged.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true }));
+  return merged.join(", ");
+}
+
 export function applyParticipantElevesToTripData(
   data: TravelsTripData,
   participants: TravelsParticipantEleve[],
   opts?: { resetConfirmation?: boolean; syncNbEleves?: "max" | "exact" },
 ): TravelsTripData {
-  const classes = [...new Set(participants.map((p) => p.classe).filter(Boolean) as string[])].sort(
-    (a, b) => a.localeCompare(b, "fr"),
-  );
+  const classesMerged = mergeTripClassesWithParticipants(data.classes, participants);
   const declaredRaw = Number(data.nbEleves);
   const declared =
     Number.isFinite(declaredRaw) && declaredRaw >= 0 ? Math.floor(declaredRaw) : 0;
@@ -177,7 +195,8 @@ export function applyParticipantElevesToTripData(
     ...data,
     participantEleves: participants,
     nbEleves,
-    classes: classes.length > 0 ? classes.join(", ") : data.classes,
+    // Union déclaration + classes présentes dans la liste (ne pas écraser un choix overview).
+    classes: classesMerged || data.classes,
   };
   if (opts?.resetConfirmation) {
     next.listeElevesStatus = "draft";

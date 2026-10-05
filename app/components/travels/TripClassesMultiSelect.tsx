@@ -58,8 +58,8 @@ export default function TripClassesMultiSelect({
           placeholder="Ex: 3A, 4B"
         />
         <p className="text-[11px] text-amber-700">
-          Catalogue vide : renseignez les classes dans Paramètres (salles / enseignements) pour
-          les proposer ici en sélection.
+          Aucune classe élève détectée pour l’année en cours — saisissez librement, ou vérifiez
+          le registre élèves / Structures Siècle.
         </p>
       </div>
     );

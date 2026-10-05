@@ -7,8 +7,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { useTravelsElevesClasses } from "@/app/hooks/useTravelsElevesClasses";
 import { matchEstablishment } from "@/app/lib/establishment-catalog";
-import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 import {
   formFieldsToAccompagnateurs,
   type TravelsAccompagnateur,
@@ -107,14 +107,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const tabFromUrl = searchParams.get("tab");
   const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
-  const classOptions = useMemo(
-    () =>
-      mergeTripClassCatalogs(
-        appCtx?.profRoom?.classesByPole,
-        appCtx?.domainPlanning?.classesByPole,
-      ),
-    [appCtx?.profRoom?.classesByPole, appCtx?.domainPlanning?.classesByPole],
-  );
+  const { classOptions } = useTravelsElevesClasses();
   const [hubTab, setHubTab] = useState<TravelsHubTab>(() => {
     const t = tabFromUrl as TravelsHubTab | null;
     return t && TRAVELS_HUB_TABS.some((x) => x.id === t) ? t : "overview";
@@ -138,6 +131,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const [draftNomsAccompagnateurs, setDraftNomsAccompagnateurs] = useState("");
   const [draftAccompagnateurs, setDraftAccompagnateurs] = useState<TravelsAccompagnateur[]>([]);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [showClassesModal, setShowClassesModal] = useState(false);
+  const [draftClasses, setDraftClasses] = useState("");
   const comptaTabAutoOpened = useRef<string | null>(null);
   const tripStatusRef = useRef(trip?.status);
   tripStatusRef.current = trip?.status;
@@ -905,6 +900,11 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     setShowBudgetModal(true);
   };
 
+  const openClassesModal = () => {
+    setDraftClasses(String(trip.data?.classes ?? ""));
+    setShowClassesModal(true);
+  };
+
   const cloneCuisineDetails = (src: TravelsTrip["data"]["piqueNiqueDetails"] | undefined) => {
     if (!src) return emptyCuisineDetails();
     return JSON.parse(JSON.stringify({ ...emptyCuisineDetails(), ...src })) as ReturnType<typeof emptyCuisineDetails>;
@@ -1030,6 +1030,37 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (!saved) return alert("Impossible d'enregistrer le budget.");
     setShowBudgetModal(false);
     alert("Budget prévisionnel enregistré.");
+  };
+
+  const saveClassesChange = async () => {
+    const classes = draftClasses.trim();
+    if (!classes) {
+      return alert("Sélectionnez au moins une classe (ou Autres).");
+    }
+    const prev = String(trip.data?.classes || "").trim();
+    if (classes === prev) {
+      setShowClassesModal(false);
+      return alert("Aucun changement de classes.");
+    }
+    const updatedTrip: TravelsTrip = {
+      ...trip,
+      data: { ...trip.data, classes },
+      history: [
+        ...(trip.history || []),
+        {
+          date: new Date().toISOString(),
+          user: user?.fullName ?? undefined,
+          action: "CLASSES_MODIFIEES",
+          note: prev
+            ? `Classes : ${prev} → ${classes}`
+            : `Classes renseignées : ${classes}`,
+        },
+      ],
+    };
+    const saved = await saveUpdates(updatedTrip);
+    if (!saved) return alert("Impossible d'enregistrer les classes.");
+    setShowClassesModal(false);
+    alert("Classes enregistrées.");
   };
 
   const saveEffectifChange = async () => {
@@ -1781,6 +1812,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           classOptions={classOptions}
           canEditEffectif={canEditEffectif}
           openEffectifModal={openEffectifModal}
+          openClassesModal={openClassesModal}
           withBusLogistics={withBusLogistics}
           effectifChanged={effectifChanged}
           cuisineOrderSent={Boolean(cuisineOrderSent)}
@@ -1938,6 +1970,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         draftCoutTotal={draftCoutTotal}
         setDraftCoutTotal={setDraftCoutTotal}
         saveBudgetChange={saveBudgetChange}
+        showClassesModal={showClassesModal}
+        setShowClassesModal={setShowClassesModal}
+        draftClasses={draftClasses}
+        setDraftClasses={setDraftClasses}
+        classOptions={classOptions}
+        saveClassesChange={saveClassesChange}
         cuisineFollowUp={cuisineFollowUp}
         setCuisineFollowUp={setCuisineFollowUp}
         runCuisineFollowUp={runCuisineFollowUp}

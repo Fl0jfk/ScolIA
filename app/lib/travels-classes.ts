@@ -1,33 +1,8 @@
-import {
-  resolveClassesByPoleCatalog,
-  schoolClassesMatch,
-} from "@/app/lib/school-classes-catalog";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 
 /** Valeur technique pour l’option « Autres » (saisie libre). */
 export const TRAVELS_CLASSES_AUTRES_VALUE = "__AUTRES__";
 export const TRAVELS_CLASSES_AUTRES_LABEL = "Autres";
-
-function flattenClassesByPole(classesByPole?: Record<string, string[]> | null): string[] {
-  if (!classesByPole || typeof classesByPole !== "object") return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const list of Object.values(classesByPole)) {
-    for (const raw of list || []) {
-      const c = String(raw || "").trim();
-      if (!c || seen.has(c)) continue;
-      seen.add(c);
-      out.push(c);
-    }
-  }
-  return out.sort((a, b) => a.localeCompare(b, "fr"));
-}
-
-/** Fusionne les catalogues salles + enseignements transversaux (sans MAINTENANCE, école enrichie). */
-export function mergeTripClassCatalogs(
-  ...sources: Array<Record<string, string[]> | null | undefined>
-): string[] {
-  return flattenClassesByPole(resolveClassesByPoleCatalog(...sources));
-}
 
 export function splitClassesValue(raw: string): string[] {
   return String(raw || "")

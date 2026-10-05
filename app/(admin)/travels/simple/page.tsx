@@ -1,7 +1,7 @@
 "use client";
 
 import { useSessionUser } from "@/app/hooks/useAppUser";
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import {
   enumerateWeeklyDatesInRange,
   WEEKDAY_JS_OPTIONS,
@@ -9,6 +9,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { useTravelsElevesClasses } from "@/app/hooks/useTravelsElevesClasses";
 import TravelsOwnerAssignSection, {
   resolveTripOwnerFields,
   type TravelsOwnerFields,
@@ -20,7 +21,6 @@ import TripAccompagnateursSelect, {
 } from "@/app/components/travels/TripAccompagnateursSelect";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
-import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 import { TripDocumentsDropZone } from "@/app/components/travels/TripDocumentsDropZone";
@@ -49,14 +49,7 @@ const CUISINE_ROWS = [
 function SimpleTripFormContent() {
   const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
-  const classOptions = useMemo(
-    () =>
-      mergeTripClassCatalogs(
-        appCtx?.profRoom?.classesByPole,
-        appCtx?.domainPlanning?.classesByPole,
-      ),
-    [appCtx?.profRoom?.classesByPole, appCtx?.domainPlanning?.classesByPole],
-  );
+  const { classOptions } = useTravelsElevesClasses();
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("edit");
@@ -488,8 +481,8 @@ function SimpleTripFormContent() {
           />
           {classOptions.length === 0 ? (
             <p className="mt-1 text-[11px] text-amber-700">
-              Aucune classe en catalogue — saisissez librement, ou renseignez les classes dans
-              Paramètres (salles / enseignements).
+              Aucune classe élève pour l’année en cours — saisissez librement (même source que
+              l’onglet Élèves du dossier).
             </p>
           ) : null}
         </div>

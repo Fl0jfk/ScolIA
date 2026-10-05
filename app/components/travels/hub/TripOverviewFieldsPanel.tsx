@@ -37,6 +37,7 @@ type TripOverviewFieldsPanelProps = {
   classOptions: string[];
   canEditEffectif: boolean;
   openEffectifModal: () => void;
+  openClassesModal: () => void;
   withBusLogistics: boolean;
   effectifChanged: boolean;
   cuisineOrderSent: boolean;
@@ -125,6 +126,7 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
     classOptions,
     canEditEffectif,
     openEffectifModal,
+    openClassesModal,
     withBusLogistics,
     effectifChanged,
     cuisineOrderSent,
@@ -170,7 +172,15 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
           )}
         </Tile>
 
-        <Tile icon="🏫" label="Classes">
+        <Tile
+          icon="🏫"
+          label="Classes"
+          action={
+            !isEditing && canEditEffectif ? (
+              <LinkBtn onClick={openClassesModal}>Modifier</LinkBtn>
+            ) : undefined
+          }
+        >
           {isEditing ? (
             <TripClassesMultiSelect
               value={String(editedData.classes || "")}
