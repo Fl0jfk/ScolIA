@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(sortedTrips);
   } catch (error) {
-    console.error("Erreur S3 List:", error);
-    return NextResponse.json({ error: "Erreur lors de la récupération de l'index" }, { status: 500 });
+    console.error("[travels/list GET]", error);
+    return NextResponse.json([]);
   }
 }

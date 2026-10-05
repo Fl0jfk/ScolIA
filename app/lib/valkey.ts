@@ -435,7 +435,13 @@ async function runCommand<T>(fn: (v: Redis) => Promise<T>): Promise<T | null> {
 }
 
 export async function valkeyGet(key: string): Promise<string | null> {
-  return runCommand((v) => v.get(key));
+  if (!isValkeyConfigured()) return null;
+  try {
+    return await runCommand((v) => v.get(key));
+  } catch (error) {
+    console.warn("[valkey] get", key, error);
+    return null;
+  }
 }
 
 export async function valkeySet(
@@ -443,6 +449,7 @@ export async function valkeySet(
   value: string,
   ttlSeconds?: number,
 ): Promise<boolean> {
+  if (!isValkeyConfigured()) return false;
   const ok = await runCommand(async (v) => {
     if (ttlSeconds && ttlSeconds > 0) {
       await v.set(key, value, "EX", Math.floor(ttlSeconds));
@@ -456,10 +463,16 @@ export async function valkeySet(
 
 export async function valkeyDel(...keys: string[]): Promise<void> {
   if (keys.length === 0) return;
-  await runCommand((v) => v.del(...keys));
+  if (!isValkeyConfigured()) return;
+  try {
+    await runCommand((v) => v.del(...keys));
+  } catch (error) {
+    console.warn("[valkey] del", keys[0], error);
+  }
 }
 
 export async function valkeyGetJson<T>(key: string): Promise<T | null> {
+  if (!isValkeyConfigured()) return null;
   const raw = await valkeyGet(key);
   if (!raw) return null;
   try {
@@ -474,6 +487,7 @@ export async function valkeySetJson(
   value: unknown,
   ttlSeconds?: number,
 ): Promise<boolean> {
+  if (!isValkeyConfigured()) return false;
   try {
     return await valkeySet(key, JSON.stringify(value), ttlSeconds);
   } catch (error) {
@@ -487,6 +501,9 @@ export async function valkeyCached<T>(opts: {
   ttlSeconds: number;
   loader: () => Promise<T>;
 }): Promise<T> {
+  if (!isValkeyConfigured()) {
+    return opts.loader();
+  }
   const hit = await valkeyGetJson<T>(opts.key);
   if (hit !== null && hit !== undefined) return hit;
   const fresh = await opts.loader();
