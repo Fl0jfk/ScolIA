@@ -181,3 +181,22 @@ export function resolveEleveCycle(input: {
   if (fromClasse) return fromClasse;
   return asCycle(input.secteur);
 }
+
+/** Libellé onglet hub — consultation accueil + appels de classe (source appel). */
+export const ABSENCES_CONSULTATION_TAB_LABEL = "Absences accueil et appels";
+
+export const ABSENCES_CONSULTATION_STANDALONE_TITLE = ABSENCES_CONSULTATION_TAB_LABEL;
+
+export const ABSENCES_CONSULTATION_STANDALONE_DESCRIPTION =
+  "Élèves et professeurs signalés au standard ou via un appel de classe. Filtrez par niveau ou classe ; corrigez une erreur de saisie accueil si besoin.";
+
+/** Empty state quand le board est vide pour la date consultée. */
+export const ABSENCES_CONSULTATION_EMPTY_DATE_FR =
+  "Aucune absence signalée à l’accueil ou via un appel de classe pour cette date.";
+
+/**
+ * Annulation PATCH accueil-only : masquer « Supprimer » pour source=appel (et hors élèves).
+ */
+export function canAnnulerAccueilBoardRow(row: AccueilBoardRow): boolean {
+  return row.kind === "eleve" && row.source === "accueil";
+}
