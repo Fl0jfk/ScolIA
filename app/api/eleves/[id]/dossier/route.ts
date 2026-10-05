@@ -61,7 +61,14 @@ import {
   buildEleveDossierClassCatalog,
   type EleveDossierClassCatalog,
 } from "@/app/lib/eleve-dossier-catalog";
-import { buildEleveSyntheseSnapshot } from "@/app/lib/eleve-dossier-synthese";
+import {
+  buildEleveMealWeek,
+  buildEleveSyntheseSnapshot,
+  eleveInitials,
+  type EleveSyntheseSnapshot,
+} from "@/app/lib/eleve-dossier-synthese";
+import { eleveStatusLabel } from "@/app/lib/eleve-dossier-labels";
+import { elevePhotoProxyPath } from "@/app/lib/eleve-photos";
 import { lookupMefLabel } from "@/app/lib/nomenclature-import/enrich-eleves-mef";
 import {
   countMidiFromGrille,
@@ -98,6 +105,54 @@ function isDirection(roles: string[]): boolean {
   return INTRANET_DIRECTION_SLUGS.some((slug) => roles.includes(slug));
 }
 
+function minimalDossierSynthese(
+  eleveId: string,
+  row: {
+    nom: string;
+    prenom: string;
+    classe: string | null;
+    status: string;
+    mef?: string | null;
+    ine?: string | null;
+  },
+): EleveSyntheseSnapshot {
+  return {
+    statusLabel: eleveStatusLabel(row.status),
+    classeLabel: row.classe,
+    siteLabel: null,
+    initials: eleveInitials(row.prenom, row.nom),
+    photoUrl: elevePhotoProxyPath(eleveId),
+    mef: row.mef?.trim() || null,
+    ine: row.ine?.trim() || null,
+    groupesAcademiques: [],
+    groupesInternes: [],
+    groupesEdt: [],
+    restauration: buildEleveMealWeek({
+      demiPension: false,
+      repasParSemaine: null,
+      interne: false,
+    }),
+    internat: { actif: false, roomLabel: null },
+    notesTrimestre: {
+      available: false,
+      label: "Notes — trimestre en cours",
+      value: "—",
+      detail: "Chargement allégé.",
+    },
+    absences: {
+      available: false,
+      label: "Absences & retards",
+      value: "—",
+      detail: "Chargement allégé.",
+    },
+    finances: {
+      available: false,
+      label: "Facturation famille",
+      detail: "Chargement allégé.",
+    },
+  };
+}
+
 function canEditStructure(
   roles: string[],
   opts: { orgAdmin?: boolean; platformAdmin?: boolean },
@@ -126,7 +181,7 @@ export async function GET(req: Request, ctx: Ctx) {
 
   const authUserId = gate.user.id;
   const businessUserId = gate.user.businessUserId;
-  const roles = gate.user.roles;
+  const roles = Array.isArray(gate.user.roles) ? gate.user.roles : [];
   const orgAdmin = Boolean(gate.user.orgAdmin);
   const platformAdmin = Boolean(gate.user.platformAdmin);
   const { canOpenEleveDossierDetail } = await import("@/app/lib/accueil-access");
@@ -189,7 +244,12 @@ export async function GET(req: Request, ctx: Ctx) {
   const needScol = sections.includes("scolarite");
   const needFactu = sections.includes("facturation");
   const needFamille = sections.includes("famille");
-  const loadExtras = new URL(req.url).searchParams.get("part") === "extras";
+  const dossierUrl = new URL(req.url);
+  const loadExtras = dossierUrl.searchParams.get("part") === "extras";
+  const focus = dossierUrl.searchParams.get("focus")?.trim().toLowerCase() ?? "";
+  const inscriptionFocus =
+    loadExtras && (focus === "inscription" || focus === "documents");
+  const loadHeavyExtras = loadExtras && !inscriptionFocus;
 
   // Rattrapage hors chemin critique : sync scolarité en arrière-plan.
   after(async () => {
@@ -212,7 +272,7 @@ export async function GET(req: Request, ctx: Ctx) {
       .from(eleveScolarite)
       .where(and(eq(eleveScolarite.etablissementId, etabId), eq(eleveScolarite.eleveId, id)))
       .orderBy(desc(eleveScolarite.createdAt)),
-    needFamille && loadExtras
+    needFamille && loadHeavyExtras
       ? db
           .select()
           .from(eleveFoyerLink)
@@ -247,20 +307,27 @@ export async function GET(req: Request, ctx: Ctx) {
                 roles,
                 orgAdmin,
                 platformAdmin,
-              }).catch(() => [])
+              }).catch((err) => {
+                console.error("[eleves/dossier] documents viewer", err);
+                return [];
+              })
             : Promise.resolve([]),
-          needNotes ? listMoyennesForEleve(etabId, id).catch(() => []) : Promise.resolve([]),
-          needNotes ? listCompetencesForEleve(etabId, id).catch(() => []) : Promise.resolve([]),
-          needVs
+          loadHeavyExtras && needNotes
+            ? listMoyennesForEleve(etabId, id).catch(() => [])
+            : Promise.resolve([]),
+          loadHeavyExtras && needNotes
+            ? listCompetencesForEleve(etabId, id).catch(() => [])
+            : Promise.resolve([]),
+          loadHeavyExtras && needVs
             ? listAbsencesForEleve(etabId, id, { limit: 40 }).catch(() => [])
             : Promise.resolve([]),
-          needVs
+          loadHeavyExtras && needVs
             ? listSanctionsForEleve(etabId, id, { limit: 30 }).catch(() => [])
             : Promise.resolve([]),
-          needVs
+          loadHeavyExtras && needVs
             ? listCarnetForEleve(etabId, id, { limit: 30 }).catch(() => [])
             : Promise.resolve([]),
-          needFactu
+          loadHeavyExtras && needFactu
             ? countFacturesEnRetardForEleve(etabId, id, parisDateKey(new Date()))
                 .then((enRetard) => ({
                   available: true as const,
@@ -272,16 +339,18 @@ export async function GET(req: Request, ctx: Ctx) {
                 }))
                 .catch(() => undefined)
             : Promise.resolve(undefined),
-          row.classe
+          loadHeavyExtras && row.classe
             ? listClassmatesForEleve(etabId, row.classe, {
                 excludeEleveId: id,
                 assignedClasses: assignedClassesForProf,
-              })
+              }).catch(() => [])
             : Promise.resolve([]),
-          getLatestAccompagnementDocumentsForEleve({
-            etablissementId: etabId,
-            eleveId: id,
-          }).catch(() => []),
+          loadHeavyExtras
+            ? getLatestAccompagnementDocumentsForEleve({
+                etablissementId: etabId,
+                eleveId: id,
+              }).catch(() => [])
+            : Promise.resolve([]),
         ])
       : Promise.resolve(null),
   ]);
@@ -372,7 +441,7 @@ export async function GET(req: Request, ctx: Ctx) {
   }));
 
   const pendingAccessRequests =
-    needDocs && loadExtras
+    needDocs && loadHeavyExtras
       ? await db
           .select({
             id: documentAccessRequest.id,
@@ -484,7 +553,7 @@ export async function GET(req: Request, ctx: Ctx) {
     classOptions: [],
   };
   let catalog: EleveDossierClassCatalog = catalogFallback;
-  if (loadExtras) {
+  if (loadHeavyExtras) {
     try {
       catalog = await buildEleveDossierClassCatalog(sites, { etablissementId: etabId });
     } catch (catalogErr) {
@@ -568,40 +637,57 @@ export async function GET(req: Request, ctx: Ctx) {
     };
   }
 
-  const mefLabel = loadExtras
-    ? (await lookupMefLabel(etabId, row.mef)) || row.mef
-    : row.mef;
+  let mefLabel = row.mef;
+  if (loadHeavyExtras) {
+    try {
+      mefLabel = (await lookupMefLabel(etabId, row.mef)) || row.mef;
+    } catch (mefErr) {
+      console.warn("[eleves/dossier] lookup MEF", mefErr);
+      mefLabel = row.mef;
+    }
+  }
 
-  const synthese = await buildEleveSyntheseSnapshot({
-    eleveId: row.id,
-    eleve: {
-      nom: row.nom,
-      prenom: row.prenom,
-      classe: row.classe,
-      status: row.status,
-      ine: row.ine,
-      mef: mefLabel,
-      folderName: row.folderName,
-      siteId: siteIdFromScolarite,
-    },
-    scolarite: currentScolarite
-      ? {
-          demiPension: currentScolarite.demiPension,
-          repasParSemaine: currentScolarite.repasParSemaine,
-          siteId: currentScolarite.siteId,
-          grilleRepas: currentScolarite.grilleRepas,
-        }
-      : null,
-    catalog,
-    notesMoyennes,
-    absences: absencesSynthese,
-    finances: financesSynthese,
-    groupes: groupesEleve,
-    includeHeavyExtras: false,
-  });
+  let synthese: EleveSyntheseSnapshot;
+  if (inscriptionFocus) {
+    synthese = minimalDossierSynthese(row.id, row);
+  } else {
+    try {
+      synthese = await buildEleveSyntheseSnapshot({
+        eleveId: row.id,
+        eleve: {
+          nom: row.nom,
+          prenom: row.prenom,
+          classe: row.classe,
+          status: row.status,
+          ine: row.ine,
+          mef: mefLabel,
+          folderName: row.folderName,
+          siteId: siteIdFromScolarite,
+        },
+        scolarite: currentScolarite
+          ? {
+              demiPension: currentScolarite.demiPension,
+              repasParSemaine: currentScolarite.repasParSemaine,
+              siteId: currentScolarite.siteId,
+              grilleRepas: currentScolarite.grilleRepas,
+            }
+          : null,
+        catalog,
+        notesMoyennes,
+        absences: absencesSynthese,
+        finances: financesSynthese,
+        groupes: groupesEleve,
+        includeHeavyExtras: false,
+      });
+    } catch (syntheseErr) {
+      console.error("[eleves/dossier] synthese", syntheseErr);
+      synthese = minimalDossierSynthese(row.id, { ...row, mef: mefLabel });
+    }
+  }
 
   return NextResponse.json({
     part: loadExtras ? "extras" : "core",
+    focus: inscriptionFocus ? focus : undefined,
     eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
     sections,
     scolarites,
@@ -728,7 +814,7 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const authUserId = gate.user.id;
   const businessUserId = gate.user.businessUserId;
-  const roles = gate.user.roles;
+  const roles = Array.isArray(gate.user.roles) ? gate.user.roles : [];
   const orgAdmin = Boolean(gate.user.orgAdmin);
   const platformAdmin = Boolean(gate.user.platformAdmin);
   const { loadModuleAccess } = await import("@/app/lib/module-access-store");

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import { travelsIndexCacheHitUsable } from "@/app/lib/travels-index-cache";
 import {
   deleteTravelFromDb,
   getTravelFromDb,
@@ -8,11 +9,12 @@ import {
   travelsDbReady,
   upsertTravelInDb,
 } from "@/app/lib/travel-db";
-import { valkeyCached, valkeyDel, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
+import { valkeyDel, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
 import {
   VALKEY_TTL,
   valkeyKeyTravelTrip,
   valkeyKeyTravelsIndex,
+  valkeyKeyTravelsIndexLegacy,
 } from "@/app/lib/valkey-keys";
 
 export async function invalidateTravelsCaches(
@@ -22,6 +24,7 @@ export async function invalidateTravelsCaches(
   const id = etablissementId.trim();
   if (!id) return;
   await valkeyDel(valkeyKeyTravelsIndex(id));
+  await valkeyDel(valkeyKeyTravelsIndexLegacy(id));
   if (tripId?.trim()) {
     await valkeyDel(valkeyKeyTravelTrip(id, tripId.trim()));
   }
@@ -37,11 +40,20 @@ export async function listTravelsIndex(): Promise<TravelsTrip[]> {
 export async function listTravelsForEtablissement(etablissementId: string): Promise<TravelsTrip[]> {
   const etabId = etablissementId.trim();
   if (!etabId) return [];
-  return valkeyCached({
-    key: valkeyKeyTravelsIndex(etabId),
-    ttlSeconds: VALKEY_TTL.travelsIndex,
-    loader: () => listTravelsFromDb(etabId),
-  });
+
+  const key = valkeyKeyTravelsIndex(etabId);
+  const hit = await valkeyGetJson<TravelsTrip[]>(key);
+  if (travelsIndexCacheHitUsable(hit)) {
+    return hit;
+  }
+
+  const fresh = await listTravelsFromDb(etabId);
+  if (fresh.length > 0) {
+    void valkeySetJson(key, fresh, VALKEY_TTL.travelsIndex);
+  } else if (hit !== null && hit !== undefined) {
+    void valkeyDel(key);
+  }
+  return fresh;
 }
 
 /** @deprecated Index JSON obsolète — préférer saveTravelTrip. Conservé pour compat. */
