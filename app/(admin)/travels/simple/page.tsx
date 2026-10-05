@@ -1,7 +1,7 @@
 "use client";
 
 import { useSessionUser } from "@/app/hooks/useAppUser";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import {
   enumerateWeeklyDatesInRange,
   WEEKDAY_JS_OPTIONS,
