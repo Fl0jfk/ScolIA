@@ -33,7 +33,7 @@
     "db:apply-migrations": "node scripts/apply-migrations-direct.mjs",
     "db:validate-migrations": "node scripts/validate-drizzle-migrations.mjs",
     "test:drizzle-migrations": "node --test scripts/drizzle-migrations-validate.test.mjs",
-    "test:eleve-actif-suite": "npx tsx --test app/lib/eleve-actif-shared.test.ts app/lib/eleve-actif-scope.guard.test.ts app/lib/stage-class-roster-actif.test.ts app/lib/eleves-import-reactivation.test.ts app/lib/eleves-import-cycle.test.ts app/lib/siecle-eleves-parse.test.ts app/lib/vs-absence-statut.test.ts app/lib/vs-appels-slot.test.ts app/lib/notes-periode-eleves.test.ts app/lib/notes-periode-debut.test.ts app/lib/notes-routes-periode.test.ts",
+    "test:eleve-actif-suite": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/eleve-actif-shared.test.ts app/lib/eleve-actif-scope.guard.test.ts app/lib/stage-class-roster-actif.test.ts app/lib/eleves-import-reactivation.test.ts app/lib/eleves-import-cycle.test.ts app/lib/siecle-eleves-parse.test.ts app/lib/vs-absence-statut.test.ts app/lib/vs-appels-slot.test.ts app/lib/notes-periode-eleves.test.ts app/lib/notes-periode-debut.test.ts app/lib/notes-routes-periode.test.ts app/lib/eleve-scolarite-backfill.integration.test.ts",
     "db:studio": "drizzle-kit studio",
     "auth:set-password": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/set-better-auth-password.ts",
     "auth:bulk-activation": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/bulk-send-password-activation.ts",

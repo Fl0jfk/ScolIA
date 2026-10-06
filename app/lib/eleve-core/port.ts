@@ -343,30 +343,86 @@ export async function applyClasseCourante(
     sameYear?.id ?? (enCours && enCours.anneeScolaireId === anneeId ? enCours.id : null);
 
   if (targetId) {
-    const beforeClasse = enCours && enCours.id === targetId ? enCours.classe : null;
-    const fromPrevue = sameYear?.statut === "prevue";
-    await db
-      .update(eleveScolarite)
-      .set({
-        statut: "en_cours",
-        classe,
-        ...(opts.siteId !== undefined ? { siteId: opts.siteId } : {}),
-        updatedAt: new Date(),
+    const [targetRow] = await db
+      .select({
+        id: eleveScolarite.id,
+        statut: eleveScolarite.statut,
+        classe: eleveScolarite.classe,
+        siteId: eleveScolarite.siteId,
       })
-      .where(eq(eleveScolarite.id, targetId));
+      .from(eleveScolarite)
+      .where(eq(eleveScolarite.id, targetId))
+      .limit(1);
+    if (!targetRow) return { scolariteId: targetId };
+
+    if (write?.skipHooks && targetRow.statut === "terminee") {
+      return { scolariteId: targetId };
+    }
+
+    const [eleveRow] = await db
+      .select({
+        classe: eleve.classe,
+        status: eleve.status,
+        dateSortie: eleve.dateSortie,
+      })
+      .from(eleve)
+      .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+      .limit(1);
+
+    const dateSortie = formatDateSortieFromRow(eleveRow?.dateSortie);
+    if (
+      write?.skipHooks &&
+      !isEleveActifPourListes({
+        status: opts.eleveStatus ?? eleveRow?.status,
+        dateSortie,
+      })
+    ) {
+      return { scolariteId: targetId };
+    }
+
+    const beforeClasse = targetRow.classe;
+    const fromPrevue = targetRow.statut === "prevue";
+    const scolPatch: {
+      statut?: string;
+      classe?: string;
+      siteId?: string | null;
+      updatedAt?: Date;
+    } = {};
+    if (targetRow.statut === "prevue") scolPatch.statut = "en_cours";
+    if ((targetRow.classe ?? "").trim() !== classe) scolPatch.classe = classe;
+    if (
+      opts.siteId !== undefined &&
+      (targetRow.siteId ?? null) !== (opts.siteId ?? null)
+    ) {
+      scolPatch.siteId = opts.siteId ?? null;
+    }
+
     const statusPatch = await elevePatchStatusIfActif({
       etablissementId: opts.etablissementId,
       eleveId: opts.eleveId,
       eleveStatus: opts.eleveStatus,
     });
-    await db
-      .update(eleve)
-      .set({
-        classe,
-        updatedAt: new Date(),
-        ...(statusPatch ? { status: statusPatch } : {}),
-      })
-      .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)));
+    const eleveClasse = (eleveRow?.classe ?? "").trim();
+    const elevePatch: { classe?: string; status?: string; updatedAt?: Date } = {};
+    if (eleveClasse !== classe) elevePatch.classe = classe;
+    if (statusPatch && eleveRow?.status !== statusPatch) elevePatch.status = statusPatch;
+
+    if (Object.keys(scolPatch).length === 0 && Object.keys(elevePatch).length === 0) {
+      return { scolariteId: targetId };
+    }
+
+    if (Object.keys(scolPatch).length > 0) {
+      scolPatch.updatedAt = new Date();
+      await db.update(eleveScolarite).set(scolPatch).where(eq(eleveScolarite.id, targetId));
+    }
+    if (Object.keys(elevePatch).length > 0) {
+      elevePatch.updatedAt = new Date();
+      await db
+        .update(eleve)
+        .set(elevePatch)
+        .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)));
+    }
+
     if (fromPrevue) {
       await emit(
         {
@@ -397,6 +453,37 @@ export async function applyClasseCourante(
     return { scolariteId: targetId };
   }
 
+  if (write?.skipHooks) {
+    const [termineeRow] = await db
+      .select({ id: eleveScolarite.id })
+      .from(eleveScolarite)
+      .where(
+        and(
+          eq(eleveScolarite.etablissementId, opts.etablissementId),
+          eq(eleveScolarite.eleveId, opts.eleveId),
+          eq(eleveScolarite.anneeScolaireId, anneeId),
+          eq(eleveScolarite.statut, "terminee"),
+        ),
+      )
+      .limit(1);
+    if (termineeRow) return { scolariteId: termineeRow.id };
+
+    const [eleveRow] = await db
+      .select({ status: eleve.status, dateSortie: eleve.dateSortie })
+      .from(eleve)
+      .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+      .limit(1);
+    const dateSortie = formatDateSortieFromRow(eleveRow?.dateSortie);
+    if (
+      !isEleveActifPourListes({
+        status: opts.eleveStatus ?? eleveRow?.status,
+        dateSortie,
+      })
+    ) {
+      return { scolariteId: "" };
+    }
+  }
+
   const [created] = await db
     .insert(eleveScolarite)
     .values({
@@ -415,14 +502,21 @@ export async function applyClasseCourante(
     eleveId: opts.eleveId,
     eleveStatus: opts.eleveStatus,
   });
-  await db
-    .update(eleve)
-    .set({
-      classe,
-      updatedAt: new Date(),
-      ...(statusPatch ? { status: statusPatch } : {}),
-    })
-    .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)));
+  const eleveInsertPatch: { classe?: string; status?: string; updatedAt?: Date } = {};
+  const [eleveBeforeInsert] = await db
+    .select({ classe: eleve.classe, status: eleve.status })
+    .from(eleve)
+    .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+    .limit(1);
+  if ((eleveBeforeInsert?.classe ?? "").trim() !== classe) eleveInsertPatch.classe = classe;
+  if (statusPatch && eleveBeforeInsert?.status !== statusPatch) eleveInsertPatch.status = statusPatch;
+  if (Object.keys(eleveInsertPatch).length > 0) {
+    eleveInsertPatch.updatedAt = new Date();
+    await db
+      .update(eleve)
+      .set(eleveInsertPatch)
+      .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)));
+  }
 
   await emit(
     {

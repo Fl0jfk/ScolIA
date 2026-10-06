@@ -508,6 +508,20 @@ export async function ensureEleveScolariteCourante(
   if (!classe) return;
 
   const db = getDb();
+  const [curEleve] = await db
+    .select({ status: eleve.status, dateSortie: eleve.dateSortie })
+    .from(eleve)
+    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, eleveId)))
+    .limit(1);
+  const mergedStatus = normalizeEleveStatus(input.status ?? curEleve?.status);
+  const dateSortie = formatDateSortieFromRow(curEleve?.dateSortie);
+  if (
+    !isEleveActifPourListes({ status: mergedStatus, dateSortie }) &&
+    mergedStatus !== "ancien" &&
+    mergedStatus !== "archive"
+  ) {
+    return;
+  }
   let resolvedCatalog = catalog;
   if (!resolvedCatalog) {
     const sites = await db
@@ -727,13 +741,21 @@ export async function ensureEleveFoyerFromParentContacts(
 const scolariteBackfillDone = new Set<string>();
 
 /**
- * Une fois par process / établissement : aligne toutes les scolarités année courante
- * sur le registre plat (après un import déjà fait sans sync complète).
+ * Une fois par établissement (marqueur Postgres) : aligne les scolarités année courante
+ * sur le registre plat. Idempotent : aucune écriture si déjà aligné.
  */
 export async function backfillElevesScolariteCouranteOnce(
   etablissementId: string,
 ): Promise<number> {
   if (scolariteBackfillDone.has(etablissementId)) return 0;
+  const {
+    isEleveScolariteBackfillDone,
+    markEleveScolariteBackfillDone,
+  } = await import("@/app/lib/eleve-scolarite-backfill-marker");
+  if (await isEleveScolariteBackfillDone(etablissementId)) {
+    scolariteBackfillDone.add(etablissementId);
+    return 0;
+  }
   const db = getDb();
   const sites = await db
     .select({
@@ -761,6 +783,7 @@ export async function backfillElevesScolariteCouranteOnce(
     await syncEleveScolariteFromEleveRow(etablissementId, row, catalog);
     touched += 1;
   }
+  await markEleveScolariteBackfillDone(etablissementId);
   scolariteBackfillDone.add(etablissementId);
   return touched;
 }
