@@ -8,11 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import {
-  installTestDatabaseUrlForApp,
-  resolveTestDatabaseUrl,
-  testDatabaseSkipReason,
-} from "../../scripts/test-database-guard.mjs";
+import { beginTestDatabase, endTestDatabase } from "@/app/lib/test-database-harness";
 
 function splitMigrationStatements(fileContent: string): string[] {
   return fileContent
@@ -21,16 +17,9 @@ function splitMigrationStatements(fileContent: string): string[] {
     .filter(Boolean);
 }
 
-const testDb = resolveTestDatabaseUrl();
-
 test("0060_metier_event — CREATE idempotent (simulation prod sans table)", async (t) => {
-  const skip = testDatabaseSkipReason(testDb);
-  if (skip || !testDb.ok) {
-    t.skip(skip ?? "TEST_DATABASE_URL refusée");
-    return;
-  }
-
-  installTestDatabaseUrlForApp(testDb);
+  const testDb = beginTestDatabase(t);
+  if (!testDb) return;
 
   const migrationPath = path.join(process.cwd(), "drizzle", "0060_metier_event.sql");
   const statements = splitMigrationStatements(readFileSync(migrationPath, "utf8"));
@@ -71,6 +60,6 @@ test("0060_metier_event — CREATE idempotent (simulation prod sans table)", asy
       }
     }
     await sql.end({ timeout: 5 });
-    delete process.env.DATABASE_URL;
+    await endTestDatabase();
   }
 });
