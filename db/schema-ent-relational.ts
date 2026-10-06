@@ -274,6 +274,30 @@ export const travelMessage = pgTable(
   (t) => [index("travel_message_travel_idx").on(t.etablissementId, t.travelId)],
 );
 
+/** Dernière lecture du fil interne d’un séjour, par utilisateur. */
+export const travelMessageRead = pgTable(
+  "travel_message_read",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    travelId: text("travel_id")
+      .notNull()
+      .references(() => travel.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("travel_message_read_user_trip_uidx").on(
+      t.etablissementId,
+      t.travelId,
+      t.userId,
+    ),
+    index("travel_message_read_user_idx").on(t.etablissementId, t.userId),
+  ],
+);
+
 /** Blog public parents (suivi de sortie) — métadonnées d’activation. */
 export const travelParentBlog = pgTable(
   "travel_parent_blog",

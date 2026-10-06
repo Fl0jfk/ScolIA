@@ -290,7 +290,16 @@ export type TravelsTrip = {
   data: TravelsTripData;
   receivedDevis?: Record<string, unknown>[];
   history?: TravelsHistoryEntry[];
-  messages?: Array<{ id: string; user: string; role: string; text: string; date: string }>;
+  messages?: Array<{
+    id: string;
+    user: string;
+    role: string;
+    text: string;
+    date: string;
+    authorUserId?: string;
+  }>;
+  /** Messages internes non lus pour l’utilisateur courant (direction / compta / créateur). */
+  unreadInternalCount?: number;
 };
 
 export type TravelsHubTab =

@@ -40,7 +40,27 @@ export async function GET(req: Request) {
   try {
     const trip = await getTravelTrip(id);
     if (!trip) return NextResponse.json({ error: "Impossible de récupérer le dossier" }, { status: 404 });
-    return NextResponse.json(normalizeTripImageFields(trip));
+    const normalized = normalizeTripImageFields(trip);
+    try {
+      const { loadAppConfig } = await import("@/app/lib/app-config");
+      const { attachTravelUnreadCounts } = await import("@/app/lib/travel-message-unread-db");
+      const { travelThreadViewerFromStaff } = await import("@/app/lib/travels-thread-unread");
+      const { requireTenantId } = await import("@/app/lib/tenant-scope");
+      const tenant = await requireTenantId();
+      if (tenant.ok && appUser.ok) {
+        const appConfig = await loadAppConfig();
+        const [withUnread] = await attachTravelUnreadCounts({
+          etablissementId: tenant.ctx.etablissementId,
+          trips: [normalized],
+          viewer: travelThreadViewerFromStaff(appUser.user),
+          establishments: appConfig.establishments ?? [],
+        });
+        return NextResponse.json(withUnread ?? normalized);
+      }
+    } catch (unreadErr) {
+      console.warn("[travels/get] unread count", unreadErr);
+    }
+    return NextResponse.json(normalized);
   } catch (error) {
     console.error("Erreur S3 Get:", error);
     return NextResponse.json({ error: "Impossible de récupérer le dossier" }, { status: 500 });
