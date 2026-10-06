@@ -60,3 +60,14 @@ ALLOW_PROD_MIGRATION=1 DATABASE_URL='…' node scripts/apply-migrations-direct.m
 ```
 
 Ne pas utiliser `drizzle-kit migrate` sur la RDB prod.
+
+## Preuve déploiement (HTTP)
+
+Endpoint public (sans auth) :
+
+```bash
+curl -s "${NEXT_PUBLIC_APP_URL%/}/api/health"
+# → {"ok":true,"gitSha":"<commit>","migrationTag":"0061_vs_absence_eleve_annulee"}
+```
+
+Le workflow GitHub **Deploy container** interroge `/api/health` jusqu’à ce que `gitSha` corresponde au commit poussé (timeout ~10 min).
