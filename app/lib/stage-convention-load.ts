@@ -39,15 +39,23 @@ export async function loadStageConventionsByIds(ids: string[]): Promise<StageCon
     const found = new Set(loaded.map((c) => c.id));
     const missing = unique.filter((id) => !found.has(id));
     for (const id of missing) {
-      const convention = await getStageConvention(id);
-      if (convention) out.push(convention);
+      try {
+        const convention = await getStageConvention(id);
+        if (convention) out.push(convention);
+      } catch (error) {
+        console.error("[stage-convention-load] convention illisible, ignorée", id, error);
+      }
     }
     return out;
   }
 
   for (const id of unique) {
-    const convention = await getStageConvention(id);
-    if (convention) out.push(convention);
+    try {
+      const convention = await getStageConvention(id);
+      if (convention) out.push(convention);
+    } catch (error) {
+      console.error("[stage-convention-load] convention illisible, ignorée", id, error);
+    }
   }
   return out;
 }

@@ -123,36 +123,6 @@ function offerToIndexEntry(o: StageOffer): StageOfferIndexEntry {
 /* Conventions                                                                */
 /* -------------------------------------------------------------------------- */
 
-async function hydrateConvention(
-  etablissementId: string,
-  m: typeof stageConvention.$inferSelect,
-): Promise<StageConvention> {
-  const db = getDb();
-  const attrs = await db
-    .select()
-    .from(stageConventionAttr)
-    .where(
-      and(
-        eq(stageConventionAttr.etablissementId, etablissementId),
-        eq(stageConventionAttr.conventionId, m.id),
-      ),
-    );
-  const inflated = inflateFromAttrs(attrs.map((a) => ({ path: a.path, value: a.value })));
-  const convention = asConvention(
-    {
-      ...inflated,
-      id: m.id,
-      status: m.status ?? inflated.status,
-      updatedAt: m.updatedAt?.toISOString?.() ?? inflated.updatedAt,
-    },
-    m.id,
-  );
-  if (!convention) {
-    throw new Error(`[stage-db] Convention ${m.id} illisible (attrs incomplets).`);
-  }
-  return convention;
-}
-
 function groupAttrsByConventionId(
   attrs: { id: string; path: string; value: string }[],
 ): Map<string, { path: string; value: string }[]> {
@@ -250,7 +220,23 @@ export async function getConventionFromDb(
     .where(and(eq(stageConvention.etablissementId, etablissementId), eq(stageConvention.id, id)))
     .limit(1);
   if (!m) return null;
-  return hydrateConvention(etablissementId, m);
+  const attrs = await db
+    .select({
+      path: stageConventionAttr.path,
+      value: stageConventionAttr.value,
+    })
+    .from(stageConventionAttr)
+    .where(
+      and(
+        eq(stageConventionAttr.etablissementId, etablissementId),
+        eq(stageConventionAttr.conventionId, m.id),
+      ),
+    );
+  const convention = conventionFromMainAndAttrs(m, attrs);
+  if (!convention) {
+    console.error("[stage-db] convention illisible", m.id);
+  }
+  return convention;
 }
 
 export async function upsertConventionInDb(
@@ -319,38 +305,9 @@ export function conventionIndexEntriesFromDbRows(
   const byId = groupAttrsByConventionId(attrs);
   return mains
     .map((m) => {
-      const o = inflateFromAttrs(byId.get(m.id) ?? []) as Record<string, unknown>;
-      const student = o.student;
-      const company = o.company;
-      const schedule = o.schedule;
-      if (!student || typeof student !== "object") return null;
-      const st = student as { firstName?: string; lastName?: string; className?: string; level?: string };
-      const co =
-        company && typeof company === "object"
-          ? (company as { name?: string })
-          : { name: "" };
-      const sch =
-        schedule && typeof schedule === "object"
-          ? (schedule as { periodStart?: string; periodEnd?: string })
-          : { periodStart: "", periodEnd: "" };
-      const teacher = o.teacherReferent as { email?: string } | undefined;
-      const entry: StageConventionIndexEntry = {
-        id: m.id,
-        status: (m.status ?? String(o.status ?? "")) as StageConventionIndexEntry["status"],
-        updatedAt: m.updatedAt.toISOString(),
-        studentName: `${st.firstName ?? ""} ${st.lastName ?? ""}`.trim(),
-        className: String(st.className ?? ""),
-        level: String(st.level ?? ""),
-        companyName: String(co.name ?? ""),
-        internshipKind: o.internshipKind as StageConventionIndexEntry["internshipKind"],
-        periodStart: String(sch.periodStart ?? ""),
-        periodEnd: String(sch.periodEnd ?? ""),
-        schoolYear: String(o.schoolYear ?? ""),
-        stageLabel:
-          typeof o.stageLabel === "string" && o.stageLabel.trim() ? o.stageLabel.trim() : undefined,
-        teacherReferentEmail: teacher?.email?.toLowerCase() || undefined,
-      };
-      return entry;
+      const convention = conventionFromMainAndAttrs(m, byId.get(m.id) ?? []);
+      if (!convention) return null;
+      return conventionToIndexEntry(convention);
     })
     .filter((e): e is StageConventionIndexEntry => e !== null)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -359,9 +316,115 @@ export function conventionIndexEntriesFromDbRows(
 /** Nombre maximal de requêtes SQL pour l’index (2 par chunk de 500 conventions). */
 export const CONVENTION_INDEX_MAX_DB_QUERIES_PER_CHUNK = 2;
 
+const LEGACY_CONVENTIONS_COLLECTION = "stages__conventions";
+const CONVENTIONS_LEGACY_MARKER_KIND: StageTokenKind = "auto_purge";
+const CONVENTIONS_LEGACY_MARKER_KEY = "__conventions_collection_synced__";
+
+async function isConventionsLegacyMigrationComplete(etablissementId: string): Promise<boolean> {
+  const hit = await getStageTokenFromDb<{ complete?: boolean }>(
+    etablissementId,
+    CONVENTIONS_LEGACY_MARKER_KIND,
+    CONVENTIONS_LEGACY_MARKER_KEY,
+  );
+  return hit?.complete === true;
+}
+
+async function markConventionsLegacyMigrationComplete(etablissementId: string): Promise<void> {
+  await upsertStageTokenInDb(etablissementId, CONVENTIONS_LEGACY_MARKER_KIND, CONVENTIONS_LEGACY_MARKER_KEY, {
+    complete: true,
+    at: new Date().toISOString(),
+  });
+}
+
+async function collectLegacyConventionIds(etablissementId: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const { listCollectionRecords, getCollectionRecord } = await import("@/app/lib/ent-collection-db");
+  for (const row of await listCollectionRecords<Record<string, unknown>>(
+    etablissementId,
+    LEGACY_CONVENTIONS_COLLECTION,
+  )) {
+    const id = String(row.id ?? "").trim();
+    if (id) ids.add(id);
+  }
+  const indexRec = await getCollectionRecord<Record<string, unknown>>(
+    etablissementId,
+    "stages",
+    "conventions-index",
+  );
+  if (indexRec) {
+    const raw =
+      "__root" in indexRec && Array.isArray(indexRec.__root)
+        ? indexRec.__root
+        : Array.isArray(indexRec)
+          ? indexRec
+          : null;
+    if (Array.isArray(raw)) {
+      for (const entry of raw) {
+        const id =
+          entry && typeof entry === "object"
+            ? String((entry as { id?: string }).id ?? "").trim()
+            : "";
+        if (id) ids.add(id);
+      }
+    }
+  }
+  return ids;
+}
+
+async function typedConventionIdSet(etablissementId: string): Promise<Set<string>> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: stageConvention.id })
+    .from(stageConvention)
+    .where(eq(stageConvention.etablissementId, etablissementId));
+  return new Set(rows.map((r) => r.id));
+}
+
+/** Ids encore en collection legacy mais migrables (asConvention OK) et absents des tables typées. */
+async function legacyConventionIdsPendingMigration(etablissementId: string): Promise<string[]> {
+  const legacyIds = await collectLegacyConventionIds(etablissementId);
+  if (legacyIds.size === 0) return [];
+  const typed = await typedConventionIdSet(etablissementId);
+  const { getCollectionRecord } = await import("@/app/lib/ent-collection-db");
+  const pending: string[] = [];
+  for (const id of legacyIds) {
+    if (typed.has(id)) continue;
+    const one = await getCollectionRecord<Record<string, unknown>>(
+      etablissementId,
+      LEGACY_CONVENTIONS_COLLECTION,
+      id,
+    );
+    if (!one) continue;
+    if (asConvention(one, id)) pending.push(id);
+  }
+  return pending;
+}
+
+/**
+ * Repli lecture index : migration legacy idempotente tant que des conventions
+ * `ent_collection` restent à copier (marqueur persistant une fois tout migré).
+ */
+async function ensureLegacyConventionsForIndexRead(etablissementId: string): Promise<void> {
+  if (await isConventionsLegacyMigrationComplete(etablissementId)) return;
+
+  const pending = await legacyConventionIdsPendingMigration(etablissementId);
+  if (pending.length === 0) {
+    await markConventionsLegacyMigrationComplete(etablissementId);
+    return;
+  }
+
+  await ensureConventionsMigratedFromCollection(etablissementId);
+  const still = await legacyConventionIdsPendingMigration(etablissementId);
+  if (still.length === 0) {
+    await markConventionsLegacyMigrationComplete(etablissementId);
+  }
+}
+
 export async function listConventionIndexFromDb(
   etablissementId: string,
 ): Promise<StageConventionIndexEntry[]> {
+  await ensureLegacyConventionsForIndexRead(etablissementId);
+
   const db = getDb();
   const [mains, attrs] = await Promise.all([
     db.select().from(stageConvention).where(eq(stageConvention.etablissementId, etablissementId)),

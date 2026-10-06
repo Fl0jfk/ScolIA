@@ -87,18 +87,6 @@ export async function getConventionsIndex(): Promise<StageConventionIndexEntry[]
   });
 }
 
-async function saveConventionsIndex(
-  index: StageConventionIndexEntry[],
-  etabId?: string | null,
-): Promise<void> {
-  await putJson(STAGE_S3.conventionsIndex, index);
-  const id = etabId === undefined ? await stagesEtabId() : etabId;
-  if (id) {
-    // Write-through : les lecteurs suivants évitent un miss immédiat.
-    void valkeySetJson(valkeyKeyStagesConventionsIndex(id), index, VALKEY_TTL.stagesConventionsIndex);
-  }
-}
-
 export async function getStageOffer(id: string): Promise<StageOffer | null> {
   const hit = await getJson<StageOffer>(STAGE_S3.offer(id));
   return hit?.data ?? null;

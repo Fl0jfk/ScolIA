@@ -8,10 +8,23 @@ let client: ReturnType<typeof postgres> | null = null;
 let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
 export function isDatabaseConfigured(): boolean {
+  if (process.env.SCOLA_TEST_DB === "1" && dbInstance) return true;
   return Boolean(process.env.DATABASE_URL?.trim());
 }
 
+/** PGlite / Postgres CI uniquement — jamais en prod (voir tests stages). */
+export function setIntegrationTestDb(db: Db): void {
+  if (process.env.SCOLA_TEST_DB !== "1") {
+    throw new Error("setIntegrationTestDb: SCOLA_TEST_DB=1 requis");
+  }
+  dbInstance = db;
+  client = null;
+}
+
 export function getDb() {
+  if (process.env.SCOLA_TEST_DB === "1" && dbInstance) {
+    return dbInstance;
+  }
   const url = process.env.DATABASE_URL?.trim();
   if (!url) {
     throw new Error("DATABASE_URL manquante — configure PostgreSQL Scaleway.");
@@ -31,6 +44,10 @@ export function getDb() {
 }
 
 export async function closeDb(): Promise<void> {
+  if (process.env.SCOLA_TEST_DB === "1") {
+    dbInstance = null;
+    return;
+  }
   if (client) {
     await client.end({ timeout: 5 });
     client = null;

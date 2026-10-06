@@ -47,9 +47,8 @@ test("getConventionsFromDb — 2 requêtes par chunk (borné)", () => {
   assert.equal(chunks * CONVENTION_INDEX_MAX_DB_QUERIES_PER_CHUNK, 2);
 });
 
-test("index — conserve une convention sans entreprise ni dates", () => {
+test("index — exclut une convention sans entreprise ni dates (aligné getConventionsFromDb)", () => {
   const full = roundTripConvention(sample);
-  const expected = conventionToIndexEntry(full);
   const attrs = flattenToAttrs(
     Object.fromEntries(
       Object.entries(full as unknown as Record<string, unknown>).filter(
@@ -70,8 +69,5 @@ test("index — conserve une convention sans entreprise ni dates", () => {
     mains,
     attrs.map((a) => ({ id: full.id, path: a.path, value: a.value })),
   );
-  assert.equal(built.length, 1);
-  assert.equal(built[0]!.companyName, "");
-  assert.equal(built[0]!.periodStart, "");
-  assert.equal(built[0]!.studentName, expected.studentName);
+  assert.equal(built.length, 0);
 });

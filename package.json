@@ -27,7 +27,7 @@
     "test:accueil-occupancy": "npx tsx --test app/lib/accueil-absence-occupancy.test.ts",
     "test:impact-format": "npx tsx --test app/lib/impact-engine/format-preview.test.ts",
     "test:stage-db": "npx tsx --test app/lib/stage-db-roundtrip.test.ts",
-    "test:stages-perf": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/stage-index.test.ts app/lib/valkey-memory-cache.test.ts",
+    "test:stages-perf": "SCOLA_TEST_DB=1 npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/stage-index.test.ts app/lib/stage-legacy-index.integration.test.ts app/lib/valkey-memory-cache.test.ts",
     "ent:migrate-stages": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/migrate-stages-to-typed.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -85,6 +85,7 @@
     "zod": "4.5.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.15",
     "@eslint/eslintrc": "3.3.6",
     "@types/mailparser": "3.4.6",
     "@types/node": "26.4.0",

@@ -160,6 +160,10 @@ export function isEntCoreDbEnabled(): boolean {
 
 /** Résout l'UUID tenant courant pour le cœur ENT (null si DB off / hors requête). */
 export async function resolveCurrentEtablissementId(): Promise<string | null> {
+  const testEtabId = process.env.SCOLA_TEST_ETAB_ID?.trim();
+  if (process.env.SCOLA_TEST_DB === "1" && testEtabId) {
+    return testEtabId;
+  }
   if (!isEntCoreDbEnabled()) return null;
   try {
     const { getTenant } = await import("@/app/lib/tenant-context");
