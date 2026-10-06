@@ -2,7 +2,7 @@
  * Règles statiques pour *.test.* — pas de DATABASE_URL, pas de chargement .env, pas de postgres() direct hors garde.
  */
 const forbiddenDatabaseUrl =
-  /process\.env\.DATABASE_URL|process\.env\[['"]DATABASE_URL['"]\]|const\s*\{[^}]*\bDATABASE_URL\b[^}]*\}\s*=\s*process\.env/;
+  /process\.env\.(?:DATABASE_URL|SCOLIA_PROD_DATABASE_URL)|process\.env\[['"](?:DATABASE_URL|SCOLIA_PROD_DATABASE_URL)['"]\]|const\s*\{[^}]*\b(?:DATABASE_URL|SCOLIA_PROD_DATABASE_URL)\b[^}]*\}\s*=\s*process\.env/;
 
 const envLoadPatterns = [
   { rule: "dotenv", re: /\bdotenv\b/ },
@@ -23,7 +23,12 @@ export const allowTestFiles = new Set([
   "scripts/test-database-guard.test.mjs",
 ]);
 
-const guardImportRe = /test-database-guard\.mjs|test-database-harness/;
+const guardImportPatterns = [
+  /from\s+['"][^'"]*test-database-guard\.mjs['"]/,
+  /from\s+['"][^'"]*test-database-harness['"]/,
+  /require\s*\(\s*['"][^'"]*test-database-guard\.mjs['"]\s*\)/,
+  /require\s*\(\s*['"][^'"]*test-database-harness['"]\s*\)/,
+];
 
 function isCommentOnlyLine(line) {
   const trimmed = line.trim();
@@ -32,13 +37,22 @@ function isCommentOnlyLine(line) {
 
 export function lineReadsDatabaseUrl(line) {
   if (isCommentOnlyLine(line)) return false;
-  if (/delete\s+process\.env\.DATABASE_URL/.test(line)) return false;
-  if (/process\.env\.DATABASE_URL\s*=/.test(line)) return false;
+  if (/delete\s+process\.env\.(?:DATABASE_URL|SCOLIA_PROD_DATABASE_URL)/.test(line)) {
+    return false;
+  }
+  if (/process\.env\.(?:DATABASE_URL|SCOLIA_PROD_DATABASE_URL)\s*=(?!=)/.test(line)) {
+    return false;
+  }
   return forbiddenDatabaseUrl.test(line);
 }
 
+export function contentImportsTestDatabaseGuard(content) {
+  return guardImportPatterns.some((re) => re.test(content));
+}
+
+/** @deprecated utilise contentImportsTestDatabaseGuard */
 export function usesTestDatabaseGuard(content) {
-  return guardImportRe.test(content);
+  return contentImportsTestDatabaseGuard(content);
 }
 
 /**
@@ -61,7 +75,7 @@ export function scanTestFileContent(relPath, content) {
     }
   }
 
-  const hasGuard = usesTestDatabaseGuard(content);
+  const hasGuard = contentImportsTestDatabaseGuard(content);
   if (!hasGuard) {
     for (const { rule, re } of directPostgresPatterns) {
       if (re.test(content)) violations.add(rule);

@@ -15,7 +15,12 @@ function walk(dir, out = []) {
     if (name.name === "node_modules" || name.name === ".next") continue;
     const full = path.join(dir, name.name);
     if (name.isDirectory()) walk(full, out);
-    else if (/\.test\.(ts|tsx|mjs|js)$/.test(name.name)) out.push(full);
+    else if (
+      /\.test\.(ts|tsx|mjs|js|cjs|mts)$/.test(name.name) ||
+      /\.spec\.(ts|tsx|mjs|js|cjs|mts)$/.test(name.name)
+    ) {
+      out.push(full);
+    }
   }
   return out;
 }

@@ -191,18 +191,25 @@ async function runMigrations() {
   console.log("Migrations terminées.");
 }
 
+const DDL_LOCK_TIMEOUT = "30s";
+const ADVISORY_LOCK_TIMEOUT = "300s";
+
 async function main() {
-  console.log("[migrations] Acquisition du verrou advisory (timeout 5 min)…");
-  await sql`SET lock_timeout = '300s'`;
+  console.log(
+    `[migrations] Acquisition du verrou advisory (lock_timeout ${ADVISORY_LOCK_TIMEOUT})…`,
+  );
   try {
+    await sql.unsafe(`SET lock_timeout = '${ADVISORY_LOCK_TIMEOUT}'`);
     await sql`SELECT pg_advisory_lock(${MIGRATION_ADVISORY_LOCK_KEY1}, ${MIGRATION_ADVISORY_LOCK_KEY2})`;
   } catch (lockErr) {
+    const msg = lockErr instanceof Error ? lockErr.message : String(lockErr);
     console.error(
-      "[migrations] Verrou advisory indisponible après 5 min — une autre instance applique peut-être les migrations.",
+      `[migrations] Échec acquisition verrou advisory après ${ADVISORY_LOCK_TIMEOUT} (${msg}) — une autre instance applique peut-être les migrations.`,
     );
     throw lockErr;
   }
   try {
+    await sql.unsafe(`SET lock_timeout = '${DDL_LOCK_TIMEOUT}'`);
     await runMigrations();
   } finally {
     try {

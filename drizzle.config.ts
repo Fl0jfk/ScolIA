@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { defineConfig } from "drizzle-kit";
+import { validateDevScriptDatabaseUrl } from "./scripts/test-database-guard.mjs";
 
 function loadEnvFile(path: string) {
   if (!existsSync(path)) return;
@@ -22,6 +23,19 @@ function loadEnvFile(path: string) {
 
 loadEnvFile(".env.local");
 loadEnvFile(".env");
+
+const drizzleKitCommand = process.argv[2] ?? "";
+const guardedDrizzleCommands = new Set(["push", "drop", "migrate"]);
+if (guardedDrizzleCommands.has(drizzleKitCommand)) {
+  const guard = validateDevScriptDatabaseUrl(process.env.DATABASE_URL);
+  if (!guard.ok) {
+    console.error(`[db-guard] ${guard.reason}`);
+    console.error(
+      "[db-guard] drizzle-kit push/drop/migrate limités à une base locale de dev/test.",
+    );
+    process.exit(1);
+  }
+}
 
 export default defineConfig({
   schema: "./db/schema.ts",
