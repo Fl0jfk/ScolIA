@@ -5,10 +5,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
-
-type JournalEntry = { tag: string; when: number };
+import {
+  type JournalEntry,
+  resolveLatestMigrationTag,
+} from "@/app/lib/deploy-health-logic";
 
 let cachedJournalEntries: JournalEntry[] | null = null;
+let cachedTagToContentHash: Map<string, string> | null = null;
 let cachedMigrationHashIndex: Map<string, string> | null = null;
 
 function loadJournalEntries(): JournalEntry[] {
@@ -21,17 +24,34 @@ function loadJournalEntries(): JournalEntry[] {
   return cachedJournalEntries;
 }
 
-function buildHashAndTagIndex(entries: JournalEntry[]): Map<string, string> {
+function buildTagToContentHash(entries: JournalEntry[]): Map<string, string> {
   const root = process.cwd();
   const index = new Map<string, string>();
   for (const entry of entries) {
-    index.set(entry.tag, entry.tag);
     const file = path.join(root, "drizzle", `${entry.tag}.sql`);
     if (fs.existsSync(file)) {
       const content = fs.readFileSync(file, "utf8");
       const hash = crypto.createHash("sha256").update(content).digest("hex");
-      index.set(hash, entry.tag);
+      index.set(entry.tag, hash);
     }
+  }
+  return index;
+}
+
+function getTagToContentHash(): Map<string, string> {
+  if (!cachedTagToContentHash) {
+    cachedTagToContentHash = buildTagToContentHash(loadJournalEntries());
+  }
+  return cachedTagToContentHash;
+}
+
+function buildHashAndTagIndex(entries: JournalEntry[]): Map<string, string> {
+  const tagToHash = buildTagToContentHash(entries);
+  const index = new Map<string, string>();
+  for (const entry of entries) {
+    index.set(entry.tag, entry.tag);
+    const hash = tagToHash.get(entry.tag);
+    if (hash) index.set(hash, entry.tag);
   }
   return index;
 }
@@ -56,18 +76,32 @@ export async function getDeployHealthPayload(): Promise<DeployHealthPayload> {
   }
 
   const db = getDb();
-  const rows = await db.execute<{ hash: string }>(sql`
+  const appliedRows = await db.execute<{ hash: string }>(sql`
     SELECT hash
     FROM drizzle.__drizzle_migrations
-    ORDER BY created_at DESC, id DESC
-    LIMIT 1
   `);
-
-  const lastHash = rows[0]?.hash;
-  if (!lastHash) {
+  const appliedHashes = appliedRows.map((row) => row.hash);
+  if (appliedHashes.length === 0) {
     return { ok: true, gitSha, migrationTag: null };
   }
 
-  const migrationTag = getMigrationHashIndex().get(lastHash) ?? null;
+  const journalEntries = loadJournalEntries();
+  let migrationTag = resolveLatestMigrationTag(
+    journalEntries,
+    getTagToContentHash(),
+    appliedHashes,
+  );
+
+  if (!migrationTag) {
+    const fallbackRows = await db.execute<{ hash: string }>(sql`
+      SELECT hash
+      FROM drizzle.__drizzle_migrations
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+    const fallbackHash = fallbackRows[0]?.hash;
+    migrationTag = fallbackHash ? getMigrationHashIndex().get(fallbackHash) ?? null : null;
+  }
+
   return { ok: true, gitSha, migrationTag };
 }

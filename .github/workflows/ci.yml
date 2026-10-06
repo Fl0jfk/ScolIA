@@ -22,13 +22,46 @@ jobs:
         uses: actions/checkout@v4
 
       - name: actionlint
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_CHECKSUM: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
         run: |
           set -euo pipefail
-          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL -o "$tarball" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "${ACTIONLINT_CHECKSUM}  ${tarball}" | sha256sum -c -
+          tar xzf "$tarball" actionlint
           ./actionlint
 
   typecheck:
     uses: ./.github/workflows/typecheck-reusable.yml
+
+  next-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: postgresql://scola@127.0.0.1:5432/scola_ci_build
+      BETTER_AUTH_SECRET: ci-build-dummy-better-auth-secret-32ch
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: next build
+        run: npm run build
 
   drizzle-migrations:
     runs-on: ubuntu-latest

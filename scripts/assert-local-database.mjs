@@ -2,14 +2,26 @@
  * Refuse une URL Postgres non locale, sauf dérogation explicite.
  * Utilisé par les scripts de migration / agents pour ne pas toucher la RDB prod.
  */
+/** Normalise le hostname Postgres (URL IPv6 peut être `[::1]`). */
+export function normalizeDatabaseHostname(hostname) {
+  const host = (hostname || "").toLowerCase();
+  if (host === "[::1]" || host === "::1") return "::1";
+  return host;
+}
+
 export function isLocalDatabaseUrl(url) {
   if (!url || typeof url !== "string") return false;
   try {
     const parsed = new URL(url);
-    const host = (parsed.hostname || "").toLowerCase();
+    const host = normalizeDatabaseHostname(parsed.hostname);
     return host === "127.0.0.1" || host === "localhost" || host === "::1";
   } catch {
-    return /@127\.0\.0\.1(?:[:/]|$)/.test(url) || /@localhost(?:[:/]|$)/.test(url);
+    return (
+      /@127\.0\.0\.1(?:[:/]|$)/.test(url) ||
+      /@localhost(?:[:/]|$)/.test(url) ||
+      /@\[::1\](?::|$)/.test(url) ||
+      /@::1(?:[:/]|$)/.test(url)
+    );
   }
 }
 

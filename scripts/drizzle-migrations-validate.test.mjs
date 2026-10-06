@@ -54,3 +54,12 @@ test("base vierge : 0056_messaging_delivery bootstrap messaging_participant (san
   const sql0056 = fs.readFileSync(path.join(root, "drizzle", "0056_messaging_delivery.sql"), "utf8");
   assert.match(sql0056, /messaging_participant/);
 });
+
+test("apply-migrations-direct : lock_timeout long uniquement pour le verrou advisory", () => {
+  const migratorPath = path.join(root, "scripts", "apply-migrations-direct.mjs");
+  const src = fs.readFileSync(migratorPath, "utf8");
+  assert.match(src, /ADVISORY_LOCK_TIMEOUT/);
+  assert.match(src, /DDL_LOCK_TIMEOUT/);
+  const setBlocks = [...src.matchAll(/SET lock_timeout/g)];
+  assert.ok(setBlocks.length >= 2, "lock_timeout distinct pour verrou et DDL");
+});

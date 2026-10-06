@@ -2,7 +2,7 @@
  * Garde-fou pour tests / scripts d’intégration : uniquement TEST_DATABASE_URL.
  * Ne jamais lire DATABASE_URL dans un test (risque prod si .env.local chargé).
  */
-import { isLocalDatabaseUrl } from "./assert-local-database.mjs";
+import { isLocalDatabaseUrl, normalizeDatabaseHostname } from "./assert-local-database.mjs";
 
 /** Hôtes autorisés : machine locale + hostname du service postgres GitHub Actions. */
 const ALLOWED_TEST_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "postgres"]);
@@ -35,7 +35,7 @@ export function validateTestDatabaseUrl(url) {
     return { ok: false, reason: "TEST_DATABASE_URL invalide" };
   }
 
-  const host = (parsed.hostname || "").toLowerCase();
+  const host = normalizeDatabaseHostname(parsed.hostname);
   if (REMOTE_HOST_PATTERN.test(host)) {
     return { ok: false, reason: "refus : hôte distant (TEST_DATABASE_URL)" };
   }
@@ -114,23 +114,11 @@ function isAllowedDevScriptDatabaseName(dbLower, hostIsLocal) {
 }
 
 /**
- * Garde seed:dev / drizzle-kit push — hôte local + suffixe test/dev (ou `scola` en local).
- * Dérogation : I_KNOW_THIS_IS_NOT_PROD=1
+ * Refuse tout hôte non local (jamais contournable via I_KNOW_THIS_IS_NOT_PROD).
  * @param {string | undefined} url
- * @returns {{ ok: true, url: string } | { ok: false, reason: string }}
+ * @returns {{ ok: true, url: string, hostIsLocal: true } | { ok: false, reason: string }}
  */
-export function validateDevScriptDatabaseUrl(url) {
-  if (process.env.I_KNOW_THIS_IS_NOT_PROD === "1") {
-    const trimmed = typeof url === "string" ? url.trim() : "";
-    if (!trimmed) {
-      return { ok: false, reason: "DATABASE_URL absente" };
-    }
-    console.error(
-      "[db-guard] I_KNOW_THIS_IS_NOT_PROD=1 — seed/push autorisé sans contrôle de suffixe (validation humaine).",
-    );
-    return { ok: true, url: trimmed };
-  }
-
+export function validateDevScriptDatabaseHost(url) {
   const trimmed = typeof url === "string" ? url.trim() : "";
   if (!trimmed) {
     return { ok: false, reason: "DATABASE_URL absente" };
@@ -143,7 +131,7 @@ export function validateDevScriptDatabaseUrl(url) {
     return { ok: false, reason: "DATABASE_URL invalide" };
   }
 
-  const host = (parsed.hostname || "").toLowerCase();
+  const host = normalizeDatabaseHostname(parsed.hostname);
   if (REMOTE_HOST_PATTERN.test(host)) {
     return { ok: false, reason: "refus : hôte distant (seed / drizzle-kit push)" };
   }
@@ -151,16 +139,44 @@ export function validateDevScriptDatabaseUrl(url) {
   if (!hostIsLocal) {
     return {
       ok: false,
-      reason: `refus hôte « ${host} » (local / postgres CI uniquement pour seed et push)`,
+      reason: `refus hôte « ${host} » (127.0.0.1 / localhost / ::1 / postgres CI uniquement pour seed et push)`,
     };
+  }
+
+  return { ok: true, url: trimmed, hostIsLocal: true };
+}
+
+/**
+ * Garde seed:dev / drizzle-kit push — hôte local + suffixe test/dev (ou `scola` en local).
+ * I_KNOW_THIS_IS_NOT_PROD=1 : ignore uniquement le suffixe de base, jamais le contrôle d’hôte.
+ * @param {string | undefined} url
+ * @returns {{ ok: true, url: string } | { ok: false, reason: string }}
+ */
+export function validateDevScriptDatabaseUrl(url) {
+  const hostResult = validateDevScriptDatabaseHost(url);
+  if (!hostResult.ok) return hostResult;
+
+  const trimmed = hostResult.url;
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { ok: false, reason: "DATABASE_URL invalide" };
+  }
+
+  if (process.env.I_KNOW_THIS_IS_NOT_PROD === "1") {
+    console.error(
+      "[db-guard] I_KNOW_THIS_IS_NOT_PROD=1 — suffixe de base ignoré (hôte local validé, validation humaine).",
+    );
+    return { ok: true, url: trimmed };
   }
 
   const dbName = decodeURIComponent((parsed.pathname || "").replace(/^\//, "").split("/")[0] || "");
   const dbLower = dbName.toLowerCase();
-  if (!isAllowedDevScriptDatabaseName(dbLower, hostIsLocal)) {
+  if (!isAllowedDevScriptDatabaseName(dbLower, hostResult.hostIsLocal)) {
     return {
       ok: false,
-      reason: `refus base « ${dbName} » (suffixe _test / _migrate / _dev ou base locale scola requis, ou I_KNOW_THIS_IS_NOT_PROD=1)`,
+      reason: `refus base « ${dbName} » (suffixe _test / _migrate / _dev ou base locale scola requis, ou I_KNOW_THIS_IS_NOT_PROD=1 sur hôte local)`,
     };
   }
 

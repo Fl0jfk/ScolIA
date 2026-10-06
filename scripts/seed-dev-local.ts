@@ -13,6 +13,7 @@ import { hashPassword, symmetricEncrypt } from "better-auth/crypto";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { validateDevScriptDatabaseUrl } from "./test-database-guard.mjs";
 import {
   account,
   anneeScolaire,
@@ -88,12 +89,13 @@ export const DEV_PARENT_SEED = {
 } as const;
 
 async function main() {
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  const authSecret = process.env.BETTER_AUTH_SECRET?.trim();
-  if (!databaseUrl) {
-    console.error("DATABASE_URL manquante");
+  const guard = validateDevScriptDatabaseUrl(process.env.DATABASE_URL);
+  if (!guard.ok) {
+    console.error(`[db-guard] ${guard.reason}`);
     process.exit(1);
   }
+  const databaseUrl = guard.url;
+  const authSecret = process.env.BETTER_AUTH_SECRET?.trim();
   if (!authSecret) {
     console.error("BETTER_AUTH_SECRET manquant");
     process.exit(1);
