@@ -12,6 +12,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint
+
   typecheck:
     uses: ./.github/workflows/typecheck-reusable.yml
 
@@ -49,4 +64,126 @@ jobs:
         run: node scripts/validate-drizzle-migrations.mjs
 
       - name: Tests garde-fou migrations
-        run: npm run test:drizzle-migrations
+        run: |
+          npm run test:drizzle-migrations
+          npm run test:test-database-guard
+          npm run test:check-test-db-safety
+
+  integration-db-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scolia
+          POSTGRES_DB: scolia_migrate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scolia -d scolia_migrate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://scolia@127.0.0.1:5432/scolia_migrate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Schéma migrations (Postgres CI)
+        env:
+          DATABASE_URL: postgresql://scolia@127.0.0.1:5432/scolia_migrate
+        run: node scripts/apply-migrations-direct.mjs
+
+      - name: Tests DB (TEST_DATABASE_URL uniquement)
+        run: |
+          npm run test:metier-event-migration
+          npm run test:eleve-core:db
+          npm run test:occupancy:db
+          npm run test:vs-appels-close
+
+  migrations-fresh-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scolia
+          POSTGRES_DB: scolia_migrate
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scolia -d scolia_migrate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Appliquer toutes les migrations (Postgres vierge)
+        env:
+          DATABASE_URL: postgresql://scolia@127.0.0.1:5432/scolia_migrate
+        run: |
+          node scripts/apply-migrations-direct.mjs
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          import postgres from 'postgres';
+          const journal = JSON.parse(fs.readFileSync('drizzle/meta/_journal.json', 'utf8'));
+          const expected = journal.entries.length;
+          const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+          const [{ count }] = await sql\`SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations\`;
+          await sql.end({ timeout: 5 });
+          if (Number(count) !== expected) {
+            console.error('Journal', expected, 'entrées but', count, 'lignes __drizzle_migrations');
+            process.exit(1);
+          }
+          console.log('OK —', count, 'migrations journalisées');
+          "
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests unitaires (node:test)
+        run: npm run test:unit

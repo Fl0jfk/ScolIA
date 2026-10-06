@@ -401,7 +401,13 @@ export async function handleCancelAccueilAbsence(
 
   const actorName =
     [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || ctx.name || "Accueil";
-  const ok = await cancelAccueilAbsence(etabId, absenceId, actorName);
+  let ok: boolean;
+  try {
+    ok = await cancelAccueilAbsence(etabId, absenceId, actorName);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Annulation impossible.";
+    return { ok: false, error: message };
+  }
   if (!ok) {
     return { ok: false, error: "Annulation impossible (déjà validée direction ?)." };
   }

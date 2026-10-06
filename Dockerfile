@@ -19,6 +19,7 @@ ARG NEXT_PUBLIC_AFTER_SIGN_UP_URL=/dashboard
 ARG NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST
 ARG PLATFORM_APP_URL
 ARG PLATFORM_HOSTNAMES
+ARG GIT_SHA=unknown
 
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_PLATFORM_APP_URL=$NEXT_PUBLIC_PLATFORM_APP_URL
@@ -27,6 +28,7 @@ ENV NEXT_PUBLIC_AFTER_SIGN_UP_URL=$NEXT_PUBLIC_AFTER_SIGN_UP_URL
 ENV NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST=$NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST
 ENV PLATFORM_APP_URL=$PLATFORM_APP_URL
 ENV PLATFORM_HOSTNAMES=$PLATFORM_HOSTNAMES
+ENV GIT_SHA=$GIT_SHA
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
@@ -35,8 +37,10 @@ RUN npm run build
 FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 
+ARG GIT_SHA=unknown
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV GIT_SHA=$GIT_SHA
 ENV NODE_OPTIONS=--disable-warning=DEP0040
 ENV PORT=8080
 ENV HOSTNAME=0.0.0.0
@@ -58,6 +62,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@napi-rs ./node_modu
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/apply-migrations-direct.mjs ./scripts/apply-migrations-direct.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/messaging-core-ddl.sql ./scripts/messaging-core-ddl.sql
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/assert-local-database.mjs ./scripts/assert-local-database.mjs
 COPY --from=builder --chown=nextjs:nodejs --chmod=755 /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres
