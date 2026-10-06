@@ -57,6 +57,9 @@ jobs:
     needs: typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
+      NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
     permissions:
       contents: read
 
@@ -140,6 +143,7 @@ jobs:
             NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST=${{ secrets.NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST || 'scolia-images.s3.fr-par.scw.cloud' }}
             PLATFORM_APP_URL=${{ secrets.PLATFORM_APP_URL }}
             PLATFORM_HOSTNAMES=${{ secrets.PLATFORM_HOSTNAMES }}
+            GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
@@ -225,11 +229,42 @@ jobs:
             "${BASE}/redeploy") || true
           if [ "$redeploy" = "200" ] || [ "$redeploy" = "201" ]; then
             echo "OK — redéploiement déclenché (HTTP $redeploy)."
-            exit 0
-          fi
-          if [ "$redeploy" = "409" ]; then
+          elif [ "$redeploy" = "409" ]; then
             echo "OK — conteneur déjà en cours de déploiement (HTTP 409, normal après PATCH)."
+          else
+            echo "::error::Redeploy échoué (HTTP $redeploy) : $(cat /tmp/container-redeploy.json)"
+            exit 1
+          fi
+
+      - name: Attendre le SHA déployé (/api/health)
+        if: ${{ env.SCW_CONTAINER_ID != '' && env.NEXT_PUBLIC_APP_URL != '' }}
+        env:
+          SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SCW_CONTAINER_ID:-}" ] || [ -z "${NEXT_PUBLIC_APP_URL:-}" ]; then
+            echo "::warning::SCW_CONTAINER_ID ou NEXT_PUBLIC_APP_URL absent — vérification SHA ignorée."
             exit 0
           fi
-          echo "::error::Redeploy échoué (HTTP $redeploy) : $(cat /tmp/container-redeploy.json)"
+          base="${NEXT_PUBLIC_APP_URL%/}"
+          deadline=$(( $(date +%s) + 600 ))
+          attempt=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            attempt=$((attempt + 1))
+            body="$(curl -sf --max-time 20 "${base}/api/health" || true)"
+            if [ -n "$body" ]; then
+              sha="$(printf '%s' "$body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('gitSha') or '')" 2>/dev/null || true)"
+              tag="$(printf '%s' "$body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('migrationTag') or '')" 2>/dev/null || true)"
+              echo "health essai ${attempt}: gitSha=${sha:-?} migrationTag=${tag:-?}"
+              if [ "$sha" = "$EXPECTED_SHA" ]; then
+                echo "OK — conteneur répond avec le SHA du commit déployé."
+                exit 0
+              fi
+            else
+              echo "health essai ${attempt}: pas de réponse"
+            fi
+            sleep 15
+          done
+          echo "::error::Timeout 10 min — /api/health n’a pas renvoyé gitSha=${EXPECTED_SHA}"
           exit 1

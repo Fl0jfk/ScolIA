@@ -3,7 +3,6 @@
  * Usage : npm run test:occupancy:db
  */
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
@@ -14,37 +13,10 @@ import {
   travelParticipant,
   vsAbsenceEleve,
 } from "@/db/schema";
-
-function loadEnvFile(path: string) {
-  if (!existsSync(path)) return;
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx <= 0) continue;
-    const key = trimmed.slice(0, eqIdx);
-    let value = trimmed.slice(eqIdx + 1);
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
-
-loadEnvFile(".env.local");
-loadEnvFile("/workspace/.env.local");
-loadEnvFile(".env");
-
-const hasDb = Boolean(process.env.DATABASE_URL?.trim());
+import { beginTestDatabase, endTestDatabase } from "@/app/lib/test-database-harness";
 
 test("occupancy — en_sortie vs absent_vs, snapshot ≠ live, orphelin", async (t) => {
-  if (!hasDb) {
-    t.skip("DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const { occupancy } = await import("@/app/lib/occupancy/port");
@@ -195,15 +167,12 @@ test("occupancy — en_sortie vs absent_vs, snapshot ≠ live, orphelin", async 
     await db.delete(travel).where(eq(travel.etablissementId, etab.id));
     await db.delete(eleve).where(eq(eleve.etablissementId, etab.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });
 
 test("occupancy — élève retiré du voyage → plus en_sortie", async (t) => {
-  if (!hasDb) {
-    t.skip("DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const { occupancyFactForEleve } = await import("@/app/lib/occupancy/port");
@@ -285,6 +254,6 @@ test("occupancy — élève retiré du voyage → plus en_sortie", async (t) => 
     await db.delete(travel).where(eq(travel.etablissementId, etab.id));
     await db.delete(eleve).where(eq(eleve.etablissementId, etab.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });

@@ -40,3 +40,19 @@ export function isVsAbsenceActivePourConflitAppel(statut: string): boolean {
 export function filterVsAbsencesVisiblesEtComptees<T extends { statut: string }>(rows: T[]): T[] {
   return rows.filter((r) => isVsAbsenceVisibleEtComptee(r.statut));
 }
+
+export const VS_ABSENCE_CANCEL_ACCUEIL_DEJA_TRAITEE =
+  "Déjà traitée par la vie scolaire, impossible d'annuler";
+
+/** Annulation accueil : uniquement déclaration accueil encore `a_traiter`. */
+export function assertAccueilEleveAbsenceCancelable(statut: string, source: string): void {
+  if (source !== "accueil") {
+    throw new Error("Seules les déclarations accueil peuvent être annulées depuis l'accueil.");
+  }
+  if (statut === VS_ABSENCE_STATUT_ANNULEE) {
+    throw new Error("Cette absence est déjà annulée.");
+  }
+  if (statut !== "a_traiter") {
+    throw new Error(VS_ABSENCE_CANCEL_ACCUEIL_DEJA_TRAITEE);
+  }
+}
