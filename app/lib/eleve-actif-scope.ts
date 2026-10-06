@@ -1,0 +1,29 @@
+import "server-only";
+
+import { and, eq, isNull, or, type SQL, sql } from "drizzle-orm";
+import { eleve } from "@/db/schema";
+import { todayIsoLocal } from "@/app/lib/siecle-eleves-parse";
+
+export {
+  formatDateSortieFromRow,
+  isEleveActifPourListes,
+  isEleveSortantEtablissement,
+  type EleveActifListesFields,
+} from "@/app/lib/eleve-actif-shared";
+
+/**
+ * Fragment SQL Drizzle à combiner avec `etablissement_id` (et autres filtres).
+ */
+export function drizzleEleveActifPourListes(now: Date = new Date()) {
+  const today = todayIsoLocal(now);
+  return and(
+    eq(eleve.status, "inscrit"),
+    or(isNull(eleve.dateSortie), sql`${eleve.dateSortie} > ${today}::date`),
+  );
+}
+
+/** Même règle en SQL brut (scripts / migrations). */
+export function sqlEleveActifPourListesClause(now: Date = new Date()): SQL {
+  const today = todayIsoLocal(now);
+  return sql`status = 'inscrit' AND (date_sortie IS NULL OR date_sortie > ${today}::date)`;
+}

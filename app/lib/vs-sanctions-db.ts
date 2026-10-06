@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, vsSanction, vsSanctionType } from "@/db/schema";
 import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
@@ -282,7 +283,7 @@ export async function searchElevesForSanction(
     .where(
       and(
         eq(eleve.etablissementId, etablissementId),
-        eq(eleve.status, "inscrit"),
+        drizzleEleveActifPourListes()!,
         sqlPersonNameMatches({
           nom: eleve.nom,
           prenom: eleve.prenom,

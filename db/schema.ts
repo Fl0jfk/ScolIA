@@ -360,6 +360,8 @@ export const eleve = pgTable(
     parent2Phone: text("parent2_phone"),
     dateNaissance: date("date_naissance"),
     lieuNaissance: text("lieu_naissance"),
+    /** Date de sortie établissement (Siècle DATE_SORTIE, Excel) — listes actives si null ou > jour J. */
+    dateSortie: date("date_sortie"),
     /** preinscrit | inscrit | ancien | archive */
     status: text("status").notNull().default("inscrit"),
     mef: text("mef"),

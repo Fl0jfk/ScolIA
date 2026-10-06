@@ -477,7 +477,21 @@ function mergeEleveFields(
   }
   if (incoming.sexe) merged.sexe = incoming.sexe;
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
-  if (incoming.status) merged.status = incoming.status;
+  if (incoming.dateSortie?.trim()) merged.dateSortie = incoming.dateSortie.trim();
+  const incomingStatus = incoming.status;
+  const existingStatus = existing.status;
+  if (
+    incomingStatus === "inscrit" &&
+    (existingStatus === "ancien" || existingStatus === "archive") &&
+    !incoming.dateSortie?.trim()
+  ) {
+    merged.status = existingStatus;
+  } else if (incomingStatus) {
+    merged.status = incomingStatus;
+  }
+  if (merged.dateSortie && isDateSortiePassee(merged.dateSortie)) {
+    merged.status = "ancien";
+  }
   if (incoming.lv1?.trim()) merged.lv1 = incoming.lv1.trim();
   if (incoming.lv2?.trim()) merged.lv2 = incoming.lv2.trim();
   if (incoming.options?.length) merged.options = [...incoming.options];
@@ -592,6 +606,7 @@ function parseRowsToEleves(
     if (dateNaissance) entry.dateNaissance = dateNaissance;
     const dateSortie = normalizeEleveDateNaissance(cellRaw(row, colMap.dateSortie));
     // Même règle que Siècle : sortie passée → Ancien (pas d'apparition dans les classes).
+    if (dateSortie) entry.dateSortie = dateSortie;
     if (dateSortie && isDateSortiePassee(dateSortie)) {
       entry.status = "ancien";
       entry.regime = "Externe";

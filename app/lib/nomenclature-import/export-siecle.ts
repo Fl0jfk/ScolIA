@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import JSZip from "jszip";
 import { getDb } from "@/db/index";
 import {
@@ -315,7 +316,7 @@ export async function buildSiecleExportBundle(
     db
       .select()
       .from(eleve)
-      .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.status, "inscrit")))
+      .where(and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!))
       .orderBy(asc(eleve.nom), asc(eleve.prenom)),
     loadSiecleEleveIdMap(),
     buildDivisionCodeMap(etablissementId),

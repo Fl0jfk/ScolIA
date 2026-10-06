@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { formatDateSortieFromRow, isEleveActifPourListes } from "@/app/lib/eleve-actif-shared";
 import { getDb } from "@/db/index";
 import {
   eleve,
@@ -264,6 +265,25 @@ async function closeEnCours(
   );
 }
 
+async function elevePatchStatusIfActif(
+  opts: {
+    etablissementId: string;
+    eleveId: string;
+    eleveStatus?: string | null;
+  },
+): Promise<"inscrit" | undefined> {
+  const db = getDb();
+  const [row] = await db
+    .select({ status: eleve.status, dateSortie: eleve.dateSortie })
+    .from(eleve)
+    .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+    .limit(1);
+  const status = opts.eleveStatus ?? row?.status;
+  const dateSortie = formatDateSortieFromRow(row?.dateSortie);
+  if (!isEleveActifPourListes({ status, dateSortie })) return undefined;
+  return "inscrit";
+}
+
 /**
  * Pose / met à jour la classe de l’année (une seule `en_cours`).
  * Changement 4e B → 4e C : update de la même ligne.
@@ -334,9 +354,18 @@ export async function applyClasseCourante(
         updatedAt: new Date(),
       })
       .where(eq(eleveScolarite.id, targetId));
+    const statusPatch = await elevePatchStatusIfActif({
+      etablissementId: opts.etablissementId,
+      eleveId: opts.eleveId,
+      eleveStatus: opts.eleveStatus,
+    });
     await db
       .update(eleve)
-      .set({ classe, updatedAt: new Date(), status: "inscrit" })
+      .set({
+        classe,
+        updatedAt: new Date(),
+        ...(statusPatch ? { status: statusPatch } : {}),
+      })
       .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)));
     if (fromPrevue) {
       await emit(
@@ -381,9 +410,18 @@ export async function applyClasseCourante(
     })
     .returning({ id: eleveScolarite.id });
 
+  const statusPatch = await elevePatchStatusIfActif({
+    etablissementId: opts.etablissementId,
+    eleveId: opts.eleveId,
+    eleveStatus: opts.eleveStatus,
+  });
   await db
     .update(eleve)
-    .set({ classe, updatedAt: new Date(), status: "inscrit" })
+    .set({
+      classe,
+      updatedAt: new Date(),
+      ...(statusPatch ? { status: statusPatch } : {}),
+    })
     .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)));
 
   await emit(

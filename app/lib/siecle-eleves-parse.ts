@@ -30,8 +30,8 @@ export function todayIsoLocal(now: Date = new Date()): string {
 }
 
 /**
- * True si DATE_SORTIE est strictement antérieure à aujourd'hui.
- * Pas de date / date future / date du jour → encore scolarisé (on ne retire pas).
+ * True si DATE_SORTIE est passée ou égale à aujourd'hui (règle métier listes / effectifs).
+ * Pas de date / date future → encore scolarisé pour les listes.
  */
 export function isDateSortiePassee(
   raw: string | undefined | null,
@@ -39,12 +39,12 @@ export function isDateSortiePassee(
 ): boolean {
   const iso = normalizeSiecleDate(String(raw ?? ""));
   if (!iso) return false;
-  return iso < todayIsoLocal(now);
+  return iso <= todayIsoLocal(now);
 }
 
 function eleveFromSiecleBlock(
   el: { attrs: string; inner: string },
-  opts: { forceRegime?: string; status?: EleveStatus },
+  opts: { forceRegime?: string; status?: EleveStatus; dateSortie?: string },
 ): EleveConfig | null {
   const nom = firstNonEmpty(
     tagValue(el.inner, "NOM_DE_FAMILLE"),
@@ -89,6 +89,7 @@ function eleveFromSiecleBlock(
     prenom,
     folderName,
     ...(opts.status ? { status: opts.status } : {}),
+    ...(opts.dateSortie ? { dateSortie: opts.dateSortie } : {}),
     ...(codeStructure ? { classe: codeStructure } : {}),
     ...(codeMef ? { mef: codeMef } : {}),
     ...(email ? { email } : {}),
@@ -155,9 +156,11 @@ export function parseSiecleElevesXmlServer(
     const sorti = isDateSortiePassee(dateSortieRaw, now);
 
     if (sorti) {
+      const dateSortieIso = normalizeSiecleDate(dateSortieRaw);
       const row = eleveFromSiecleBlock(el, {
         forceRegime: "Externe",
         status: "ancien",
+        ...(dateSortieIso ? { dateSortie: dateSortieIso } : {}),
       });
       if (!row) continue;
       totalInFile += 1;

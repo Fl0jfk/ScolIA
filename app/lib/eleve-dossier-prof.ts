@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, eleveScolarite, type EleveRow } from "@/db/schema";
 import {
@@ -145,7 +146,7 @@ export async function listClassmatesForEleve(
     .where(
       and(
         eq(eleve.etablissementId, etablissementId),
-        eq(eleve.status, "inscrit"),
+        drizzleEleveActifPourListes()!,
         sql`translate(lower(btrim(COALESCE(${eleve.classe}, ''))), ' -_', '') LIKE ${`%${cls
           .normalize("NFD")
           .replace(/[\u0300-\u036f]/g, "")
@@ -183,7 +184,12 @@ export async function listElevesDossierFromDb(
   const conditions = [eq(eleve.etablissementId, etablissementId)];
   const status = filters.status?.trim();
   const classe = filters.classe?.trim();
-  if (status) conditions.push(eq(eleve.status, status));
+  if (status === "inscrit") {
+    const actif = drizzleEleveActifPourListes();
+    if (actif) conditions.push(actif);
+  } else if (status) {
+    conditions.push(eq(eleve.status, status));
+  }
 
   const rows = await db
     .select()

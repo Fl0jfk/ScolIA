@@ -13,12 +13,12 @@ test("normalizeSiecleDate FR et ISO", () => {
   assert.equal(normalizeSiecleDate(""), "");
 });
 
-test("isDateSortiePassee — strictement avant aujourd'hui", () => {
+test("isDateSortiePassee — passée ou égale à aujourd'hui", () => {
   const now = new Date(2026, 8, 11); // 11 sept 2026 local
   assert.equal(todayIsoLocal(now), "2026-09-11");
   assert.equal(isDateSortiePassee("31/08/2026", now), true);
   assert.equal(isDateSortiePassee("2026-08-31", now), true);
-  assert.equal(isDateSortiePassee("11/09/2026", now), false);
+  assert.equal(isDateSortiePassee("11/09/2026", now), true);
   assert.equal(isDateSortiePassee("12/09/2026", now), false);
   assert.equal(isDateSortiePassee("", now), false);
   assert.equal(isDateSortiePassee(undefined, now), false);
