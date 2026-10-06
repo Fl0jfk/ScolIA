@@ -98,17 +98,19 @@ export async function GET(req: Request) {
       });
     }
 
-    const className = requestedClass || availableClasses[0] || "";
-    if (!className) {
+    if (!requestedClass) {
       return NextResponse.json({
         schoolYear,
         availableClasses,
         roster: null,
+        referents: [],
         canAssignReferent: false,
         teachers: [],
-        perf: perf.snapshot(),
+        perf: { ...perf.snapshot(), classesOnly: true },
       });
     }
+
+    const className = requestedClass;
 
     if (!canBrowseAll && !referentClasses.some((c) => classKey(c) === classKey(className))) {
       return NextResponse.json({ error: "Classe non autorisée." }, { status: 403 });
