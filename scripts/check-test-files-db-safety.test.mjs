@@ -42,3 +42,41 @@ test("scanPackageJsonTestScripts — refuse --env-file sur test:*", () => {
   });
   assert.deepEqual(bad, ["test:unit"]);
 });
+
+test("scanTestFileContent — mention harness en commentaire ne désactive pas postgres()", () => {
+  const content = `
+// utilise test-database-harness pour les intégrations
+import postgres from "postgres";
+const sql = postgres(process.env.TEST_DATABASE_URL);
+`;
+  const rules = scanTestFileContent("fake/comment-only.test.ts", content);
+  assert.ok(rules.includes("postgres("));
+});
+
+test("scanTestFileContent — refuse comparaison DATABASE_URL", () => {
+  const content = `
+if (process.env.DATABASE_URL === "postgresql://x") {
+  throw new Error("bad");
+}
+`;
+  const rules = scanTestFileContent("fake/compare.test.mts", content);
+  assert.ok(rules.includes("DATABASE_URL"));
+});
+
+test("scanTestFileContent — refuse SCOLIA_PROD_DATABASE_URL", () => {
+  const content = `
+const url = process.env.SCOLIA_PROD_DATABASE_URL;
+`;
+  const rules = scanTestFileContent("fake/prod-url.spec.ts", content);
+  assert.ok(rules.includes("DATABASE_URL"));
+});
+
+test("scanTestFileContent — import harness autorise postgres()", () => {
+  const content = `
+import { beginTestDatabase } from "@/app/lib/test-database-harness";
+import postgres from "postgres";
+const sql = postgres("postgresql://scolia@127.0.0.1:5432/scolia_migrate");
+`;
+  const rules = scanTestFileContent("fake/harness.test.cjs", content);
+  assert.equal(rules.length, 0);
+});
