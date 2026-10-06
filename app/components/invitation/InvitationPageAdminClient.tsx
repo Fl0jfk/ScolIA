@@ -8,6 +8,7 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import {
   diplomaLabel,
+  formatInvitationEleveLabel,
   situationStatusLabel,
   type InvitationAskSituation,
   type InvitationDashboardStats,
@@ -687,7 +688,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                       {data.eligible.map((e) => (
                         <tr key={e.id} className="border-t border-slate-100">
                           <td className="px-2 py-1.5 font-semibold text-slate-900">
-                            {e.eleveFirstName} {e.eleveLastName}
+                            {formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}
                           </td>
                           <td className="px-2 py-1.5 text-slate-600">
                             {e.birthDate
@@ -703,7 +704,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                               onClick={() =>
                                 void removeEligible(
                                   e.id,
-                                  `${e.eleveFirstName} ${e.eleveLastName}`,
+                                  `${formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}`,
                                 )
                               }
                               className="text-[11px] font-bold text-rose-700 hover:underline"
@@ -821,7 +822,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                             }`}
                           >
                             <td className="px-2 py-2 font-semibold text-slate-900">
-                              {r.eleveFirstName} {r.eleveLastName}
+                              {formatInvitationEleveLabel(r.eleveFirstName, r.eleveLastName)}
                               {suspect ? (
                                 <span className="ml-1 text-[10px] font-bold text-amber-700">
                                   doublon ?
@@ -864,7 +865,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                                 onClick={() =>
                                   void deleteRsvp(
                                     r.id,
-                                    `${r.eleveFirstName} ${r.eleveLastName}`,
+                                    `${formatInvitationEleveLabel(r.eleveFirstName, r.eleveLastName)}`,
                                   )
                                 }
                                 className="text-[11px] font-bold text-rose-700 hover:underline"

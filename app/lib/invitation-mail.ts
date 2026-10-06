@@ -6,7 +6,11 @@ import {
   formatInvitationWhen,
   invitationDiplomaDisplay,
 } from "@/app/lib/invitation-db";
-import type { InvitationPageRecord, InvitationRsvpRecord } from "@/app/lib/invitation-types";
+import {
+  formatInvitationEleveLabel,
+  type InvitationPageRecord,
+  type InvitationRsvpRecord,
+} from "@/app/lib/invitation-types";
 import { createTenantTransporter, getTenantSmtpConfig, sendMailWithTimeout } from "@/app/lib/tenant-mail";
 
 async function sendInvitationMail(params: {
@@ -69,7 +73,7 @@ export async function sendInvitationRsvpConfirmation(params: {
   const school = bundle.identity.shortName || bundle.identity.name || "Établissement";
   const when = formatInvitationWhen(page);
   const diploma = invitationDiplomaDisplay(page, rsvp.diploma);
-  const eleve = `${rsvp.eleveFirstName} ${rsvp.eleveLastName}`.trim();
+  const eleve = formatInvitationEleveLabel(rsvp.eleveFirstName, rsvp.eleveLastName);
 
   if (rsvp.response === "non") {
     const html = `

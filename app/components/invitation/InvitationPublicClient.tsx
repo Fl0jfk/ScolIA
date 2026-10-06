@@ -7,7 +7,11 @@ import type {
   InvitationResponse,
   InvitationSituationStatus,
 } from "@/app/lib/invitation-types";
-import { shouldAskSituation } from "@/app/lib/invitation-types";
+import {
+  formatInvitationFirstName,
+  formatInvitationLastName,
+  shouldAskSituation,
+} from "@/app/lib/invitation-types";
 
 type Step = "eleve" | "rsvp" | "details" | "done";
 
@@ -217,6 +221,7 @@ export default function InvitationPublicClient({ page }: Props) {
   }, [page.startsAt]);
 
   const festive = page.theme !== "neutre";
+  const eleveLabel = `${formatInvitationFirstName(eleveFirstName)} ${formatInvitationLastName(eleveLastName)}`.trim();
 
   const effectiveDiploma: InvitationDiploma | null =
     page.diplomaMode === "bac"
@@ -269,6 +274,8 @@ export default function InvitationPublicClient({ page }: Props) {
         const data = await readApiJson<{
           ok?: boolean;
           error?: string;
+          eleveFirstName?: string;
+          eleveLastName?: string;
           existing?: {
             response: InvitationResponse;
             presentCount: number;
@@ -280,6 +287,8 @@ export default function InvitationPublicClient({ page }: Props) {
           } | null;
         }>(res);
         if (!res.ok) throw new Error(humanizeApiFailure(data.error || "Vérification impossible."));
+        if (data.eleveFirstName) setEleveFirstName(data.eleveFirstName);
+        if (data.eleveLastName) setEleveLastName(data.eleveLastName);
         if (data.existing) {
           setEditingExisting(true);
           setBookedPresentCount(
@@ -720,7 +729,7 @@ export default function InvitationPublicClient({ page }: Props) {
             {page.rsvpOpen && step === "rsvp" ? (
               <>
                 <p className="text-center text-sm font-semibold">
-                  {eleveFirstName} {eleveLastName} — serez-vous présents ?
+                  {eleveLabel} — serez-vous présents ?
                 </p>
                 {editingExisting && response ? (
                   <p className="text-center text-xs font-medium" style={{ color: "var(--inv-muted)" }}>
@@ -951,7 +960,7 @@ export default function InvitationPublicClient({ page }: Props) {
                     <>
                       Votre inscription pour{" "}
                       <strong style={{ color: "var(--inv-ink)" }}>
-                        {eleveFirstName} {eleveLastName}
+                        {eleveLabel}
                       </strong>{" "}
                       a bien été modifiée
                       {response === "oui"
@@ -963,7 +972,7 @@ export default function InvitationPublicClient({ page }: Props) {
                     <>
                       Présence confirmée pour{" "}
                       <strong style={{ color: "var(--inv-ink)" }}>
-                        {eleveFirstName} {eleveLastName}
+                        {eleveLabel}
                       </strong>{" "}
                       ({presentCount} personne{presentCount > 1 ? "s" : ""}).
                       {mailSent
@@ -974,7 +983,7 @@ export default function InvitationPublicClient({ page }: Props) {
                     <>
                       Nous avons bien noté que vous ne pourrez pas venir pour{" "}
                       <strong style={{ color: "var(--inv-ink)" }}>
-                        {eleveFirstName} {eleveLastName}
+                        {eleveLabel}
                       </strong>
                       .
                       {mailSent ? " Un e-mail de confirmation vous a été envoyé." : ""}
