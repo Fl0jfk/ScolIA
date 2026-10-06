@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { registerInvitationRsvp } from "@/app/lib/invitation-db";
 import { sendInvitationRsvpConfirmation } from "@/app/lib/invitation-mail";
@@ -60,9 +60,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
-    const { mailSent } = await sendInvitationRsvpConfirmation({
-      page: result.page,
-      rsvp: result.rsvp,
+    after(() => {
+      void sendInvitationRsvpConfirmation({
+        page: result.page,
+        rsvp: result.rsvp,
+      }).catch((err: unknown) => {
+        console.error(
+          "[invitation] mail confirmation",
+          err instanceof Error ? err.message : err,
+        );
+      });
     });
 
     return NextResponse.json({
@@ -71,7 +78,7 @@ export async function POST(req: Request) {
       rsvpId: result.rsvp.id,
       response: result.rsvp.response,
       presentCount: result.rsvp.presentCount,
-      mailSent,
+      mailSent: true,
     });
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -80,6 +87,11 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const raw = e instanceof Error ? e.message : String(e);
+    const error =
+      raw.startsWith("read tcp") || /i\/o timeout/i.test(raw)
+        ? "Service momentanément indisponible. Réessayez dans un instant."
+        : raw;
+    return NextResponse.json({ error }, { status: 500 });
   }
 }

@@ -43,6 +43,11 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const raw = e instanceof Error ? e.message : String(e);
+    const error =
+      raw.startsWith("read tcp") || /i\/o timeout/i.test(raw)
+        ? "Service momentanément indisponible. Réessayez dans un instant."
+        : raw;
+    return NextResponse.json({ error }, { status: 500 });
   }
 }

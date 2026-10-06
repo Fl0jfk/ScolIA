@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { invitationEligible, invitationPage, invitationRsvp } from "@/db/schema";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
@@ -115,6 +115,69 @@ function mapRsvp(row: typeof invitationRsvp.$inferSelect): InvitationRsvpRecord 
     createdAt: toIso(row.createdAt) || new Date().toISOString(),
     updatedAt: toIso(row.updatedAt) || new Date().toISOString(),
   };
+}
+
+type InvitationQueryDb = {
+  select: ReturnType<typeof getDb>["select"];
+};
+
+function identityMatchFilters(input: {
+  nameNorm: string;
+  birthDate: string;
+}) {
+  return or(
+    eq(invitationEligible.eleveNameNorm, input.nameNorm),
+    eq(invitationEligible.birthDate, input.birthDate),
+  );
+}
+
+function rsvpIdentityMatchFilters(input: {
+  nameNorm: string;
+  birthDate: string;
+}) {
+  return or(
+    eq(invitationRsvp.eleveNameNorm, input.nameNorm),
+    eq(invitationRsvp.birthDate, input.birthDate),
+  );
+}
+
+async function loadEligibleCandidates(
+  db: InvitationQueryDb,
+  etabId: string,
+  pageId: string,
+  identity: { firstName: string; lastName: string; birthDate: string },
+): Promise<InvitationEligibleRecord[]> {
+  const nameNorm = normalizeEleveName(identity.firstName, identity.lastName);
+  const rows = await db
+    .select()
+    .from(invitationEligible)
+    .where(
+      and(
+        eq(invitationEligible.etablissementId, etabId),
+        eq(invitationEligible.pageId, pageId),
+        identityMatchFilters({ nameNorm, birthDate: identity.birthDate }),
+      ),
+    );
+  return rows.map(mapEligible);
+}
+
+async function loadRsvpIdentityCandidates(
+  db: InvitationQueryDb,
+  etabId: string,
+  pageId: string,
+  identity: { firstName: string; lastName: string; birthDate: string },
+): Promise<(typeof invitationRsvp.$inferSelect)[]> {
+  const nameNorm = normalizeEleveName(identity.firstName, identity.lastName);
+  return db
+    .select()
+    .from(invitationRsvp)
+    .where(
+      and(
+        eq(invitationRsvp.etablissementId, etabId),
+        eq(invitationRsvp.pageId, pageId),
+        rsvpIdentityMatchFilters({ nameNorm, birthDate: identity.birthDate }),
+      ),
+    );
 }
 
 function mapEligible(row: typeof invitationEligible.$inferSelect): InvitationEligibleRecord {
@@ -588,8 +651,14 @@ export async function lookupInvitationIdentity(
 
   const identity = { firstName: eleveFirstName, lastName: eleveLastName, birthDate };
 
+  const db = getDb();
+
   if (page.requireEligible) {
-    const eligibleList = await listInvitationEligible(page.id, etabId);
+    const eligibleList = await loadEligibleCandidates(db, etabId, page.id, {
+      firstName: eleveFirstName,
+      lastName: eleveLastName,
+      birthDate,
+    });
     const picked = pickBestIdentityMatch(identity, eligibleList, 2);
     if (!picked) {
       return {
@@ -599,7 +668,6 @@ export async function lookupInvitationIdentity(
         status: 403,
       };
     }
-    const db = getDb();
     const existingRows = await db
       .select()
       .from(invitationRsvp)
@@ -620,23 +688,27 @@ export async function lookupInvitationIdentity(
     };
   }
 
-  // Formulaire ouvert : retrouver une RSVP existante par match 2/3
-  const rsvps = await listInvitationRsvps(page.id, etabId);
+  const rsvpRows = await loadRsvpIdentityCandidates(db, etabId, page.id, {
+    firstName: eleveFirstName,
+    lastName: eleveLastName,
+    birthDate,
+  });
   const picked = pickBestIdentityMatch(
     identity,
-    rsvps.map((r) => ({
+    rsvpRows.map((r) => ({
       id: r.id,
       eleveFirstName: r.eleveFirstName,
       eleveLastName: r.eleveLastName,
-      birthDate: r.birthDate,
+      birthDate: birthDateToIso(r.birthDate),
     })),
     2,
   );
+  const existingRow = picked ? rsvpRows.find((r) => r.id === picked.match.id) : undefined;
   return {
     ok: true,
     page,
     eligibleId: null,
-    existing: picked ? rsvps.find((r) => r.id === picked.match.id) || null : null,
+    existing: existingRow ? mapRsvp(existingRow) : null,
     matchScore: picked?.score ?? null,
   };
 }
@@ -701,16 +773,7 @@ export async function registerInvitationRsvp(
     let eligibleDiploma: InvitationDiploma | null = null;
 
     if (page.requireEligible) {
-      const eligibleRows = await tx
-        .select()
-        .from(invitationEligible)
-        .where(
-          and(
-            eq(invitationEligible.etablissementId, etabId),
-            eq(invitationEligible.pageId, page.id),
-          ),
-        );
-      const eligibleList = eligibleRows.map(mapEligible);
+      const eligibleList = await loadEligibleCandidates(tx, etabId, page.id, identity);
       const picked = pickBestIdentityMatch(identity, eligibleList, 2);
       if (!picked) {
         return {
@@ -779,12 +842,7 @@ export async function registerInvitationRsvp(
         .limit(1);
       existingRow = found[0];
     } else {
-      const all = await tx
-        .select()
-        .from(invitationRsvp)
-        .where(
-          and(eq(invitationRsvp.etablissementId, etabId), eq(invitationRsvp.pageId, page.id)),
-        );
+      const all = await loadRsvpIdentityCandidates(tx, etabId, page.id, identity);
       const picked = pickBestIdentityMatch(
         identity,
         all.map((r) => ({
@@ -830,24 +888,25 @@ export async function registerInvitationRsvp(
     }
 
     const now = new Date();
+    const rsvpValues = {
+      eleveFirstName,
+      eleveLastName,
+      eleveNameNorm,
+      birthDate,
+      eligibleId: eligibleId || existingRow?.eligibleId || null,
+      response: input.response,
+      presentCount,
+      parentEmail,
+      diploma,
+      situationStatus,
+      situationDetail,
+      situationEstablishment,
+      updatedAt: now,
+    };
     if (existingRow) {
       const [updated] = await tx
         .update(invitationRsvp)
-        .set({
-          eleveFirstName,
-          eleveLastName,
-          eleveNameNorm,
-          birthDate,
-          eligibleId: eligibleId || existingRow.eligibleId,
-          response: input.response,
-          presentCount,
-          parentEmail,
-          diploma,
-          situationStatus,
-          situationDetail,
-          situationEstablishment,
-          updatedAt: now,
-        })
+        .set(rsvpValues)
         .where(
           and(
             eq(invitationRsvp.etablissementId, etabId),
@@ -855,9 +914,34 @@ export async function registerInvitationRsvp(
           ),
         )
         .returning();
+      if (!updated) {
+        return { ok: false as const, error: "Impossible de mettre à jour la réponse.", status: 500 };
+      }
       return {
         ok: true as const,
         rsvp: mapRsvp(updated),
+        page,
+        updated: true,
+      };
+    }
+
+    if (eligibleId) {
+      const [upserted] = await tx
+        .insert(invitationRsvp)
+        .values({
+          etablissementId: etabId,
+          pageId: page.id,
+          ...rsvpValues,
+          eligibleId,
+        })
+        .onConflictDoUpdate({
+          target: [invitationRsvp.pageId, invitationRsvp.eligibleId],
+          set: rsvpValues,
+        })
+        .returning();
+      return {
+        ok: true as const,
+        rsvp: mapRsvp(upserted),
         page,
         updated: true,
       };
@@ -868,19 +952,7 @@ export async function registerInvitationRsvp(
       .values({
         etablissementId: etabId,
         pageId: page.id,
-        eligibleId,
-        eleveFirstName,
-        eleveLastName,
-        eleveNameNorm,
-        birthDate,
-        response: input.response,
-        presentCount,
-        parentEmail,
-        diploma,
-        situationStatus,
-        situationDetail,
-        situationEstablishment,
-        updatedAt: now,
+        ...rsvpValues,
       })
       .returning();
 
