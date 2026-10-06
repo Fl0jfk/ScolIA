@@ -124,6 +124,33 @@ function LaurelMark({ className }: { className?: string }) {
   );
 }
 
+function humanizeApiFailure(raw: string): string {
+  const text = raw.trim();
+  if (
+    text.startsWith("read tcp") ||
+    /i\/o timeout|unexpected token|is not valid json|gateway|bad gateway|504|502/i.test(
+      text,
+    )
+  ) {
+    return "Le serveur a mis trop longtemps à répondre. Réessayez dans un instant — votre réponse est peut-être déjà enregistrée.";
+  }
+  return text || "Erreur inattendue.";
+}
+
+async function readApiJson<T extends { error?: string }>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text) {
+    throw new Error(
+      res.ok ? "Réponse vide du serveur." : `Erreur serveur (${res.status}).`,
+    );
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(humanizeApiFailure(text));
+  }
+}
+
 function TenantLogoMark({
   logoUrl,
   festive,
@@ -238,7 +265,7 @@ export default function InvitationPublicClient({ page }: Props) {
             birthDate: birthDate.trim(),
           }),
         });
-        const data = (await res.json()) as {
+        const data = await readApiJson<{
           ok?: boolean;
           error?: string;
           existing?: {
@@ -250,8 +277,8 @@ export default function InvitationPublicClient({ page }: Props) {
             situationDetail: string;
             situationEstablishment: string;
           } | null;
-        };
-        if (!res.ok) throw new Error(data.error || "Vérification impossible.");
+        }>(res);
+        if (!res.ok) throw new Error(humanizeApiFailure(data.error || "Vérification impossible."));
         if (data.existing) {
           setEditingExisting(true);
           setResponse(data.existing.response);
@@ -267,7 +294,7 @@ export default function InvitationPublicClient({ page }: Props) {
           setStep("rsvp");
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e instanceof Error ? humanizeApiFailure(e.message) : String(e));
       }
     });
   }
@@ -334,18 +361,18 @@ export default function InvitationPublicClient({ page }: Props) {
             website: "",
           }),
         });
-        const data = (await res.json()) as {
+        const data = await readApiJson<{
           success?: boolean;
           updated?: boolean;
           mailSent?: boolean;
           error?: string;
-        };
-        if (!res.ok) throw new Error(data.error || "Envoi impossible.");
+        }>(res);
+        if (!res.ok) throw new Error(humanizeApiFailure(data.error || "Envoi impossible."));
         setMailSent(Boolean(data.mailSent));
         setUpdatedExisting(Boolean(data.updated));
         setStep("done");
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e instanceof Error ? humanizeApiFailure(e.message) : String(e));
       }
     });
   }
@@ -915,6 +942,21 @@ export default function InvitationPublicClient({ page }: Props) {
                     </>
                   )}
                 </p>
+                {page.rsvpOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setUpdatedExisting(true);
+                      setEditingExisting(true);
+                      setStep("details");
+                    }}
+                    className="text-xs font-semibold underline"
+                    style={{ color: "var(--inv-muted)" }}
+                  >
+                    Modifier ma réponse
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>
