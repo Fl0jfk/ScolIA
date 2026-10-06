@@ -15,6 +15,12 @@ export type TravelThreadTripRef = {
   data?: { etablissement?: string | null };
 };
 
+export type TravelThreadViewer = {
+  user: SessionLikeUser | null | undefined;
+  roles: string[];
+  extraUserIds?: string[];
+};
+
 export function travelThreadViewerFromStaff(user: {
   id: string;
   businessUserId?: string | null;

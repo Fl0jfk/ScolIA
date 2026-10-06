@@ -180,7 +180,7 @@ export async function unreadCountsByTravelId(params: {
 
     const viewerUserIds = [
       userId,
-      ...(params.viewer.extraUserIds ?? []).filter((id) => Boolean(id?.trim())),
+      ...(params.viewer.extraUserIds ?? []).filter((id: string) => Boolean(id.trim())),
     ];
     for (const travelId of audienceIds) {
       const n = countUnreadTravelMessages({

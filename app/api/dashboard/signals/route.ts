@@ -598,11 +598,13 @@ export async function GET() {
     }> = [];
     let creneauxVidesCount = 0;
     let creneauxVidesTravelId: string | null = null;
-    let travelsUnreadMessages: {
-      tripCount: number;
-      messageCount: number;
-      firstTripId: string | null;
-    } | null = null;
+    let travelsUnreadMessages:
+      | {
+          tripCount: number;
+          messageCount: number;
+          firstTripId: string | null;
+        }
+      | undefined;
 
     try {
       const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
@@ -761,7 +763,7 @@ export async function GET() {
         }
       } catch (err) {
         console.warn("[dashboard/signals] travels unread", err);
-        travelsUnreadMessages = null;
+        travelsUnreadMessages = undefined;
       }
     }
 
