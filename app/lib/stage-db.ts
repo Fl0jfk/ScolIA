@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   stageApplication,
@@ -74,7 +74,22 @@ function asOffer(row: Record<string, unknown>, fallbackId: string): StageOffer |
   return { ...row, id } as StageOffer;
 }
 
-function conventionToIndexEntry(c: StageConvention): StageConventionIndexEntry {
+/** Chemins EAV nécessaires à l’index léger (évite d’hydrater signatures / historique). */
+export const CONVENTION_INDEX_ATTR_PATHS = [
+  "student.firstName",
+  "student.lastName",
+  "student.className",
+  "student.level",
+  "company.name",
+  "internshipKind",
+  "schedule.periodStart",
+  "schedule.periodEnd",
+  "schoolYear",
+  "stageLabel",
+  "teacherReferent.email",
+] as const;
+
+export function conventionToIndexEntry(c: StageConvention): StageConventionIndexEntry {
   return {
     id: c.id,
     status: c.status,
@@ -138,21 +153,90 @@ async function hydrateConvention(
   return convention;
 }
 
+function groupAttrsByConventionId(
+  attrs: { id: string; path: string; value: string }[],
+): Map<string, { path: string; value: string }[]> {
+  const byId = new Map<string, { path: string; value: string }[]>();
+  for (const a of attrs) {
+    const list = byId.get(a.id) ?? [];
+    list.push({ path: a.path, value: a.value });
+    byId.set(a.id, list);
+  }
+  return byId;
+}
+
+function conventionFromMainAndAttrs(
+  m: typeof stageConvention.$inferSelect,
+  attrRows: { path: string; value: string }[],
+): StageConvention | null {
+  const inflated = inflateFromAttrs(attrRows);
+  return asConvention(
+    {
+      ...inflated,
+      id: m.id,
+      status: m.status ?? inflated.status,
+      updatedAt: m.updatedAt?.toISOString?.() ?? inflated.updatedAt,
+    },
+    m.id,
+  );
+}
+
+export async function getConventionsFromDb(
+  etablissementId: string,
+  ids: string[],
+): Promise<StageConvention[]> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const db = getDb();
+  const out: StageConvention[] = [];
+  const chunkSize = 500;
+
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const [mains, attrs] = await Promise.all([
+      db
+        .select()
+        .from(stageConvention)
+        .where(
+          and(
+            eq(stageConvention.etablissementId, etablissementId),
+            inArray(stageConvention.id, chunk),
+          ),
+        ),
+      db
+        .select({
+          id: stageConventionAttr.conventionId,
+          path: stageConventionAttr.path,
+          value: stageConventionAttr.value,
+        })
+        .from(stageConventionAttr)
+        .where(
+          and(
+            eq(stageConventionAttr.etablissementId, etablissementId),
+            inArray(stageConventionAttr.conventionId, chunk),
+          ),
+        ),
+    ]);
+    const byId = groupAttrsByConventionId(attrs);
+    for (const m of mains) {
+      const c = conventionFromMainAndAttrs(m, byId.get(m.id) ?? []);
+      if (c) out.push(c);
+      else console.error("[stage-db] convention illisible", m.id);
+    }
+  }
+
+  return out;
+}
+
 export async function listConventionsFromDb(etablissementId: string): Promise<StageConvention[]> {
   const db = getDb();
   const mains = await db
-    .select()
+    .select({ id: stageConvention.id })
     .from(stageConvention)
     .where(eq(stageConvention.etablissementId, etablissementId));
-  const out: StageConvention[] = [];
-  for (const m of mains) {
-    try {
-      out.push(await hydrateConvention(etablissementId, m));
-    } catch (e) {
-      console.error("[stage-db] hydrate convention", m.id, e);
-    }
-  }
-  return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const list = await getConventionsFromDb(etablissementId, mains.map((m) => m.id));
+  return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function getConventionFromDb(
@@ -179,58 +263,119 @@ export async function upsertConventionInDb(
   const status = String(convention.status ?? "");
   const updatedAt = parseTs(convention.updatedAt);
 
-  await db
-    .insert(stageConvention)
-    .values({
-      id,
-      etablissementId,
-      status,
-      updatedAt,
-    })
-    .onConflictDoUpdate({
-      target: stageConvention.id,
-      set: {
-        etablissementId,
-        status,
-        updatedAt,
-      },
-    });
-
   const rest: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(convention as unknown as Record<string, unknown>)) {
     if (SKIP_CONVENTION_ROOT.has(k)) continue;
     rest[k] = v;
   }
-
-  await db
-    .delete(stageConventionAttr)
-    .where(
-      and(
-        eq(stageConventionAttr.etablissementId, etablissementId),
-        eq(stageConventionAttr.conventionId, id),
-      ),
-    );
   const attrs = flattenToAttrs(rest);
-  if (attrs.length > 0) {
-    const chunk = 80;
-    for (let i = 0; i < attrs.length; i += chunk) {
-      await db.insert(stageConventionAttr).values(
-        attrs.slice(i, i + chunk).map((a) => ({
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(stageConvention)
+      .values({
+        id,
+        etablissementId,
+        status,
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: stageConvention.id,
+        set: {
           etablissementId,
-          conventionId: id,
-          path: a.path,
-          value: a.value,
-        })),
+          status,
+          updatedAt,
+        },
+      });
+
+    await tx
+      .delete(stageConventionAttr)
+      .where(
+        and(
+          eq(stageConventionAttr.etablissementId, etablissementId),
+          eq(stageConventionAttr.conventionId, id),
+        ),
       );
+    if (attrs.length > 0) {
+      const chunk = 80;
+      for (let i = 0; i < attrs.length; i += chunk) {
+        await tx.insert(stageConventionAttr).values(
+          attrs.slice(i, i + chunk).map((a) => ({
+            etablissementId,
+            conventionId: id,
+            path: a.path,
+            value: a.value,
+          })),
+        );
+      }
     }
-  }
+  });
 }
+
+export function conventionIndexEntriesFromDbRows(
+  mains: Array<typeof stageConvention.$inferSelect>,
+  attrs: Array<{ id: string; path: string; value: string }>,
+): StageConventionIndexEntry[] {
+  const byId = groupAttrsByConventionId(attrs);
+  return mains
+    .map((m) => {
+      const o = inflateFromAttrs(byId.get(m.id) ?? []) as Record<string, unknown>;
+      const student = o.student;
+      const company = o.company;
+      const schedule = o.schedule;
+      if (!student || typeof student !== "object") return null;
+      if (!company || typeof company !== "object") return null;
+      if (!schedule || typeof schedule !== "object") return null;
+      const st = student as { firstName?: string; lastName?: string; className?: string; level?: string };
+      const co = company as { name?: string };
+      const sch = schedule as { periodStart?: string; periodEnd?: string };
+      const teacher = o.teacherReferent as { email?: string } | undefined;
+      const entry: StageConventionIndexEntry = {
+        id: m.id,
+        status: (m.status ?? String(o.status ?? "")) as StageConventionIndexEntry["status"],
+        updatedAt: m.updatedAt.toISOString(),
+        studentName: `${st.firstName ?? ""} ${st.lastName ?? ""}`.trim(),
+        className: String(st.className ?? ""),
+        level: String(st.level ?? ""),
+        companyName: String(co.name ?? ""),
+        internshipKind: o.internshipKind as StageConventionIndexEntry["internshipKind"],
+        periodStart: String(sch.periodStart ?? ""),
+        periodEnd: String(sch.periodEnd ?? ""),
+        schoolYear: String(o.schoolYear ?? ""),
+        stageLabel:
+          typeof o.stageLabel === "string" && o.stageLabel.trim() ? o.stageLabel.trim() : undefined,
+        teacherReferentEmail: teacher?.email?.toLowerCase() || undefined,
+      };
+      return entry;
+    })
+    .filter((e): e is StageConventionIndexEntry => e !== null)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** Nombre maximal de requêtes SQL pour l’index (2 par chunk de 500 conventions). */
+export const CONVENTION_INDEX_MAX_DB_QUERIES_PER_CHUNK = 2;
 
 export async function listConventionIndexFromDb(
   etablissementId: string,
 ): Promise<StageConventionIndexEntry[]> {
-  const list = await ensureConventionsMigratedFromCollection(etablissementId);
-  return list.map(conventionToIndexEntry);
+  const db = getDb();
+  const [mains, attrs] = await Promise.all([
+    db.select().from(stageConvention).where(eq(stageConvention.etablissementId, etablissementId)),
+    db
+      .select({
+        id: stageConventionAttr.conventionId,
+        path: stageConventionAttr.path,
+        value: stageConventionAttr.value,
+      })
+      .from(stageConventionAttr)
+      .where(
+        and(
+          eq(stageConventionAttr.etablissementId, etablissementId),
+          inArray(stageConventionAttr.path, [...CONVENTION_INDEX_ATTR_PATHS]),
+        ),
+      ),
+  ]);
+  return conventionIndexEntriesFromDbRows(mains, attrs);
 }
 
 /**

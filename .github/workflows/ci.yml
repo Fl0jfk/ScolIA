@@ -29,3 +29,24 @@ jobs:
 
       - name: Tests garde-fou migrations
         run: npm run test:drizzle-migrations
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Tests unitaires stages perf
+        run: npm run test:stages-perf

@@ -265,7 +265,7 @@ export async function countElevesInDb(etablissementId: string): Promise<number> 
 
 export async function listElevesFromDb(
   etablissementId: string,
-  opts?: { status?: string | string[] },
+  opts?: { status?: string | string[]; classe?: string },
 ): Promise<EleveConfig[]> {
   const db = getDb();
   const conditions = [eq(eleve.etablissementId, etablissementId)];
@@ -278,6 +278,10 @@ export async function listElevesFromDb(
     } else if (statuses.length > 1) {
       conditions.push(inArray(eleve.status, statuses));
     }
+  }
+  const classe = opts?.classe?.trim();
+  if (classe) {
+    conditions.push(eq(eleve.classe, classe));
   }
   const rows = await db
     .select()

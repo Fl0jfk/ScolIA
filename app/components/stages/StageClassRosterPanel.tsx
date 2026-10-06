@@ -246,14 +246,16 @@ export default function StageClassRosterPanel({
       const idx = classes.findIndex(
         (c) => c.localeCompare(currentClass, "fr", { sensitivity: "base" }) === 0,
       );
-      const neighbors = [classes[idx - 1], classes[idx + 1], classes[idx + 2]].filter(
-        (c): c is string => Boolean(c?.trim()),
-      );
-      for (const cls of neighbors) {
-        const key = cacheKeyFor(cls);
-        if (readRosterMemory(key) || prefetchDoneRef.current.has(key)) continue;
-        prefetchDoneRef.current.add(key);
-        void load(cls, { silent: true });
+      const neighbor = classes[idx - 1] ?? classes[idx + 1];
+      if (!neighbor?.trim()) return;
+      const key = cacheKeyFor(neighbor);
+      if (readRosterMemory(key) || prefetchDoneRef.current.has(key)) return;
+      prefetchDoneRef.current.add(key);
+      const run = () => void load(neighbor, { silent: true });
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(run, { timeout: 4_000 });
+      } else {
+        setTimeout(run, 200);
       }
     },
     [load],

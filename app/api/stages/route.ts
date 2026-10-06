@@ -51,6 +51,7 @@ import {
 import { inferSecteurFromFolderName } from "@/app/lib/onedrive-eleves";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { createPerfTimer } from "@/app/lib/perf-timer";
+import { loadReferentSignatureBytes } from "@/app/lib/stage-signature-store";
 import { getStagePeriodsForClass } from "@/app/lib/stage-periods-config";
 import { assessScheduleAgainstOfficialPeriods } from "@/app/lib/stage-period-alignment";
 import {
@@ -274,6 +275,10 @@ export async function GET() {
         ? loadElevesRegistry().catch(() => [] as Awaited<ReturnType<typeof loadElevesRegistry>>)
         : Promise.resolve([] as Awaited<ReturnType<typeof loadElevesRegistry>>),
     ]);
+    const hasStoredSignature =
+      myPendingSignatures.length > 0
+        ? Boolean((await loadReferentSignatureBytes(gate.ctx.userId))?.length)
+        : undefined;
     perf.mark("pending_sigs_eleves");
 
     const mapBoardCard = (
@@ -494,6 +499,7 @@ export async function GET() {
         myPendingSignatures: myPendingSignatures.length,
       },
       myPendingSignatures,
+      hasStoredSignature,
       pendingOffers: [],
       adminQueue: adminQueueSlice.map((c) =>
         mapBoardCard(c, photoByConventionId, secteurByConventionId, {

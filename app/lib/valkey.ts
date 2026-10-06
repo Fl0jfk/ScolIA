@@ -33,6 +33,90 @@ const CMD_TIMEOUT_MS = 150;
 const CONNECT_TIMEOUT_MS = 5_000;
 const DIAG_PING_TIMEOUT_MS = 2_000;
 
+/** Repli mémoire quand Valkey est absent (prod en veille) — TTL court par tenant/clé. */
+const MEMORY_CACHE_MAX_TTL_SEC = 30;
+
+type MemoryCacheEntry = { expiresAt: number; value: unknown };
+
+const memoryCache = new Map<string, MemoryCacheEntry>();
+const memoryInflight = new Map<string, Promise<unknown>>();
+
+function memoryTtlSeconds(requested: number): number {
+  const n = Math.max(1, Math.floor(requested));
+  if (isValkeyConfigured()) return n;
+  return Math.min(n, MEMORY_CACHE_MAX_TTL_SEC);
+}
+
+function memoryGet<T>(key: string): T | null {
+  const hit = memoryCache.get(key);
+  if (!hit) return null;
+  if (Date.now() >= hit.expiresAt) {
+    memoryCache.delete(key);
+    return null;
+  }
+  return structuredClone(hit.value) as T;
+}
+
+function memorySet(key: string, value: unknown, ttlSeconds: number): void {
+  const ttl = memoryTtlSeconds(ttlSeconds);
+  memoryCache.set(key, {
+    expiresAt: Date.now() + ttl * 1000,
+    value: structuredClone(value),
+  });
+}
+
+function memoryDelete(key: string): void {
+  memoryCache.delete(key);
+  memoryInflight.delete(key);
+}
+
+function memoryDeleteByPrefix(prefix: string): number {
+  let n = 0;
+  for (const key of [...memoryCache.keys()]) {
+    if (key.startsWith(prefix)) {
+      memoryCache.delete(key);
+      n += 1;
+    }
+  }
+  for (const key of [...memoryInflight.keys()]) {
+    if (key.startsWith(prefix)) {
+      memoryInflight.delete(key);
+    }
+  }
+  return n;
+}
+
+/** Tests unitaires — réinitialise le repli mémoire. */
+export function resetValkeyMemoryCacheForTests(): void {
+  memoryCache.clear();
+  memoryInflight.clear();
+}
+
+async function runCachedLoader<T>(
+  key: string,
+  ttlSeconds: number,
+  loader: () => Promise<T>,
+  persist: (value: T) => void,
+): Promise<T> {
+  const inflight = memoryInflight.get(key) as Promise<T> | undefined;
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const fresh = await loader();
+    persist(fresh);
+    return structuredClone(fresh);
+  })();
+
+  memoryInflight.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    if (memoryInflight.get(key) === promise) {
+      memoryInflight.delete(key);
+    }
+  }
+}
+
 export function isValkeyConfigured(): boolean {
   if (process.env.VALKEY_DISABLED === "1") return false;
   return Boolean(resolveValkeyUrl());
@@ -463,6 +547,9 @@ export async function valkeySet(
 
 export async function valkeyDel(...keys: string[]): Promise<void> {
   if (keys.length === 0) return;
+  for (const key of keys) {
+    memoryDelete(key);
+  }
   if (!isValkeyConfigured()) return;
   try {
     await runCommand((v) => v.del(...keys));
@@ -472,6 +559,8 @@ export async function valkeyDel(...keys: string[]): Promise<void> {
 }
 
 export async function valkeyGetJson<T>(key: string): Promise<T | null> {
+  const mem = memoryGet<T>(key);
+  if (mem !== null && mem !== undefined) return mem;
   if (!isValkeyConfigured()) return null;
   const raw = await valkeyGet(key);
   if (!raw) return null;
@@ -487,7 +576,9 @@ export async function valkeySetJson(
   value: unknown,
   ttlSeconds?: number,
 ): Promise<boolean> {
-  if (!isValkeyConfigured()) return false;
+  const ttl = ttlSeconds && ttlSeconds > 0 ? ttlSeconds : MEMORY_CACHE_MAX_TTL_SEC;
+  memorySet(key, value, ttl);
+  if (!isValkeyConfigured()) return true;
   try {
     return await valkeySet(key, JSON.stringify(value), ttlSeconds);
   } catch (error) {
@@ -501,14 +592,25 @@ export async function valkeyCached<T>(opts: {
   ttlSeconds: number;
   loader: () => Promise<T>;
 }): Promise<T> {
+  const mem = memoryGet<T>(opts.key);
+  if (mem !== null && mem !== undefined) return mem;
+
   if (!isValkeyConfigured()) {
-    return opts.loader();
+    return runCachedLoader(opts.key, opts.ttlSeconds, opts.loader, (fresh) => {
+      memorySet(opts.key, fresh, opts.ttlSeconds);
+    });
   }
+
   const hit = await valkeyGetJson<T>(opts.key);
-  if (hit !== null && hit !== undefined) return hit;
-  const fresh = await opts.loader();
-  void valkeySetJson(opts.key, fresh, opts.ttlSeconds);
-  return fresh;
+  if (hit !== null && hit !== undefined) {
+    memorySet(opts.key, hit, opts.ttlSeconds);
+    return structuredClone(hit);
+  }
+
+  return runCachedLoader(opts.key, opts.ttlSeconds, opts.loader, (fresh) => {
+    memorySet(opts.key, fresh, opts.ttlSeconds);
+    void valkeySetJson(opts.key, fresh, opts.ttlSeconds);
+  });
 }
 
 export async function valkeyIncr(
@@ -557,10 +659,11 @@ export function createValkeySecondaryStorage(keyPrefix = "ba:"): {
 }
 
 export async function valkeyDeleteByPrefix(prefix: string): Promise<number> {
-  if (!prefix || circuitOpen()) return 0;
+  if (!prefix) return 0;
+  let deleted = memoryDeleteByPrefix(prefix);
+  if (!isValkeyConfigured() || circuitOpen()) return deleted;
   const v = getValkey();
-  if (!v || v.status !== "ready") return 0;
-  let deleted = 0;
+  if (!v || v.status !== "ready") return deleted;
   try {
     let cursor = "0";
     do {

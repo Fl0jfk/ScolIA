@@ -1,6 +1,5 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
-import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { listElevesFromDb, resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   getStagePeriodsForClass,
   isClassEnabledInStagePeriods,
@@ -16,6 +15,7 @@ import {
   currentStageSchoolYear,
   STAGE_CONVENTION_STATUS_LABELS,
   type StageConvention,
+  type StageConventionIndexEntry,
   type StageConventionStatus,
 } from "@/app/lib/stage-types";
 import { valkeyCached } from "@/app/lib/valkey";
@@ -120,8 +120,13 @@ function eleveMatchesClass(eleve: EleveConfig, className: string): boolean {
   return schoolClassesMatch(resolved, className);
 }
 
-async function loadEleves(): Promise<EleveConfig[]> {
-  return loadElevesActifsRegistry();
+async function loadElevesForClass(className: string): Promise<EleveConfig[]> {
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  if (!etabId) return [];
+  const trimmed = className.trim();
+  if (!trimmed) return [];
+  const rows = await listElevesFromDb(etabId, { status: "inscrit", classe: trimmed });
+  return rows.filter((e) => eleveMatchesClass(e, className));
 }
 
 function isTerminalStatus(status: StageConventionStatus): boolean {
@@ -288,13 +293,16 @@ export async function searchStageConventionsGlobal(
   return hits;
 }
 
-export async function listStageRosterClassNames(schoolYear?: string): Promise<string[]> {
+export async function listStageRosterClassNames(
+  schoolYear?: string,
+  index?: StageConventionIndexEntry[],
+): Promise<string[]> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
-  const [enabled, index] = await Promise.all([
+  const [enabled, resolvedIndex] = await Promise.all([
     listStageEnabledClassNames(year),
-    getConventionsIndex(),
+    index ? Promise.resolve(index) : getConventionsIndex(),
   ]);
-  const fromConventions = index
+  const fromConventions = resolvedIndex
     .filter((e) => isRosterVisibleIndexEntry(e, year))
     .map((e) => String(e.className ?? "").trim())
     .filter(Boolean);
@@ -306,10 +314,14 @@ export async function listStageRosterClassNames(schoolYear?: string): Promise<st
 async function buildStageClassRosterUncached(
   className: string,
   year: string,
+  opts?: { index?: StageConventionIndexEntry[] },
 ): Promise<StageClassRoster> {
+  const indexPromise = opts?.index
+    ? Promise.resolve(opts.index)
+    : getConventionsIndex();
   const [eleves, index, officialPeriods, classEnabledInConfig] = await Promise.all([
-    loadEleves(),
-    getConventionsIndex(),
+    loadElevesForClass(className),
+    indexPromise,
     getStagePeriodsForClass(className, year),
     isClassEnabledInStagePeriods(className, year),
   ]);
@@ -437,14 +449,15 @@ async function buildStageClassRosterUncached(
 export async function buildStageClassRoster(
   className: string,
   schoolYear?: string,
+  opts?: { index?: StageConventionIndexEntry[] },
 ): Promise<StageClassRoster> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
   const etabId = await resolveCurrentEtablissementId().catch(() => null);
-  if (!etabId) return buildStageClassRosterUncached(className, year);
+  if (!etabId) return buildStageClassRosterUncached(className, year, opts);
 
   return valkeyCached({
     key: valkeyKeyStagesClassRoster(etabId, year, classKey(className)),
     ttlSeconds: VALKEY_TTL.stagesClassRoster,
-    loader: () => buildStageClassRosterUncached(className, year),
+    loader: () => buildStageClassRosterUncached(className, year, opts),
   });
 }
