@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, groupePedagogiqueMembre, vsAbsenceEleve, vsAppel, vsAppelLigne } from "@/db/schema";
 import { matchInternatStudent } from "@/app/lib/eleve-dossier-synthese";
@@ -79,7 +80,7 @@ export async function listElevesForClasse(
       and(
         eq(eleve.etablissementId, etablissementId),
         sql`lower(trim(${eleve.classe})) = lower(${trimmed})`,
-        eq(eleve.status, "inscrit"),
+        drizzleEleveActifPourListes()!,
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom));
@@ -111,7 +112,7 @@ export async function listElevesForGroupeAppel(
         eq(groupePedagogiqueMembre.etablissementId, etablissementId),
         eq(groupePedagogiqueMembre.groupeId, gid),
         eq(eleve.etablissementId, etablissementId),
-        eq(eleve.status, "inscrit"),
+        drizzleEleveActifPourListes()!,
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom));

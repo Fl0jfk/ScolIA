@@ -4,7 +4,7 @@ import { requireAdmin, requireAnyModule } from "@/app/lib/intranet-auth";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import {
-  loadElevesRegistry,
+  loadElevesActifsRegistry,
   saveElevesRegistry,
 } from "@/app/lib/eleves-registry";
 
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const tenant = await requireTenantId();
     if (!tenant.ok) return tenant.response;
 
-    const eleves = await loadElevesRegistry();
+    const eleves = await loadElevesActifsRegistry();
     if (eleves.length >= 1) {
       await writeDataAccessAudit({
         etablissementId: tenant.ctx.etablissementId,

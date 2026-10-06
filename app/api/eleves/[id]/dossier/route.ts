@@ -260,6 +260,8 @@ export async function GET(req: Request, ctx: Ctx) {
         id: row.id,
         classe: row.classe,
         regime: row.regime,
+        status: row.status,
+        dateSortie: row.dateSortie,
       });
     } catch (e) {
       console.warn("[eleves/dossier] sync scolarité", e);

@@ -1,3 +1,4 @@
+import { parisDateKey } from "@/app/lib/paris-time";
 import {
   buildEleveFolderName,
   type EleveConfig,
@@ -21,17 +22,14 @@ export function normalizeSiecleDate(raw: string): string {
   return "";
 }
 
-/** Date calendaire locale YYYY-MM-DD. */
+/** Date calendaire du jour institutionnel (Europe/Paris), YYYY-MM-DD. */
 export function todayIsoLocal(now: Date = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return parisDateKey(now);
 }
 
 /**
- * True si DATE_SORTIE est strictement antérieure à aujourd'hui.
- * Pas de date / date future / date du jour → encore scolarisé (on ne retire pas).
+ * True si DATE_SORTIE est strictement avant aujourd'hui (Paris).
+ * Jour J de sortie → encore visible ; disparaît le lendemain.
  */
 export function isDateSortiePassee(
   raw: string | undefined | null,
@@ -44,7 +42,7 @@ export function isDateSortiePassee(
 
 function eleveFromSiecleBlock(
   el: { attrs: string; inner: string },
-  opts: { forceRegime?: string; status?: EleveStatus },
+  opts: { forceRegime?: string; status?: EleveStatus; dateSortie?: string },
 ): EleveConfig | null {
   const nom = firstNonEmpty(
     tagValue(el.inner, "NOM_DE_FAMILLE"),
@@ -89,6 +87,7 @@ function eleveFromSiecleBlock(
     prenom,
     folderName,
     ...(opts.status ? { status: opts.status } : {}),
+    ...(opts.dateSortie ? { dateSortie: opts.dateSortie } : {}),
     ...(codeStructure ? { classe: codeStructure } : {}),
     ...(codeMef ? { mef: codeMef } : {}),
     ...(email ? { email } : {}),
@@ -141,6 +140,8 @@ export function parseSiecleElevesXmlServer(
   /** Combien d'élèves scolarisés ont un CODE_REGIME. */
   withRegimeCount: number;
   siecleEleveIdMap: Record<string, string>;
+  /** Au moins une balise DATE_SORTIE présente dans le fichier. */
+  dateSortieColumnInFile: boolean;
 } {
   const eleves: EleveConfig[] = [];
   const sortis: EleveConfig[] = [];
@@ -149,15 +150,19 @@ export function parseSiecleElevesXmlServer(
   let totalInFile = 0;
   let skippedSortis = 0;
   let withRegimeCount = 0;
+  let dateSortieColumnInFile = false;
 
   for (const el of extractSiecleElements(xmlText, "ELEVE")) {
+    if (el.inner.includes("<DATE_SORTIE")) dateSortieColumnInFile = true;
     const dateSortieRaw = tagValue(el.inner, "DATE_SORTIE");
     const sorti = isDateSortiePassee(dateSortieRaw, now);
 
     if (sorti) {
+      const dateSortieIso = normalizeSiecleDate(dateSortieRaw);
       const row = eleveFromSiecleBlock(el, {
         forceRegime: "Externe",
         status: "ancien",
+        ...(dateSortieIso ? { dateSortie: dateSortieIso } : {}),
       });
       if (!row) continue;
       totalInFile += 1;
@@ -166,7 +171,11 @@ export function parseSiecleElevesXmlServer(
       continue;
     }
 
-    const row = eleveFromSiecleBlock(el, { status: "inscrit" });
+    const dateSortieFutureIso = normalizeSiecleDate(dateSortieRaw);
+    const row = eleveFromSiecleBlock(el, {
+      status: "inscrit",
+      ...(dateSortieFutureIso ? { dateSortie: dateSortieFutureIso } : {}),
+    });
     if (!row) continue;
     totalInFile += 1;
 
@@ -188,5 +197,6 @@ export function parseSiecleElevesXmlServer(
     skippedSortis,
     withRegimeCount,
     siecleEleveIdMap,
+    dateSortieColumnInFile,
   };
 }

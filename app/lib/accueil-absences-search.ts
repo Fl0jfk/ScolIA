@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, eq, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, enseignant, personnel } from "@/db/schema";
 import { RH_CATEGORY_LABELS, type RhCategory } from "@/app/lib/rh/types";
@@ -133,7 +134,7 @@ export async function searchAccueilPersonnes(
       .where(
         and(
           eq(eleve.etablissementId, etablissementId),
-          eq(eleve.status, "inscrit"),
+          drizzleEleveActifPourListes()!,
           eleveNameSql,
         ),
       )

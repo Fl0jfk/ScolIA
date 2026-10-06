@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
 
   const [wishes, allEleves, scores] = await Promise.all([
     listStaffWishes(campaign.id),
-    loadElevesRegistry(),
+    loadElevesActifsRegistry(),
     listScores(campaign.id),
   ]);
 
@@ -116,7 +116,7 @@ export async function PUT(req: Request) {
   const studentIne = String(body.studentIne || "").trim();
   if (!studentIne) return NextResponse.json({ error: "Élève requis." }, { status: 400 });
 
-  const allEleves = await loadElevesRegistry();
+  const allEleves = await loadElevesActifsRegistry();
   const student = allEleves.find((s) => s.ine === studentIne);
   if (!student) return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
 

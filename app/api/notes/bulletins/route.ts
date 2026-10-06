@@ -8,6 +8,7 @@ import {
   listEleveIdsForBulletinGroupe,
   loadBulletinSnapshot,
 } from "@/app/lib/notes-bulletins-db";
+import { InvalidPeriodeIdError, resolveNotesPeriodeDateDebutIso } from "@/app/lib/notes-periode-debut";
 
 export async function POST(req: Request) {
   const gate = await requireModule("notes");
@@ -25,14 +26,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Classe ou groupe, et période requis." }, { status: 400 });
   }
 
-  const [eleves, periodes, groupes] = await Promise.all([
-    groupeId
-      ? listEleveIdsForBulletinGroupe(etabId, groupeId)
-      : listEleveIdsForBulletinClasse(etabId, classe),
-    listPeriodes(etabId),
-    listGroupes(etabId),
-  ]);
+  let periodeDebut: string;
+  let periodes: Awaited<ReturnType<typeof listPeriodes>>;
+  let groupes: Awaited<ReturnType<typeof listGroupes>>;
+  try {
+    [periodes, groupes, periodeDebut] = await Promise.all([
+      listPeriodes(etabId),
+      listGroupes(etabId),
+      resolveNotesPeriodeDateDebutIso(etabId, periodeId),
+    ]);
+  } catch (e) {
+    if (e instanceof InvalidPeriodeIdError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    throw e;
+  }
   const periode = periodes.find((p) => p.id === periodeId);
+  const eleves = groupeId
+    ? await listEleveIdsForBulletinGroupe(etabId, groupeId, periodeDebut)
+    : await listEleveIdsForBulletinClasse(etabId, classe, periodeDebut);
   const groupe = groupes.find((g) => g.id === groupeId);
 
   const previews: Array<{

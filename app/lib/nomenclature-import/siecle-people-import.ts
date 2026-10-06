@@ -116,6 +116,7 @@ export async function importSiecleElevesXml(
     [...withMefLabels, ...sortisForMerge],
     {
       replaceRegime,
+      dateSortieColumnInFile: parsed.dateSortieColumnInFile,
       ...(cycle === "college" || cycle === "lycee" ? { importCycle: cycle } : {}),
     },
   );

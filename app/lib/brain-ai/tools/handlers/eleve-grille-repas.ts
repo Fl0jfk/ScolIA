@@ -11,6 +11,7 @@ import {
 import { canManageElevePreinscriptions } from "@/app/lib/eleve-dossier-scope";
 import { choicesResult } from "@/app/lib/brain-ai/choice-options";
 import type { BrainClientAction, BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { eleve, eleveScolarite } from "@/db/schema";
@@ -56,7 +57,9 @@ async function resolveEleveId(
         classe: eleve.classe,
       })
       .from(eleve)
-      .where(and(eq(eleve.etablissementId, etabId), or(...nameConds)))
+      .where(
+        and(eq(eleve.etablissementId, etabId), drizzleEleveActifPourListes()!, or(...nameConds)),
+      )
       .orderBy(eleve.nom, eleve.prenom)
       .limit(40);
     const folded = fold(query);

@@ -13,7 +13,13 @@ export type ElevesImportCycleScope = "college" | "lycee";
 export type ElevesImportSource = "pronote" | "ecoledirecte" | "auto";
 
 type ElevesImportResult =
-  | { ok: true; eleves: EleveConfig[]; detectedSource: ElevesImportSource; headerRow: number }
+  | {
+      ok: true;
+      eleves: EleveConfig[];
+      detectedSource: ElevesImportSource;
+      headerRow: number;
+      dateSortieColumnInFile?: boolean;
+    }
   | { ok: false; error: string };
 
 type FieldKey =
@@ -427,7 +433,12 @@ function shouldTouchEleveForCycleImport(
 function mergeEleveFields(
   existing: EleveConfig,
   incoming: EleveConfig,
-  opts?: { replaceRegime?: boolean; importCycle?: ElevesImportCycleScope },
+  opts?: {
+    replaceRegime?: boolean;
+    importCycle?: ElevesImportCycleScope;
+    dateSortieColumnInFile?: boolean;
+    allowClearDateSortieOnReimport?: boolean;
+  },
 ): EleveConfig {
   const isSorti = incoming.status === "ancien";
   const nom = incoming.nom.trim() || existing.nom;
@@ -477,7 +488,28 @@ function mergeEleveFields(
   }
   if (incoming.sexe) merged.sexe = incoming.sexe;
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
-  if (incoming.status) merged.status = incoming.status;
+  if (incoming.dateSortie?.trim()) merged.dateSortie = incoming.dateSortie.trim();
+  const incomingStatus = incoming.status;
+  if (incomingStatus) {
+    merged.status = incomingStatus;
+  }
+  // Réimport explicite inscrit + classe : réactive si sortie passée (efface la date).
+  // Une date de sortie future existante est conservée. Colonne date vide dans le fichier → efface toute date.
+  if (
+    merged.status === "inscrit" &&
+    incoming.classe?.trim() &&
+    !incoming.dateSortie?.trim()
+  ) {
+    const existingDate = existing.dateSortie?.trim();
+    if (opts?.dateSortieColumnInFile || opts?.allowClearDateSortieOnReimport) {
+      delete merged.dateSortie;
+    } else if (existingDate && isDateSortiePassee(existingDate)) {
+      delete merged.dateSortie;
+    }
+  }
+  if (merged.dateSortie && isDateSortiePassee(merged.dateSortie)) {
+    merged.status = "ancien";
+  }
   if (incoming.lv1?.trim()) merged.lv1 = incoming.lv1.trim();
   if (incoming.lv2?.trim()) merged.lv2 = incoming.lv2.trim();
   if (incoming.options?.length) merged.options = [...incoming.options];
@@ -531,7 +563,7 @@ function findExistingEleveIndex(list: EleveConfig[], incoming: EleveConfig): num
 function parseRowsToEleves(
   rows: unknown[][],
   source: ElevesImportSource,
-): { eleves: EleveConfig[]; headerRow: number } | { error: string } {
+): { eleves: EleveConfig[]; headerRow: number; dateSortieColumnInFile: boolean } | { error: string } {
   if (!rows.length) return { error: "Fichier Excel vide." };
 
   const headerRow = detectHeaderRow(rows, source);
@@ -592,6 +624,7 @@ function parseRowsToEleves(
     if (dateNaissance) entry.dateNaissance = dateNaissance;
     const dateSortie = normalizeEleveDateNaissance(cellRaw(row, colMap.dateSortie));
     // Même règle que Siècle : sortie passée → Ancien (pas d'apparition dans les classes).
+    if (dateSortie) entry.dateSortie = dateSortie;
     if (dateSortie && isDateSortiePassee(dateSortie)) {
       entry.status = "ancien";
       entry.regime = "Externe";
@@ -629,7 +662,11 @@ function parseRowsToEleves(
     return { error: "Aucun élève lu — vérifiez que le fichier contient des lignes de données." };
   }
 
-  return { eleves, headerRow };
+  return {
+    eleves,
+    headerRow,
+    dateSortieColumnInFile: colMap.dateSortie !== undefined,
+  };
 }
 
 function detectSourceFromHeaders(headers: unknown[]): ElevesImportSource {
@@ -685,6 +722,7 @@ export function parseElevesExcelBuffer(
     eleves: validated.eleves,
     detectedSource: resolvedSource,
     headerRow: parsed.headerRow,
+    dateSortieColumnInFile: parsed.dateSortieColumnInFile,
   };
 }
 
@@ -737,6 +775,8 @@ export function mergeElevesLists(
     fillOnly?: boolean;
     /** Import Siècle collège ou lycée : les sorties de l’autre cycle sont ignorées. */
     importCycle?: ElevesImportCycleScope;
+    dateSortieColumnInFile?: boolean;
+    allowClearDateSortieOnReimport?: boolean;
   },
 ): { eleves: EleveConfig[]; stats: ElevesMergeStats } {
   const result = [...existing];
