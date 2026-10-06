@@ -7,6 +7,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { useTravelsAssistanceCard } from "@/app/hooks/useTravelsAssistanceCard";
 import { useTravelsElevesClasses } from "@/app/hooks/useTravelsElevesClasses";
 import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import {
@@ -36,6 +37,7 @@ import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
+import { TravelsAssistanceButton } from "@/app/components/travels/TravelsAssistanceButton";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
 import { TripDecisionHubPanel } from "@/app/components/travels/hub/TripDecisionHubPanel";
 import { TripDetailsModals } from "@/app/components/travels/hub/TripDetailsModals";
@@ -107,10 +109,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const tabFromUrl = searchParams.get("tab");
   const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
-  const assistanceCardDownloadUrl = useMemo(() => {
-    const key = appCtx?.travelsOptions?.assistanceCardS3Key?.trim();
-    return key ? "/api/travels/assistance-card?raw=1" : null;
-  }, [appCtx?.travelsOptions?.assistanceCardS3Key]);
+  const { status: assistanceCardStatus } = useTravelsAssistanceCard(true);
   const { classOptions } = useTravelsElevesClasses();
   const [hubTab, setHubTab] = useState<TravelsHubTab>(() => {
     const t = tabFromUrl as TravelsHubTab | null;
@@ -1690,6 +1689,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         coverImageAttributionUrl={
           typeof trip.imageAttributionUrl === "string" ? trip.imageAttributionUrl : null
         }
+        headerActions={
+          <TravelsAssistanceButton status={assistanceCardStatus} size="md" />
+        }
       />
 
       <TripQuickStats
@@ -1723,18 +1725,6 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           },
         ]}
       />
-
-      {assistanceCardDownloadUrl ? (
-        <div className="mt-3 flex justify-end">
-          <TripButton
-            variant="secondary"
-            size="sm"
-            onClick={() => window.open(assistanceCardDownloadUrl, "_blank", "noopener,noreferrer")}
-          >
-            Carte d&apos;assistance
-          </TripButton>
-        </div>
-      ) : null}
 
       <TripWorkflowStepper
         steps={currentSteps}

@@ -108,6 +108,7 @@ export function TripHeroHeader({
   coverImageUrl,
   coverImageAttribution,
   coverImageAttributionUrl,
+  headerActions,
 }: {
   title: string;
   typeLabel: string;
@@ -119,6 +120,7 @@ export function TripHeroHeader({
   coverImageUrl?: string | null;
   coverImageAttribution?: string | null;
   coverImageAttributionUrl?: string | null;
+  headerActions?: ReactNode;
 }) {
   const etabEmoji = establishmentKindEmoji(inferEstablishmentKind({ label: etablissement }));
 
@@ -174,7 +176,10 @@ export function TripHeroHeader({
               Dossier créé par <span className="font-semibold text-white">{ownerName}</span>
             </p>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 flex flex-col items-stretch sm:items-end gap-3">
+            {headerActions ? (
+              <div className="flex flex-wrap justify-end gap-2">{headerActions}</div>
+            ) : null}
             <TripStatusBadge status={status} pulse={statusPulse} />
           </div>
         </div>

@@ -3,6 +3,17 @@ import "server-only";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getObjectBytes } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
+import {
+  travelsAssistanceCardApiStatusFromResolved,
+  travelsAssistanceCardDownloadApiPath,
+} from "@/app/lib/travels-assistance-card-shared";
+
+export {
+  travelsAssistanceCardDownloadApiPath,
+  travelsAssistanceCardApiStatusFromResolved,
+  TRAVELS_ASSISTANCE_CARD_CHANGED_EVENT,
+  type TravelsAssistanceCardApiStatus,
+} from "@/app/lib/travels-assistance-card-shared";
 
 /** Clé S3 stable — une carte d’assistance par tenant (bucket privé). */
 export function travelsAssistanceCardObjectKey(): string {
@@ -14,8 +25,9 @@ export function sanitizeAssistanceCardFileName(name: string): string {
   return base.slice(0, 120) || "carte-assistance.pdf";
 }
 
-export function travelsAssistanceCardDownloadApiPath(): string {
-  return "/api/travels/assistance-card?raw=1";
+export async function getTravelsAssistanceCardApiStatus() {
+  const resolved = await resolveTravelsAssistanceCardBytes();
+  return travelsAssistanceCardApiStatusFromResolved(resolved);
 }
 
 export async function resolveTravelsAssistanceCardMeta(): Promise<{

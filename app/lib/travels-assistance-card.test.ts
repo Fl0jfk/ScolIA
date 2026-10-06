@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseTravelsModule } from "./app-config-schemas";
+import { travelsAssistanceCardApiStatusFromResolved } from "./travels-assistance-card-shared";
 
 test("parseTravelsModule — carte d’assistance", () => {
   const parsed = parseTravelsModule({
@@ -34,4 +35,20 @@ test("parseTravelsModule — fusion partielle conserve la carte", () => {
   });
   assert.equal(merged.assistanceCardS3Key, "settings/travels/assistance-card.pdf");
   assert.equal(merged.pdfFooterText, "Pied de page");
+});
+
+test("travelsAssistanceCardApiStatusFromResolved — non configuré", () => {
+  assert.deepEqual(travelsAssistanceCardApiStatusFromResolved(null), {
+    configured: false,
+    fileName: null,
+    downloadUrl: null,
+  });
+});
+
+test("travelsAssistanceCardApiStatusFromResolved — configuré", () => {
+  assert.deepEqual(travelsAssistanceCardApiStatusFromResolved({ fileName: "Mutuelle.pdf" }), {
+    configured: true,
+    fileName: "Mutuelle.pdf",
+    downloadUrl: "/api/travels/assistance-card?raw=1",
+  });
 });

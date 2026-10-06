@@ -36,6 +36,8 @@ import {
 } from "@/app/lib/module-tour-actions";
 import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
+import { TravelsAssistanceButton } from "@/app/components/travels/TravelsAssistanceButton";
+import { useTravelsAssistanceCard } from "@/app/hooks/useTravelsAssistanceCard";
 
 type TravelsMainTab = "dossiers" | "settings";
 
@@ -75,6 +77,7 @@ function TripDashboardContent() {
   const [showRemindersModal, setShowRemindersModal] = useState(false);
   const [tourModalBoost, setTourModalBoost] = useState(false);
   const [mainTab, setMainTab] = useState<TravelsMainTab>("dossiers");
+  const { status: assistanceCardStatus } = useTravelsAssistanceCard(isLoaded && isSignedIn);
 
   useEffect(() => {
     if (searchParams.get("tab") === "settings" && isOrgAdmin) {
@@ -203,10 +206,15 @@ function TripDashboardContent() {
           </p>
         }
         actions={
-          mainTab === "dossiers" && canOpenTrip ? (
-            <ModuleButton data-tour="travels-create" onClick={() => setShowModal(true)}>
-              + Nouvelle demande
-            </ModuleButton>
+          mainTab === "dossiers" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <TravelsAssistanceButton status={assistanceCardStatus} size="md" />
+              {canOpenTrip ? (
+                <ModuleButton data-tour="travels-create" onClick={() => setShowModal(true)}>
+                  + Nouvelle demande
+                </ModuleButton>
+              ) : null}
+            </div>
           ) : undefined
         }
       />

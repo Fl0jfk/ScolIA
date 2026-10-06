@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { TripDocumentsDropZone } from "@/app/components/travels/TripDocumentsDropZone";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import { notifyTravelsAssistanceCardChanged } from "@/app/hooks/useTravelsAssistanceCard";
 
 type AssistanceCardState = {
   configured: boolean;
@@ -82,6 +83,7 @@ export default function TravelsAssistanceCardSettingsPanel({
         downloadUrl: (prepJson.downloadUrl as string) || "/api/travels/assistance-card?raw=1",
       });
       setMsg("Carte d’assistance enregistrée.");
+      notifyTravelsAssistanceCardChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur upload");
     } finally {
@@ -101,6 +103,7 @@ export default function TravelsAssistanceCardSettingsPanel({
       if (!res.ok) throw new Error(j.error || "Suppression impossible");
       setState({ configured: false, fileName: null, downloadUrl: null });
       setMsg("Carte d’assistance retirée.");
+      notifyTravelsAssistanceCardChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
