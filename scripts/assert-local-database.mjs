@@ -19,7 +19,11 @@ export function isLocalDatabaseUrl(url) {
  */
 export function assertLocalDatabase(
   url,
-  { allowEnv = "ALLOW_PROD_MIGRATION", action = "cette opération" } = {},
+  {
+    allowEnv = "ALLOW_PROD_MIGRATION",
+    autoEnv = "SCOLA_AUTO_MIGRATE",
+    action = "cette opération",
+  } = {},
 ) {
   if (isLocalDatabaseUrl(url)) return "local";
   if (process.env[allowEnv] === "1") {
@@ -27,6 +31,12 @@ export function assertLocalDatabase(
       `[db-guard] ${action} sur une base NON locale autorisée via ${allowEnv}=1 — validation humaine requise.`,
     );
     return "remote-override";
+  }
+  if (process.env[autoEnv] === "1") {
+    console.log(
+      `[db-guard] ${action} sur base distante via ${autoEnv}=1 (démarrage conteneur / pipeline automatisé).`,
+    );
+    return "remote-auto";
   }
   console.error(
     `[db-guard] Refus : DATABASE_URL n’est pas 127.0.0.1/localhost. ${action} bloquée.`,

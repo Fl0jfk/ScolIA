@@ -26,3 +26,6 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Valider journal migrations Drizzle
+        run: npm run db:validate-migrations
