@@ -387,20 +387,24 @@ export async function upsertElevesInDb(
 
         const patch = { ...values };
         const incomingStatus = normalizeEleveStatus(e.status);
-        const curStatus = normalizeEleveStatus(cur?.status);
+        const reimportReactivation =
+          incomingStatus === "inscrit" && Boolean(e.classe?.trim()) && !e.dateSortie?.trim();
+        if (reimportReactivation) {
+          patch.status = "inscrit";
+          patch.dateSortie = null;
+        }
         const patchDateSortie =
-          patch.dateSortie ??
-          (cur?.dateSortie ? formatDateSortieFromRow(cur.dateSortie) : null);
-        if (
-          (curStatus === "ancien" || curStatus === "archive") &&
-          incomingStatus === "inscrit" &&
-          !e.dateSortie?.trim()
-        ) {
-          patch.status = curStatus;
-        } else if (patchDateSortie && isDateSortiePassee(patchDateSortie)) {
+          patch.dateSortie != null
+            ? formatDateSortieFromRow(patch.dateSortie) ?? String(patch.dateSortie)
+            : reimportReactivation
+              ? null
+              : cur?.dateSortie
+                ? formatDateSortieFromRow(cur.dateSortie)
+                : null;
+        if (!reimportReactivation && patchDateSortie && isDateSortiePassee(patchDateSortie)) {
           patch.status = "ancien";
         }
-        if (!patch.dateSortie && cur?.dateSortie) {
+        if (!reimportReactivation && !patch.dateSortie && cur?.dateSortie) {
           patch.dateSortie = cur.dateSortie;
         }
         // Ne pas écraser une date / un lieu déjà connus si le fichier d’import

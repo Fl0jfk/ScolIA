@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, eq, isNull, or, type SQL, sql } from "drizzle-orm";
 import { eleve } from "@/db/schema";
-import { todayIsoLocal } from "@/app/lib/siecle-eleves-parse";
+import { parisDateKey } from "@/app/lib/paris-time";
 
 export {
   formatDateSortieFromRow,
@@ -15,15 +15,22 @@ export {
  * Fragment SQL Drizzle à combiner avec `etablissement_id` (et autres filtres).
  */
 export function drizzleEleveActifPourListes(now: Date = new Date()) {
-  const today = todayIsoLocal(now);
+  const today = parisDateKey(now);
   return and(
     eq(eleve.status, "inscrit"),
-    or(isNull(eleve.dateSortie), sql`${eleve.dateSortie} > ${today}::date`),
+    or(isNull(eleve.dateSortie), sql`${eleve.dateSortie} >= ${today}::date`),
   );
+}
+
+/** Élève scolarisé sur une période de notes / bulletins (date début de période). */
+export function drizzleEleveVisiblePourPeriodeNotes(periodeDateDebut: string) {
+  const debut = periodeDateDebut.trim();
+  if (!debut) return drizzleEleveActifPourListes();
+  return or(isNull(eleve.dateSortie), sql`${eleve.dateSortie} >= ${debut}::date`);
 }
 
 /** Même règle en SQL brut (scripts / migrations). */
 export function sqlEleveActifPourListesClause(now: Date = new Date()): SQL {
-  const today = todayIsoLocal(now);
-  return sql`status = 'inscrit' AND (date_sortie IS NULL OR date_sortie > ${today}::date)`;
+  const today = parisDateKey(now);
+  return sql`status = 'inscrit' AND (date_sortie IS NULL OR date_sortie >= ${today}::date)`;
 }

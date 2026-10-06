@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import JSZip from "jszip";
 import { requireAdmin, requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { listPeriodes } from "@/app/lib/notes-config-db";
 import {
   listEleveIdsForBulletinClasse,
   listEleveIdsForBulletinGroupe,
@@ -34,9 +35,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Classe ou groupe requis pour l'export ZIP." }, { status: 400 });
     }
 
+    const periodes = await listPeriodes(etabId);
+    const periode = periodes.find((p) => p.id === periodeId);
+    const periodeDebut = periode?.dateDebut ? String(periode.dateDebut).slice(0, 10) : "";
+    if (!periodeDebut) {
+      return NextResponse.json({ error: "Période introuvable ou sans date de début." }, { status: 400 });
+    }
     const eleves = groupeId
-      ? await listEleveIdsForBulletinGroupe(etabId, groupeId)
-      : await listEleveIdsForBulletinClasse(etabId, classe);
+      ? await listEleveIdsForBulletinGroupe(etabId, groupeId, periodeDebut)
+      : await listEleveIdsForBulletinClasse(etabId, classe, periodeDebut);
     if (!eleves.length) {
       return NextResponse.json({ error: "Aucun élève dans ce périmètre." }, { status: 404 });
     }

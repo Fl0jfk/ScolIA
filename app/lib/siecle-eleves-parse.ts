@@ -1,3 +1,4 @@
+import { parisDateKey } from "@/app/lib/paris-time";
 import {
   buildEleveFolderName,
   type EleveConfig,
@@ -21,17 +22,14 @@ export function normalizeSiecleDate(raw: string): string {
   return "";
 }
 
-/** Date calendaire locale YYYY-MM-DD. */
+/** Date calendaire du jour institutionnel (Europe/Paris), YYYY-MM-DD. */
 export function todayIsoLocal(now: Date = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return parisDateKey(now);
 }
 
 /**
- * True si DATE_SORTIE est passée ou égale à aujourd'hui (règle métier listes / effectifs).
- * Pas de date / date future → encore scolarisé pour les listes.
+ * True si DATE_SORTIE est strictement avant aujourd'hui (Paris).
+ * Jour J de sortie → encore visible ; disparaît le lendemain.
  */
 export function isDateSortiePassee(
   raw: string | undefined | null,
@@ -39,7 +37,7 @@ export function isDateSortiePassee(
 ): boolean {
   const iso = normalizeSiecleDate(String(raw ?? ""));
   if (!iso) return false;
-  return iso <= todayIsoLocal(now);
+  return iso < todayIsoLocal(now);
 }
 
 function eleveFromSiecleBlock(

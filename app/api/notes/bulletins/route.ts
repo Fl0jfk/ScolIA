@@ -25,14 +25,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Classe ou groupe, et période requis." }, { status: 400 });
   }
 
-  const [eleves, periodes, groupes] = await Promise.all([
-    groupeId
-      ? listEleveIdsForBulletinGroupe(etabId, groupeId)
-      : listEleveIdsForBulletinClasse(etabId, classe),
-    listPeriodes(etabId),
-    listGroupes(etabId),
-  ]);
+  const [periodes, groupes] = await Promise.all([listPeriodes(etabId), listGroupes(etabId)]);
   const periode = periodes.find((p) => p.id === periodeId);
+  const periodeDebut = periode?.dateDebut
+    ? String(periode.dateDebut).slice(0, 10)
+    : "";
+  if (!periodeDebut) {
+    return NextResponse.json({ error: "Période introuvable ou sans date de début." }, { status: 400 });
+  }
+  const eleves = groupeId
+    ? await listEleveIdsForBulletinGroupe(etabId, groupeId, periodeDebut)
+    : await listEleveIdsForBulletinClasse(etabId, classe, periodeDebut);
   const groupe = groupes.find((g) => g.id === groupeId);
 
   const previews: Array<{

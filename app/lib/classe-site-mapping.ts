@@ -233,7 +233,7 @@ export async function loadClasseMappingWorkspace(etablissementId: string): Promi
         n: sql<number>`count(*)::int`,
       })
       .from(eleve)
-      .where(eq(eleve.etablissementId, etablissementId))
+      .where(and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!))
       .groupBy(eleve.classe),
     loadOfficialSchoolClasses(etablissementId),
   ]);

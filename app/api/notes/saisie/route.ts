@@ -7,6 +7,7 @@ import {
   closePeriode,
   createDevoir,
   listDevoirs,
+  getNotePeriodeDateDebutIso,
   listElevesForClasse,
   listElevesForGroupe,
   listMoyennesClasse,
@@ -26,15 +27,25 @@ async function resolveElevesForDevoir(
   fallbackGroupeId: string,
 ) {
   const db = getDb();
-  const [devoir] = await db
-    .select({ classe: noteDevoir.classe, groupeId: noteDevoir.groupeId })
+  const [devoirRow] = await db
+    .select({
+      periodeId: noteDevoir.periodeId,
+      classe: noteDevoir.classe,
+      groupeId: noteDevoir.groupeId,
+    })
     .from(noteDevoir)
     .where(and(eq(noteDevoir.etablissementId, etabId), eq(noteDevoir.id, devoirId)))
     .limit(1);
-  if (devoir?.groupeId) return listElevesForGroupe(etabId, devoir.groupeId);
-  const cls = devoir?.classe || fallbackClasse;
+  if (!devoirRow) return [];
+  const periodeDebut = devoirRow.periodeId
+    ? await getNotePeriodeDateDebutIso(etabId, devoirRow.periodeId)
+    : null;
+  if (devoirRow.groupeId) {
+    return listElevesForGroupe(etabId, devoirRow.groupeId, { periodeDateDebut: periodeDebut });
+  }
+  const cls = devoirRow.classe || fallbackClasse;
   if (!cls) return [];
-  return listElevesForClasse(etabId, cls);
+  return listElevesForClasse(etabId, cls, { periodeDateDebut: periodeDebut });
 }
 
 export async function GET(req: Request) {
@@ -85,11 +96,12 @@ export async function GET(req: Request) {
     matiereId: matiereId || undefined,
   });
 
+  const periodeDebut = periodeId ? await getNotePeriodeDateDebutIso(etabId, periodeId) : null;
   let eleves: Awaited<ReturnType<typeof listElevesForClasse>> = [];
   if (groupeId) {
-    eleves = await listElevesForGroupe(etabId, groupeId);
+    eleves = await listElevesForGroupe(etabId, groupeId, { periodeDateDebut: periodeDebut });
   } else if (classe) {
-    eleves = await listElevesForClasse(etabId, classe);
+    eleves = await listElevesForClasse(etabId, classe, { periodeDateDebut: periodeDebut });
   }
 
   const classes = classe

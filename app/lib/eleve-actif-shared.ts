@@ -26,7 +26,20 @@ export function isEleveActifPourListes(
   return true;
 }
 
-/** Dossier individuel : élève sorti (statut ou date de sortie ≤ aujourd’hui). */
+/** Notes / bulletins : visible sur une période si pas de sortie ou sortie ≥ début de période. */
+export function isEleveVisiblePourPeriodeNotes(
+  dateSortie: string | null | undefined,
+  periodeDateDebut: string,
+): boolean {
+  const debut = periodeDateDebut.trim();
+  if (!debut) return true;
+  const iso = String(dateSortie ?? "").trim();
+  if (!iso) return true;
+  const normalized = iso.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? iso;
+  return normalized >= debut;
+}
+
+/** Dossier individuel : élève sorti (statut ou date de sortie avant aujourd’hui Paris). */
 export function isEleveSortantEtablissement(
   fields: EleveActifListesFields,
   now: Date = new Date(),

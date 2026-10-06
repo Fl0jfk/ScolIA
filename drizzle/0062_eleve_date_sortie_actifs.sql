@@ -13,7 +13,7 @@ UPDATE "eleve"
 SET "status" = 'ancien', "updated_at" = now()
 WHERE "status" = 'inscrit'
   AND "date_sortie" IS NOT NULL
-  AND "date_sortie" <= CURRENT_DATE;
+  AND "date_sortie" < CURRENT_DATE;
 --> statement-breakpoint
 
 UPDATE "eleve_scolarite" AS s
@@ -23,8 +23,6 @@ WHERE s."statut" = 'en_cours'
     SELECT 1 FROM "eleve" e
     WHERE e."id" = s."eleve_id"
       AND e."etablissement_id" = s."etablissement_id"
-      AND (
-        e."status" IN ('ancien', 'archive')
-        OR (e."date_sortie" IS NOT NULL AND e."date_sortie" <= CURRENT_DATE)
-      )
+      AND e."date_sortie" IS NOT NULL
+      AND e."date_sortie" < CURRENT_DATE
   );

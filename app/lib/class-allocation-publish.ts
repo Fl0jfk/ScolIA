@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { ClassAllocationRun } from "@/app/lib/class-allocation-types";
-import { loadElevesRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
 
 export type PublishClassAllocationResult = {
   updated: number;
@@ -39,7 +39,7 @@ export async function publishClassAllocationRun(
     return { updated: 0, unchanged: 0, missingInes: [], classesTouched: [] };
   }
 
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   const missingInes: string[] = [];
   const seen = new Set<string>();
   let updated = 0;

@@ -479,15 +479,15 @@ function mergeEleveFields(
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
   if (incoming.dateSortie?.trim()) merged.dateSortie = incoming.dateSortie.trim();
   const incomingStatus = incoming.status;
-  const existingStatus = existing.status;
+  if (incomingStatus) {
+    merged.status = incomingStatus;
+  }
   if (
-    incomingStatus === "inscrit" &&
-    (existingStatus === "ancien" || existingStatus === "archive") &&
+    merged.status === "inscrit" &&
+    incoming.classe?.trim() &&
     !incoming.dateSortie?.trim()
   ) {
-    merged.status = existingStatus;
-  } else if (incomingStatus) {
-    merged.status = incomingStatus;
+    delete merged.dateSortie;
   }
   if (merged.dateSortie && isDateSortiePassee(merged.dateSortie)) {
     merged.status = "ancien";

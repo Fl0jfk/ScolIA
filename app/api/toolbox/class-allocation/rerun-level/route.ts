@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import {
   listParentWishes,
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   const campaign = await loadCampaignConfig();
   const latest = await loadLatestRun(campaign.id);
   const [elevesHit, parentWishes, staffWishes, scores] = await Promise.all([
-    loadElevesRegistry(),
+    loadElevesActifsRegistry(),
     listParentWishes(campaign.id),
     listStaffWishes(campaign.id),
     listScores(campaign.id),
