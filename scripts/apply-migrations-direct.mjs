@@ -192,8 +192,16 @@ async function runMigrations() {
 }
 
 async function main() {
-  console.log("[migrations] Acquisition du verrou advisory…");
-  await sql`SELECT pg_advisory_lock(${MIGRATION_ADVISORY_LOCK_KEY1}, ${MIGRATION_ADVISORY_LOCK_KEY2})`;
+  console.log("[migrations] Acquisition du verrou advisory (timeout 5 min)…");
+  await sql`SET lock_timeout = '300s'`;
+  try {
+    await sql`SELECT pg_advisory_lock(${MIGRATION_ADVISORY_LOCK_KEY1}, ${MIGRATION_ADVISORY_LOCK_KEY2})`;
+  } catch (lockErr) {
+    console.error(
+      "[migrations] Verrou advisory indisponible après 5 min — une autre instance applique peut-être les migrations.",
+    );
+    throw lockErr;
+  }
   try {
     await runMigrations();
   } finally {

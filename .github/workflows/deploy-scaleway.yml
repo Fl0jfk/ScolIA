@@ -57,6 +57,9 @@ jobs:
     needs: typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
+      NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
     permissions:
       contents: read
 
@@ -234,11 +237,9 @@ jobs:
           fi
 
       - name: Attendre le SHA déployé (/api/health)
-        if: ${{ secrets.SCW_CONTAINER_ID != '' && secrets.NEXT_PUBLIC_APP_URL != '' }}
+        if: ${{ env.SCW_CONTAINER_ID != '' && env.NEXT_PUBLIC_APP_URL != '' }}
         env:
           SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
-          SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
-          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
           EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail

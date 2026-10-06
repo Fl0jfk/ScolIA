@@ -8,12 +8,17 @@ import { getDb, isDatabaseConfigured } from "@/db/index";
 
 type JournalEntry = { tag: string; when: number };
 
+let cachedJournalEntries: JournalEntry[] | null = null;
+let cachedMigrationHashIndex: Map<string, string> | null = null;
+
 function loadJournalEntries(): JournalEntry[] {
+  if (cachedJournalEntries) return cachedJournalEntries;
   const journalPath = path.join(process.cwd(), "drizzle", "meta", "_journal.json");
   const raw = JSON.parse(fs.readFileSync(journalPath, "utf8")) as {
     entries: JournalEntry[];
   };
-  return raw.entries;
+  cachedJournalEntries = raw.entries;
+  return cachedJournalEntries;
 }
 
 function buildHashAndTagIndex(entries: JournalEntry[]): Map<string, string> {
@@ -29,6 +34,13 @@ function buildHashAndTagIndex(entries: JournalEntry[]): Map<string, string> {
     }
   }
   return index;
+}
+
+function getMigrationHashIndex(): Map<string, string> {
+  if (!cachedMigrationHashIndex) {
+    cachedMigrationHashIndex = buildHashAndTagIndex(loadJournalEntries());
+  }
+  return cachedMigrationHashIndex;
 }
 
 export type DeployHealthPayload = {
@@ -56,7 +68,6 @@ export async function getDeployHealthPayload(): Promise<DeployHealthPayload> {
     return { ok: true, gitSha, migrationTag: null };
   }
 
-  const index = buildHashAndTagIndex(loadJournalEntries());
-  const migrationTag = index.get(lastHash) ?? null;
+  const migrationTag = getMigrationHashIndex().get(lastHash) ?? null;
   return { ok: true, gitSha, migrationTag };
 }

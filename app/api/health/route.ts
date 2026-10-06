@@ -11,8 +11,7 @@ export async function GET() {
     return NextResponse.json(body, {
       headers: { "Cache-Control": "no-store" },
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "health_error";
-    return NextResponse.json({ ok: false, error: message }, { status: 503 });
+  } catch {
+    return NextResponse.json({ ok: false, error: "service_unavailable" }, { status: 503 });
   }
 }

@@ -91,6 +91,8 @@ Postgres local Cloud Agent (si `install.sh`) :
 - URL : `postgresql://scola:scola_dev_pwd@127.0.0.1:5432/scola`
 - Variables dans `.env.local` (gitignored), généré par `.cursor/install.sh`
 
+**Tests automatisés Postgres** : utiliser **`TEST_DATABASE_URL` uniquement** (base de test explicite, ex. `scolia_migrate`). Les fichiers `*.test.*` ne doivent **jamais** lire `DATABASE_URL` ni charger `.env.local` pour se connecter — garde `scripts/test-database-guard.mjs`. CI : job `integration-db-tests`.
+
 ## MCP et outils agents
 
 Florian n’a **rien à coller** (pas de JSON dashboard, pas d’Authenticate). Secrets uniquement via `process.env` / `.env.local` / `.cursor/mcp.local.env` (gitignored).
