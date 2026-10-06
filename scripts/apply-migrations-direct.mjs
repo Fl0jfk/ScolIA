@@ -1,9 +1,15 @@
 /**
- * Applique les migrations SQL en direct.
- * Gère l'historique mixte (hash SHA vs tag) : backfill les tags déjà en prod sans re-jouer le SQL.
+ * Applique les migrations SQL listées dans drizzle/meta/_journal.json.
  *
- * Par défaut : URL locale uniquement. Prod : ALLOW_PROD_MIGRATION=1 + validation humaine.
+ * Ne repose pas sur drizzle-kit migrate : celui-ci saute toute migration dont le champ
+ * journal `when` est ≤ au created_at de la dernière ligne __drizzle_migrations (doublons de `when` = migrations jamais jouées).
+ *
+ * Journal : enregistre le hash SHA256 du fichier SQL (compatible drizzle-kit). Les anciennes
+ * lignes tag-only (scripts legacy) sont reconnues comme déjà appliquées.
+ *
+ * Prod / conteneur : SCOLA_AUTO_MIGRATE=1 (entrypoint Docker) ou ALLOW_PROD_MIGRATION=1 (manuel).
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { assertLocalDatabase } from "./assert-local-database.mjs";
@@ -11,9 +17,6 @@ import { assertLocalDatabase } from "./assert-local-database.mjs";
 const root = path.resolve(import.meta.dirname, "..");
 const journalPath = path.join(root, "drizzle", "meta", "_journal.json");
 const journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
-
-/** Dernière migration déjà appliquée en prod (objets existants, journal incohérent). */
-const BACKFILL_UNTIL_TAG = "0013_user_membership";
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -30,6 +33,17 @@ const sql = postgres(url, {
   max: 1,
 });
 
+function contentHash(fileContent) {
+  return crypto.createHash("sha256").update(fileContent).digest("hex");
+}
+
+function splitStatements(fileContent) {
+  return fileContent
+    .split(/--> statement-breakpoint\n?/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 async function ensureMigrationsTable() {
   await sql`
     CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
@@ -41,44 +55,45 @@ async function ensureMigrationsTable() {
 }
 
 async function appliedHashes() {
-  const rows = await sql`SELECT hash FROM drizzle.__drizzle_migrations ORDER BY created_at`;
+  const rows = await sql`SELECT hash FROM drizzle.__drizzle_migrations`;
   return new Set(rows.map((r) => r.hash));
 }
 
-function splitStatements(fileContent) {
-  return fileContent
-    .split(/--> statement-breakpoint\n?/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
+function isRecorded(tag, hash, done) {
+  return done.has(hash) || done.has(tag);
 }
 
-function isApplied(tag, done) {
-  return done.has(tag);
-}
+async function applyEntry(entry, done) {
+  const tag = entry.tag;
+  const file = path.join(root, "drizzle", `${tag}.sql`);
+  if (!fs.existsSync(file)) {
+    throw new Error(`Fichier migration manquant : ${file}`);
+  }
+  const content = fs.readFileSync(file, "utf8");
+  const hash = contentHash(content);
 
-async function backfillTag(tag, done) {
-  if (isApplied(tag, done)) return;
-  await sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (${tag}, ${Date.now()})`;
-  done.add(tag);
-  console.log(`backfill ${tag}`);
-}
-
-async function applyFile(tag, done) {
-  if (isApplied(tag, done)) {
+  if (isRecorded(tag, hash, done)) {
     console.log(`skip ${tag}`);
     return;
   }
-  const file = path.join(root, "drizzle", `${tag}.sql`);
-  if (!fs.existsSync(file)) {
-    console.warn(`missing ${file}`);
-    return;
-  }
+
   console.log(`apply ${tag}…`);
-  const content = fs.readFileSync(file, "utf8");
-  for (const stmt of splitStatements(content)) {
-    await sql.unsafe(stmt);
+  const statements = splitStatements(content);
+  if (statements.length === 0) {
+    throw new Error(`Migration vide : ${tag}`);
   }
-  await sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (${tag}, ${Date.now()})`;
+
+  await sql.begin(async (tx) => {
+    for (const stmt of statements) {
+      await tx.unsafe(stmt);
+    }
+    await tx`
+      INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+      VALUES (${hash}, ${entry.when})
+    `;
+  });
+
+  done.add(hash);
   done.add(tag);
   console.log(`ok ${tag}`);
 }
@@ -88,15 +103,8 @@ async function main() {
   await ensureMigrationsTable();
   const done = await appliedHashes();
 
-  let backfillMode = true;
   for (const entry of journal.entries) {
-    const tag = entry.tag;
-    if (backfillMode) {
-      await backfillTag(tag, done);
-      if (tag === BACKFILL_UNTIL_TAG) backfillMode = false;
-      continue;
-    }
-    await applyFile(tag, done);
+    await applyEntry(entry, done);
   }
 
   console.log("Migrations terminées.");
