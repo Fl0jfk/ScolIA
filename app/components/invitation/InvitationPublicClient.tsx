@@ -193,6 +193,7 @@ export default function InvitationPublicClient({ page }: Props) {
   const [diploma, setDiploma] = useState<InvitationDiploma | "">("");
   const [birthDate, setBirthDate] = useState("");
   const [editingExisting, setEditingExisting] = useState(false);
+  const [bookedPresentCount, setBookedPresentCount] = useState(0);
   const [situationStatus, setSituationStatus] = useState<InvitationSituationStatus | "">("");
   const [situationDetail, setSituationDetail] = useState("");
   const [situationEstablishment, setSituationEstablishment] = useState("");
@@ -281,6 +282,9 @@ export default function InvitationPublicClient({ page }: Props) {
         if (!res.ok) throw new Error(humanizeApiFailure(data.error || "Vérification impossible."));
         if (data.existing) {
           setEditingExisting(true);
+          setBookedPresentCount(
+            data.existing.response === "oui" ? data.existing.presentCount || 0 : 0,
+          );
           setResponse(data.existing.response);
           setPresentCount(data.existing.presentCount || 2);
           setParentEmail(data.existing.parentEmail || "");
@@ -288,9 +292,10 @@ export default function InvitationPublicClient({ page }: Props) {
           setSituationStatus(data.existing.situationStatus || "");
           setSituationDetail(data.existing.situationDetail || "");
           setSituationEstablishment(data.existing.situationEstablishment || "");
-          setStep("details");
+          setStep("rsvp");
         } else {
           setEditingExisting(false);
+          setBookedPresentCount(0);
           setStep("rsvp");
         }
       } catch (e) {
@@ -324,13 +329,17 @@ export default function InvitationPublicClient({ page }: Props) {
         setError(`Nombre de personnes : entre 1 et ${page.maxPersonsPerEleve}.`);
         return;
       }
-      if (page.placesRemaining != null && presentCount > page.placesRemaining) {
-        setError(
-          page.placesRemaining === 0
-            ? "Il n’y a plus de places disponibles."
-            : `Il ne reste que ${page.placesRemaining} place(s).`,
-        );
-        return;
+      if (page.placesRemaining != null) {
+        const extra = presentCount - bookedPresentCount;
+        if (extra > page.placesRemaining) {
+          const leftForYou = Math.max(0, page.placesRemaining + bookedPresentCount);
+          setError(
+            leftForYou === 0
+              ? "Il n’y a plus de places disponibles."
+              : `Il ne reste que ${leftForYou} place(s).`,
+          );
+          return;
+        }
       }
     }
 
@@ -713,6 +722,12 @@ export default function InvitationPublicClient({ page }: Props) {
                 <p className="text-center text-sm font-semibold">
                   {eleveFirstName} {eleveLastName} — serez-vous présents ?
                 </p>
+                {editingExisting && response ? (
+                  <p className="text-center text-xs font-medium" style={{ color: "var(--inv-muted)" }}>
+                    Réponse actuelle : {response === "oui" ? "Oui, je viens" : "Non, je ne viens pas"}.
+                    Vous pouvez la changer.
+                  </p>
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <button
                     type="button"
@@ -721,7 +736,14 @@ export default function InvitationPublicClient({ page }: Props) {
                     style={{
                       borderColor: "var(--inv-accent)",
                       color: festive ? "var(--inv-accent)" : "var(--inv-accent)",
-                      background: festive ? "rgba(232,212,139,0.08)" : "transparent",
+                      background:
+                        editingExisting && response === "oui"
+                          ? festive
+                            ? "rgba(232,212,139,0.18)"
+                            : "var(--inv-accent-soft)"
+                          : festive
+                            ? "rgba(232,212,139,0.08)"
+                            : "transparent",
                     }}
                   >
                     Oui, je viens
@@ -729,8 +751,25 @@ export default function InvitationPublicClient({ page }: Props) {
                   <button
                     type="button"
                     onClick={() => chooseResponse("non")}
-                    className="rounded-2xl border px-4 py-4 text-sm font-bold transition hover:bg-white/5"
-                    style={{ borderColor: "var(--inv-border)", color: "var(--inv-muted)" }}
+                    className="rounded-2xl border-2 px-4 py-4 text-sm font-bold transition hover:bg-white/5"
+                    style={{
+                      borderColor:
+                        editingExisting && response === "non"
+                          ? "var(--inv-accent)"
+                          : "var(--inv-border)",
+                      color:
+                        editingExisting && response === "non"
+                          ? festive
+                            ? "var(--inv-accent)"
+                            : "var(--inv-ink)"
+                          : "var(--inv-muted)",
+                      background:
+                        editingExisting && response === "non"
+                          ? festive
+                            ? "rgba(232,212,139,0.12)"
+                            : "var(--inv-accent-soft)"
+                          : "transparent",
+                    }}
                   >
                     Non, je ne viens pas
                   </button>
@@ -879,7 +918,7 @@ export default function InvitationPublicClient({ page }: Props) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setStep(editingExisting ? "eleve" : "rsvp")}
+                    onClick={() => setStep("rsvp")}
                     className="text-xs font-semibold underline"
                     style={{ color: "var(--inv-muted)" }}
                   >
@@ -949,7 +988,7 @@ export default function InvitationPublicClient({ page }: Props) {
                       setError(null);
                       setUpdatedExisting(true);
                       setEditingExisting(true);
-                      setStep("details");
+                      setStep("rsvp");
                     }}
                     className="text-xs font-semibold underline"
                     style={{ color: "var(--inv-muted)" }}
