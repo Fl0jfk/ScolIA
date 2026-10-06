@@ -55,6 +55,9 @@ export const VALKEY_TTL = {
 
 const NS = "scola";
 
+/** Incrémenter au déploiement d’un changement RGPD / payload liste dossiers. */
+export const ELEVE_DOSSIERS_LIST_CACHE_REV = "v2";
+
 export function valkeyKeyPasskey(userId: string): string {
   return `${NS}:passkey:${userId}`;
 }
@@ -96,6 +99,7 @@ export function valkeyKeyElevesDossiersList(parts: {
   return [
     NS,
     "eleves:list",
+    ELEVE_DOSSIERS_LIST_CACHE_REV,
     parts.etablissementId,
     parts.viewerKey,
     parts.metaOnly ? "meta" : "full",

@@ -38,6 +38,10 @@ import {
   type EleveGrilleRepasDay,
   type MealDayKey,
 } from "@/app/lib/eleve-grille-repas";
+import {
+  eleveDossierSessionCacheKey,
+} from "@/app/lib/eleve-dossier-client-cache";
+import { useAppUser } from "@/app/hooks/useAppUser";
 
 function dossiersListHrefFromRetour(retour: string | null, fallbackClasse?: string | null): string {
   if (retour) {
@@ -210,6 +214,7 @@ type DossierPayload = {
     canDeleteDocuments?: boolean;
     canDeleteElevePermanent?: boolean;
     profRestrictedView?: boolean;
+    canViewEleveAccompagnements?: boolean;
     tiroirs: string[];
     docCategories?: EleveDocCategorie[];
   };
@@ -341,6 +346,10 @@ export default function EleveDossierClient({
   const searchParams = useSearchParams();
   const router = useRouter();
   const id = eleveIdProp || String(params.id || "");
+  const { isLoaded: sessionLoaded, user: appUser } = useAppUser();
+  const sessionUserId = appUser?.id;
+  const sessionRef = useRef({ loaded: false, userId: undefined as string | undefined });
+  sessionRef.current = { loaded: sessionLoaded, userId: sessionUserId };
   const isModal = mode === "modal";
   const listHref = dossiersListHrefFromRetour(
     searchParams.get("retour"),
@@ -391,20 +400,27 @@ export default function EleveDossierClient({
   const [lieuDraft, setLieuDraft] = useState("");
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
-    const cacheKey = `scola:eleve-dossier:${id}`;
+    const { loaded: sessionReady, userId: cacheUserId } = sessionRef.current;
+    const canUseSessionCache = sessionReady && Boolean(cacheUserId);
+    const cacheKey =
+      canUseSessionCache && cacheUserId
+        ? eleveDossierSessionCacheKey(cacheUserId, id)
+        : null;
     if (!opts?.silent) {
       setError(null);
-      try {
-        const raw = sessionStorage.getItem(cacheKey);
-        if (raw) {
-          const cached = JSON.parse(raw) as DossierPayload;
-          if (cached?.eleve?.id === id) {
-            setData(cached);
-            setStaleCache(true);
+      if (cacheKey) {
+        try {
+          const raw = sessionStorage.getItem(cacheKey);
+          if (raw) {
+            const cached = JSON.parse(raw) as DossierPayload;
+            if (cached?.eleve?.id === id) {
+              setData(cached);
+              setStaleCache(true);
+            }
           }
+        } catch {
+          /* ignore cache corrompu */
         }
-      } catch {
-        /* ignore cache corrompu */
       }
     }
     try {
@@ -454,10 +470,12 @@ export default function EleveDossierClient({
       });
       setStaleCache(false);
       setError(null);
-      try {
-        sessionStorage.setItem(cacheKey, JSON.stringify(payload));
-      } catch {
-        /* quota / private mode */
+      if (cacheKey) {
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+        } catch {
+          /* quota / private mode */
+        }
       }
       setExtrasReady(false);
       void fetch(`/api/eleves/${id}/dossier?part=extras`, { cache: "no-store" })
@@ -469,10 +487,12 @@ export default function EleveDossierClient({
           const extras = (await extrasRes.json().catch(() => null)) as DossierPayload | null;
           if (extras && extras.eleve?.id === id) {
             setData(extras);
-            try {
-              sessionStorage.setItem(cacheKey, JSON.stringify(extras));
-            } catch {
-              /* quota / private mode */
+            if (cacheKey) {
+              try {
+                sessionStorage.setItem(cacheKey, JSON.stringify(extras));
+              } catch {
+                /* quota / private mode */
+              }
             }
           }
           setExtrasReady(true);
@@ -507,6 +527,21 @@ export default function EleveDossierClient({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!sessionLoaded || !sessionUserId || dataRef.current?.eleve?.id === id) return;
+    try {
+      const raw = sessionStorage.getItem(eleveDossierSessionCacheKey(sessionUserId, id));
+      if (!raw) return;
+      const cached = JSON.parse(raw) as DossierPayload;
+      if (cached?.eleve?.id === id) {
+        setData(cached);
+        setStaleCache(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [sessionLoaded, sessionUserId, id]);
 
   const tabs = useMemo(() => {
     if (!data) return [];
@@ -570,12 +605,19 @@ export default function EleveDossierClient({
 
   const filteredDocuments = useMemo(() => {
     if (!data) return [];
-    if (docCategory === "tous") return data.documents;
+    const hideAccompagnement = data.meta.canViewEleveAccompagnements === false;
+    const stripAcc = (docs: DossierPayload["documents"]) =>
+      hideAccompagnement
+        ? docs.filter((d) => !detectAccompagnementKind(d.title))
+        : docs;
+    if (docCategory === "tous") return stripAcc(data.documents);
     if (docCategory === "inscription") {
-      return data.documents.filter((d) => d.tiroir === "inscription");
+      return stripAcc(data.documents.filter((d) => d.tiroir === "inscription"));
     }
     const tiroirs = new Set(CATEGORIE_TIROIRS[docCategory]);
-    return data.documents.filter((d) => tiroirs.has(d.tiroir as keyof typeof TIROIR_TO_CATEGORIE));
+    return stripAcc(
+      data.documents.filter((d) => tiroirs.has(d.tiroir as keyof typeof TIROIR_TO_CATEGORIE)),
+    );
   }, [data, docCategory]);
 
   const synthesisAccompagnements = useMemo(() => {
@@ -2661,7 +2703,8 @@ export default function EleveDossierClient({
                             ) : (
                               <span className="text-xs font-bold text-emerald-700">Accessible</span>
                             )
-                          ) : d.canRequestAccess || d.lockedReason === "grant_required" ? (
+                          ) : (d.canRequestAccess || d.lockedReason === "grant_required") &&
+                            !(accCode && data.meta.canViewEleveAccompagnements === false) ? (
                             <button
                               type="button"
                               className="text-xs font-bold text-amber-700 hover:underline"

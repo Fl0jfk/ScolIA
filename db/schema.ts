@@ -633,6 +633,11 @@ export const eleveAccessAudit = pgTable(
     eleveId: uuid("eleve_id").references(() => eleve.id, { onDelete: "set null" }),
     action: text("action").notNull(),
     metadata: jsonb("metadata"),
+    actorIp: text("actor_ip"),
+    actorUserAgent: text("actor_user_agent"),
+    actorRoles: jsonb("actor_roles").$type<string[]>(),
+    actorForwardedFor: text("actor_forwarded_for"),
+    actorEnvoyExternalAddress: text("actor_envoy_external_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

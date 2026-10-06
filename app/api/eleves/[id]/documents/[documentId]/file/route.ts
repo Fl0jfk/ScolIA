@@ -19,8 +19,59 @@ import { eleve } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
 import { accompagnementDownloadFileName } from "@/app/lib/eleve-pap";
+import { auditRequestContextFromRequest } from "@/app/lib/audit-request-context";
 
 type Ctx = { params: Promise<{ id: string; documentId: string }> };
+
+const SIGNED_DOCUMENT_URL_TTL_SEC = 300;
+
+function documentOpenRequiresBlockingAudit(doc: {
+  tiroir: string;
+  confidentialite: string;
+}): boolean {
+  if (doc.tiroir === "psychologue") return true;
+  if (doc.confidentialite === "restreint" || doc.confidentialite === "sante") return true;
+  if (doc.tiroir === "sante") return true;
+  return false;
+}
+
+async function persistDocumentOpenAudit(input: {
+  etablissementId: string;
+  actorUserId: string;
+  documentId: string;
+  eleveId: string;
+  title: string;
+  actorIp: string | null;
+  actorUserAgent: string | null;
+  actorRoles: string[];
+  actorForwardedFor: string | null;
+  actorEnvoyExternalAddress: string | null;
+}): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await recordEleveAccessAudit({
+        etablissementId: input.etablissementId,
+        actorUserId: input.actorUserId,
+        resourceType: "document",
+        resourceId: input.documentId,
+        eleveId: input.eleveId,
+        action: "open_file",
+        metadata: { title: input.title },
+        actorIp: input.actorIp,
+        actorUserAgent: input.actorUserAgent,
+        actorRoles: input.actorRoles,
+        actorForwardedFor: input.actorForwardedFor,
+        actorEnvoyExternalAddress: input.actorEnvoyExternalAddress,
+      });
+      return true;
+    } catch (err) {
+      if (attempt === 0) continue;
+      console.error("[eleves/documents/file] audit", err);
+      return false;
+    }
+  }
+  return false;
+}
 
 function safeFileName(raw: string | null | undefined, fallback: string): string {
   const base = String(raw || fallback)
@@ -65,9 +116,11 @@ export async function GET(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
   }
 
-  if (isProfesseurScopedDossierViewer({ roles, orgAdmin, platformAdmin })) {
-    const assignedClasses = await listAssignedClassesForTeacher(session.user.businessUserId);
-    if (!teacherCanAccessEleveClasse(eleveRow.classe, assignedClasses)) {
+  const profScoped = isProfesseurScopedDossierViewer({ roles, orgAdmin, platformAdmin });
+  let assignedClassesForProf: string[] | undefined;
+  if (profScoped) {
+    assignedClassesForProf = await listAssignedClassesForTeacher(session.user.businessUserId);
+    if (!teacherCanAccessEleveClasse(eleveRow.classe, assignedClassesForProf)) {
       return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
     }
   }
@@ -80,6 +133,8 @@ export async function GET(req: Request, ctx: Ctx) {
     roles,
     orgAdmin,
     platformAdmin,
+    eleveClasse: eleveRow.classe,
+    assignedClasses: assignedClassesForProf,
   });
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status });
@@ -130,17 +185,32 @@ export async function GET(req: Request, ctx: Ctx) {
       ResponseContentType: contentType,
       ResponseContentDisposition: `inline; filename="${fileName}"`,
     });
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
-
-    void recordEleveAccessAudit({
+    const auditCtx = auditRequestContextFromRequest(req);
+    const auditOk = await persistDocumentOpenAudit({
       etablissementId: etabId,
       actorUserId: session.user.id,
-      resourceType: "document",
-      resourceId: documentId,
+      documentId,
       eleveId,
-      action: "open_file",
-      metadata: { title: access.doc.title },
-    }).catch((err) => console.error("[eleves/documents/file] audit", err));
+      title: access.doc.title,
+      actorIp: auditCtx.clientIp,
+      actorUserAgent: req.headers.get("user-agent"),
+      actorRoles: roles,
+      actorForwardedFor: auditCtx.forwardedFor,
+      actorEnvoyExternalAddress: auditCtx.envoyExternalAddress,
+    });
+    if (!auditOk && documentOpenRequiresBlockingAudit(access.doc)) {
+      return NextResponse.json(
+        {
+          error: "Journal d’accès indisponible — ouverture refusée pour ce document.",
+          code: "AUDIT_UNAVAILABLE",
+        },
+        { status: 503 },
+      );
+    }
+
+    const signedUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: SIGNED_DOCUMENT_URL_TTL_SEC,
+    });
 
     const wantJson = new URL(req.url).searchParams.get("format") === "json";
     if (wantJson) {
@@ -148,7 +218,7 @@ export async function GET(req: Request, ctx: Ctx) {
         signedUrl,
         fileName,
         contentType,
-        expiresIn: 900,
+        expiresIn: SIGNED_DOCUMENT_URL_TTL_SEC,
       });
     }
 

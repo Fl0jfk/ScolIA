@@ -9,6 +9,12 @@ import {
   listElevesDossierFromDb,
 } from "@/app/lib/eleve-dossier-prof";
 import { PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY } from "@/app/lib/eleve-dossier-scope";
+import {
+  eleveDossierAccompagnementCacheScopeSuffix,
+  viewerMayLoadEleveAccompagnementListMetadata,
+  viewerMayReceiveAccompagnementKind,
+  viewerMayReceiveEleveAccompagnementMetadata,
+} from "@/app/lib/eleve-dossier-accompagnement-access";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
 import {
   canOpenDocumentWithoutGrant,
@@ -81,9 +87,14 @@ export async function GET(req: NextRequest) {
     platformAdmin: user.platformAdmin,
   });
 
+  const accompagnementCacheScope = eleveDossierAccompagnementCacheScopeSuffix({
+    roles: user.roles,
+    orgAdmin: user.orgAdmin,
+    platformAdmin: user.platformAdmin,
+  });
   const cacheKey = valkeyKeyElevesDossiersList({
     etablissementId: tenant.ctx.etablissementId,
-    viewerKey: `${user.businessUserId}:${profScoped ? "prof" : fullHub ? "hub" : "other"}`,
+    viewerKey: `${user.businessUserId}:${profScoped ? "prof" : fullHub ? "hub" : "other"}:${accompagnementCacheScope}`,
     siteId,
     classe,
     status,
@@ -233,16 +244,35 @@ export async function GET(req: NextRequest) {
   }));
 
   const roles = Array.isArray(user.roles) ? user.roles : [];
-  const accompagnementByEleve = await listEleveLatestAccompagnementByKind({
-    etablissementId: tenant.ctx.etablissementId,
-    eleveIds: eleves.map((e) => e.id),
-  }).catch((err) => {
-    console.warn("[eleves/dossiers/list] accompagnements", err);
-    return new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>();
-  });
+  const viewerAccompagnement = {
+    roles,
+    orgAdmin: user.orgAdmin,
+    platformAdmin: user.platformAdmin,
+  };
+  const mayLoadAccompagnements = viewerMayLoadEleveAccompagnementListMetadata(viewerAccompagnement);
+  const accompagnementByEleve = mayLoadAccompagnements
+    ? await listEleveLatestAccompagnementByKind({
+        etablissementId: tenant.ctx.etablissementId,
+        eleveIds: eleves.map((e) => e.id),
+      }).catch((err) => {
+        console.warn("[eleves/dossiers/list] accompagnements", err);
+        return new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>();
+      })
+    : new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>();
   const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
   eleves = eleves.map((e) => {
-    const items = accompagnementByEleve.get(e.id) ?? [];
+    const mayShowForEleve = viewerMayReceiveEleveAccompagnementMetadata(viewerAccompagnement, {
+      eleveClasse: e.classe,
+      assignedClasses,
+    });
+    if (!mayShowForEleve) return e;
+    const accompagnementEleveContext = {
+      eleveClasse: e.classe,
+      assignedClasses,
+    };
+    const items = (accompagnementByEleve.get(e.id) ?? []).filter((item) =>
+      viewerMayReceiveAccompagnementKind(viewerAccompagnement, item.kind, accompagnementEleveContext),
+    );
     const accompagnementKinds = kindOrder.filter((k) => items.some((i) => i.kind === k));
     const asDoc = {
       tiroir: "sante" as const,
@@ -254,7 +284,11 @@ export async function GET(req: NextRequest) {
       const canOpen = canOpenDocumentWithoutGrant(
         { ...asDoc, title: titleHint },
         roles,
-        { orgAdmin: user.orgAdmin, platformAdmin: user.platformAdmin },
+        {
+          orgAdmin: user.orgAdmin,
+          platformAdmin: user.platformAdmin,
+          accompagnementEleveContext,
+        },
       );
       return {
         kind: item.kind,
