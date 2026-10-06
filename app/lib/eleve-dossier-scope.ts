@@ -21,6 +21,13 @@ export const ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS = true;
 export const PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY = true;
 
 /**
+ * Professeur « pur » : métadonnées / fichiers PAP·PAI·PPS·GEVASCO.
+ * `false` (défaut RGPD) : aucun indicateur ni document, même si la liste élèves reste ouverte.
+ * `true` (futur, roster fiable) : uniquement pour les élèves des classes / groupes affectés.
+ */
+export const PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES = false;
+
+/**
  * Onglets / sections autorisés pour un professeur « pur »
  * (pas direction / admin / administratif…) : Synthèse (= identité) + Scolarité.
  */

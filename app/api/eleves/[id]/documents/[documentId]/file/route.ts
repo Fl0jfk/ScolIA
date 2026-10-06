@@ -65,9 +65,11 @@ export async function GET(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
   }
 
-  if (isProfesseurScopedDossierViewer({ roles, orgAdmin, platformAdmin })) {
-    const assignedClasses = await listAssignedClassesForTeacher(session.user.businessUserId);
-    if (!teacherCanAccessEleveClasse(eleveRow.classe, assignedClasses)) {
+  const profScoped = isProfesseurScopedDossierViewer({ roles, orgAdmin, platformAdmin });
+  let assignedClassesForProf: string[] | undefined;
+  if (profScoped) {
+    assignedClassesForProf = await listAssignedClassesForTeacher(session.user.businessUserId);
+    if (!teacherCanAccessEleveClasse(eleveRow.classe, assignedClassesForProf)) {
       return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
     }
   }
@@ -80,6 +82,8 @@ export async function GET(req: Request, ctx: Ctx) {
     roles,
     orgAdmin,
     platformAdmin,
+    eleveClasse: eleveRow.classe,
+    assignedClasses: assignedClassesForProf,
   });
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status });

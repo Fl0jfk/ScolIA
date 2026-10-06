@@ -22,6 +22,11 @@ import {
 } from "@/app/lib/eleve-pap";
 import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import { chunkArray } from "@/app/lib/db-in-chunks";
+import {
+  type AccompagnementEleveContext,
+  viewerMayReceiveEleveAccompagnementMetadata,
+} from "@/app/lib/eleve-dossier-accompagnement-access";
+import { PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES } from "@/app/lib/eleve-dossier-scope";
 
 function isExactAdmin(roles: string[]): boolean {
   return roles.includes("admin") || hasGlobalAdminRole(roles);
@@ -149,8 +154,8 @@ export function eleveDocCategoriesForRoles(
   if (hasRole(roles, "surveillant")) {
     out.add("vie_scolaire");
   }
-  if (hasRole(roles, "professeur")) {
-    out.add("sante"); // PAP·PAI·PPS·GEVASCO (synthèse / ouverture ciblée)
+  if (hasRole(roles, "professeur") && PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES) {
+    out.add("sante"); // PAP·PAI·PPS·GEVASCO (classes affectées uniquement)
   }
   return out;
 }
@@ -251,8 +256,7 @@ export function eleveDocTiroirsForRoles(
   if (hasRole(roles, "surveillant")) {
     tiroirs.add("vie_scolaire");
   }
-  if (hasRole(roles, "professeur")) {
-    // Synthèse uniquement — tiroirs pour ouverture PAP ciblée.
+  if (hasRole(roles, "professeur") && PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES) {
     tiroirs.add("sante");
   }
 
@@ -424,7 +428,11 @@ export function canDeleteSpecificEleveDocument(
 export function canOpenDocumentWithoutGrant(
   doc: Pick<EleveDocumentRow, "tiroir" | "confidentialite" | "title">,
   roles: string[],
-  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+  opts?: {
+    orgAdmin?: boolean;
+    platformAdmin?: boolean;
+    accompagnementEleveContext?: AccompagnementEleveContext;
+  },
 ): boolean {
   if (opts?.platformAdmin) return true;
 
@@ -440,11 +448,16 @@ export function canOpenDocumentWithoutGrant(
       isEstablishmentAuthority(roles, opts) ||
       hasRole(roles, "infirmerie") ||
       hasRole(roles, "administratif") ||
-      hasRole(roles, "professeur") ||
       hasRole(roles, "cpe") ||
       hasRole(roles, "surveillant")
     ) {
       return true;
+    }
+    if (hasRole(roles, "professeur")) {
+      return viewerMayReceiveEleveAccompagnementMetadata(
+        { roles, orgAdmin: opts?.orgAdmin, platformAdmin: opts?.platformAdmin },
+        opts?.accompagnementEleveContext,
+      );
     }
     return false;
   }
@@ -520,6 +533,8 @@ export async function listEleveDocumentsForViewer(opts: {
   roles: string[];
   orgAdmin?: boolean;
   platformAdmin?: boolean;
+  eleveClasse?: string | null;
+  assignedClasses?: string[];
 }): Promise<
   Array<{
     id: string;
@@ -569,12 +584,25 @@ export async function listEleveDocumentsForViewer(opts: {
     orgAdmin: opts.orgAdmin,
     platformAdmin: opts.platformAdmin,
   };
+  const accompagnementContext: AccompagnementEleveContext = {
+    eleveClasse: opts.eleveClasse,
+    assignedClasses: opts.assignedClasses,
+  };
   const allowedTiroirs = eleveDocTiroirsForRoles(opts.roles, roleOpts);
   const pedagogicalPapOnly = isPedagogicalAccompagnementViewer(opts.roles, roleOpts);
   const adminAccompagnementOnly = isAdministratifAccompagnementOnly(opts.roles, roleOpts);
   const authority = isEstablishmentAuthority(opts.roles, roleOpts);
 
   for (const doc of docs) {
+    if (
+      isAccompagnementDocumentTitle(doc.title) &&
+      !viewerMayReceiveEleveAccompagnementMetadata(
+        { roles: opts.roles, orgAdmin: opts.orgAdmin, platformAdmin: opts.platformAdmin },
+        accompagnementContext,
+      )
+    ) {
+      continue;
+    }
     // Prof / CPE / surveillant : tiroir santé = accompagnement uniquement.
     if (
       pedagogicalPapOnly &&
@@ -604,7 +632,10 @@ export async function listEleveDocumentsForViewer(opts: {
       }
     }
 
-    let canOpen = canOpenDocumentWithoutGrant(doc, opts.roles, roleOpts);
+    let canOpen = canOpenDocumentWithoutGrant(doc, opts.roles, {
+      ...roleOpts,
+      accompagnementEleveContext: accompagnementContext,
+    });
     let lockedReason: "tiroir" | "confidentialite" | "grant_required" | null = null;
     if (!canOpen) {
       const grant = await hasActiveDocumentGrant({

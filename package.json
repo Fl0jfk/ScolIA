@@ -33,6 +33,7 @@
     "db:apply-migrations": "node scripts/apply-migrations-direct.mjs",
     "db:validate-migrations": "node scripts/validate-drizzle-migrations.mjs",
     "test:drizzle-migrations": "node --test scripts/drizzle-migrations-validate.test.mjs",
+    "test:unit": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/eleve-dossier-accompagnement-access.test.ts app/lib/eleve-pap.test.ts app/lib/vs-absences-hub-access.test.ts",
     "db:studio": "drizzle-kit studio",
     "auth:set-password": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/set-better-auth-password.ts",
     "auth:bulk-activation": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/bulk-send-password-activation.ts",

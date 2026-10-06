@@ -9,6 +9,11 @@ import {
   listElevesDossierFromDb,
 } from "@/app/lib/eleve-dossier-prof";
 import { PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY } from "@/app/lib/eleve-dossier-scope";
+import {
+  eleveDossierAccompagnementCacheScopeSuffix,
+  viewerMayLoadEleveAccompagnementListMetadata,
+  viewerMayReceiveEleveAccompagnementMetadata,
+} from "@/app/lib/eleve-dossier-accompagnement-access";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
 import {
   canOpenDocumentWithoutGrant,
@@ -81,9 +86,14 @@ export async function GET(req: NextRequest) {
     platformAdmin: user.platformAdmin,
   });
 
+  const accompagnementCacheScope = eleveDossierAccompagnementCacheScopeSuffix({
+    roles: user.roles,
+    orgAdmin: user.orgAdmin,
+    platformAdmin: user.platformAdmin,
+  });
   const cacheKey = valkeyKeyElevesDossiersList({
     etablissementId: tenant.ctx.etablissementId,
-    viewerKey: `${user.businessUserId}:${profScoped ? "prof" : fullHub ? "hub" : "other"}`,
+    viewerKey: `${user.businessUserId}:${profScoped ? "prof" : fullHub ? "hub" : "other"}:${accompagnementCacheScope}`,
     siteId,
     classe,
     status,
@@ -233,15 +243,28 @@ export async function GET(req: NextRequest) {
   }));
 
   const roles = Array.isArray(user.roles) ? user.roles : [];
-  const accompagnementByEleve = await listEleveLatestAccompagnementByKind({
-    etablissementId: tenant.ctx.etablissementId,
-    eleveIds: eleves.map((e) => e.id),
-  }).catch((err) => {
-    console.warn("[eleves/dossiers/list] accompagnements", err);
-    return new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>();
-  });
+  const viewerAccompagnement = {
+    roles,
+    orgAdmin: user.orgAdmin,
+    platformAdmin: user.platformAdmin,
+  };
+  const mayLoadAccompagnements = viewerMayLoadEleveAccompagnementListMetadata(viewerAccompagnement);
+  const accompagnementByEleve = mayLoadAccompagnements
+    ? await listEleveLatestAccompagnementByKind({
+        etablissementId: tenant.ctx.etablissementId,
+        eleveIds: eleves.map((e) => e.id),
+      }).catch((err) => {
+        console.warn("[eleves/dossiers/list] accompagnements", err);
+        return new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>();
+      })
+    : new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>();
   const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
   eleves = eleves.map((e) => {
+    const mayShowForEleve = viewerMayReceiveEleveAccompagnementMetadata(viewerAccompagnement, {
+      eleveClasse: e.classe,
+      assignedClasses,
+    });
+    if (!mayShowForEleve) return e;
     const items = accompagnementByEleve.get(e.id) ?? [];
     const accompagnementKinds = kindOrder.filter((k) => items.some((i) => i.kind === k));
     const asDoc = {
@@ -249,12 +272,20 @@ export async function GET(req: NextRequest) {
       confidentialite: "standard" as const,
       title: "PAP",
     };
+    const accompagnementEleveContext = {
+      eleveClasse: e.classe,
+      assignedClasses,
+    };
     const accompagnements = items.map((item) => {
       const titleHint = ACCOMPAGNEMENT_KINDS.find((k) => k.kind === item.kind)?.code ?? "PAP";
       const canOpen = canOpenDocumentWithoutGrant(
         { ...asDoc, title: titleHint },
         roles,
-        { orgAdmin: user.orgAdmin, platformAdmin: user.platformAdmin },
+        {
+          orgAdmin: user.orgAdmin,
+          platformAdmin: user.platformAdmin,
+          accompagnementEleveContext,
+        },
       );
       return {
         kind: item.kind,

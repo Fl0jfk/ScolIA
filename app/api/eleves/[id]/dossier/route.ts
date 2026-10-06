@@ -55,6 +55,7 @@ import {
   sanitizeEleveRowForProfViewer,
   teacherCanAccessEleveClasse,
 } from "@/app/lib/eleve-dossier-prof";
+import { viewerMayReceiveEleveAccompagnementMetadata } from "@/app/lib/eleve-dossier-accompagnement-access";
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import {
@@ -308,6 +309,8 @@ export async function GET(req: Request, ctx: Ctx) {
                 roles,
                 orgAdmin,
                 platformAdmin,
+                eleveClasse: row.classe,
+                assignedClasses: assignedClassesForProf,
               }).catch((err) => {
                 console.error("[eleves/dossier] documents viewer", err);
                 return [];
@@ -527,32 +530,43 @@ export async function GET(req: Request, ctx: Ctx) {
     createdAt: string;
     canOpen: boolean;
   };
+  const mayShowAccompagnements = viewerMayReceiveEleveAccompagnementMetadata(
+    { roles, orgAdmin, platformAdmin },
+    { eleveClasse: row.classe, assignedClasses: assignedClassesForProf },
+  );
+  const accompagnementEleveContext = {
+    eleveClasse: row.classe,
+    assignedClasses: assignedClassesForProf,
+  };
   const accompagnementsPayload: AccompagnementPayload[] = [];
-  for (const row of accompagnementDocs) {
-    const asDoc = {
-      tiroir: "sante" as const,
-      confidentialite: "standard" as const,
-      title: row.title,
-    };
-    const canOpen = canOpenDocumentWithoutGrant(asDoc, roles, {
-      orgAdmin,
-      platformAdmin,
-    });
-    const def = accompagnementKindDef(row.kind);
-    accompagnementsPayload.push({
-      kind: row.kind,
-      code: def.code,
-      label: def.fullLabel,
-      id: row.id,
-      title: row.title,
-      fileUrl: canOpen ? eleveDocumentFileProxyPath(id, row.id) : null,
-      mimeType: row.mimeType,
-      createdAt:
-        row.createdAt instanceof Date
-          ? row.createdAt.toISOString()
-          : String(row.createdAt ?? ""),
-      canOpen,
-    });
+  if (mayShowAccompagnements) {
+    for (const accRow of accompagnementDocs) {
+      const asDoc = {
+        tiroir: "sante" as const,
+        confidentialite: "standard" as const,
+        title: accRow.title,
+      };
+      const canOpen = canOpenDocumentWithoutGrant(asDoc, roles, {
+        orgAdmin,
+        platformAdmin,
+        accompagnementEleveContext,
+      });
+      const def = accompagnementKindDef(accRow.kind);
+      accompagnementsPayload.push({
+        kind: accRow.kind,
+        code: def.code,
+        label: def.fullLabel,
+        id: accRow.id,
+        title: accRow.title,
+        fileUrl: canOpen ? eleveDocumentFileProxyPath(id, accRow.id) : null,
+        mimeType: accRow.mimeType,
+        createdAt:
+          accRow.createdAt instanceof Date
+            ? accRow.createdAt.toISOString()
+            : String(accRow.createdAt ?? ""),
+        canOpen,
+      });
+    }
   }
   /** Compat : dernier PAP seul (clients qui lisent encore `pap`). */
   const papPayload = accompagnementsPayload.find((a) => a.kind === "pap") ?? null;

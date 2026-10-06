@@ -37,6 +37,8 @@ export async function assertCanOpenEleveDocument(opts: {
   roles: string[];
   orgAdmin?: boolean;
   platformAdmin?: boolean;
+  eleveClasse?: string | null;
+  assignedClasses?: string[];
 }): Promise<
   | { ok: true; doc: EleveDocumentRow; s3Key: string }
   | { ok: false; status: 403 | 404; error: string }
@@ -61,6 +63,10 @@ export async function assertCanOpenEleveDocument(opts: {
   let canOpen = canOpenDocumentWithoutGrant(doc, opts.roles, {
     orgAdmin: opts.orgAdmin,
     platformAdmin: opts.platformAdmin,
+    accompagnementEleveContext: {
+      eleveClasse: opts.eleveClasse,
+      assignedClasses: opts.assignedClasses,
+    },
   });
   if (!canOpen) {
     canOpen = await hasActiveDocumentGrant({
