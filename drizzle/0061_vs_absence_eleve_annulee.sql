@@ -1,5 +1,6 @@
 -- Statut dédié pour les déclarations d'absence annulées à l'accueil (traçabilité sans DELETE).
--- Numéro 0061 : volontairement au-dessus de 0060_metier_event.sql (doublons 0053–0058 traités ailleurs).
+-- `vs_absence_eleve.statut` est text sans CHECK : valeur `annulee` acceptée sans ALTER de contrainte.
+-- Journal : 0061_vs_absence_eleve_annulee (when après 0060_metier_event).
 
 UPDATE "vs_absence_eleve"
 SET
