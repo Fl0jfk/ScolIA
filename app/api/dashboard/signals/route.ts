@@ -598,6 +598,11 @@ export async function GET() {
     }> = [];
     let creneauxVidesCount = 0;
     let creneauxVidesTravelId: string | null = null;
+    let travelsUnreadMessages: {
+      tripCount: number;
+      messageCount: number;
+      firstTripId: string | null;
+    } | null = null;
 
     try {
       const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
@@ -731,6 +736,35 @@ export async function GET() {
       }
     }
 
+    if (accessibleModuleIds.has("travels")) {
+      try {
+        const { summarizeViewerTravelUnread } = await import(
+          "@/app/lib/travel-message-unread-db"
+        );
+        const { travelThreadViewerFromStaff } = await import(
+          "@/app/lib/travels-thread-unread"
+        );
+        const { listTravelsIndex } = await import("@/app/lib/travels-storage");
+        const tripsForUnread =
+          Array.isArray(tripsRaw) && tripsRaw.length > 0
+            ? (tripsRaw as import("@/app/lib/travels-types").TravelsTrip[])
+            : await listTravelsIndex();
+        const { travelsDbReady } = await import("@/app/lib/travel-db");
+        const etabId = await travelsDbReady();
+        if (etabId) {
+          travelsUnreadMessages = await summarizeViewerTravelUnread({
+            etablissementId: etabId,
+            trips: tripsForUnread,
+            viewer: travelThreadViewerFromStaff(user),
+            establishments,
+          });
+        }
+      } catch (err) {
+        console.warn("[dashboard/signals] travels unread", err);
+        travelsUnreadMessages = null;
+      }
+    }
+
     try {
       const signals = getDashboardSignals({
         roles,
@@ -768,6 +802,7 @@ export async function GET() {
         unseenAccompagnementAlerts,
         creneauxVidesCount,
         creneauxVidesTravelId,
+        travelsUnreadMessages,
       });
       void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
       return NextResponse.json(signals);

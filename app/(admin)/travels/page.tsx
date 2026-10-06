@@ -173,6 +173,18 @@ function TripDashboardContent() {
     });
   }, [trips, filterEtab, searchQuery, etabFilterOptions]);
 
+  const unreadSummary = useMemo(() => {
+    let tripCount = 0;
+    let messageCount = 0;
+    for (const t of trips) {
+      const n = t.unreadInternalCount ?? 0;
+      if (n <= 0) continue;
+      tripCount += 1;
+      messageCount += n;
+    }
+    return { tripCount, messageCount };
+  }, [trips]);
+
   if (!isLoaded || !isSignedIn) return null;
 
   const formatDate = (trip: TravelsTrip, field: "created" | "travel") => {
@@ -202,6 +214,14 @@ function TripDashboardContent() {
               >
                 {reminderCount} rappel{reminderCount > 1 ? "s" : ""} — cliquer pour détail
               </button>
+            )}
+            {unreadSummary.messageCount > 0 && (
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-xs font-bold">
+                {unreadSummary.messageCount} message
+                {unreadSummary.messageCount > 1 ? "s" : ""} non lu
+                {unreadSummary.messageCount > 1 ? "s" : ""}
+                {unreadSummary.tripCount > 1 ? ` · ${unreadSummary.tripCount} séjours` : ""}
+              </span>
             )}
           </p>
         }
@@ -317,6 +337,7 @@ function TripDashboardContent() {
                 vis={etabCardVisual(etabLabel)}
                 canOpenTrip={canOpenTrip}
                 index={tripIndex}
+                unreadInternalCount={trip.unreadInternalCount ?? 0}
                 formatDate={formatDate}
                 onOpen={() => router.push(`/travels/${trip.id}`)}
               />

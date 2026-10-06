@@ -433,15 +433,11 @@ export async function upsertTravelInDb(
     );
   }
 
-  await db
-    .delete(travelMessage)
-    .where(
-      and(eq(travelMessage.etablissementId, etablissementId), eq(travelMessage.travelId, main.id)),
-    );
   const msgs = Array.isArray(trip.messages) ? trip.messages : [];
   if (msgs.length > 0) {
-    await db.insert(travelMessage).values(
-      msgs.map((msg, i) => ({
+    for (let i = 0; i < msgs.length; i++) {
+      const msg = msgs[i]!;
+      const row = {
         id: String(msg.id || `${main.id}_msg_${i}`),
         etablissementId,
         travelId: main.id,
@@ -450,8 +446,21 @@ export async function upsertTravelInDb(
         body: String(msg.text ?? ""),
         at: String(msg.date ?? ""),
         sortOrder: i,
-      })),
-    );
+      };
+      await db
+        .insert(travelMessage)
+        .values(row)
+        .onConflictDoUpdate({
+          target: travelMessage.id,
+          set: {
+            userLabel: row.userLabel,
+            role: row.role,
+            body: row.body,
+            at: row.at,
+            sortOrder: row.sortOrder,
+          },
+        });
+    }
   }
 
   void import("@/app/lib/valkey")

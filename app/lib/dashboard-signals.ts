@@ -258,6 +258,12 @@ type DashboardSignalsInput = {
   creneauxVidesCount?: number;
   /** Premier travelId concerné (lien détail si unique). */
   creneauxVidesTravelId?: string | null;
+  /** Messages internes séjours non lus (direction / compta / créateur). */
+  travelsUnreadMessages?: {
+    tripCount: number;
+    messageCount: number;
+    firstTripId: string | null;
+  };
 };
 
 function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
@@ -472,6 +478,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     unseenAccompagnementAlerts = [],
     creneauxVidesCount = 0,
     creneauxVidesTravelId = null,
+    travelsUnreadMessages = null,
   } = input;
 
   const shortcuts: DashboardShortcut[] = [];
@@ -520,6 +527,42 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         rich: true,
         badge: String(creneauxVidesCount),
         detail: "Occupancy : classes 100 % en sortie",
+        tone: "warn",
+      });
+    }
+
+    const unreadTrips = travelsUnreadMessages?.tripCount ?? 0;
+    const unreadMsgs = travelsUnreadMessages?.messageCount ?? 0;
+    if (unreadMsgs > 0) {
+      const unreadHref =
+        unreadTrips === 1 && travelsUnreadMessages?.firstTripId
+          ? travelsTripHref(roles, travelsUnreadMessages.firstTripId, travelsHome)
+          : travelsHome;
+      pushNotif({
+        id: "travels-messages",
+        moduleId: "travels",
+        label: "Messages séjours",
+        count: unreadMsgs,
+        href: unreadHref,
+        detail:
+          unreadTrips <= 1
+            ? unreadMsgs === 1
+              ? "1 message interne à lire"
+              : `${unreadMsgs} messages internes à lire`
+            : `${unreadMsgs} messages à lire sur ${unreadTrips} séjours`,
+      });
+      shortcuts.push({
+        id: "travels-messages",
+        pillarId: "vie_scolaire",
+        moduleId: "travels",
+        href: unreadHref,
+        label: "Messages séjours",
+        rich: true,
+        badge: unreadMsgs === 1 ? "1 à lire" : `${unreadMsgs} à lire`,
+        detail:
+          unreadTrips <= 1
+            ? "Fil interne direction / compta / organisateur"
+            : `${unreadTrips} séjours concernés`,
         tone: "warn",
       });
     }
