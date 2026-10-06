@@ -2,6 +2,8 @@
 
 import {
   diplomaLabel,
+  formatInvitationFirstName,
+  formatInvitationLastName,
   situationStatusLabel,
   type InvitationRsvpRecord,
 } from "@/app/lib/invitation-types";
@@ -47,8 +49,8 @@ export function buildInvitationRsvpExportCsv(rsvps: InvitationRsvpRecord[]): str
   for (const r of rsvps) {
     lines.push(
       [
-        csvCell(r.eleveFirstName),
-        csvCell(r.eleveLastName),
+        csvCell(formatInvitationFirstName(r.eleveFirstName)),
+        csvCell(formatInvitationLastName(r.eleveLastName)),
         csvCell(r.birthDate || ""),
         csvCell(r.response === "oui" ? "Oui" : "Non"),
         csvCell(r.response === "oui" ? r.presentCount : 0),

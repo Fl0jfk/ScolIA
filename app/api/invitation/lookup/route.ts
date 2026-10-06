@@ -35,6 +35,8 @@ export async function POST(req: Request) {
           }
         : null,
       matchScore: result.matchScore,
+      eleveFirstName: result.eleveFirstName,
+      eleveLastName: result.eleveLastName,
     });
   } catch (e) {
     if (e instanceof z.ZodError) {
