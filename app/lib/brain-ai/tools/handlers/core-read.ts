@@ -14,7 +14,7 @@ import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { parseEleveGrilleRepas } from "@/app/lib/eleve-grille-repas";
 import { listSitesFromDb } from "@/app/lib/ent-core-db";
-import { searchElevesRegistry, loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { searchElevesRegistry, loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { getPresenceJour } from "@/app/lib/occupancy";
 import { getTravelFromDb } from "@/app/lib/travel-db";
 import {
@@ -162,8 +162,8 @@ export async function handleGetEleve(
   const eleveId = typeof args.eleveId === "string" ? args.eleveId.trim() : "";
   const query = typeof args.query === "string" ? args.query.trim() : "";
 
-  let found: Awaited<ReturnType<typeof loadElevesRegistry>>[number] | undefined;
-  const all = await loadElevesRegistry();
+  let found: Awaited<ReturnType<typeof loadElevesActifsRegistry>>[number] | undefined;
+  const all = await loadElevesActifsRegistry();
   if (eleveId) {
     found = all.find((e) => e.id === eleveId || e.ine === eleveId);
   } else if (query) {
@@ -239,7 +239,7 @@ export async function handleGetPresenceJour(
   }
 
   if (resolvedEleveId) {
-    const all = await loadElevesRegistry();
+    const all = await loadElevesActifsRegistry();
     const one = all.find((e) => e.id === resolvedEleveId);
     const allowedClasses = await resolveAllowedClasses(ctx);
     if (one && !eleveAllowedByClassRestriction(one.classe, allowedClasses)) {

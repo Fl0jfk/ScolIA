@@ -30,4 +30,16 @@ test("compétences — filtre période avec repli", () => {
   const src = readRoute("app/api/notes/competences/route.ts");
   assert.ok(src.includes("resolvePeriodeDateDebutForNotesLists"));
   assert.ok(src.includes("periodeDateDebut"));
+  assert.ok(src.includes("isUuidV4Like"));
+});
+
+test("routes notes — periodeId invalide → 400", () => {
+  for (const rel of [
+    "app/api/notes/saisie/route.ts",
+    "app/api/notes/competences/route.ts",
+    "app/api/notes/bulletins/pdf/route.ts",
+  ]) {
+    const src = readRoute(rel);
+    assert.ok(src.includes("isUuidV4Like") || src.includes("InvalidPeriodeIdError"), rel);
+  }
 });

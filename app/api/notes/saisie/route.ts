@@ -19,6 +19,8 @@ import { getAppSession } from "@/app/lib/intranet-session";
 import { getDb } from "@/db/index";
 import { noteDevoir } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
+import { InvalidPeriodeIdError } from "@/app/lib/notes-periode-debut";
+import { isUuidV4Like } from "@/app/lib/notes-periode-debut-logic";
 
 async function resolveElevesForDevoir(
   etabId: string,
@@ -96,7 +98,18 @@ export async function GET(req: Request) {
     matiereId: matiereId || undefined,
   });
 
-  const periodeDebut = await resolvePeriodeDateDebutForNotesLists(etabId, periodeId);
+  if (periodeId && !isUuidV4Like(periodeId)) {
+    return NextResponse.json({ error: "Identifiant de période invalide." }, { status: 400 });
+  }
+  let periodeDebut: string;
+  try {
+    periodeDebut = await resolvePeriodeDateDebutForNotesLists(etabId, periodeId);
+  } catch (e) {
+    if (e instanceof InvalidPeriodeIdError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    throw e;
+  }
   let eleves: Awaited<ReturnType<typeof listElevesForClasse>> = [];
   if (groupeId) {
     eleves = await listElevesForGroupe(etabId, groupeId, { periodeDateDebut: periodeDebut });

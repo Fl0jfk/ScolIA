@@ -493,13 +493,19 @@ function mergeEleveFields(
   if (incomingStatus) {
     merged.status = incomingStatus;
   }
+  // Réimport explicite inscrit + classe : réactive si sortie passée (efface la date).
+  // Une date de sortie future existante est conservée. Colonne date vide dans le fichier → efface toute date.
   if (
     merged.status === "inscrit" &&
     incoming.classe?.trim() &&
-    !incoming.dateSortie?.trim() &&
-    (opts?.dateSortieColumnInFile || opts?.allowClearDateSortieOnReimport)
+    !incoming.dateSortie?.trim()
   ) {
-    delete merged.dateSortie;
+    const existingDate = existing.dateSortie?.trim();
+    if (opts?.dateSortieColumnInFile || opts?.allowClearDateSortieOnReimport) {
+      delete merged.dateSortie;
+    } else if (existingDate && isDateSortiePassee(existingDate)) {
+      delete merged.dateSortie;
+    }
   }
   if (merged.dateSortie && isDateSortiePassee(merged.dateSortie)) {
     merged.status = "ancien";

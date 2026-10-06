@@ -197,7 +197,10 @@ export async function POST(req: Request) {
       const merged = mergeElevesLists(
         existing,
         [...parsed.eleves, ...parsed.sortis],
-        { replaceRegime },
+        {
+          replaceRegime,
+          dateSortieColumnInFile: parsed.dateSortieColumnInFile,
+        },
       );
       await saveElevesRegistry(merged.eleves);
 

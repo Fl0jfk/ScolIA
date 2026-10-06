@@ -19,6 +19,8 @@ import {
   resolvePeriodeDateDebutForNotesLists,
 } from "@/app/lib/notes-saisie-db";
 import { listGroupes } from "@/app/lib/groupes-pedagogiques-db";
+import { InvalidPeriodeIdError } from "@/app/lib/notes-periode-debut";
+import { isUuidV4Like } from "@/app/lib/notes-periode-debut-logic";
 
 export async function GET(req: Request) {
   const gate = await requireModule("notes");
@@ -54,9 +56,20 @@ export async function GET(req: Request) {
     listGroupes(etabId),
   ]);
   const items = domaineId ? await listCompetenceItems(etabId, domaineId) : [];
-  const periodeDebut = periodeId
-    ? await resolvePeriodeDateDebutForNotesLists(etabId, periodeId)
-    : null;
+  let periodeDebut: string | null = null;
+  if (periodeId) {
+    if (!isUuidV4Like(periodeId)) {
+      return NextResponse.json({ error: "Identifiant de période invalide." }, { status: 400 });
+    }
+    try {
+      periodeDebut = await resolvePeriodeDateDebutForNotesLists(etabId, periodeId);
+    } catch (e) {
+      if (e instanceof InvalidPeriodeIdError) {
+        return NextResponse.json({ error: e.message }, { status: 400 });
+      }
+      throw e;
+    }
+  }
   const eleves =
     periodeDebut && (groupeId || classe)
       ? groupeId

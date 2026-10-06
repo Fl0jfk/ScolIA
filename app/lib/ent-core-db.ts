@@ -151,9 +151,14 @@ async function findExistingEleveForUpsert(
 }
 
 export function currentSchoolYearLabel(now = new Date()): string {
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  if (m >= 7) return `${y}-${y + 1}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "numeric",
+  }).formatToParts(now);
+  const y = Number(parts.find((p) => p.type === "year")?.value ?? now.getFullYear());
+  const m = Number(parts.find((p) => p.type === "month")?.value ?? now.getMonth() + 1);
+  if (m >= 9) return `${y}-${y + 1}`;
   return `${y - 1}-${y}`;
 }
 

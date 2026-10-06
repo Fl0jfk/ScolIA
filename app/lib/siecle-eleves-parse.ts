@@ -140,6 +140,8 @@ export function parseSiecleElevesXmlServer(
   /** Combien d'élèves scolarisés ont un CODE_REGIME. */
   withRegimeCount: number;
   siecleEleveIdMap: Record<string, string>;
+  /** Au moins une balise DATE_SORTIE présente dans le fichier. */
+  dateSortieColumnInFile: boolean;
 } {
   const eleves: EleveConfig[] = [];
   const sortis: EleveConfig[] = [];
@@ -148,8 +150,10 @@ export function parseSiecleElevesXmlServer(
   let totalInFile = 0;
   let skippedSortis = 0;
   let withRegimeCount = 0;
+  let dateSortieColumnInFile = false;
 
   for (const el of extractSiecleElements(xmlText, "ELEVE")) {
+    if (el.inner.includes("<DATE_SORTIE")) dateSortieColumnInFile = true;
     const dateSortieRaw = tagValue(el.inner, "DATE_SORTIE");
     const sorti = isDateSortiePassee(dateSortieRaw, now);
 
@@ -193,5 +197,6 @@ export function parseSiecleElevesXmlServer(
     skippedSortis,
     withRegimeCount,
     siecleEleveIdMap,
+    dateSortieColumnInFile,
   };
 }

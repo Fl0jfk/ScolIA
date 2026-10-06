@@ -7,7 +7,8 @@ import {
   listEleveIdsForBulletinGroupe,
   loadBulletinSnapshot,
 } from "@/app/lib/notes-bulletins-db";
-import { resolveNotesPeriodeDateDebutIso } from "@/app/lib/notes-periode-debut";
+import { InvalidPeriodeIdError, resolveNotesPeriodeDateDebutIso } from "@/app/lib/notes-periode-debut";
+import { isUuidV4Like } from "@/app/lib/notes-periode-debut-logic";
 import { bulletinPdfFilename, renderBulletinPdfBuffer } from "@/app/lib/notes-bulletin-pdf";
 
 export async function GET(req: Request) {
@@ -27,6 +28,9 @@ export async function GET(req: Request) {
   if (!periodeId) {
     return NextResponse.json({ error: "Période requise." }, { status: 400 });
   }
+  if (!isUuidV4Like(periodeId)) {
+    return NextResponse.json({ error: "Identifiant de période invalide." }, { status: 400 });
+  }
 
   if (mode === "classe") {
     const adminGate = await requireAdmin();
@@ -35,7 +39,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Classe ou groupe requis pour l'export ZIP." }, { status: 400 });
     }
 
-    const periodeDebut = await resolveNotesPeriodeDateDebutIso(etabId, periodeId);
+    let periodeDebut: string;
+    try {
+      periodeDebut = await resolveNotesPeriodeDateDebutIso(etabId, periodeId);
+    } catch (e) {
+      if (e instanceof InvalidPeriodeIdError) {
+        return NextResponse.json({ error: e.message }, { status: 400 });
+      }
+      throw e;
+    }
     const eleves = groupeId
       ? await listEleveIdsForBulletinGroupe(etabId, groupeId, periodeDebut)
       : await listEleveIdsForBulletinClasse(etabId, classe, periodeDebut);

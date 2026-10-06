@@ -6,11 +6,25 @@ import { currentSchoolYearLabel } from "@/app/lib/ent-core-db";
 import {
   defaultSchoolYearStartIsoFromLabel,
   formatSqlDateToIso,
+  isUuidV4Like,
+  pickCalendrierAnneeDebutIso,
 } from "@/app/lib/notes-periode-debut-logic";
 import { getDb } from "@/db/index";
 import { anneeScolaire, calendrierScolaire, notePeriode } from "@/db/schema";
 
-export { defaultSchoolYearStartIsoFromLabel, formatSqlDateToIso } from "@/app/lib/notes-periode-debut-logic";
+export {
+  defaultSchoolYearStartIsoFromLabel,
+  formatSqlDateToIso,
+  isUuidV4Like,
+  pickCalendrierAnneeDebutIso,
+} from "@/app/lib/notes-periode-debut-logic";
+
+export class InvalidPeriodeIdError extends Error {
+  constructor() {
+    super("Identifiant de période invalide.");
+    this.name = "InvalidPeriodeIdError";
+  }
+}
 
 /**
  * Date pivot pour filtrer les élèves en notes / bulletins :
@@ -20,11 +34,14 @@ export async function resolveNotesPeriodeDateDebutIso(
   etablissementId: string,
   periodeId: string,
 ): Promise<string> {
-  const db = getDb();
   const pid = periodeId.trim();
   if (!pid) {
     return await resolveDebutAnneeScolaireCouranteIso(etablissementId);
   }
+  if (!isUuidV4Like(pid)) {
+    throw new InvalidPeriodeIdError();
+  }
+  const db = getDb();
 
   const [periode] = await db
     .select({
@@ -72,8 +89,11 @@ export async function resolveDebutAnneeScolaireCouranteIso(
   }
 
   if (anneeId) {
-    const [cal] = await db
-      .select({ dateDebut: calendrierScolaire.dateDebut })
+    const calRows = await db
+      .select({
+        dateDebut: calendrierScolaire.dateDebut,
+        type: calendrierScolaire.type,
+      })
       .from(calendrierScolaire)
       .where(
         and(
@@ -81,9 +101,8 @@ export async function resolveDebutAnneeScolaireCouranteIso(
           eq(calendrierScolaire.anneeScolaireId, anneeId),
         ),
       )
-      .orderBy(asc(calendrierScolaire.dateDebut))
-      .limit(1);
-    const fromCal = formatSqlDateToIso(cal?.dateDebut);
+      .orderBy(asc(calendrierScolaire.dateDebut));
+    const fromCal = pickCalendrierAnneeDebutIso(calRows);
     if (fromCal) return fromCal;
   }
 

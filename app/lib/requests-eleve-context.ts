@@ -5,7 +5,7 @@ import {
   collectEleveParentEmails,
   normalizeParentEmail,
 } from "@/app/lib/eleves-parent-emails";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
 import {
   inferSecteurFromFolderName,
@@ -112,7 +112,7 @@ export async function buildRequestEleveContext(
 
   let eleves: EleveConfig[] = [];
   try {
-    eleves = await loadElevesRegistry();
+    eleves = await loadElevesActifsRegistry();
   } catch {
     eleves = [];
   }

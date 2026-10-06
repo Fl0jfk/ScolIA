@@ -5,6 +5,7 @@ import test from "node:test";
 
 const ROOT = path.join(import.meta.dirname, "..", "..");
 
+/** Fichiers dont les listes / jointures `eleve` doivent être filtrées actifs ou période. */
 const WATCHED_LIST_FILES = [
   "app/lib/notes-bulletins-db.ts",
   "app/lib/notes-saisie-db.ts",
@@ -46,6 +47,10 @@ const WATCHED_LIST_FILES = [
   "app/api/toolbox/class-allocation/staff/route.ts",
   "app/api/toolbox/class-allocation/classes/from-eleves/route.ts",
   "app/api/internat/students/roster/route.ts",
+  "app/lib/brain-ai/tools/handlers/core-read.ts",
+  "app/lib/travels-parent-blog.ts",
+  "app/lib/pilotage-eleves-analyze.ts",
+  "app/lib/requests-eleve-context.ts",
 ];
 
 const REGISTRY_IMPORT_WHITELIST = [
@@ -84,20 +89,24 @@ function snippetHasActifScope(snippet: string, fileContent: string): boolean {
   return ACTIF_SCOPE_MARKERS.some((m) => snippet.includes(m));
 }
 
-function extractEleveQuerySnippets(content: string): string[] {
-  const snippets: string[] = [];
+function eleveQueryWindow(content: string, at: number): string {
+  const start = Math.max(0, at - 400);
+  const end = Math.min(content.length, at + 3200);
+  return content.slice(start, end);
+}
+
+function extractEleveQueryPositions(content: string): number[] {
+  const positions: number[] = [];
   for (const marker of ELEVE_QUERY_MARKERS) {
     let idx = 0;
     while (true) {
       const at = content.indexOf(marker, idx);
       if (at < 0) break;
-      const start = Math.max(0, at - 600);
-      const end = Math.min(content.length, at + 2400);
-      snippets.push(content.slice(start, end));
+      positions.push(at);
       idx = at + marker.length;
     }
   }
-  return snippets;
+  return positions;
 }
 
 test("aucune requête liste ne filtre uniquement eq(eleve.status, inscrit)", () => {
@@ -131,17 +140,17 @@ test("fichiers listes — jointures eleve et loadElevesRegistry filtrés", () =>
     }
     const content = fs.readFileSync(full, "utf8");
 
-    const isImportWhitelist = REGISTRY_IMPORT_WHITELIST.some((w) => rel.includes(w));
+    const isImportWhitelist = REGISTRY_IMPORT_WHITELIST.some((w) => rel === w);
     if (content.includes("loadElevesRegistry()") && !isImportWhitelist) {
       if (!content.includes("loadElevesActifsRegistry()")) {
         offenders.push(`${rel}: loadElevesRegistry() liste`);
       }
     }
 
-    for (const snippet of extractEleveQuerySnippets(content)) {
+    for (const at of extractEleveQueryPositions(content)) {
+      const snippet = eleveQueryWindow(content, at);
       if (!snippetHasActifScope(snippet, content)) {
-        offenders.push(`${rel}: requête eleve sans scope actif/période`);
-        break;
+        offenders.push(`${rel}: requête eleve sans scope actif/période (pos ${at})`);
       }
     }
   }
