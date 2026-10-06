@@ -1,9 +1,8 @@
 /**
  * Backfill scolarité : pas de réactivation des sortis, idempotence des écritures.
- * Usage : TEST_DATABASE_URL=… npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/eleve-scolarite-backfill.integration.test.ts
+ * Usage : TEST_DATABASE_URL=… npm run test:eleve-scolarite-backfill:db
  */
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
@@ -14,37 +13,10 @@ import {
   etablissement,
   tenantSettingAttr,
 } from "@/db/schema";
-
-function loadEnvFile(path: string) {
-  if (!existsSync(path)) return;
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx <= 0) continue;
-    const key = trimmed.slice(0, eqIdx);
-    let value = trimmed.slice(eqIdx + 1);
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
-
-loadEnvFile(".env.local");
-loadEnvFile(".env");
-
-const dbUrl = process.env.TEST_DATABASE_URL?.trim() || process.env.DATABASE_URL?.trim();
-const hasDb = Boolean(dbUrl);
+import { beginTestDatabase, endTestDatabase } from "@/app/lib/test-database-harness";
 
 test("backfill — élève sorti (date passée) non réactivé", async (t) => {
-  if (!hasDb) {
-    t.skip("TEST_DATABASE_URL / DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const { syncScolariteCouranteFromPlat } = await import("@/app/lib/eleve-core/port");
@@ -142,15 +114,12 @@ test("backfill — élève sorti (date passée) non réactivé", async (t) => {
     await db.delete(eleve).where(eq(eleve.id, row.id));
     await db.delete(anneeScolaire).where(eq(anneeScolaire.id, annee.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });
 
 test("applyClasseCourante — second passage sans changement ne met pas à jour", async (t) => {
-  if (!hasDb) {
-    t.skip("TEST_DATABASE_URL / DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const { applyClasseCourante } = await import("@/app/lib/eleve-core/port");
@@ -203,15 +172,12 @@ test("applyClasseCourante — second passage sans changement ne met pas à jour"
     await db.delete(eleveScolarite).where(eq(eleveScolarite.eleveId, row.id));
     await db.delete(eleve).where(eq(eleve.id, row.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });
 
 test("backfillElevesScolariteCouranteOnce — marqueur persistant, second appel no-op", async (t) => {
-  if (!hasDb) {
-    t.skip("TEST_DATABASE_URL / DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const { backfillElevesScolariteCouranteOnce } = await import("@/app/lib/ent-core-db");
@@ -233,6 +199,6 @@ test("backfillElevesScolariteCouranteOnce — marqueur persistant, second appel 
   } finally {
     await db.delete(tenantSettingAttr).where(eq(tenantSettingAttr.etablissementId, etab.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });

@@ -3,42 +3,15 @@
  * npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/vs-appels-close.integration.test.ts
  */
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { eleve, etablissement, metierEvent, vsAbsenceEleve, vsAppel, vsAppelLigne } from "@/db/schema";
 import { VS_APPEL_EVENT_TYPES } from "@/app/lib/vs-appels-events";
-
-function loadEnvFile(path: string) {
-  if (!existsSync(path)) return;
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx <= 0) continue;
-    const key = trimmed.slice(0, eqIdx);
-    let value = trimmed.slice(eqIdx + 1);
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
-
-loadEnvFile(".env.local");
-loadEnvFile(".env");
-
-const hasDb = Boolean(process.env.DATABASE_URL?.trim());
+import { beginTestDatabase, endTestDatabase } from "@/app/lib/test-database-harness";
 
 test("closeAppel — absence source appel + event + motif préservé", async (t) => {
-  if (!hasDb) {
-    t.skip("DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const {
@@ -136,15 +109,12 @@ test("closeAppel — absence source appel + event + motif préservé", async (t)
     await db.delete(vsAppel).where(eq(vsAppel.etablissementId, etab.id));
     await db.delete(eleve).where(eq(eleve.etablissementId, etab.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });
 
 test("finalizeAppelAbsencesFromLignes — crée source appel même si accueil couvre le créneau", async (t) => {
-  if (!hasDb) {
-    t.skip("DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const { finalizeAppelAbsencesFromLignes } = await import("@/app/lib/vs-absences-db");
@@ -217,15 +187,12 @@ test("finalizeAppelAbsencesFromLignes — crée source appel même si accueil co
     await db.delete(vsAppel).where(eq(vsAppel.etablissementId, etab.id));
     await db.delete(eleve).where(eq(eleve.etablissementId, etab.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });
 
 test("closeAppel — pas de double absence même créneau (2 appels)", async (t) => {
-  if (!hasDb) {
-    t.skip("DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const { finalizeAppelAbsencesFromLignes } = await import("@/app/lib/vs-absences-db");
@@ -296,6 +263,6 @@ test("closeAppel — pas de double absence même créneau (2 appels)", async (t)
     await db.delete(vsAppel).where(eq(vsAppel.etablissementId, etab.id));
     await db.delete(eleve).where(eq(eleve.etablissementId, etab.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });

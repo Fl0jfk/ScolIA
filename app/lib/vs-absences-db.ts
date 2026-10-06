@@ -23,6 +23,7 @@ import {
 } from "@/app/lib/vs-appels-slot";
 import { sqlExcludeStageVsAbsences } from "@/app/lib/vs-absences-stage";
 import {
+  assertAccueilEleveAbsenceCancelable,
   isVsAbsenceAccueilSlotActive,
   VS_ABSENCE_STATUT_ANNULEE,
   type AbsenceStatut,
@@ -1091,6 +1092,24 @@ export async function cancelAccueilEleveAbsence(
   noteCpe = "Annulée par l’accueil",
 ): Promise<boolean> {
   const db = getDb();
+  const [existing] = await db
+    .select({
+      id: vsAbsenceEleve.id,
+      statut: vsAbsenceEleve.statut,
+      source: vsAbsenceEleve.source,
+    })
+    .from(vsAbsenceEleve)
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.id, absenceId),
+      ),
+    )
+    .limit(1);
+  if (!existing) return false;
+
+  assertAccueilEleveAbsenceCancelable(existing.statut, existing.source);
+
   const [row] = await db
     .update(vsAbsenceEleve)
     .set({ statut: VS_ABSENCE_STATUT_ANNULEE, updatedAt: new Date(), noteCpe })
@@ -1099,6 +1118,7 @@ export async function cancelAccueilEleveAbsence(
         eq(vsAbsenceEleve.etablissementId, etablissementId),
         eq(vsAbsenceEleve.id, absenceId),
         eq(vsAbsenceEleve.source, "accueil"),
+        eq(vsAbsenceEleve.statut, "a_traiter"),
       ),
     )
     .returning({ id: vsAbsenceEleve.id });
