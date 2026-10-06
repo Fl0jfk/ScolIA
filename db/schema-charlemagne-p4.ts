@@ -86,6 +86,7 @@ export const vsAbsenceEleve = pgTable(
     heureDebut: text("heure_debut"),
     heureFin: text("heure_fin"),
     type: text("type").notNull().default("absence"),
+    /** a_traiter | justifiee | non_justifiee | classee | annulee (accueil, traçabilité) */
     statut: text("statut").notNull().default("a_traiter"),
     justifie: boolean("justifie").notNull().default(false),
     motif: text("motif"),

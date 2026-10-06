@@ -1,9 +1,10 @@
 import "server-only";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, vsAbsenceEleve } from "@/db/schema";
 import { sqlExcludeStageVsAbsences } from "@/app/lib/vs-absences-stage";
+import { VS_ABSENCE_STATUT_ANNULEE } from "@/app/lib/vs-absence-statut";
 
 export type FamilleAbsenceRow = {
   id: string;
@@ -49,6 +50,7 @@ export async function listFamilleAbsences(
       and(
         eq(vsAbsenceEleve.etablissementId, etablissementId),
         inArray(vsAbsenceEleve.eleveId, eleveIds),
+        ne(vsAbsenceEleve.statut, VS_ABSENCE_STATUT_ANNULEE),
         sqlExcludeStageVsAbsences(),
       ),
     )
@@ -109,7 +111,12 @@ export async function submitFamilleAbsenceJustification(
   if (!existing || !eleveIdsAllowed.includes(existing.eleveId)) {
     return null;
   }
-  if (existing.justifie || existing.statut === "classee" || existing.statut === "justifiee") {
+  if (
+    existing.justifie ||
+    existing.statut === "classee" ||
+    existing.statut === "justifiee" ||
+    existing.statut === VS_ABSENCE_STATUT_ANNULEE
+  ) {
     throw new Error("Cette absence est déjà traitée.");
   }
   if (existing.statut === "non_justifiee") {
