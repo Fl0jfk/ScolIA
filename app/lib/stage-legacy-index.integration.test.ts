@@ -7,9 +7,15 @@ import { test } from "node:test";
 import { flattenToAttrs } from "@/app/lib/ent-attr-codec";
 import { upsertCollectionRecord } from "@/app/lib/ent-collection-db";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { closeDb, setIntegrationTestDb } from "@/db/index";
-import { etablissement, stageConvention, stageConventionAttr, stageToken } from "@/db/schema";
+import {
+  etablissement,
+  stageConvention,
+  stageConventionAttr,
+  stageToken,
+  stageTokenAttr,
+} from "@/db/schema";
 import type { StageConvention } from "@/app/lib/stage-types";
 import { sample } from "@/app/lib/stage-index.test-fixtures";
 import {
@@ -348,7 +354,7 @@ test("convention illisible en base — legacy ne l’écrase pas (getConventionF
   await destroyStagePgliteFixture(fixture);
 });
 
-test("index typé servi sans marqueur tant que migration legacy reste en attente", async () => {
+test("index typé — legacy non migrable : marqueur posé, seconde lecture sans rescan collection", async () => {
   const fixture = await createStagePgliteFixture();
   setIntegrationTestDb(fixture.db);
 
@@ -357,7 +363,11 @@ test("index typé servi sans marqueur tant que migration legacy reste en attente
     upsertConventionInDb,
     listConventionIndexFromDb,
     isConventionsLegacyMigrationComplete,
+    resetConventionsLegacyMigrationMemoryForTests,
+    getLegacyCollectConventionIdsCallsForTests,
   } = await import("@/app/lib/stage-db");
+  resetConventionsLegacyMigrationMemoryForTests();
+
   await upsertConventionInDb(fixture.etablissementId, {
     ...sample,
     id: goodId,
@@ -374,7 +384,99 @@ test("index typé servi sans marqueur tant que migration legacy reste en attente
   assert.ok(index.some((e) => e.id === goodId));
 
   const complete = await isConventionsLegacyMigrationComplete(fixture.etablissementId);
-  assert.equal(complete, false);
+  assert.equal(complete, true, "marqueur complete doit être décodé (b:1), pas comparé à 'true'");
+
+  const tokenPk = `auto_purge:conventions_legacy_synced:${fixture.etablissementId}`;
+  const [atRow] = await fixture.db
+    .select({ value: stageTokenAttr.value })
+    .from(stageTokenAttr)
+    .where(
+      and(
+        eq(stageTokenAttr.etablissementId, fixture.etablissementId),
+        eq(stageTokenAttr.token, tokenPk),
+        eq(stageTokenAttr.path, "at"),
+      ),
+    )
+    .limit(1);
+  assert.ok(atRow?.value, "champ at du marqueur");
+
+  const callsAfterFirst = getLegacyCollectConventionIdsCallsForTests();
+  assert.ok(callsAfterFirst >= 1);
+
+  resetConventionsLegacyMigrationMemoryForTests();
+  const index2 = await listConventionIndexFromDb(fixture.etablissementId);
+  assert.ok(index2.some((e) => e.id === goodId));
+  assert.equal(
+    getLegacyCollectConventionIdsCallsForTests(),
+    0,
+    "seconde lecture : cache mémoire, pas de rescan ent_collection",
+  );
+
+  const [atRowAfter] = await fixture.db
+    .select({ value: stageTokenAttr.value })
+    .from(stageTokenAttr)
+    .where(
+      and(
+        eq(stageTokenAttr.etablissementId, fixture.etablissementId),
+        eq(stageTokenAttr.token, tokenPk),
+        eq(stageTokenAttr.path, "at"),
+      ),
+    )
+    .limit(1);
+  assert.equal(atRowAfter?.value, atRow?.value, "marqueur at inchangé après seconde lecture");
+
+  await closeDb();
+  await destroyStagePgliteFixture(fixture);
+});
+
+test("id convention global autre établissement — marqueur posé, pas de boucle", async () => {
+  const fixture = await createStagePgliteFixture();
+  setIntegrationTestDb(fixture.db);
+
+  const sharedId = "stg_conv_global_pk_clone";
+  const [etabB] = await fixture.db
+    .insert(etablissement)
+    .values({
+      slug: `stage-global-${randomUUID().slice(0, 8)}`,
+      name: "Tenant clone",
+      dataBucket: "scola-dev",
+    })
+    .returning({ id: etablissement.id });
+  assert.ok(etabB);
+
+  await fixture.db.insert(stageConvention).values({
+    id: sharedId,
+    etablissementId: fixture.etablissementId,
+    status: "signatures_pending",
+    updatedAt: new Date("2026-03-21T10:00:00.000Z"),
+  });
+
+  const cloneLegacy = {
+    ...tomLegacyConvention(),
+    id: sharedId,
+    student: { ...sample.student, firstName: "Clone", lastName: "Tenant", className: "5A" },
+  };
+  await upsertCollectionRecord(
+    etabB.id,
+    "stages__conventions",
+    sharedId,
+    cloneLegacy as unknown as Record<string, unknown>,
+  );
+
+  const { listConventionIndexFromDb, isConventionsLegacyMigrationComplete } = await import(
+    "@/app/lib/stage-db"
+  );
+  await listConventionIndexFromDb(etabB.id);
+  assert.equal(await isConventionsLegacyMigrationComplete(etabB.id), true);
+
+  const rowsB = await fixture.db
+    .select({ id: stageConvention.id })
+    .from(stageConvention)
+    .where(eq(stageConvention.etablissementId, etabB.id));
+  assert.equal(rowsB.length, 0, "insert ignoré (PK globale)");
+
+  await listConventionIndexFromDb(etabB.id);
+  assert.equal(await isConventionsLegacyMigrationComplete(etabB.id), true);
 
   await closeDb();
   await destroyStagePgliteFixture(fixture);

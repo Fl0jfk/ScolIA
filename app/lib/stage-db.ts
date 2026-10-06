@@ -252,6 +252,50 @@ async function acquireLegacyMigrationAdvisoryLock(
   );
 }
 
+/** Ne bloque pas la lecture d’index si une autre transaction migre déjà. */
+async function tryAcquireLegacyMigrationAdvisoryLock(
+  tx: StageDbTx,
+  etablissementId: string,
+): Promise<boolean> {
+  if (isPgliteIntegrationTest()) return true;
+  const result = await tx.execute(
+    sql`SELECT pg_try_advisory_xact_lock(${STAGE_LEGACY_MIGRATION_LOCK_NS}, hashtext(${etablissementId})) AS locked`,
+  );
+  const rows = Array.isArray(result)
+    ? result
+    : (result as { rows?: Array<{ locked: boolean }> }).rows ?? [];
+  const row = rows[0] as { locked?: boolean } | undefined;
+  return row?.locked === true;
+}
+
+async function legacyConventionIdsBlockedByGlobalPk(
+  queryable: StageDbTx,
+  etablissementId: string,
+  legacyIds: Iterable<string>,
+): Promise<Set<string>> {
+  const blocked = new Set<string>();
+  for (const rawId of legacyIds) {
+    const id = String(rawId ?? "").trim();
+    if (!id) continue;
+    const [row] = await queryable
+      .select({ etablissementId: stageConvention.etablissementId })
+      .from(stageConvention)
+      .where(eq(stageConvention.id, id))
+      .limit(1);
+    if (row && row.etablissementId !== etablissementId) blocked.add(id);
+  }
+  return blocked;
+}
+
+function logLegacyConventionGlobalPkBlocked(etablissementId: string, ids: string[]): void {
+  if (ids.length === 0) return;
+  console.warn("[stage-db] conventions legacy ignorées (id PK global autre établissement)", {
+    etablissementId,
+    count: ids.length,
+    ids,
+  });
+}
+
 async function conventionMainRowExists(etablissementId: string, id: string): Promise<boolean> {
   const db = getDb();
   const [row] = await db
@@ -291,7 +335,17 @@ async function insertConventionFromLegacyIfAbsentInTx(
     })
     .onConflictDoNothing({ target: stageConvention.id })
     .returning({ id: stageConvention.id });
-  if (inserted.length === 0) return false;
+  if (inserted.length === 0) {
+    const [existing] = await tx
+      .select({ etablissementId: stageConvention.etablissementId })
+      .from(stageConvention)
+      .where(eq(stageConvention.id, id))
+      .limit(1);
+    if (existing && existing.etablissementId !== etablissementId) {
+      logLegacyConventionGlobalPkBlocked(etablissementId, [id]);
+    }
+    return false;
+  }
 
   if (attrs.length > 0) {
     const chunk = 80;
@@ -404,6 +458,26 @@ const LEGACY_CONVENTIONS_COLLECTION = "stages__conventions";
 const CONVENTIONS_LEGACY_MARKER_KIND: StageTokenKind = "auto_purge";
 /** Verrou advisory par établissement (namespace fixe + hashtext(etablissement_id)). */
 const STAGE_LEGACY_MIGRATION_LOCK_NS = 584_921;
+const LEGACY_MIGRATION_ERROR_BACKOFF_MS = 60_000;
+
+/** Établissements dont le marqueur legacy est confirmé (évite les lectures SQL répétées). */
+const conventionsLegacyMigrationDone = new Set<string>();
+/** Après échec migration lazy : ne pas réessayer immédiatement à chaque lecture d’index. */
+const legacyMigrationBackoffUntil = new Map<string, number>();
+
+let legacyCollectConventionIdsCallsForTest = 0;
+
+/** Réinitialise caches mémoire legacy (tests PGlite uniquement). */
+export function resetConventionsLegacyMigrationMemoryForTests(): void {
+  conventionsLegacyMigrationDone.clear();
+  legacyMigrationBackoffUntil.clear();
+  legacyCollectConventionIdsCallsForTest = 0;
+}
+
+/** Compteur d’appels à `collectLegacyConventionIds` (tests PGlite uniquement). */
+export function getLegacyCollectConventionIdsCallsForTests(): number {
+  return legacyCollectConventionIdsCallsForTest;
+}
 
 function legacyMigrationMarkerStorageKey(etablissementId: string): string {
   return `conventions_legacy_synced:${etablissementId}`;
@@ -413,42 +487,50 @@ function legacyMigrationMarkerTokenPk(etablissementId: string): string {
   return `${CONVENTIONS_LEGACY_MARKER_KIND}:${legacyMigrationMarkerStorageKey(etablissementId)}`;
 }
 
+function legacyMigrationMarkerCompleteFromAttrs(
+  attrRows: Array<{ path: string; value: string }>,
+): boolean {
+  if (attrRows.length === 0) return false;
+  const nested = inflateFromAttrs(attrRows);
+  return nested.complete === true;
+}
+
+function noteConventionsLegacyMigrationComplete(etablissementId: string): void {
+  conventionsLegacyMigrationDone.add(etablissementId);
+}
+
 async function isConventionsLegacyMigrationCompleteInTx(
   tx: StageDbTx,
   etablissementId: string,
 ): Promise<boolean> {
+  if (conventionsLegacyMigrationDone.has(etablissementId)) return true;
   const tokenPk = legacyMigrationMarkerTokenPk(etablissementId);
-  const [row] = await tx
-    .select({ value: stageTokenAttr.value })
+  const rows = await tx
+    .select({ path: stageTokenAttr.path, value: stageTokenAttr.value })
     .from(stageTokenAttr)
     .where(
-      and(
-        eq(stageTokenAttr.etablissementId, etablissementId),
-        eq(stageTokenAttr.token, tokenPk),
-        eq(stageTokenAttr.path, "complete"),
-      ),
-    )
-    .limit(1);
-  return row?.value === "true";
+      and(eq(stageTokenAttr.etablissementId, etablissementId), eq(stageTokenAttr.token, tokenPk)),
+    );
+  const complete = legacyMigrationMarkerCompleteFromAttrs(rows);
+  if (complete) noteConventionsLegacyMigrationComplete(etablissementId);
+  return complete;
 }
 
 export async function isConventionsLegacyMigrationComplete(
   etablissementId: string,
 ): Promise<boolean> {
+  if (conventionsLegacyMigrationDone.has(etablissementId)) return true;
   const db = getDb();
   const tokenPk = legacyMigrationMarkerTokenPk(etablissementId);
-  const [row] = await db
-    .select({ value: stageTokenAttr.value })
+  const rows = await db
+    .select({ path: stageTokenAttr.path, value: stageTokenAttr.value })
     .from(stageTokenAttr)
     .where(
-      and(
-        eq(stageTokenAttr.etablissementId, etablissementId),
-        eq(stageTokenAttr.token, tokenPk),
-        eq(stageTokenAttr.path, "complete"),
-      ),
-    )
-    .limit(1);
-  return row?.value === "true";
+      and(eq(stageTokenAttr.etablissementId, etablissementId), eq(stageTokenAttr.token, tokenPk)),
+    );
+  const complete = legacyMigrationMarkerCompleteFromAttrs(rows);
+  if (complete) noteConventionsLegacyMigrationComplete(etablissementId);
+  return complete;
 }
 
 async function writeLegacyMigrationMarkerInTx(tx: StageDbTx, etablissementId: string): Promise<void> {
@@ -483,17 +565,21 @@ async function writeLegacyMigrationMarkerInTx(tx: StageDbTx, etablissementId: st
       })),
     );
   }
+  noteConventionsLegacyMigrationComplete(etablissementId);
 }
 
 async function writeLegacyMigrationMarker(etablissementId: string): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx) => {
-    await acquireLegacyMigrationAdvisoryLock(tx, etablissementId);
+    const locked = await tryAcquireLegacyMigrationAdvisoryLock(tx, etablissementId);
+    if (!locked) return;
+    if (await isConventionsLegacyMigrationCompleteInTx(tx, etablissementId)) return;
     await writeLegacyMigrationMarkerInTx(tx, etablissementId);
   });
 }
 
 async function collectLegacyConventionIds(etablissementId: string): Promise<Set<string>> {
+  if (isPgliteIntegrationTest()) legacyCollectConventionIdsCallsForTest += 1;
   const ids = new Set<string>();
   const { listCollectionRecords, getCollectionRecord } = await import("@/app/lib/ent-collection-db");
   for (const row of await listCollectionRecords<Record<string, unknown>>(
@@ -542,10 +628,15 @@ async function legacyConventionIdsPendingMigration(etablissementId: string): Pro
   const legacyIds = await collectLegacyConventionIds(etablissementId);
   if (legacyIds.size === 0) return [];
   const typed = await typedConventionIdSet(etablissementId);
+  const db = getDb();
+  const blockedGlobal = await legacyConventionIdsBlockedByGlobalPk(db, etablissementId, legacyIds);
+  if (blockedGlobal.size > 0) {
+    logLegacyConventionGlobalPkBlocked(etablissementId, [...blockedGlobal]);
+  }
   const { getCollectionRecord } = await import("@/app/lib/ent-collection-db");
   const pending: string[] = [];
   for (const id of legacyIds) {
-    if (typed.has(id)) continue;
+    if (typed.has(id) || blockedGlobal.has(id)) continue;
     const one = await getCollectionRecord<Record<string, unknown>>(
       etablissementId,
       LEGACY_CONVENTIONS_COLLECTION,
@@ -584,7 +675,10 @@ async function migrateLegacyConventionRowsInTx(
   }
 }
 
-async function runLegacyConventionMigrationTransaction(etablissementId: string): Promise<void> {
+async function runLegacyConventionMigrationTransaction(
+  etablissementId: string,
+  options?: { waitForAdvisoryLock?: boolean },
+): Promise<void> {
   const { listCollectionRecords, getCollectionRecord } = await import(
     "@/app/lib/ent-collection-db"
   );
@@ -626,7 +720,13 @@ async function runLegacyConventionMigrationTransaction(etablissementId: string):
 
   const db = getDb();
   await db.transaction(async (tx) => {
-    await acquireLegacyMigrationAdvisoryLock(tx, etablissementId);
+    const locked = options?.waitForAdvisoryLock
+      ? await (async () => {
+          await acquireLegacyMigrationAdvisoryLock(tx, etablissementId);
+          return true;
+        })()
+      : await tryAcquireLegacyMigrationAdvisoryLock(tx, etablissementId);
+    if (!locked) return;
     if (await isConventionsLegacyMigrationCompleteInTx(tx, etablissementId)) return;
 
     const typedIds = new Set(
@@ -638,6 +738,15 @@ async function runLegacyConventionMigrationTransaction(etablissementId: string):
       ).map((r) => r.id),
     );
 
+    const blockedGlobal = await legacyConventionIdsBlockedByGlobalPk(
+      tx,
+      etablissementId,
+      allLegacyIds,
+    );
+    if (blockedGlobal.size > 0) {
+      logLegacyConventionGlobalPkBlocked(etablissementId, [...blockedGlobal]);
+    }
+
     await migrateLegacyConventionRowsInTx(tx, etablissementId, typedIds, {
       legacyRows,
       indexLegacyById,
@@ -645,7 +754,7 @@ async function runLegacyConventionMigrationTransaction(etablissementId: string):
 
     let stillPendingMigratable = false;
     for (const id of allLegacyIds) {
-      if (typedIds.has(id)) continue;
+      if (typedIds.has(id) || blockedGlobal.has(id)) continue;
       const row =
         legacyRows.find((r) => String(r.id ?? "").trim() === id) ?? indexLegacyById.get(id);
       if (row && asConvention(row, id)) {
@@ -664,6 +773,7 @@ async function runLegacyConventionMigrationTransaction(etablissementId: string):
  * `ent_collection` restent à copier (marqueur persistant par établissement).
  */
 async function ensureLegacyConventionsForIndexRead(etablissementId: string): Promise<void> {
+  if (conventionsLegacyMigrationDone.has(etablissementId)) return;
   if (await isConventionsLegacyMigrationComplete(etablissementId)) return;
 
   const pending = await legacyConventionIdsPendingMigration(etablissementId);
@@ -672,41 +782,51 @@ async function ensureLegacyConventionsForIndexRead(etablissementId: string): Pro
     return;
   }
 
-  await runLegacyConventionMigrationTransaction(etablissementId);
+  await runLegacyConventionMigrationTransaction(etablissementId, { waitForAdvisoryLock: false });
 }
 
 export async function listConventionIndexFromDb(
   etablissementId: string,
 ): Promise<StageConventionIndexEntry[]> {
-  try {
-    await ensureLegacyConventionsForIndexRead(etablissementId);
-  } catch (error) {
-    console.error("[stage-db] migration legacy conventions (lecture index)", etablissementId, error);
+  const backoffUntil = legacyMigrationBackoffUntil.get(etablissementId);
+  if (backoffUntil === undefined || Date.now() >= backoffUntil) {
+    try {
+      await ensureLegacyConventionsForIndexRead(etablissementId);
+    } catch (error) {
+      legacyMigrationBackoffUntil.set(
+        etablissementId,
+        Date.now() + LEGACY_MIGRATION_ERROR_BACKOFF_MS,
+      );
+      console.error("[stage-db] migration legacy conventions (lecture index)", etablissementId, error);
+    }
   }
 
   const db = getDb();
-  return db.transaction(async (tx) => {
-    const [mains, attrs] = await Promise.all([
-      tx
-        .select()
-        .from(stageConvention)
-        .where(eq(stageConvention.etablissementId, etablissementId)),
-      tx
-        .select({
-          id: stageConventionAttr.conventionId,
-          path: stageConventionAttr.path,
-          value: stageConventionAttr.value,
-        })
-        .from(stageConventionAttr)
-        .where(
-          and(
-            eq(stageConventionAttr.etablissementId, etablissementId),
-            inArray(stageConventionAttr.path, [...CONVENTION_INDEX_ATTR_PATHS]),
+  return db.transaction(
+    async (tx) => {
+      const [mains, attrs] = await Promise.all([
+        tx
+          .select()
+          .from(stageConvention)
+          .where(eq(stageConvention.etablissementId, etablissementId)),
+        tx
+          .select({
+            id: stageConventionAttr.conventionId,
+            path: stageConventionAttr.path,
+            value: stageConventionAttr.value,
+          })
+          .from(stageConventionAttr)
+          .where(
+            and(
+              eq(stageConventionAttr.etablissementId, etablissementId),
+              inArray(stageConventionAttr.path, [...CONVENTION_INDEX_ATTR_PATHS]),
+            ),
           ),
-        ),
-    ]);
-    return conventionIndexEntriesFromDbRows(mains, attrs);
-  });
+      ]);
+      return conventionIndexEntriesFromDbRows(mains, attrs);
+    },
+    { isolationLevel: "repeatable read", accessMode: "read only" },
+  );
 }
 
 /**
@@ -716,7 +836,7 @@ export async function listConventionIndexFromDb(
 export async function ensureConventionsMigratedFromCollection(
   etablissementId: string,
 ): Promise<StageConvention[]> {
-  await runLegacyConventionMigrationTransaction(etablissementId);
+  await runLegacyConventionMigrationTransaction(etablissementId, { waitForAdvisoryLock: true });
   return listConventionsFromDb(etablissementId);
 }
 
