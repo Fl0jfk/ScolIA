@@ -3,7 +3,10 @@
 const KEY_PREFIX = "scola:eleve-dossier:";
 
 export function eleveDossierSessionCacheKey(userId: string, eleveId: string): string {
-  const uid = userId.trim() || "anon";
+  const uid = userId.trim();
+  if (!uid) {
+    throw new Error("eleveDossierSessionCacheKey: user id must be loaded");
+  }
   return `${KEY_PREFIX}${uid}:${eleveId}`;
 }
 

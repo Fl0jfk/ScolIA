@@ -19,6 +19,16 @@ const papDoc = {
   title: "Plan d'accompagnement personnalisé",
 };
 
+test("professeur + internat — accès PAI conservé (internat)", () => {
+  const viewer = { roles: ["professeur", "internat"] };
+  assert.equal(viewerMayLoadEleveAccompagnementListMetadata(viewer), true);
+  assert.equal(
+    viewerMayReceiveEleveAccompagnementMetadata(viewer, { eleveClasse: "4B" }),
+    true,
+  );
+  assert.equal(eleveDocTiroirsForRoles(["professeur", "internat"]).has("sante"), true);
+});
+
 test("professeur seul — pas de métadonnées accompagnement (interrupteur false)", () => {
   const viewer = { roles: ["professeur"] };
   assert.equal(viewerMayLoadEleveAccompagnementListMetadata(viewer), false);

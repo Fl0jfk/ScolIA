@@ -4,6 +4,7 @@
  */
 
 import { studentInAssignedClasses } from "@/app/lib/class-allocation-teachers";
+import { hasRole } from "@/app/lib/intranet-role-utils";
 import {
   isProfesseurScopedDossierViewer,
   PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES,
@@ -28,11 +29,22 @@ export type AccompagnementEleveContext = {
  */
 export { PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES } from "@/app/lib/eleve-dossier-scope";
 
+/**
+ * Restriction RGPD « professeur pur » uniquement — pas prof + internat (PAI internat).
+ */
+export function isTeacherOnlyAccompagnementRestricted(
+  viewer: DossierAccompagnementViewer,
+): boolean {
+  if (!isProfesseurScopedDossierViewer(viewer)) return false;
+  if (hasRole(viewer.roles, "internat")) return false;
+  return true;
+}
+
 /** Suffixe cache liste dossiers : évite de servir une réponse « hub » à un prof. */
 export function eleveDossierAccompagnementCacheScopeSuffix(
   viewer: DossierAccompagnementViewer,
 ): string {
-  if (!isProfesseurScopedDossierViewer(viewer)) return "accomp:full";
+  if (!isTeacherOnlyAccompagnementRestricted(viewer)) return "accomp:full";
   if (!PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES) return "accomp:none";
   return "accomp:prof-classes";
 }
@@ -42,7 +54,7 @@ export function viewerMayLoadEleveAccompagnementListMetadata(
   viewer: DossierAccompagnementViewer,
   professeurSeesOwnClassesOverride?: boolean,
 ): boolean {
-  if (!isProfesseurScopedDossierViewer(viewer)) return true;
+  if (!isTeacherOnlyAccompagnementRestricted(viewer)) return true;
   const flag = professeurSeesOwnClassesOverride ?? PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES;
   return flag;
 }
@@ -56,7 +68,7 @@ export function viewerMayReceiveEleveAccompagnementMetadata(
   ctx?: AccompagnementEleveContext,
   professeurSeesOwnClassesOverride?: boolean,
 ): boolean {
-  if (!isProfesseurScopedDossierViewer(viewer)) return true;
+  if (!isTeacherOnlyAccompagnementRestricted(viewer)) return true;
   const flag = professeurSeesOwnClassesOverride ?? PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES;
   if (!flag) return false;
   const assigned = ctx?.assignedClasses ?? [];
@@ -108,7 +120,7 @@ export function filterAccompagnementAlertsForViewer<T extends { classe: string |
   if (!viewerMayReceiveAccompagnementDashboardAlerts(viewer)) {
     return [];
   }
-  if (!isProfesseurScopedDossierViewer(viewer)) {
+  if (!isTeacherOnlyAccompagnementRestricted(viewer)) {
     return [...alerts];
   }
   return alerts.filter((a) =>
@@ -123,6 +135,6 @@ export function filterAccompagnementAlertsForViewer<T extends { classe: string |
 export function viewerMayReceiveAccompagnementDashboardAlerts(
   viewer: DossierAccompagnementViewer,
 ): boolean {
-  if (!isProfesseurScopedDossierViewer(viewer)) return true;
+  if (!isTeacherOnlyAccompagnementRestricted(viewer)) return true;
   return viewerMayLoadEleveAccompagnementListMetadata(viewer);
 }

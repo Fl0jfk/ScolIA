@@ -6,6 +6,7 @@ import { clearBootstrapCache } from "@/app/lib/app-bootstrap-cache";
 import { clearDashboardLinksCache } from "@/app/lib/dashboard-links-cache";
 import { clearDashboardSignalsCache } from "@/app/lib/dashboard-signals-cache";
 import { clearOnboardingStatusCache } from "@/app/lib/onboarding-status-cache";
+import { clearEleveDossierSessionCaches } from "@/app/lib/eleve-dossier-client-cache";
 import { clearLastPortalTenant } from "@/app/lib/tenant-portal-client";
 
 /**
@@ -23,6 +24,7 @@ export default function SignOutPage() {
     clearDashboardLinksCache();
     clearDashboardSignalsCache();
     clearOnboardingStatusCache();
+    clearEleveDossierSessionCaches();
 
     const params = new URLSearchParams(window.location.search);
     const tenant = params.get("dev_tenant");

@@ -37,6 +37,7 @@ function includeProfesseurSanteAccompagnementDrawer(
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): boolean {
   if (!hasRole(roles, "professeur")) return false;
+  if (hasRole(roles, "internat")) return true;
   if (
     PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES ||
     !isProfesseurScopedDossierViewer({
@@ -515,6 +516,8 @@ export async function recordEleveAccessAudit(input: {
   actorIp?: string | null;
   actorUserAgent?: string | null;
   actorRoles?: string[] | null;
+  actorForwardedFor?: string | null;
+  actorEnvoyExternalAddress?: string | null;
 }): Promise<void> {
   const db = getDb();
   const roles =
@@ -530,6 +533,8 @@ export async function recordEleveAccessAudit(input: {
     actorIp: input.actorIp?.trim() || null,
     actorUserAgent: input.actorUserAgent?.trim() || null,
     actorRoles: roles,
+    actorForwardedFor: input.actorForwardedFor?.trim() || null,
+    actorEnvoyExternalAddress: input.actorEnvoyExternalAddress?.trim() || null,
   });
 }
 

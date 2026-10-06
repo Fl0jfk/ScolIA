@@ -41,7 +41,7 @@ import {
 import {
   eleveDossierSessionCacheKey,
 } from "@/app/lib/eleve-dossier-client-cache";
-import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useAppUser } from "@/app/hooks/useAppUser";
 
 function dossiersListHrefFromRetour(retour: string | null, fallbackClasse?: string | null): string {
   if (retour) {
@@ -346,8 +346,8 @@ export default function EleveDossierClient({
   const searchParams = useSearchParams();
   const router = useRouter();
   const id = eleveIdProp || String(params.id || "");
-  const { user: sessionUser } = useSessionUser();
-  const sessionUserId = sessionUser?.id ?? "anon";
+  const { isLoaded: sessionLoaded, user: appUser } = useAppUser();
+  const sessionUserId = appUser?.id;
   const isModal = mode === "modal";
   const listHref = dossiersListHrefFromRetour(
     searchParams.get("retour"),
@@ -398,20 +398,26 @@ export default function EleveDossierClient({
   const [lieuDraft, setLieuDraft] = useState("");
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
-    const cacheKey = eleveDossierSessionCacheKey(sessionUserId, id);
+    const canUseSessionCache = sessionLoaded && Boolean(sessionUserId);
+    const cacheKey =
+      canUseSessionCache && sessionUserId
+        ? eleveDossierSessionCacheKey(sessionUserId, id)
+        : null;
     if (!opts?.silent) {
       setError(null);
-      try {
-        const raw = sessionStorage.getItem(cacheKey);
-        if (raw) {
-          const cached = JSON.parse(raw) as DossierPayload;
-          if (cached?.eleve?.id === id) {
-            setData(cached);
-            setStaleCache(true);
+      if (cacheKey) {
+        try {
+          const raw = sessionStorage.getItem(cacheKey);
+          if (raw) {
+            const cached = JSON.parse(raw) as DossierPayload;
+            if (cached?.eleve?.id === id) {
+              setData(cached);
+              setStaleCache(true);
+            }
           }
+        } catch {
+          /* ignore cache corrompu */
         }
-      } catch {
-        /* ignore cache corrompu */
       }
     }
     try {
@@ -461,10 +467,12 @@ export default function EleveDossierClient({
       });
       setStaleCache(false);
       setError(null);
-      try {
-        sessionStorage.setItem(cacheKey, JSON.stringify(payload));
-      } catch {
-        /* quota / private mode */
+      if (cacheKey) {
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+        } catch {
+          /* quota / private mode */
+        }
       }
       setExtrasReady(false);
       void fetch(`/api/eleves/${id}/dossier?part=extras`, { cache: "no-store" })
@@ -476,10 +484,12 @@ export default function EleveDossierClient({
           const extras = (await extrasRes.json().catch(() => null)) as DossierPayload | null;
           if (extras && extras.eleve?.id === id) {
             setData(extras);
-            try {
-              sessionStorage.setItem(cacheKey, JSON.stringify(extras));
-            } catch {
-              /* quota / private mode */
+            if (cacheKey) {
+              try {
+                sessionStorage.setItem(cacheKey, JSON.stringify(extras));
+              } catch {
+                /* quota / private mode */
+              }
             }
           }
           setExtrasReady(true);
@@ -509,7 +519,7 @@ export default function EleveDossierClient({
         setData(null);
       }
     }
-  }, [id, sessionUserId]);
+  }, [id, sessionLoaded, sessionUserId]);
 
   useEffect(() => {
     void load();

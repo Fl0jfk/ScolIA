@@ -19,11 +19,11 @@ import { eleve } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
 import { accompagnementDownloadFileName } from "@/app/lib/eleve-pap";
-import { clientIpFromRequest } from "@/app/lib/memory-rate-limit";
+import { auditRequestContextFromRequest } from "@/app/lib/audit-request-context";
 
 type Ctx = { params: Promise<{ id: string; documentId: string }> };
 
-const SIGNED_DOCUMENT_URL_TTL_SEC = 60;
+const SIGNED_DOCUMENT_URL_TTL_SEC = 300;
 
 function documentOpenRequiresBlockingAudit(doc: {
   tiroir: string;
@@ -41,9 +41,11 @@ async function persistDocumentOpenAudit(input: {
   documentId: string;
   eleveId: string;
   title: string;
-  actorIp: string;
+  actorIp: string | null;
   actorUserAgent: string | null;
   actorRoles: string[];
+  actorForwardedFor: string | null;
+  actorEnvoyExternalAddress: string | null;
 }): Promise<boolean> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -58,6 +60,8 @@ async function persistDocumentOpenAudit(input: {
         actorIp: input.actorIp,
         actorUserAgent: input.actorUserAgent,
         actorRoles: input.actorRoles,
+        actorForwardedFor: input.actorForwardedFor,
+        actorEnvoyExternalAddress: input.actorEnvoyExternalAddress,
       });
       return true;
     } catch (err) {
@@ -181,15 +185,18 @@ export async function GET(req: Request, ctx: Ctx) {
       ResponseContentType: contentType,
       ResponseContentDisposition: `inline; filename="${fileName}"`,
     });
+    const auditCtx = auditRequestContextFromRequest(req);
     const auditOk = await persistDocumentOpenAudit({
       etablissementId: etabId,
       actorUserId: session.user.id,
       documentId,
       eleveId,
       title: access.doc.title,
-      actorIp: clientIpFromRequest(req),
+      actorIp: auditCtx.clientIp,
       actorUserAgent: req.headers.get("user-agent"),
       actorRoles: roles,
+      actorForwardedFor: auditCtx.forwardedFor,
+      actorEnvoyExternalAddress: auditCtx.envoyExternalAddress,
     });
     if (!auditOk && documentOpenRequiresBlockingAudit(access.doc)) {
       return NextResponse.json(

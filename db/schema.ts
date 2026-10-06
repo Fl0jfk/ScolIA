@@ -636,6 +636,8 @@ export const eleveAccessAudit = pgTable(
     actorIp: text("actor_ip"),
     actorUserAgent: text("actor_user_agent"),
     actorRoles: jsonb("actor_roles").$type<string[]>(),
+    actorForwardedFor: text("actor_forwarded_for"),
+    actorEnvoyExternalAddress: text("actor_envoy_external_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

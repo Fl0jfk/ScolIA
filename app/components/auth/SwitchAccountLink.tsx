@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/app/lib/auth-client";
+import { clearEleveDossierSessionCaches } from "@/app/lib/eleve-dossier-client-cache";
 
 /** Déconnexion puis page de connexion (évite la boucle MDP obligatoire / 2FA). */
 export default function SwitchAccountLink({ className }: { className?: string }) {
@@ -11,6 +12,7 @@ export default function SwitchAccountLink({ className }: { className?: string })
 
   async function onClick() {
     setBusy(true);
+    clearEleveDossierSessionCaches();
     try {
       await authClient.signOut();
     } catch {
