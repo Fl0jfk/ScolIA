@@ -392,6 +392,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/etablissement/evenements",
       "/api/toolbox",
       "/api/invitation/pages",
+      "/api/invitation/lookup",
+      "/api/invitation/register",
     ],
     excludePrefixes: ["/api/toolbox/class-allocation"],
     allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
