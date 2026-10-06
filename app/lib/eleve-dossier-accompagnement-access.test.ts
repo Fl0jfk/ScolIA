@@ -6,6 +6,7 @@ import {
   filterAccompagnementAlertsForViewer,
   viewerMayLoadEleveAccompagnementListMetadata,
   viewerMayReceiveAccompagnementDashboardAlerts,
+  viewerMayReceiveAccompagnementKind,
   viewerMayReceiveEleveAccompagnementMetadata,
 } from "@/app/lib/eleve-dossier-accompagnement-access";
 import {
@@ -19,14 +20,68 @@ const papDoc = {
   title: "Plan d'accompagnement personnalisé",
 };
 
-test("professeur + internat — accès PAI conservé (internat)", () => {
-  const viewer = { roles: ["professeur", "internat"] };
-  assert.equal(viewerMayLoadEleveAccompagnementListMetadata(viewer), true);
+const paiDoc = {
+  tiroir: "sante" as const,
+  confidentialite: "standard" as const,
+  title: "PAI — Projet d'accueil individualisé",
+};
+
+const ppsDoc = {
+  tiroir: "sante" as const,
+  confidentialite: "standard" as const,
+  title: "PPS",
+};
+
+const gevascoDoc = {
+  tiroir: "sante" as const,
+  confidentialite: "standard" as const,
+  title: "GEVASCO",
+};
+
+const profInternat = { roles: ["professeur", "internat"] };
+const ctx = { eleveClasse: "4B" };
+
+test("professeur + internat — PAI uniquement (pas tiroir santé complet)", () => {
+  assert.equal(viewerMayLoadEleveAccompagnementListMetadata(profInternat), true);
+  assert.equal(viewerMayReceiveEleveAccompagnementMetadata(profInternat, ctx), true);
+  assert.equal(viewerMayReceiveAccompagnementKind(profInternat, "pai", ctx), true);
+  assert.equal(viewerMayReceiveAccompagnementKind(profInternat, "pap", ctx), false);
+  assert.equal(viewerMayReceiveAccompagnementKind(profInternat, "pps", ctx), false);
+  assert.equal(viewerMayReceiveAccompagnementKind(profInternat, "gevasco", ctx), false);
+  assert.equal(eleveDossierAccompagnementCacheScopeSuffix(profInternat), "accomp:pai");
+  assert.equal(eleveDocTiroirsForRoles(["professeur", "internat"]).has("sante"), false);
   assert.equal(
-    viewerMayReceiveEleveAccompagnementMetadata(viewer, { eleveClasse: "4B" }),
+    canOpenDocumentWithoutGrant(paiDoc, ["professeur", "internat"], {
+      accompagnementEleveContext: ctx,
+    }),
     true,
   );
-  assert.equal(eleveDocTiroirsForRoles(["professeur", "internat"]).has("sante"), true);
+  assert.equal(
+    canOpenDocumentWithoutGrant(papDoc, ["professeur", "internat"], {
+      accompagnementEleveContext: ctx,
+    }),
+    false,
+  );
+});
+
+test("professeur + internat — brain et alertes : PAI seulement", () => {
+  const items = [
+    { kind: "pai" as const, documentId: "d-pai" },
+    { kind: "pap" as const, documentId: "d-pap" },
+    { kind: "pps" as const, documentId: "d-pps" },
+  ];
+  const exposure = brainAccompagnementExposure(profInternat, "4B", items);
+  assert.deepEqual(exposure.kinds, ["pai"]);
+  assert.equal(exposure.items.length, 1);
+  assert.equal(exposure.items[0]?.documentId, "d-pai");
+
+  assert.equal(viewerMayReceiveAccompagnementDashboardAlerts(profInternat), true);
+  const alerts = filterAccompagnementAlertsForViewer(profInternat, [
+    { classe: "4B", documentId: "a1", kind: "pai" },
+    { classe: "4B", documentId: "a2", kind: "pap" },
+  ]);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0]?.kind, "pai");
 });
 
 test("professeur seul — pas de métadonnées accompagnement (interrupteur false)", () => {
@@ -45,6 +100,12 @@ test("professeur seul — pas de métadonnées accompagnement (interrupteur fals
     }),
     false,
   );
+  assert.equal(
+    canOpenDocumentWithoutGrant(ppsDoc, ["professeur"], {
+      accompagnementEleveContext: { eleveClasse: "4B", assignedClasses: ["4B"] },
+    }),
+    false,
+  );
   assert.equal(eleveDossierAccompagnementCacheScopeSuffix(viewer), "accomp:none");
 });
 
@@ -54,8 +115,15 @@ test("professeur + CPE — accès accompagnement conservé", () => {
     viewerMayReceiveEleveAccompagnementMetadata({ roles }, { eleveClasse: "3A" }),
     true,
   );
+  assert.equal(viewerMayReceiveAccompagnementKind({ roles }, "pap", { eleveClasse: "3A" }), true);
   assert.equal(
     canOpenDocumentWithoutGrant(papDoc, roles, {
+      accompagnementEleveContext: { eleveClasse: "3A" },
+    }),
+    true,
+  );
+  assert.equal(
+    canOpenDocumentWithoutGrant(gevascoDoc, roles, {
       accompagnementEleveContext: { eleveClasse: "3A" },
     }),
     true,
@@ -72,8 +140,8 @@ test("dashboard — prof seul sans alertes accompagnement", () => {
   const viewer = { roles: ["professeur"] };
   assert.equal(viewerMayReceiveAccompagnementDashboardAlerts(viewer), false);
   const alerts = filterAccompagnementAlertsForViewer(viewer, [
-    { classe: "4B", documentId: "d1" },
-  ] as Array<{ classe: string | null; documentId: string }>);
+    { classe: "4B", documentId: "d1", kind: "pai" },
+  ]);
   assert.equal(alerts.length, 0);
 });
 
@@ -81,8 +149,8 @@ test("dashboard — prof + direction conserve les alertes", () => {
   const viewer = { roles: ["professeur", "direction"] };
   assert.equal(viewerMayReceiveAccompagnementDashboardAlerts(viewer), true);
   const alerts = filterAccompagnementAlertsForViewer(viewer, [
-    { classe: "4B", documentId: "d1" },
-  ] as Array<{ classe: string | null; documentId: string }>);
+    { classe: "4B", documentId: "d1", kind: "pap" },
+  ]);
   assert.equal(alerts.length, 1);
 });
 

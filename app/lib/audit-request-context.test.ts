@@ -32,3 +32,23 @@ test("validatedClientIpFromForwardedFor — invalide → null", () => {
   assert.equal(validatedClientIpFromForwardedFor("not-an-ip, 1.2.3.4"), null);
   assert.equal(validatedClientIpFromForwardedFor(null), null);
 });
+
+test("auditRequestContextFromRequest — en-têtes absents", () => {
+  const req = new Request("https://example.test/x");
+  const ctx = auditRequestContextFromRequest(req);
+  assert.equal(ctx.clientIp, null);
+  assert.equal(ctx.forwardedFor, null);
+  assert.equal(ctx.envoyExternalAddress, null);
+});
+
+test("auditRequestContextFromRequest — XFF tronqué à 512 caractères", () => {
+  const longTail = "9.9.9.9".repeat(120);
+  const xff = `203.0.113.10, ${longTail}`;
+  const req = new Request("https://example.test/x", {
+    headers: { "x-forwarded-for": xff },
+  });
+  const ctx = auditRequestContextFromRequest(req);
+  assert.equal(ctx.clientIp, "203.0.113.10");
+  assert.equal(ctx.forwardedFor?.length, 512);
+  assert.ok(ctx.forwardedFor?.startsWith("203.0.113.10"));
+});

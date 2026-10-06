@@ -24,6 +24,7 @@ import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import { chunkArray } from "@/app/lib/db-in-chunks";
 import {
   type AccompagnementEleveContext,
+  viewerMayReceiveAccompagnementKind,
   viewerMayReceiveEleveAccompagnementMetadata,
 } from "@/app/lib/eleve-dossier-accompagnement-access";
 import {
@@ -37,7 +38,6 @@ function includeProfesseurSanteAccompagnementDrawer(
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): boolean {
   if (!hasRole(roles, "professeur")) return false;
-  if (hasRole(roles, "internat")) return true;
   if (
     PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES ||
     !isProfesseurScopedDossierViewer({
@@ -477,8 +477,20 @@ export function canOpenDocumentWithoutGrant(
       return true;
     }
     if (hasRole(roles, "professeur")) {
+      const viewer = {
+        roles,
+        orgAdmin: opts?.orgAdmin,
+        platformAdmin: opts?.platformAdmin,
+      };
+      const kind = detectAccompagnementKind(doc.title);
+      if (!kind) return false;
+      if (
+        !viewerMayReceiveAccompagnementKind(viewer, kind, opts?.accompagnementEleveContext)
+      ) {
+        return false;
+      }
       return viewerMayReceiveEleveAccompagnementMetadata(
-        { roles, orgAdmin: opts?.orgAdmin, platformAdmin: opts?.platformAdmin },
+        viewer,
         opts?.accompagnementEleveContext,
       );
     }
@@ -629,14 +641,20 @@ export async function listEleveDocumentsForViewer(opts: {
   const authority = isEstablishmentAuthority(opts.roles, roleOpts);
 
   for (const doc of docs) {
-    if (
-      isAccompagnementDocumentTitle(doc.title) &&
-      !viewerMayReceiveEleveAccompagnementMetadata(
-        { roles: opts.roles, orgAdmin: opts.orgAdmin, platformAdmin: opts.platformAdmin },
-        accompagnementContext,
-      )
-    ) {
-      continue;
+    if (isAccompagnementDocumentTitle(doc.title)) {
+      const viewer = {
+        roles: opts.roles,
+        orgAdmin: opts.orgAdmin,
+        platformAdmin: opts.platformAdmin,
+      };
+      const kind = detectAccompagnementKind(doc.title);
+      if (
+        !kind ||
+        !viewerMayReceiveAccompagnementKind(viewer, kind, accompagnementContext) ||
+        !viewerMayReceiveEleveAccompagnementMetadata(viewer, accompagnementContext)
+      ) {
+        continue;
+      }
     }
     // Prof / CPE / surveillant : tiroir santé = accompagnement uniquement.
     if (

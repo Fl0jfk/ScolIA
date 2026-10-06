@@ -55,7 +55,10 @@ import {
   sanitizeEleveRowForProfViewer,
   teacherCanAccessEleveClasse,
 } from "@/app/lib/eleve-dossier-prof";
-import { viewerMayReceiveEleveAccompagnementMetadata } from "@/app/lib/eleve-dossier-accompagnement-access";
+import {
+  viewerMayReceiveAccompagnementKind,
+  viewerMayReceiveEleveAccompagnementMetadata,
+} from "@/app/lib/eleve-dossier-accompagnement-access";
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import {
@@ -541,8 +544,18 @@ export async function GET(req: Request, ctx: Ctx) {
     assignedClasses: assignedClassesForProf,
   };
   const accompagnementsPayload: AccompagnementPayload[] = [];
+  const accompagnementViewer = { roles, orgAdmin, platformAdmin };
   if (mayShowAccompagnements) {
     for (const accRow of accompagnementDocs) {
+      if (
+        !viewerMayReceiveAccompagnementKind(
+          accompagnementViewer,
+          accRow.kind,
+          accompagnementEleveContext,
+        )
+      ) {
+        continue;
+      }
       const asDoc = {
         tiroir: "sante" as const,
         confidentialite: "standard" as const,

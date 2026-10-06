@@ -348,6 +348,8 @@ export default function EleveDossierClient({
   const id = eleveIdProp || String(params.id || "");
   const { isLoaded: sessionLoaded, user: appUser } = useAppUser();
   const sessionUserId = appUser?.id;
+  const sessionRef = useRef({ loaded: false, userId: undefined as string | undefined });
+  sessionRef.current = { loaded: sessionLoaded, userId: sessionUserId };
   const isModal = mode === "modal";
   const listHref = dossiersListHrefFromRetour(
     searchParams.get("retour"),
@@ -398,10 +400,11 @@ export default function EleveDossierClient({
   const [lieuDraft, setLieuDraft] = useState("");
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
-    const canUseSessionCache = sessionLoaded && Boolean(sessionUserId);
+    const { loaded: sessionReady, userId: cacheUserId } = sessionRef.current;
+    const canUseSessionCache = sessionReady && Boolean(cacheUserId);
     const cacheKey =
-      canUseSessionCache && sessionUserId
-        ? eleveDossierSessionCacheKey(sessionUserId, id)
+      canUseSessionCache && cacheUserId
+        ? eleveDossierSessionCacheKey(cacheUserId, id)
         : null;
     if (!opts?.silent) {
       setError(null);
@@ -519,11 +522,26 @@ export default function EleveDossierClient({
         setData(null);
       }
     }
-  }, [id, sessionLoaded, sessionUserId]);
+  }, [id]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!sessionLoaded || !sessionUserId || dataRef.current?.eleve?.id === id) return;
+    try {
+      const raw = sessionStorage.getItem(eleveDossierSessionCacheKey(sessionUserId, id));
+      if (!raw) return;
+      const cached = JSON.parse(raw) as DossierPayload;
+      if (cached?.eleve?.id === id) {
+        setData(cached);
+        setStaleCache(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [sessionLoaded, sessionUserId, id]);
 
   const tabs = useMemo(() => {
     if (!data) return [];

@@ -12,6 +12,7 @@ import { PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY } from "@/app/lib/eleve-do
 import {
   eleveDossierAccompagnementCacheScopeSuffix,
   viewerMayLoadEleveAccompagnementListMetadata,
+  viewerMayReceiveAccompagnementKind,
   viewerMayReceiveEleveAccompagnementMetadata,
 } from "@/app/lib/eleve-dossier-accompagnement-access";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
@@ -265,16 +266,18 @@ export async function GET(req: NextRequest) {
       assignedClasses,
     });
     if (!mayShowForEleve) return e;
-    const items = accompagnementByEleve.get(e.id) ?? [];
+    const accompagnementEleveContext = {
+      eleveClasse: e.classe,
+      assignedClasses,
+    };
+    const items = (accompagnementByEleve.get(e.id) ?? []).filter((item) =>
+      viewerMayReceiveAccompagnementKind(viewerAccompagnement, item.kind, accompagnementEleveContext),
+    );
     const accompagnementKinds = kindOrder.filter((k) => items.some((i) => i.kind === k));
     const asDoc = {
       tiroir: "sante" as const,
       confidentialite: "standard" as const,
       title: "PAP",
-    };
-    const accompagnementEleveContext = {
-      eleveClasse: e.classe,
-      assignedClasses,
     };
     const accompagnements = items.map((item) => {
       const titleHint = ACCOMPAGNEMENT_KINDS.find((k) => k.kind === item.kind)?.code ?? "PAP";

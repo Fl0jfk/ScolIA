@@ -7,6 +7,7 @@ import { listEleveLatestAccompagnementByKind } from "@/app/lib/eleve-dossier-acc
 import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import {
   dossierViewerFromBrainCtx,
+  viewerMayReceiveAccompagnementKind,
   viewerMayReceiveEleveAccompagnementMetadata,
 } from "@/app/lib/eleve-dossier-accompagnement-access";
 import { canManageElevePreinscriptions } from "@/app/lib/eleve-dossier-scope";
@@ -238,10 +239,10 @@ export async function handleOpenEleveDossier(
 
   if (documentKind) {
     const viewer = dossierViewerFromBrainCtx(ctx);
+    const eleveCtx = { eleveClasse: row.classe };
     if (
-      !viewerMayReceiveEleveAccompagnementMetadata(viewer, {
-        eleveClasse: row.classe,
-      })
+      !viewerMayReceiveAccompagnementKind(viewer, documentKind, eleveCtx) ||
+      !viewerMayReceiveEleveAccompagnementMetadata(viewer, eleveCtx)
     ) {
       return {
         ok: false,
