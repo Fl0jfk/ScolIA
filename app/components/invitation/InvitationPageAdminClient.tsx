@@ -424,19 +424,9 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
     a.download = invitationPendingExportFilename(data.page.slug);
     a.click();
     URL.revokeObjectURL(url);
-  }
-
-  async function copyPendingNames() {
-    if (pendingEligible.length === 0) return;
-    const text = pendingEligible
-      .map((e) => formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName))
-      .join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      setNotice(`${pendingEligible.length} nom(s) copiés. Vous pouvez les coller dans un SMS ou un message.`);
-    } catch {
-      setError("Impossible de copier dans le presse-papiers.");
-    }
+    setNotice(
+      `CSV exporté : ${pendingEligible.length} invité${pendingEligible.length > 1 ? "s" : ""} restant${pendingEligible.length > 1 ? "s" : ""} à répondre.`,
+    );
   }
 
   return (
@@ -495,69 +485,6 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                 }
               />
             </section>
-
-            {data.stats.eligibleCount > 0 ? (
-              <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 space-y-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-black text-amber-950">Reste à répondre</h2>
-                    <p className="mt-1 text-sm font-semibold text-amber-950">
-                      {data.stats.pendingCount === 0
-                        ? "Tout le monde a répondu."
-                        : `${data.stats.pendingCount} invité${data.stats.pendingCount > 1 ? "s" : ""} sans réponse — pour relancer manuellement (message, SMS).`}
-                    </p>
-                    <p className="mt-1 text-xs text-amber-900/80">
-                      La liste Excel n’a pas les téléphones : copiez les noms ou exportez le CSV
-                      pour croiser avec votre annuaire.
-                    </p>
-                  </div>
-                  {pendingEligible.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      <ModuleButton type="button" onClick={() => void copyPendingNames()}>
-                        Copier les noms
-                      </ModuleButton>
-                      <button
-                        type="button"
-                        onClick={downloadPendingCsv}
-                        className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-100"
-                      >
-                        Export CSV relance
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-                {pendingEligible.length > 0 ? (
-                  <div className="max-h-80 overflow-auto rounded-xl border border-amber-200 bg-white">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-amber-100/90 text-[11px] uppercase tracking-wide text-amber-900">
-                        <tr>
-                          <th className="px-3 py-2">Élève</th>
-                          <th className="px-3 py-2">Né(e) le</th>
-                          <th className="px-3 py-2">Diplôme</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pendingEligible.map((e) => (
-                          <tr key={e.id} className="border-t border-amber-100">
-                            <td className="px-3 py-1.5 font-semibold text-slate-900">
-                              {formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}
-                            </td>
-                            <td className="px-3 py-1.5 text-slate-600">
-                              {e.birthDate
-                                ? new Date(e.birthDate + "T12:00:00").toLocaleDateString("fr-FR")
-                                : "—"}
-                            </td>
-                            <td className="px-3 py-1.5 text-slate-600">
-                              {diplomaLabel(e.diploma) || "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -736,20 +663,18 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="text-sm font-black text-slate-900">Liste des élèves autorisés</h2>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">
-                    {data.stats.eligibleCount > 0
-                      ? `Il reste ${data.stats.pendingCount} à répondre sur ${data.stats.eligibleCount} invité${data.stats.eligibleCount > 1 ? "s" : ""}`
-                      : "Aucun invité dans la liste pour le moment"}
-                  </p>
                   <p className="mt-1 text-xs text-slate-500">
                     Importez un Excel (.xlsx) avec colonnes <strong>Prénom</strong>,{" "}
                     <strong>Nom</strong>, <strong>Date de naissance</strong> (et Diplôme si besoin).
                     La date sert de filet (match 2/3 avec prénom et nom).
                   </p>
                 </div>
-                <p className="text-xs font-bold text-slate-600">
-                  {data.stats.pendingCount} restant(s)
-                </p>
+                {data.stats.eligibleCount > 0 ? (
+                  <p className="text-xs font-bold text-slate-700">
+                    {data.stats.pendingCount} restant
+                    {data.stats.pendingCount > 1 ? "s" : ""} à répondre
+                  </p>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4 space-y-3">
@@ -820,72 +745,92 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                 </div>
               </details>
               {data.eligible.length > 0 ? (
-                <div className="max-h-56 overflow-auto rounded-xl border border-slate-100">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="px-2 py-2">Élève</th>
-                        <th className="px-2 py-2">Né(e) le</th>
-                        <th className="px-2 py-2">Diplôme</th>
-                        <th className="px-2 py-2">Réponse</th>
-                        <th className="px-2 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.eligible.map((e) => {
-                        const rsvp =
-                          rsvpByEligibleId.get(e.id) ||
-                          rsvpByEligibleId.get(`${e.eleveNameNorm}|${e.birthDate || ""}`);
-                        return (
-                        <tr key={e.id} className="border-t border-slate-100">
-                          <td className="px-2 py-1.5 font-semibold text-slate-900">
-                            {formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}
-                          </td>
-                          <td className="px-2 py-1.5 text-slate-600">
-                            {e.birthDate
-                              ? new Date(e.birthDate + "T12:00:00").toLocaleDateString("fr-FR")
-                              : "—"}
-                          </td>
-                          <td className="px-2 py-1.5 text-slate-600">
-                            {diplomaLabel(e.diploma) || "—"}
-                          </td>
-                          <td className="px-2 py-1.5">
-                            {rsvp ? (
-                              <span
-                                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                                  rsvp.response === "oui"
-                                    ? "bg-emerald-100 text-emerald-800"
-                                    : "bg-slate-100 text-slate-600"
-                                }`}
-                              >
-                                {rsvp.response === "oui" ? `Oui (${rsvp.presentCount})` : "Non"}
-                              </span>
-                            ) : (
-                              <span className="text-[11px] font-semibold text-amber-700">
-                                En attente
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-2 py-1.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void removeEligible(
-                                  e.id,
-                                  `${formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}`,
-                                )
-                              }
-                              className="text-[11px] font-bold text-rose-700 hover:underline"
-                            >
-                              Retirer
-                            </button>
-                          </td>
+                <>
+                  <div className="max-h-56 overflow-auto rounded-xl border border-slate-100">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-2 py-2">Élève</th>
+                          <th className="px-2 py-2">Né(e) le</th>
+                          <th className="px-2 py-2">Diplôme</th>
+                          <th className="px-2 py-2">Réponse</th>
+                          <th className="px-2 py-2" />
                         </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {data.eligible.map((e) => {
+                          const rsvp =
+                            rsvpByEligibleId.get(e.id) ||
+                            rsvpByEligibleId.get(`${e.eleveNameNorm}|${e.birthDate || ""}`);
+                          return (
+                            <tr key={e.id} className="border-t border-slate-100">
+                              <td className="px-2 py-1.5 font-semibold text-slate-900">
+                                {formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}
+                              </td>
+                              <td className="px-2 py-1.5 text-slate-600">
+                                {e.birthDate
+                                  ? new Date(e.birthDate + "T12:00:00").toLocaleDateString("fr-FR")
+                                  : "—"}
+                              </td>
+                              <td className="px-2 py-1.5 text-slate-600">
+                                {diplomaLabel(e.diploma) || "—"}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {rsvp ? (
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                                      rsvp.response === "oui"
+                                        ? "bg-emerald-100 text-emerald-800"
+                                        : "bg-slate-100 text-slate-600"
+                                    }`}
+                                  >
+                                    {rsvp.response === "oui" ? `Oui (${rsvp.presentCount})` : "Non"}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] font-semibold text-amber-700">
+                                    En attente
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void removeEligible(
+                                      e.id,
+                                      `${formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}`,
+                                    )
+                                  }
+                                  className="text-[11px] font-bold text-rose-700 hover:underline"
+                                >
+                                  Retirer
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {pendingEligible.length > 0 ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">
+                        Pour relancer : exporter uniquement ceux encore sans réponse.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={downloadPendingCsv}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50"
+                      >
+                        Extraire CSV restants ({pendingEligible.length})
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs font-semibold text-emerald-700">
+                      Tout le monde a répondu.
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-sm text-slate-500">
                   Aucun élève pour l’instant. Sans liste + option protection, le formulaire reste ouvert.
