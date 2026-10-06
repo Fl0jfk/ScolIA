@@ -126,6 +126,10 @@ export type InvitationDashboardStats = {
   placesRemaining: number | null;
   maxTotalPersons: number;
   eligibleCount: number;
+  /** Invités de la liste (ou RSVP totaux s’il n’y a pas de liste) qui ont répondu. */
+  respondedCount: number;
+  /** Invités de la liste encore sans réponse (décompte). */
+  pendingCount: number;
 };
 
 export type InvitationDuplicateSuspect = {

@@ -440,11 +440,13 @@ export async function listInvitationRsvps(
 export function computeDashboardStats(
   page: InvitationPageRecord,
   rsvps: InvitationRsvpRecord[],
-  eligibleCount = 0,
+  eligible: InvitationEligibleRecord[] = [],
 ): InvitationDashboardStats {
   let ouiCount = 0;
   let nonCount = 0;
   let totalPersons = 0;
+  const rsvpByEligibleId = new Set<string>();
+  const rsvpByNormBirth = new Set<string>();
   for (const r of rsvps) {
     if (r.response === "oui") {
       ouiCount += 1;
@@ -452,7 +454,21 @@ export function computeDashboardStats(
     } else {
       nonCount += 1;
     }
+    if (r.eligibleId) rsvpByEligibleId.add(r.eligibleId);
+    rsvpByNormBirth.add(`${r.eleveNameNorm}|${r.birthDate || ""}`);
   }
+  let respondedFromList = 0;
+  for (const e of eligible) {
+    if (
+      rsvpByEligibleId.has(e.id) ||
+      rsvpByNormBirth.has(`${e.eleveNameNorm}|${e.birthDate || ""}`)
+    ) {
+      respondedFromList += 1;
+    }
+  }
+  const eligibleCount = eligible.length;
+  const respondedCount = eligibleCount > 0 ? respondedFromList : rsvps.length;
+  const pendingCount = eligibleCount > 0 ? Math.max(0, eligibleCount - respondedFromList) : 0;
   const placesRemaining = Math.max(0, page.maxTotalPersons - totalPersons);
   return {
     ouiCount,
@@ -461,6 +477,8 @@ export function computeDashboardStats(
     placesRemaining,
     maxTotalPersons: page.maxTotalPersons,
     eligibleCount,
+    respondedCount,
+    pendingCount,
   };
 }
 
