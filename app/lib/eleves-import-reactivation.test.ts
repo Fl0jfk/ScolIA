@@ -24,9 +24,37 @@ test("réimport Excel inscrit en classe réactive un ancien (vide date_sortie)",
       status: "inscrit" as const,
     },
   ];
-  const { eleves } = mergeElevesLists(existing, incoming);
+  const { eleves } = mergeElevesLists(existing, incoming, {
+    allowClearDateSortieOnReimport: true,
+  });
   assert.equal(eleves[0]?.status, "inscrit");
   assert.equal(eleves[0]?.dateSortie, undefined);
+});
+
+test("import Excel sans colonne date de sortie conserve la date existante", () => {
+  const existing = [
+    {
+      ine: "333",
+      nom: "MARTIN",
+      prenom: "Paul",
+      folderName: "MARTIN Paul",
+      classe: "3A",
+      status: "ancien" as const,
+      dateSortie: "2026-09-01",
+    },
+  ];
+  const incoming = [
+    {
+      ine: "333",
+      nom: "MARTIN",
+      prenom: "Paul",
+      folderName: "MARTIN Paul",
+      classe: "3A",
+      status: "inscrit" as const,
+    },
+  ];
+  const { eleves } = mergeElevesLists(existing, incoming, { dateSortieColumnInFile: false });
+  assert.equal(eleves[0]?.dateSortie, "2026-09-01");
 });
 
 test("réimport avec date de sortie future garde inscrit", () => {

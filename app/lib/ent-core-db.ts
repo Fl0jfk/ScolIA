@@ -391,7 +391,9 @@ export async function upsertElevesInDb(
           incomingStatus === "inscrit" && Boolean(e.classe?.trim()) && !e.dateSortie?.trim();
         if (reimportReactivation) {
           patch.status = "inscrit";
-          patch.dateSortie = null;
+          if (!e.dateSortie?.trim()) {
+            patch.dateSortie = null;
+          }
         }
         const patchDateSortie =
           patch.dateSortie != null

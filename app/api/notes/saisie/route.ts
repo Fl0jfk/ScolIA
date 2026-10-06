@@ -7,9 +7,9 @@ import {
   closePeriode,
   createDevoir,
   listDevoirs,
-  getNotePeriodeDateDebutIso,
   listElevesForClasse,
   listElevesForGroupe,
+  resolvePeriodeDateDebutForNotesLists,
   listMoyennesClasse,
   listMoyennesGroupe,
   listNotesForDevoir,
@@ -38,8 +38,8 @@ async function resolveElevesForDevoir(
     .limit(1);
   if (!devoirRow) return [];
   const periodeDebut = devoirRow.periodeId
-    ? await getNotePeriodeDateDebutIso(etabId, devoirRow.periodeId)
-    : null;
+    ? await resolvePeriodeDateDebutForNotesLists(etabId, devoirRow.periodeId)
+    : await resolvePeriodeDateDebutForNotesLists(etabId, "");
   if (devoirRow.groupeId) {
     return listElevesForGroupe(etabId, devoirRow.groupeId, { periodeDateDebut: periodeDebut });
   }
@@ -96,7 +96,7 @@ export async function GET(req: Request) {
     matiereId: matiereId || undefined,
   });
 
-  const periodeDebut = periodeId ? await getNotePeriodeDateDebutIso(etabId, periodeId) : null;
+  const periodeDebut = await resolvePeriodeDateDebutForNotesLists(etabId, periodeId);
   let eleves: Awaited<ReturnType<typeof listElevesForClasse>> = [];
   if (groupeId) {
     eleves = await listElevesForGroupe(etabId, groupeId, { periodeDateDebut: periodeDebut });

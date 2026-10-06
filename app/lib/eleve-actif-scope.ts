@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, isNull, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import { eleve } from "@/db/schema";
 import { parisDateKey } from "@/app/lib/paris-time";
 
@@ -22,11 +22,14 @@ export function drizzleEleveActifPourListes(now: Date = new Date()) {
   );
 }
 
-/** Élève scolarisé sur une période de notes / bulletins (date début de période). */
+/** Élève scolarisé sur une période de notes / bulletins (date début de période ou repli rentrée). */
 export function drizzleEleveVisiblePourPeriodeNotes(periodeDateDebut: string) {
   const debut = periodeDateDebut.trim();
-  if (!debut) return drizzleEleveActifPourListes();
-  return or(isNull(eleve.dateSortie), sql`${eleve.dateSortie} >= ${debut}::date`);
+  const dateClause = or(
+    isNull(eleve.dateSortie),
+    sql`${eleve.dateSortie} >= ${debut}::date`,
+  );
+  return and(ne(eleve.status, "preinscrit"), dateClause);
 }
 
 /** Même règle en SQL brut (scripts / migrations). */

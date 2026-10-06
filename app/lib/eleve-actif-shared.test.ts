@@ -3,7 +3,8 @@ import test from "node:test";
 import { isEleveActifPourListes, isEleveSortantEtablissement } from "./eleve-actif-shared";
 import { isEleveScolarise } from "./eleves-config";
 
-const now = new Date(2026, 9, 6); // 6 oct. 2026
+/** 6 oct. 2026 à midi Paris (indépendant du fuseau de la VM). */
+const now = new Date("2026-10-06T12:00:00+02:00");
 
 test("élève inscrit sans date de sortie → actif listes", () => {
   assert.equal(isEleveActifPourListes({ status: "inscrit" }, now), true);

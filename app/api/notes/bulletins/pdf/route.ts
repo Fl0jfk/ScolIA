@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import JSZip from "jszip";
 import { requireAdmin, requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
-import { listPeriodes } from "@/app/lib/notes-config-db";
 import {
   listEleveIdsForBulletinClasse,
   listEleveIdsForBulletinGroupe,
   loadBulletinSnapshot,
 } from "@/app/lib/notes-bulletins-db";
+import { resolveNotesPeriodeDateDebutIso } from "@/app/lib/notes-periode-debut";
 import { bulletinPdfFilename, renderBulletinPdfBuffer } from "@/app/lib/notes-bulletin-pdf";
 
 export async function GET(req: Request) {
@@ -35,12 +35,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Classe ou groupe requis pour l'export ZIP." }, { status: 400 });
     }
 
-    const periodes = await listPeriodes(etabId);
-    const periode = periodes.find((p) => p.id === periodeId);
-    const periodeDebut = periode?.dateDebut ? String(periode.dateDebut).slice(0, 10) : "";
-    if (!periodeDebut) {
-      return NextResponse.json({ error: "Période introuvable ou sans date de début." }, { status: 400 });
-    }
+    const periodeDebut = await resolveNotesPeriodeDateDebutIso(etabId, periodeId);
     const eleves = groupeId
       ? await listEleveIdsForBulletinGroupe(etabId, groupeId, periodeDebut)
       : await listEleveIdsForBulletinClasse(etabId, classe, periodeDebut);

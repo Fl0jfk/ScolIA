@@ -144,13 +144,15 @@ export async function seedNotesDefaults(etablissementId: string) {
     await upsertMatiere(etablissementId, m);
   }
 
+  const { resolveAnneeCouranteMeta } = await import("@/app/lib/annees-scolaires-db");
+  const { defaultSchoolYearStartIsoFromLabel } = await import("@/app/lib/notes-periode-debut-logic");
+  const annee = await resolveAnneeCouranteMeta(etablissementId);
+  const t1Debut = defaultSchoolYearStartIsoFromLabel(annee.label);
   const periodes = [
-    { code: "T1", libelle: "1er trimestre", ordre: 1 },
+    { code: "T1", libelle: "1er trimestre", ordre: 1, dateDebut: t1Debut },
     { code: "T2", libelle: "2e trimestre", ordre: 2 },
     { code: "T3", libelle: "3e trimestre", ordre: 3 },
   ];
-  const { resolveAnneeCouranteMeta } = await import("@/app/lib/annees-scolaires-db");
-  const annee = await resolveAnneeCouranteMeta(etablissementId);
   for (const p of periodes) {
     await upsertPeriode(etablissementId, { ...p, anneeScolaireId: annee.id });
   }

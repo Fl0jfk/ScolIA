@@ -5,10 +5,6 @@ import test from "node:test";
 
 const ROOT = path.join(import.meta.dirname, "..", "..");
 
-/**
- * Fichiers « listes » : chaque `.from(eleve)` ou `loadElevesRegistry()` doit
- * utiliser le scope actif / période, sauf mention explicite dans le snippet (eq(eleve.id)).
- */
 const WATCHED_LIST_FILES = [
   "app/lib/notes-bulletins-db.ts",
   "app/lib/notes-saisie-db.ts",
@@ -34,7 +30,13 @@ const WATCHED_LIST_FILES = [
   "app/api/vie-scolaire/presence-jour/route.ts",
   "app/api/nomenclature/classes/route.ts",
   "app/lib/class-allocation-publish.ts",
+  "app/lib/cahier-texte-db.ts",
   "app/lib/brain-ai/tools/handlers/eleves.ts",
+  "app/lib/brain-ai/tools/handlers/accueil-absences.ts",
+  "app/lib/brain-ai/tools/handlers/eleve-grille-repas.ts",
+  "app/lib/eleve-accompagnement-alerts.ts",
+  "app/lib/fiches-dialogue-workflow.ts",
+  "app/api/eleves/registry-ids/route.ts",
   "app/api/toolbox/class-allocation/run/route.ts",
   "app/api/toolbox/class-allocation/rerun-level/route.ts",
   "app/api/toolbox/class-allocation/public/submit/route.ts",
@@ -46,6 +48,11 @@ const WATCHED_LIST_FILES = [
   "app/api/internat/students/roster/route.ts",
 ];
 
+const REGISTRY_IMPORT_WHITELIST = [
+  "app/api/internat/students/roster/route.ts",
+  "app/api/eleves/import/route.ts",
+];
+
 const ACTIF_SCOPE_MARKERS = [
   "drizzleEleveActifPourListes",
   "drizzleEleveVisiblePourPeriodeNotes",
@@ -54,6 +61,8 @@ const ACTIF_SCOPE_MARKERS = [
   "isEleveActifPourListes",
   "filterElevesScolarises",
 ];
+
+const ELEVE_QUERY_MARKERS = [".from(eleve)", ".innerJoin(eleve", ".leftJoin(eleve"];
 
 function walkTsFiles(dir: string, out: string[] = []): string[] {
   for (const name of fs.readdirSync(dir)) {
@@ -69,21 +78,24 @@ function walkTsFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-function snippetHasActifScope(snippet: string): boolean {
+function snippetHasActifScope(snippet: string, fileContent: string): boolean {
   if (snippet.includes("eq(eleve.id,") || snippet.includes("eq(eleve.id ,")) return true;
+  if (snippet.includes("visibilite!") && fileContent.includes("eleveVisibilitePourNotes")) return true;
   return ACTIF_SCOPE_MARKERS.some((m) => snippet.includes(m));
 }
 
-function extractFromEleveSnippets(content: string): string[] {
+function extractEleveQuerySnippets(content: string): string[] {
   const snippets: string[] = [];
-  let idx = 0;
-  while (true) {
-    const at = content.indexOf(".from(eleve)", idx);
-    if (at < 0) break;
-    const start = Math.max(0, at - 500);
-    const end = Math.min(content.length, at + 1500);
-    snippets.push(content.slice(start, end));
-    idx = at + 12;
+  for (const marker of ELEVE_QUERY_MARKERS) {
+    let idx = 0;
+    while (true) {
+      const at = content.indexOf(marker, idx);
+      if (at < 0) break;
+      const start = Math.max(0, at - 600);
+      const end = Math.min(content.length, at + 2400);
+      snippets.push(content.slice(start, end));
+      idx = at + marker.length;
+    }
   }
   return snippets;
 }
@@ -108,7 +120,7 @@ test("aucune requête liste ne filtre uniquement eq(eleve.status, inscrit)", () 
   );
 });
 
-test("fichiers listes — chaque .from(eleve) ou loadElevesRegistry() filtré (ou dossier par id)", () => {
+test("fichiers listes — jointures eleve et loadElevesRegistry filtrés", () => {
   const offenders: string[] = [];
 
   for (const rel of WATCHED_LIST_FILES) {
@@ -119,21 +131,39 @@ test("fichiers listes — chaque .from(eleve) ou loadElevesRegistry() filtré (o
     }
     const content = fs.readFileSync(full, "utf8");
 
-    const usesFullRegistry =
-      content.includes("loadElevesRegistry()") && !content.includes("loadElevesActifsRegistry()");
-    const isImportHistorique =
-      rel.includes("internat/students/roster") || rel.includes("nomenclature-import");
-    if (usesFullRegistry && !isImportHistorique) {
-      offenders.push(`${rel}: loadElevesRegistry() pour liste`);
+    const isImportWhitelist = REGISTRY_IMPORT_WHITELIST.some((w) => rel.includes(w));
+    if (content.includes("loadElevesRegistry()") && !isImportWhitelist) {
+      if (!content.includes("loadElevesActifsRegistry()")) {
+        offenders.push(`${rel}: loadElevesRegistry() liste`);
+      }
     }
 
-    for (const snippet of extractFromEleveSnippets(content)) {
-      if (!snippetHasActifScope(snippet)) {
-        offenders.push(`${rel}: .from(eleve) sans scope actif/période`);
+    for (const snippet of extractEleveQuerySnippets(content)) {
+      if (!snippetHasActifScope(snippet, content)) {
+        offenders.push(`${rel}: requête eleve sans scope actif/période`);
         break;
       }
     }
   }
 
+  assert.deepEqual(offenders, [], offenders.join("\n"));
+});
+
+test("api/ — loadElevesRegistry réservé import / historique", () => {
+  const offenders: string[] = [];
+  const apiRoot = path.join(ROOT, "app", "api");
+  for (const file of walkTsFiles(apiRoot)) {
+    const rel = path.relative(ROOT, file).replace(/\\/g, "/");
+    const content = fs.readFileSync(file, "utf8");
+    if (!content.includes("loadElevesRegistry()")) continue;
+    const allowed =
+      rel.includes("eleves/import") ||
+      rel.includes("internat/students/roster") ||
+      rel.includes("stages/contacts-import") ||
+      rel.includes("agentIAOCR");
+    if (!allowed && !content.includes("loadElevesActifsRegistry()")) {
+      offenders.push(rel);
+    }
+  }
   assert.deepEqual(offenders, [], offenders.join("\n"));
 });

@@ -13,7 +13,11 @@ import {
   upsertCompetenceItem,
   upsertCompetenceValeur,
 } from "@/app/lib/notes-competences-db";
-import { listElevesForClasse, listElevesForGroupe } from "@/app/lib/notes-saisie-db";
+import {
+  listElevesForClasse,
+  listElevesForGroupe,
+  resolvePeriodeDateDebutForNotesLists,
+} from "@/app/lib/notes-saisie-db";
 import { listGroupes } from "@/app/lib/groupes-pedagogiques-db";
 
 export async function GET(req: Request) {
@@ -50,10 +54,14 @@ export async function GET(req: Request) {
     listGroupes(etabId),
   ]);
   const items = domaineId ? await listCompetenceItems(etabId, domaineId) : [];
-  const eleves = groupeId
-    ? await listElevesForGroupe(etabId, groupeId)
-    : classe
-      ? await listElevesForClasse(etabId, classe)
+  const periodeDebut = periodeId
+    ? await resolvePeriodeDateDebutForNotesLists(etabId, periodeId)
+    : null;
+  const eleves =
+    periodeDebut && (groupeId || classe)
+      ? groupeId
+        ? await listElevesForGroupe(etabId, groupeId, { periodeDateDebut: periodeDebut })
+        : await listElevesForClasse(etabId, classe, { periodeDateDebut: periodeDebut })
       : [];
   const scopeReady = Boolean((classe || groupeId) && periodeId && domaineId);
   const valeurs = scopeReady

@@ -1,10 +1,7 @@
 import "server-only";
 
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import {
-  drizzleEleveActifPourListes,
-  drizzleEleveVisiblePourPeriodeNotes,
-} from "@/app/lib/eleve-actif-scope";
+import { drizzleEleveVisiblePourPeriodeNotes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import {
   eleve,
@@ -29,36 +26,30 @@ export type DevoirInput = {
   createdByUserId?: string | null;
 };
 
-function eleveVisibilitePourNotes(periodeDateDebut?: string | null) {
-  const debut = periodeDateDebut?.trim();
-  if (debut) return drizzleEleveVisiblePourPeriodeNotes(debut);
-  return drizzleEleveActifPourListes();
+function eleveVisibilitePourNotes(periodeDateDebut: string) {
+  return drizzleEleveVisiblePourPeriodeNotes(periodeDateDebut);
 }
 
-export async function getNotePeriodeDateDebutIso(
+export async function resolvePeriodeDateDebutForNotesLists(
   etablissementId: string,
   periodeId: string,
-): Promise<string | null> {
-  const db = getDb();
-  const pid = periodeId.trim();
-  if (!pid) return null;
-  const [row] = await db
-    .select({ dateDebut: notePeriode.dateDebut })
-    .from(notePeriode)
-    .where(and(eq(notePeriode.etablissementId, etablissementId), eq(notePeriode.id, pid)))
-    .limit(1);
-  if (!row?.dateDebut) return null;
-  return String(row.dateDebut).slice(0, 10);
+): Promise<string> {
+  const { resolveNotesPeriodeDateDebutIso, resolveDebutAnneeScolaireCouranteIso } =
+    await import("@/app/lib/notes-periode-debut");
+  if (periodeId.trim()) {
+    return resolveNotesPeriodeDateDebutIso(etablissementId, periodeId);
+  }
+  return resolveDebutAnneeScolaireCouranteIso(etablissementId);
 }
 
 export async function listElevesForGroupe(
   etablissementId: string,
   groupeId: string,
-  opts?: { periodeDateDebut?: string | null },
+  opts: { periodeDateDebut: string },
 ) {
   const db = getDb();
   const gid = groupeId.trim();
-  const visibilite = eleveVisibilitePourNotes(opts?.periodeDateDebut);
+  const visibilite = eleveVisibilitePourNotes(opts.periodeDateDebut);
   const rows = await db
     .select({
       id: eleve.id,
@@ -165,11 +156,11 @@ export async function createDevoir(etablissementId: string, input: DevoirInput) 
 export async function listElevesForClasse(
   etablissementId: string,
   classe: string,
-  opts?: { periodeDateDebut?: string | null },
+  opts: { periodeDateDebut: string },
 ) {
   const db = getDb();
   const cls = classe.trim();
-  const visibilite = eleveVisibilitePourNotes(opts?.periodeDateDebut);
+  const visibilite = eleveVisibilitePourNotes(opts.periodeDateDebut);
   return db
     .select({
       id: eleve.id,
@@ -296,7 +287,7 @@ export async function recomputeMoyennes(
   opts: { classe: string; groupeId?: string | null; matiereId: string; periodeId: string },
 ) {
   const db = getDb();
-  const periodeDebut = await getNotePeriodeDateDebutIso(etablissementId, opts.periodeId);
+  const periodeDebut = await resolvePeriodeDateDebutForNotesLists(etablissementId, opts.periodeId);
   const eleves = opts.groupeId
     ? await listElevesForGroupe(etablissementId, opts.groupeId, { periodeDateDebut: periodeDebut })
     : await listElevesForClasse(etablissementId, opts.classe, { periodeDateDebut: periodeDebut });
@@ -401,6 +392,8 @@ async function listMoyennesScope(
   opts: { classe: string; groupeId?: string | null; periodeId: string; matiereId?: string },
 ) {
   const db = getDb();
+  const periodeDebut = await resolvePeriodeDateDebutForNotesLists(etablissementId, opts.periodeId);
+  const visibilite = eleveVisibilitePourNotes(periodeDebut);
   const eleveScope = opts.groupeId
     ? sql`exists (
       select 1 from ${groupePedagogiqueMembre}
@@ -435,7 +428,7 @@ async function listMoyennesScope(
     .from(noteMoyenneEleve)
     .innerJoin(eleve, eq(noteMoyenneEleve.eleveId, eleve.id))
     .innerJoin(noteMatiere, eq(noteMoyenneEleve.matiereId, noteMatiere.id))
-    .where(and(...clauses))
+    .where(and(...clauses, visibilite!))
     .orderBy(asc(eleve.nom), asc(noteMatiere.code));
 }
 
