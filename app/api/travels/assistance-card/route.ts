@@ -9,7 +9,10 @@ import {
   isOrgAdminFromPublicMetadata,
   isPlatformMasterFromPublicMetadata,
 } from "@/app/lib/intranet-auth-metadata";
-import { resolveTravelsAssistanceCardBytes } from "@/app/lib/travels-assistance-card";
+import {
+  getTravelsAssistanceCardApiStatus,
+  resolveTravelsAssistanceCardBytes,
+} from "@/app/lib/travels-assistance-card";
 
 /** Téléchargement carte d’assistance — droits = consultation dossier voyage. */
 export async function GET(req: Request) {
@@ -34,17 +37,17 @@ export async function GET(req: Request) {
   }
 
   const wantRaw = new URL(req.url).searchParams.get("raw") === "1";
+
+  if (!wantRaw) {
+    const payload = await getTravelsAssistanceCardApiStatus();
+    return NextResponse.json(payload, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  }
+
   const resolved = await resolveTravelsAssistanceCardBytes();
   if (!resolved) {
     return NextResponse.json({ error: "Carte d’assistance non configurée." }, { status: 404 });
-  }
-
-  if (!wantRaw) {
-    return NextResponse.json({
-      configured: true,
-      fileName: resolved.fileName,
-      downloadUrl: "/api/travels/assistance-card?raw=1",
-    });
   }
 
   return new NextResponse(Buffer.from(resolved.bytes), {
