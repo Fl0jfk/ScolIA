@@ -1,6 +1,7 @@
 import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
 import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { getConventionsByIdsFromDb } from "@/app/lib/stage-db";
 import { valkeyCached, valkeyDel, valkeyDeleteByPrefix, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
 import {
   VALKEY_TTL,
@@ -149,6 +150,25 @@ export async function getStageConvention(id: string): Promise<StageConvention | 
   return data;
 }
 
+/** Charge plusieurs conventions en lot (2 requêtes SQL) au lieu d’un GET par id. */
+export async function getStageConventionsByIds(ids: string[]): Promise<StageConvention[]> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const etabId = await stagesEtabId();
+  if (etabId) {
+    const rows = await getConventionsByIdsFromDb(etabId, unique);
+    return rows.map(withSanitizedStudentEmail);
+  }
+
+  const out: StageConvention[] = [];
+  for (const id of unique) {
+    const convention = await getStageConvention(id);
+    if (convention) out.push(convention);
+  }
+  return out;
+}
+
 export async function saveStageConvention(convention: StageConvention) {
   const sanitized = withSanitizedStudentEmail(convention);
   const etabId = await stagesEtabId();
@@ -197,12 +217,20 @@ export async function listConventionsForDossier(
 ): Promise<StageConvention[]> {
   const key = studentDossierKey(student);
   const index = await getConventionsIndex();
-  const ids = index.map((e) => e.id);
-  const out: StageConvention[] = [];
-  for (const id of ids) {
-    const c = await getStageConvention(id);
-    if (c && studentDossierKey(c.student) === key) out.push(c);
-  }
+  const ids = index
+    .filter((e) => {
+      const className = String(e.className ?? "").trim();
+      if (className.toLowerCase() !== student.className.trim().toLowerCase()) return false;
+      const parts = String(e.studentName ?? "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const firstName = parts[0] || "";
+      const lastName = parts.slice(1).join(" ");
+      return studentDossierKey({ firstName, lastName, className }) === key;
+    })
+    .map((e) => e.id);
+  const out = await getStageConventionsByIds(ids);
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 

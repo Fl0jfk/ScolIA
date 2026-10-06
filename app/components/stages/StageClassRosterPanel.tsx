@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { StageClassRoster, StageGlobalSearchHit, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
-import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 
 type RosterStatusFilter = "all" | StageRosterStudentStatus | "sans_referent";
 
@@ -172,9 +171,6 @@ export default function StageClassRosterPanel({
   const [selectedStudentKey, setSelectedStudentKey] = useState<string | null>(null);
   const detailAnchorRef = useRef<HTMLDivElement | null>(null);
   const loadSeqRef = useRef(0);
-  const availableClassesRef = useRef<string[]>([]);
-  const prefetchDoneRef = useRef<Set<string>>(new Set());
-
   const cacheKeyFor = (className: string) => className.trim().toLowerCase() || "__default__";
 
   const load = useCallback(async (className?: string, opts?: { force?: boolean; silent?: boolean }) => {
@@ -209,22 +205,25 @@ export default function StageClassRosterPanel({
       if (!res.ok) throw new Error(json.error || "Erreur chargement");
       if (!opts?.silent && seq !== loadSeqRef.current) return;
 
-      const resolvedClass = json.roster?.className || wanted || json.availableClasses[0] || "";
-      writeRosterMemory(cacheKeyFor(resolvedClass), json);
-      if (!wanted) writeRosterMemory("__default__", json);
-      if (json.availableClasses?.length) {
-        availableClassesRef.current = json.availableClasses;
+      if (json.roster?.className) {
+        writeRosterMemory(cacheKeyFor(json.roster.className), json);
+      } else if (wanted) {
+        writeRosterMemory(cacheKeyFor(wanted), json);
       }
+      if (!wanted) writeRosterMemory("__default__", json);
 
       if (!opts?.silent) {
         setData(json);
         if (json.roster?.className) setSelectedClass(json.roster.className);
         else if (wanted) setSelectedClass(wanted);
-        else if (json.availableClasses[0]) setSelectedClass(json.availableClasses[0]);
+      }
+
+      if (!wanted && !json.roster && json.availableClasses.length === 1) {
+        void load(json.availableClasses[0]!, opts);
       }
 
       console.info("[ScolIA][stages/roster]", {
-        className: resolvedClass || wanted || "(défaut)",
+        className: json.roster?.className || wanted || "(classes)",
         fromMemoryCache: Boolean(cached),
         silent: Boolean(opts?.silent),
         clientMs: Math.round(performance.now() - t0),
@@ -239,42 +238,14 @@ export default function StageClassRosterPanel({
     }
   }, []);
 
-  /** Prefetch des classes voisines en arrière-plan (Valkey + cache mémoire). */
-  const prefetchNeighbors = useCallback(
-    (currentClass: string, classes: string[]) => {
-      if (!classes.length) return;
-      const idx = classes.findIndex(
-        (c) => c.localeCompare(currentClass, "fr", { sensitivity: "base" }) === 0,
-      );
-      const neighbors = [classes[idx - 1], classes[idx + 1], classes[idx + 2]].filter(
-        (c): c is string => Boolean(c?.trim()),
-      );
-      for (const cls of neighbors) {
-        const key = cacheKeyFor(cls);
-        if (readRosterMemory(key) || prefetchDoneRef.current.has(key)) continue;
-        prefetchDoneRef.current.add(key);
-        void load(cls, { silent: true });
-      }
-    },
-    [load],
-  );
-
-  // Premier chargement / focus classe : utiliser le cache si possible (pas de wipe).
   useEffect(() => {
     const wanted = focusClassName?.trim() || "";
-    void load(wanted || undefined).then(() => {
-      const classes = availableClassesRef.current;
-      const current = wanted || selectedClass || classes[0] || "";
-      if (current) prefetchNeighbors(current, classes);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- focusClassName only
-  }, [load, focusClassName, prefetchNeighbors]);
+    void load(wanted || undefined);
+  }, [load, focusClassName]);
 
-  // Refresh explicite (après mutation) : invalider le cache mémoire.
   useEffect(() => {
     if (refreshToken == null || refreshToken === 0) return;
     clearRosterMemory();
-    prefetchDoneRef.current.clear();
     void load(selectedClass || focusClassName || undefined, { force: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
@@ -337,9 +308,7 @@ export default function StageClassRosterPanel({
     setStatusFilter("all");
     setSelectedStudentKey(null);
     setSelectedStudentKeys(new Set());
-    void load(className).then(() => {
-      prefetchNeighbors(className, availableClassesRef.current);
-    });
+    void load(className);
   };
 
   async function assignReferent(conventionId: string, teacherId: string) {
@@ -509,7 +478,35 @@ export default function StageClassRosterPanel({
   }
 
   if (!data || !roster) {
-    return <div className="space-y-4">{globalSearchBlock}</div>;
+    return (
+      <div className="space-y-4">
+        {globalSearchBlock}
+        {classOptions.length > 0 ? (
+          <div>
+            <p className="text-sm font-medium text-stone-700">Classes</p>
+            <p className="mt-0.5 text-xs text-stone-500">
+              Choisissez une classe : les élèves s’affichent tout de suite, le dossier de
+              convention s’ouvre au clic sur un élève.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {classOptions.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => onClassChange(c)}
+                  className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-[#1F3D2B] shadow-sm hover:border-[#2F6B4A] hover:bg-[#2F6B4A]/05"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-stone-500">Aucune classe à afficher pour le moment.</p>
+        )}
+        {loading ? <p className="text-xs text-stone-400">Chargement…</p> : null}
+      </div>
+    );
   }
 
   const mandatory = roster.expectsMandatoryStage === true;
@@ -540,6 +537,11 @@ export default function StageClassRosterPanel({
               value={selectedClass}
               onChange={(e) => onClassChange(e.target.value)}
             >
+              {!selectedClass ? (
+                <option value="" disabled>
+                  Choisir une classe…
+                </option>
+              ) : null}
               {classOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -865,7 +867,9 @@ export default function StageClassRosterPanel({
                       </button>
                     </div>
                     <div className="mt-2">
-                      <StageSignatureProgress summary={c.signatureSummary} compact />
+                      <p className="text-xs text-stone-500">
+                        Ouvrez le dossier pour les signatures, le PDF et le dépôt OneDrive.
+                      </p>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-3">
                       {canAssign && teachers.length > 0 ? (

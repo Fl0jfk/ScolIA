@@ -1,38 +1,13 @@
 import "server-only";
 
-import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
+import { getConventionsIndex, getStageConventionsByIds } from "@/app/lib/stage-storage";
 import type { StageConvention, StageConventionStatus } from "@/app/lib/stage-types";
 
-const DEFAULT_CONCURRENCY = 16;
-
 /**
- * Charge des conventions par id avec un plafond de parallélisme.
- * Un `Promise.all` naïf sur des centaines d’ids saturaient Postgres et
- * ralentissaient tout le site (dashboard, stages, relances groupées…).
+ * Charge des conventions par id en lot (2 requêtes SQL), plus un GET N+1.
  */
-export async function loadStageConventionsByIds(
-  ids: string[],
-  concurrency = DEFAULT_CONCURRENCY,
-): Promise<StageConvention[]> {
-  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
-  if (unique.length === 0) return [];
-
-  const out: StageConvention[] = [];
-  const limit = Math.max(1, Math.min(concurrency, unique.length));
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < unique.length) {
-      const idx = cursor;
-      cursor += 1;
-      const id = unique[idx]!;
-      const convention = await getStageConvention(id);
-      if (convention) out.push(convention);
-    }
-  }
-
-  await Promise.all(Array.from({ length: limit }, () => worker()));
-  return out;
+export async function loadStageConventionsByIds(ids: string[]): Promise<StageConvention[]> {
+  return getStageConventionsByIds(ids);
 }
 
 const SKIP_STATUSES: ReadonlySet<StageConventionStatus> = new Set([
@@ -41,13 +16,11 @@ const SKIP_STATUSES: ReadonlySet<StageConventionStatus> = new Set([
   "cancelled",
 ]);
 
-/** Index filtré puis chargement plafonné — pour le hub stages. */
-export async function loadActiveStageConventions(
-  concurrency = DEFAULT_CONCURRENCY,
-): Promise<StageConvention[]> {
+/** Index filtré puis chargement en lot — pour les listes admin. */
+export async function loadActiveStageConventions(): Promise<StageConvention[]> {
   const index = await getConventionsIndex();
   const ids = index.filter((e) => !SKIP_STATUSES.has(e.status)).map((e) => e.id);
-  return loadStageConventionsByIds(ids, concurrency);
+  return loadStageConventionsByIds(ids);
 }
 
 /** Statuts utiles au tableau de bord (pas les conventions déjà signées). */
@@ -63,19 +36,15 @@ const HUB_BOARD_STATUSES: ReadonlySet<StageConventionStatus> = new Set([
  * Charge uniquement les conventions encore « actives » pour le hub
  * (file admin + signatures), pas tout l’historique signé.
  */
-export async function loadHubBoardStageConventions(
-  concurrency = DEFAULT_CONCURRENCY,
-): Promise<StageConvention[]> {
+export async function loadHubBoardStageConventions(): Promise<StageConvention[]> {
   const index = await getConventionsIndex();
   const ids = index.filter((e) => HUB_BOARD_STATUSES.has(e.status)).map((e) => e.id);
-  return loadStageConventionsByIds(ids, concurrency);
+  return loadStageConventionsByIds(ids);
 }
 
 /** Uniquement les conventions en signatures en cours (signaux dashboard). */
-export async function loadSignaturesPendingStageConventions(
-  concurrency = DEFAULT_CONCURRENCY,
-): Promise<StageConvention[]> {
+export async function loadSignaturesPendingStageConventions(): Promise<StageConvention[]> {
   const index = await getConventionsIndex();
   const ids = index.filter((e) => e.status === "signatures_pending").map((e) => e.id);
-  return loadStageConventionsByIds(ids, concurrency);
+  return loadStageConventionsByIds(ids);
 }

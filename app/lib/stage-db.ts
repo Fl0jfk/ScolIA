@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   stageApplication,
@@ -20,6 +20,8 @@ import {
 import type {
   StageConvention,
   StageConventionIndexEntry,
+  StageInternshipKind,
+  StageConventionStatus,
   StageOffer,
   StageOfferApplication,
   StageOfferIndexEntry,
@@ -28,6 +30,23 @@ import type {
   StageSignTokenRef,
   StageStudentTokenRef,
 } from "@/app/lib/stage-types";
+
+const ATTR_IN_CHUNK = 400;
+
+/** Chemins EAV suffisants pour l’index (évite d’hydrater signatures / PDF / historique). */
+const CONVENTION_INDEX_ATTR_PATHS = [
+  "student.firstName",
+  "student.lastName",
+  "student.className",
+  "student.level",
+  "company.name",
+  "internshipKind",
+  "schedule.periodStart",
+  "schedule.periodEnd",
+  "schoolYear",
+  "stageLabel",
+  "teacherReferent.email",
+] as const;
 
 export type StageTokenKind =
   | "sign"
@@ -74,22 +93,119 @@ function asOffer(row: Record<string, unknown>, fallbackId: string): StageOffer |
   return { ...row, id } as StageOffer;
 }
 
-function conventionToIndexEntry(c: StageConvention): StageConventionIndexEntry {
+function nestedString(obj: Record<string, unknown>, ...keys: string[]): string {
+  let cur: unknown = obj;
+  for (const key of keys) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) return "";
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  if (typeof cur === "string") return cur;
+  if (cur == null) return "";
+  return String(cur);
+}
+
+function indexEntryFromMainAndAttrs(
+  m: typeof stageConvention.$inferSelect,
+  attrs: Array<{ path: string; value: string }>,
+): StageConventionIndexEntry {
+  const inflated = inflateFromAttrs(attrs);
+  const firstName = nestedString(inflated, "student", "firstName").trim();
+  const lastName = nestedString(inflated, "student", "lastName").trim();
+  const internshipKindRaw = nestedString(inflated, "internshipKind").trim();
+  const internshipKind = (internshipKindRaw || "autre") as StageInternshipKind;
+  const status = (String(m.status ?? "draft").trim() || "draft") as StageConventionStatus;
+  const teacherEmail = nestedString(inflated, "teacherReferent", "email").trim().toLowerCase();
   return {
-    id: c.id,
-    status: c.status,
-    studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
-    className: c.student.className,
-    level: c.student.level,
-    companyName: c.company.name,
-    internshipKind: c.internshipKind,
-    periodStart: c.schedule.periodStart,
-    periodEnd: c.schedule.periodEnd,
-    schoolYear: c.schoolYear,
-    updatedAt: c.updatedAt,
-    stageLabel: c.stageLabel?.trim() || undefined,
-    teacherReferentEmail: c.teacherReferent.email?.toLowerCase() || undefined,
+    id: m.id,
+    status,
+    studentName: `${firstName} ${lastName}`.trim(),
+    className: nestedString(inflated, "student", "className").trim(),
+    level: nestedString(inflated, "student", "level").trim(),
+    companyName: nestedString(inflated, "company", "name").trim(),
+    internshipKind,
+    periodStart: nestedString(inflated, "schedule", "periodStart").slice(0, 10),
+    periodEnd: nestedString(inflated, "schedule", "periodEnd").slice(0, 10),
+    schoolYear: nestedString(inflated, "schoolYear").trim(),
+    updatedAt: m.updatedAt?.toISOString?.() ?? new Date().toISOString(),
+    stageLabel: nestedString(inflated, "stageLabel").trim() || undefined,
+    teacherReferentEmail: teacherEmail || undefined,
   };
+}
+
+async function selectConventionAttrs(
+  etablissementId: string,
+  conventionIds: string[],
+  paths?: readonly string[],
+): Promise<Array<{ conventionId: string; path: string; value: string }>> {
+  if (conventionIds.length === 0) return [];
+  const db = getDb();
+  const out: Array<{ conventionId: string; path: string; value: string }> = [];
+  for (let i = 0; i < conventionIds.length; i += ATTR_IN_CHUNK) {
+    const chunk = conventionIds.slice(i, i + ATTR_IN_CHUNK);
+    const filters = [
+      eq(stageConventionAttr.etablissementId, etablissementId),
+      inArray(stageConventionAttr.conventionId, chunk),
+    ];
+    if (paths && paths.length > 0) {
+      filters.push(inArray(stageConventionAttr.path, [...paths]));
+    }
+    const rows = await db
+      .select({
+        conventionId: stageConventionAttr.conventionId,
+        path: stageConventionAttr.path,
+        value: stageConventionAttr.value,
+      })
+      .from(stageConventionAttr)
+      .where(and(...filters));
+    out.push(...rows);
+  }
+  return out;
+}
+
+function groupAttrsByConventionId(
+  rows: Array<{ conventionId: string; path: string; value: string }>,
+): Map<string, Array<{ path: string; value: string }>> {
+  const byId = new Map<string, Array<{ path: string; value: string }>>();
+  for (const row of rows) {
+    const list = byId.get(row.conventionId) ?? [];
+    list.push({ path: row.path, value: row.value });
+    byId.set(row.conventionId, list);
+  }
+  return byId;
+}
+
+async function hydrateConventionsBulk(
+  etablissementId: string,
+  mains: Array<typeof stageConvention.$inferSelect>,
+): Promise<StageConvention[]> {
+  if (mains.length === 0) return [];
+  const attrs = await selectConventionAttrs(
+    etablissementId,
+    mains.map((m) => m.id),
+  );
+  const byId = groupAttrsByConventionId(attrs);
+  const out: StageConvention[] = [];
+  for (const m of mains) {
+    try {
+      const inflated = inflateFromAttrs(byId.get(m.id) ?? []);
+      const convention = asConvention(
+        {
+          ...inflated,
+          id: m.id,
+          status: m.status ?? inflated.status,
+          updatedAt: m.updatedAt?.toISOString?.() ?? inflated.updatedAt,
+        },
+        m.id,
+      );
+      if (!convention) {
+        throw new Error(`[stage-db] Convention ${m.id} illisible (attrs incomplets).`);
+      }
+      out.push(convention);
+    } catch (e) {
+      console.error("[stage-db] hydrate convention", m.id, e);
+    }
+  }
+  return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 function offerToIndexEntry(o: StageOffer): StageOfferIndexEntry {
@@ -144,15 +260,37 @@ export async function listConventionsFromDb(etablissementId: string): Promise<St
     .select()
     .from(stageConvention)
     .where(eq(stageConvention.etablissementId, etablissementId));
-  const out: StageConvention[] = [];
-  for (const m of mains) {
-    try {
-      out.push(await hydrateConvention(etablissementId, m));
-    } catch (e) {
-      console.error("[stage-db] hydrate convention", m.id, e);
-    }
+  return hydrateConventionsBulk(etablissementId, mains);
+}
+
+export async function getConventionsByIdsFromDb(
+  etablissementId: string,
+  ids: string[],
+): Promise<StageConvention[]> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+  const db = getDb();
+  const mains: Array<typeof stageConvention.$inferSelect> = [];
+  for (let i = 0; i < unique.length; i += ATTR_IN_CHUNK) {
+    const chunk = unique.slice(i, i + ATTR_IN_CHUNK);
+    const rows = await db
+      .select()
+      .from(stageConvention)
+      .where(
+        and(eq(stageConvention.etablissementId, etablissementId), inArray(stageConvention.id, chunk)),
+      );
+    mains.push(...rows);
   }
-  return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const hydrated = await hydrateConventionsBulk(etablissementId, mains);
+  const found = new Set(hydrated.map((c) => c.id));
+  const missing = unique.filter((id) => !found.has(id));
+  if (missing.length === 0) return hydrated;
+  const extras: StageConvention[] = [];
+  for (const id of missing) {
+    const one = await getConventionFromDbOrMigrate(etablissementId, id);
+    if (one) extras.push(one);
+  }
+  return [...hydrated, ...extras];
 }
 
 export async function getConventionFromDb(
@@ -226,22 +364,54 @@ export async function upsertConventionInDb(
   }
 }
 
+async function loadConventionIndexLightweight(
+  etablissementId: string,
+): Promise<StageConventionIndexEntry[]> {
+  const db = getDb();
+  const mains = await db
+    .select({
+      id: stageConvention.id,
+      status: stageConvention.status,
+      updatedAt: stageConvention.updatedAt,
+      etablissementId: stageConvention.etablissementId,
+    })
+    .from(stageConvention)
+    .where(eq(stageConvention.etablissementId, etablissementId));
+  if (mains.length === 0) return [];
+  const attrs = await selectConventionAttrs(
+    etablissementId,
+    mains.map((m) => m.id),
+    CONVENTION_INDEX_ATTR_PATHS,
+  );
+  const byId = groupAttrsByConventionId(attrs);
+  return mains
+    .map((m) => indexEntryFromMainAndAttrs(m, byId.get(m.id) ?? []))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export async function listConventionIndexFromDb(
   etablissementId: string,
 ): Promise<StageConventionIndexEntry[]> {
-  const list = await ensureConventionsMigratedFromCollection(etablissementId);
-  return list.map(conventionToIndexEntry);
+  await ensureConventionsMigratedFromCollection(etablissementId);
+  return loadConventionIndexLightweight(etablissementId);
 }
 
 /**
  * Copie les conventions encore en `ent_collection` vers `stage_convention`
  * (upsert unitaire, jamais de wipe). Les ids déjà typés ne sont pas écrasés.
+ * Si la table typée a déjà des lignes, on ne rescanne pas la collection
+ * (évite d’hydrater tout l’historique à chaque ouverture du hub).
  */
 export async function ensureConventionsMigratedFromCollection(
   etablissementId: string,
-): Promise<StageConvention[]> {
-  const existing = await listConventionsFromDb(etablissementId);
+): Promise<void> {
+  const db = getDb();
+  const existing = await db
+    .select({ id: stageConvention.id })
+    .from(stageConvention)
+    .where(eq(stageConvention.etablissementId, etablissementId));
   const existingIds = new Set(existing.map((c) => c.id));
+  if (existingIds.size > 0) return;
 
   const { listCollectionRecords, getCollectionRecord } = await import(
     "@/app/lib/ent-collection-db"
@@ -292,8 +462,6 @@ export async function ensureConventionsMigratedFromCollection(
       }
     }
   }
-
-  return listConventionsFromDb(etablissementId);
 }
 
 export async function getConventionFromDbOrMigrate(
@@ -927,7 +1095,12 @@ export async function migrateAllStagesFromCollection(etablissementId: string): P
   offers: number;
   tokens: number;
 }> {
-  const conventions = await ensureConventionsMigratedFromCollection(etablissementId);
+  await ensureConventionsMigratedFromCollection(etablissementId);
+  const db = getDb();
+  const conventionRows = await db
+    .select({ id: stageConvention.id })
+    .from(stageConvention)
+    .where(eq(stageConvention.etablissementId, etablissementId));
   const offers = await ensureOffersMigratedFromCollection(etablissementId);
   const kinds: StageTokenKind[] = [
     "sign",
@@ -951,5 +1124,5 @@ export async function migrateAllStagesFromCollection(etablissementId: string): P
   for (const o of offers) {
     await ensureApplicationsMigratedForOffer(etablissementId, o.id);
   }
-  return { conventions: conventions.length, offers: offers.length, tokens };
+  return { conventions: conventionRows.length, offers: offers.length, tokens };
 }
