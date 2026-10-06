@@ -1395,15 +1395,18 @@ export async function POST(req: Request, ctx: Ctx) {
     }
 
     if (isAccompagnementDocumentTitle(doc.title)) {
-      const mayViewAcc = viewerMayReceiveEleveAccompagnementMetadata(
-        { roles, orgAdmin, platformAdmin },
-        {
-          eleveClasse: row.classe,
-          assignedClasses: profRestrictedView
-            ? await listAssignedClassesForTeacher(businessUserId)
-            : undefined,
-        },
-      );
+      const accCtx = {
+        eleveClasse: row.classe,
+        assignedClasses: profRestrictedView
+          ? await listAssignedClassesForTeacher(businessUserId)
+          : undefined,
+      };
+      const accViewer = { roles, orgAdmin, platformAdmin };
+      const accKind = detectAccompagnementKind(doc.title);
+      const mayViewAcc =
+        accKind &&
+        viewerMayReceiveAccompagnementKind(accViewer, accKind, accCtx) &&
+        viewerMayReceiveEleveAccompagnementMetadata(accViewer, accCtx);
       if (!mayViewAcc) {
         return NextResponse.json(
           { error: "Accès refusé à ce document.", code: "ACCOMPAGNEMENT_FORBIDDEN" },
