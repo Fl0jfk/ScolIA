@@ -51,6 +51,8 @@ npm run db:validate-migrations
 npm run test:drizzle-migrations
 ```
 
+Job **`migrations-fresh-db`** (GitHub Actions) : Postgres vierge → `apply-migrations-direct.mjs` jusqu’au dernier tag du journal (inclut bootstrap `0002` / `0056` sans changer les hash prod).
+
 ## Migration manuelle d’urgence (hors pipeline)
 
 Uniquement avec validation humaine :

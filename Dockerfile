@@ -62,6 +62,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@napi-rs ./node_modu
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/apply-migrations-direct.mjs ./scripts/apply-migrations-direct.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/messaging-core-ddl.sql ./scripts/messaging-core-ddl.sql
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/assert-local-database.mjs ./scripts/assert-local-database.mjs
 COPY --from=builder --chown=nextjs:nodejs --chmod=755 /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres

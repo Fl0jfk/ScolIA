@@ -76,7 +76,11 @@ Historique : `0000_initial.sql` décrit déjà le schéma post-renommage (`exter
 | **Dev / Cloud Agent (base locale)** | `npm run db:migrate` ou `node scripts/apply-migrations-direct.mjs` — **uniquement** si `DATABASE_URL` = `127.0.0.1`. Schéma rapide sans rejouer l’historique : `npx drizzle-kit push --force`. |
 | **Prod / Scaleway** | Au **démarrage du conteneur** : `scripts/docker-entrypoint.sh` → `apply-migrations-direct.mjs` (`SCOLA_AUTO_MIGRATE=1`). Manuel d’urgence : `ALLOW_PROD_MIGRATION=1` + validation humaine. |
 
-Le migrateur enregistre le **hash SHA256** de chaque fichier SQL dans `drizzle.__drizzle_migrations` (champ `created_at` = `when` du journal). Les anciennes lignes **tag-only** en prod restent reconnues (`skip` par tag). `0002` est exécutée de façon **idempotente** en JS (sans modifier le fichier SQL). Verrou **`pg_advisory_lock`** : une seule instance applique les migrations à la fois.
+Le migrateur enregistre le **hash SHA256** de chaque fichier SQL dans `drizzle.__drizzle_migrations` (champ `created_at` = `when` du journal). Les anciennes lignes **tag-only** en prod restent reconnues (`skip` par tag). Cas base vierge sans modifier les `.sql` déjà journalisés en prod :
+- `0002_rename_clerk_ids` — exécution idempotente en JS (schéma déjà post-renommage dans `0000`).
+- `0056_messaging_delivery` — bootstrap `scripts/messaging-core-ddl.sql` (tables `messaging_*` absentes du journal) puis ALTER du fichier 0056.
+
+Verrou **`pg_advisory_lock`** : une seule instance applique les migrations à la fois.
 
 Preuve déploiement : `GET /api/health` → `{ gitSha, migrationTag }` (SHA injecté au build Docker via `GIT_SHA`).
 
