@@ -2,6 +2,7 @@
  * Règles créneau / appel — fonctions pures (tests sans BDD).
  */
 import { absenceCoversSlot, timesOverlap } from "@/app/lib/accueil-absences-types";
+import { isVsAbsenceActivePourConflitAppel } from "@/app/lib/vs-absence-statut";
 
 export type AppelSlotRef = {
   dateAppel: string;
@@ -24,7 +25,7 @@ export function appelAbsenceSlotsConflict(
   existing: ExistingAppelAbsence,
   currentAppelId: string,
 ): boolean {
-  if (existing.statut === "classee") return false;
+  if (!isVsAbsenceActivePourConflitAppel(existing.statut)) return false;
   if (existing.appelId === currentAppelId) return false;
   if (!existing.appelId) return false;
 

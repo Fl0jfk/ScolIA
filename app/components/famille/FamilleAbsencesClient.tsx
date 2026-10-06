@@ -33,7 +33,13 @@ function statutLabel(a: Absence): string {
 }
 
 function canJustify(a: Absence): boolean {
-  if (a.justifie || a.statut === "justifiee" || a.statut === "non_justifiee" || a.statut === "classee") {
+  if (
+    a.justifie ||
+    a.statut === "justifiee" ||
+    a.statut === "non_justifiee" ||
+    a.statut === "classee" ||
+    a.statut === "annulee"
+  ) {
     return false;
   }
   // Mapping API famille : a_traiter sans motif → en_cours ; avec motif → justif_recue.

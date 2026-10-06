@@ -23,6 +23,7 @@
     "test:metier-event-migration": "npx tsx --test app/lib/metier-event-migration.test.ts",
     "test:feuille-du-jour": "npx tsx --test app/lib/feuille-du-jour.test.ts",
     "test:famille-justif": "npx tsx --test app/lib/famille-absences-justify.test.ts",
+    "test:vs-absence-statut": "npx tsx --test app/lib/vs-absence-statut.test.ts",
     "test:accueil-occupancy": "npx tsx --test app/lib/accueil-absence-occupancy.test.ts",
     "test:impact-format": "npx tsx --test app/lib/impact-engine/format-preview.test.ts",
     "test:stage-db": "npx tsx --test app/lib/stage-db-roundtrip.test.ts",
