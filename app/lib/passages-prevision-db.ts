@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, eleveScolarite, passage } from "@/db/schema";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
@@ -70,7 +71,7 @@ export async function getPrevisionRepasDuJour(
           eq(eleveScolarite.statut, "en_cours"),
         ),
       )
-      .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.status, "inscrit"))),
+      .where(and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!)),
     listEleveIdsEnSortieOnDate({ etablissementId, date }),
   ]);
 

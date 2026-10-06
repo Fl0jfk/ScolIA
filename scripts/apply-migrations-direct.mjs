@@ -14,8 +14,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { assertLocalDatabase } from "./assert-local-database.mjs";
 
+/** Verrou PostgreSQL session — une seule instance applique les migrations à la fois. */
+const MIGRATION_ADVISORY_LOCK_KEY1 = 0x5343; // "SC"
+const MIGRATION_ADVISORY_LOCK_KEY2 = 0x4f4c; // "OL"
+
 const root = path.resolve(import.meta.dirname, "..");
 const journalPath = path.join(root, "drizzle", "meta", "_journal.json");
+const messagingCoreDdlPath = path.join(root, "scripts", "messaging-core-ddl.sql");
+const messagingCoreDdl = fs.readFileSync(messagingCoreDdlPath, "utf8");
 const journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
 
 const url = process.env.DATABASE_URL;
@@ -63,6 +69,83 @@ function isRecorded(tag, hash, done) {
   return done.has(hash) || done.has(tag);
 }
 
+/**
+ * 0000_initial.sql est déjà post-renommage ; 0002 échoue sur base vierge si on rejoue le SQL tel quel.
+ * N’altère pas le fichier (hash prod inchangé) — exécution idempotente à la place.
+ */
+async function apply0002RenameClerkIdsIdempotent(tx) {
+  const userClerk = await tx`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'user' AND column_name = 'clerk_user_id'
+    LIMIT 1
+  `;
+  if (userClerk.length > 0) {
+    await tx.unsafe(
+      `ALTER TABLE "user" RENAME COLUMN "clerk_user_id" TO "external_user_id"`,
+    );
+  }
+
+  await tx.unsafe(
+    `ALTER INDEX IF EXISTS "user_clerk_user_id_idx" RENAME TO "user_external_user_id_idx"`,
+  );
+
+  const clerkMapping = await tx`
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clerk_user_mapping'
+    LIMIT 1
+  `;
+  if (clerkMapping.length > 0) {
+    await tx.unsafe(`ALTER TABLE "clerk_user_mapping" RENAME TO "auth_user_mapping"`);
+  }
+
+  const mappingClerkCol = await tx`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'auth_user_mapping' AND column_name = 'clerk_user_id'
+    LIMIT 1
+  `;
+  if (mappingClerkCol.length > 0) {
+    await tx.unsafe(
+      `ALTER TABLE "auth_user_mapping" RENAME COLUMN "clerk_user_id" TO "external_user_id"`,
+    );
+  }
+
+  await tx.unsafe(
+    `ALTER INDEX IF EXISTS "clerk_user_mapping_clerk_uidx" RENAME TO "auth_user_mapping_external_uidx"`,
+  );
+  await tx.unsafe(
+    `ALTER INDEX IF EXISTS "clerk_user_mapping_user_uidx" RENAME TO "auth_user_mapping_user_uidx"`,
+  );
+}
+
+/**
+ * Tables messaging_* : jamais créées par un .sql antérieur à 0056_messaging_delivery (script ensure historique).
+ * Sur base vierge : bootstrap IF NOT EXISTS puis ALTER du fichier 0056. En prod déjà journalisée : skip hash/tag.
+ */
+async function ensureMessagingCoreTables(tx) {
+  await tx.unsafe(messagingCoreDdl);
+}
+
+async function apply0056MessagingDeliveryIdempotent(tx, statements) {
+  await ensureMessagingCoreTables(tx);
+  for (const stmt of statements) {
+    await tx.unsafe(stmt);
+  }
+}
+
+async function runMigrationStatements(tx, tag, statements) {
+  if (tag === "0002_rename_clerk_ids") {
+    await apply0002RenameClerkIdsIdempotent(tx);
+    return;
+  }
+  if (tag === "0056_messaging_delivery") {
+    await apply0056MessagingDeliveryIdempotent(tx, statements);
+    return;
+  }
+  for (const stmt of statements) {
+    await tx.unsafe(stmt);
+  }
+}
+
 async function applyEntry(entry, done) {
   const tag = entry.tag;
   const file = path.join(root, "drizzle", `${tag}.sql`);
@@ -84,9 +167,7 @@ async function applyEntry(entry, done) {
   }
 
   await sql.begin(async (tx) => {
-    for (const stmt of statements) {
-      await tx.unsafe(stmt);
-    }
+    await runMigrationStatements(tx, tag, statements);
     await tx`
       INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
       VALUES (${hash}, ${entry.when})
@@ -98,7 +179,7 @@ async function applyEntry(entry, done) {
   console.log(`ok ${tag}`);
 }
 
-async function main() {
+async function runMigrations() {
   await sql`CREATE SCHEMA IF NOT EXISTS drizzle`;
   await ensureMigrationsTable();
   const done = await appliedHashes();
@@ -108,7 +189,36 @@ async function main() {
   }
 
   console.log("Migrations terminées.");
-  await sql.end({ timeout: 5 });
+}
+
+const DDL_LOCK_TIMEOUT = "30s";
+const ADVISORY_LOCK_TIMEOUT = "300s";
+
+async function main() {
+  console.log(
+    `[migrations] Acquisition du verrou advisory (lock_timeout ${ADVISORY_LOCK_TIMEOUT})…`,
+  );
+  try {
+    await sql.unsafe(`SET lock_timeout = '${ADVISORY_LOCK_TIMEOUT}'`);
+    await sql`SELECT pg_advisory_lock(${MIGRATION_ADVISORY_LOCK_KEY1}, ${MIGRATION_ADVISORY_LOCK_KEY2})`;
+  } catch (lockErr) {
+    const msg = lockErr instanceof Error ? lockErr.message : String(lockErr);
+    console.error(
+      `[migrations] Échec acquisition verrou advisory après ${ADVISORY_LOCK_TIMEOUT} (${msg}) — une autre instance applique peut-être les migrations.`,
+    );
+    throw lockErr;
+  }
+  try {
+    await sql.unsafe(`SET lock_timeout = '${DDL_LOCK_TIMEOUT}'`);
+    await runMigrations();
+  } finally {
+    try {
+      await sql`SELECT pg_advisory_unlock(${MIGRATION_ADVISORY_LOCK_KEY1}, ${MIGRATION_ADVISORY_LOCK_KEY2})`;
+    } catch (unlockErr) {
+      console.warn("[migrations] pg_advisory_unlock:", unlockErr);
+    }
+    await sql.end({ timeout: 5 });
+  }
 }
 
 main().catch((e) => {

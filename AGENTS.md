@@ -69,19 +69,29 @@ Tenant local mono-instance : slug `default`, cookie/query `dev_tenant` (voir `ap
 
 ## Base de données — stratégie migrations
 
-Incohérence connue dans l’historique Drizzle : `0000_initial.sql` est déjà au schéma post-renommage (`external_user_id` / `auth_user_mapping`), alors que `0002_rename_clerk_ids.sql` tente encore de renommer des colonnes `clerk_*`. Un `drizzle-kit migrate` sur base **vierge** échoue.
+Historique : `0000_initial.sql` décrit déjà le schéma post-renommage (`external_user_id` / `auth_user_mapping`), alors que `0002_rename_clerk_ids.sql` contient encore les `ALTER` Clerk → Better-Auth. **`drizzle-kit migrate` ne doit pas être utilisé** : avec des `when` en doublon, il ignore silencieusement des migrations ; avec des `when` strictement croissants, il échoue quand même sur `0002` en base vierge.
 
 | Contexte | Méthode |
 |----------|---------|
-| **Dev / Cloud Agent (base locale)** | `npx drizzle-kit push --force` — **uniquement** si `DATABASE_URL` = `127.0.0.1` |
-| **Prod / Scaleway** | `node scripts/apply-migrations-direct.mjs` **interdit** sans validation humaine + `ALLOW_PROD_MIGRATION=1` |
+| **Dev / Cloud Agent (base locale)** | `npm run db:migrate` ou `node scripts/apply-migrations-direct.mjs` — **uniquement** si `DATABASE_URL` = `127.0.0.1`. Schéma rapide sans rejouer l’historique : `npx drizzle-kit push --force`. |
+| **Prod / Scaleway** | Au **démarrage du conteneur** : `scripts/docker-entrypoint.sh` → `apply-migrations-direct.mjs` (`SCOLA_AUTO_MIGRATE=1`). Manuel d’urgence : `ALLOW_PROD_MIGRATION=1` + validation humaine. |
 
-Ne pas « corriger » `0002` à la légère : la prod repose sur le backfill. Documenter tout changement de stratégie ici.
+Le migrateur enregistre le **hash SHA256** de chaque fichier SQL dans `drizzle.__drizzle_migrations` (champ `created_at` = `when` du journal). Les anciennes lignes **tag-only** en prod restent reconnues (`skip` par tag). Cas base vierge sans modifier les `.sql` déjà journalisés en prod :
+- `0002_rename_clerk_ids` — exécution idempotente en JS (schéma déjà post-renommage dans `0000`).
+- `0056_messaging_delivery` — bootstrap `scripts/messaging-core-ddl.sql` (tables `messaging_*` absentes du journal) puis ALTER du fichier 0056.
+
+Verrou **`pg_advisory_lock`** : une seule instance applique les migrations à la fois.
+
+Preuve déploiement : `GET /api/health` → `{ gitSha, migrationTag }` (SHA injecté au build Docker via `GIT_SHA`).
+
+Voir aussi `docs/migrations-prod-runbook.md`.
 
 Postgres local Cloud Agent (si `install.sh`) :
 
 - URL : `postgresql://scola:scola_dev_pwd@127.0.0.1:5432/scola`
 - Variables dans `.env.local` (gitignored), généré par `.cursor/install.sh`
+
+**Tests automatisés Postgres** : utiliser **`TEST_DATABASE_URL` uniquement** (base de test explicite, ex. `scolia_migrate`). Les fichiers `*.test.*` ne doivent **jamais** lire `DATABASE_URL` ni charger `.env.local` pour se connecter — garde `scripts/test-database-guard.mjs`. CI : job `integration-db-tests`.
 
 ## MCP et outils agents
 

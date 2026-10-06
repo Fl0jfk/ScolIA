@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { classeSiteMapping, eleve, etablissementSite } from "@/db/schema";
 import { loadOfficialSchoolClasses } from "@/app/lib/nomenclature-classes";
@@ -119,7 +120,7 @@ export async function listObservedClassNames(etablissementId: string): Promise<s
   const rows = await db
     .selectDistinct({ classe: eleve.classe })
     .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.status, "inscrit")));
+    .where(and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!));
   const seen = new Set<string>();
   const out: string[] = [];
   for (const r of rows) {
@@ -232,7 +233,7 @@ export async function loadClasseMappingWorkspace(etablissementId: string): Promi
         n: sql<number>`count(*)::int`,
       })
       .from(eleve)
-      .where(eq(eleve.etablissementId, etablissementId))
+      .where(and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!))
       .groupBy(eleve.classe),
     loadOfficialSchoolClasses(etablissementId),
   ]);

@@ -3,7 +3,7 @@ import {
   findElevesByParentEmail,
   toParentLinkedChildren,
 } from "@/app/lib/eleves-parent-emails";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import {
   deletePendingRequestPrefix,
   generatePendingRequestToken,
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
       if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
     }
 
-    const eleves = await loadElevesRegistry();
+    const eleves = await loadElevesActifsRegistry();
     const matched = findElevesByParentEmail(eleves, validated.value.email);
     const parentContext = {
       source: "parent_portal" as const,

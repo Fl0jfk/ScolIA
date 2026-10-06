@@ -42,3 +42,24 @@ test("apply-migrations-direct enregistre le hash SHA256 du fichier", () => {
   const hash = crypto.createHash("sha256").update(sample).digest("hex");
   assert.equal(hash.length, 64);
 });
+
+test("base vierge : 0056_messaging_delivery bootstrap messaging_participant (sans modifier le .sql)", () => {
+  const migratorPath = path.join(root, "scripts", "apply-migrations-direct.mjs");
+  const ddlPath = path.join(root, "scripts", "messaging-core-ddl.sql");
+  const src = fs.readFileSync(migratorPath, "utf8");
+  const ddl = fs.readFileSync(ddlPath, "utf8");
+  assert.match(src, /0056_messaging_delivery/);
+  assert.match(src, /apply0056MessagingDeliveryIdempotent/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS messaging_participant/);
+  const sql0056 = fs.readFileSync(path.join(root, "drizzle", "0056_messaging_delivery.sql"), "utf8");
+  assert.match(sql0056, /messaging_participant/);
+});
+
+test("apply-migrations-direct : lock_timeout long uniquement pour le verrou advisory", () => {
+  const migratorPath = path.join(root, "scripts", "apply-migrations-direct.mjs");
+  const src = fs.readFileSync(migratorPath, "utf8");
+  assert.match(src, /ADVISORY_LOCK_TIMEOUT/);
+  assert.match(src, /DDL_LOCK_TIMEOUT/);
+  const setBlocks = [...src.matchAll(/SET lock_timeout/g)];
+  assert.ok(setBlocks.length >= 2, "lock_timeout distinct pour verrou et DDL");
+});

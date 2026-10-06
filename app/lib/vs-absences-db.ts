@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, groupePedagogiqueMembre, vsAbsenceEleve, vsAppel, vsAppelLigne } from "@/db/schema";
 import { matchInternatStudent } from "@/app/lib/eleve-dossier-synthese";
@@ -22,6 +23,7 @@ import {
 } from "@/app/lib/vs-appels-slot";
 import { sqlExcludeStageVsAbsences } from "@/app/lib/vs-absences-stage";
 import {
+  assertAccueilEleveAbsenceCancelable,
   isVsAbsenceAccueilSlotActive,
   VS_ABSENCE_STATUT_ANNULEE,
   type AbsenceStatut,
@@ -78,7 +80,7 @@ export async function listElevesForClasse(
       and(
         eq(eleve.etablissementId, etablissementId),
         sql`lower(trim(${eleve.classe})) = lower(${trimmed})`,
-        eq(eleve.status, "inscrit"),
+        drizzleEleveActifPourListes()!,
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom));
@@ -110,7 +112,7 @@ export async function listElevesForGroupeAppel(
         eq(groupePedagogiqueMembre.etablissementId, etablissementId),
         eq(groupePedagogiqueMembre.groupeId, gid),
         eq(eleve.etablissementId, etablissementId),
-        eq(eleve.status, "inscrit"),
+        drizzleEleveActifPourListes()!,
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom));
@@ -1090,6 +1092,24 @@ export async function cancelAccueilEleveAbsence(
   noteCpe = "Annulée par l’accueil",
 ): Promise<boolean> {
   const db = getDb();
+  const [existing] = await db
+    .select({
+      id: vsAbsenceEleve.id,
+      statut: vsAbsenceEleve.statut,
+      source: vsAbsenceEleve.source,
+    })
+    .from(vsAbsenceEleve)
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.id, absenceId),
+      ),
+    )
+    .limit(1);
+  if (!existing) return false;
+
+  assertAccueilEleveAbsenceCancelable(existing.statut, existing.source);
+
   const [row] = await db
     .update(vsAbsenceEleve)
     .set({ statut: VS_ABSENCE_STATUT_ANNULEE, updatedAt: new Date(), noteCpe })
@@ -1098,6 +1118,7 @@ export async function cancelAccueilEleveAbsence(
         eq(vsAbsenceEleve.etablissementId, etablissementId),
         eq(vsAbsenceEleve.id, absenceId),
         eq(vsAbsenceEleve.source, "accueil"),
+        eq(vsAbsenceEleve.statut, "a_traiter"),
       ),
     )
     .returning({ id: vsAbsenceEleve.id });

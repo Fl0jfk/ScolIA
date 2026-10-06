@@ -1,33 +1,14 @@
 /**
- * Vérifie la migration 0060_metier_event (schéma prod LPNB manquant).
- * npx tsx --test app/lib/metier-event-migration.test.ts
+ * Vérifie la migration 0060_metier_event (SQL idempotent).
+ * Uniquement TEST_DATABASE_URL + garde local (jamais DATABASE_URL / .env).
+ *
+ *   TEST_DATABASE_URL=postgresql://scolia@127.0.0.1:5432/scolia_migrate npm run test:metier-event-migration
  */
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-
-function loadEnvFile(filePath: string) {
-  if (!existsSync(filePath)) return;
-  for (const line of readFileSync(filePath, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx <= 0) continue;
-    const key = trimmed.slice(0, eqIdx);
-    let value = trimmed.slice(eqIdx + 1);
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
-
-loadEnvFile(".env.local");
-loadEnvFile(".env");
+import { beginTestDatabase, endTestDatabase } from "@/app/lib/test-database-harness";
 
 function splitMigrationStatements(fileContent: string): string[] {
   return fileContent
@@ -36,21 +17,16 @@ function splitMigrationStatements(fileContent: string): string[] {
     .filter(Boolean);
 }
 
-const hasDb = Boolean(process.env.DATABASE_URL?.trim());
-
 test("0060_metier_event — CREATE idempotent (simulation prod sans table)", async (t) => {
-  if (!hasDb) {
-    t.skip("DATABASE_URL absente");
-    return;
-  }
+  const testDb = beginTestDatabase(t);
+  if (!testDb) return;
 
   const migrationPath = path.join(process.cwd(), "drizzle", "0060_metier_event.sql");
   const statements = splitMigrationStatements(readFileSync(migrationPath, "utf8"));
   assert.ok(statements.length >= 4);
 
   const postgres = (await import("postgres")).default;
-  const url = process.env.DATABASE_URL!;
-  const sql = postgres(url, { max: 1 });
+  const sql = postgres(testDb.url, { max: 1 });
 
   try {
     await sql`DROP TABLE IF EXISTS metier_event CASCADE`;
@@ -84,5 +60,6 @@ test("0060_metier_event — CREATE idempotent (simulation prod sans table)", asy
       }
     }
     await sql.end({ timeout: 5 });
+    await endTestDatabase();
   }
 });

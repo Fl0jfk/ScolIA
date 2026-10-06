@@ -6,7 +6,15 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 
 type Matiere = { id: string; code: string; libelle: string; actif: boolean };
-type Periode = { id: string; code: string; libelle: string; ordre: number; statut: string };
+type Periode = {
+  id: string;
+  code: string;
+  libelle: string;
+  ordre: number;
+  statut: string;
+  dateDebut?: string | null;
+  dateFin?: string | null;
+};
 type TypeDevoir = { id: string; code: string; libelle: string };
 
 export default function NotesEspaceClient() {
@@ -17,7 +25,13 @@ export default function NotesEspaceClient() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [matiereForm, setMatiereForm] = useState({ code: "", libelle: "" });
-  const [periodeForm, setPeriodeForm] = useState({ code: "", libelle: "", ordre: "1" });
+  const [periodeForm, setPeriodeForm] = useState({
+    code: "",
+    libelle: "",
+    ordre: "1",
+    dateDebut: "",
+    dateFin: "",
+  });
   const [anneeLabel, setAnneeLabel] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -191,6 +205,20 @@ export default function NotesEspaceClient() {
               value={periodeForm.libelle}
               onChange={(e) => setPeriodeForm({ ...periodeForm, libelle: e.target.value })}
             />
+            <input
+              type="date"
+              className="border rounded-xl px-3 py-2 text-sm"
+              title="Date de début (optionnel)"
+              value={periodeForm.dateDebut}
+              onChange={(e) => setPeriodeForm({ ...periodeForm, dateDebut: e.target.value })}
+            />
+            <input
+              type="date"
+              className="border rounded-xl px-3 py-2 text-sm"
+              title="Date de fin (optionnel)"
+              value={periodeForm.dateFin}
+              onChange={(e) => setPeriodeForm({ ...periodeForm, dateFin: e.target.value })}
+            />
             <button
               type="button"
               disabled={busy}
@@ -201,7 +229,11 @@ export default function NotesEspaceClient() {
                   code: periodeForm.code,
                   libelle: periodeForm.libelle,
                   ordre: Number(periodeForm.ordre) || 1,
-                }).then(() => setPeriodeForm({ code: "", libelle: "", ordre: "1" }))
+                  dateDebut: periodeForm.dateDebut || undefined,
+                  dateFin: periodeForm.dateFin || undefined,
+                }).then(() =>
+                  setPeriodeForm({ code: "", libelle: "", ordre: "1", dateDebut: "", dateFin: "" }),
+                )
               }
             >
               +
@@ -213,7 +245,10 @@ export default function NotesEspaceClient() {
                 <span>
                   <span className="font-mono text-xs text-slate-500">{p.code}</span> {p.libelle}
                 </span>
-                <span className="text-xs text-slate-500">{p.statut}</span>
+                <span className="text-xs text-slate-500">
+                  {p.dateDebut ? String(p.dateDebut).slice(0, 10) : "—"}
+                  {p.dateFin ? ` → ${String(p.dateFin).slice(0, 10)}` : ""} · {p.statut}
+                </span>
               </li>
             ))}
           </ul>

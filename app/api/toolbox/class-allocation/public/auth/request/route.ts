@@ -5,7 +5,7 @@ import {
   issueParentAuthCode,
   sendParentAuthCodeEmail,
 } from "@/app/lib/class-allocation-parent-auth";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import {
   findElevesByParentEmail,
   isValidParentEmail,
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Adresse e-mail invalide." }, { status: 400 });
   }
 
-  const [eleves, app] = await Promise.all([loadElevesRegistry(), loadAppConfig()]);
+  const [eleves, app] = await Promise.all([loadElevesActifsRegistry(), loadAppConfig()]);
   const linked = findElevesByParentEmail(eleves, email);
 
   if (linked.length === 0) {

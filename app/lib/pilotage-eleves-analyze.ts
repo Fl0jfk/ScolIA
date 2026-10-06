@@ -2,7 +2,7 @@ import "server-only";
 
 import { resolveEleveFolderName } from "@/app/lib/eleves-config";
 import { createOrganizationViewLink, downloadOneDriveFileBytes, listChildFiles } from "@/app/lib/graph-onedrive-folders";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
 import { oneDrivePathForEleve, resolveEleveSecteur } from "@/app/lib/onedrive-eleves";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
@@ -258,7 +258,7 @@ export async function refreshPilotageEleveDossier(params: {
   if (!folderName) return { ok: false, reason: "Dossier élève sans nom." };
 
   const mefMap = await loadMefSecteurMap();
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   const eleve =
     eleves.find((e) => resolveEleveFolderName(e) === folderName) ||
     eleves.find((e) => e.folderName === folderName);

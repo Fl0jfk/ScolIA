@@ -4,3 +4,4 @@ secret:
   ignored_paths:
     - ".github/workflows/deploy-lab.yml"
     - ".github/workflows/deploy-scaleway.yml"
+    - ".github/workflows/ci.yml"

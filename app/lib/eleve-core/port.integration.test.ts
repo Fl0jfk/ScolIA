@@ -3,41 +3,14 @@
  * Usage : npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/eleve-core/port.integration.test.ts
  */
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { eleve, etablissement, metierEvent } from "@/db/schema";
-
-function loadEnvFile(path: string) {
-  if (!existsSync(path)) return;
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx <= 0) continue;
-    const key = trimmed.slice(0, eqIdx);
-    let value = trimmed.slice(eqIdx + 1);
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
-
-loadEnvFile(".env.local");
-loadEnvFile(".env");
-
-const hasDb = Boolean(process.env.DATABASE_URL?.trim());
+import { beginTestDatabase, endTestDatabase } from "@/app/lib/test-database-harness";
 
 test("socle élève — tenant, régime daté, prevue (intégration)", async (t) => {
-  if (!hasDb) {
-    t.skip("DATABASE_URL absente");
-    return;
-  }
+  if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
   const {
@@ -170,6 +143,6 @@ test("socle élève — tenant, régime daté, prevue (intégration)", async (t)
   } finally {
     await db.delete(etablissement).where(eq(etablissement.id, etabA.id));
     await db.delete(etablissement).where(eq(etablissement.id, etabB.id));
-    await closeDb();
+    await endTestDatabase(closeDb);
   }
 });

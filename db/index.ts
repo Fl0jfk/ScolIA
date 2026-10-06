@@ -2,33 +2,40 @@ import "server-only";
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { assertDatabaseUrlAllowedInTestProcess } from "../scripts/test-database-guard.mjs";
+import { isPgliteIntegrationTest } from "@/app/lib/scola-test-runtime";
 import * as schema from "@/db/schema";
 
 let client: ReturnType<typeof postgres> | null = null;
 let dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
+/** Connexion PGlite injectée par les tests — jamais mélangée au client postgres réel. */
+let integrationTestDb: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
 export function isDatabaseConfigured(): boolean {
-  if (process.env.SCOLA_TEST_DB === "1" && dbInstance) return true;
+  if (isPgliteIntegrationTest() && integrationTestDb) return true;
   return Boolean(process.env.DATABASE_URL?.trim());
 }
 
-/** PGlite / Postgres CI uniquement — jamais en prod (voir tests stages). */
+/** PGlite uniquement — voir `test:stages-perf`. */
 export function setIntegrationTestDb(db: Db): void {
-  if (process.env.SCOLA_TEST_DB !== "1") {
-    throw new Error("setIntegrationTestDb: SCOLA_TEST_DB=1 requis");
+  if (!isPgliteIntegrationTest()) {
+    throw new Error("setIntegrationTestDb: SCOLA_TEST_DB=1 + processus de test non-prod requis");
   }
-  dbInstance = db;
-  client = null;
+  if (client) {
+    throw new Error("setIntegrationTestDb: client PostgreSQL déjà initialisé");
+  }
+  integrationTestDb = db;
 }
 
 export function getDb() {
-  if (process.env.SCOLA_TEST_DB === "1" && dbInstance) {
-    return dbInstance;
+  if (isPgliteIntegrationTest() && integrationTestDb) {
+    return integrationTestDb;
   }
   const url = process.env.DATABASE_URL?.trim();
   if (!url) {
     throw new Error("DATABASE_URL manquante — configure PostgreSQL Scaleway.");
   }
+  assertDatabaseUrlAllowedInTestProcess(url);
   if (!client) {
     client = postgres(url, {
       // max_scale=3 → ~24 connexions app ; Postgres Scaleway = 100.
@@ -44,8 +51,8 @@ export function getDb() {
 }
 
 export async function closeDb(): Promise<void> {
-  if (process.env.SCOLA_TEST_DB === "1") {
-    dbInstance = null;
+  if (integrationTestDb) {
+    integrationTestDb = null;
     return;
   }
   if (client) {

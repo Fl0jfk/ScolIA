@@ -75,6 +75,7 @@ export async function POST(req: Request) {
     if ((mode === "merge" || mode === "fill_only") && existing.length > 0) {
       const merged = mergeElevesLists(existing, result.eleves, {
         fillOnly: mode === "fill_only",
+        dateSortieColumnInFile: result.dateSortieColumnInFile === true,
       });
       const validatedMerged = validateElevesJson(merged.eleves);
       if (!validatedMerged.ok) {

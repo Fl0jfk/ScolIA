@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { eleve } from "@/db/schema";
 import { requireAppUser } from "@/app/lib/app-session";
@@ -52,6 +53,7 @@ export async function findEleveForUserEmail(
     .where(
       and(
         eq(eleve.etablissementId, etablissementId),
+        drizzleEleveActifPourListes()!,
         sql`lower(trim(${eleve.email})) = ${emailNorm}`,
       ),
     )

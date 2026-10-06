@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { requireAnyModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb } from "@/db/index";
@@ -87,7 +88,7 @@ export async function GET(req: Request) {
           classe: eleve.classe,
         })
         .from(eleve)
-        .where(and(eq(eleve.etablissementId, etabId), eq(eleve.status, "inscrit"), nameSql))
+        .where(and(eq(eleve.etablissementId, etabId), drizzleEleveActifPourListes()!, nameSql))
         .limit(40);
       eleves = rows;
     }
