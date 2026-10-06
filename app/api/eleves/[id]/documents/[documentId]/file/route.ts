@@ -19,8 +19,11 @@ import { eleve } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
 import { accompagnementDownloadFileName } from "@/app/lib/eleve-pap";
+import { clientIpFromRequest } from "@/app/lib/memory-rate-limit";
 
 type Ctx = { params: Promise<{ id: string; documentId: string }> };
+
+const SIGNED_DOCUMENT_URL_TTL_SEC = 60;
 
 function safeFileName(raw: string | null | undefined, fallback: string): string {
   const base = String(raw || fallback)
@@ -134,17 +137,30 @@ export async function GET(req: Request, ctx: Ctx) {
       ResponseContentType: contentType,
       ResponseContentDisposition: `inline; filename="${fileName}"`,
     });
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
+    try {
+      await recordEleveAccessAudit({
+        etablissementId: etabId,
+        actorUserId: session.user.id,
+        resourceType: "document",
+        resourceId: documentId,
+        eleveId,
+        action: "open_file",
+        metadata: { title: access.doc.title },
+        actorIp: clientIpFromRequest(req),
+        actorUserAgent: req.headers.get("user-agent"),
+        actorRoles: roles,
+      });
+    } catch (auditErr) {
+      console.error("[eleves/documents/file] audit", auditErr);
+      return NextResponse.json(
+        { error: "Accès refusé — journal d’accès indisponible.", code: "AUDIT_FAILED" },
+        { status: 403 },
+      );
+    }
 
-    void recordEleveAccessAudit({
-      etablissementId: etabId,
-      actorUserId: session.user.id,
-      resourceType: "document",
-      resourceId: documentId,
-      eleveId,
-      action: "open_file",
-      metadata: { title: access.doc.title },
-    }).catch((err) => console.error("[eleves/documents/file] audit", err));
+    const signedUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: SIGNED_DOCUMENT_URL_TTL_SEC,
+    });
 
     const wantJson = new URL(req.url).searchParams.get("format") === "json";
     if (wantJson) {
@@ -152,7 +168,7 @@ export async function GET(req: Request, ctx: Ctx) {
         signedUrl,
         fileName,
         contentType,
-        expiresIn: 900,
+        expiresIn: SIGNED_DOCUMENT_URL_TTL_SEC,
       });
     }
 

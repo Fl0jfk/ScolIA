@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  brainAccompagnementExposure,
   eleveDossierAccompagnementCacheScopeSuffix,
   viewerMayLoadEleveAccompagnementListMetadata,
   viewerMayReceiveEleveAccompagnementMetadata,
@@ -59,6 +60,25 @@ test("direction et infirmerie — ouverture PAP inchangée", () => {
     canOpenDocumentWithoutGrant(papDoc, ["infirmerie"], {}),
     true,
   );
+});
+
+test("brain — prof seul sans PAP ni lien document", () => {
+  const viewer = { roles: ["professeur"] };
+  const exposure = brainAccompagnementExposure(viewer, "4B", [
+    { kind: "pap", documentId: "doc-1" },
+    { kind: "pps", documentId: "doc-2" },
+  ]);
+  assert.deepEqual(exposure.kinds, []);
+  assert.equal(exposure.items.length, 0);
+});
+
+test("brain — prof + direction conserve les dispositifs", () => {
+  const viewer = { roles: ["professeur", "direction"] };
+  const exposure = brainAccompagnementExposure(viewer, "4B", [
+    { kind: "pap", documentId: "doc-1" },
+  ]);
+  assert.deepEqual(exposure.kinds, ["pap"]);
+  assert.equal(exposure.items.length, 1);
 });
 
 test("interrupteur true — prof : uniquement classes affectées", () => {

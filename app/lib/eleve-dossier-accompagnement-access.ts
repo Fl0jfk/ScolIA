@@ -8,6 +8,7 @@ import {
   isProfesseurScopedDossierViewer,
   PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES,
 } from "@/app/lib/eleve-dossier-scope";
+import { ACCOMPAGNEMENT_KINDS, type AccompagnementKind } from "@/app/lib/eleve-pap";
 
 export type DossierAccompagnementViewer = {
   roles: string[];
@@ -61,4 +62,39 @@ export function viewerMayReceiveEleveAccompagnementMetadata(
   const assigned = ctx?.assignedClasses ?? [];
   if (!assigned.length) return false;
   return studentInAssignedClasses(ctx?.eleveClasse ?? undefined, assigned);
+}
+
+export type BrainAccompagnementItem = {
+  kind: AccompagnementKind;
+  documentId: string;
+};
+
+/** Filtre PAP/PAI/PPS/GEVASCO pour l’assistant (brain) — sans accès BDD. */
+export function brainAccompagnementExposure(
+  viewer: DossierAccompagnementViewer,
+  eleveClasse: string | null | undefined,
+  rawItems: readonly BrainAccompagnementItem[],
+  assignedClasses?: string[],
+): { kinds: AccompagnementKind[]; items: BrainAccompagnementItem[] } {
+  if (!viewerMayLoadEleveAccompagnementListMetadata(viewer)) {
+    return { kinds: [], items: [] };
+  }
+  if (
+    !viewerMayReceiveEleveAccompagnementMetadata(viewer, {
+      eleveClasse,
+      assignedClasses,
+    })
+  ) {
+    return { kinds: [], items: [] };
+  }
+  const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
+  const kinds = kindOrder.filter((k) => rawItems.some((i) => i.kind === k));
+  return { kinds, items: [...rawItems] };
+}
+
+export function dossierViewerFromBrainCtx(ctx: {
+  roles: string[];
+  isOrgAdmin: boolean;
+}): DossierAccompagnementViewer {
+  return { roles: ctx.roles, orgAdmin: ctx.isOrgAdmin, platformAdmin: false };
 }

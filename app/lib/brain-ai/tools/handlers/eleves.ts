@@ -5,6 +5,10 @@ import type { BrainClientAction, BrainCta, BrainToolCtx, BrainToolResult } from 
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
 import { listEleveLatestAccompagnementByKind } from "@/app/lib/eleve-dossier-access";
 import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
+import {
+  dossierViewerFromBrainCtx,
+  viewerMayReceiveEleveAccompagnementMetadata,
+} from "@/app/lib/eleve-dossier-accompagnement-access";
 import { canManageElevePreinscriptions } from "@/app/lib/eleve-dossier-scope";
 import type { AccompagnementKind } from "@/app/lib/eleve-pap";
 import { ACCOMPAGNEMENT_KINDS, accompagnementKindDef } from "@/app/lib/eleve-pap";
@@ -230,6 +234,18 @@ export async function handleOpenEleveDossier(
   if (!row) return { ok: false, error: "Élève introuvable.", code: "NOT_FOUND" };
 
   if (documentKind) {
+    const viewer = dossierViewerFromBrainCtx(ctx);
+    if (
+      !viewerMayReceiveEleveAccompagnementMetadata(viewer, {
+        eleveClasse: row.classe,
+      })
+    ) {
+      return {
+        ok: false,
+        error: "Accès refusé aux documents d’accompagnement.",
+        code: "FORBIDDEN",
+      };
+    }
     const byEleve = await listEleveLatestAccompagnementByKind({
       etablissementId: etabId,
       eleveIds: [row.id],

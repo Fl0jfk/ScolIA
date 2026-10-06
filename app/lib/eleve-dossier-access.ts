@@ -490,8 +490,13 @@ export async function recordEleveAccessAudit(input: {
   eleveId?: string | null;
   action: string;
   metadata?: Record<string, unknown>;
+  actorIp?: string | null;
+  actorUserAgent?: string | null;
+  actorRoles?: string[] | null;
 }): Promise<void> {
   const db = getDb();
+  const roles =
+    input.actorRoles && input.actorRoles.length > 0 ? input.actorRoles : null;
   await db.insert(eleveAccessAudit).values({
     etablissementId: input.etablissementId,
     actorUserId: input.actorUserId,
@@ -500,6 +505,9 @@ export async function recordEleveAccessAudit(input: {
     eleveId: input.eleveId ?? null,
     action: input.action,
     metadata: input.metadata ?? null,
+    actorIp: input.actorIp?.trim() || null,
+    actorUserAgent: input.actorUserAgent?.trim() || null,
+    actorRoles: roles,
   });
 }
 

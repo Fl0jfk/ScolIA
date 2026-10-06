@@ -12,6 +12,11 @@ import type {
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
 import { listEleveLatestAccompagnementByKind } from "@/app/lib/eleve-dossier-access";
 import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
+import {
+  brainAccompagnementExposure,
+  dossierViewerFromBrainCtx,
+  viewerMayLoadEleveAccompagnementListMetadata,
+} from "@/app/lib/eleve-dossier-accompagnement-access";
 import { listElevesDossierFromDb } from "@/app/lib/eleve-dossier-prof";
 import type { AccompagnementKind } from "@/app/lib/eleve-pap";
 import { ACCOMPAGNEMENT_KINDS, accompagnementKindDef } from "@/app/lib/eleve-pap";
@@ -168,22 +173,41 @@ export async function handleListElevesFiltered(
     }
   }
 
-  const accompagnementByEleve = await listEleveLatestAccompagnementByKind({
-    etablissementId: etabId,
-    eleveIds: eleves.map((e) => e.id),
-  });
+  const viewer = dossierViewerFromBrainCtx(ctx);
+  const mayLoadAccompagnements = viewerMayLoadEleveAccompagnementListMetadata(viewer);
+  const accompagnementByEleve = mayLoadAccompagnements
+    ? await listEleveLatestAccompagnementByKind({
+        etablissementId: etabId,
+        eleveIds: eleves.map((e) => e.id),
+      })
+    : new Map<
+        string,
+        Array<{
+          kind: AccompagnementKind;
+          documentId: string;
+          anneeLabel: string | null;
+          createdAt: Date;
+        }>
+      >();
 
-  const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
   let rows = eleves.map((e) => {
-    const items = accompagnementByEleve.get(e.id) ?? [];
-    const kinds = kindOrder.filter((k) => items.some((i) => i.kind === k));
-    const documents: EleveDocLink[] = items.map((i) => ({
-      kind: i.kind,
-      documentId: i.documentId,
-      fileHref: eleveDocumentFileProxyPath(e.id, i.documentId),
-      anneeLabel: i.anneeLabel,
-      createdAt: i.createdAt,
-    }));
+    const rawItems = accompagnementByEleve.get(e.id) ?? [];
+    const exposure = brainAccompagnementExposure(
+      viewer,
+      e.classe,
+      rawItems.map((i) => ({ kind: i.kind, documentId: i.documentId })),
+    );
+    const documents: EleveDocLink[] = exposure.items.map((i) => {
+      const src = rawItems.find((r) => r.documentId === i.documentId && r.kind === i.kind)!;
+      return {
+        kind: i.kind,
+        documentId: i.documentId,
+        fileHref: eleveDocumentFileProxyPath(e.id, i.documentId),
+        anneeLabel: src.anneeLabel,
+        createdAt: src.createdAt,
+      };
+    });
+    const kinds = exposure.kinds;
     return {
       id: e.id,
       nom: e.nom,
