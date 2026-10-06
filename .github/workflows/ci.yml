@@ -221,3 +221,24 @@ jobs:
 
       - name: Tests unitaires élèves actifs / notes / VS
         run: npm run test:eleve-actif-suite
+
+  stages-perf-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests stages perf (PGlite)
+        run: npm run test:stages-perf

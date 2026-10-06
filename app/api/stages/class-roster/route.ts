@@ -6,6 +6,7 @@ import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canReviewPreconvention, canBrowseStageConventions, canViewReferentConventions } from "@/app/lib/stage-access";
 import { buildStageClassRoster, listStageRosterClassNames, searchStageConventionsGlobal } from "@/app/lib/stage-class-roster";
+import { getConventionsIndex } from "@/app/lib/stage-storage";
 import {
   classNameMatchesStageSecteurs,
   resolveStageViewerSecteurs,
@@ -55,9 +56,12 @@ export async function GET(req: Request) {
       : [[], []];
     perf.mark("referent_classes");
 
+    const conventionsIndex = await getConventionsIndex();
+    perf.mark("conventions_index");
+
     let availableClasses: string[];
     if (canBrowseAll) {
-      const fromRoster = await listStageRosterClassNames(schoolYear);
+      const fromRoster = await listStageRosterClassNames(schoolYear, conventionsIndex);
       availableClasses = [...new Set([...fromRoster, ...referentClasses])].sort((a, b) =>
         a.localeCompare(b, "fr", { sensitivity: "base" }),
       );
@@ -123,7 +127,7 @@ export async function GET(req: Request) {
 
     const [config, roster, members] = await Promise.all([
       getStageReferentsConfig(schoolYear),
-      buildStageClassRoster(className, schoolYear),
+      buildStageClassRoster(className, schoolYear, { index: conventionsIndex }),
       canAssignReferent ? listDirectoryMembers() : Promise.resolve(null),
     ]);
     perf.mark("roster_build");
