@@ -169,7 +169,11 @@ export function parseSiecleElevesXmlServer(
       continue;
     }
 
-    const row = eleveFromSiecleBlock(el, { status: "inscrit" });
+    const dateSortieFutureIso = normalizeSiecleDate(dateSortieRaw);
+    const row = eleveFromSiecleBlock(el, {
+      status: "inscrit",
+      ...(dateSortieFutureIso ? { dateSortie: dateSortieFutureIso } : {}),
+    });
     if (!row) continue;
     totalInFile += 1;
 

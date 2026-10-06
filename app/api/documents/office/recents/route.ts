@@ -77,7 +77,7 @@ async function scanPersonalOfficeFiles(
 }
 
 export async function GET(req: NextRequest) {
-  const gate = await requireModule("documents");
+  const gate = await requireModule("office");
   if (!gate.ok) return gate.response;
 
   const { searchParams } = new URL(req.url);

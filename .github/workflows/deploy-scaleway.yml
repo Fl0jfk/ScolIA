@@ -3,6 +3,8 @@
 # déploiement prod. Intégration = branche `dev` ; prod = merge validé vers `main`.
 #
 # Build + push image Docker vers le registry, puis redéploie le conteneur.
+# Migrations SQL : au démarrage du conteneur (ENTRYPOINT docker-entrypoint.sh → apply-migrations-direct).
+# Échec migration = conteneur qui ne démarre pas (pas de server.js). Voir docs/migrations-prod-runbook.md.
 #
 # ── Secrets GitHub (Settings → Secrets and variables → Actions → Secrets) ──
 # Noms neutres = mêmes que ton .env (pas de préfixe cloud).

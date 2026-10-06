@@ -50,6 +50,10 @@ async function signatureAwaitingUser(
     if (refEmail && email && refEmail === email) return true;
   }
 
+  if (sig.role === "professeur_principal") {
+    if (sigEmail && email && sigEmail === email) return true;
+  }
+
   if (sig.role === "direction" && hasDirectionRole(roles)) {
     const directionEmail = (
       await resolveStagesDirectionEmail(

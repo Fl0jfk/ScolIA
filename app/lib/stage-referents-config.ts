@@ -13,11 +13,24 @@ export type StageClassReferentAssignment = {
   role: StageReferentRole;
 };
 
+export type StageStudentReferentAssignment = {
+  className: string;
+  studentKey: string;
+  eleveId?: string;
+  ine?: string;
+  studentName: string;
+  externalUserId: string;
+  name: string;
+  email: string;
+};
+
 export type StageReferentsConfig = {
   schoolYear: string;
   updatedAt: string;
   updatedBy?: string;
   assignments: StageClassReferentAssignment[];
+  /** Élève → professeur référent (suivi), indépendant de la signature PP. */
+  studentAssignments: StageStudentReferentAssignment[];
 };
 
 function normalizeClassName(className: string): string {
@@ -35,6 +48,35 @@ export function classKey(className: string): string {
 
 function normalizeRole(raw: unknown): StageReferentRole {
   return raw === "professeur_principal" ? "professeur_principal" : "professeur_referent";
+}
+
+function normalizePersonName(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[-\s]+/g, " ")
+    .trim();
+}
+
+export function stageRosterStudentKey(nom: string, prenom: string, ine?: string): string {
+  if (ine?.trim()) return `ine:${ine.trim().toUpperCase()}`;
+  return `name:${normalizePersonName(nom)}|${normalizePersonName(prenom)}`;
+}
+
+function parseStudentAssignment(raw: unknown): StageStudentReferentAssignment | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const className = normalizeClassName(String(o.className ?? ""));
+  const studentKey = String(o.studentKey ?? "").trim();
+  const studentName = String(o.studentName ?? "").trim();
+  const externalUserId = String(o.externalUserId ?? "").trim();
+  const name = String(o.name ?? "").trim();
+  const email = String(o.email ?? "").trim().toLowerCase();
+  const eleveId = String(o.eleveId ?? "").trim() || undefined;
+  const ine = String(o.ine ?? "").trim() || undefined;
+  if (!className || !studentKey || !studentName || !externalUserId || !name || !email) return null;
+  return { className, studentKey, studentName, externalUserId, name, email, eleveId, ine };
 }
 
 export async function listStageReferentClassNames(schoolYear?: string): Promise<string[]> {
@@ -59,12 +101,27 @@ export async function getStageReferentsConfig(schoolYear: string): Promise<Stage
           }))
           .filter((a) => a.className && a.externalUserId && a.email)
       : [],
+    studentAssignments: Array.isArray(hit.data.studentAssignments)
+      ? hit.data.studentAssignments
+          .map((row) => parseStudentAssignment(row))
+          .filter((row): row is StageStudentReferentAssignment => row !== null)
+      : [],
   };
 }
 
 export async function saveStageReferentsConfig(
-  config: StageReferentsConfig,
+  config: Omit<StageReferentsConfig, "studentAssignments"> & {
+    studentAssignments?: StageStudentReferentAssignment[];
+  },
 ): Promise<StageReferentsConfig> {
+  const existing =
+    config.studentAssignments === undefined
+      ? await getStageReferentsConfig(config.schoolYear)
+      : null;
+  const studentAssignments = (config.studentAssignments ?? existing?.studentAssignments ?? [])
+    .map((row) => parseStudentAssignment(row))
+    .filter((row): row is StageStudentReferentAssignment => row !== null);
+
   const next: StageReferentsConfig = {
     schoolYear: config.schoolYear,
     updatedAt: new Date().toISOString(),
@@ -78,9 +135,60 @@ export async function saveStageReferentsConfig(
         role: normalizeRole(a.role),
       }))
       .filter((a) => a.className && a.externalUserId && a.name && a.email),
+    studentAssignments,
   };
   await putJson(STAGE_S3.referentsConfig(next.schoolYear), next);
   return next;
+}
+
+export function findStudentReferentAssignments(
+  config: StageReferentsConfig | null | undefined,
+  className: string,
+): StageStudentReferentAssignment[] {
+  if (!config || !className.trim()) return [];
+  const key = classKey(className);
+  return config.studentAssignments.filter((a) => classKey(a.className) === key);
+}
+
+export function findStudentReferentAssignmentForStudent(
+  config: StageReferentsConfig | null | undefined,
+  params: {
+    className: string;
+    studentKey?: string;
+    nom?: string;
+    prenom?: string;
+    ine?: string;
+    eleveId?: string;
+  },
+): StageStudentReferentAssignment | null {
+  const rows = findStudentReferentAssignments(config, params.className);
+  if (rows.length === 0) return null;
+
+  const key =
+    params.studentKey?.trim() ||
+    (params.nom && params.prenom
+      ? stageRosterStudentKey(params.nom, params.prenom, params.ine)
+      : "");
+  const nameKey =
+    params.nom && params.prenom ? stageRosterStudentKey(params.nom, params.prenom) : "";
+  const eleveId = params.eleveId?.trim() || "";
+  const ine = params.ine?.trim().toUpperCase() || "";
+
+  return (
+    rows.find((a) => key && a.studentKey === key) ??
+    rows.find((a) => eleveId && a.eleveId && a.eleveId === eleveId) ??
+    rows.find((a) => ine && a.ine?.trim().toUpperCase() === ine) ??
+    rows.find((a) => nameKey && a.studentKey === nameKey) ??
+    rows.find((a) => {
+      if (!params.nom || !params.prenom) return false;
+      const blob = normalizePersonName(a.studentName);
+      return (
+        blob.includes(normalizePersonName(params.nom)) &&
+        blob.includes(normalizePersonName(params.prenom))
+      );
+    }) ??
+    null
+  );
 }
 
 export function findReferentAssignment(
@@ -114,13 +222,21 @@ export function findPrincipalAssignments(
   );
 }
 
-async function resolveReferentForClass(
+async function resolvePrincipalForClass(
   className: string,
   schoolYear?: string,
 ): Promise<StageClassReferentAssignment | null> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
   const config = await getStageReferentsConfig(year);
-  return findReferentAssignment(config, className);
+  const principals = findPrincipalAssignments(config, className);
+  return principals[0] ?? null;
+}
+
+export async function resolvePrincipalSignerForClass(
+  className: string,
+  schoolYear?: string,
+): Promise<StageClassReferentAssignment | null> {
+  return resolvePrincipalForClass(className, schoolYear);
 }
 
 /** Classes dont l'utilisateur est professeur référent / principal. */
@@ -133,11 +249,15 @@ export async function listClassesForReferentUser(
   const year = schoolYear?.trim() || currentStageSchoolYear();
   const config = await getStageReferentsConfig(year);
   if (!config) return [];
-  return [...new Set(
-    config.assignments
-      .filter((a) => a.externalUserId === id)
-      .map((a) => a.className),
-  )].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  const fromPool = config.assignments
+    .filter((a) => a.externalUserId === id)
+    .map((a) => a.className);
+  const fromStudents = config.studentAssignments
+    .filter((a) => a.externalUserId === id)
+    .map((a) => a.className);
+  return [...new Set([...fromPool, ...fromStudents])].sort((a, b) =>
+    a.localeCompare(b, "fr", { sensitivity: "base" }),
+  );
 }
 
 /**
@@ -209,18 +329,21 @@ export async function ensureConventionReferent(convention: StageConvention): Pro
     convention.teacherReferent.name.trim() && convention.teacherReferent.email.trim();
   if (hasReferent) return convention;
 
-  const assignment = await resolveReferentForClass(
-    convention.student.className,
-    convention.schoolYear,
-  );
-  if (!assignment) return convention;
+  const year = convention.schoolYear?.trim() || currentStageSchoolYear();
+  const config = await getStageReferentsConfig(year);
+  const studentHit = findStudentReferentAssignmentForStudent(config, {
+    className: convention.student.className,
+    nom: convention.student.lastName,
+    prenom: convention.student.firstName,
+  });
+  if (!studentHit) return convention;
 
   return {
     ...convention,
     teacherReferent: {
-      name: assignment.name,
-      email: assignment.email,
-      userId: assignment.externalUserId,
+      name: studentHit.name,
+      email: studentHit.email,
+      userId: studentHit.externalUserId,
     },
   };
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { collectEleveParentEmails } from "@/app/lib/eleves-parent-emails";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
 import {
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
           }
         : trip.data.parentCalendar || defaultParentCalendarFromTrip(trip.data);
 
-    const eleves = await loadElevesRegistry();
+    const eleves = await loadElevesActifsRegistry();
     const byIne = new Map(eleves.map((e) => [e.ine, e]));
     const emailSet = new Set<string>();
     for (const p of participants) {

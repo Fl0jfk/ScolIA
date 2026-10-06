@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import TravelsAssistanceCardSettingsPanel from "@/app/components/travels/TravelsAssistanceCardSettingsPanel";
 
 type TravelsCfg = {
   transportProviders: { name: string; email: string }[];
@@ -128,6 +129,9 @@ export default function TravelsTransportSettingsPanel() {
         >
           {saving ? "…" : "Enregistrer"}
         </button>
+      </div>
+      <div className="border-t border-slate-100 pt-6">
+        <TravelsAssistanceCardSettingsPanel />
       </div>
     </div>
   );

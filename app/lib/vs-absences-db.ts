@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, groupePedagogiqueMembre, vsAbsenceEleve, vsAppel, vsAppelLigne } from "@/db/schema";
@@ -21,10 +21,21 @@ import {
   shouldPreserveAbsenceOnPresentLine,
   type AppelSlotRef,
 } from "@/app/lib/vs-appels-slot";
+import { sqlExcludeStageVsAbsences } from "@/app/lib/vs-absences-stage";
+import {
+  isVsAbsenceAccueilSlotActive,
+  VS_ABSENCE_STATUT_ANNULEE,
+  type AbsenceStatut,
+} from "@/app/lib/vs-absence-statut";
+
+export type { AbsenceStatut } from "@/app/lib/vs-absence-statut";
 
 export type AppelLigneStatut = "present" | "absent" | "retard" | "dispense";
 export type AbsenceType = "absence" | "retard";
-export type AbsenceStatut = "a_traiter" | "justifiee" | "non_justifiee" | "classee";
+
+function sqlExcludeAnnuleeVsAbsences() {
+  return ne(vsAbsenceEleve.statut, VS_ABSENCE_STATUT_ANNULEE);
+}
 
 export type VsAppelLigneInput = {
   eleveId: string;
@@ -339,7 +350,7 @@ async function listActiveAppelAbsencesForEleveOnDate(
     );
   return rows.filter(
     (r) =>
-      r.statut !== "classee" &&
+      isVsAbsenceAccueilSlotActive(r.statut) &&
       datesOverlap(asDateKey(r.dateDebut), asDateKey(r.dateFin), day, day),
   );
 }
@@ -467,12 +478,8 @@ export async function finalizeAppelAbsencesFromLignes(
   for (const ligne of lignes) {
     if (!isNonPresent(ligne.statut)) continue;
     if (enSortie.has(ligne.eleveId)) continue;
-    const covered = await eleveHasAccueilCoveringSlot(etablissementId, ligne.eleveId, {
-      date: appel.dateAppel,
-      heureDebut: appel.heureDebut,
-      heureFin: appel.heureFin,
-    });
-    if (covered) continue;
+    // Clôture : toujours une ligne source=appel (Consulter / CPE). L’anti-doublon accueil
+    // reste sur saveAppelLignes (saisie) ; à la clôture le prof confirme l’absent du créneau.
     const id = await upsertAbsenceFromAppelLigne(
       etablissementId,
       appel,
@@ -562,7 +569,12 @@ export async function listAbsencesATraiter(
     .from(vsAbsenceEleve)
     .innerJoin(eleve, eq(eleve.id, vsAbsenceEleve.eleveId))
     .where(
-      and(eq(vsAbsenceEleve.etablissementId, etablissementId), eq(vsAbsenceEleve.statut, statut)),
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.statut, statut),
+        sqlExcludeAnnuleeVsAbsences(),
+        sqlExcludeStageVsAbsences(),
+      ),
     )
     .orderBy(desc(vsAbsenceEleve.dateDebut), asc(eleve.nom))
     .limit(limit);
@@ -678,6 +690,7 @@ export async function countAbsencesATraiter(etablissementId: string): Promise<nu
       and(
         eq(vsAbsenceEleve.etablissementId, etablissementId),
         eq(vsAbsenceEleve.statut, "a_traiter"),
+        sqlExcludeStageVsAbsences(),
       ),
     );
   return row?.n ?? 0;
@@ -697,6 +710,7 @@ export async function countAbsencesJustifFamilleEnAttente(
         eq(vsAbsenceEleve.statut, "a_traiter"),
         eq(vsAbsenceEleve.justifie, false),
         sql`nullif(trim(${vsAbsenceEleve.motif}), '') is not null`,
+        sqlExcludeStageVsAbsences(),
       ),
     );
   return row?.n ?? 0;
@@ -730,7 +744,11 @@ export async function listAbsencesForEleve(
     })
     .from(vsAbsenceEleve)
     .where(
-      and(eq(vsAbsenceEleve.etablissementId, etablissementId), eq(vsAbsenceEleve.eleveId, eleveId)),
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.eleveId, eleveId),
+        sqlExcludeAnnuleeVsAbsences(),
+      ),
     )
     .orderBy(desc(vsAbsenceEleve.dateDebut), desc(vsAbsenceEleve.createdAt))
     .limit(limit);
@@ -774,6 +792,7 @@ export async function listAbsencesForDate(
       and(
         eq(vsAbsenceEleve.etablissementId, etablissementId),
         eq(vsAbsenceEleve.dateDebut, dateIso),
+        sqlExcludeAnnuleeVsAbsences(),
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom));
@@ -903,7 +922,7 @@ export async function listAccueilCoveringForEleves(
       ),
     );
   for (const r of rows) {
-    if (r.statut === "classee") continue;
+    if (!isVsAbsenceAccueilSlotActive(r.statut)) continue;
     if (
       absenceCoversSlot({
         dateDebut: String(r.dateDebut),
@@ -954,7 +973,7 @@ export async function createAbsenceAccueilEleve(
     );
   const clash = overlap.find(
     (r) =>
-      r.statut !== "classee" &&
+      isVsAbsenceAccueilSlotActive(r.statut) &&
       absenceCoversSlot({
         dateDebut: String(r.dateDebut),
         dateFin: String(r.dateFin),
@@ -1048,7 +1067,7 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
     .orderBy(asc(eleve.nom), asc(eleve.prenom), desc(vsAbsenceEleve.createdAt));
 
   return rows
-    .filter((r) => r.statut !== "classee")
+    .filter((r) => isVsAbsenceAccueilSlotActive(r.statut))
     .filter((r) => datesOverlap(asDateKey(r.dateDebut), asDateKey(r.dateFin), day, day))
     .map((r) => ({
       ...r,
@@ -1074,7 +1093,7 @@ export async function cancelAccueilEleveAbsence(
   const db = getDb();
   const [row] = await db
     .update(vsAbsenceEleve)
-    .set({ statut: "classee", updatedAt: new Date(), noteCpe })
+    .set({ statut: VS_ABSENCE_STATUT_ANNULEE, updatedAt: new Date(), noteCpe })
     .where(
       and(
         eq(vsAbsenceEleve.etablissementId, etablissementId),

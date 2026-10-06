@@ -95,7 +95,9 @@ function StagesContent() {
     }
     return "board";
   });
-  const [focusClassName, setFocusClassName] = useState<string | null>(null);
+  const [focusClassName, setFocusClassName] = useState<string | null>(
+    () => searchParams.get("className")?.trim() || null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -282,7 +284,10 @@ function StagesContent() {
   useEffect(() => {
     const raw = searchParams.get("tab");
     if (raw === "offers") setTab("board");
-    if (raw === "conventions") setTab("classe");
+    if (raw === "conventions" || raw === "classe") setTab("classe");
+    if (raw === "board" || raw === "settings" || raw === "repas") setTab(raw);
+    const cls = searchParams.get("className")?.trim();
+    if (cls) setFocusClassName(cls);
   }, [searchParams]);
 
   useEffect(() => {

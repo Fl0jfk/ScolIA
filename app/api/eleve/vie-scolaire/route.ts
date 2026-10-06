@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { vsAbsenceEleve } from "@/db/schema";
+import { VS_ABSENCE_STATUT_ANNULEE } from "@/app/lib/vs-absence-statut";
 import { requireEleveAccess } from "@/app/lib/eleve-auth";
 import { listMoyennesForEleve } from "@/app/lib/notes-saisie-db";
 
@@ -36,6 +37,7 @@ export async function GET() {
         and(
           eq(vsAbsenceEleve.etablissementId, etablissementId),
           eq(vsAbsenceEleve.eleveId, eleve.id),
+          ne(vsAbsenceEleve.statut, VS_ABSENCE_STATUT_ANNULEE),
         ),
       )
       .orderBy(desc(vsAbsenceEleve.dateDebut))

@@ -8,7 +8,7 @@ import {
   type StageClassPeriod,
 } from "@/app/lib/stage-periods-config";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
-import { classKey } from "@/app/lib/stage-referents-config";
+import { classKey, stageRosterStudentKey } from "@/app/lib/stage-referents-config";
 import { getConventionsIndex } from "@/app/lib/stage-storage";
 import { loadStageConventionsByIds } from "@/app/lib/stage-convention-load";
 import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
@@ -37,6 +37,7 @@ type StageRosterConvention = {
   signatureSummary: StageSignatureSummary;
   teacherReferentName?: string;
   teacherReferentEmail?: string;
+  teacherReferentUserId?: string;
 };
 
 export type StageRosterStudent = {
@@ -52,6 +53,9 @@ export type StageRosterStudent = {
   folderName?: string;
   rosterStatus: StageRosterStudentStatus;
   conventions: StageRosterConvention[];
+  assignedReferentName?: string;
+  assignedReferentEmail?: string;
+  assignedReferentUserId?: string;
 };
 
 export type StageClassRoster = {
@@ -151,12 +155,12 @@ function toRosterConvention(c: StageConvention): StageRosterConvention {
     signatureSummary: buildSignatureSummary(c),
     teacherReferentName: c.teacherReferent.name?.trim() || undefined,
     teacherReferentEmail: c.teacherReferent.email?.trim() || undefined,
+    teacherReferentUserId: c.teacherReferent.userId?.trim() || undefined,
   };
 }
 
 function studentKey(nom: string, prenom: string, ine?: string): string {
-  if (ine?.trim()) return `ine:${ine.trim().toUpperCase()}`;
-  return `name:${normalizeName(nom)}|${normalizeName(prenom)}`;
+  return stageRosterStudentKey(nom, prenom, ine);
 }
 
 function isRosterVisibleConvention(c: StageConvention, schoolYear: string): boolean {

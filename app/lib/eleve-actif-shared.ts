@@ -1,3 +1,4 @@
+import { getParisParts } from "@/app/lib/paris-time";
 import { isDateSortiePassee } from "@/app/lib/siecle-eleves-parse";
 
 function normalizeStatus(raw: unknown): string {
@@ -33,6 +34,18 @@ export function isEleveSortantEtablissement(
   const s = normalizeStatus(fields.status);
   if (s === "ancien" || s === "archive") return true;
   return isDateSortiePassee(fields.dateSortie, now);
+}
+
+/** Secondes jusqu’à minuit Paris (pour TTL cache registre actifs). */
+export function secondsUntilParisMidnight(now: Date = new Date()): number {
+  const p = getParisParts(now);
+  const elapsed = p.hour * 3600 + p.minute * 60 + p.second;
+  const remaining = 24 * 3600 - elapsed;
+  return Math.max(60, remaining);
+}
+
+export function ttlElevesActifsRegistryCache(capSeconds: number, now: Date = new Date()): number {
+  return Math.min(capSeconds, secondsUntilParisMidnight(now));
 }
 
 export function formatDateSortieFromRow(raw: string | Date | null | undefined): string | null {

@@ -68,9 +68,9 @@ export default function StagesSettingsPanel({
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Professeurs principaux / référents par classe</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-          Assignez un professeur principal et, si besoin, un ou plusieurs référents stage. Une classe
-          hors liste (ex. terminale) s&apos;ajoute toute seule dès qu&apos;un élève y dépose une
-          préconvention — vous pourrez ensuite y rattacher les professeurs.
+          Assignez le professeur principal (signataire de la convention) et le pool de professeurs
+          référents stages. Ensuite, dans l&apos;onglet Suivi classe, répartissez rapidement les
+          élèves entre ces référents — même avant dépôt de convention.
         </p>
         <div className="mt-4">
           <StageReferentsEditor onSaved={(m) => onSavedMsg(m)} />

@@ -1,8 +1,9 @@
 import "server-only";
 
-import { and, eq, inArray, lte, gte } from "drizzle-orm";
+import { and, eq, inArray, lte, gte, ne } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { vsAbsenceEleve } from "@/db/schema";
+import { VS_ABSENCE_STATUT_ANNULEE } from "@/app/lib/vs-absence-statut";
 import { isStageAbsenceMotif, type OccupancySignal } from "./types";
 
 export type AbsencePresenceRow = {
@@ -29,6 +30,7 @@ export async function listAbsenceSignalsOnDate(opts: {
     eq(vsAbsenceEleve.etablissementId, opts.etablissementId),
     lte(vsAbsenceEleve.dateDebut, opts.date),
     gte(vsAbsenceEleve.dateFin, opts.date),
+    ne(vsAbsenceEleve.statut, VS_ABSENCE_STATUT_ANNULEE),
   ];
   if (opts.eleveIds && opts.eleveIds.length > 0) {
     conditions.push(inArray(vsAbsenceEleve.eleveId, opts.eleveIds));

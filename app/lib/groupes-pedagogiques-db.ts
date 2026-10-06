@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, groupePedagogique, groupePedagogiqueMembre } from "@/db/schema";
 import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
@@ -122,7 +123,13 @@ export async function listGroupeMembres(
       ine: eleve.ine,
     })
     .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), inArray(eleve.id, ids)));
+    .where(
+      and(
+        eq(eleve.etablissementId, etablissementId),
+        inArray(eleve.id, ids),
+        drizzleEleveActifPourListes()!,
+      ),
+    );
 
   const byId = new Map(rows.map((r) => [r.id, r]));
   return links
@@ -225,7 +232,13 @@ export async function addGroupeMembre(
   const [e] = await db
     .select({ id: eleve.id })
     .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, eleveId)))
+    .where(
+      and(
+        eq(eleve.etablissementId, etablissementId),
+        eq(eleve.id, eleveId),
+        drizzleEleveActifPourListes()!,
+      ),
+    )
     .limit(1);
   if (!e) throw new Error("Élève introuvable.");
 
@@ -271,6 +284,7 @@ export async function addGroupeMembresFromClasse(
       and(
         eq(eleve.etablissementId, etablissementId),
         sql`lower(trim(${eleve.classe})) = lower(${cls})`,
+        drizzleEleveActifPourListes()!,
       ),
     );
 
@@ -341,6 +355,7 @@ export async function searchElevesForGroupe(
     .where(
       and(
         eq(eleve.etablissementId, etablissementId),
+        drizzleEleveActifPourListes()!,
         sqlPersonNameMatches({
           nom: eleve.nom,
           prenom: eleve.prenom,

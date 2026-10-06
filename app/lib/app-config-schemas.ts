@@ -241,6 +241,10 @@ export type TravelsModuleConfig = {
   showGroupeScolaireOption?: boolean;
   pdfFooterText?: string;
   signatureImageUrls?: Record<string, string>;
+  /** PDF carte d’assistance (clé S3 privée du tenant). */
+  assistanceCardS3Key?: string;
+  /** Nom affiché / téléchargement. */
+  assistanceCardFileName?: string;
 };
 
 export type ProfRoomModuleConfig = {
@@ -665,6 +669,8 @@ export function parseTravelsModule(raw: unknown): TravelsModuleConfig {
       if (url) sigUrls[k] = url;
     }
   }
+  const assistanceCardS3Key = str(o.assistanceCardS3Key).trim() || undefined;
+  const assistanceCardFileName = str(o.assistanceCardFileName).trim() || undefined;
   return {
     comptaEmails: strArr(o.comptaEmails).filter(isEmail),
     transportProviders: providers.flatMap((p) => {
@@ -677,6 +683,8 @@ export function parseTravelsModule(raw: unknown): TravelsModuleConfig {
     showGroupeScolaireOption: o.showGroupeScolaireOption === true,
     pdfFooterText: str(o.pdfFooterText) || undefined,
     signatureImageUrls: Object.keys(sigUrls).length ? sigUrls : undefined,
+    assistanceCardS3Key,
+    assistanceCardFileName: assistanceCardS3Key ? assistanceCardFileName : undefined,
   };
 }
 

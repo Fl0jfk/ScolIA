@@ -10,7 +10,7 @@ import {
   eleveParticipantKey,
   isCuisineWhoEatsComplete,
 } from "@/app/lib/travels-eleves-list";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { collectEleveParentEmails } from "@/app/lib/eleves-parent-emails";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
@@ -179,7 +179,7 @@ export async function POST(req: Request) {
           );
         }
 
-        const eleves = await loadElevesRegistry().catch(() => [] as EleveConfig[]);
+        const eleves = await loadElevesActifsRegistry().catch(() => [] as EleveConfig[]);
         const elevesByKey = new Map<string, EleveConfig>();
         for (const e of eleves) elevesByKey.set(eleveParticipantKey(e), e);
         const csv = buildElevesListCsvForTransporter(participants, elevesByKey);
@@ -283,7 +283,7 @@ export async function POST(req: Request) {
           parentsSkippedReason = "SMTP non configuré — calendrier parents non envoyé.";
         }
       } else if (parentsNotified === 0) {
-        const eleves = await loadElevesRegistry().catch(() => [] as EleveConfig[]);
+        const eleves = await loadElevesActifsRegistry().catch(() => [] as EleveConfig[]);
         const byIne = new Map(eleves.map((e) => [e.ine, e]));
         const emailSet = new Set<string>();
         for (const p of participants) {

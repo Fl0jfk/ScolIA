@@ -75,7 +75,7 @@ import {
   saveStageConvention,
   saveStudentTokenRef,
 } from "@/app/lib/stage-storage";
-import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
+import { ensureConventionReferent, resolvePrincipalSignerForClass } from "@/app/lib/stage-referents-config";
 import { ensureClassRegisteredForStages } from "@/app/lib/stage-periods-config";
 import { inferStudentLevelFromClass } from "@/app/lib/stage-student-identity";
 
@@ -162,6 +162,10 @@ async function buildDefaultSignatures(convention: StageConvention): Promise<Stag
     convention.student.level,
     convention.student.className,
   );
+  const principal = await resolvePrincipalSignerForClass(
+    convention.student.className,
+    convention.schoolYear,
+  );
 
   const rhEmail = convention.company.rhEmail?.trim() || "";
   const wantsRh =
@@ -179,7 +183,13 @@ async function buildDefaultSignatures(convention: StageConvention): Promise<Stag
         ? `${STAGE_SIGNER_ROLE_LABELS.rh_entreprise} — ${rhName}`
         : STAGE_SIGNER_ROLE_LABELS.rh_entreprise,
     },
-    { role: "professeur_referent", email: convention.teacherReferent.email },
+    {
+      role: "professeur_principal",
+      email: principal?.email,
+      label: principal?.name
+        ? `${STAGE_SIGNER_ROLE_LABELS.professeur_principal} — ${principal.name}`
+        : STAGE_SIGNER_ROLE_LABELS.professeur_principal,
+    },
     { role: "direction", email: directionEmail },
   ];
 
@@ -201,6 +211,10 @@ async function buildDepositedConventionSignatures(
   const directionEmail = await resolveStagesDirectionEmail(
     convention.student.level,
     convention.student.className,
+  );
+  const principal = await resolvePrincipalSignerForClass(
+    convention.student.className,
+    convention.schoolYear,
   );
   const now = new Date().toISOString();
   const paperSigned: StageSignature[] = [
@@ -230,8 +244,14 @@ async function buildDepositedConventionSignatures(
     },
   ];
 
-  const digitalRoles: Array<{ role: StageSignerRole; email?: string }> = [
-    { role: "professeur_referent", email: convention.teacherReferent.email },
+  const digitalRoles: Array<{ role: StageSignerRole; email?: string; label?: string }> = [
+    {
+      role: "professeur_principal",
+      email: principal?.email,
+      label: principal?.name
+        ? `${STAGE_SIGNER_ROLE_LABELS.professeur_principal} — ${principal.name}`
+        : STAGE_SIGNER_ROLE_LABELS.professeur_principal,
+    },
     { role: "direction", email: directionEmail },
   ];
   const digitalPending = digitalRoles
@@ -239,7 +259,7 @@ async function buildDepositedConventionSignatures(
     .map((s) => ({
       id: stageUid("sig"),
       role: s.role,
-      label: STAGE_SIGNER_ROLE_LABELS[s.role],
+      label: s.label || STAGE_SIGNER_ROLE_LABELS[s.role],
       status: "en_attente" as const,
       signEmail: s.email!.trim(),
     }));
@@ -1065,7 +1085,12 @@ export async function reviewPreconvention(
     signatures: await buildDefaultSignatures(convention),
   };
   if (!next.signatures.length) {
-    throw new Error("Aucun signataire configuré (vérifiez les e-mails parent, tuteur, prof référent, direction).");
+    throw new Error("Aucun signataire configuré (vérifiez les e-mails parent, tuteur, professeur principal, direction).");
+  }
+  if (!next.signatures.some((s) => s.role === "professeur_principal")) {
+    throw new Error(
+      "Professeur principal introuvable pour cette classe — configurez-le dans Stages → Réglages.",
+    );
   }
   next = pushHistory(next, params.byName, "ADMIN_VALIDE");
   next = await generateAndStoreConventionPdf(next);
@@ -1094,11 +1119,15 @@ export async function approveDepositedConvention(
   }
 
   let prepared = await ensureConventionReferent(convention);
-  if (!prepared.teacherReferent.email?.trim()) {
+  const principal = await resolvePrincipalSignerForClass(
+    prepared.student.className,
+    prepared.schoolYear,
+  );
+  if (!principal?.email?.trim()) {
     return {
       ok: false,
       error:
-        "Professeur référent introuvable pour cette classe — configurez les référents dans Stages & conventions.",
+        "Professeur principal introuvable pour cette classe — configurez-le dans Stages → Réglages.",
     };
   }
   const directionEmail = await resolveStagesDirectionEmail(
@@ -1115,10 +1144,10 @@ export async function approveDepositedConvention(
 
   const signatures = await buildDepositedConventionSignatures(prepared);
   const roles = new Set(signatures.map((s) => s.role));
-  if (!roles.has("professeur_referent") || !roles.has("direction")) {
+  if (!roles.has("professeur_principal") || !roles.has("direction")) {
     return {
       ok: false,
-      error: "Impossible de préparer les signatures prof référent + direction.",
+      error: "Impossible de préparer les signatures professeur principal + direction.",
     };
   }
 
@@ -1312,7 +1341,7 @@ export async function applyConventionSignature(params: {
     if (!stamp.ok) return { ok: false, error: stamp.error };
   } else if (roleStampsPdf(sig.role) && signMethod === "code_confirm") {
     // Direction / prof : paraphe image si disponible ; sinon preuve texte (code e-mail).
-    if (sig.role === "direction" || sig.role === "professeur_referent") {
+    if (sig.role === "direction" || sig.role === "professeur_referent" || sig.role === "professeur_principal") {
       const stamp = await stampSignatureOnConventionPdf({
         convention: next,
         role: sig.role,

@@ -7,6 +7,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { useTravelsAssistanceCard } from "@/app/hooks/useTravelsAssistanceCard";
 import { useTravelsElevesClasses } from "@/app/hooks/useTravelsElevesClasses";
 import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import {
@@ -36,6 +37,7 @@ import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
+import { TravelsAssistanceButton } from "@/app/components/travels/TravelsAssistanceButton";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
 import { TripDecisionHubPanel } from "@/app/components/travels/hub/TripDecisionHubPanel";
 import { TripDetailsModals } from "@/app/components/travels/hub/TripDetailsModals";
@@ -107,6 +109,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const tabFromUrl = searchParams.get("tab");
   const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
+  const { status: assistanceCardStatus } = useTravelsAssistanceCard(true);
   const { classOptions } = useTravelsElevesClasses();
   const [hubTab, setHubTab] = useState<TravelsHubTab>(() => {
     const t = tabFromUrl as TravelsHubTab | null;
@@ -792,8 +795,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
 
+  /** Créateur, direction établissement, administratif, admin général. */
+  const canRemindTransportStaff =
+    isOwner || canSign || isAdministratif || isGlobalAdmin;
+
   const remindTransportQuotes = async () => {
-    if (!isOwner && !canSign) {
+    if (!canRemindTransportStaff) {
       return alert("Vous n'êtes pas autorisé(e) à relancer les demandes de devis.");
     }
     if (!trip?.id) return;
@@ -1514,9 +1521,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     Boolean(transportSnapshot || trip.data?.selectedBusQuote || trip.data?.signedQuoteUrl);
   const canRemindTransportQuotes =
     withBusLogistics &&
-    (isOwner || canSign) &&
+    canRemindTransportStaff &&
     !trip.data?.signedQuoteUrl &&
-    ["PROF_LOGISTICS", "EN_ATTENTE_BUS_SIGNATURE"].includes(String(trip.status));
+    !["SEANCE_ANNULEE", "REJETE", "ANNULE"].includes(String(trip.status));
   const cuisineOrderSent = cuisineOrderWasSent(trip);
   const cuisineOrderSentAt = resolveCuisineOrderSentAt(trip);
   const cuisineChanged = cuisineEffectifChanged(trip.data);
@@ -1681,6 +1688,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         }
         coverImageAttributionUrl={
           typeof trip.imageAttributionUrl === "string" ? trip.imageAttributionUrl : null
+        }
+        headerActions={
+          <TravelsAssistanceButton status={assistanceCardStatus} size="md" />
         }
       />
 

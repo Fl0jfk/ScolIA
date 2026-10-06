@@ -1,6 +1,6 @@
 import "server-only";
 
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { resolveEleveFolderName, type EleveConfig } from "@/app/lib/eleves-config";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
 import { inferSecteurFromFolderName, resolveEleveSecteur } from "@/app/lib/onedrive-eleves";
@@ -56,7 +56,7 @@ export async function listElevesForSecteurs(secteurs: Secteur[]): Promise<
   Array<EleveConfig & { secteur: Secteur; key: string }>
 > {
   const mefMap = await loadMefSecteurMap();
-  const all = await loadElevesRegistry();
+  const all = await loadElevesActifsRegistry();
   const allowed = new Set(secteurs);
   const out: Array<EleveConfig & { secteur: Secteur; key: string }> = [];
   for (const e of all) {

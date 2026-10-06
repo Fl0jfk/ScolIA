@@ -56,9 +56,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/assets ./assets
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@napi-rs ./node_modules/@napi-rs
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
+COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/apply-migrations-direct.mjs ./scripts/apply-migrations-direct.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/assert-local-database.mjs ./scripts/assert-local-database.mjs
+COPY --from=builder --chown=nextjs:nodejs --chmod=755 /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres
 
 USER nextjs
 
 EXPOSE 8080
 
-CMD ["node", "server.js"]
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]

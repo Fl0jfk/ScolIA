@@ -833,3 +833,50 @@ export async function notifyStageFullySigned(convention: StageConvention) {
 
   return { sent: true, recipients };
 }
+
+export async function notifyStageReferentStudentAssignments(params: {
+  className: string;
+  teacherName: string;
+  teacherEmail: string;
+  studentNames: string[];
+}): Promise<{ sent: true; recipients: string[] } | { sent: false; reason: "smtp" | "no_recipients" | "no_students" }> {
+  const to = params.teacherEmail.trim().toLowerCase();
+  if (!to) return { sent: false, reason: "no_recipients" };
+  if (params.studentNames.length === 0) return { sent: false, reason: "no_students" };
+
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const followUrl = await tenantAbsolutePath(
+    `/stages?tab=classe&className=${encodeURIComponent(params.className)}`,
+  );
+  const list = params.studentNames.map((n) => `• ${n}`).join("\n");
+
+  const text = [
+    `Bonjour ${params.teacherName},`,
+    "",
+    `Vous avez été désigné(e) comme professeur référent de stage pour la classe ${params.className}.`,
+    "",
+    "Élèves dont vous suivez le stage :",
+    list,
+    "",
+    "Vous pouvez consulter la liste, le lieu de stage et les contacts dans l'intranet :",
+    followUrl,
+    "",
+    "Le professeur principal de la classe reste le signataire de la convention. Votre rôle est le suivi des stagiaires.",
+    "",
+    "Cordialement,",
+    school,
+  ].join("\n");
+
+  await m.transporter.sendMail({
+    from: `"Stages ${school}" <${m.smtp.user}>`,
+    to,
+    subject: `[Stages] Référent de stage — ${params.className} (${params.studentNames.length} élève${params.studentNames.length > 1 ? "s" : ""})`,
+    text,
+  });
+
+  return { sent: true, recipients: [to] };
+}

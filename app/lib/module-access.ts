@@ -349,20 +349,13 @@ export function accessibleModuleIdsForRoles(
   lookup?: ModuleAccessLookup | null,
 ): Set<string> {
   if (hasMasterRole(roles) || hasGlobalAdminRole(roles) || isOrgAdmin || roles.includes("admin")) {
-    const ids = new Set(listConfigurableModules().map((m) => m.id));
-    if (ids.has("documents") || listConfigurableModules().some((m) => m.id === "documents")) {
-      ids.add("office");
-    }
-    return ids;
+    return new Set(listConfigurableModules().map((m) => m.id));
   }
   const ids = new Set<string>();
   for (const m of INTRANET_MODULES) {
     if (rolesAllowModule(roles, m, isOrgAdmin, access, lookup ?? null)) {
       ids.add(m.id);
     }
-  }
-  if (ids.has("documents")) {
-    ids.add("office");
   }
   return ids;
 }

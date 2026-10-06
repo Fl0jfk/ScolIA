@@ -384,7 +384,9 @@ export default function StagePublicSignerClient() {
   if (!view) return null;
 
   const isDirection = view.signature.role === "direction";
-  const isProf = view.signature.role === "professeur_referent";
+  const isProf =
+    view.signature.role === "professeur_referent" ||
+    view.signature.role === "professeur_principal";
   const scheduleDays = view.convention.scheduleDays ?? [];
   const signingSuspended = Boolean(view.signingSuspended);
   const canEditSchedule = Boolean(view.canRequestScheduleChange) && !done;

@@ -15,7 +15,8 @@ export async function PUT(req: Request) {
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();
-    await saveTravelsModule(parseTravelsModule(body));
+    const current = await loadAppConfig();
+    await saveTravelsModule(parseTravelsModule({ ...current.travels, ...body }));
     const config = await loadAppConfig();
     return NextResponse.json({ success: true, travels: config.travels });
   } catch (e) {

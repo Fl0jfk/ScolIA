@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import {
   eleve,
@@ -145,6 +146,7 @@ export async function listElevesForClasse(etablissementId: string, classe: strin
       and(
         eq(eleve.etablissementId, etablissementId),
         sql`lower(trim(${eleve.classe})) = lower(${cls})`,
+        drizzleEleveActifPourListes()!,
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom));

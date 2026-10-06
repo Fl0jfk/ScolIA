@@ -14,3 +14,18 @@ concurrency:
 jobs:
   typecheck:
     uses: ./.github/workflows/typecheck-reusable.yml
+
+  drizzle-migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Valider journal migrations Drizzle
+        run: node scripts/validate-drizzle-migrations.mjs
+
+      - name: Tests garde-fou migrations
+        run: npm run test:drizzle-migrations

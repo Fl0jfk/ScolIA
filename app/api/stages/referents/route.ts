@@ -9,7 +9,6 @@ import {
   listStageReferentClassNames,
   saveStageReferentsConfig,
   type StageClassReferentAssignment,
-  type StageReferentsConfig,
 } from "@/app/lib/stage-referents-config";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
 
@@ -87,13 +86,12 @@ export async function PUT(req: Request) {
     const schoolYear = String(body.schoolYear ?? "").trim() || currentStageSchoolYear();
     const assignments = parseAssignments(body.assignments);
 
-    const config: StageReferentsConfig = {
+    const saved = await saveStageReferentsConfig({
       schoolYear,
       updatedAt: new Date().toISOString(),
       updatedBy: displayName(user),
       assignments,
-    };
-    const saved = await saveStageReferentsConfig(config);
+    });
     return NextResponse.json({ success: true, config: saved });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
