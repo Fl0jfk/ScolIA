@@ -33,86 +33,123 @@ const CMD_TIMEOUT_MS = 150;
 const CONNECT_TIMEOUT_MS = 5_000;
 const DIAG_PING_TIMEOUT_MS = 2_000;
 
-/** Repli mémoire quand Valkey est absent (prod en veille) — TTL court par tenant/clé. */
-const MEMORY_CACHE_MAX_TTL_SEC = 30;
+/**
+ * Repli mémoire **restreint** (index conventions, roster stages, registre élèves).
+ * Jamais dans valkeyGetJson / valkeySetJson — évite les données sensibles ou mutées ailleurs.
+ */
+const SCOPED_MEMORY_NS = "scola:";
+const SCOPED_MEMORY_MAX_TTL_SEC = 30;
+const SCOPED_MEMORY_MAX_ENTRIES = 256;
 
-type MemoryCacheEntry = { expiresAt: number; value: unknown };
+type ScopedMemoryEntry = { expiresAt: number; value: unknown; generation: number };
 
-const memoryCache = new Map<string, MemoryCacheEntry>();
-const memoryInflight = new Map<string, Promise<unknown>>();
+const scopedMemoryCache = new Map<string, ScopedMemoryEntry>();
+const scopedMemoryInflight = new Map<string, Promise<unknown>>();
+const scopedMemoryGeneration = new Map<string, number>();
 
-function memoryTtlSeconds(requested: number): number {
-  const n = Math.max(1, Math.floor(requested));
-  if (isValkeyConfigured()) return n;
-  return Math.min(n, MEMORY_CACHE_MAX_TTL_SEC);
+export function isScopedMemoryCacheKey(key: string): boolean {
+  if (!key.startsWith(SCOPED_MEMORY_NS)) return false;
+  if (key.includes(":stages:conv-index:")) return true;
+  if (key.includes(":stages:roster:")) return true;
+  return /:eleves:reg:[^:]+:(all|inscrit)$/.test(key);
 }
 
-function memoryGet<T>(key: string): T | null {
-  const hit = memoryCache.get(key);
+function isScopedMemoryCachePrefix(prefix: string): boolean {
+  if (!prefix.startsWith(SCOPED_MEMORY_NS)) return false;
+  return prefix.includes(":stages:roster:");
+}
+
+function scopedMemoryTtlSeconds(requested: number): number {
+  const n = Math.max(1, Math.floor(requested));
+  return Math.min(n, SCOPED_MEMORY_MAX_TTL_SEC);
+}
+
+function getScopedGeneration(key: string): number {
+  return scopedMemoryGeneration.get(key) ?? 0;
+}
+
+function bumpScopedGeneration(key: string): void {
+  scopedMemoryGeneration.set(key, getScopedGeneration(key) + 1);
+  scopedMemoryCache.delete(key);
+  scopedMemoryInflight.delete(key);
+}
+
+function bumpScopedGenerationByPrefix(prefix: string): void {
+  for (const key of new Set([
+    ...scopedMemoryCache.keys(),
+    ...scopedMemoryGeneration.keys(),
+    ...scopedMemoryInflight.keys(),
+  ])) {
+    if (key.startsWith(prefix)) bumpScopedGeneration(key);
+  }
+}
+
+function enforceScopedMemoryBound(): void {
+  while (scopedMemoryCache.size > SCOPED_MEMORY_MAX_ENTRIES) {
+    const first = scopedMemoryCache.keys().next().value;
+    if (!first) break;
+    scopedMemoryCache.delete(first);
+  }
+}
+
+function scopedMemoryGet<T>(key: string): T | null {
+  const hit = scopedMemoryCache.get(key);
   if (!hit) return null;
-  if (Date.now() >= hit.expiresAt) {
-    memoryCache.delete(key);
+  if (Date.now() >= hit.expiresAt || hit.generation !== getScopedGeneration(key)) {
+    scopedMemoryCache.delete(key);
     return null;
   }
   return structuredClone(hit.value) as T;
 }
 
-function memorySet(key: string, value: unknown, ttlSeconds: number): void {
-  const ttl = memoryTtlSeconds(ttlSeconds);
-  memoryCache.set(key, {
-    expiresAt: Date.now() + ttl * 1000,
+function scopedMemorySet(
+  key: string,
+  value: unknown,
+  ttlSeconds: number,
+  generation: number,
+): void {
+  if (generation !== getScopedGeneration(key)) return;
+  enforceScopedMemoryBound();
+  scopedMemoryCache.set(key, {
+    expiresAt: Date.now() + scopedMemoryTtlSeconds(ttlSeconds) * 1000,
     value: structuredClone(value),
+    generation,
   });
 }
 
-function memoryDelete(key: string): void {
-  memoryCache.delete(key);
-  memoryInflight.delete(key);
-}
-
-function memoryDeleteByPrefix(prefix: string): number {
-  let n = 0;
-  for (const key of [...memoryCache.keys()]) {
-    if (key.startsWith(prefix)) {
-      memoryCache.delete(key);
-      n += 1;
-    }
-  }
-  for (const key of [...memoryInflight.keys()]) {
-    if (key.startsWith(prefix)) {
-      memoryInflight.delete(key);
-    }
-  }
-  return n;
-}
-
-/** Tests unitaires — réinitialise le repli mémoire. */
+/** Tests unitaires — réinitialise le repli mémoire scopé. */
 export function resetValkeyMemoryCacheForTests(): void {
-  memoryCache.clear();
-  memoryInflight.clear();
+  scopedMemoryCache.clear();
+  scopedMemoryInflight.clear();
+  scopedMemoryGeneration.clear();
 }
 
-async function runCachedLoader<T>(
+async function runScopedCachedLoader<T>(
   key: string,
   ttlSeconds: number,
   loader: () => Promise<T>,
-  persist: (value: T) => void,
+  afterLoad?: (fresh: T, generation: number) => void,
 ): Promise<T> {
-  const inflight = memoryInflight.get(key) as Promise<T> | undefined;
+  const inflight = scopedMemoryInflight.get(key) as Promise<T> | undefined;
   if (inflight) return inflight;
 
+  const startGen = getScopedGeneration(key);
   const promise = (async () => {
     const fresh = await loader();
-    persist(fresh);
+    if (getScopedGeneration(key) !== startGen) {
+      return structuredClone(fresh);
+    }
+    scopedMemorySet(key, fresh, ttlSeconds, startGen);
+    afterLoad?.(fresh, startGen);
     return structuredClone(fresh);
   })();
 
-  memoryInflight.set(key, promise);
+  scopedMemoryInflight.set(key, promise);
   try {
     return await promise;
   } finally {
-    if (memoryInflight.get(key) === promise) {
-      memoryInflight.delete(key);
+    if (scopedMemoryInflight.get(key) === promise) {
+      scopedMemoryInflight.delete(key);
     }
   }
 }
@@ -548,7 +585,7 @@ export async function valkeySet(
 export async function valkeyDel(...keys: string[]): Promise<void> {
   if (keys.length === 0) return;
   for (const key of keys) {
-    memoryDelete(key);
+    if (isScopedMemoryCacheKey(key)) bumpScopedGeneration(key);
   }
   if (!isValkeyConfigured()) return;
   try {
@@ -559,8 +596,6 @@ export async function valkeyDel(...keys: string[]): Promise<void> {
 }
 
 export async function valkeyGetJson<T>(key: string): Promise<T | null> {
-  const mem = memoryGet<T>(key);
-  if (mem !== null && mem !== undefined) return mem;
   if (!isValkeyConfigured()) return null;
   const raw = await valkeyGet(key);
   if (!raw) return null;
@@ -576,9 +611,7 @@ export async function valkeySetJson(
   value: unknown,
   ttlSeconds?: number,
 ): Promise<boolean> {
-  const ttl = ttlSeconds && ttlSeconds > 0 ? ttlSeconds : MEMORY_CACHE_MAX_TTL_SEC;
-  memorySet(key, value, ttl);
-  if (!isValkeyConfigured()) return true;
+  if (!isValkeyConfigured()) return false;
   try {
     return await valkeySet(key, JSON.stringify(value), ttlSeconds);
   } catch (error) {
@@ -592,24 +625,39 @@ export async function valkeyCached<T>(opts: {
   ttlSeconds: number;
   loader: () => Promise<T>;
 }): Promise<T> {
-  const mem = memoryGet<T>(opts.key);
-  if (mem !== null && mem !== undefined) return mem;
+  const scoped = isScopedMemoryCacheKey(opts.key);
+  const memTtl = scopedMemoryTtlSeconds(opts.ttlSeconds);
+
+  if (scoped) {
+    const mem = scopedMemoryGet<T>(opts.key);
+    if (mem !== null && mem !== undefined) return mem;
+  }
 
   if (!isValkeyConfigured()) {
-    return runCachedLoader(opts.key, opts.ttlSeconds, opts.loader, (fresh) => {
-      memorySet(opts.key, fresh, opts.ttlSeconds);
-    });
+    if (!scoped) return opts.loader();
+    return runScopedCachedLoader(opts.key, memTtl, opts.loader);
   }
 
   const hit = await valkeyGetJson<T>(opts.key);
   if (hit !== null && hit !== undefined) {
-    memorySet(opts.key, hit, opts.ttlSeconds);
-    return structuredClone(hit);
+    if (scoped) {
+      const gen = getScopedGeneration(opts.key);
+      scopedMemorySet(opts.key, hit, memTtl, gen);
+      return structuredClone(hit);
+    }
+    return hit;
   }
 
-  return runCachedLoader(opts.key, opts.ttlSeconds, opts.loader, (fresh) => {
-    memorySet(opts.key, fresh, opts.ttlSeconds);
+  if (!scoped) {
+    const fresh = await opts.loader();
     void valkeySetJson(opts.key, fresh, opts.ttlSeconds);
+    return fresh;
+  }
+
+  return runScopedCachedLoader(opts.key, memTtl, opts.loader, (fresh, gen) => {
+    if (gen === getScopedGeneration(opts.key)) {
+      void valkeySetJson(opts.key, fresh, opts.ttlSeconds);
+    }
   });
 }
 
@@ -660,7 +708,11 @@ export function createValkeySecondaryStorage(keyPrefix = "ba:"): {
 
 export async function valkeyDeleteByPrefix(prefix: string): Promise<number> {
   if (!prefix) return 0;
-  let deleted = memoryDeleteByPrefix(prefix);
+  let deleted = 0;
+  if (isScopedMemoryCachePrefix(prefix)) {
+    deleted = [...scopedMemoryCache.keys()].filter((k) => k.startsWith(prefix)).length;
+    bumpScopedGenerationByPrefix(prefix);
+  }
   if (!isValkeyConfigured() || circuitOpen()) return deleted;
   const v = getValkey();
   if (!v || v.status !== "ready") return deleted;

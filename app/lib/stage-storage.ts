@@ -179,10 +179,10 @@ export async function listConventionsForDossier(
   const index = await getConventionsIndex();
   const ln = student.lastName.trim().toLowerCase();
   const fn = student.firstName.trim().toLowerCase();
-  const className = student.className.trim();
+  const className = student.className.trim().toLowerCase();
   const ids = index
     .filter((e) => {
-      const cn = String(e.className ?? "").trim();
+      const cn = String(e.className ?? "").trim().toLowerCase();
       if (className && cn && cn !== className) return false;
       const name = e.studentName.toLowerCase();
       if (ln && !name.includes(ln)) return false;

@@ -324,11 +324,15 @@ export function conventionIndexEntriesFromDbRows(
       const company = o.company;
       const schedule = o.schedule;
       if (!student || typeof student !== "object") return null;
-      if (!company || typeof company !== "object") return null;
-      if (!schedule || typeof schedule !== "object") return null;
       const st = student as { firstName?: string; lastName?: string; className?: string; level?: string };
-      const co = company as { name?: string };
-      const sch = schedule as { periodStart?: string; periodEnd?: string };
+      const co =
+        company && typeof company === "object"
+          ? (company as { name?: string })
+          : { name: "" };
+      const sch =
+        schedule && typeof schedule === "object"
+          ? (schedule as { periodStart?: string; periodEnd?: string })
+          : { periodStart: "", periodEnd: "" };
       const teacher = o.teacherReferent as { email?: string } | undefined;
       const entry: StageConventionIndexEntry = {
         id: m.id,

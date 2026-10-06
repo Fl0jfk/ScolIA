@@ -46,7 +46,7 @@ export const VALKEY_TTL = {
   /** Convention de stage individuelle */
   stagesConvention: 60,
   /** Roster suivi classe (invalidé à la sauvegarde convention) */
-  stagesClassRoster: 90,
+  stagesClassRoster: 15,
   /** Index liste séjours / voyages (payload complet — miss = batch Postgres) */
   travelsIndex: 90,
   /** Dossier séjour individuel */

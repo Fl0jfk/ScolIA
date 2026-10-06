@@ -1,5 +1,6 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { listElevesFromDb, resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   getStagePeriodsForClass,
   isClassEnabledInStagePeriods,
@@ -120,13 +121,8 @@ function eleveMatchesClass(eleve: EleveConfig, className: string): boolean {
   return schoolClassesMatch(resolved, className);
 }
 
-async function loadElevesForClass(className: string): Promise<EleveConfig[]> {
-  const etabId = await resolveCurrentEtablissementId().catch(() => null);
-  if (!etabId) return [];
-  const trimmed = className.trim();
-  if (!trimmed) return [];
-  const rows = await listElevesFromDb(etabId, { status: "inscrit", classe: trimmed });
-  return rows.filter((e) => eleveMatchesClass(e, className));
+async function loadEleves(): Promise<EleveConfig[]> {
+  return loadElevesActifsRegistry();
 }
 
 function isTerminalStatus(status: StageConventionStatus): boolean {
@@ -320,7 +316,7 @@ async function buildStageClassRosterUncached(
     ? Promise.resolve(opts.index)
     : getConventionsIndex();
   const [eleves, index, officialPeriods, classEnabledInConfig] = await Promise.all([
-    loadElevesForClass(className),
+    loadEleves(),
     indexPromise,
     getStagePeriodsForClass(className, year),
     isClassEnabledInStagePeriods(className, year),

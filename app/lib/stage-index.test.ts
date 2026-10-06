@@ -46,3 +46,32 @@ test("getConventionsFromDb — 2 requêtes par chunk (borné)", () => {
   const chunks = Math.ceil(ids.length / 500);
   assert.equal(chunks * CONVENTION_INDEX_MAX_DB_QUERIES_PER_CHUNK, 2);
 });
+
+test("index — conserve une convention sans entreprise ni dates", () => {
+  const full = roundTripConvention(sample);
+  const expected = conventionToIndexEntry(full);
+  const attrs = flattenToAttrs(
+    Object.fromEntries(
+      Object.entries(full as unknown as Record<string, unknown>).filter(
+        ([k]) => !["id", "status", "updatedAt", "company", "schedule"].includes(k),
+      ),
+    ),
+  ).filter((a) => (CONVENTION_INDEX_ATTR_PATHS as readonly string[]).includes(a.path));
+
+  const mains = [
+    {
+      id: full.id,
+      etablissementId: "etab_test",
+      status: full.status,
+      updatedAt: new Date(full.updatedAt),
+    },
+  ];
+  const built = conventionIndexEntriesFromDbRows(
+    mains,
+    attrs.map((a) => ({ id: full.id, path: a.path, value: a.value })),
+  );
+  assert.equal(built.length, 1);
+  assert.equal(built[0]!.companyName, "");
+  assert.equal(built[0]!.periodStart, "");
+  assert.equal(built[0]!.studentName, expected.studentName);
+});
