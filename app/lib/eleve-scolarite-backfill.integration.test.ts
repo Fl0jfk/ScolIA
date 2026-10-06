@@ -15,6 +15,22 @@ import {
 } from "@/db/schema";
 import { beginTestDatabase, endTestDatabase } from "@/app/lib/test-database-harness";
 
+function countEleveTableSelects(queries: string[]): number {
+  return queries.filter((q) => {
+    const lower = q.toLowerCase();
+    if (!lower.includes("select")) return false;
+    if (!/\beleve\b/.test(lower)) return false;
+    if (
+      lower.includes("eleve_scolarite") ||
+      lower.includes("eleve_regime") ||
+      lower.includes("eleve_foyer")
+    ) {
+      return false;
+    }
+    return true;
+  }).length;
+}
+
 test("backfill — élève sorti (date passée) non réactivé", async (t) => {
   if (!beginTestDatabase(t)) return;
 
@@ -180,8 +196,13 @@ test("backfillElevesScolariteCouranteOnce — marqueur persistant, second appel 
   if (!beginTestDatabase(t)) return;
 
   const { getDb, closeDb } = await import("@/db/index");
-  const { backfillElevesScolariteCouranteOnce } = await import("@/app/lib/ent-core-db");
+  const {
+    backfillElevesScolariteCouranteOnce,
+    resetScolariteBackfillCacheForTests,
+  } = await import("@/app/lib/ent-core-db");
   const { isEleveScolariteBackfillDone } = await import("@/app/lib/eleve-scolarite-backfill-marker");
+
+  resetScolariteBackfillCacheForTests();
 
   const db = getDb();
   const slug = `test-backfill-once-${randomUUID().slice(0, 8)}`;
@@ -198,6 +219,156 @@ test("backfillElevesScolariteCouranteOnce — marqueur persistant, second appel 
     assert.equal(n2, 0);
   } finally {
     await db.delete(tenantSettingAttr).where(eq(tenantSettingAttr.etablissementId, etab.id));
+    await db.delete(etablissement).where(eq(etablissement.id, etab.id));
+    await endTestDatabase(closeDb);
+  }
+});
+
+test("backfillElevesScolariteCouranteOnce — marqueur déjà posé, aucune lecture élève", async (t) => {
+  if (!beginTestDatabase(t)) return;
+
+  const { getDb, closeDb, drainTestSqlLog, resetTestSqlLog } = await import("@/db/index");
+  const {
+    backfillElevesScolariteCouranteOnce,
+    resetScolariteBackfillCacheForTests,
+  } = await import("@/app/lib/ent-core-db");
+  const { markEleveScolariteBackfillDone } = await import("@/app/lib/eleve-scolarite-backfill-marker");
+
+  resetScolariteBackfillCacheForTests();
+  resetTestSqlLog();
+
+  const db = getDb();
+  const slug = `test-backfill-marker-${randomUUID().slice(0, 8)}`;
+  const [etab] = await db
+    .insert(etablissement)
+    .values({ slug, name: "Backfill marker", dataBucket: "scola-dev" })
+    .returning({ id: etablissement.id });
+
+  try {
+    await markEleveScolariteBackfillDone(etab.id);
+    resetTestSqlLog();
+    const n = await backfillElevesScolariteCouranteOnce(etab.id);
+    assert.equal(n, 0);
+    assert.equal(countEleveTableSelects(drainTestSqlLog()), 0);
+  } finally {
+    await db.delete(tenantSettingAttr).where(eq(tenantSettingAttr.etablissementId, etab.id));
+    await db.delete(etablissement).where(eq(etablissement.id, etab.id));
+    await endTestDatabase(closeDb);
+  }
+});
+
+test("backfillElevesScolariteCouranteOnce — appels concurrents, une seule passe liste", async (t) => {
+  if (!beginTestDatabase(t)) return;
+
+  const { getDb, closeDb, resetTestSqlLog } = await import("@/db/index");
+  const {
+    backfillElevesScolariteCouranteOnce,
+    getScolariteBackfillRunCountForTests,
+    resetScolariteBackfillCacheForTests,
+  } = await import("@/app/lib/ent-core-db");
+
+  resetScolariteBackfillCacheForTests();
+  resetTestSqlLog();
+
+  const db = getDb();
+  const slug = `test-backfill-concurrent-${randomUUID().slice(0, 8)}`;
+  const [etab] = await db
+    .insert(etablissement)
+    .values({ slug, name: "Backfill concurrent", dataBucket: "scola-dev" })
+    .returning({ id: etablissement.id });
+
+  await db.insert(anneeScolaire).values({
+    etablissementId: etab.id,
+    label: "2025-2026",
+    isCurrent: true,
+    startsOn: "2025-09-01",
+    endsOn: "2026-08-31",
+  });
+
+  await db.insert(eleve).values({
+    etablissementId: etab.id,
+    sourceKey: `test:${randomUUID()}`,
+    nom: "CONC",
+    prenom: "Backfill",
+    folderName: "CONC Backfill",
+    classe: "5A",
+    status: "inscrit",
+  });
+
+  try {
+    resetTestSqlLog();
+    const [n1, n2] = await Promise.all([
+      backfillElevesScolariteCouranteOnce(etab.id),
+      backfillElevesScolariteCouranteOnce(etab.id),
+    ]);
+    assert.equal(n1, n2);
+    assert.equal(n1, 1);
+    assert.equal(getScolariteBackfillRunCountForTests(), 1);
+  } finally {
+    await db.delete(eleveScolarite).where(eq(eleveScolarite.etablissementId, etab.id));
+    await db.delete(eleve).where(eq(eleve.etablissementId, etab.id));
+    await db.delete(anneeScolaire).where(eq(anneeScolaire.etablissementId, etab.id));
+    await db.delete(tenantSettingAttr).where(eq(tenantSettingAttr.etablissementId, etab.id));
+    await db.delete(etablissement).where(eq(etablissement.id, etab.id));
+    resetScolariteBackfillCacheForTests();
+    await endTestDatabase(closeDb);
+  }
+});
+
+test("syncEleveScolariteFromEleveRow — pas de SELECT eleve redondant (snapshot backfill)", async (t) => {
+  if (!beginTestDatabase(t)) return;
+
+  const { getDb, closeDb, drainTestSqlLog, resetTestSqlLog } = await import("@/db/index");
+  const { syncEleveScolariteFromEleveRow } = await import("@/app/lib/ent-core-db");
+
+  resetTestSqlLog();
+
+  const db = getDb();
+  const slug = `test-backfill-n1-${randomUUID().slice(0, 8)}`;
+  const [etab] = await db
+    .insert(etablissement)
+    .values({ slug, name: "Backfill N+1", dataBucket: "scola-dev" })
+    .returning({ id: etablissement.id });
+
+  await db.insert(anneeScolaire).values({
+    etablissementId: etab.id,
+    label: "2025-2026",
+    isCurrent: true,
+    startsOn: "2025-09-01",
+    endsOn: "2026-08-31",
+  });
+
+  const [row] = await db
+    .insert(eleve)
+    .values({
+      etablissementId: etab.id,
+      sourceKey: `test:${randomUUID()}`,
+      nom: "N1",
+      prenom: "Test",
+      folderName: "N1 Test",
+      classe: "6B",
+      status: "inscrit",
+    })
+    .returning({
+      id: eleve.id,
+      classe: eleve.classe,
+      regime: eleve.regime,
+      status: eleve.status,
+      dateSortie: eleve.dateSortie,
+    });
+
+  try {
+    resetTestSqlLog();
+    await syncEleveScolariteFromEleveRow(etab.id, row);
+    assert.equal(
+      countEleveTableSelects(drainTestSqlLog()),
+      0,
+      "le registre plat est réutilisé sans relecture eleve",
+    );
+  } finally {
+    await db.delete(eleveScolarite).where(eq(eleveScolarite.eleveId, row.id));
+    await db.delete(eleve).where(eq(eleve.id, row.id));
+    await db.delete(anneeScolaire).where(eq(anneeScolaire.etablissementId, etab.id));
     await db.delete(etablissement).where(eq(etablissement.id, etab.id));
     await endTestDatabase(closeDb);
   }
