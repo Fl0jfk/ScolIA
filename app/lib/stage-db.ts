@@ -268,8 +268,10 @@ async function tryAcquireLegacyMigrationAdvisoryLock(
   return row?.locked === true;
 }
 
+type StageDbQueryable = Pick<StageDbTx, "select">;
+
 async function legacyConventionIdsBlockedByGlobalPk(
-  queryable: StageDbTx,
+  queryable: StageDbQueryable,
   etablissementId: string,
   legacyIds: Iterable<string>,
 ): Promise<Set<string>> {
