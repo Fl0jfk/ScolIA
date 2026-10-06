@@ -9,6 +9,7 @@ import {
   listDevoirs,
   listElevesForClasse,
   listElevesForGroupe,
+  resolvePeriodeDateDebutForNotesLists,
   listMoyennesClasse,
   listMoyennesGroupe,
   listNotesForDevoir,
@@ -18,6 +19,8 @@ import { getAppSession } from "@/app/lib/intranet-session";
 import { getDb } from "@/db/index";
 import { noteDevoir } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
+import { InvalidPeriodeIdError } from "@/app/lib/notes-periode-debut";
+import { isUuidV4Like } from "@/app/lib/notes-periode-debut-logic";
 
 async function resolveElevesForDevoir(
   etabId: string,
@@ -26,15 +29,25 @@ async function resolveElevesForDevoir(
   fallbackGroupeId: string,
 ) {
   const db = getDb();
-  const [devoir] = await db
-    .select({ classe: noteDevoir.classe, groupeId: noteDevoir.groupeId })
+  const [devoirRow] = await db
+    .select({
+      periodeId: noteDevoir.periodeId,
+      classe: noteDevoir.classe,
+      groupeId: noteDevoir.groupeId,
+    })
     .from(noteDevoir)
     .where(and(eq(noteDevoir.etablissementId, etabId), eq(noteDevoir.id, devoirId)))
     .limit(1);
-  if (devoir?.groupeId) return listElevesForGroupe(etabId, devoir.groupeId);
-  const cls = devoir?.classe || fallbackClasse;
+  if (!devoirRow) return [];
+  const periodeDebut = devoirRow.periodeId
+    ? await resolvePeriodeDateDebutForNotesLists(etabId, devoirRow.periodeId)
+    : await resolvePeriodeDateDebutForNotesLists(etabId, "");
+  if (devoirRow.groupeId) {
+    return listElevesForGroupe(etabId, devoirRow.groupeId, { periodeDateDebut: periodeDebut });
+  }
+  const cls = devoirRow.classe || fallbackClasse;
   if (!cls) return [];
-  return listElevesForClasse(etabId, cls);
+  return listElevesForClasse(etabId, cls, { periodeDateDebut: periodeDebut });
 }
 
 export async function GET(req: Request) {
@@ -85,11 +98,23 @@ export async function GET(req: Request) {
     matiereId: matiereId || undefined,
   });
 
+  if (periodeId && !isUuidV4Like(periodeId)) {
+    return NextResponse.json({ error: "Identifiant de période invalide." }, { status: 400 });
+  }
+  let periodeDebut: string;
+  try {
+    periodeDebut = await resolvePeriodeDateDebutForNotesLists(etabId, periodeId);
+  } catch (e) {
+    if (e instanceof InvalidPeriodeIdError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    throw e;
+  }
   let eleves: Awaited<ReturnType<typeof listElevesForClasse>> = [];
   if (groupeId) {
-    eleves = await listElevesForGroupe(etabId, groupeId);
+    eleves = await listElevesForGroupe(etabId, groupeId, { periodeDateDebut: periodeDebut });
   } else if (classe) {
-    eleves = await listElevesForClasse(etabId, classe);
+    eleves = await listElevesForClasse(etabId, classe, { periodeDateDebut: periodeDebut });
   }
 
   const classes = classe

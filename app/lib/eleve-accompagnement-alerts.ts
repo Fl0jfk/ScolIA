@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, desc, eq, gt, inArray } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve, eleveDocument } from "@/db/schema";
 import { getJson, putJson } from "@/app/lib/s3-storage";
@@ -73,7 +74,7 @@ async function listRecentAccompagnementDocsForClasses(opts: {
       classe: eleve.classe,
     })
     .from(eleve)
-    .where(eq(eleve.etablissementId, opts.etablissementId));
+    .where(and(eq(eleve.etablissementId, opts.etablissementId), drizzleEleveActifPourListes()!));
 
   const inScope = eleves.filter((e) =>
     studentInAssignedClasses(e.classe ?? undefined, opts.assignedClasses),

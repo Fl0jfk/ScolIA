@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { eleve, eleveFoyerLink, foyer, foyerResponsable } from "@/db/schema";
 import { requireAppUser } from "@/app/lib/app-session";
@@ -115,6 +116,7 @@ export async function buildFamillePortailData(
       .where(
         and(
           eq(eleve.etablissementId, etablissementId),
+          drizzleEleveActifPourListes()!,
           eq(eleveFoyerLink.etablissementId, etablissementId),
           eq(foyerResponsable.etablissementId, etablissementId),
           or(
@@ -140,6 +142,7 @@ export async function buildFamillePortailData(
       .where(
         and(
           eq(eleve.etablissementId, etablissementId),
+          drizzleEleveActifPourListes()!,
           or(
             sql`lower(trim(${eleve.parentEmail})) = ${emailNorm}`,
             sql`lower(trim(${eleve.parent1Email})) = ${emailNorm}`,
@@ -314,7 +317,13 @@ export async function listFamilleEnfantsByIds(
       ine: eleve.ine,
     })
     .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), inArray(eleve.id, ids)))
+    .where(
+      and(
+        eq(eleve.etablissementId, etablissementId),
+        inArray(eleve.id, ids),
+        drizzleEleveActifPourListes()!,
+      ),
+    )
     .orderBy(eleve.nom, eleve.prenom);
   const foyersByEleve = await loadFoyersForEleves(
     etablissementId,

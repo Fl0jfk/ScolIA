@@ -13,8 +13,14 @@ import {
   upsertCompetenceItem,
   upsertCompetenceValeur,
 } from "@/app/lib/notes-competences-db";
-import { listElevesForClasse, listElevesForGroupe } from "@/app/lib/notes-saisie-db";
+import {
+  listElevesForClasse,
+  listElevesForGroupe,
+  resolvePeriodeDateDebutForNotesLists,
+} from "@/app/lib/notes-saisie-db";
 import { listGroupes } from "@/app/lib/groupes-pedagogiques-db";
+import { InvalidPeriodeIdError } from "@/app/lib/notes-periode-debut";
+import { isUuidV4Like } from "@/app/lib/notes-periode-debut-logic";
 
 export async function GET(req: Request) {
   const gate = await requireModule("notes");
@@ -50,10 +56,25 @@ export async function GET(req: Request) {
     listGroupes(etabId),
   ]);
   const items = domaineId ? await listCompetenceItems(etabId, domaineId) : [];
-  const eleves = groupeId
-    ? await listElevesForGroupe(etabId, groupeId)
-    : classe
-      ? await listElevesForClasse(etabId, classe)
+  let periodeDebut: string | null = null;
+  if (periodeId) {
+    if (!isUuidV4Like(periodeId)) {
+      return NextResponse.json({ error: "Identifiant de période invalide." }, { status: 400 });
+    }
+    try {
+      periodeDebut = await resolvePeriodeDateDebutForNotesLists(etabId, periodeId);
+    } catch (e) {
+      if (e instanceof InvalidPeriodeIdError) {
+        return NextResponse.json({ error: e.message }, { status: 400 });
+      }
+      throw e;
+    }
+  }
+  const eleves =
+    periodeDebut && (groupeId || classe)
+      ? groupeId
+        ? await listElevesForGroupe(etabId, groupeId, { periodeDateDebut: periodeDebut })
+        : await listElevesForClasse(etabId, classe, { periodeDateDebut: periodeDebut })
       : [];
   const scopeReady = Boolean((classe || groupeId) && periodeId && domaineId);
   const valeurs = scopeReady

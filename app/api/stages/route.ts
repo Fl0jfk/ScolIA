@@ -43,7 +43,7 @@ import {
   type StageConventionStatus,
   type StageSchedule,
 } from "@/app/lib/stage-types";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import {
   loadElevePhotoIndex,
   resolveElevePhotoS3Key,
@@ -271,8 +271,8 @@ export async function GET() {
       ),
       // Registre uniquement si on a des cartes à enrichir (secteur / photos).
       boardSlice.length > 0
-        ? loadElevesRegistry().catch(() => [] as Awaited<ReturnType<typeof loadElevesRegistry>>)
-        : Promise.resolve([] as Awaited<ReturnType<typeof loadElevesRegistry>>),
+        ? loadElevesActifsRegistry().catch(() => [] as Awaited<ReturnType<typeof loadElevesActifsRegistry>>)
+        : Promise.resolve([] as Awaited<ReturnType<typeof loadElevesActifsRegistry>>),
     ]);
     perf.mark("pending_sigs_eleves");
 

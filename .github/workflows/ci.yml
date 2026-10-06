@@ -93,6 +93,7 @@ jobs:
           npm run test:eleve-core:db
           npm run test:occupancy:db
           npm run test:vs-appels-close
+          npm run test:eleve-scolarite-backfill:db
 
   migrations-fresh-db:
     runs-on: ubuntu-latest
@@ -166,3 +167,24 @@ jobs:
 
       - name: Tests unitaires (node:test)
         run: npm run test:unit
+
+  unit-tests-eleve-actif:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests unitaires élèves actifs / notes / VS
+        run: npm run test:eleve-actif-suite

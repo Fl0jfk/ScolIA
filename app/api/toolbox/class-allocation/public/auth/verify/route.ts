@@ -5,7 +5,7 @@ import {
   sealParentSession,
   verifyParentAuthCode,
 } from "@/app/lib/class-allocation-parent-auth";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import {
   findElevesByParentEmail,
   isValidParentEmail,
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: verified.error }, { status: 400 });
   }
 
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   const linked = findElevesByParentEmail(eleves, email);
   if (!linked.length) {
     return NextResponse.json(

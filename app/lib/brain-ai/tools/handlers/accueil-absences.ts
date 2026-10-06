@@ -11,6 +11,7 @@ import {
 } from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { eleve } from "@/db/schema";
@@ -42,7 +43,9 @@ async function searchEleves(
       classe: eleve.classe,
     })
     .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), or(...nameConds)))
+    .where(
+      and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!, or(...nameConds)),
+    )
     .orderBy(eleve.nom, eleve.prenom)
     .limit(40);
 

@@ -14,7 +14,8 @@ import {
   parseEleveGrilleRepas,
   type EleveGrilleRepas,
 } from "@/app/lib/eleve-grille-repas";
-import { eleveStatusLabel } from "@/app/lib/eleve-dossier-labels";
+import { eleveDossierStatutLabel } from "@/app/lib/eleve-dossier-labels";
+import { formatDateSortieFromRow } from "@/app/lib/eleve-actif-shared";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { teachingGroupsForClasse } from "@/app/lib/rh/teaching-groups";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
@@ -319,7 +320,12 @@ export async function buildEleveSyntheseSnapshot(params: {
   }
 
   return {
-    statusLabel: eleveStatusLabel(params.eleve.status),
+    statusLabel: eleveDossierStatutLabel({
+      status: params.eleve.status,
+      dateSortie: formatDateSortieFromRow(
+        (params.eleve as { dateSortie?: string | Date | null }).dateSortie,
+      ),
+    }),
     classeLabel,
     siteLabel,
     initials: eleveInitials(params.eleve.prenom, params.eleve.nom),

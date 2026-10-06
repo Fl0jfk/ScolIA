@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { loadCampaignConfig, listParentWishes } from "@/app/lib/class-allocation-storage";
 import { openParentSession, parentSessionCookieName } from "@/app/lib/class-allocation-parent-auth";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { findElevesByParentEmail, toParentLinkedChildren } from "@/app/lib/eleves-parent-emails";
 
 export async function GET() {
@@ -20,7 +20,7 @@ export async function GET() {
     });
   }
 
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   const linked = findElevesByParentEmail(eleves, session.email).filter((e) =>
     session.childInes.includes(e.ine),
   );

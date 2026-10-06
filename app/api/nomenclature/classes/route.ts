@@ -8,7 +8,7 @@ import {
   listUnmatchedEleveClasses,
   RECTORAT_LOCKED_POLES,
 } from "@/app/lib/nomenclature-classes";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 
 export async function GET() {
   const gate = await requireAdmin();
@@ -18,7 +18,7 @@ export async function GET() {
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
   const official = await loadOfficialSchoolClasses(etabId);
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   const eleveClasses = eleves
     .filter(isEleveScolarise)
     .map((e) => String(e.classe || "").trim())

@@ -26,7 +26,8 @@ import {
   isValidParentEmail,
   normalizeParentEmail,
 } from "@/app/lib/eleves-parent-emails";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { fileFicheDialoguePdfToDossier } from "@/app/lib/fiches-dialogue-filing";
 import {
   notifyFdAcceptationRequest,
@@ -283,12 +284,12 @@ export async function generateFdFichesForCampagne(
   const firstEtape = etapes.find((e) => !e.optionnelle) ?? etapes[0];
   if (!firstEtape) throw new Error("NO_ETAPES");
 
-  const registry = await loadElevesRegistry();
+  const registry = await loadElevesActifsRegistry();
   const db = getDb();
   const elevesDb = await db
     .select()
     .from(eleve)
-    .where(eq(eleve.etablissementId, etablissementId));
+    .where(and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!));
 
   const byIne = new Map(elevesDb.map((e) => [e.ine?.toUpperCase() ?? "", e]));
   const byId = new Map(elevesDb.map((e) => [e.id, e]));

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, eq, sql } from "drizzle-orm";
+import { drizzleEleveVisiblePourPeriodeNotes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import {
   anneeScolaire,
@@ -188,9 +189,11 @@ export async function loadBulletinSnapshot(
 export async function listEleveIdsForBulletinClasse(
   etablissementId: string,
   classe: string,
+  periodeDateDebut: string,
 ): Promise<Array<{ id: string; nom: string; prenom: string }>> {
   const db = getDb();
   const trimmed = classe.trim();
+  const visibilite = drizzleEleveVisiblePourPeriodeNotes(periodeDateDebut);
   return db
     .select({ id: eleve.id, nom: eleve.nom, prenom: eleve.prenom })
     .from(eleve)
@@ -198,6 +201,7 @@ export async function listEleveIdsForBulletinClasse(
       and(
         eq(eleve.etablissementId, etablissementId),
         sql`lower(trim(${eleve.classe})) = lower(${trimmed})`,
+        visibilite!,
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom));
@@ -206,8 +210,9 @@ export async function listEleveIdsForBulletinClasse(
 export async function listEleveIdsForBulletinGroupe(
   etablissementId: string,
   groupeId: string,
+  periodeDateDebut: string,
 ): Promise<Array<{ id: string; nom: string; prenom: string }>> {
   const { listElevesForGroupe } = await import("@/app/lib/notes-saisie-db");
-  const rows = await listElevesForGroupe(etablissementId, groupeId);
+  const rows = await listElevesForGroupe(etablissementId, groupeId, { periodeDateDebut });
   return rows.map((r) => ({ id: r.id, nom: r.nom, prenom: r.prenom }));
 }

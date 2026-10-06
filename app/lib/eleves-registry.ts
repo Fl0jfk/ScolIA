@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { EleveConfig } from "@/app/lib/eleves-config";
+import { isEleveActifPourListes, ttlElevesActifsRegistryCache } from "@/app/lib/eleve-actif-shared";
 import { isEleveScolarise, validateElevesJson } from "@/app/lib/eleves-config";
 import {
   countElevesInDb,
@@ -58,8 +59,11 @@ export async function loadElevesActifsRegistry(): Promise<EleveConfig[]> {
   }
   return valkeyCached({
     key: valkeyKeyElevesRegistry(etabId, "inscrit"),
-    ttlSeconds: VALKEY_TTL.elevesRegistry,
-    loader: () => listElevesFromDb(etabId, { status: "inscrit" }),
+    ttlSeconds: ttlElevesActifsRegistryCache(VALKEY_TTL.elevesRegistry),
+    loader: async () => {
+      const rows = await listElevesFromDb(etabId, { status: "inscrit" });
+      return rows.filter((e) => isEleveActifPourListes(e));
+    },
   });
 }
 
@@ -133,7 +137,7 @@ async function matchElevesByName(
   const minScore = opts?.minScore ?? 3;
   const limit = opts?.limit ?? 5;
   const classeFilter = opts?.classe?.trim().toLowerCase() || "";
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   return eleves
     .filter((e) => !classeFilter || String(e.classe || "").toLowerCase().includes(classeFilter))
     .map((eleve) => ({
@@ -147,7 +151,7 @@ async function matchElevesByName(
 
 async function searchElevesRegistry(q: string, limit = 50): Promise<EleveConfig[]> {
   const query = q.trim();
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   if (!query) return eleves.slice(0, limit);
   return eleves
     .filter((e) =>

@@ -5,6 +5,7 @@
 import "server-only";
 
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { cahierTexte, eleve } from "@/db/schema";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
@@ -43,7 +44,13 @@ export async function listDistinctClasses(etablissementId: string): Promise<stri
   const rows = await db
     .selectDistinct({ classe: eleve.classe })
     .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), sql`${eleve.classe} is not null`))
+    .where(
+      and(
+        eq(eleve.etablissementId, etablissementId),
+        drizzleEleveActifPourListes()!,
+        sql`${eleve.classe} is not null`,
+      ),
+    )
     .orderBy(asc(eleve.classe));
   return rows
     .map((r) => String(r.classe || "").trim())
