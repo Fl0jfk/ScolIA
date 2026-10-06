@@ -98,3 +98,31 @@ export function dossierViewerFromBrainCtx(ctx: {
 }): DossierAccompagnementViewer {
   return { roles: ctx.roles, orgAdmin: ctx.isOrgAdmin, platformAdmin: false };
 }
+
+/** Alertes tableau de bord (PAP/PAI/PPS/GEVASCO) — prof pur exclu si interrupteur false. */
+export function filterAccompagnementAlertsForViewer<T extends { classe: string | null }>(
+  viewer: DossierAccompagnementViewer,
+  alerts: readonly T[],
+  assignedClasses?: string[],
+): T[] {
+  if (!viewerMayReceiveAccompagnementDashboardAlerts(viewer)) {
+    return [];
+  }
+  if (!isProfesseurScopedDossierViewer(viewer)) {
+    return [...alerts];
+  }
+  return alerts.filter((a) =>
+    viewerMayReceiveEleveAccompagnementMetadata(viewer, {
+      eleveClasse: a.classe,
+      assignedClasses,
+    }),
+  );
+}
+
+/** Le professeur « pur » doit-il voir le flux d’alertes accompagnement sur le dashboard ? */
+export function viewerMayReceiveAccompagnementDashboardAlerts(
+  viewer: DossierAccompagnementViewer,
+): boolean {
+  if (!isProfesseurScopedDossierViewer(viewer)) return true;
+  return viewerMayLoadEleveAccompagnementListMetadata(viewer);
+}

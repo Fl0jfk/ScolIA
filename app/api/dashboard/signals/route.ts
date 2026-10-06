@@ -631,23 +631,34 @@ export async function GET() {
           hasRole(roles, "professeur")
         ) {
           try {
+            const {
+              filterAccompagnementAlertsForViewer,
+              viewerMayReceiveAccompagnementDashboardAlerts,
+            } = await import("@/app/lib/eleve-dossier-accompagnement-access");
             const { isProfesseurScopedDossierViewer } = await import(
               "@/app/lib/eleve-dossier-scope"
             );
-            if (
-              isProfesseurScopedDossierViewer({
-                roles,
-                orgAdmin: isOrgAdmin,
-              })
-            ) {
+            const { listAssignedClassesForTeacher } = await import(
+              "@/app/lib/eleve-dossier-prof"
+            );
+            const viewer = { roles, orgAdmin: isOrgAdmin };
+            if (viewerMayReceiveAccompagnementDashboardAlerts(viewer)) {
               const {
                 listUnseenAccompagnementAlertsForTeacher,
                 formatAccompagnementAlertDetail,
               } = await import("@/app/lib/eleve-accompagnement-alerts");
-              const alerts = await listUnseenAccompagnementAlertsForTeacher({
+              const rawAlerts = await listUnseenAccompagnementAlertsForTeacher({
                 etablissementId: etabId,
                 businessUserId,
               });
+              const assignedClasses = isProfesseurScopedDossierViewer(viewer)
+                ? await listAssignedClassesForTeacher(businessUserId)
+                : undefined;
+              const alerts = filterAccompagnementAlertsForViewer(
+                viewer,
+                rawAlerts,
+                assignedClasses,
+              );
               unseenAccompagnementAlerts = alerts.map((a) => ({
                 documentId: a.documentId,
                 eleveId: a.eleveId,

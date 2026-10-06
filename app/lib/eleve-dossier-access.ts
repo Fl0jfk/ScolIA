@@ -26,7 +26,29 @@ import {
   type AccompagnementEleveContext,
   viewerMayReceiveEleveAccompagnementMetadata,
 } from "@/app/lib/eleve-dossier-accompagnement-access";
-import { PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES } from "@/app/lib/eleve-dossier-scope";
+import {
+  isProfesseurScopedDossierViewer,
+  PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES,
+} from "@/app/lib/eleve-dossier-scope";
+
+/** Tiroir / catégorie santé (PAP·PAI·PPS·GEVASCO) pour un utilisateur ayant aussi le rôle professeur. */
+function includeProfesseurSanteAccompagnementDrawer(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  if (!hasRole(roles, "professeur")) return false;
+  if (
+    PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES ||
+    !isProfesseurScopedDossierViewer({
+      roles,
+      orgAdmin: opts?.orgAdmin,
+      platformAdmin: opts?.platformAdmin,
+    })
+  ) {
+    return true;
+  }
+  return false;
+}
 
 function isExactAdmin(roles: string[]): boolean {
   return roles.includes("admin") || hasGlobalAdminRole(roles);
@@ -154,8 +176,8 @@ export function eleveDocCategoriesForRoles(
   if (hasRole(roles, "surveillant")) {
     out.add("vie_scolaire");
   }
-  if (hasRole(roles, "professeur") && PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES) {
-    out.add("sante"); // PAP·PAI·PPS·GEVASCO (classes affectées uniquement)
+  if (includeProfesseurSanteAccompagnementDrawer(roles, opts)) {
+    out.add("sante");
   }
   return out;
 }
@@ -256,7 +278,7 @@ export function eleveDocTiroirsForRoles(
   if (hasRole(roles, "surveillant")) {
     tiroirs.add("vie_scolaire");
   }
-  if (hasRole(roles, "professeur") && PROFESSEUR_SEES_ACCOMPAGNEMENTS_OWN_CLASSES) {
+  if (includeProfesseurSanteAccompagnementDrawer(roles, opts)) {
     tiroirs.add("sante");
   }
 

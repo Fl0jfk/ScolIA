@@ -38,6 +38,10 @@ import {
   type EleveGrilleRepasDay,
   type MealDayKey,
 } from "@/app/lib/eleve-grille-repas";
+import {
+  eleveDossierSessionCacheKey,
+} from "@/app/lib/eleve-dossier-client-cache";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 
 function dossiersListHrefFromRetour(retour: string | null, fallbackClasse?: string | null): string {
   if (retour) {
@@ -210,6 +214,7 @@ type DossierPayload = {
     canDeleteDocuments?: boolean;
     canDeleteElevePermanent?: boolean;
     profRestrictedView?: boolean;
+    canViewEleveAccompagnements?: boolean;
     tiroirs: string[];
     docCategories?: EleveDocCategorie[];
   };
@@ -341,6 +346,8 @@ export default function EleveDossierClient({
   const searchParams = useSearchParams();
   const router = useRouter();
   const id = eleveIdProp || String(params.id || "");
+  const { user: sessionUser } = useSessionUser();
+  const sessionUserId = sessionUser?.id ?? "anon";
   const isModal = mode === "modal";
   const listHref = dossiersListHrefFromRetour(
     searchParams.get("retour"),
@@ -391,7 +398,7 @@ export default function EleveDossierClient({
   const [lieuDraft, setLieuDraft] = useState("");
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
-    const cacheKey = `scola:eleve-dossier:${id}`;
+    const cacheKey = eleveDossierSessionCacheKey(sessionUserId, id);
     if (!opts?.silent) {
       setError(null);
       try {
@@ -502,7 +509,7 @@ export default function EleveDossierClient({
         setData(null);
       }
     }
-  }, [id]);
+  }, [id, sessionUserId]);
 
   useEffect(() => {
     void load();
@@ -570,12 +577,19 @@ export default function EleveDossierClient({
 
   const filteredDocuments = useMemo(() => {
     if (!data) return [];
-    if (docCategory === "tous") return data.documents;
+    const hideAccompagnement = data.meta.canViewEleveAccompagnements === false;
+    const stripAcc = (docs: DossierPayload["documents"]) =>
+      hideAccompagnement
+        ? docs.filter((d) => !detectAccompagnementKind(d.title))
+        : docs;
+    if (docCategory === "tous") return stripAcc(data.documents);
     if (docCategory === "inscription") {
-      return data.documents.filter((d) => d.tiroir === "inscription");
+      return stripAcc(data.documents.filter((d) => d.tiroir === "inscription"));
     }
     const tiroirs = new Set(CATEGORIE_TIROIRS[docCategory]);
-    return data.documents.filter((d) => tiroirs.has(d.tiroir as keyof typeof TIROIR_TO_CATEGORIE));
+    return stripAcc(
+      data.documents.filter((d) => tiroirs.has(d.tiroir as keyof typeof TIROIR_TO_CATEGORIE)),
+    );
   }, [data, docCategory]);
 
   const synthesisAccompagnements = useMemo(() => {
@@ -2661,7 +2675,8 @@ export default function EleveDossierClient({
                             ) : (
                               <span className="text-xs font-bold text-emerald-700">Accessible</span>
                             )
-                          ) : d.canRequestAccess || d.lockedReason === "grant_required" ? (
+                          ) : (d.canRequestAccess || d.lockedReason === "grant_required") &&
+                            !(accCode && data.meta.canViewEleveAccompagnements === false) ? (
                             <button
                               type="button"
                               className="text-xs font-bold text-amber-700 hover:underline"

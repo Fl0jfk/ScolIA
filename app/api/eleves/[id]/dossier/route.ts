@@ -779,6 +779,7 @@ export async function GET(req: Request, ctx: Ctx) {
       }),
       canDeleteElevePermanent,
       profRestrictedView,
+      canViewEleveAccompagnements: mayShowAccompagnements,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
     },
@@ -878,6 +879,11 @@ export async function POST(req: Request, ctx: Ctx) {
     access,
     { userId: authUserId, businessUserId },
   );
+  const profRestrictedView = isProfesseurScopedDossierViewer({
+    roles,
+    orgAdmin,
+    platformAdmin,
+  });
   const body = (await req.json()) as DossierBody;
   const action = String(body.action || "");
 
@@ -1373,8 +1379,22 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
     }
 
-    // PAP / accompagnement : pas de demande — accès direct pédagogique.
     if (isAccompagnementDocumentTitle(doc.title)) {
+      const mayViewAcc = viewerMayReceiveEleveAccompagnementMetadata(
+        { roles, orgAdmin, platformAdmin },
+        {
+          eleveClasse: row.classe,
+          assignedClasses: profRestrictedView
+            ? await listAssignedClassesForTeacher(businessUserId)
+            : undefined,
+        },
+      );
+      if (!mayViewAcc) {
+        return NextResponse.json(
+          { error: "Accès refusé à ce document.", code: "ACCOMPAGNEMENT_FORBIDDEN" },
+          { status: 403 },
+        );
+      }
       return NextResponse.json(
         {
           error:

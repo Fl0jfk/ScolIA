@@ -3,10 +3,15 @@ import test from "node:test";
 import {
   brainAccompagnementExposure,
   eleveDossierAccompagnementCacheScopeSuffix,
+  filterAccompagnementAlertsForViewer,
   viewerMayLoadEleveAccompagnementListMetadata,
+  viewerMayReceiveAccompagnementDashboardAlerts,
   viewerMayReceiveEleveAccompagnementMetadata,
 } from "@/app/lib/eleve-dossier-accompagnement-access";
-import { canOpenDocumentWithoutGrant } from "@/app/lib/eleve-dossier-access";
+import {
+  canOpenDocumentWithoutGrant,
+  eleveDocTiroirsForRoles,
+} from "@/app/lib/eleve-dossier-access";
 
 const papDoc = {
   tiroir: "sante" as const,
@@ -45,6 +50,30 @@ test("professeur + CPE — accès accompagnement conservé", () => {
     }),
     true,
   );
+  assert.equal(eleveDocTiroirsForRoles(roles).has("sante"), true);
+});
+
+test("professeur + comptabilité — tiroir santé pour liste documents", () => {
+  const roles = ["professeur", "comptabilite"];
+  assert.equal(eleveDocTiroirsForRoles(roles).has("sante"), true);
+});
+
+test("dashboard — prof seul sans alertes accompagnement", () => {
+  const viewer = { roles: ["professeur"] };
+  assert.equal(viewerMayReceiveAccompagnementDashboardAlerts(viewer), false);
+  const alerts = filterAccompagnementAlertsForViewer(viewer, [
+    { classe: "4B", documentId: "d1" },
+  ] as Array<{ classe: string | null; documentId: string }>);
+  assert.equal(alerts.length, 0);
+});
+
+test("dashboard — prof + direction conserve les alertes", () => {
+  const viewer = { roles: ["professeur", "direction"] };
+  assert.equal(viewerMayReceiveAccompagnementDashboardAlerts(viewer), true);
+  const alerts = filterAccompagnementAlertsForViewer(viewer, [
+    { classe: "4B", documentId: "d1" },
+  ] as Array<{ classe: string | null; documentId: string }>);
+  assert.equal(alerts.length, 1);
 });
 
 test("direction et infirmerie — ouverture PAP inchangée", () => {

@@ -2,12 +2,20 @@
 
 import { consumeRateLimit } from "@/app/lib/rate-limit";
 
+/**
+ * IP client derrière reverse proxy (Scaleway / ingress).
+ * On prend la **dernière** entrée de `X-Forwarded-For` : c’est celle ajoutée par notre proxy de
+ * confiance, pas la première (spoofable par le client). Repli `X-Real-IP` puis « unknown ».
+ */
 export function clientIpFromRequest(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip")?.trim() ||
-    "unknown"
-  );
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const parts = xff.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 0) {
+      return parts[parts.length - 1]!;
+    }
+  }
+  return req.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 export function createMemoryRateLimiter(options: { windowMs: number; max: number }) {

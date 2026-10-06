@@ -25,6 +25,50 @@ type Ctx = { params: Promise<{ id: string; documentId: string }> };
 
 const SIGNED_DOCUMENT_URL_TTL_SEC = 60;
 
+function documentOpenRequiresBlockingAudit(doc: {
+  tiroir: string;
+  confidentialite: string;
+}): boolean {
+  if (doc.tiroir === "psychologue") return true;
+  if (doc.confidentialite === "restreint" || doc.confidentialite === "sante") return true;
+  if (doc.tiroir === "sante") return true;
+  return false;
+}
+
+async function persistDocumentOpenAudit(input: {
+  etablissementId: string;
+  actorUserId: string;
+  documentId: string;
+  eleveId: string;
+  title: string;
+  actorIp: string;
+  actorUserAgent: string | null;
+  actorRoles: string[];
+}): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await recordEleveAccessAudit({
+        etablissementId: input.etablissementId,
+        actorUserId: input.actorUserId,
+        resourceType: "document",
+        resourceId: input.documentId,
+        eleveId: input.eleveId,
+        action: "open_file",
+        metadata: { title: input.title },
+        actorIp: input.actorIp,
+        actorUserAgent: input.actorUserAgent,
+        actorRoles: input.actorRoles,
+      });
+      return true;
+    } catch (err) {
+      if (attempt === 0) continue;
+      console.error("[eleves/documents/file] audit", err);
+      return false;
+    }
+  }
+  return false;
+}
+
 function safeFileName(raw: string | null | undefined, fallback: string): string {
   const base = String(raw || fallback)
     .replace(/["\\]/g, "")
@@ -137,24 +181,23 @@ export async function GET(req: Request, ctx: Ctx) {
       ResponseContentType: contentType,
       ResponseContentDisposition: `inline; filename="${fileName}"`,
     });
-    try {
-      await recordEleveAccessAudit({
-        etablissementId: etabId,
-        actorUserId: session.user.id,
-        resourceType: "document",
-        resourceId: documentId,
-        eleveId,
-        action: "open_file",
-        metadata: { title: access.doc.title },
-        actorIp: clientIpFromRequest(req),
-        actorUserAgent: req.headers.get("user-agent"),
-        actorRoles: roles,
-      });
-    } catch (auditErr) {
-      console.error("[eleves/documents/file] audit", auditErr);
+    const auditOk = await persistDocumentOpenAudit({
+      etablissementId: etabId,
+      actorUserId: session.user.id,
+      documentId,
+      eleveId,
+      title: access.doc.title,
+      actorIp: clientIpFromRequest(req),
+      actorUserAgent: req.headers.get("user-agent"),
+      actorRoles: roles,
+    });
+    if (!auditOk && documentOpenRequiresBlockingAudit(access.doc)) {
       return NextResponse.json(
-        { error: "Accès refusé — journal d’accès indisponible.", code: "AUDIT_FAILED" },
-        { status: 403 },
+        {
+          error: "Journal d’accès indisponible — ouverture refusée pour ce document.",
+          code: "AUDIT_UNAVAILABLE",
+        },
+        { status: 503 },
       );
     }
 
