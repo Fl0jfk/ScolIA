@@ -122,12 +122,20 @@ export async function GET(req: Request) {
       console.error("[api/absences] loadAppConfig", cfgErr);
     }
     const viewerEmail = user?.primaryEmailAddress?.emailAddress || "";
-    const ctx = { establishments, userId };
-    const viewer = { email: viewerEmail, userId, roles };
+    // userId gate = businessUserId vue effective ; e-mail + notifs requis pour
+    // reconnaître la directrice lycée même si le rôle n’est pas encore sync.
+    const viewerUserId = String(user?.id || userId || "").trim() || userId;
+    const ctx = {
+      establishments,
+      userId: viewerUserId,
+      email: viewerEmail,
+      notifications,
+    };
+    const viewer = { email: viewerEmail, userId: viewerUserId, roles };
     let visible = index.filter((a) => {
       try {
         return (
-          canViewAbsence(a, userId, roles, ctx) ||
+          canViewAbsence(a, viewerUserId, roles, ctx) ||
           processorMayAccessValidatedAbsence(a, viewer, notifications, establishments)
         );
       } catch (filterErr) {
@@ -148,7 +156,7 @@ export async function GET(req: Request) {
         if (processorMayAccessValidatedAbsence(abs, viewer, notifications, establishments)) {
           return abs;
         }
-        return filterAbsenceForViewer(abs, userId, roles, ctx);
+        return filterAbsenceForViewer(abs, viewerUserId, roles, ctx);
       } catch (mapErr) {
         console.error(`[api/absences] map ${abs.id}`, mapErr);
         return abs;

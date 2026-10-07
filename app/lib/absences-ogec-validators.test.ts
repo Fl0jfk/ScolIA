@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { Establishment, NotificationsConfig } from "./app-config-schemas";
 import {
   canManageAbsence,
+  canViewAbsence,
   type AbsenceRecord,
 } from "./absences-types";
 import {
@@ -162,6 +163,46 @@ test("rattachement nominatif : direction_lycee ne récupère pas le dossier", ()
       userId: "autre-id",
       email: "autre.compte@etab.fr",
     }),
+    false,
+  );
+});
+
+test("directrice lycée par e-mail sans rôle : voit et gère le défaut OGEC", () => {
+  const abs = ogecAbs(null);
+  const ctx = {
+    establishments,
+    notifications,
+    userId: "u-dona",
+    email: "dona@etab.fr",
+  };
+  assert.equal(canManageAbsence(abs, [], ctx), true);
+  assert.equal(canViewAbsence(abs, "u-dona", [], ctx), true);
+});
+
+test("prof lycée : directeur nommé par e-mail sans rôle direction_lycee", () => {
+  const abs: AbsenceRecord = {
+    ...ogecAbs(null),
+    data: {
+      scope: "professeur",
+      etablissement: "Lycée",
+      startDate: "2026-09-24",
+      endDate: "2026-09-24",
+      startAt: "",
+      endAt: "",
+      reason: "Formation",
+      details: "",
+    },
+  };
+  const ctx = {
+    establishments,
+    notifications,
+    userId: "u-dona",
+    email: "dona@etab.fr",
+  };
+  assert.equal(canManageAbsence(abs, [], ctx), true);
+  assert.equal(canViewAbsence(abs, "u-dona", [], ctx), true);
+  assert.equal(
+    canManageAbsence(abs, [], { ...ctx, email: "autre@etab.fr", userId: "x" }),
     false,
   );
 });
