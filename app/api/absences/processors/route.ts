@@ -50,7 +50,11 @@ export async function GET() {
     const n = bundle.notifications;
     const canConfigure = viewerCanConfigureAbsenceProcessors(roles);
     const canSeeQueue = viewerCanSeeProcessorQueue(viewer, n);
-    const canSeeDirection = viewerCanSeeAbsenceDirectionQueue(viewer, n);
+    const canSeeDirection = viewerCanSeeAbsenceDirectionQueue(
+      viewer,
+      n,
+      bundle.establishments,
+    );
 
     let members: Array<{
       externalUserId: string;
