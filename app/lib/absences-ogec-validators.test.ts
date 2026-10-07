@@ -119,6 +119,53 @@ test("sans snapshot : directrice lycée valide, pas l’école", () => {
   );
 });
 
+test("direction_lycee traite le défaut OGEC même si e-mail session ≠ directorEmail", () => {
+  const abs = ogecAbs(null);
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    true,
+  );
+});
+
+test("snapshot défaut lycée : direction_lycee traite malgré e-mail différent", () => {
+  const abs = ogecAbs({
+    email: "dona@etab.fr",
+    userId: "u-dona",
+    label: "Mme Dona",
+  });
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    true,
+  );
+});
+
+test("rattachement nominatif : direction_lycee ne récupère pas le dossier", () => {
+  const abs = ogecAbs({
+    email: "plantec@etab.fr",
+    userId: "u-plantec",
+    label: "Mme Plantec",
+  });
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    false,
+  );
+});
+
 test("serialize / parse managerId fiche RH", () => {
   const raw = serializePersonnelAbsenceManager({
     email: "plantec@etab.fr",

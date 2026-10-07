@@ -138,3 +138,24 @@ export function viewerMatchesOgecValidators(
     return false;
   });
 }
+
+/**
+ * True si la file OGEC effective est le défaut « direction du lycée »
+ * (pas une liste globale absencesValidatorsOgec, pas un rattachement nominatif ailleurs).
+ */
+export function isDefaultLyceeOgecValidatorQueue(
+  validators: Array<Pick<OgecAbsenceValidatorRef, "email" | "userId">>,
+  notifications: NotificationsConfig | null | undefined,
+  establishments: Establishment[],
+): boolean {
+  const configured = (notifications?.absencesValidatorsOgec || []).filter((p) =>
+    String(p?.email || "").trim(),
+  );
+  if (configured.length > 0) return false;
+  if (!validators.length) return false;
+  const defaults = defaultOgecValidatorsFromConfig(notifications, establishments);
+  if (defaults.length === 0) return false;
+  return validators.every((v) =>
+    viewerMatchesOgecValidators(defaults, { email: v.email, userId: v.userId }),
+  );
+}

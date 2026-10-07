@@ -152,6 +152,7 @@ export default function AbsencesPageClient({
       roles,
     },
     processorNotifications,
+    establishments,
   );
 
   const subjectRoles = useMemo(() => {

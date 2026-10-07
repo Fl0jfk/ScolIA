@@ -1,6 +1,10 @@
 import type { Establishment, NotificationsConfig } from "@/app/lib/app-config-schemas";
 import type { AbsenceRecord } from "@/app/lib/absences-types";
 import { requiresProcessorAfterValidation } from "@/app/lib/absence-hours-treatment";
+import {
+  defaultOgecValidatorsFromConfig,
+  viewerMatchesOgecValidators,
+} from "@/app/lib/absences-ogec-validators-shared";
 import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import {
@@ -78,12 +82,22 @@ export function viewerCanConfigureAbsenceProcessors(roles: string[]): boolean {
   });
 }
 
-/** Onglet Direction : rôle direction, admin, ou validateur OGEC nominatif. */
+/**
+ * Onglet Direction : rôle direction, admin, validateur OGEC nominatif,
+ * ou identité directrice lycée (défaut file OGEC) même sans rôle encore synchronisé.
+ */
 export function viewerCanSeeAbsenceDirectionQueue(
   viewer: AbsenceProcessorViewer,
   notifications: NotificationsConfig | null | undefined,
+  establishments: Establishment[] = [],
 ): boolean {
   const roles = viewer.roles || [];
   if (hasGlobalAdminRole(roles) || hasMasterRole(roles) || isAnyDirectionRole(roles)) return true;
-  return viewerIsConfiguredOgecAbsenceValidator(viewer, notifications);
+  if (viewerIsConfiguredOgecAbsenceValidator(viewer, notifications)) return true;
+  if (establishments.length === 0) return false;
+  const defaults = defaultOgecValidatorsFromConfig(notifications, establishments);
+  return viewerMatchesOgecValidators(defaults, {
+    email: viewer.email,
+    userId: viewer.userId,
+  });
 }
