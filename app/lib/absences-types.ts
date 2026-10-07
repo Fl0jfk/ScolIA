@@ -12,6 +12,7 @@ import {
 import {
   directionRolesMatchEstablishmentRef,
   isAnyDirectionRole,
+  matchEstablishment,
   userCanActAsDirectionFor,
 } from "@/app/lib/establishment-catalog";
 import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
@@ -326,6 +327,53 @@ export function isEducationSurveillanceStaff(roles: string[] | null | undefined)
   });
 }
 
+/** Directeur nommé d’un site (e-mail ou external id), indépendamment du rôle chargé. */
+function viewerIsEstablishmentDirectorIdentity(
+  etabRef: string | null | undefined,
+  establishments: Establishment[],
+  viewer: { email?: string | null; userId?: string | null },
+): boolean {
+  const est = matchEstablishment(establishments, etabRef);
+  if (!est) return false;
+  const email = String(viewer.email || "")
+    .trim()
+    .toLowerCase();
+  const directorEmail = String(est.directorEmail || "")
+    .trim()
+    .toLowerCase();
+  if (email && directorEmail && email === directorEmail) return true;
+  const userId = String(viewer.userId || "").trim();
+  const directorId = String(est.directorExternalUserId || "").trim();
+  if (userId && directorId && userId === directorId) return true;
+  return false;
+}
+
+/** Direction du lycée pour la file OGEC par défaut (rôle, e-mail ou directeur nommé). */
+function viewerIsLyceeAbsenceDirector(
+  roles: string[],
+  userId: string | null | undefined,
+  email: string | null | undefined,
+  establishments: Establishment[],
+): boolean {
+  if (getRoleFlags(roles).isDirectionLycee) return true;
+  const lycee = lyceeEstablishment(establishments);
+  if (!lycee) return false;
+  if (
+    viewerIsEstablishmentDirectorIdentity(lycee.id, establishments, {
+      email,
+      userId,
+    })
+  ) {
+    return true;
+  }
+  return userCanActAsDirectionFor(
+    { id: userId, publicMetadata: { role: roles } },
+    establishments,
+    lycee.id,
+    roles,
+  );
+}
+
 export function canViewAbsence(
   abs: AbsenceRecord,
   viewerUserId: string,
@@ -336,32 +384,27 @@ export function canViewAbsence(
   if (abs.createdBy.userId === viewerUserId) return true;
   const flags = getRoleFlags(roles);
   const scope = resolveAbsenceScope(abs);
+  const viewCtx: DirectionAuthCtx = { ...ctx, userId: ctx?.userId || viewerUserId };
   if (scope === "ogec") {
-    return canViewOgecAbsences(roles);
+    if (canViewOgecAbsences(roles)) return true;
+    // Validateur nominatif / directrice lycée (identité) même si le rôle n’est pas sync.
+    return canManageAbsence(abs, roles, viewCtx);
   }
   if (flags.isAdministratif || flags.isEducation) return true;
-  return directionRolesMatchEstablishmentRef(
-    roles,
+  if (
+    directionRolesMatchEstablishmentRef(
+      roles,
+      abs.data.etablissement,
+      ctx?.establishments,
+      viewerUserId,
+    )
+  ) {
+    return true;
+  }
+  return viewerIsEstablishmentDirectorIdentity(
     abs.data.etablissement,
-    ctx?.establishments,
-    viewerUserId,
-  );
-}
-
-/** Direction du lycée pour la file OGEC par défaut (rôle ou directeur nommé). */
-function viewerIsLyceeAbsenceDirector(
-  roles: string[],
-  userId: string | null | undefined,
-  establishments: Establishment[],
-): boolean {
-  if (getRoleFlags(roles).isDirectionLycee) return true;
-  const lycee = lyceeEstablishment(establishments);
-  if (!lycee) return false;
-  return userCanActAsDirectionFor(
-    { id: userId, publicMetadata: { role: roles } },
-    establishments,
-    lycee.id,
-    roles,
+    ctx?.establishments || [],
+    { email: ctx?.email, userId: viewerUserId },
   );
 }
 
@@ -374,7 +417,7 @@ export function canManageAbsence(abs: AbsenceRecord, roles: string[], ctx?: Dire
     const validators = resolveOgecValidatorsForAbsence(abs, notifications, establishments);
     if (validators.length === 0) {
       // Aucun destinataire configuré : repli = direction du lycée (métier OGEC).
-      return viewerIsLyceeAbsenceDirector(roles, ctx?.userId, establishments);
+      return viewerIsLyceeAbsenceDirector(roles, ctx?.userId, ctx?.email, establishments);
     }
     if (
       viewerMatchesOgecValidators(validators, {
@@ -388,15 +431,24 @@ export function canManageAbsence(abs: AbsenceRecord, roles: string[], ctx?: Dire
     // ne correspond pas à directorEmail (compte perso, id migré, etc.).
     // Les rattachements nominatifs (ex. Colas → Plantec) restent exclusifs.
     if (isDefaultLyceeOgecValidatorQueue(validators, notifications, establishments)) {
-      return viewerIsLyceeAbsenceDirector(roles, ctx?.userId, establishments);
+      return viewerIsLyceeAbsenceDirector(roles, ctx?.userId, ctx?.email, establishments);
     }
     return false;
   }
-  return directionRolesMatchEstablishmentRef(
-    roles,
+  if (
+    directionRolesMatchEstablishmentRef(
+      roles,
+      abs.data.etablissement,
+      ctx?.establishments,
+      ctx?.userId,
+    )
+  ) {
+    return true;
+  }
+  return viewerIsEstablishmentDirectorIdentity(
     abs.data.etablissement,
-    ctx?.establishments,
-    ctx?.userId,
+    ctx?.establishments || [],
+    { email: ctx?.email, userId: ctx?.userId },
   );
 }
 

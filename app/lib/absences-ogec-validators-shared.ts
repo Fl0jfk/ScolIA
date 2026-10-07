@@ -140,22 +140,30 @@ export function viewerMatchesOgecValidators(
 }
 
 /**
- * True si la file OGEC effective est le défaut « direction du lycée »
- * (pas une liste globale absencesValidatorsOgec, pas un rattachement nominatif ailleurs).
+ * True si le(s) validateur(s) effectif(s) = direction du lycée
+ * (pas un rattachement nominatif vers quelqu’un d’autre).
+ * Le rôle direction_lycee peut alors traiter même si l’e-mail de session diverge.
  */
 export function isDefaultLyceeOgecValidatorQueue(
   validators: Array<Pick<OgecAbsenceValidatorRef, "email" | "userId">>,
-  notifications: NotificationsConfig | null | undefined,
+  _notifications: NotificationsConfig | null | undefined,
   establishments: Establishment[],
 ): boolean {
-  const configured = (notifications?.absencesValidatorsOgec || []).filter((p) =>
-    String(p?.email || "").trim(),
-  );
-  if (configured.length > 0) return false;
   if (!validators.length) return false;
-  const defaults = defaultOgecValidatorsFromConfig(notifications, establishments);
-  if (defaults.length === 0) return false;
-  return validators.every((v) =>
-    viewerMatchesOgecValidators(defaults, { email: v.email, userId: v.userId }),
-  );
+  const lycee = lyceeEstablishment(establishments);
+  if (!lycee) return false;
+  const directorEmail = String(lycee.directorEmail || "")
+    .trim()
+    .toLowerCase();
+  const directorId = String(lycee.directorExternalUserId || "").trim();
+  if (!directorEmail && !directorId) return false;
+  return validators.every((v) => {
+    const email = String(v.email || "")
+      .trim()
+      .toLowerCase();
+    const userId = String(v.userId || "").trim();
+    if (directorEmail && email && email === directorEmail) return true;
+    if (directorId && userId && userId === directorId) return true;
+    return false;
+  });
 }
