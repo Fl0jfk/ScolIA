@@ -44,6 +44,8 @@ export type SessionUserView = {
 type AppUserState = {
   isLoaded: boolean;
   user: ClientAppUser | null;
+  /** True si l’acteur supervise un collègue (vue lecture seule). */
+  supervisionActive: boolean;
 };
 
 type AppUserContextValue = AppUserState & { refresh: () => Promise<void> };
@@ -92,23 +94,34 @@ function mapApiUser(u: {
 
 /** Une seule source de vérité session client — évite les courses RequireOrgAdmin / hooks. */
 export function AppUserProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppUserState>({ isLoaded: false, user: null });
+  const [state, setState] = useState<AppUserState>({
+    isLoaded: false,
+    user: null,
+    supervisionActive: false,
+  });
 
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (!res.ok) {
-        setState({ isLoaded: true, user: null });
+        setState({ isLoaded: true, user: null, supervisionActive: false });
         return;
       }
-      const data = (await res.json()) as { user?: Parameters<typeof mapApiUser>[0] | null };
+      const data = (await res.json()) as {
+        user?: Parameters<typeof mapApiUser>[0] | null;
+        supervisionActive?: boolean;
+      };
       if (!data?.user) {
-        setState({ isLoaded: true, user: null });
+        setState({ isLoaded: true, user: null, supervisionActive: false });
         return;
       }
-      setState({ isLoaded: true, user: mapApiUser(data.user) });
+      setState({
+        isLoaded: true,
+        user: mapApiUser(data.user),
+        supervisionActive: Boolean(data.supervisionActive),
+      });
     } catch {
-      setState({ isLoaded: true, user: null });
+      setState({ isLoaded: true, user: null, supervisionActive: false });
     }
   }, []);
 

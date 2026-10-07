@@ -2,9 +2,10 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import type { AppUser } from "@/app/lib/app-session";
-import { requireAppUser } from "@/app/lib/app-session";
+import { getAppSession, requireAppUser } from "@/app/lib/app-session";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { isEleveOnlyRoleSet } from "@/app/lib/intranet-role-utils";
+import { resolveActiveSupervision } from "@/app/lib/supervision";
 
 export type MessagingAuthContext = {
   user: AppUser;
@@ -37,6 +38,26 @@ export async function requireMessagingContext(): Promise<
         { status: 401 },
       ),
     };
+  }
+
+  const actorSession = await getAppSession();
+  if (actorSession) {
+    const supervision = await resolveActiveSupervision({
+      actorUserId: actorSession.user.id,
+    });
+    if (supervision) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          {
+            error:
+              "Messagerie indisponible en supervision (conversations personnelles). Quittez la supervision pour y accéder.",
+            code: "SUPERVISION_MESSAGING_BLOCKED",
+          },
+          { status: 403 },
+        ),
+      };
+    }
   }
 
   const user = appUser.user;
