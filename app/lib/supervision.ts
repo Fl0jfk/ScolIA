@@ -239,15 +239,8 @@ export async function resolveActiveSupervision(opts: {
   return { cookie, target };
 }
 
-/** Chemins supervision toujours autorisés (hors matrice modules cible). */
-export function isSupervisionApiPath(pathname: string): boolean {
-  return (
-    pathname === "/api/supervision" ||
-    pathname.startsWith("/api/supervision/")
-  );
-}
-
-/** Mutations autorisées en mode supervision (sortie uniquement). */
-export function isSupervisionWriteAllowedPath(pathname: string): boolean {
-  return pathname === "/api/supervision/stop";
-}
+export {
+  isSupervisionApiPath,
+  isSupervisionWriteAllowedPath,
+  isSupervisionPrivacyBlockedPath,
+} from "@/app/lib/supervision-paths";

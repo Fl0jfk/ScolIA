@@ -376,6 +376,7 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     resolveActiveSupervision,
     isSupervisionApiPath,
     isSupervisionWriteAllowedPath,
+    isSupervisionPrivacyBlockedPath,
   } = await import("@/app/lib/supervision");
 
   const supervisionCookie = readSupervisionCookieFromRequest(request);
@@ -387,6 +388,29 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
       actorUserId: betterAuthState.authUserId,
       cookie: supervisionCookie,
     });
+  }
+
+  if (supervisionActive && isSupervisionPrivacyBlockedPath(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return withTenantHeaders(
+        NextResponse.json(
+          {
+            error:
+              "Messagerie indisponible en supervision (conversations personnelles). Quittez la supervision pour y accéder.",
+            code: "SUPERVISION_MESSAGING_BLOCKED",
+          },
+          { status: 403 },
+        ),
+        tenant,
+      );
+    }
+    const dest = new URL("/dashboard", request.url);
+    dest.searchParams.set("supervision_blocked", "messagerie");
+    return withOptionalDevTenantCookie(
+      withTenantHeaders(NextResponse.redirect(dest), tenant),
+      request,
+      host,
+    );
   }
 
   if (supervisionActive && !isSafeMethod && !isSupervisionWriteAllowedPath(pathname)) {
