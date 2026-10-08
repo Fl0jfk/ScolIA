@@ -148,3 +148,32 @@ test("dedupe Dane Junior N'SONI vs NSONI / colonnes inversées", () => {
   assert.equal(result.students[0]!.roomId, "ch-12");
   assert.equal(result.removedActifs, 2);
 });
+
+test("dedupe préfère l’identité qui a la photo + fusionne contacts/médical", () => {
+  const withPhoto = stub({
+    id: "stu-photo",
+    nom: "N'SONI",
+    prenom: "Dane Junior",
+  });
+  withPhoto.parent1 = { email: "parent@example.com", telephone: "0600000000" };
+  const withRoom = stub({
+    id: "stu-room",
+    nom: "NSONI",
+    prenom: "Dane Junior",
+    roomId: "ch-9",
+  });
+  withRoom.medical = { allergies: "Arachides", pai: "PAI-1" };
+  const photoMap = new Map<string, string>([["stu-photo", "eleves/photos/nsoni.jpg"]]);
+  const result = dedupeInternatStudents([withRoom, withPhoto], {
+    photoS3KeyByStudentId: photoMap,
+  });
+  assert.equal(result.mergedGroups, 1);
+  assert.equal(result.students.length, 1);
+  const kept = result.students[0]!;
+  assert.equal(kept.id, "stu-photo");
+  assert.equal(kept.roomId, "ch-9");
+  assert.equal(kept.eleveRef.nom, "N'SONI");
+  assert.equal(kept.parent1?.email, "parent@example.com");
+  assert.equal(kept.medical?.allergies, "Arachides");
+  assert.equal(result.mergeTraces[0]?.absorbedIds.includes("stu-room"), true);
+});

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireInternatManage, requireInternatAccess } from "@/app/api/internat/_auth";
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { resolvePhotoUrlsForInternatStudents } from "@/app/lib/eleve-photos";
+import {
+  aliasPhotoIndexAfterInternatMerge,
+  photoS3KeysForInternatStudents,
+  resolvePhotoUrlsForInternatStudents,
+} from "@/app/lib/eleve-photos";
 import {
   getInternatRooms,
   getInternatStudents,
@@ -20,15 +24,33 @@ import {
   internatStudentMatchesRoster,
 } from "@/app/lib/internat-dedupe";
 
+async function dedupeInternatStudentsKeepingPhotos(
+  loaded: InternatStudent[],
+  by: string,
+) {
+  const photoS3KeyByStudentId = await photoS3KeysForInternatStudents(loaded).catch(
+    () => new Map<string, string>(),
+  );
+  const deduped = dedupeInternatStudents(loaded, {
+    by,
+    at: new Date().toISOString(),
+    photoS3KeyByStudentId,
+  });
+  if (deduped.mergedGroups > 0) {
+    await aliasPhotoIndexAfterInternatMerge({
+      mergeTraces: deduped.mergeTraces,
+      photoS3KeyByStudentId,
+    }).catch((e) => console.warn("[internat/students] alias photos", e));
+  }
+  return deduped;
+}
+
 export async function GET() {
   const access = await requireInternatAccess();
   if (!access.ok) return access.response;
   try {
     const [loaded, rooms] = await Promise.all([getInternatStudents(), getInternatRooms()]);
-    const deduped = dedupeInternatStudents(loaded, {
-      by: "systeme:get",
-      at: new Date().toISOString(),
-    });
+    const deduped = await dedupeInternatStudentsKeepingPhotos(loaded, "systeme:get");
     let students = deduped.students;
     if (deduped.mergedGroups > 0) {
       await saveInternatStudents(students);
@@ -66,21 +88,22 @@ export async function POST(req: Request) {
   if (action === "dedupe") {
     const students = await getInternatStudents();
     const rooms = await getInternatRooms();
-    const result = dedupeInternatStudents(students, {
-      by: access.userName,
-      at: new Date().toISOString(),
-    });
+    const result = await dedupeInternatStudentsKeepingPhotos(students, access.userName);
     await saveInternatStudents(result.students);
+    const photoUrls = await resolvePhotoUrlsForInternatStudents(result.students).catch(
+      () => ({} as Record<string, string>),
+    );
     return NextResponse.json({
       ok: true,
       mergedGroups: result.mergedGroups,
       removedActifs: result.removedActifs,
       students: result.students,
       rooms,
+      photoUrls,
       message:
         result.mergedGroups === 0
           ? "Aucun doublon détecté."
-          : `${result.mergedGroups} groupe(s) fusionné(s), ${result.removedActifs} fiche(s) active(s) sortie(s).`,
+          : `${result.mergedGroups} groupe(s) fusionné(s), ${result.removedActifs} fiche(s) active(s) sortie(s) — photo / chambre / contacts conservés.`,
     });
   }
 
