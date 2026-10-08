@@ -115,9 +115,9 @@ export default function PersonnelAbsenceValidatorField({ managerId, disabled, on
           Absences — qui valide ?
         </h4>
         <p className="text-xs text-slate-500 mt-1">
-          Par défaut, les absences du personnel OGEC vont à la direction du lycée. Choisissez ici une
-          autre personne (ex. directrice de l’école) pour cette fiche uniquement. Après validation, le
-          dossier reste traité par la compta / RH.
+          Exception individuelle : sans choix ici, la validation suit le paramétrage Absences
+          (validateurs OGEC par défaut). Choisissez une autre personne pour cette fiche uniquement.
+          Après validation, le dossier reste traité par la RH / compta.
         </p>
       </div>
       {error ? <p className="text-sm text-rose-600 font-medium">{error}</p> : null}
@@ -132,7 +132,7 @@ export default function PersonnelAbsenceValidatorField({ managerId, disabled, on
       />
       {!selected ? (
         <p className="text-[11px] text-slate-500">
-          Aucun rattachement → direction du lycée (ou liste globale si configurée).
+          Aucun rattachement → validateurs OGEC par défaut (Paramétrage absences).
         </p>
       ) : null}
     </section>

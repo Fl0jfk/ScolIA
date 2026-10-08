@@ -301,6 +301,9 @@ export default function AbsencesPageClient({
             absencesNotifyProfLycee?: { email: string; userId?: string } | null;
             absencesNotifyOgecCompta?: string[];
             absencesValidatorsOgec?: Array<{ email: string; userId?: string; label?: string }>;
+            absencesValidatorsProfEcole?: Array<{ email: string; userId?: string; label?: string }>;
+            absencesValidatorsProfCollege?: Array<{ email: string; userId?: string; label?: string }>;
+            absencesValidatorsProfLycee?: Array<{ email: string; userId?: string; label?: string }>;
           };
         } | null;
         if (!res.ok || cancelled || !data) return;
@@ -313,6 +316,9 @@ export default function AbsencesPageClient({
             absencesNotifyProfCollege: data.processors.absencesNotifyProfCollege ?? undefined,
             absencesNotifyProfLycee: data.processors.absencesNotifyProfLycee ?? undefined,
             absencesValidatorsOgec: data.processors.absencesValidatorsOgec ?? [],
+            absencesValidatorsProfEcole: data.processors.absencesValidatorsProfEcole ?? [],
+            absencesValidatorsProfCollege: data.processors.absencesValidatorsProfCollege ?? [],
+            absencesValidatorsProfLycee: data.processors.absencesValidatorsProfLycee ?? [],
           });
         }
       } catch {

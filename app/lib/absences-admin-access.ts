@@ -10,7 +10,7 @@ import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import {
   collectAbsenceProcessors,
   isConfiguredAbsenceProcessor,
-  viewerIsConfiguredOgecAbsenceValidator,
+  viewerIsConfiguredAbsenceValidator,
 } from "@/app/lib/absences-validation-recipients";
 
 export type AbsenceProcessorViewer = {
@@ -83,8 +83,8 @@ export function viewerCanConfigureAbsenceProcessors(roles: string[]): boolean {
 }
 
 /**
- * Onglet Direction : rôle direction, admin, validateur OGEC nominatif,
- * ou identité directrice lycée (défaut file OGEC) même sans rôle encore synchronisé.
+ * Onglet Direction : rôle direction, admin, validateur configuré (OGEC ou profs),
+ * ou identité directeur lycée (repli file OGEC) même sans rôle encore synchronisé.
  */
 export function viewerCanSeeAbsenceDirectionQueue(
   viewer: AbsenceProcessorViewer,
@@ -93,7 +93,7 @@ export function viewerCanSeeAbsenceDirectionQueue(
 ): boolean {
   const roles = viewer.roles || [];
   if (hasGlobalAdminRole(roles) || hasMasterRole(roles) || isAnyDirectionRole(roles)) return true;
-  if (viewerIsConfiguredOgecAbsenceValidator(viewer, notifications)) return true;
+  if (viewerIsConfiguredAbsenceValidator(viewer, notifications)) return true;
   if (establishments.length === 0) return false;
   const defaults = defaultOgecValidatorsFromConfig(notifications, establishments);
   return viewerMatchesOgecValidators(defaults, {
