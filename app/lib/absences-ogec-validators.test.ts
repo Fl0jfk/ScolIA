@@ -133,6 +133,76 @@ test("direction_lycee traite le défaut OGEC même si e-mail session ≠ directo
   );
 });
 
+test("rôle « direction » générique (sans cycle) traite la file OGEC défaut", () => {
+  const abs = ogecAbs(null);
+  assert.equal(
+    canManageAbsence(abs, ["direction"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    true,
+  );
+  assert.equal(
+    canManageAbsence(abs, ["direction_ecole"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    false,
+  );
+});
+
+test("config absencesValidatorsOgec (compte perso) : direction_lycee traite la file défaut", () => {
+  const withPerso: NotificationsConfig = {
+    ...notifications,
+    absencesValidatorsOgec: [
+      { label: "Mme Dona", email: "anne-marie.dona@etab.fr", userId: "u-dona-biz" },
+    ],
+  };
+  const abs = ogecAbs({
+    email: "anne-marie.dona@etab.fr",
+    userId: "u-dona-biz",
+    label: "Mme Dona",
+  });
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications: withPerso,
+      userId: "auth-dona",
+      userIds: ["auth-dona", "u-dona-biz"],
+      email: "anne-marie.dona@etab.fr",
+    }),
+    true,
+  );
+  // Même sans match e-mail session : le rôle lycée + file défaut global.
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications: withPerso,
+      userId: "autre-id",
+      email: "autre@etab.fr",
+    }),
+    true,
+  );
+});
+
+test("identité directeur : match sur l’un des userIds (auth vs business)", () => {
+  const abs = ogecAbs(null);
+  assert.equal(
+    canManageAbsence(abs, [], {
+      establishments,
+      notifications,
+      userId: "auth-only",
+      userIds: ["auth-only", "u-dona"],
+      email: "autre@etab.fr",
+    }),
+    true,
+  );
+});
+
 test("snapshot défaut lycée : direction_lycee traite malgré e-mail différent", () => {
   const abs = ogecAbs({
     email: "dona@etab.fr",
