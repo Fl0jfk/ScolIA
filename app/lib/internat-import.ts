@@ -532,6 +532,8 @@ export async function syncOneEleveInternatRegime(
 
   const wasSortie = !prev.actif;
   const etablissement = await resolveInternatEtablissement(entry);
+  const nextClasse = entry.classe?.trim() || prev.classe || inferClasse(entry);
+  const classeChanged = Boolean(entry.classe?.trim()) && prev.classe !== nextClasse;
   list[primaryIdx] = {
     ...prev,
     eleveRef: {
@@ -541,7 +543,8 @@ export async function syncOneEleveInternatRegime(
       prenom: entry.prenom,
     },
     etablissement,
-    classe: entry.classe?.trim() || prev.classe || inferClasse(entry),
+    // Source de vérité = dossier / référentiel élève
+    classe: nextClasse,
     sexe: entry.sexe === "F" || entry.sexe === "M" ? entry.sexe : prev.sexe,
     parent1: entry.parent1 ?? prev.parent1,
     parent2: entry.parent2 ?? prev.parent2,
@@ -554,8 +557,14 @@ export async function syncOneEleveInternatRegime(
       {
         at: now,
         by: appliedBy,
-        action: wasSortie ? "REACTIVATION_REGIME" : "SYNC_REGIME",
-        note: entry.folderName,
+        action: wasSortie
+          ? "REACTIVATION_REGIME"
+          : classeChanged
+            ? "SYNC_CLASSE"
+            : "SYNC_REGIME",
+        note: classeChanged
+          ? `${prev.classe || "—"} → ${nextClasse}`
+          : entry.folderName,
       },
     ],
   };
@@ -565,6 +574,74 @@ export async function syncOneEleveInternatRegime(
     action: wasSortie ? "reactivated" : "updated",
     removedDuplicates: removedDuplicates + Math.max(0, matchIndexes.length - 1),
   };
+}
+
+/**
+ * Sync ciblé classe dossier → fiche internat (sans toucher au régime / sorties).
+ * Source de vérité = `eleve.classe`.
+ */
+export async function syncOneEleveInternatClasse(
+  eleve: EleveConfig,
+  appliedBy: string,
+): Promise<{ action: "updated" | "noop"; updated: number } | null> {
+  const nom = eleve.nom?.trim();
+  const prenom = eleve.prenom?.trim();
+  const nextClasse = eleve.classe?.trim();
+  if (!nom || !prenom || !nextClasse) return null;
+
+  const { getInternatStudents, saveInternatStudents } = await import(
+    "@/app/lib/internat-storage"
+  );
+  const now = new Date().toISOString();
+  const list = [...(await getInternatStudents())];
+  let updated = 0;
+
+  const entry: InternatRosterEntry = {
+    nom,
+    prenom,
+    folderName: eleve.folderName?.trim() || buildEleveFolderName(nom, prenom),
+    ine: eleve.ine?.trim() || undefined,
+    mef: eleve.mef || eleve.formation,
+    formation: eleve.formation,
+    secteur: eleve.secteur,
+    classe: nextClasse,
+    sexe: eleve.sexe,
+  };
+
+  for (let i = 0; i < list.length; i++) {
+    const prev = list[i]!;
+    if (!prev.actif) continue;
+    if (!studentMatchesRoster(prev, entry)) continue;
+    if (prev.classe === nextClasse) continue;
+    const etablissement = await resolveInternatEtablissement(entry);
+    list[i] = {
+      ...prev,
+      classe: nextClasse,
+      etablissement: etablissement || prev.etablissement,
+      eleveRef: {
+        ...prev.eleveRef,
+        ine: entry.ine || prev.eleveRef.ine,
+        folderName: entry.folderName || prev.eleveRef.folderName,
+        nom: entry.nom,
+        prenom: entry.prenom,
+      },
+      updatedAt: now,
+      history: [
+        ...(prev.history || []),
+        {
+          at: now,
+          by: appliedBy,
+          action: "SYNC_CLASSE",
+          note: `${prev.classe || "—"} → ${nextClasse}`,
+        },
+      ],
+    };
+    updated += 1;
+  }
+
+  if (!updated) return { action: "noop", updated: 0 };
+  await saveInternatStudents(list);
+  return { action: "updated", updated };
 }
 
 /** Alignement proactif internat ↔ régimes du référentiel (ajouts + sorties). */
