@@ -19,7 +19,7 @@ export async function isDomainCoordinator(userId: string, domainId: string): Pro
   return Boolean(domain?.coordinatorExternalUserIds.includes(userId));
 }
 
-async function isAnyDomainCoordinator(userId: string): Promise<boolean> {
+export async function isAnyDomainCoordinator(userId: string): Promise<boolean> {
   if (!userId) return false;
   const domains = await loadDomains();
   return domains.some((d) => d.coordinatorExternalUserIds.includes(userId));

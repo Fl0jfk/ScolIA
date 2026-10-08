@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getDomainPlanningUserDisplay, isEvarsCoordinator } from "@/app/lib/domain-planning-auth";
+import { getDomainPlanningUserDisplay, isDomainCoordinator } from "@/app/lib/domain-planning-auth";
 import { findSessionById, loadSignups, saveSignups } from "@/app/lib/domain-planning-storage";
 import { signupRequiresSessionIdea } from "@/app/lib/domain-planning-defaults";
 import type { DomainPlanningSignupValidationStatus } from "@/app/lib/domain-planning-types";
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireAuth, isIntranetAdmin } from "@/app/lib/intranet-auth";
 
 const ACTIONS = new Set(["validate", "changes_requested", "reject"]);
 
@@ -12,12 +12,6 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
 
   const authUser = await getDomainPlanningUserDisplay();
-  if (!(await isEvarsCoordinator(authUser.userId))) {
-    return NextResponse.json(
-      { error: "Seule la responsable EVARS désignée peut valider les positionnements." },
-      { status: 403 },
-    );
-  }
 
   const body = await req.json();
   const id = String(body.id || "").trim();
@@ -45,6 +39,19 @@ export async function POST(req: Request) {
 
   const signup = signups[idx];
   const session = await findSessionById(signup.sessionId);
+
+  const canValidate =
+    (await isIntranetAdmin()) ||
+    (session
+      ? await isDomainCoordinator(authUser.userId, session.domainId)
+      : false);
+  if (!canValidate) {
+    return NextResponse.json(
+      { error: "Seule la responsable du domaine peut valider les positionnements." },
+      { status: 403 },
+    );
+  }
+
 
   if (
     action === "validate" &&

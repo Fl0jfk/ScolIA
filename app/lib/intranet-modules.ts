@@ -292,7 +292,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/domain-planning",
       external: false,
-      description: "Positionnements EVARS, séances et validation des intervenants — comme une réservation de salle.",
+      description: "Positionnements, séances et validation des intervenants par domaine.",
     },
   },
   {
