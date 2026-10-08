@@ -173,45 +173,31 @@ export function isGlobalDefaultOgecValidatorQueue(
 
 /**
  * True si le(s) validateur(s) effectif(s) = direction du lycée
- * (pas un rattachement nominatif vers quelqu’un d’autre).
+ * (Paramètres → Établissements), pas une liste nominative autre.
  * Le rôle direction_lycee peut alors traiter même si l’e-mail de session diverge.
- *
- * Couvre aussi le cas où la config `absencesValidatorsOgec` pointe vers le compte
- * perso de la directrice alors que `directorEmail` reste la boîte UAI fonctionnelle.
+ * Si `absencesValidatorsOgec` pointe vers un compte perso ≠ directorEmail :
+ * ce n’est plus la file « directeur lycée » — match identité uniquement.
  */
 export function isDefaultLyceeOgecValidatorQueue(
   validators: Array<Pick<OgecAbsenceValidatorRef, "email" | "userId">>,
-  notifications: NotificationsConfig | null | undefined,
+  _notifications: NotificationsConfig | null | undefined,
   establishments: Establishment[],
 ): boolean {
   if (!validators.length) return false;
   const lycee = lyceeEstablishment(establishments);
-  if (lycee) {
-    const directorEmail = String(lycee.directorEmail || "")
+  if (!lycee) return false;
+  const directorEmail = String(lycee.directorEmail || "")
+    .trim()
+    .toLowerCase();
+  const directorId = String(lycee.directorExternalUserId || "").trim();
+  if (!directorEmail && !directorId) return false;
+  return validators.every((v) => {
+    const email = String(v.email || "")
       .trim()
       .toLowerCase();
-    const directorId = String(lycee.directorExternalUserId || "").trim();
-    if (directorEmail || directorId) {
-      const allMatchDirector = validators.every((v) => {
-        const email = String(v.email || "")
-          .trim()
-          .toLowerCase();
-        const userId = String(v.userId || "").trim();
-        if (directorEmail && email && email === directorEmail) return true;
-        if (directorId && userId && userId === directorId) return true;
-        return false;
-      });
-      if (allMatchDirector) return true;
-    }
-  }
-  // File défaut global (config) sans nominatif fiche : assimilée file lycée
-  // lorsque la liste config est vide (repli directeur) OU qu’elle ne contient
-  // qu’un seul destinataire (souvent le compte perso de la directrice).
-  if (!isGlobalDefaultOgecValidatorQueue(validators, notifications, establishments)) {
+    const userId = String(v.userId || "").trim();
+    if (directorEmail && email && email === directorEmail) return true;
+    if (directorId && userId && userId === directorId) return true;
     return false;
-  }
-  const configured = (notifications?.absencesValidatorsOgec || []).filter((p) =>
-    String(p?.email || "").trim(),
-  );
-  return configured.length === 0 || configured.length === 1;
+  });
 }
