@@ -864,7 +864,7 @@ export default function AbsencesPageClient({
   const tabs = [
     { id: "calendrier", label: "Calendrier", show: showCalendar },
     { id: "se-declarer", label: "Demande d'autorisation", show: true },
-    { id: "a-traiter", label: "Direction", show: canTreat },
+    { id: "a-traiter", label: "Absences à valider", show: canTreat },
     { id: "traitement", label: "Traitement RH / rectorat", show: showTraitementTab },
     { id: "parametrage", label: "Paramétrage", show: canConfigureProcessors },
   ].filter((t) => t.show);

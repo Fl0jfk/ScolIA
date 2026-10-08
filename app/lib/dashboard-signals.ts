@@ -997,24 +997,24 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         const more = pendingManager.length - 1;
         absenceQueueSlides.push({
           id: "absences-pending",
-          label: "Absences à traiter",
-          badge: `${pendingManager.length} à traiter`,
+          label: "Absences à valider",
+          badge: `${pendingManager.length} à valider`,
           count: pendingManager.length,
           href: "/rh?tab=dashboard&section=absences&view=a-traiter",
           detail:
             pendingManager.length === 1
-              ? `${firstName} — demande d'autorisation en attente`
-              : `${firstName} + ${more} autre${more > 1 ? "s" : ""} — autorisations en attente`,
+              ? `${firstName} — demande d'autorisation en attente de la direction`
+              : `${firstName} + ${more} autre${more > 1 ? "s" : ""} — autorisations en attente de la direction`,
         });
         pushNotif({
           id: "absences-pending",
           moduleId: "absences",
-          label: "Absences à traiter",
+          label: "Absences à valider",
           count: pendingManager.length,
           href: "/rh?tab=dashboard&section=absences&view=a-traiter",
           detail:
             pendingManager.length === 1
-              ? `${firstName} attend votre décision`
+              ? `${firstName} attend votre décision (direction)`
               : `${pendingManager.length} demandes d'autorisation en attente de votre décision`,
         });
       }

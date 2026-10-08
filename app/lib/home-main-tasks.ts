@@ -94,13 +94,21 @@ export function resolveHomeMainTasks(opts: ResolveOpts): HomeMainTask[] {
     });
   }
 
-  // Direction → sorties / dossiers
+  // Direction → absences RH à valider (prioritaire) / sorties / dossiers
   if (
     hasRole(roles, "direction_ecole") ||
     hasRole(roles, "direction_college") ||
     hasRole(roles, "direction_lycee") ||
     hasRole(roles, "direction")
   ) {
+    push({
+      id: "task-absences-rh-dir",
+      moduleId: "absences",
+      label: "Absences RH",
+      detail: "Valider les demandes personnel & professeurs",
+      href: "/rh?tab=dashboard&section=absences&view=a-traiter",
+      emoji: MODULE_EMOJI.absences || "🤒",
+    });
     push({
       id: "task-travels-dir",
       moduleId: "travels",
@@ -139,14 +147,14 @@ export function resolveHomeMainTasks(opts: ResolveOpts): HomeMainTask[] {
     });
   }
 
-  // Comptabilité / RH → absences personnel
+  // Comptabilité / RH → absences personnel (si pas déjà poussé pour la direction)
   if (hasRole(roles, "comptabilite") || hasRole(roles, "rh")) {
     push({
       id: "task-absences-rh",
       moduleId: "absences",
       label: "Absences RH",
-      detail: "Autorisations & calendrier",
-      href: "/rh?tab=dashboard&section=absences",
+      detail: "Autorisations, calendrier & clôture",
+      href: "/rh?tab=dashboard&section=absences&view=traitement",
       emoji: MODULE_EMOJI.absences || "🤒",
     });
   }
