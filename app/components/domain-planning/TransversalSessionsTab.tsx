@@ -17,7 +17,11 @@ import {
   TRANSVERSAL_NIVEAU_LABELS,
   TRANSVERSAL_NIVEAUX,
 } from "@/app/lib/domain-planning-defaults";
-import type { DomainPlanningSession, DomainPlanningSignup } from "@/app/lib/domain-planning-types";
+import type {
+  DomainPlanningDomain,
+  DomainPlanningSession,
+  DomainPlanningSignup,
+} from "@/app/lib/domain-planning-types";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { getSubjectColorPresentation } from "@/app/lib/prof-room-subject-colors";
 
@@ -27,12 +31,7 @@ const FALLBACK_CLASSES: Record<string, string[]> = {
 
 type ReviewAction = "validate" | "changes_requested" | "reject";
 
-type Props = {
-  /** Responsable EVARS désignée dans le paramétrage (pas les admins org). */
-  isCoordinator: boolean;
-};
-
-function constraintHint(session: DomainPlanningSession): string {
+function constraintHint(session: DomainPlanningSession, coordinatorLabel = "la responsable du domaine"): string {
   switch (session.intervenantConstraint) {
     case "fixed_association":
       return "Géré par l'association — pas d'inscription sur l'intranet";
@@ -41,7 +40,7 @@ function constraintHint(session: DomainPlanningSession): string {
     case "psy_inf":
       return "Inscription réservée aux psychologues et infirmières — matière verrouillée, idée de séance à proposer";
     default:
-      return "Inscription libre : matière et idée de séance à valider par la responsable EVARS";
+      return `Inscription libre : matière et idée de séance à valider par ${coordinatorLabel}`;
   }
 }
 
@@ -86,12 +85,13 @@ function ValidationStatusBadge({
   );
 }
 
-export default function TransversalSessionsTab({ isCoordinator }: Props) {
+export default function TransversalSessionsTab() {
   const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const [sessions, setSessions] = useState<DomainPlanningSession[]>([]);
   const [signups, setSignups] = useState<DomainPlanningSignup[]>([]);
-  const [evarsCoordinatorIds, setEvarsCoordinatorIds] = useState<string[]>([]);
+  const [domains, setDomains] = useState<DomainPlanningDomain[]>([]);
+  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ session: DomainPlanningSession; className: string } | null>(null);
   const [reviewModal, setReviewModal] = useState<{
@@ -147,8 +147,13 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
     setSignups(signupsJson.signups || []);
     if (domainsRes.ok) {
       const domainsJson = await domainsRes.json();
-      const evars = (domainsJson.domains || []).find((d: { id: string }) => d.id === "evars");
-      setEvarsCoordinatorIds(evars?.coordinatorExternalUserIds || []);
+      const loaded = (domainsJson.domains || []) as DomainPlanningDomain[];
+      setDomains(loaded);
+      setSelectedDomainId((prev) => {
+        if (prev && loaded.some((d) => d.id === prev)) return prev;
+        if (loaded.length === 1) return loaded[0].id;
+        return null;
+      });
     }
   }, []);
 
@@ -156,24 +161,48 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
     reload()
       .catch((e: unknown) => {
         console.error(e);
-        alert(e instanceof Error ? e.message : "Erreur de chargement EVARS");
+        alert(e instanceof Error ? e.message : "Erreur de chargement des enseignements transversaux");
       })
       .finally(() => setLoading(false));
   }, [reload]);
 
-  const mySignups = useMemo(
-    () => signups.filter((s) => s.userId === user?.id),
-    [signups, user?.id],
+  const selectedDomain = useMemo(
+    () => domains.find((d) => d.id === selectedDomainId) || null,
+    [domains, selectedDomainId],
   );
+
+  const domainSessions = useMemo(
+    () => (selectedDomainId ? sessions.filter((s) => s.domainId === selectedDomainId) : []),
+    [sessions, selectedDomainId],
+  );
+
+  const isCoordinator = Boolean(
+    user?.id && selectedDomain?.coordinatorExternalUserIds?.includes(user.id),
+  );
+
+  const coordinatorRoleLabel = selectedDomain?.name?.trim()
+    ? `la responsable de « ${selectedDomain.name.trim()} »`
+    : "la responsable du domaine";
+
+  const mySignups = useMemo(() => {
+    if (!selectedDomainId) return [];
+    const sessionIds = new Set(domainSessions.map((s) => s.id));
+    return signups.filter((s) => s.userId === user?.id && sessionIds.has(s.sessionId));
+  }, [signups, user?.id, selectedDomainId, domainSessions]);
 
   const pendingForCoordinator = useMemo(() => {
     return signups
       .map((signup) => ({
         signup,
-        session: sessions.find((s) => s.id === signup.sessionId) || null,
+        session: domainSessions.find((s) => s.id === signup.sessionId) || null,
       }))
-      .filter(({ signup, session }) => signupNeedsCoordinatorReview(signup, session));
-  }, [signups, sessions]);
+      .filter(({ signup, session }) => session && signupNeedsCoordinatorReview(signup, session));
+  }, [signups, domainSessions]);
+
+  const niveauxToShow = useMemo(() => {
+    const present = new Set(domainSessions.map((s) => s.niveau));
+    return TRANSVERSAL_NIVEAUX.filter((n) => present.has(n));
+  }, [domainSessions]);
 
   function signupFor(sessionId: string, className: string) {
     return signups.find((s) => s.sessionId === sessionId && s.className === className);
@@ -181,6 +210,17 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
 
   function signupsForSession(sessionId: string) {
     return signups.filter((s) => s.sessionId === sessionId);
+  }
+
+  function coordinatorStatusLabel() {
+    const ids = selectedDomain?.coordinatorExternalUserIds || [];
+    if (ids.length === 0) {
+      return "Aucune responsable désignée — voir l'onglet Paramétrage.";
+    }
+    if (ids.length === 1 && ids[0] === user?.id) {
+      return "Vous êtes la responsable de ce domaine.";
+    }
+    return `${ids.length} responsable(s) désignée(s) — voir Paramétrage pour le détail.`;
   }
 
   function openSignup(session: DomainPlanningSession, className: string) {
@@ -265,29 +305,101 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
     await reload();
   }
 
-  function coordinatorLabel() {
-    if (evarsCoordinatorIds.length === 0) {
-      return "Aucune responsable EVARS désignée — voir l'onglet Paramétrage.";
-    }
-    if (evarsCoordinatorIds.length === 1 && evarsCoordinatorIds[0] === user?.id) {
-      return "Vous êtes la responsable EVARS.";
-    }
-    return `${evarsCoordinatorIds.length} responsable(s) EVARS désignée(s) — voir Paramétrage pour le détail.`;
+  if (loading) {
+    return (
+      <div className="p-8 text-center text-slate-500 font-bold">
+        Chargement des enseignements transversaux…
+      </div>
+    );
   }
 
-  if (loading) {
-    return <div className="p-8 text-center text-slate-500 font-bold">Chargement des séances EVARS…</div>;
+  if (domains.length === 0) {
+    return (
+      <div className="mx-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-900">
+        Aucun domaine configuré. Ouvrez l&apos;onglet <strong>Paramétrage</strong> pour en créer un.
+      </div>
+    );
+  }
+
+  if (!selectedDomainId || !selectedDomain) {
+    return (
+      <div className="space-y-6 px-4 pb-8" data-domain-planning-domain>
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-5">
+          <h2 className="text-lg font-black text-slate-900">Choisir un domaine</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Plusieurs domaines sont disponibles. Sélectionnez celui pour lequel vous souhaitez vous positionner
+            ou consulter les séances.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {domains.map((domain) => {
+            const count = sessions.filter((s) => s.domainId === domain.id).length;
+            return (
+              <button
+                key={domain.id}
+                type="button"
+                onClick={() => setSelectedDomainId(domain.id)}
+                className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-violet-400 hover:shadow-md"
+              >
+                <p className="text-base font-black text-slate-900">{domain.name}</p>
+                {domain.description ? (
+                  <p className="mt-1 text-sm text-slate-600 line-clamp-2">{domain.description}</p>
+                ) : null}
+                <p className="mt-3 text-xs font-bold uppercase tracking-wide text-violet-700">
+                  {count === 0 ? "Aucune séance — à paramétrer" : `${count} séance${count > 1 ? "s" : ""}`}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-8 px-4 pb-8">
+      {domains.length > 1 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setSelectedDomainId(null)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black uppercase text-slate-700 hover:border-violet-300"
+          >
+            ← Changer de domaine
+          </button>
+          <div className="flex flex-wrap gap-2">
+            {domains.map((domain) => (
+              <button
+                key={domain.id}
+                type="button"
+                onClick={() => setSelectedDomainId(domain.id)}
+                className={`rounded-xl px-3 py-1.5 text-xs font-black uppercase ${
+                  domain.id === selectedDomainId
+                    ? "bg-violet-600 text-white"
+                    : "border border-slate-200 bg-white text-slate-700 hover:border-violet-300"
+                }`}
+              >
+                {domain.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 leading-relaxed space-y-1">
         <p>
-          <strong>EVARS — positionnement des intervenants.</strong> Vous proposez votre idée de séance en vous
-          positionnant ; la responsable EVARS valide, demande des modifications ou refuse.
+          <strong>{selectedDomain.name} — positionnement des intervenants.</strong> Vous proposez votre idée de
+          séance en vous positionnant ; {coordinatorRoleLabel} valide, demande des modifications ou refuse.
         </p>
-        <p className="text-xs text-rose-800">{coordinatorLabel()}</p>
+        <p className="text-xs text-rose-800">{coordinatorStatusLabel()}</p>
       </div>
+
+      {domainSessions.length === 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+          Aucune séance pour « {selectedDomain.name} ». Ouvrez l&apos;onglet <strong>Paramétrage</strong> pour
+          créer la grille (thèmes, niveaux, règles d&apos;inscription).
+        </div>
+      )}
 
       {isCoordinator && pendingForCoordinator.length > 0 && (
         <section className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-4 space-y-3">
@@ -361,7 +473,7 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
           <h3 className="text-sm font-black text-violet-700 uppercase mb-3">Mes positionnements ({mySignups.length})</h3>
           <div className="flex flex-wrap gap-2">
             {mySignups.map((s) => {
-              const session = sessions.find((x) => x.id === s.sessionId);
+              const session = domainSessions.find((x) => x.id === s.sessionId);
               return (
                 <button
                   key={s.id}
@@ -399,8 +511,8 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
         </div>
       )}
 
-      {TRANSVERSAL_NIVEAUX.map((niveau) => {
-        const niveauSessions = sessions
+      {niveauxToShow.map((niveau) => {
+        const niveauSessions = domainSessions
           .filter((s) => s.niveau === niveau)
           .sort((a, b) => a.seanceNumber - b.seanceNumber);
         const classes = classesForTransversalNiveau(niveau, classesByPole);
@@ -433,14 +545,14 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
                         <p className="text-[10px] font-black uppercase tracking-widest opacity-80">
                           Séance {session.seanceNumber}
                         </p>
-                        <p className="font-black text-lg leading-snug">{session.theme}</p>
+                        <p className="font-black text-lg leading-snug">{session.theme || "Thème à définir"}</p>
                       </div>
                       <div className="text-right text-xs font-bold">
                         <p>{session.intervenantLabel}</p>
                         <p className="opacity-90">Mixte : {session.mixte ? "OUI" : "NON"}</p>
                       </div>
                     </div>
-                    <p className="text-xs mt-2 opacity-90">{constraintHint(session)}</p>
+                    <p className="text-xs mt-2 opacity-90">{constraintHint(session, coordinatorRoleLabel)}</p>
                     {positionedSummary && (
                       <p className="text-xs mt-2 font-bold opacity-95">
                         Positionnés : {positionedSummary}
@@ -599,7 +711,7 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
                 placeholder="Décrivez ce que vous proposez pour cette classe"
               />
               <p className="text-[10px] text-slate-500 mt-1">
-                Votre idée sera examinée par la responsable EVARS (validation, modifications ou refus).
+                Votre idée sera examinée par {coordinatorRoleLabel} (validation, modifications ou refus).
               </p>
             </label>
 
@@ -680,7 +792,7 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
             <h3 className="text-lg font-black text-slate-900">Modifier mon idée de séance</h3>
             {editIdeaModal.validationComment && (
               <p className="text-sm text-orange-800 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
-                Retour responsable EVARS : {editIdeaModal.validationComment}
+                Retour responsable : {editIdeaModal.validationComment}
               </p>
             )}
             <label className="block">

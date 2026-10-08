@@ -23,11 +23,7 @@ export default function DomainCoordinatorPicker({
       selectedIds={selectedIds}
       onChange={onChange}
       loading={loading}
-      footerHint={
-        domainName.toLowerCase().includes("evars")
-          ? `${selectedIds.length} responsable(s) EVARS. Elles valident les positionnements des intervenants.`
-          : `${selectedIds.length} responsable(s) pour ${domainName || "ce domaine"}.`
-      }
+      footerHint={`${selectedIds.length} responsable(s) pour ${domainName || "ce domaine"}. Elles valident les positionnements des intervenants.`}
     />
   );
 }

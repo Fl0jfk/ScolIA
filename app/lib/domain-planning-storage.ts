@@ -1,5 +1,11 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
-import { DEFAULT_DOMAIN_PLANNING_DOMAINS, DEFAULT_EVARS_SESSIONS, normalizeSessionConstraint } from "@/app/lib/domain-planning-defaults";
+import {
+  DEFAULT_DOMAIN_ID,
+  DEFAULT_DOMAIN_PLANNING_DOMAINS,
+  DEFAULT_EVARS_SESSIONS,
+  isTransversalNiveau,
+  normalizeSessionConstraint,
+} from "@/app/lib/domain-planning-defaults";
 import type {
   DomainPlanningBooking,
   DomainPlanningDomain,
@@ -64,17 +70,23 @@ function parseSession(raw: unknown): DomainPlanningSession | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === "string" ? o.id.trim() : "";
+  const domainId =
+    typeof o.domainId === "string" && o.domainId.trim()
+      ? o.domainId.trim()
+      : DEFAULT_DOMAIN_ID;
   const niveau = o.niveau;
   const seanceNumber = o.seanceNumber;
   const theme = typeof o.theme === "string" ? o.theme.trim() : "";
   const intervenantLabel = typeof o.intervenantLabel === "string" ? o.intervenantLabel.trim() : "";
   const constraint = normalizeSessionConstraint(o.intervenantConstraint, intervenantLabel);
-  if (!id || !theme || !intervenantLabel) return null;
-  if (niveau !== "6e" && niveau !== "5e" && niveau !== "4e" && niveau !== "3e") return null;
+  // Thème vide autorisé (domaine lycée tout juste créé, grille à remplir).
+  if (!id || !intervenantLabel) return null;
+  if (!isTransversalNiveau(niveau)) return null;
   if (seanceNumber !== 1 && seanceNumber !== 2 && seanceNumber !== 3) return null;
   if (!constraint) return null;
   return {
     id,
+    domainId,
     niveau,
     seanceNumber,
     theme,

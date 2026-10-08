@@ -19,21 +19,25 @@ const DomainPlanningSettingsTab = dynamic(
 
 type DomainPlanningTab = "positionnements" | "settings";
 
+type DomainSummary = {
+  id: string;
+  name?: string;
+  coordinatorExternalUserIds?: string[];
+};
+
 function DomainPlanningPageContent() {
   const { user, isLoaded } = useSessionUser();
   const isOrgAdmin = useIsOrgAdmin();
   const intranetRoles = intranetRolesFromMetadata(user?.publicMetadata);
-  const [domains, setDomains] = useState<{ id: string; coordinatorExternalUserIds?: string[] }[]>([]);
+  const [domains, setDomains] = useState<DomainSummary[]>([]);
   const [activeTab, setActiveTab] = useState<DomainPlanningTab>("positionnements");
-
-  const isEvarsCoordinator = Boolean(
-    user?.id && domains.find((d) => d.id === "evars")?.coordinatorExternalUserIds?.includes(user.id),
-  );
 
   const canAccessSettings =
     isOrgAdmin ||
     canAccessDomainPlanningSettingsFromRoles(intranetRoles) ||
     Boolean(user?.id && domains.some((d) => d.coordinatorExternalUserIds?.includes(user.id)));
+
+  const domainsWithoutCoordinator = domains.filter((d) => !d.coordinatorExternalUserIds?.length);
 
   useEffect(() => {
     fetch("/api/domain-planning/domains", { cache: "no-store" })
@@ -48,10 +52,7 @@ function DomainPlanningPageContent() {
 
   return (
     <ModulePageShell maxWidthClass="max-w-[1400px]" tourModuleId="domain-planning">
-      <ModulePageHeader
-        eyebrow="Services"
-        title="Enseignements transversaux — EVARS"
-      />
+      <ModulePageHeader eyebrow="Services" title="Enseignements transversaux" />
 
       <ModuleTabNav
         className="mb-4"
@@ -71,16 +72,19 @@ function DomainPlanningPageContent() {
         <DomainPlanningSettingsTab />
       ) : (
         <>
-          {canAccessSettings && domains.some((d) => d.id === "evars" && !d.coordinatorExternalUserIds?.length) && (
+          {canAccessSettings && domainsWithoutCoordinator.length > 0 && (
             <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 py-3 px-4 text-sm text-amber-900">
               <span className="font-black">Première configuration :</span> ouvrez l&apos;onglet{" "}
               <button type="button" className="font-black underline" onClick={() => setActiveTab("settings")}>
                 Paramétrage
               </button>{" "}
-              pour désigner la responsable EVARS.
+              pour désigner la ou les responsables
+              {domainsWithoutCoordinator.length === 1
+                ? ` de « ${domainsWithoutCoordinator[0].name || domainsWithoutCoordinator[0].id} »`
+                : " des domaines sans responsable"}.
             </div>
           )}
-          <TransversalSessionsTab isCoordinator={isEvarsCoordinator} />
+          <TransversalSessionsTab />
         </>
       )}
     </ModulePageShell>
