@@ -282,8 +282,8 @@ const OUTDATED_LYCEE_THEMES_BY_SLOT: Record<string, readonly string[]> = {
 export function hydrateEmptySessionThemes(
   sessions: DomainPlanningSession[],
 ): DomainPlanningSession[] {
-  const lyceeBySlot = new Map(
-    DEFAULT_EVARS_LYCEE_SESSIONS.map((s) => [`${s.niveau}:${s.seanceNumber}`, s] as const),
+  const lyceeBySlot = new Map<string, DomainPlanningSession>(
+    DEFAULT_EVARS_LYCEE_SESSIONS.map((s) => [`${s.niveau}:${s.seanceNumber}`, s]),
   );
   return sessions.map((session) => {
     if (!isLyceeNiveau(session.niveau)) return session;
