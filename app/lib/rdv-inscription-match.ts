@@ -29,6 +29,17 @@ export type RdvMatchCandidate = {
   parents: RdvMatchParent[];
 };
 
+/**
+ * Origine = groupe scolaire local uniquement pour une vraie réinscription
+ * (élève déjà `inscrit`). Les `preinscrit` (souvent externes) doivent choisir
+ * l’établissement d’origine dans l’annuaire — jamais de préremplissage « maison ».
+ */
+export function shouldUseHomeEtablissementAsOrigine(
+  status: string | null | undefined,
+): boolean {
+  return String(status || "").trim().toLowerCase() === "inscrit";
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function normalizeParentEmail(email: string): string {
