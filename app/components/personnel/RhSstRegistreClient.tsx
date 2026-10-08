@@ -12,9 +12,16 @@ import {
 } from "@/app/lib/sst-registre/types";
 
 type ContentPayload = {
+  presentation: {
+    title: string;
+    paragraphs: string[];
+  };
+  sommaire: string[];
   reglementation: {
     title: string;
+    intro: string;
     texts: string[];
+    objectifsTitle: string;
     objectifs: string[];
   };
   notice: {
@@ -23,8 +30,20 @@ type ContentPayload = {
     comment: string;
     ou: string;
     quiConsulte: string;
+    quandIntro: string;
     quand: string[];
+    commentCompleterTitle: string;
+    commentCompleter: string[];
+    quiInformerTitle: string;
+    quiInformer: string;
     frequence: string;
+  };
+  etablissement: {
+    nom: string;
+    adresse: string;
+    telephone: string;
+    directions: Array<{ label: string; directorName: string }>;
+    noteReferents: string;
   };
   emargementTexte: string;
   urgences: Array<{ label: string; value: string }>;
@@ -321,71 +340,132 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
         </div>
       </header>
 
-      {!signOk && view === "accueil" ? (
-        <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">
-            À faire — année {me.campagne.anneeLabel}
-          </p>
-          <h3 className="mt-1 font-black text-slate-900">Émargement de l&apos;information</h3>
-          <p className="mt-2 text-sm text-slate-700">{content.emargementTexte}</p>
-          <div className="mt-4">
-            <p className="mb-1 text-xs font-bold text-slate-600">Signature (souris ou doigt)</p>
-            <PartenariatSignaturePad onChange={setSignatureDataUrl} />
-          </div>
-          <label className="mt-3 block">
-            <span className="text-xs font-bold text-slate-600">Remarques (optionnel)</span>
-            <input
-              value={remarques}
-              onChange={(e) => setRemarques(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              maxLength={500}
-            />
-          </label>
-          <button
-            type="button"
-            disabled={signing || !signatureDataUrl}
-            onClick={() => void submitEmargement()}
-            className="mt-4 rounded-xl bg-amber-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-amber-800 disabled:opacity-50"
-          >
-            {signing ? "Enregistrement…" : "Je signe pour cette année scolaire"}
-          </button>
-        </section>
-      ) : null}
-
-      {signOk && view === "accueil" ? (
-        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-sm text-emerald-900">
-          Émargement enregistré pour {me.campagne.anneeLabel}
-          {me.emargement?.signedAt
-            ? ` — le ${new Date(me.emargement.signedAt).toLocaleString("fr-FR")}`
-            : ""}
-          .
-        </section>
-      ) : null}
-
       {view === "accueil" ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
+          {!signOk ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
+              <strong>À faire pour {me.campagne.anneeLabel} :</strong> lisez le registre ci-dessous,
+              puis signez l&apos;émargement en bas de page.
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-900">
+              Émargement enregistré pour {me.campagne.anneeLabel}
+              {me.emargement?.signedAt
+                ? ` — le ${new Date(me.emargement.signedAt).toLocaleString("fr-FR")}`
+                : ""}
+              .
+            </div>
+          )}
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="font-black text-slate-900">{content.presentation.title}</h3>
+            <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
+              {content.presentation.paragraphs.map((p) => (
+                <p key={p.slice(0, 40)}>{p}</p>
+              ))}
+            </div>
+            <p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">Sommaire</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-700">
+              {content.sommaire.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ol>
+          </section>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="font-black text-slate-900">{content.reglementation.title}</h3>
+              <p className="mt-2 text-sm text-slate-700">{content.reglementation.intro}</p>
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                {content.reglementation.texts.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+              <p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">
+                {content.reglementation.objectifsTitle}
+              </p>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                {content.reglementation.objectifs.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="font-black text-slate-900">Informations sur l&apos;établissement</h3>
+              <dl className="mt-3 space-y-2 text-sm text-slate-700">
+                <div>
+                  <dt className="font-bold text-slate-900">Nom</dt>
+                  <dd>{content.etablissement.nom}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-slate-900">Adresse</dt>
+                  <dd>{content.etablissement.adresse}</dd>
+                </div>
+                {content.etablissement.telephone ? (
+                  <div>
+                    <dt className="font-bold text-slate-900">Téléphone</dt>
+                    <dd>{content.etablissement.telephone}</dd>
+                  </div>
+                ) : null}
+                {content.etablissement.directions.length > 0 ? (
+                  <div>
+                    <dt className="font-bold text-slate-900">Directions / cheffes d&apos;établissement</dt>
+                    <dd>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                        {content.etablissement.directions.map((d) => (
+                          <li key={`${d.label}-${d.directorName}`}>
+                            {d.label} : {d.directorName}
+                          </li>
+                        ))}
+                      </ul>
+                    </dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt className="font-bold text-slate-900">Référents</dt>
+                  <dd>{content.etablissement.noteReferents}</dd>
+                </div>
+              </dl>
+              <p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">
+                Services d&apos;urgence
+              </p>
+              <ul className="mt-1 flex flex-wrap gap-2 text-sm">
+                {content.urgences.map((u) => (
+                  <li
+                    key={u.label}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 font-bold text-slate-800"
+                  >
+                    {u.label} {u.value}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="font-black text-slate-900">{content.notice.title}</h3>
-            <dl className="mt-3 space-y-3 text-sm text-slate-700">
+            <dl className="mt-3 grid gap-4 text-sm text-slate-700 sm:grid-cols-2">
               <div>
                 <dt className="font-bold text-slate-900">Qui peut renseigner ?</dt>
-                <dd>{content.notice.qui}</dd>
+                <dd className="mt-1">{content.notice.qui}</dd>
               </div>
               <div>
                 <dt className="font-bold text-slate-900">Comment ?</dt>
-                <dd>{content.notice.comment}</dd>
+                <dd className="mt-1">{content.notice.comment}</dd>
               </div>
               <div>
                 <dt className="font-bold text-slate-900">Où le trouver ?</dt>
-                <dd>{content.notice.ou}</dd>
+                <dd className="mt-1">{content.notice.ou}</dd>
               </div>
               <div>
                 <dt className="font-bold text-slate-900">Qui consulte ?</dt>
-                <dd>{content.notice.quiConsulte}</dd>
+                <dd className="mt-1">{content.notice.quiConsulte}</dd>
               </div>
-              <div>
-                <dt className="font-bold text-slate-900">Quand compléter ?</dt>
-                <dd>
+              <div className="sm:col-span-2">
+                <dt className="font-bold text-slate-900">Quand le compléter ?</dt>
+                <dd className="mt-1">
+                  {content.notice.quandIntro}
                   <ul className="mt-1 list-disc space-y-1 pl-5">
                     {content.notice.quand.map((q) => (
                       <li key={q}>{q}</li>
@@ -393,9 +473,23 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                   </ul>
                 </dd>
               </div>
+              <div className="sm:col-span-2">
+                <dt className="font-bold text-slate-900">{content.notice.commentCompleterTitle}</dt>
+                <dd className="mt-1">
+                  <ul className="list-disc space-y-1 pl-5">
+                    {content.notice.commentCompleter.map((q) => (
+                      <li key={q}>{q}</li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
               <div>
-                <dt className="font-bold text-slate-900">Fréquence</dt>
-                <dd>{content.notice.frequence}</dd>
+                <dt className="font-bold text-slate-900">{content.notice.quiInformerTitle}</dt>
+                <dd className="mt-1">{content.notice.quiInformer}</dd>
+              </div>
+              <div>
+                <dt className="font-bold text-slate-900">Fréquence de mise à jour</dt>
+                <dd className="mt-1">{content.notice.frequence}</dd>
               </div>
             </dl>
             <button
@@ -407,33 +501,38 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
             </button>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="font-black text-slate-900">{content.reglementation.title}</h3>
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              {content.reglementation.texts.map((t) => (
-                <li key={t}>{t}</li>
-              ))}
-            </ul>
-            <p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">Objectifs</p>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              {content.reglementation.objectifs.map((t) => (
-                <li key={t}>{t}</li>
-              ))}
-            </ul>
-            <p className="mt-4 text-xs font-bold uppercase tracking-wide text-slate-500">Urgences</p>
-            <ul className="mt-1 flex flex-wrap gap-2 text-sm">
-              {content.urgences.map((u) => (
-                <li
-                  key={u.label}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 font-bold text-slate-800"
-                >
-                  {u.label} {u.value}
-                </li>
-              ))}
-            </ul>
-          </section>
+          {!signOk ? (
+            <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">
+                Émargement — année {me.campagne.anneeLabel}
+              </p>
+              <h3 className="mt-1 font-black text-slate-900">Prise de connaissance</h3>
+              <p className="mt-2 text-sm text-slate-700">{content.emargementTexte}</p>
+              <div className="mt-4">
+                <p className="mb-1 text-xs font-bold text-slate-600">Signature (souris ou doigt)</p>
+                <PartenariatSignaturePad onChange={setSignatureDataUrl} />
+              </div>
+              <label className="mt-3 block">
+                <span className="text-xs font-bold text-slate-600">Remarques (optionnel)</span>
+                <input
+                  value={remarques}
+                  onChange={(e) => setRemarques(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  maxLength={500}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={signing || !signatureDataUrl}
+                onClick={() => void submitEmargement()}
+                className="mt-4 rounded-xl bg-amber-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-amber-800 disabled:opacity-50"
+              >
+                {signing ? "Enregistrement…" : "Je signe pour cette année scolaire"}
+              </button>
+            </section>
+          ) : null}
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-2">
               <h3 className="font-black text-slate-900">Fiches du registre</h3>
               <span className="text-xs text-slate-500">
@@ -441,7 +540,10 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
               </span>
             </div>
             {fiches.length === 0 ? (
-              <p className="text-sm italic text-slate-400">Aucune fiche pour l&apos;instant.</p>
+              <p className="text-sm italic text-slate-400">
+                Aucune fiche pour l&apos;instant. C&apos;est ici que les signalements apparaissent une
+                fois déposés.
+              </p>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {fiches.map((f) => (
