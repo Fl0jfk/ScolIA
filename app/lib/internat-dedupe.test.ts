@@ -113,3 +113,38 @@ test("dedupeInternatStudents laisse deux élèves distincts", () => {
   assert.equal(result.mergedGroups, 0);
   assert.equal(result.students.length, 2);
 });
+
+test("normalize N'SONI → nsoni (apostrophe)", () => {
+  assert.equal(normalizeInternatPersonPart("N'SONI"), "nsoni");
+  assert.equal(normalizeInternatPersonPart("NSONI"), "nsoni");
+  assert.equal(normalizeInternatPersonPart("N’SONI"), "nsoni");
+});
+
+test("dedupe Dane Junior N'SONI vs NSONI / colonnes inversées", () => {
+  const students = [
+    stub({
+      id: "stu-a",
+      nom: "N'SONI",
+      prenom: "Dane Junior",
+      folderName: "N'SONI — Dane Junior",
+    }),
+    stub({
+      id: "stu-b",
+      nom: "NSONI",
+      prenom: "Dane Junior",
+      folderName: "NSONI — Dane Junior",
+      roomId: "ch-12",
+    }),
+    stub({
+      id: "stu-c",
+      nom: "Dane Junior",
+      prenom: "N'SONI",
+      folderName: "Dane Junior — N'SONI",
+    }),
+  ];
+  const result = dedupeInternatStudents(students);
+  assert.equal(result.mergedGroups, 1);
+  assert.equal(result.students.length, 1);
+  assert.equal(result.students[0]!.roomId, "ch-12");
+  assert.equal(result.removedActifs, 2);
+});

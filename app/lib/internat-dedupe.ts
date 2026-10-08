@@ -1,15 +1,31 @@
 import type { InternatStudent } from "@/app/lib/internat-types";
 
-/** Normalise une clé personne (accents / casse / ponctuation). */
+/** Normalise une clé personne (accents / casse / apostrophes / ponctuation). */
 export function normalizeInternatPersonPart(raw: string | undefined | null): string {
   return String(raw ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    // Apostrophes / quotes typographiques : N'SONI → nsoni (pas « n soni »)
+    .replace(/[\u0027\u2018\u2019\u0060\u00b4\u02bc]/g, "")
     .replace(/[—–−]/g, "-")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Tokens triés issus de nom + prénom (ordre indifférent). */
+export function internatNameTokens(nom: string, prenom: string): string[] {
+  const parts = `${normalizeInternatPersonPart(nom)} ${normalizeInternatPersonPart(prenom)}`
+    .split(" ")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return [...new Set(parts)].sort();
+}
+
+export function internatNameBagKey(nom: string, prenom: string): string {
+  const tokens = internatNameTokens(nom, prenom);
+  return tokens.length ? `bag:${tokens.join("|")}` : "";
 }
 
 export function internatNameKey(nom: string, prenom: string): string {
@@ -26,7 +42,16 @@ export function internatStudentIdentityTokens(s: {
   if (ine) tokens.push(`ine:${ine}`);
   const folder = normalizeInternatPersonPart(s.eleveRef.folderName);
   if (folder) tokens.push(`folder:${folder}`);
+  // Ordre saisi
   tokens.push(internatNameKey(s.eleveRef.nom, s.eleveRef.prenom));
+  // Ordre inversé (import Excel parfois « Prénom Nom » dans les mauvaises colonnes)
+  const swapped = internatNameKey(s.eleveRef.prenom, s.eleveRef.nom);
+  if (swapped !== internatNameKey(s.eleveRef.nom, s.eleveRef.prenom)) {
+    tokens.push(swapped);
+  }
+  // Sac de mots : « Dane Junior » + « N'SONI » ≡ « NSONI » + « Dane Junior »
+  const bag = internatNameBagKey(s.eleveRef.nom, s.eleveRef.prenom);
+  if (bag) tokens.push(bag);
   return tokens;
 }
 
@@ -110,8 +135,9 @@ function mergeStudentInto(keeper: InternatStudent, donor: InternatStudent, at: s
 }
 
 /**
- * Regroupe les fiches internat qui partagent INE, dossier ou nom+prénom
- * (accents ignorés). Conserve la meilleure fiche, sort les autres en doublon.
+ * Regroupe les fiches internat qui partagent INE, dossier, nom+prénom
+ * (accents / apostrophes ignorés, ordre nom/prénom indifférent).
+ * Conserve la meilleure fiche, purge les autres.
  */
 export function dedupeInternatStudents(
   students: InternatStudent[],
@@ -174,8 +200,6 @@ export function dedupeInternatStudents(
       if (donor.actif) removedActifs += 1;
       keeper = mergeStudentInto(keeper, donor, at, by);
     }
-    // Une identité = une fiche : les doublons sont purgés après fusion
-    // (historique reporté sur la fiche conservée), sinon chaque save re-fusionne.
     out.push(keeper);
   }
 
