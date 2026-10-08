@@ -1,3 +1,4 @@
+import { isEleveActifPourListes } from "@/app/lib/eleve-actif-shared";
 import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 
 /** Nom de famille pour dossier OneDrive (MAJUSCULES). */
@@ -108,10 +109,12 @@ export function normalizeEleveStatus(raw: unknown): EleveStatus | undefined {
   return undefined;
 }
 
-/** Élève encore scolarisé dans l’établissement (apparaît dans les classes / effectifs). */
-export function isEleveScolarise(eleve: { status?: string | null }): boolean {
-  const s = normalizeEleveStatus(eleve.status);
-  return s == null || s === "inscrit";
+/** Élève encore scolarisé dans l’établissement (listes, effectifs, modules). */
+export function isEleveScolarise(eleve: {
+  status?: string | null;
+  dateSortie?: string | null;
+}): boolean {
+  return isEleveActifPourListes(eleve);
 }
 
 export type EleveConfig = {
@@ -137,6 +140,8 @@ export type EleveConfig = {
   parent2Phone?: string;
   /** Date de naissance (AAAA-MM-JJ) — confirmation d’identité OCR (CNI, livret). */
   dateNaissance?: string;
+  /** Date de sortie établissement (AAAA-MM-JJ) — Siècle / Excel ; ≤ jour J → hors listes. */
+  dateSortie?: string;
   /** Lieu de naissance (ville / commune). */
   lieuNaissance?: string;
   /** Code ou libellé MEF / formation (export Pronote) — rattachement Lycée / Collège / École. */
@@ -192,6 +197,9 @@ export function validateElevesJson(
     const parent1Phone = String(o.parent1Phone ?? "").trim();
     const parent2Phone = String(o.parent2Phone ?? "").trim();
     const dateNaissance = normalizeEleveDateNaissance(o.dateNaissance ?? o.date_naissance ?? "");
+    const dateSortie = normalizeEleveDateNaissance(
+      o.dateSortie ?? o.date_sortie ?? o.dateDeSortie ?? "",
+    );
     const lieuNaissance = String(o.lieuNaissance ?? o.lieu_naissance ?? o.villeNaissance ?? "").trim();
     const regime = String(o.regime ?? o.codeRegime ?? o.code_regime ?? "").trim();
     const sexeRaw = String(o.sexe ?? "").trim().toUpperCase();
@@ -235,6 +243,7 @@ export function validateElevesJson(
       ...(parent1Phone ? { parent1Phone } : {}),
       ...(parent2Phone ? { parent2Phone } : {}),
       ...(dateNaissance ? { dateNaissance } : {}),
+      ...(dateSortie ? { dateSortie } : {}),
       ...(lieuNaissance ? { lieuNaissance } : {}),
       ...(mef ? { mef } : {}),
       ...(secteur ? { secteur } : {}),

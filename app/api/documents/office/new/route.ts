@@ -11,7 +11,7 @@ function parseKind(raw: unknown): OfficeKind | null {
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await requireModule("documents");
+  const gate = await requireModule("office");
   if (!gate.ok) return gate.response;
 
   let body: Record<string, unknown>;

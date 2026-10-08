@@ -2,6 +2,7 @@ import "server-only";
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { assertDatabaseUrlAllowedInTestProcess } from "../scripts/test-database-guard.mjs";
 import * as schema from "@/db/schema";
 
 let client: ReturnType<typeof postgres> | null = null;
@@ -16,6 +17,7 @@ export function getDb() {
   if (!url) {
     throw new Error("DATABASE_URL manquante — configure PostgreSQL Scaleway.");
   }
+  assertDatabaseUrlAllowedInTestProcess(url);
   if (!client) {
     client = postgres(url, {
       // max_scale=3 → ~24 connexions app ; Postgres Scaleway = 100.

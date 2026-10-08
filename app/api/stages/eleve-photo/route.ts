@@ -9,7 +9,7 @@ import {
   resolveStageViewerRole,
 } from "@/app/lib/stage-access";
 import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import {
   getStageWatchersConfig,
   listWatcherAssignmentsForUser,
@@ -43,7 +43,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "eleveId requis." }, { status: 400 });
   }
 
-  const eleves = await loadElevesRegistry().catch(() => []);
+  const eleves = await loadElevesActifsRegistry().catch(() => []);
   const eleve = eleves.find((e) => e.id === eleveId);
   if (!eleve) {
     return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });

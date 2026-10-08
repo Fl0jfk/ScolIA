@@ -146,11 +146,19 @@ export async function GET(req: NextRequest) {
   if (metaOnly) {
     const [sites, observedRaw, official] = await Promise.all([
       sitesPromise,
-      listObservedClassNames(tenant.ctx.etablissementId),
-      loadOfficialSchoolClasses(tenant.ctx.etablissementId),
+      listObservedClassNames(tenant.ctx.etablissementId).catch((err) => {
+        console.warn("[eleves/dossiers/list] observed classes", err);
+        return [] as string[];
+      }),
+      loadOfficialSchoolClasses(tenant.ctx.etablissementId).catch((err) => {
+        console.warn("[eleves/dossiers/list] official classes (meta)", err);
+        return null;
+      }),
     ]);
     const extraClasses = filterObservedClassesForCurrentYearUi(observedRaw, official);
-    const catalog = await buildEleveDossierClassCatalog(sites);
+    const catalog = await buildEleveDossierClassCatalog(sites, {
+      etablissementId: tenant.ctx.etablissementId,
+    });
     const classOptions =
       profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
         ? (assignedClasses ?? [])
@@ -201,10 +209,15 @@ export async function GET(req: NextRequest) {
           : undefined,
     }),
     sitesPromise,
-    loadOfficialSchoolClasses(tenant.ctx.etablissementId),
+    loadOfficialSchoolClasses(tenant.ctx.etablissementId).catch((err) => {
+      console.warn("[eleves/dossiers/list] official classes", err);
+      return null;
+    }),
   ]);
 
-  const catalog = await buildEleveDossierClassCatalog(sites);
+  const catalog = await buildEleveDossierClassCatalog(sites, {
+    etablissementId: tenant.ctx.etablissementId,
+  });
 
   let eleves = elevesRaw.map((row) => enrichEleveDossierListItem(row, catalog));
 
@@ -219,10 +232,14 @@ export async function GET(req: NextRequest) {
     photoKey: undefined,
   }));
 
+  const roles = Array.isArray(user.roles) ? user.roles : [];
   const accompagnementByEleve = await listEleveLatestAccompagnementByKind({
     etablissementId: tenant.ctx.etablissementId,
     eleveIds: eleves.map((e) => e.id),
-  }).catch(() => new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>());
+  }).catch((err) => {
+    console.warn("[eleves/dossiers/list] accompagnements", err);
+    return new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>();
+  });
   const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
   eleves = eleves.map((e) => {
     const items = accompagnementByEleve.get(e.id) ?? [];
@@ -236,7 +253,7 @@ export async function GET(req: NextRequest) {
       const titleHint = ACCOMPAGNEMENT_KINDS.find((k) => k.kind === item.kind)?.code ?? "PAP";
       const canOpen = canOpenDocumentWithoutGrant(
         { ...asDoc, title: titleHint },
-        user.roles,
+        roles,
         { orgAdmin: user.orgAdmin, platformAdmin: user.platformAdmin },
       );
       return {

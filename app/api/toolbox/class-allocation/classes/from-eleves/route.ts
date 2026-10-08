@@ -3,7 +3,7 @@ import { requireAdmin } from "@/app/lib/intranet-auth";
 import { uniqueClassesByLevelFromEleves } from "@/app/lib/class-allocation-level-heuristic";
 import { CLASS_LEVELS, type ClassLevel } from "@/app/lib/class-allocation-types";
 import { loadCampaignConfig, saveCampaignConfig } from "@/app/lib/class-allocation-storage";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 
 export async function POST(req: Request) {
   const gate = await requireAdmin();
@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { level?: ClassLevel };
   const levelFilter = body.level && CLASS_LEVELS.includes(body.level) ? body.level : null;
 
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   const byLevel = uniqueClassesByLevelFromEleves(eleves);
   const current = await loadCampaignConfig();
   const levelMap = new Map(current.levels.map((l) => [l.level, { ...l }]));

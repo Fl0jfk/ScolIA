@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { loadSchoolRoster } from "@/app/lib/school-roster";
 import {
   levelFromClasse,
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
   const studentIne = String(body.studentIne || "").trim();
   if (!studentIne) return NextResponse.json({ error: "Élève requis." }, { status: 400 });
 
-  const [all, roster] = await Promise.all([loadElevesRegistry(), loadSchoolRoster()]);
+  const [all, roster] = await Promise.all([loadElevesActifsRegistry(), loadSchoolRoster()]);
   const student = all.find((s) => s.ine === studentIne);
   if (!student) return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
   if (!session.childInes.includes(studentIne)) {

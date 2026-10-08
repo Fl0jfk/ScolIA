@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray } from "drizzle-orm";
-import { getDb } from "@/db/index";
+import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
   travel,
   travelAttr,
@@ -10,19 +10,23 @@ import {
   travelParticipant,
 } from "@/db/schema";
 import { flattenToAttrs, inflateFromAttrs } from "@/app/lib/ent-attr-codec";
-import {
-  isEntCoreDbEnabled,
-  resolveCurrentEtablissementId,
-} from "@/app/lib/ent-core-db";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   normalizeParticipantIneKey,
   resolveEleveIdsByIneKeys,
 } from "@/app/lib/travel-participant-resolve";
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import { chunkArray } from "@/app/lib/db-in-chunks";
+import {
+  listTravelParticipantsForTripIds,
+  queryTravelParticipants,
+  type TravelParticipantReadRow,
+} from "@/app/lib/travel-db-participant-read";
 
 type TravelMain = typeof travel.$inferSelect;
 type TravelAttrRow = typeof travelAttr.$inferSelect;
 type TravelParticipantRow = typeof travelParticipant.$inferSelect;
+type TravelParticipantAssemblyRow = TravelParticipantReadRow | TravelParticipantRow;
 type TravelHistoryRow = typeof travelHistory.$inferSelect;
 type TravelMessageRow = typeof travelMessage.$inferSelect;
 
@@ -63,9 +67,19 @@ function parseTs(raw: string | undefined | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Postgres travel table — aligné sur la liste élèves (pas de garde ENT_CORE_DB). */
 export async function travelsDbReady(): Promise<string | null> {
-  if (!isEntCoreDbEnabled()) return null;
-  return resolveCurrentEtablissementId();
+  if (!isDatabaseConfigured()) return null;
+  const fromTenant = await resolveCurrentEtablissementId();
+  if (fromTenant) return fromTenant;
+  try {
+    const { getAppSession } = await import("@/app/lib/app-session");
+    const session = await getAppSession();
+    const id = session?.user?.etablissementId?.trim();
+    return id || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -73,46 +87,59 @@ export async function travelsDbReady(): Promise<string | null> {
  * Important perf : 1 requête mains + 4 requêtes enfants en batch (pas de N+1).
  * Avec Postgres distant, l’ancien hydrate séquentiel par dossier coûtait souvent 10–30s.
  */
-export async function listTravelsFromDb(etablissementId: string): Promise<TravelsTrip[]> {
+export type ListTravelsFromDbOptions = {
+  /** Liste module / rappels : pas besoin de messages ni historique (perf + taille JSON). */
+  forListIndex?: boolean;
+};
+
+export async function listTravelsFromDb(
+  etablissementId: string,
+  opts?: ListTravelsFromDbOptions,
+): Promise<TravelsTrip[]> {
   const db = getDb();
   const mains = await db.select().from(travel).where(eq(travel.etablissementId, etablissementId));
   if (mains.length === 0) return [];
 
   const ids = mains.map((m) => m.id);
-  const [allAttrs, allParticipants, allHistory, allMessages] = await Promise.all([
-    db
+  const skipHeavy = opts?.forListIndex === true;
+
+  const allAttrs: TravelAttrRow[] = [];
+  for (const batch of chunkArray(ids)) {
+    const part = await db
       .select()
       .from(travelAttr)
       .where(
-        and(eq(travelAttr.etablissementId, etablissementId), inArray(travelAttr.travelId, ids)),
-      ),
-    db
-      .select()
-      .from(travelParticipant)
-      .where(
-        and(
-          eq(travelParticipant.etablissementId, etablissementId),
-          inArray(travelParticipant.travelId, ids),
-        ),
-      ),
-    db
-      .select()
-      .from(travelHistory)
-      .where(
-        and(
-          eq(travelHistory.etablissementId, etablissementId),
-          inArray(travelHistory.travelId, ids),
-        ),
-      ),
-    db
-      .select()
-      .from(travelMessage)
-      .where(
-        and(
-          eq(travelMessage.etablissementId, etablissementId),
-          inArray(travelMessage.travelId, ids),
-        ),
-      ),
+        and(eq(travelAttr.etablissementId, etablissementId), inArray(travelAttr.travelId, batch)),
+      );
+    allAttrs.push(...part);
+  }
+
+  const participantsPromise = listTravelParticipantsForTripIds(db, etablissementId, ids);
+
+  const [allParticipants, allHistory, allMessages] = await Promise.all([
+    participantsPromise,
+    skipHeavy
+      ? Promise.resolve([] as TravelHistoryRow[])
+      : db
+          .select()
+          .from(travelHistory)
+          .where(
+            and(
+              eq(travelHistory.etablissementId, etablissementId),
+              inArray(travelHistory.travelId, ids),
+            ),
+          ),
+    skipHeavy
+      ? Promise.resolve([] as TravelMessageRow[])
+      : db
+          .select()
+          .from(travelMessage)
+          .where(
+            and(
+              eq(travelMessage.etablissementId, etablissementId),
+              inArray(travelMessage.travelId, ids),
+            ),
+          ),
   ]);
 
   const attrsByTrip = groupByTravelId(allAttrs);
@@ -120,14 +147,22 @@ export async function listTravelsFromDb(etablissementId: string): Promise<Travel
   const historyByTrip = groupByTravelId(allHistory);
   const messagesByTrip = groupByTravelId(allMessages);
 
-  return mains.map((m) =>
-    assembleTravel(m, {
-      attrs: attrsByTrip.get(m.id) ?? [],
-      participants: participantsByTrip.get(m.id) ?? [],
-      history: historyByTrip.get(m.id) ?? [],
-      messages: messagesByTrip.get(m.id) ?? [],
-    }),
-  );
+  const trips: TravelsTrip[] = [];
+  for (const m of mains) {
+    try {
+      trips.push(
+        assembleTravel(m, {
+          attrs: attrsByTrip.get(m.id) ?? [],
+          participants: participantsByTrip.get(m.id) ?? [],
+          history: historyByTrip.get(m.id) ?? [],
+          messages: messagesByTrip.get(m.id) ?? [],
+        }),
+      );
+    } catch (assembleErr) {
+      console.error("[travel-db] assembleTravel list", m.id, assembleErr);
+    }
+  }
+  return trips;
 }
 
 export async function getTravelFromDb(
@@ -158,7 +193,7 @@ function assembleTravel(
   m: TravelMain,
   parts: {
     attrs: TravelAttrRow[];
-    participants: TravelParticipantRow[];
+    participants: TravelParticipantAssemblyRow[];
     history: TravelHistoryRow[];
     messages: TravelMessageRow[];
   },
@@ -180,8 +215,13 @@ function assembleTravel(
       droitImageOk: p.droitImageOk !== false,
       panierRepas: p.panierRepas === true,
       ...(p.classe ? { classe: p.classe } : {}),
-      ...(p.eleveId ? { eleveId: p.eleveId } : {}),
+      ...("eleveId" in p && p.eleveId ? { eleveId: p.eleveId } : {}),
     }));
+
+  const attrStart =
+    typeof dataFromAttrs.startDate === "string" ? dataFromAttrs.startDate : undefined;
+  const attrEnd = typeof dataFromAttrs.endDate === "string" ? dataFromAttrs.endDate : undefined;
+  const attrDate = typeof dataFromAttrs.date === "string" ? dataFromAttrs.date : undefined;
 
   const data = {
     ...dataFromAttrs,
@@ -189,8 +229,9 @@ function assembleTravel(
     destination: m.destination ?? undefined,
     etablissement: m.siteLabel ?? undefined,
     classes: m.classes ?? undefined,
-    startDate: m.startDate ?? undefined,
-    endDate: m.endDate ?? undefined,
+    startDate: m.startDate ?? attrStart ?? attrDate ?? undefined,
+    endDate: m.endDate ?? attrEnd ?? undefined,
+    date: attrDate ?? m.startDate ?? undefined,
     startTime: m.startTime ?? undefined,
     endTime: m.endTime ?? undefined,
     nbEleves: m.nbEleves ?? undefined,
@@ -227,7 +268,7 @@ function assembleTravel(
     history: [...parts.history]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((h) => ({
-        date: h.at,
+        date: String(h.at ?? ""),
         user: h.by,
         action: h.action,
         ...(h.note ? { note: h.note } : {}),
@@ -239,7 +280,7 @@ function assembleTravel(
         user: msg.userLabel,
         role: msg.role,
         text: msg.body,
-        date: msg.at,
+        date: String(msg.at ?? ""),
       })),
     ...(rootExtras.receivedDevis
       ? { receivedDevis: rootExtras.receivedDevis as TravelsTrip["receivedDevis"] }
@@ -254,15 +295,13 @@ async function hydrateTravel(etablissementId: string, m: TravelMain): Promise<Tr
       .select()
       .from(travelAttr)
       .where(and(eq(travelAttr.etablissementId, etablissementId), eq(travelAttr.travelId, m.id))),
-    db
-      .select()
-      .from(travelParticipant)
-      .where(
-        and(
-          eq(travelParticipant.etablissementId, etablissementId),
-          eq(travelParticipant.travelId, m.id),
-        ),
+    queryTravelParticipants(
+      db,
+      and(
+        eq(travelParticipant.etablissementId, etablissementId),
+        eq(travelParticipant.travelId, m.id),
       ),
+    ),
     db
       .select()
       .from(travelHistory)

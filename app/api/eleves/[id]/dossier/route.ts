@@ -61,7 +61,14 @@ import {
   buildEleveDossierClassCatalog,
   type EleveDossierClassCatalog,
 } from "@/app/lib/eleve-dossier-catalog";
-import { buildEleveSyntheseSnapshot } from "@/app/lib/eleve-dossier-synthese";
+import {
+  buildEleveMealWeek,
+  buildEleveSyntheseSnapshot,
+  eleveInitials,
+  type EleveSyntheseSnapshot,
+} from "@/app/lib/eleve-dossier-synthese";
+import { eleveStatusLabel } from "@/app/lib/eleve-dossier-labels";
+import { elevePhotoProxyPath } from "@/app/lib/eleve-photos";
 import { lookupMefLabel } from "@/app/lib/nomenclature-import/enrich-eleves-mef";
 import {
   countMidiFromGrille,
@@ -75,6 +82,7 @@ import { listCarnetForEleve } from "@/app/lib/vs-carnet-db";
 import { countFacturesEnRetardForEleve } from "@/app/lib/facturation-db";
 import { listGroupesForEleve } from "@/app/lib/groupes-pedagogiques-db";
 import { parisDateKey } from "@/app/lib/paris-time";
+import { chunkArray } from "@/app/lib/db-in-chunks";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -96,6 +104,54 @@ function isExactAdmin(roles: string[]): boolean {
 
 function isDirection(roles: string[]): boolean {
   return INTRANET_DIRECTION_SLUGS.some((slug) => roles.includes(slug));
+}
+
+function minimalDossierSynthese(
+  eleveId: string,
+  row: {
+    nom: string;
+    prenom: string;
+    classe: string | null;
+    status: string;
+    mef?: string | null;
+    ine?: string | null;
+  },
+): EleveSyntheseSnapshot {
+  return {
+    statusLabel: eleveStatusLabel(row.status),
+    classeLabel: row.classe,
+    siteLabel: null,
+    initials: eleveInitials(row.prenom, row.nom),
+    photoUrl: elevePhotoProxyPath(eleveId),
+    mef: row.mef?.trim() || null,
+    ine: row.ine?.trim() || null,
+    groupesAcademiques: [],
+    groupesInternes: [],
+    groupesEdt: [],
+    restauration: buildEleveMealWeek({
+      demiPension: false,
+      repasParSemaine: null,
+      interne: false,
+    }),
+    internat: { actif: false, roomLabel: null },
+    notesTrimestre: {
+      available: false,
+      label: "Notes — trimestre en cours",
+      value: "—",
+      detail: "Chargement allégé.",
+    },
+    absences: {
+      available: false,
+      label: "Absences & retards",
+      value: "—",
+      detail: "Chargement allégé.",
+    },
+    finances: {
+      available: false,
+      label: "Facturation famille",
+      detail: "Chargement allégé.",
+    },
+  };
 }
 
 function canEditStructure(
@@ -126,7 +182,7 @@ export async function GET(req: Request, ctx: Ctx) {
 
   const authUserId = gate.user.id;
   const businessUserId = gate.user.businessUserId;
-  const roles = gate.user.roles;
+  const roles = Array.isArray(gate.user.roles) ? gate.user.roles : [];
   const orgAdmin = Boolean(gate.user.orgAdmin);
   const platformAdmin = Boolean(gate.user.platformAdmin);
   const { canOpenEleveDossierDetail } = await import("@/app/lib/accueil-access");
@@ -189,7 +245,12 @@ export async function GET(req: Request, ctx: Ctx) {
   const needScol = sections.includes("scolarite");
   const needFactu = sections.includes("facturation");
   const needFamille = sections.includes("famille");
-  const loadExtras = new URL(req.url).searchParams.get("part") === "extras";
+  const dossierUrl = new URL(req.url);
+  const loadExtras = dossierUrl.searchParams.get("part") === "extras";
+  const focus = dossierUrl.searchParams.get("focus")?.trim().toLowerCase() ?? "";
+  const inscriptionFocus =
+    loadExtras && (focus === "inscription" || focus === "documents");
+  const loadHeavyExtras = loadExtras && !inscriptionFocus;
 
   // Rattrapage hors chemin critique : sync scolarité en arrière-plan.
   after(async () => {
@@ -198,6 +259,8 @@ export async function GET(req: Request, ctx: Ctx) {
         id: row.id,
         classe: row.classe,
         regime: row.regime,
+        status: row.status,
+        dateSortie: row.dateSortie,
       });
     } catch (e) {
       console.warn("[eleves/dossier] sync scolarité", e);
@@ -212,7 +275,7 @@ export async function GET(req: Request, ctx: Ctx) {
       .from(eleveScolarite)
       .where(and(eq(eleveScolarite.etablissementId, etabId), eq(eleveScolarite.eleveId, id)))
       .orderBy(desc(eleveScolarite.createdAt)),
-    needFamille && loadExtras
+    needFamille && loadHeavyExtras
       ? db
           .select()
           .from(eleveFoyerLink)
@@ -247,20 +310,27 @@ export async function GET(req: Request, ctx: Ctx) {
                 roles,
                 orgAdmin,
                 platformAdmin,
-              }).catch(() => [])
+              }).catch((err) => {
+                console.error("[eleves/dossier] documents viewer", err);
+                return [];
+              })
             : Promise.resolve([]),
-          needNotes ? listMoyennesForEleve(etabId, id).catch(() => []) : Promise.resolve([]),
-          needNotes ? listCompetencesForEleve(etabId, id).catch(() => []) : Promise.resolve([]),
-          needVs
+          loadHeavyExtras && needNotes
+            ? listMoyennesForEleve(etabId, id).catch(() => [])
+            : Promise.resolve([]),
+          loadHeavyExtras && needNotes
+            ? listCompetencesForEleve(etabId, id).catch(() => [])
+            : Promise.resolve([]),
+          loadHeavyExtras && needVs
             ? listAbsencesForEleve(etabId, id, { limit: 40 }).catch(() => [])
             : Promise.resolve([]),
-          needVs
+          loadHeavyExtras && needVs
             ? listSanctionsForEleve(etabId, id, { limit: 30 }).catch(() => [])
             : Promise.resolve([]),
-          needVs
+          loadHeavyExtras && needVs
             ? listCarnetForEleve(etabId, id, { limit: 30 }).catch(() => [])
             : Promise.resolve([]),
-          needFactu
+          loadHeavyExtras && needFactu
             ? countFacturesEnRetardForEleve(etabId, id, parisDateKey(new Date()))
                 .then((enRetard) => ({
                   available: true as const,
@@ -272,16 +342,18 @@ export async function GET(req: Request, ctx: Ctx) {
                 }))
                 .catch(() => undefined)
             : Promise.resolve(undefined),
-          row.classe
+          loadHeavyExtras && row.classe
             ? listClassmatesForEleve(etabId, row.classe, {
                 excludeEleveId: id,
                 assignedClasses: assignedClassesForProf,
-              })
+              }).catch(() => [])
             : Promise.resolve([]),
-          getLatestAccompagnementDocumentsForEleve({
-            etablissementId: etabId,
-            eleveId: id,
-          }).catch(() => []),
+          loadHeavyExtras
+            ? getLatestAccompagnementDocumentsForEleve({
+                etablissementId: etabId,
+                eleveId: id,
+              }).catch(() => [])
+            : Promise.resolve([]),
         ])
       : Promise.resolve(null),
   ]);
@@ -318,19 +390,28 @@ export async function GET(req: Request, ctx: Ctx) {
   }> = [];
   if (links.length) {
     const foyerIds = [...new Set(links.map((l) => l.foyerId))];
-    const [foyerRows, respRows] = await Promise.all([
-      db
-        .select()
-        .from(foyer)
-        .where(and(eq(foyer.etablissementId, etabId), inArray(foyer.id, foyerIds))),
-      db
-        .select()
-        .from(foyerResponsable)
-        .where(
-          and(eq(foyerResponsable.etablissementId, etabId), inArray(foyerResponsable.foyerId, foyerIds)),
-        )
-        .orderBy(asc(foyerResponsable.rang)),
-    ]);
+    const foyerRows: (typeof foyer.$inferSelect)[] = [];
+    const respRows: (typeof foyerResponsable.$inferSelect)[] = [];
+    for (const batch of chunkArray(foyerIds)) {
+      const [batchFoyers, batchResps] = await Promise.all([
+        db
+          .select()
+          .from(foyer)
+          .where(and(eq(foyer.etablissementId, etabId), inArray(foyer.id, batch))),
+        db
+          .select()
+          .from(foyerResponsable)
+          .where(
+            and(
+              eq(foyerResponsable.etablissementId, etabId),
+              inArray(foyerResponsable.foyerId, batch),
+            ),
+          )
+          .orderBy(asc(foyerResponsable.rang)),
+      ]);
+      foyerRows.push(...batchFoyers);
+      respRows.push(...batchResps);
+    }
     const foyerById = new Map(foyerRows.map((f) => [f.id, f]));
     const respByFoyer = new Map<string, typeof respRows>();
     for (const r of respRows) {
@@ -371,58 +452,71 @@ export async function GET(req: Request, ctx: Ctx) {
       d.createdAt instanceof Date ? d.createdAt.toISOString() : String(d.createdAt ?? ""),
   }));
 
-  const pendingAccessRequests =
-    needDocs && loadExtras
-      ? await db
-          .select({
-            id: documentAccessRequest.id,
-            documentId: documentAccessRequest.documentId,
-            requesterUserId: documentAccessRequest.requesterUserId,
-            durationDays: documentAccessRequest.durationDays,
-            note: documentAccessRequest.note,
-            createdAt: documentAccessRequest.createdAt,
-            docTitle: eleveDocument.title,
-            docTiroir: eleveDocument.tiroir,
-            docConfidentialite: eleveDocument.confidentialite,
-          })
-          .from(documentAccessRequest)
-          .innerJoin(eleveDocument, eq(documentAccessRequest.documentId, eleveDocument.id))
-          .where(
-            and(
-              eq(documentAccessRequest.etablissementId, etabId),
-              eq(eleveDocument.eleveId, id),
-              eq(documentAccessRequest.status, "pending"),
-            ),
-          )
-          .orderBy(desc(documentAccessRequest.createdAt))
-          .limit(50)
-          .then((rows) =>
-            rows
-              .filter((r) =>
-                canDecideDocumentAccessGrant(
-                  {
-                    tiroir: r.docTiroir,
-                    title: r.docTitle,
-                    confidentialite: r.docConfidentialite,
-                  },
-                  roles,
-                  { orgAdmin, platformAdmin },
-                ),
-              )
-              .map((r) => ({
-                id: r.id,
-                documentId: r.documentId,
-                requesterUserId: r.requesterUserId,
-                durationDays: r.durationDays,
-                note: r.note,
-                createdAt:
-                  r.createdAt instanceof Date
-                    ? r.createdAt.toISOString()
-                    : String(r.createdAt ?? ""),
-                docTitle: r.docTitle,
-              })),
-          )
-      : [];
+  let pendingAccessRequests: Array<{
+    id: string;
+    documentId: string;
+    requesterUserId: string;
+    durationDays: number;
+    note: string | null;
+    createdAt: string;
+    docTitle: string;
+  }> = [];
+  if (needDocs && loadHeavyExtras) {
+    try {
+      pendingAccessRequests = await db
+        .select({
+          id: documentAccessRequest.id,
+          documentId: documentAccessRequest.documentId,
+          requesterUserId: documentAccessRequest.requesterUserId,
+          durationDays: documentAccessRequest.durationDays,
+          note: documentAccessRequest.note,
+          createdAt: documentAccessRequest.createdAt,
+          docTitle: eleveDocument.title,
+          docTiroir: eleveDocument.tiroir,
+          docConfidentialite: eleveDocument.confidentialite,
+        })
+        .from(documentAccessRequest)
+        .innerJoin(eleveDocument, eq(documentAccessRequest.documentId, eleveDocument.id))
+        .where(
+          and(
+            eq(documentAccessRequest.etablissementId, etabId),
+            eq(eleveDocument.eleveId, id),
+            eq(documentAccessRequest.status, "pending"),
+          ),
+        )
+        .orderBy(desc(documentAccessRequest.createdAt))
+        .limit(50)
+        .then((rows) =>
+          rows
+            .filter((r) =>
+              canDecideDocumentAccessGrant(
+                {
+                  tiroir: r.docTiroir,
+                  title: r.docTitle,
+                  confidentialite: r.docConfidentialite,
+                },
+                roles,
+                { orgAdmin, platformAdmin },
+              ),
+            )
+            .map((r) => ({
+              id: r.id,
+              documentId: r.documentId,
+              requesterUserId: r.requesterUserId,
+              durationDays: r.durationDays,
+              note: r.note,
+              createdAt:
+                r.createdAt instanceof Date
+                  ? r.createdAt.toISOString()
+                  : String(r.createdAt ?? ""),
+              docTitle: r.docTitle,
+            })),
+        );
+    } catch (pendingErr) {
+      console.error("[eleves/dossier] pendingAccessRequests", pendingErr);
+      pendingAccessRequests = [];
+    }
+  }
 
   type AccompagnementPayload = {
     kind: "pap" | "pai" | "pps" | "gevasco";
@@ -484,7 +578,7 @@ export async function GET(req: Request, ctx: Ctx) {
     classOptions: [],
   };
   let catalog: EleveDossierClassCatalog = catalogFallback;
-  if (loadExtras) {
+  if (loadHeavyExtras) {
     try {
       catalog = await buildEleveDossierClassCatalog(sites, { etablissementId: etabId });
     } catch (catalogErr) {
@@ -568,43 +662,78 @@ export async function GET(req: Request, ctx: Ctx) {
     };
   }
 
-  const mefLabel = loadExtras
-    ? (await lookupMefLabel(etabId, row.mef)) || row.mef
-    : row.mef;
+  let mefLabel = row.mef;
+  if (loadHeavyExtras) {
+    try {
+      mefLabel = (await lookupMefLabel(etabId, row.mef)) || row.mef;
+    } catch (mefErr) {
+      console.warn("[eleves/dossier] lookup MEF", mefErr);
+      mefLabel = row.mef;
+    }
+  }
 
-  const synthese = await buildEleveSyntheseSnapshot({
-    eleveId: row.id,
-    eleve: {
-      nom: row.nom,
-      prenom: row.prenom,
-      classe: row.classe,
-      status: row.status,
-      ine: row.ine,
-      mef: mefLabel,
-      folderName: row.folderName,
-      siteId: siteIdFromScolarite,
-    },
-    scolarite: currentScolarite
-      ? {
-          demiPension: currentScolarite.demiPension,
-          repasParSemaine: currentScolarite.repasParSemaine,
-          siteId: currentScolarite.siteId,
-          grilleRepas: currentScolarite.grilleRepas,
-        }
-      : null,
-    catalog,
-    notesMoyennes,
-    absences: absencesSynthese,
-    finances: financesSynthese,
-    groupes: groupesEleve,
-    includeHeavyExtras: false,
-  });
+  let synthese: EleveSyntheseSnapshot;
+  if (inscriptionFocus) {
+    synthese = minimalDossierSynthese(row.id, row);
+  } else {
+    try {
+      synthese = await buildEleveSyntheseSnapshot({
+        eleveId: row.id,
+        eleve: {
+          nom: row.nom,
+          prenom: row.prenom,
+          classe: row.classe,
+          status: row.status,
+          ine: row.ine,
+          mef: mefLabel,
+          folderName: row.folderName,
+          siteId: siteIdFromScolarite,
+        },
+        scolarite: currentScolarite
+          ? {
+              demiPension: currentScolarite.demiPension,
+              repasParSemaine: currentScolarite.repasParSemaine,
+              siteId: currentScolarite.siteId,
+              grilleRepas: currentScolarite.grilleRepas,
+            }
+          : null,
+        catalog,
+        notesMoyennes,
+        absences: absencesSynthese,
+        finances: financesSynthese,
+        groupes: groupesEleve,
+        includeHeavyExtras: false,
+      });
+    } catch (syntheseErr) {
+      console.error("[eleves/dossier] synthese", syntheseErr);
+      synthese = minimalDossierSynthese(row.id, { ...row, mef: mefLabel });
+    }
+  }
+
+  let canDeleteElevePermanent = false;
+  try {
+    canDeleteElevePermanent = (
+      await import("@/app/lib/eleve-delete-permanent")
+    ).canDeleteElevePermanently(roles, { orgAdmin, platformAdmin });
+  } catch (permErr) {
+    console.warn("[eleves/dossier] canDeleteElevePermanent", permErr);
+  }
+
+  const elevePayload = profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row;
+  const scolaritesPayload = scolarites.map((s) => ({
+    ...s,
+    createdAt:
+      s.createdAt instanceof Date ? s.createdAt.toISOString() : String(s.createdAt ?? ""),
+    updatedAt:
+      s.updatedAt instanceof Date ? s.updatedAt.toISOString() : String(s.updatedAt ?? ""),
+  }));
 
   return NextResponse.json({
     part: loadExtras ? "extras" : "core",
-    eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
+    focus: inscriptionFocus ? focus : undefined,
+    eleve: elevePayload,
     sections,
-    scolarites,
+    scolarites: scolaritesPayload,
     groupes: needScol ? groupesEleve : [],
     foyers: needFamille ? foyers : [],
     classmates,
@@ -636,10 +765,7 @@ export async function GET(req: Request, ctx: Ctx) {
         orgAdmin,
         platformAdmin,
       }),
-      canDeleteElevePermanent: (await import("@/app/lib/eleve-delete-permanent")).canDeleteElevePermanently(
-        roles,
-        { orgAdmin, platformAdmin },
-      ),
+      canDeleteElevePermanent,
       profRestrictedView,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
@@ -728,7 +854,7 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const authUserId = gate.user.id;
   const businessUserId = gate.user.businessUserId;
-  const roles = gate.user.roles;
+  const roles = Array.isArray(gate.user.roles) ? gate.user.roles : [];
   const orgAdmin = Boolean(gate.user.orgAdmin);
   const platformAdmin = Boolean(gate.user.platformAdmin);
   const { loadModuleAccess } = await import("@/app/lib/module-access-store");

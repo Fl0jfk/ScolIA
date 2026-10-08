@@ -36,6 +36,12 @@ import {
   resolveSiteIdForClass,
   type EleveDossierClassCatalog,
 } from "@/app/lib/eleve-dossier-catalog";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
+import {
+  formatDateSortieFromRow,
+  isEleveActifPourListes,
+} from "@/app/lib/eleve-actif-shared";
+import { isDateSortiePassee } from "@/app/lib/siecle-eleves-parse";
 
 /** Forme roster (évite import circulaire avec school-roster.ts). */
 export type EntSchoolRosterConfig = {
@@ -145,9 +151,14 @@ async function findExistingEleveForUpsert(
 }
 
 export function currentSchoolYearLabel(now = new Date()): string {
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  if (m >= 7) return `${y}-${y + 1}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "numeric",
+  }).formatToParts(now);
+  const y = Number(parts.find((p) => p.type === "year")?.value ?? now.getFullYear());
+  const m = Number(parts.find((p) => p.type === "month")?.value ?? now.getMonth() + 1);
+  if (m >= 9) return `${y}-${y + 1}`;
   return `${y - 1}-${y}`;
 }
 
@@ -161,6 +172,15 @@ export function isEntCoreDbEnabled(): boolean {
 /** Résout l'UUID tenant courant pour le cœur ENT (null si DB off / hors requête). */
 export async function resolveCurrentEtablissementId(): Promise<string | null> {
   if (!isEntCoreDbEnabled()) return null;
+  // Scripts locaux (seed / smoke) hors requête HTTP — jamais en prod conteneur.
+  const scriptEtab = process.env.SCOLA_SCRIPT_ETABLISSEMENT_ID?.trim();
+  if (
+    scriptEtab &&
+    process.env.SCOLA_ALLOW_SCRIPT_ETAB === "1" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    return scriptEtab;
+  }
   try {
     const { getTenant } = await import("@/app/lib/tenant-context");
     const { ensureEtablissementFromTenant } = await import("@/app/lib/etablissement-db");
@@ -201,6 +221,9 @@ export function eleveRowToConfig(row: EleveRow): EleveConfig {
     ...(row.parent1Phone ? { parent1Phone: row.parent1Phone } : {}),
     ...(row.parent2Phone ? { parent2Phone: row.parent2Phone } : {}),
     ...(row.dateNaissance ? { dateNaissance: String(row.dateNaissance) } : {}),
+    ...(row.dateSortie
+      ? { dateSortie: formatDateSortieFromRow(row.dateSortie) ?? String(row.dateSortie) }
+      : {}),
     ...(row.lieuNaissance ? { lieuNaissance: row.lieuNaissance } : {}),
     ...(row.mef ? { mef: row.mef } : {}),
     ...(row.secteur ? { secteur: row.secteur } : {}),
@@ -237,6 +260,7 @@ function eleveConfigToValues(etablissementId: string, e: EleveConfig) {
     parent1Phone: emptyToNull(e.parent1Phone),
     parent2Phone: emptyToNull(e.parent2Phone),
     dateNaissance: dateOrNull(e.dateNaissance),
+    dateSortie: dateOrNull(e.dateSortie),
     lieuNaissance: emptyToNull(e.lieuNaissance),
     mef: emptyToNull(e.mef ?? e.formation),
     secteur: emptyToNull(e.secteur),
@@ -265,19 +289,26 @@ export async function countElevesInDb(etablissementId: string): Promise<number> 
 
 export async function listElevesFromDb(
   etablissementId: string,
-  opts?: { status?: string | string[] },
+  opts?: { status?: string | string[]; actifsPourListes?: boolean },
 ): Promise<EleveConfig[]> {
   const db = getDb();
   const conditions = [eq(eleve.etablissementId, etablissementId)];
-  if (opts?.status != null) {
-    const statuses = (Array.isArray(opts.status) ? opts.status : [opts.status])
-      .map((s) => String(s).trim())
-      .filter(Boolean);
-    if (statuses.length === 1) {
-      conditions.push(eq(eleve.status, statuses[0]!));
-    } else if (statuses.length > 1) {
-      conditions.push(inArray(eleve.status, statuses));
-    }
+  const statuses =
+    opts?.status != null
+      ? (Array.isArray(opts.status) ? opts.status : [opts.status])
+          .map((s) => String(s).trim())
+          .filter(Boolean)
+      : [];
+  const actifsPourListes =
+    opts?.actifsPourListes ??
+    (statuses.length === 1 && statuses[0] === "inscrit");
+  if (actifsPourListes) {
+    const actif = drizzleEleveActifPourListes();
+    if (actif) conditions.push(actif);
+  } else if (statuses.length === 1) {
+    conditions.push(eq(eleve.status, statuses[0]!));
+  } else if (statuses.length > 1) {
+    conditions.push(inArray(eleve.status, statuses));
   }
   const rows = await db
     .select()
@@ -345,7 +376,9 @@ export async function upsertElevesInDb(
         const [cur] = await db
           .select({
             dateNaissance: eleve.dateNaissance,
+            dateSortie: eleve.dateSortie,
             lieuNaissance: eleve.lieuNaissance,
+            status: eleve.status,
             parentEmail: eleve.parentEmail,
             parent1Email: eleve.parent1Email,
             parent2Email: eleve.parent2Email,
@@ -367,6 +400,29 @@ export async function upsertElevesInDb(
           .limit(1);
 
         const patch = { ...values };
+        const incomingStatus = normalizeEleveStatus(e.status);
+        const reimportReactivation =
+          incomingStatus === "inscrit" && Boolean(e.classe?.trim()) && !e.dateSortie?.trim();
+        if (reimportReactivation) {
+          patch.status = "inscrit";
+          if (!e.dateSortie?.trim()) {
+            patch.dateSortie = null;
+          }
+        }
+        const patchDateSortie =
+          patch.dateSortie != null
+            ? formatDateSortieFromRow(patch.dateSortie) ?? String(patch.dateSortie)
+            : reimportReactivation
+              ? null
+              : cur?.dateSortie
+                ? formatDateSortieFromRow(cur.dateSortie)
+                : null;
+        if (!reimportReactivation && patchDateSortie && isDateSortiePassee(patchDateSortie)) {
+          patch.status = "ancien";
+        }
+        if (!reimportReactivation && !patch.dateSortie && cur?.dateSortie) {
+          patch.dateSortie = cur.dateSortie;
+        }
         // Ne pas écraser une date / un lieu déjà connus si le fichier d’import
         // n’a pas la colonne (ou une cellule vide).
         if (!patch.dateNaissance && cur?.dateNaissance) {
@@ -399,16 +455,35 @@ export async function upsertElevesInDb(
 
         await db.update(eleve).set(patch).where(eq(eleve.id, existing.id));
         updates += 1;
-        await ensureEleveScolariteCourante(
-          etablissementId,
-          existing.id,
-          {
-            classe: patch.classe,
-            regime: patch.regime,
-            status: normalizeEleveStatus(e.status) ?? normalizeEleveStatus(patch.status),
-          },
-          catalog,
-        );
+        const scolariteStatus = normalizeEleveStatus(patch.status);
+        if (
+          isEleveActifPourListes({
+            status: scolariteStatus,
+            dateSortie: patchDateSortie,
+          })
+        ) {
+          await ensureEleveScolariteCourante(
+            etablissementId,
+            existing.id,
+            {
+              classe: patch.classe,
+              regime: patch.regime,
+              status: scolariteStatus,
+            },
+            catalog,
+          );
+        } else if (scolariteStatus === "ancien" || scolariteStatus === "archive") {
+          await ensureEleveScolariteCourante(
+            etablissementId,
+            existing.id,
+            {
+              classe: patch.classe,
+              regime: patch.regime,
+              status: scolariteStatus,
+            },
+            catalog,
+          );
+        }
       } else {
         const [created] = await db.insert(eleve).values(values).returning({ id: eleve.id });
         inserts += 1;
@@ -447,6 +522,20 @@ export async function ensureEleveScolariteCourante(
   if (!classe) return;
 
   const db = getDb();
+  const [curEleve] = await db
+    .select({ status: eleve.status, dateSortie: eleve.dateSortie })
+    .from(eleve)
+    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, eleveId)))
+    .limit(1);
+  const mergedStatus = normalizeEleveStatus(input.status ?? curEleve?.status);
+  const dateSortie = formatDateSortieFromRow(curEleve?.dateSortie);
+  if (
+    !isEleveActifPourListes({ status: mergedStatus, dateSortie }) &&
+    mergedStatus !== "ancien" &&
+    mergedStatus !== "archive"
+  ) {
+    return;
+  }
   let resolvedCatalog = catalog;
   if (!resolvedCatalog) {
     const sites = await db
@@ -477,13 +566,22 @@ export async function ensureEleveScolariteCourante(
 /** Rattrapage : crée / met à jour la scolarité courante depuis la fiche élève plate. */
 export async function syncEleveScolariteFromEleveRow(
   etablissementId: string,
-  row: Pick<EleveRow, "id" | "classe" | "regime">,
+  row: Pick<EleveRow, "id" | "classe" | "regime" | "status" | "dateSortie">,
   catalog?: EleveDossierClassCatalog,
 ): Promise<void> {
+  const dateSortie = formatDateSortieFromRow(row.dateSortie);
+  if (
+    !isEleveActifPourListes({
+      status: row.status,
+      dateSortie,
+    })
+  ) {
+    return;
+  }
   await ensureEleveScolariteCourante(
     etablissementId,
     row.id,
-    { classe: row.classe, regime: row.regime },
+    { classe: row.classe, regime: row.regime, status: row.status },
     catalog,
   );
 }
@@ -657,13 +755,21 @@ export async function ensureEleveFoyerFromParentContacts(
 const scolariteBackfillDone = new Set<string>();
 
 /**
- * Une fois par process / établissement : aligne toutes les scolarités année courante
- * sur le registre plat (après un import déjà fait sans sync complète).
+ * Une fois par établissement (marqueur Postgres) : aligne les scolarités année courante
+ * sur le registre plat. Idempotent : aucune écriture si déjà aligné.
  */
 export async function backfillElevesScolariteCouranteOnce(
   etablissementId: string,
 ): Promise<number> {
   if (scolariteBackfillDone.has(etablissementId)) return 0;
+  const {
+    isEleveScolariteBackfillDone,
+    markEleveScolariteBackfillDone,
+  } = await import("@/app/lib/eleve-scolarite-backfill-marker");
+  if (await isEleveScolariteBackfillDone(etablissementId)) {
+    scolariteBackfillDone.add(etablissementId);
+    return 0;
+  }
   const db = getDb();
   const sites = await db
     .select({
@@ -675,9 +781,15 @@ export async function backfillElevesScolariteCouranteOnce(
     .where(eq(etablissementSite.etablissementId, etablissementId));
   const catalog = await buildEleveDossierClassCatalog(sites);
   const rows = await db
-    .select({ id: eleve.id, classe: eleve.classe, regime: eleve.regime })
+    .select({
+      id: eleve.id,
+      classe: eleve.classe,
+      regime: eleve.regime,
+      status: eleve.status,
+      dateSortie: eleve.dateSortie,
+    })
     .from(eleve)
-    .where(eq(eleve.etablissementId, etablissementId));
+    .where(and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!));
 
   let touched = 0;
   for (const row of rows) {
@@ -685,6 +797,7 @@ export async function backfillElevesScolariteCouranteOnce(
     await syncEleveScolariteFromEleveRow(etablissementId, row, catalog);
     touched += 1;
   }
+  await markEleveScolariteBackfillDone(etablissementId);
   scolariteBackfillDone.add(etablissementId);
   return touched;
 }

@@ -8,7 +8,7 @@ import {
   type StageClassPeriod,
 } from "@/app/lib/stage-periods-config";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
-import { classKey } from "@/app/lib/stage-referents-config";
+import { classKey, stageRosterStudentKey } from "@/app/lib/stage-referents-config";
 import { getConventionsIndex } from "@/app/lib/stage-storage";
 import type { StageSignatureSummary } from "@/app/lib/stage-signature-summary";
 import {
@@ -36,6 +36,7 @@ type StageRosterConvention = {
   signatureSummary: StageSignatureSummary;
   teacherReferentName?: string;
   teacherReferentEmail?: string;
+  teacherReferentUserId?: string;
 };
 
 export type StageRosterStudent = {
@@ -51,6 +52,9 @@ export type StageRosterStudent = {
   folderName?: string;
   rosterStatus: StageRosterStudentStatus;
   conventions: StageRosterConvention[];
+  assignedReferentName?: string;
+  assignedReferentEmail?: string;
+  assignedReferentUserId?: string;
 };
 
 export type StageClassRoster = {
@@ -158,8 +162,7 @@ function toRosterConventionFromIndex(e: StageConventionIndexEntry): StageRosterC
 }
 
 function studentKey(nom: string, prenom: string, ine?: string): string {
-  if (ine?.trim()) return `ine:${ine.trim().toUpperCase()}`;
-  return `name:${normalizeName(nom)}|${normalizeName(prenom)}`;
+  return stageRosterStudentKey(nom, prenom, ine);
 }
 
 

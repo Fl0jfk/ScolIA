@@ -11,6 +11,7 @@ import {
 } from "@/app/lib/stage-pdf";
 import type { StageConvention, StageSignature, StageSignerRole } from "@/app/lib/stage-types";
 import { STAGE_S3, STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
+import { resolvePrincipalSignerForClass } from "@/app/lib/stage-referents-config";
 
 const SIG_W = 140;
 const SIG_H = 55;
@@ -81,7 +82,7 @@ async function drawAnnexBoxes(
     },
   );
 
-  const list = roles.length ? roles : (["direction", "professeur_referent"] as StageSignerRole[]);
+  const list = roles.length ? roles : (["direction", "professeur_principal"] as StageSignerRole[]);
   for (let i = 0; i < list.length; i++) {
     const role = list[i]!;
     const box = electronicSignatureBoxLayout({
@@ -288,7 +289,7 @@ export async function syncElectronicSignaturesOntoConventionPdf(
       continue;
     }
 
-    if (sig.role === "direction" || sig.role === "professeur_referent") {
+    if (sig.role === "direction" || sig.role === "professeur_referent" || sig.role === "professeur_principal") {
       const stamp = await stampSignatureOnConventionPdf({
         convention,
         role: sig.role,
@@ -357,6 +358,15 @@ async function resolveSignaturePngForRole(
     if (userId) return loadReferentSignatureBytes(userId);
   }
 
+  if (role === "professeur_principal") {
+    const principal = await resolvePrincipalSignerForClass(
+      convention.student.className,
+      convention.schoolYear,
+    );
+    const userId = principal?.externalUserId;
+    if (userId) return loadReferentSignatureBytes(userId);
+  }
+
   return null;
 }
 
@@ -387,7 +397,7 @@ export async function stampSignatureOnConventionPdf(params: {
     };
   }
 
-  if (!sigBytes && params.role === "professeur_referent") {
+  if (!sigBytes && (params.role === "professeur_referent" || params.role === "professeur_principal")) {
     return {
       ok: false,
       error:

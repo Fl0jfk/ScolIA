@@ -25,4 +25,8 @@ test("appelAbsenceSlotsConflict — autre appel même créneau horaire", () => {
     appelAbsenceSlotsConflict(slot, { ...existing, appelId: "current" }, "current"),
     false,
   );
+  assert.equal(
+    appelAbsenceSlotsConflict(slot, { ...existing, statut: "annulee" }, "current"),
+    false,
+  );
 });

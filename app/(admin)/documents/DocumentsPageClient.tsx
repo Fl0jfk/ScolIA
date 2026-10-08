@@ -276,44 +276,6 @@ export default function DocumentsPage() {
     }
   };
 
-  const createOfficeInFolder = async (kind: "writer" | "calc" | "impress") => {
-    if (isSharePicker || isInIncomingSharedFolder) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/documents/office/new", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kind,
-          scope,
-          shareId,
-          parentRelPath: currentPath,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Création impossible.");
-        return;
-      }
-      const dl = await downloadCloudDocument({
-        scope: String(data.scope || scope),
-        path: String(data.relPath || ""),
-        shareId: data.shareId ? String(data.shareId) : shareId,
-        fileName: data.fileName ? String(data.fileName) : undefined,
-      });
-      if (!dl.ok) {
-        setError(dl.error);
-        return;
-      }
-      await fetchDocuments();
-    } catch {
-      setError("Erreur lors de la création.");
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const uploadFiles = async (files: DropFile[]) => {
     if (files.length === 0) return;
     setUploading(true);
@@ -727,9 +689,6 @@ export default function DocumentsPage() {
           shareId={shareId}
           canLeaveShare={scope === "shared" && Boolean(shareId) && !isShareOwner}
           onNewFolder={() => setShowNewFolder(true)}
-          onNewDocument={() => void createOfficeInFolder("writer")}
-          onNewSpreadsheet={() => void createOfficeInFolder("calc")}
-          onNewPresentation={() => void createOfficeInFolder("impress")}
           onPickFiles={() => fileInputRef.current?.click()}
           onNewShare={() => setShowNewShare(true)}
           onShowAccess={() => {

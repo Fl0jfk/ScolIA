@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import { eleve } from "@/db/schema";
 import { requireModule } from "@/app/lib/intranet-auth";
@@ -28,7 +29,7 @@ export async function GET() {
   const rows = await db
     .select({ id: eleve.id, folderName: eleve.folderName, nom: eleve.nom, prenom: eleve.prenom })
     .from(eleve)
-    .where(eq(eleve.etablissementId, etabId));
+    .where(and(eq(eleve.etablissementId, etabId), drizzleEleveActifPourListes()!));
   const byFolder: Record<string, string> = {};
   for (const r of rows) {
     byFolder[r.folderName] = r.id;

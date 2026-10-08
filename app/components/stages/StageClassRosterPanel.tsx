@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { StageClassRoster, StageGlobalSearchHit, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
 
-type RosterStatusFilter = "all" | StageRosterStudentStatus;
+type RosterStatusFilter = "all" | StageRosterStudentStatus | "sans_referent";
 
 function formatIsoDateFr(iso: string): string {
   const raw = iso.trim().slice(0, 10);
@@ -85,7 +85,7 @@ type TeacherOption = {
 type RosterResponse = {
   schoolYear: string;
   availableClasses: string[];
-  referents: Array<{ name: string; email: string; role?: string }>;
+  referents: Array<{ name: string; email: string; role?: string; externalUserId?: string }>;
   canAssignReferent?: boolean;
   teachers?: TeacherOption[];
   roster: StageClassRoster | null;
@@ -108,6 +108,16 @@ function readRosterMemory(key: string): RosterResponse | undefined {
 
 function writeRosterMemory(key: string, data: RosterResponse): void {
   rosterMemoryCache.set(key, { at: Date.now(), data });
+}
+
+function referentPool(data: RosterResponse): TeacherOption[] {
+  return data.referents
+    .filter((r) => r.role === "professeur_referent" && r.externalUserId)
+    .map((r) => ({
+      externalUserId: r.externalUserId!,
+      email: r.email,
+      displayName: r.name,
+    }));
 }
 
 function clearRosterMemory(): void {
@@ -150,6 +160,10 @@ export default function StageClassRosterPanel({
   const [error, setError] = useState<string | null>(null);
   const [assignBusyId, setAssignBusyId] = useState<string | null>(null);
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  const [selectedStudentKeys, setSelectedStudentKeys] = useState<Set<string>>(new Set());
+  const [bulkTeacherId, setBulkTeacherId] = useState("");
+  const [notifyOnAssign, setNotifyOnAssign] = useState(true);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [globalQuery, setGlobalQuery] = useState("");
   const [globalResults, setGlobalResults] = useState<StageGlobalSearchHit[]>([]);
   const [globalSearching, setGlobalSearching] = useState(false);
@@ -293,6 +307,7 @@ export default function StageClassRosterPanel({
     setSelectedClass(className);
     setStatusFilter("all");
     setSelectedStudentKey(null);
+    setSelectedStudentKeys(new Set());
     void load(className);
   };
 
@@ -326,6 +341,80 @@ export default function StageClassRosterPanel({
     }
   }
 
+  async function assignSelectedStudents() {
+    if (!data?.roster || !bulkTeacherId) return;
+    const pool = referentPool(data);
+    const teacher = pool.find((t) => t.externalUserId === bulkTeacherId);
+    if (!teacher) return;
+    const students = data.roster.students.filter((s) => selectedStudentKeys.has(s.key));
+    if (students.length === 0) return;
+    setBulkBusy(true);
+    setAssignMsg(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/referents/assign-students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          className: data.roster.className || selectedClass,
+          teacher: {
+            externalUserId: teacher.externalUserId,
+            name: teacher.displayName,
+            email: teacher.email,
+          },
+          students: students.map((s) => ({
+            key: s.key,
+            eleveId: s.eleveId,
+            ine: s.ine,
+            studentName: `${s.prenom} ${s.nom}`.trim(),
+          })),
+          notify: notifyOnAssign,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Erreur affectation");
+      const mailNote =
+        json.notified === true
+          ? " E-mail envoyé au référent."
+          : notifyOnAssign
+            ? " Affectation enregistrée (e-mail non envoyé — SMTP indisponible)."
+            : "";
+      setAssignMsg(`${students.length} élève(s) affecté(s) à ${teacher.displayName}.${mailNote}`);
+      setSelectedStudentKeys(new Set());
+      clearRosterMemory();
+      await load(selectedClass, { force: true });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function notifyAllClassReferents() {
+    if (!data?.roster) return;
+    setBulkBusy(true);
+    setAssignMsg(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/referents/notify-assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ className: data.roster.className || selectedClass }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Erreur notification");
+      setAssignMsg(
+        json.sent > 0
+          ? `Récap envoyé à ${json.sent} référent(s).`
+          : "Aucun e-mail envoyé (SMTP indisponible ou aucun élève affecté).",
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   const roster = data?.roster ?? null;
 
   const classOptions = useMemo(() => {
@@ -341,6 +430,7 @@ export default function StageClassRosterPanel({
   const filteredStudents = useMemo(() => {
     if (!roster) return [];
     return roster.students.filter((student) => {
+      if (statusFilter === "sans_referent") return !student.assignedReferentName;
       if (statusFilter !== "all" && student.rosterStatus !== statusFilter) return false;
       return true;
     });
@@ -422,7 +512,9 @@ export default function StageClassRosterPanel({
   const mandatory = roster.expectsMandatoryStage === true;
   const sansStageLabel = mandatory ? "Sans stage" : "Aucun";
   const canAssign = data.canAssignReferent === true;
-  const teachers = data.teachers ?? [];
+  const pool = referentPool(data);
+  const teachers = pool.length > 0 ? pool : (data.teachers ?? []);
+  const sansReferentCount = roster.students.filter((s) => !s.assignedReferentName).length;
 
   const statusFilters: Array<{ id: RosterStatusFilter; label: string; count: number }> = [
     { id: "all", label: "Tous", count: roster.summary.total },
@@ -430,6 +522,7 @@ export default function StageClassRosterPanel({
     { id: "en_cours", label: "En cours", count: roster.summary.enCours },
     { id: "sans_stage", label: sansStageLabel, count: roster.summary.sansStage },
     { id: "plusieurs", label: "Plusieurs", count: roster.summary.plusieurs },
+    { id: "sans_referent", label: "Sans référent", count: sansReferentCount },
   ];
 
   return (
@@ -536,9 +629,76 @@ export default function StageClassRosterPanel({
       </div>
 
       {canAssign ? (
-        <p className="text-xs text-stone-500">
-          Professeur principal : vous pouvez déléguer un référent stage par dossier.
-        </p>
+        <div className="rounded-xl border border-stone-200 bg-stone-50/80 p-3 space-y-2">
+          <p className="text-xs text-stone-600">
+            Le professeur principal de la classe signe la convention. Les professeurs référents
+            suivent les stagiaires (même avant dépôt de convention). Cochez des élèves, choisissez
+            un référent, enregistrez.
+          </p>
+          {pool.length === 0 ? (
+            <p className="text-xs text-amber-800">
+              Ajoutez d&apos;abord les professeurs référents de cette classe dans Stages → Réglages.
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs font-medium text-stone-700">
+                Référent
+                <select
+                  className="mt-1 block min-w-[200px] rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm"
+                  value={bulkTeacherId}
+                  onChange={(e) => setBulkTeacherId(e.target.value)}
+                >
+                  <option value="">Choisir…</option>
+                  {pool.map((t) => {
+                    const n = roster.students.filter(
+                      (s) => s.assignedReferentUserId === t.externalUserId,
+                    ).length;
+                    return (
+                      <option key={t.externalUserId} value={t.externalUserId}>
+                        {t.displayName} ({n} élève{n > 1 ? "s" : ""})
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={bulkBusy || !bulkTeacherId || selectedStudentKeys.size === 0}
+                onClick={() => void assignSelectedStudents()}
+                className="rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+              >
+                {bulkBusy
+                  ? "Enregistrement…"
+                  : `Affecter ${selectedStudentKeys.size || "…"} élève${selectedStudentKeys.size > 1 ? "s" : ""}`}
+              </button>
+              <label className="flex items-center gap-1.5 text-xs text-stone-600">
+                <input
+                  type="checkbox"
+                  checked={notifyOnAssign}
+                  onChange={(e) => setNotifyOnAssign(e.target.checked)}
+                />
+                Envoyer un e-mail au référent
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedStudentKeys(new Set(filteredStudents.map((s) => s.key)));
+                }}
+                className="text-xs font-semibold text-stone-600 underline"
+              >
+                Cocher le filtre ({filteredStudents.length})
+              </button>
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => void notifyAllClassReferents()}
+                className="text-xs font-semibold text-[#2F6B4A] underline disabled:opacity-50"
+              >
+                Notifier tous les référents de la classe
+              </button>
+            </div>
+          )}
+        </div>
       ) : null}
       {assignMsg ? (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
@@ -577,45 +737,62 @@ export default function StageClassRosterPanel({
             );
             return (
               <li key={student.key}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedStudentKey(selected ? null : student.key);
-                    if (!selected && student.conventions.length === 1) {
-                      onOpenConvention(student.conventions[0]!.id);
-                    }
-                  }}
+                <div
                   className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
                     selected || hasSelectedConv
                       ? "bg-[#2F6B4A]/06"
                       : "hover:bg-stone-50"
                   }`}
                 >
-                  <StudentAvatar
-                    prenom={student.prenom}
-                    nom={student.nom}
-                    photoUrl={student.photoUrl}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[#1F3D2B]">
-                      {student.prenom} {student.nom}
-                    </p>
-                    <p className="truncate text-xs text-stone-500">
-                      {mainConvention
-                        ? `${mainConvention.companyName || mainConvention.statusLabel}${
-                            mainConvention.signatureSummary.total
-                              ? ` · ${mainConvention.signatureSummary.signed}/${mainConvention.signatureSummary.total} sig.`
-                              : ""
-                          }`
-                        : "Aucune convention"}
-                    </p>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${statusChipClass(student.rosterStatus, mandatory)}`}
+                  {canAssign ? (
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 shrink-0 rounded border-stone-300"
+                      checked={selectedStudentKeys.has(student.key)}
+                      onChange={(e) => {
+                        const next = new Set(selectedStudentKeys);
+                        if (e.target.checked) next.add(student.key);
+                        else next.delete(student.key);
+                        setSelectedStudentKeys(next);
+                      }}
+                      aria-label={`Sélectionner ${student.prenom} ${student.nom}`}
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedStudentKey(selected ? null : student.key);
+                      if (!selected && student.conventions.length === 1) {
+                        onOpenConvention(student.conventions[0]!.id);
+                      }
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
-                    {statusLabel(student.rosterStatus, mandatory)}
-                  </span>
-                </button>
+                    <StudentAvatar
+                      prenom={student.prenom}
+                      nom={student.nom}
+                      photoUrl={student.photoUrl}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-[#1F3D2B]">
+                        {student.prenom} {student.nom}
+                      </p>
+                      <p className="truncate text-xs text-stone-500">
+                        {student.assignedReferentName
+                          ? `Réf. ${student.assignedReferentName}`
+                          : "Référent non assigné"}
+                        {mainConvention
+                          ? ` · ${mainConvention.companyName || mainConvention.statusLabel}`
+                          : " · Aucune convention"}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${statusChipClass(student.rosterStatus, mandatory)}`}
+                    >
+                      {statusLabel(student.rosterStatus, mandatory)}
+                    </span>
+                  </button>
+                </div>
               </li>
             );
           })}

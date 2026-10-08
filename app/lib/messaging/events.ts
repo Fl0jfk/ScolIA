@@ -1,6 +1,7 @@
 import "server-only";
 
 import postgres from "postgres";
+import { assertDatabaseUrlAllowedInTestProcess } from "@/scripts/test-database-guard.mjs";
 
 export type MessagingBusEvent = {
   type: string;
@@ -72,6 +73,7 @@ async function ensurePgListen(): Promise<void> {
   if (state.listenStarted) return;
   const url = process.env.DATABASE_URL?.trim();
   if (!url) return;
+  assertDatabaseUrlAllowedInTestProcess(url);
   state.listenStarted = true;
   try {
     state.listenSql = postgres(url, {
@@ -119,6 +121,7 @@ async function ensurePgListen(): Promise<void> {
 async function notifyRemote(event: MessagingBusEvent): Promise<void> {
   const url = process.env.DATABASE_URL?.trim();
   if (!url) return;
+  assertDatabaseUrlAllowedInTestProcess(url);
   const state = getBusState();
   try {
     if (!state.notifySql) {

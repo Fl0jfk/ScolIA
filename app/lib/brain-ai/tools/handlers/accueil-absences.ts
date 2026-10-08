@@ -11,6 +11,7 @@ import {
 } from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { eleve } from "@/db/schema";
@@ -42,7 +43,9 @@ async function searchEleves(
       classe: eleve.classe,
     })
     .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), or(...nameConds)))
+    .where(
+      and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!, or(...nameConds)),
+    )
     .orderBy(eleve.nom, eleve.prenom)
     .limit(40);
 
@@ -401,7 +404,13 @@ export async function handleCancelAccueilAbsence(
 
   const actorName =
     [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || ctx.name || "Accueil";
-  const ok = await cancelAccueilAbsence(etabId, absenceId, actorName);
+  let ok: boolean;
+  try {
+    ok = await cancelAccueilAbsence(etabId, absenceId, actorName);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Annulation impossible.";
+    return { ok: false, error: message };
+  }
   if (!ok) {
     return { ok: false, error: "Annulation impossible (déjà validée direction ?)." };
   }

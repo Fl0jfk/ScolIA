@@ -5,6 +5,7 @@ import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import { SettingsSection, settingsInputClass } from "@/app/components/settings/SettingsChrome";
 import type { SettingsTravelsConfig } from "@/app/lib/settings-page-model";
 import { dash } from "@/app/lib/dashboard-brand";
+import TravelsAssistanceCardSettingsPanel from "@/app/components/travels/TravelsAssistanceCardSettingsPanel";
 
 export default function SettingsTravelsPanel({
   travelsCfg,
@@ -18,7 +19,8 @@ export default function SettingsTravelsPanel({
   saveSection: (section: string, body: unknown) => Promise<void>;
 }) {
   return (
-    <SettingsSection icon="🚌" title="Sorties scolaires" description="Transporteurs et pied de page des PDF.">
+    <>
+      <SettingsSection icon="🚌" title="Sorties scolaires" description="Transporteurs et pied de page des PDF.">
       <label className="block text-sm font-bold">Texte pied de page PDF</label>
       <input
         className={settingsInputClass}
@@ -71,5 +73,13 @@ export default function SettingsTravelsPanel({
         Enregistrer sorties scolaires
       </ModuleButton>
     </SettingsSection>
+      <SettingsSection
+        icon="🆘"
+        title="Carte d’assistance"
+        description="PDF mutuelle / numéros d’urgence — bouton sur chaque dossier voyage."
+      >
+        <TravelsAssistanceCardSettingsPanel compact />
+      </SettingsSection>
+    </>
   );
 }

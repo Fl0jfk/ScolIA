@@ -18,7 +18,7 @@ import {
   reviewScheduleChangeRequest,
   reviewTutorEmailChangeRequest,
   submitPreconvention,
-  syncProfReferentSignatory,
+  updateCompanyContactsAfterValidation,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent, listPrincipalClassesForUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
@@ -196,16 +196,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           },
         ],
       };
-      if (convention.status === "signatures_pending" || convention.status === "convention_ready") {
-        convention = await syncProfReferentSignatory(convention, {
-          name,
-          email,
-          userId: externalUserId,
-          byName: displayName(user),
-        });
-      } else {
-        await saveStageConvention(convention);
-      }
+      await saveStageConvention(convention);
+      const { upsertStudentReferentAssignments } = await import("@/app/lib/stage-referent-students");
+      const { stageRosterStudentKey } = await import("@/app/lib/stage-referents-config");
+      await upsertStudentReferentAssignments({
+        className: convention.student.className,
+        schoolYear: convention.schoolYear,
+        updatedBy: displayName(user),
+        teacher: { externalUserId, name, email },
+        students: [
+          {
+            key: stageRosterStudentKey(convention.student.lastName, convention.student.firstName),
+            studentName: `${convention.student.firstName} ${convention.student.lastName}`.trim(),
+          },
+        ],
+      }).catch((err) => console.warn("[stages] map élève référent:", err));
       return NextResponse.json({ success: true, convention });
     }
 
@@ -382,6 +387,70 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         message: approved
           ? "E-mail tuteur mis à jour — demande de signature renvoyée."
           : "Demande de changement d'e-mail tuteur refusée.",
+      });
+    }
+
+    if (action === "update_company_contacts") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const contactsRaw =
+        body.contacts && typeof body.contacts === "object"
+          ? (body.contacts as Record<string, unknown>)
+          : body;
+      const result = await updateCompanyContactsAfterValidation({
+        convention,
+        contacts: {
+          tutorName: String(contactsRaw.tutorName ?? ""),
+          tutorEmail: String(contactsRaw.tutorEmail ?? ""),
+          tutorPhone:
+            contactsRaw.tutorPhone === undefined || contactsRaw.tutorPhone === null
+              ? undefined
+              : String(contactsRaw.tutorPhone),
+          rhExtraSigner: contactsRaw.rhExtraSigner === true,
+          rhFirstName:
+            contactsRaw.rhFirstName === undefined || contactsRaw.rhFirstName === null
+              ? undefined
+              : String(contactsRaw.rhFirstName),
+          rhLastName:
+            contactsRaw.rhLastName === undefined || contactsRaw.rhLastName === null
+              ? undefined
+              : String(contactsRaw.rhLastName),
+          rhEmail:
+            contactsRaw.rhEmail === undefined || contactsRaw.rhEmail === null
+              ? undefined
+              : String(contactsRaw.rhEmail),
+        },
+        byName: displayName(user),
+      });
+      if (!result.ok) {
+        // Contacts may already be saved when only the mail resend failed.
+        if (result.error.startsWith("Contacts enregistrés")) {
+          const refreshed = await getStageConvention(convention.id);
+          return NextResponse.json(
+            {
+              error: result.error,
+              convention: refreshed ?? convention,
+            },
+            { status: 400 },
+          );
+        }
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      const signLinks = result.convention.signatures
+        .filter((s) => s.signToken && s.status === "en_attente")
+        .map((s) => ({
+          role: s.role,
+          label: s.label,
+          email: s.signEmail,
+          link: `/stages/signer?token=${encodeURIComponent(s.signToken!)}`,
+        }));
+      return NextResponse.json({
+        success: true,
+        convention: result.convention,
+        signLinks,
+        message: result.message,
+        resentRoles: result.resentRoles,
       });
     }
 

@@ -113,7 +113,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "requests-staff",
       "domain-planning",
       "documents",
-      "office",
       "qrcreator",
       "photocopies-couleur",
       "assistance",

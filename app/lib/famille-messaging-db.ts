@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { getDb } from "@/db/index";
 import {
   eleve,
@@ -54,7 +55,11 @@ export async function listFoyersLight(etablissementId: string) {
     )
     .leftJoin(
       eleve,
-      and(eq(eleve.id, eleveFoyerLink.eleveId), eq(eleve.etablissementId, etablissementId)),
+      and(
+        eq(eleve.id, eleveFoyerLink.eleveId),
+        eq(eleve.etablissementId, etablissementId),
+        drizzleEleveActifPourListes()!,
+      ),
     )
     .where(eq(foyer.etablissementId, etablissementId))
     .orderBy(asc(foyer.label), asc(eleve.nom))

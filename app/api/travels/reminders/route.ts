@@ -14,54 +14,67 @@ function appBaseUrl() {
   return (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
 }
 
+function safeComputeTripReminders(trip: TravelsTrip) {
+  try {
+    return computeTripReminders(trip);
+  } catch (err) {
+    console.warn("[reminders] computeTripReminders", trip.id, err);
+    return [];
+  }
+}
+
 /** GET : rappels calculés pour tous les dossiers ou un tripId. */
 export async function GET(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
-  const url = new URL(req.url);
-  const tripId = url.searchParams.get("tripId");
+  try {
+    const url = new URL(req.url);
+    const tripId = url.searchParams.get("tripId");
 
-  // Purge en arrière-plan : ne doit pas bloquer le chargement des rappels.
-  void (async () => {
-    try {
-      const { travelsDbReady } = await import("@/app/lib/travel-db");
-      const { purgeExpiredParentBlogsForEtablissement } = await import(
-        "@/app/lib/travels-parent-blog"
+    // Purge en arrière-plan : ne doit pas bloquer le chargement des rappels.
+    void (async () => {
+      try {
+        const { travelsDbReady } = await import("@/app/lib/travel-db");
+        const { purgeExpiredParentBlogsForEtablissement } = await import(
+          "@/app/lib/travels-parent-blog"
+        );
+        const etabId = await travelsDbReady();
+        if (etabId) await purgeExpiredParentBlogsForEtablissement(etabId);
+      } catch (purgeErr) {
+        console.error("[reminders] parent-blog purge", purgeErr);
+      }
+    })();
+
+    if (tripId) {
+      const trip = await getTravelTrip(tripId);
+      if (!trip) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+      return NextResponse.json({ reminders: safeComputeTripReminders(trip) });
+    }
+
+    const index = await listTravelsIndex();
+    const reminders: Array<
+      ReturnType<typeof computeTripReminders>[number] & {
+        tripTitle?: string;
+        tripDestination?: string;
+      }
+    > = [];
+    for (const trip of index.slice(0, 200)) {
+      if (!trip?.id) continue;
+      reminders.push(
+        ...safeComputeTripReminders(trip).map((r) => ({
+          ...r,
+          tripTitle: trip.data?.title,
+          tripDestination: trip.data?.destination,
+        })),
       );
-      const etabId = await travelsDbReady();
-      if (etabId) await purgeExpiredParentBlogsForEtablissement(etabId);
-    } catch (purgeErr) {
-      console.error("[reminders] parent-blog purge", purgeErr);
     }
-  })();
 
-  if (tripId) {
-    const trip = await getTravelTrip(tripId);
-    if (!trip) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
-    return NextResponse.json({ reminders: computeTripReminders(trip) });
+    return NextResponse.json({ reminders, count: reminders.length });
+  } catch (error) {
+    console.error("[reminders GET]", error);
+    return NextResponse.json({ reminders: [], count: 0 });
   }
-
-  // Postgres (+ Valkey) — plus de N× GET S3 séquentiels (très lent).
-  const index = await listTravelsIndex();
-  const reminders: Array<
-    ReturnType<typeof computeTripReminders>[number] & {
-      tripTitle?: string;
-      tripDestination?: string;
-    }
-  > = [];
-  for (const trip of index.slice(0, 200)) {
-    if (!trip?.id) continue;
-    reminders.push(
-      ...computeTripReminders(trip).map((r) => ({
-        ...r,
-        tripTitle: trip.data?.title,
-        tripDestination: trip.data?.destination,
-      })),
-    );
-  }
-
-  return NextResponse.json({ reminders, count: reminders.length });
 }
 
 /** POST : envoie un e-mail de rappel interne (créateur) pour un dossier. */

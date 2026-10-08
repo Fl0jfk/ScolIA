@@ -13,6 +13,7 @@ import {
 import {
   classKey,
   findReferentAssignments,
+  findStudentReferentAssignmentForStudent,
   getStageReferentsConfig,
   listClassesForReferentUser,
   listPrincipalClassesForUser,
@@ -45,6 +46,7 @@ export async function GET(req: Request) {
     perf.mark("secteurs");
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    const userId = gate.ctx.userId;
     const [referentClasses, principalClasses] = user
       ? await Promise.all([
           listClassesForReferentUser(gate.ctx.userId, schoolYear),
@@ -130,6 +132,27 @@ export async function GET(req: Request) {
 
     const assignments = findReferentAssignments(config, className);
 
+    const rosterWithReferents = {
+      ...roster,
+      students: roster.students.map((s) => {
+        const hit = findStudentReferentAssignmentForStudent(config, {
+          className,
+          studentKey: s.key,
+          nom: s.nom,
+          prenom: s.prenom,
+          ine: s.ine,
+          eleveId: s.eleveId,
+        });
+        const fromConv = s.conventions[0];
+        return {
+          ...s,
+          assignedReferentName: hit?.name || fromConv?.teacherReferentName,
+          assignedReferentEmail: hit?.email || fromConv?.teacherReferentEmail,
+          assignedReferentUserId: hit?.externalUserId || fromConv?.teacherReferentUserId,
+        };
+      }),
+    };
+
     const teachers =
       members == null
         ? []
@@ -160,25 +183,27 @@ export async function GET(req: Request) {
       (c) => classKey(c) === classKey(className),
     );
 
-    /** Référent (non PP) : uniquement les élèves dont il est teacherReferent. */
+    /** Référent (non PP) : élèves qui lui sont affectés (même sans convention) + dossiers teacherReferent. */
     const scopedStudents =
       canBrowseAll || isPrincipalForClass
-        ? roster.students
-        : roster.students
-            .map((s) => ({
-              ...s,
-              conventions: s.conventions.filter((conv) => {
+        ? rosterWithReferents.students
+        : rosterWithReferents.students
+            .map((s) => {
+              const assignedToMe =
+                (userId && s.assignedReferentUserId === userId) ||
+                Boolean(userEmail && s.assignedReferentEmail?.toLowerCase() === userEmail);
+              const conventions = s.conventions.filter((conv) => {
                 const refEmail = String(conv.teacherReferentEmail || "")
                   .trim()
                   .toLowerCase();
                 if (userEmail && refEmail && refEmail === userEmail) return true;
+                if (userId && conv.teacherReferentUserId === userId) return true;
                 return false;
-              }),
-            }))
-            .filter((s) => s.conventions.length > 0)
-            .map((s) => {
-              const hasValide = s.conventions.some((c) => c.status === "signed");
-              const hasEnCours = s.conventions.some(
+              });
+              if (!assignedToMe && conventions.length === 0) return null;
+              const next = { ...s, conventions: assignedToMe ? s.conventions : conventions };
+              const hasValide = next.conventions.some((c) => c.status === "signed");
+              const hasEnCours = next.conventions.some(
                 (c) =>
                   c.status === "signatures_pending" ||
                   c.status === "convention_ready" ||
@@ -187,15 +212,18 @@ export async function GET(req: Request) {
                   c.status === "convention_deposited",
               );
               const rosterStatus =
-                s.conventions.length > 1
-                  ? ("plusieurs" as const)
-                  : hasValide && !hasEnCours
-                    ? ("valide" as const)
-                    : hasEnCours
-                      ? ("en_cours" as const)
-                      : ("sans_stage" as const);
-              return { ...s, rosterStatus };
-            });
+                next.conventions.length === 0
+                  ? ("sans_stage" as const)
+                  : next.conventions.length > 1
+                    ? ("plusieurs" as const)
+                    : hasValide && !hasEnCours
+                      ? ("valide" as const)
+                      : hasEnCours
+                        ? ("en_cours" as const)
+                        : ("sans_stage" as const);
+              return { ...next, rosterStatus };
+            })
+            .filter((s): s is NonNullable<typeof s> => s !== null);
 
     const scopedRoster = {
       ...roster,
@@ -209,7 +237,7 @@ export async function GET(req: Request) {
       },
       note:
         !canBrowseAll && !isPrincipalForClass
-          ? "Vue référent : uniquement les stagiaires dont vous êtes le professeur référent."
+          ? "Vue référent : uniquement les stagiaires qui vous sont affectés (suivi, sans signature de la convention)."
           : roster.note,
     };
 
@@ -249,6 +277,7 @@ export async function GET(req: Request) {
         name: a.name,
         email: a.email,
         role: a.role,
+        externalUserId: a.externalUserId,
       })),
       canAssignReferent,
       teachers,

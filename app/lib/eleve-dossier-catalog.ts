@@ -253,7 +253,12 @@ export async function buildEleveDossierClassCatalog(
   }
 
   const config = await loadAppConfig();
-  const official = etabId ? await loadOfficialSchoolClasses(etabId) : null;
+  const official = etabId
+    ? await loadOfficialSchoolClasses(etabId).catch((err) => {
+        console.warn("[eleve-dossier-catalog] official classes", err);
+        return null;
+      })
+    : null;
 
   let merged = mergeClassesByPole(
     config.profRoom?.classesByPole || {},

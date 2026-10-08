@@ -14,7 +14,11 @@ import {
   saveInternatRoster,
   saveInternatStudents,
 } from "@/app/lib/internat-storage";
-import { loadElevesRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
+import {
+  loadElevesActifsRegistry,
+  loadElevesRegistry,
+  saveElevesRegistry,
+} from "@/app/lib/eleves-registry";
 import { mergeElevesLists, parseElevesExcelBuffer } from "@/app/lib/eleves-import";
 import { canonicalRegimeLabel, isRegimeInterne } from "@/app/lib/eleve-regime";
 import { parseSiecleElevesXmlServer } from "@/app/lib/siecle-eleves-parse";
@@ -193,7 +197,10 @@ export async function POST(req: Request) {
       const merged = mergeElevesLists(
         existing,
         [...parsed.eleves, ...parsed.sortis],
-        { replaceRegime },
+        {
+          replaceRegime,
+          dateSortieColumnInFile: parsed.dateSortieColumnInFile,
+        },
       );
       await saveElevesRegistry(merged.eleves);
 
@@ -293,7 +300,7 @@ export async function POST(req: Request) {
   const action = String(body.action || "apply");
 
   if (action === "normalizeRegimesAndSync") {
-    const eleves = await loadElevesRegistry();
+    const eleves = await loadElevesActifsRegistry();
     let rewritten = 0;
     const normalized = eleves.map((e) => {
       const next = canonicalRegimeLabel(e.regime);
@@ -333,7 +340,7 @@ export async function POST(req: Request) {
   }
 
   if (action === "syncFromEleves") {
-    const eleves = await loadElevesRegistry();
+    const eleves = await loadElevesActifsRegistry();
     const entries = elevesToInternatRosterEntries(eleves);
     if (!entries.length) {
       const anyRegime = eleves.filter((e) => e.regime).length;

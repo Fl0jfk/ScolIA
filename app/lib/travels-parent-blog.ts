@@ -32,7 +32,7 @@ import {
   sendMailWithTimeout,
 } from "@/app/lib/tenant-mail";
 import { collectEleveParentEmails } from "@/app/lib/eleves-parent-emails";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 
 export const PARENT_BLOG_RETENTION_DAYS = 15;
@@ -362,7 +362,7 @@ async function sendParentBlogActivationMail(opts: {
     return { recipients: 0, skippedReason: "Aucun élève sur la liste.", icsAttached: false };
   }
 
-  const eleves = await loadElevesRegistry().catch(() => []);
+  const eleves = await loadElevesActifsRegistry().catch(() => []);
   const byIne = new Map(eleves.map((e) => [e.ine, e]));
   const emailSet = new Set<string>();
   for (const p of participants) {

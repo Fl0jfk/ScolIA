@@ -9,6 +9,7 @@ import { canManageElevePreinscriptions } from "@/app/lib/eleve-dossier-scope";
 import type { AccompagnementKind } from "@/app/lib/eleve-pap";
 import { ACCOMPAGNEMENT_KINDS, accompagnementKindDef } from "@/app/lib/eleve-pap";
 import { canonicalRegimeLabel, classifyRegime } from "@/app/lib/eleve-regime";
+import { drizzleEleveActifPourListes } from "@/app/lib/eleve-actif-scope";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { eleve, eleveScolarite } from "@/db/schema";
@@ -85,7 +86,9 @@ async function searchElevesByQuery(
       regime: eleve.regime,
     })
     .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), or(...nameConds)))
+    .where(
+      and(eq(eleve.etablissementId, etablissementId), drizzleEleveActifPourListes()!, or(...nameConds)),
+    )
     .orderBy(eleve.nom, eleve.prenom)
     .limit(40);
 

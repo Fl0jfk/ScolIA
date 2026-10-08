@@ -150,7 +150,13 @@ export async function listSiecleDivisions(etablissementId: string): Promise<Siec
   const divisions = await listNomenclatureByType(etablissementId, "division");
   if (divisions.length) return divisions;
 
-  const groupes = await listGroupes(etablissementId);
+  let groupes: Awaited<ReturnType<typeof listGroupes>> = [];
+  try {
+    groupes = await listGroupes(etablissementId);
+  } catch (err) {
+    console.warn("[nomenclature] listGroupes indisponible", err);
+    return [];
+  }
   if (!groupes.length) return [];
 
   return groupes.map((g) => ({

@@ -4,6 +4,7 @@ import {
   defaultParentCalendarFromTrip,
 } from "@/app/lib/travels-parent-calendar";
 import { formatCuisineDateFR } from "@/app/lib/travels-cuisine-shared";
+import { parseTravelDayStartMs } from "@/app/lib/travels-date-parse";
 
 /** Motif affiché quand le dossier est en « Modifications demandées » (pas la dernière ligne d'historique). */
 export function getModificationRequestNote(trip: {
@@ -137,7 +138,8 @@ export function isValidEmailLoose(s: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
 
-function daysUntilTrip(data: TravelsTripData): number | null {
+function daysUntilTrip(data: TravelsTripData | undefined): number | null {
+  if (!data) return null;
   const raw = data.startDate || data.date;
   if (!raw) return null;
   const tripDate = new Date(raw);
@@ -157,11 +159,7 @@ function todayStartMs(): number {
 /** Timestamp (début de journée) du séjour pour tri / comparaison. */
 function tripTravelStartMs(trip: { data?: TravelsTripData }): number | null {
   const raw = trip.data?.startDate || trip.data?.date;
-  if (!raw) return null;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return null;
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+  return parseTravelDayStartMs(raw);
 }
 
 /** Dernier jour du séjour (fin pour les voyages, date unique pour les sorties). */
@@ -175,11 +173,7 @@ function tripTravelEndMs(trip: {
     trip.type === "COMPLEX"
       ? d.endDate || d.startDate || d.date
       : d.date || d.startDate;
-  if (!raw) return null;
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return null;
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
+  return parseTravelDayStartMs(raw);
 }
 
 /** Séjour terminé (dernier jour strictement avant aujourd'hui). */
@@ -190,6 +184,34 @@ export function isTripTravelDatePast(trip: {
   const endMs = tripTravelEndMs(trip);
   if (endMs == null) return false;
   return endMs < todayStartMs();
+}
+
+const TRAVELS_LIST_CLOSED_STATUSES = new Set(["ANNULE", "SEANCE_ANNULEE", "REJETE"]);
+
+type TripListRow = { status?: string; type?: string; data?: TravelsTripData };
+
+/** Liste module voyages : hors annulés ; séjours passés conservés (grisés en UI), actifs en premier. */
+export function filterTripsForModuleList<T extends TripListRow>(
+  trips: T[],
+  opts?: { matchesSearch?: (trip: T) => boolean },
+): T[] {
+  const matchSearch = opts?.matchesSearch ?? (() => true);
+  const list = trips.filter((t) => {
+    const status = String(t.status || "");
+    if (TRAVELS_LIST_CLOSED_STATUSES.has(status)) return false;
+    return matchSearch(t);
+  });
+  return sortTripsActiveBeforePast(list);
+}
+
+/** Séjours en cours / à venir d'abord, terminés ensuite (cartes grisées). */
+export function sortTripsActiveBeforePast<T extends TripListRow>(trips: T[]): T[] {
+  return [...trips].sort((a, b) => {
+    const aPast = isTripTravelDatePast(a);
+    const bPast = isTripTravelDatePast(b);
+    if (aPast !== bPast) return aPast ? 1 : -1;
+    return 0;
+  });
 }
 
 const TRIP_PURGE_AFTER_MS = 365 * 24 * 60 * 60 * 1000;
@@ -236,13 +258,14 @@ export type TripReminder = {
 
 export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
   const out: TripReminder[] = [];
-  const days = daysUntilTrip(trip.data);
-  const status = trip.status;
-  const sent = trip.data.remindersSent || {};
+  const data = trip.data ?? ({} as TravelsTripData);
+  const days = daysUntilTrip(data);
+  const status = trip.status ?? "";
+  const sent = data.remindersSent || {};
 
   if (status === "ANNULE" || status === "REJETE" || status === "SEANCE_ANNULEE") return out;
 
-  if (trip.data.piqueNiqueDetails?.active && trip.data.cuisineOrderSentAt && days != null && days <= 15 && days >= 0) {
+  if (data.piqueNiqueDetails?.active && data.cuisineOrderSentAt && days != null && days <= 15 && days >= 0) {
     out.push({
       id: `${trip.id}_cuisine_j15`,
       tripId: trip.id,
@@ -254,7 +277,7 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
   }
 
   if (days != null && days <= 14 && days >= 0 && status === "VALIDE") {
-    const cal = trip.data.parentCalendar || defaultParentCalendarFromTrip(trip.data);
+    const cal = data.parentCalendar || defaultParentCalendarFromTrip(data);
     if (!calendarHasDepotAndRecuperation(cal)) {
       out.push({
         id: `${trip.id}_parent_meeting`,
@@ -281,7 +304,7 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
 
   if (
     complexNeedsBus(trip) &&
-    trip.data.pendingAmendedQuote &&
+    data.pendingAmendedQuote &&
     !["VALIDE", "FINALISE_DIR_ATTENTE_ELEVES", "REJETE", "ANNULE"].includes(status)
   ) {
     out.push({
@@ -306,7 +329,7 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
   }
 
   const listeConfirmed =
-    trip.data.listeElevesStatus === "confirmed" && (trip.data.participantEleves?.length || 0) > 0;
+    data.listeElevesStatus === "confirmed" && (data.participantEleves?.length || 0) > 0;
 
   if (
     !listeConfirmed &&
