@@ -1,8 +1,11 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
+  DEFAULT_ALL_EVARS_SESSIONS,
   DEFAULT_DOMAIN_ID,
   DEFAULT_DOMAIN_PLANNING_DOMAINS,
-  DEFAULT_EVARS_SESSIONS,
+  ensureLyceeDomainPresent,
+  ensureLyceeSessionsPresent,
+  hydrateEmptySessionThemes,
   isTransversalNiveau,
   normalizeSessionConstraint,
 } from "@/app/lib/domain-planning-defaults";
@@ -45,7 +48,8 @@ export async function loadDomains(): Promise<DomainPlanningDomain[]> {
   if (!raw?.length) return [...DEFAULT_DOMAIN_PLANNING_DOMAINS];
   const parsed = raw.map(parseDomain).filter(Boolean) as DomainPlanningDomain[];
   const filtered = parsed.filter((d) => !DEPRECATED_DOMAIN_IDS.has(d.id));
-  return filtered.length > 0 ? filtered : [...DEFAULT_DOMAIN_PLANNING_DOMAINS];
+  if (filtered.length === 0) return [...DEFAULT_DOMAIN_PLANNING_DOMAINS];
+  return ensureLyceeDomainPresent(filtered);
 }
 
 export async function saveDomains(domains: DomainPlanningDomain[]): Promise<void> {
@@ -100,9 +104,10 @@ export async function loadSessions(): Promise<DomainPlanningSession[]> {
   const hit = await getJson<{ sessions?: unknown[] } | unknown[]>(SESSIONS_KEY);
   const data = hit?.data;
   const raw = Array.isArray(data) ? data : (data as { sessions?: unknown[] })?.sessions;
-  if (!raw?.length) return [...DEFAULT_EVARS_SESSIONS];
+  if (!raw?.length) return [...DEFAULT_ALL_EVARS_SESSIONS];
   const parsed = raw.map(parseSession).filter(Boolean) as DomainPlanningSession[];
-  return parsed.length > 0 ? parsed : [...DEFAULT_EVARS_SESSIONS];
+  if (parsed.length === 0) return [...DEFAULT_ALL_EVARS_SESSIONS];
+  return ensureLyceeSessionsPresent(hydrateEmptySessionThemes(parsed));
 }
 
 export async function saveSessions(sessions: DomainPlanningSession[]): Promise<void> {

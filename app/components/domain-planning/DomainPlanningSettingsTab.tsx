@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  buildEmptyLyceeSessions,
+  buildDefaultLyceeSessions,
   DEFAULT_DOMAIN_ID,
   DEFAULT_DOMAIN_PLANNING_ACTIVITY_COLORS,
   DEFAULT_DOMAIN_PLANNING_DOMAINS,
@@ -155,11 +155,15 @@ export default function DomainPlanningSettingsTab() {
   const seedLyceeGrid = () => {
     if (!sessionsDomainId) return;
     if (domainSessions.length > 0) {
-      if (!confirm("Ce domaine a déjà des séances. Remplacer uniquement celles de ce domaine par une grille lycée vide ?")) {
+      if (
+        !confirm(
+          "Ce domaine a déjà des séances. Remplacer uniquement celles de ce domaine par la grille EVARS lycée (programme 2025) ?",
+        )
+      ) {
         return;
       }
     }
-    const seeded = buildEmptyLyceeSessions(sessionsDomainId);
+    const seeded = buildDefaultLyceeSessions(sessionsDomainId);
     setSessions((prev) => [...prev.filter((s) => s.domainId !== sessionsDomainId), ...seeded]);
   };
 
@@ -466,13 +470,14 @@ export default function DomainPlanningSettingsTab() {
                 onClick={seedLyceeGrid}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-violet-300"
               >
-                Initialiser grille lycée (2nde / 1ère / Tle)
+                Initialiser EVARS lycée (2nde / 1ère / Tle)
               </button>
             </div>
             <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-1">
               {domainSessions.length === 0 ? (
                 <p className="text-sm text-slate-500 italic">
-                  Aucune séance pour ce domaine. Ajoutez-en une ou initialisez la grille lycée.
+                  Aucune séance pour ce domaine. Ajoutez-en une ou initialisez la grille EVARS lycée
+                  (thèmes du programme 2025).
                 </p>
               ) : (
                 domainSessions.map((session) => (
