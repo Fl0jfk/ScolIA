@@ -1,4 +1,8 @@
-import type { InternatStudent } from "@/app/lib/internat-types";
+import type {
+  InternatParentContact,
+  InternatStudent,
+  InternatStudentMedical,
+} from "@/app/lib/internat-types";
 
 /** Normalise une clé personne (accents / casse / apostrophes / ponctuation). */
 export function normalizeInternatPersonPart(raw: string | undefined | null): string {
@@ -42,14 +46,11 @@ export function internatStudentIdentityTokens(s: {
   if (ine) tokens.push(`ine:${ine}`);
   const folder = normalizeInternatPersonPart(s.eleveRef.folderName);
   if (folder) tokens.push(`folder:${folder}`);
-  // Ordre saisi
   tokens.push(internatNameKey(s.eleveRef.nom, s.eleveRef.prenom));
-  // Ordre inversé (import Excel parfois « Prénom Nom » dans les mauvaises colonnes)
   const swapped = internatNameKey(s.eleveRef.prenom, s.eleveRef.nom);
   if (swapped !== internatNameKey(s.eleveRef.nom, s.eleveRef.prenom)) {
     tokens.push(swapped);
   }
-  // Sac de mots : « Dane Junior » + « N'SONI » ≡ « NSONI » + « Dane Junior »
   const bag = internatNameBagKey(s.eleveRef.nom, s.eleveRef.prenom);
   if (bag) tokens.push(bag);
   return tokens;
@@ -87,37 +88,100 @@ export function internatStudentMatchesRoster(
   return internatRosterIdentityTokens(entry).some((t) => sTokens.has(t));
 }
 
-function studentKeepScore(s: InternatStudent): number {
+export type InternatDedupeOpts = {
+  by?: string;
+  at?: string;
+  /** studentId → clé S3 photo (si connue) — priorise la fiche qui a la photo. */
+  photoS3KeyByStudentId?: ReadonlyMap<string, string>;
+};
+
+function studentKeepScore(s: InternatStudent, photoS3KeyByStudentId?: ReadonlyMap<string, string>): number {
   let score = 0;
   if (s.actif) score += 10_000;
+  if (photoS3KeyByStudentId?.get(s.id)) score += 5_000;
   if (s.roomId) score += 1_000;
   if (s.eleveRef.ine?.trim()) score += 500;
   if (s.parent1?.email || s.parent1?.telephone) score += 50;
   if (s.parent2?.email || s.parent2?.telephone) score += 25;
   if (s.medical && Object.values(s.medical).some(Boolean)) score += 40;
   if (s.underWatch) score += 10;
+  if (s.specialAuthorizations?.length) score += 15 * s.specialAuthorizations.length;
   const updated = Date.parse(s.updatedAt || "") || 0;
   score += Math.min(Math.floor(updated / 1000), 9_999_999);
   return score;
 }
 
-function mergeStudentInto(keeper: InternatStudent, donor: InternatStudent, at: string, by: string): InternatStudent {
+function mergeParentContact(
+  a?: InternatParentContact,
+  b?: InternatParentContact,
+): InternatParentContact | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    nom: a.nom || b.nom,
+    email: a.email || b.email,
+    telephone: a.telephone || b.telephone,
+  };
+}
+
+function mergeMedical(
+  a?: InternatStudentMedical,
+  b?: InternatStudentMedical,
+): InternatStudentMedical | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    allergies: a.allergies || b.allergies,
+    pai: a.pai || b.pai,
+    treatments: a.treatments || b.treatments,
+    notes: a.notes || b.notes,
+  };
+}
+
+function mergeStudentInto(
+  keeper: InternatStudent,
+  donor: InternatStudent,
+  at: string,
+  by: string,
+  photoS3KeyByStudentId?: ReadonlyMap<string, string>,
+): InternatStudent {
+  const keeperPhoto = photoS3KeyByStudentId?.get(keeper.id);
+  const donorPhoto = photoS3KeyByStudentId?.get(donor.id);
+  // Identité : préférer celle qui porte la photo (sinon garder la fiche principale).
+  const preferDonorIdentity = Boolean(donorPhoto && !keeperPhoto);
+
+  const mergedAuths = [...(keeper.specialAuthorizations || [])];
+  for (const auth of donor.specialAuthorizations || []) {
+    if (!mergedAuths.some((a) => a.id === auth.id || a.label === auth.label)) {
+      mergedAuths.push(auth);
+    }
+  }
+
   return {
     ...keeper,
     eleveRef: {
       ine: keeper.eleveRef.ine || donor.eleveRef.ine,
-      folderName: keeper.eleveRef.folderName || donor.eleveRef.folderName,
-      nom: keeper.eleveRef.nom || donor.eleveRef.nom,
-      prenom: keeper.eleveRef.prenom || donor.eleveRef.prenom,
+      folderName: preferDonorIdentity
+        ? donor.eleveRef.folderName || keeper.eleveRef.folderName
+        : keeper.eleveRef.folderName || donor.eleveRef.folderName,
+      nom: preferDonorIdentity
+        ? donor.eleveRef.nom || keeper.eleveRef.nom
+        : keeper.eleveRef.nom || donor.eleveRef.nom,
+      prenom: preferDonorIdentity
+        ? donor.eleveRef.prenom || keeper.eleveRef.prenom
+        : keeper.eleveRef.prenom || donor.eleveRef.prenom,
     },
+    sexe: keeper.sexe || donor.sexe,
+    etablissement: keeper.etablissement || donor.etablissement,
+    classe:
+      (keeper.classe && keeper.classe !== "—" ? keeper.classe : null) ||
+      donor.classe ||
+      keeper.classe,
     roomId: keeper.roomId || donor.roomId,
-    parent1: keeper.parent1 || donor.parent1,
-    parent2: keeper.parent2 || donor.parent2,
-    medical: keeper.medical || donor.medical,
-    specialAuthorizations:
-      (keeper.specialAuthorizations?.length || 0) >= (donor.specialAuthorizations?.length || 0)
-        ? keeper.specialAuthorizations
-        : donor.specialAuthorizations,
+    parent1: mergeParentContact(keeper.parent1, donor.parent1),
+    parent2: mergeParentContact(keeper.parent2, donor.parent2),
+    medical: mergeMedical(keeper.medical, donor.medical),
+    specialAuthorizations: mergedAuths.length ? mergedAuths : undefined,
     underWatch: keeper.underWatch || donor.underWatch,
     underWatchNote: keeper.underWatchNote || donor.underWatchNote,
     updatedAt: at,
@@ -128,7 +192,12 @@ function mergeStudentInto(keeper: InternatStudent, donor: InternatStudent, at: s
         at,
         by,
         action: "FUSION_DOUBLON",
-        note: `Fusionné avec ${donor.id} (${donor.eleveRef.nom} ${donor.eleveRef.prenom})`,
+        note: [
+          `Fusionné avec ${donor.id} (${donor.eleveRef.nom} ${donor.eleveRef.prenom})`,
+          donorPhoto || keeperPhoto ? "photo conservée" : null,
+        ]
+          .filter(Boolean)
+          .join(" — "),
       },
     ],
   };
@@ -137,16 +206,23 @@ function mergeStudentInto(keeper: InternatStudent, donor: InternatStudent, at: s
 /**
  * Regroupe les fiches internat qui partagent INE, dossier, nom+prénom
  * (accents / apostrophes ignorés, ordre nom/prénom indifférent).
- * Conserve la meilleure fiche, purge les autres.
+ * Conserve la meilleure fiche (photo, chambre, contacts…), purge les autres.
  */
 export function dedupeInternatStudents(
   students: InternatStudent[],
-  opts?: { by?: string; at?: string },
-): { students: InternatStudent[]; mergedGroups: number; removedActifs: number } {
+  opts?: InternatDedupeOpts,
+): {
+  students: InternatStudent[];
+  mergedGroups: number;
+  removedActifs: number;
+  /** Groupes fusionnés : ids conservés + ids absorbés (pour alias photo). */
+  mergeTraces: Array<{ keeperId: string; absorbedIds: string[]; members: InternatStudent[] }>;
+} {
   const at = opts?.at || new Date().toISOString();
   const by = opts?.by || "systeme:dedupe";
+  const photoS3KeyByStudentId = opts?.photoS3KeyByStudentId;
   if (students.length < 2) {
-    return { students: [...students], mergedGroups: 0, removedActifs: 0 };
+    return { students: [...students], mergedGroups: 0, removedActifs: 0, mergeTraces: [] };
   }
 
   const parent = new Map<string, string>();
@@ -185,6 +261,11 @@ export function dedupeInternatStudents(
   }
 
   const out: InternatStudent[] = [];
+  const mergeTraces: Array<{
+    keeperId: string;
+    absorbedIds: string[];
+    members: InternatStudent[];
+  }> = [];
   let mergedGroups = 0;
   let removedActifs = 0;
 
@@ -194,12 +275,25 @@ export function dedupeInternatStudents(
       continue;
     }
     mergedGroups += 1;
-    const ranked = [...group].sort((a, b) => studentKeepScore(b) - studentKeepScore(a));
+    const ranked = [...group].sort(
+      (a, b) =>
+        studentKeepScore(b, photoS3KeyByStudentId) - studentKeepScore(a, photoS3KeyByStudentId),
+    );
     let keeper = ranked[0]!;
+    const absorbedIds: string[] = [];
     for (const donor of ranked.slice(1)) {
       if (donor.actif) removedActifs += 1;
-      keeper = mergeStudentInto(keeper, donor, at, by);
+      absorbedIds.push(donor.id);
+      keeper = mergeStudentInto(keeper, donor, at, by, photoS3KeyByStudentId);
     }
+    // Propager la photo du donneur vers le keeper pour les étapes suivantes / alias.
+    if (photoS3KeyByStudentId instanceof Map) {
+      const photo =
+        photoS3KeyByStudentId.get(keeper.id) ||
+        absorbedIds.map((id) => photoS3KeyByStudentId.get(id)).find(Boolean);
+      if (photo) photoS3KeyByStudentId.set(keeper.id, photo);
+    }
+    mergeTraces.push({ keeperId: keeper.id, absorbedIds, members: group });
     out.push(keeper);
   }
 
@@ -212,7 +306,7 @@ export function dedupeInternatStudents(
     return Number(b.actif) - Number(a.actif);
   });
 
-  return { students: out, mergedGroups, removedActifs };
+  return { students: out, mergedGroups, removedActifs, mergeTraces };
 }
 
 /** Cherche le premier interne qui correspond à un élève référentiel. */

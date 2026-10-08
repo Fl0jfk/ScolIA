@@ -68,6 +68,11 @@ export function invalidateElevePhotoIndexCache(): void {
   photoIndexCacheByTenant.clear();
 }
 
+export async function saveElevePhotoIndex(index: ElevePhotoIndex): Promise<void> {
+  await putJson(PHOTO_INDEX_KEY, index);
+  invalidateElevePhotoIndexCache();
+}
+
 async function signedUrlCached(key: string, expiresIn = 60 * 60): Promise<string | null> {
   const now = Date.now();
   const hit = signedUrlCache.get(key);
@@ -83,15 +88,32 @@ async function signedUrlCached(key: string, expiresIn = 60 * 60): Promise<string
   }
 }
 
+/** Clés d’index photo pour une identité (INE + nom/prénom + ordre inversé). */
+export function photoIndexKeysForPerson(person: {
+  nom: string;
+  prenom: string;
+  ine?: string | null;
+}): string[] {
+  const keys: string[] = [];
+  const ine = person.ine?.trim().toUpperCase();
+  if (ine) keys.push(`ine:${ine}`);
+  const forward = identityKey(person.nom, person.prenom);
+  const reverse = identityKey(person.prenom, person.nom);
+  if (forward) keys.push(`name:${forward}`);
+  if (reverse && reverse !== forward) keys.push(`name:${reverse}`);
+  return keys;
+}
+
 function lookupS3Key(
   index: ElevePhotoIndex,
   person: { nom: string; prenom: string; ine?: string | null; photoKey?: string | null },
 ): string | null {
   if (person.photoKey) return person.photoKey;
-  const ine = person.ine?.trim().toUpperCase();
-  if (ine && index[`ine:${ine}`]) return index[`ine:${ine}`]!;
-  const nameKey = `name:${identityKey(person.nom, person.prenom)}`;
-  return index[nameKey] ?? null;
+  for (const key of photoIndexKeysForPerson(person)) {
+    const hit = index[key];
+    if (hit) return hit;
+  }
+  return null;
 }
 
 export async function getElevePhotoUrl(eleve: EleveConfig): Promise<string | null> {
@@ -99,6 +121,74 @@ export async function getElevePhotoUrl(eleve: EleveConfig): Promise<string | nul
   const key = lookupS3Key(index, eleve);
   if (!key) return null;
   return signedUrlCached(key, 60 * 60);
+}
+
+/** Map studentId → clé S3 photo (index eleves/photo-index.json). */
+export async function photoS3KeysForInternatStudents(
+  students: InternatStudent[],
+  index?: ElevePhotoIndex,
+): Promise<Map<string, string>> {
+  const idx = index ?? (await loadElevePhotoIndex());
+  const out = new Map<string, string>();
+  for (const s of students) {
+    const key = lookupS3Key(idx, {
+      nom: s.eleveRef.nom,
+      prenom: s.eleveRef.prenom,
+      ine: s.eleveRef.ine,
+    });
+    if (key) out.set(s.id, key);
+  }
+  return out;
+}
+
+/**
+ * Après fusion de doublons internat : réécrit l’index photo pour que toutes les
+ * identités (INE / noms des fiches absorbées + fiche conservée) pointent vers
+ * la même photo S3 — sinon la photo « disparaît » avec l’id/nom abandonné.
+ */
+export async function aliasPhotoIndexAfterInternatMerge(opts: {
+  mergeTraces: Array<{ keeperId: string; absorbedIds: string[]; members: InternatStudent[] }>;
+  photoS3KeyByStudentId: ReadonlyMap<string, string>;
+}): Promise<{ aliased: number }> {
+  if (!opts.mergeTraces.length) return { aliased: 0 };
+  const index = await loadElevePhotoIndex();
+  let aliased = 0;
+  let dirty = false;
+
+  for (const trace of opts.mergeTraces) {
+    let s3Key =
+      opts.photoS3KeyByStudentId.get(trace.keeperId) ||
+      trace.absorbedIds.map((id) => opts.photoS3KeyByStudentId.get(id)).find(Boolean) ||
+      null;
+    if (!s3Key) {
+      for (const m of trace.members) {
+        s3Key = lookupS3Key(index, {
+          nom: m.eleveRef.nom,
+          prenom: m.eleveRef.prenom,
+          ine: m.eleveRef.ine,
+        });
+        if (s3Key) break;
+      }
+    }
+    if (!s3Key) continue;
+
+    for (const m of trace.members) {
+      for (const key of photoIndexKeysForPerson({
+        nom: m.eleveRef.nom,
+        prenom: m.eleveRef.prenom,
+        ine: m.eleveRef.ine,
+      })) {
+        if (index[key] !== s3Key) {
+          index[key] = s3Key;
+          aliased += 1;
+          dirty = true;
+        }
+      }
+    }
+  }
+
+  if (dirty) await saveElevePhotoIndex(index);
+  return { aliased };
 }
 
 /** URLs signées pour l’appel / fiches internat (id élève → URL). */
