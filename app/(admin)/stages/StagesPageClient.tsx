@@ -7,7 +7,9 @@ import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useOneDriveConnection } from "@/app/hooks/useOneDriveConnection";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
-import StageConventionDetail from "@/app/components/stages/StageConventionDetail";
+import StageConventionDetail, {
+  type StageConventionDetailData,
+} from "@/app/components/stages/StageConventionDetail";
 import StagesBoardPanel, {
   resolveBoardQuickReviewKind,
 } from "@/app/components/stages/StagesBoardPanel";
@@ -617,6 +619,63 @@ function StagesContent() {
     }
   }
 
+  async function updateCompanyContacts(contacts: {
+    tutorName: string;
+    tutorEmail: string;
+    tutorPhone?: string;
+    rhExtraSigner: boolean;
+    rhFirstName?: string;
+    rhLastName?: string;
+    rhEmail?: string;
+  }) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_company_contacts", contacts }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        message?: string;
+        convention?: typeof detail.convention;
+        signLinks?: StageConventionDetailData["signLinks"];
+      };
+      if (data.convention) {
+        setDetail({
+          ...detail,
+          convention: data.convention,
+          signLinks: data.signLinks ?? detail.signLinks,
+        });
+      }
+      if (!res.ok) {
+        // Persistance OK mais relance mail en échec : on affiche l’avertissement sans bloquer.
+        if (
+          data.convention &&
+          typeof data.error === "string" &&
+          data.error.startsWith("Contacts enregistrés")
+        ) {
+          setMsg(data.error);
+          await load();
+          setClasseRefreshToken((n) => n + 1);
+          return;
+        }
+        throw new Error(data?.error || "Erreur");
+      }
+      setMsg(data.message || "Contacts entreprise mis à jour.");
+      await load();
+      setClasseRefreshToken((n) => n + 1);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Erreur";
+      setError(message);
+      throw e instanceof Error ? e : new Error(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function reviewScheduleChange(approved: boolean) {
     if (!detail) return;
     if (
@@ -1063,6 +1122,11 @@ function StagesContent() {
                 onReviewTutorEmailChange={(approved) => void reviewTutorEmailChange(approved)}
                 onReviewScheduleChange={(approved) => void reviewScheduleChange(approved)}
                 onProposeAmendment={(payload) => void proposeAmendment(payload)}
+                onUpdateCompanyContacts={
+                  permissions?.canReviewPreconvention
+                    ? (contacts) => updateCompanyContacts(contacts)
+                    : undefined
+                }
                 onDeleteStage={
                   permissions?.canReviewPreconvention
                     ? (confirmWord) => void deleteStage(confirmWord)

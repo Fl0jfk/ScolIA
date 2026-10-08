@@ -76,6 +76,7 @@ export default function StageConventionDetail({
   onReviewTutorEmailChange,
   onReviewScheduleChange,
   onProposeAmendment,
+  onUpdateCompanyContacts,
   onDeleteStage,
 }: {
   detail: StageConventionDetailData;
@@ -108,6 +109,15 @@ export default function StageConventionDetail({
     stagePeriodId?: string;
     stageLabel?: string;
   }) => void;
+  onUpdateCompanyContacts?: (contacts: {
+    tutorName: string;
+    tutorEmail: string;
+    tutorPhone?: string;
+    rhExtraSigner: boolean;
+    rhFirstName?: string;
+    rhLastName?: string;
+    rhEmail?: string;
+  }) => void | Promise<void>;
   onDeleteStage?: (confirmWord: string) => void;
 }) {
   const c = detail.convention;
@@ -140,6 +150,10 @@ export default function StageConventionDetail({
   const [amendSchedule, setAmendSchedule] = useState<StageSchedule>(suggestedSchedule);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const canEditCompanyContacts =
+    Boolean(permissions?.canReviewPreconvention) &&
+    Boolean(onUpdateCompanyContacts) &&
+    (c.status === "signatures_pending" || c.status === "signed");
 
   return (
     <div className="mt-3 space-y-4 rounded-xl border border-[#2F6B4A]/25 bg-[#f7faf8] p-4">
@@ -176,7 +190,14 @@ export default function StageConventionDetail({
         <StageSignatureProgress summary={buildSignatureSummary(c)} />
       </div>
 
-      {!adminEditing && <ConventionInfoSummary convention={c} />}
+      {!adminEditing && (
+        <ConventionInfoSummary
+          convention={c}
+          canEditCompanyContacts={canEditCompanyContacts}
+          busy={busy}
+          onSaveCompanyContacts={onUpdateCompanyContacts}
+        />
+      )}
 
       {permissions?.canReviewPreconvention && (
         <StageDiscussionChat
@@ -773,7 +794,25 @@ export default function StageConventionDetail({
   );
 }
 
-function ConventionInfoSummary({ convention }: { convention: StageConvention }) {
+function ConventionInfoSummary({
+  convention,
+  canEditCompanyContacts,
+  busy,
+  onSaveCompanyContacts,
+}: {
+  convention: StageConvention;
+  canEditCompanyContacts?: boolean;
+  busy?: boolean;
+  onSaveCompanyContacts?: (contacts: {
+    tutorName: string;
+    tutorEmail: string;
+    tutorPhone?: string;
+    rhExtraSigner: boolean;
+    rhFirstName?: string;
+    rhLastName?: string;
+    rhEmail?: string;
+  }) => void | Promise<void>;
+}) {
   const company = convention.company;
   const student = convention.student;
   const schedule = convention.schedule;
@@ -782,12 +821,206 @@ function ConventionInfoSummary({ convention }: { convention: StageConvention }) 
   const parent2 = convention.parent2SignerEmail || student.parent2Email || "";
   const kindLabel = STAGE_OFFER_KIND_LABELS[convention.internshipKind] ?? convention.internshipKind;
   const periodLabel = formatPeriodRangeFr(schedule.periodStart, schedule.periodEnd);
+  const [contactsOpen, setContactsOpen] = useState(false);
+  const [tutorName, setTutorName] = useState(company.tutorName || "");
+  const [tutorEmail, setTutorEmail] = useState(company.tutorEmail || "");
+  const [tutorPhone, setTutorPhone] = useState(company.tutorPhone || "");
+  const [rhEnabled, setRhEnabled] = useState(
+    company.rhExtraSigner === true ||
+      Boolean(company.rhEmail || company.rhFirstName || company.rhLastName),
+  );
+  const [rhFirstName, setRhFirstName] = useState(company.rhFirstName || "");
+  const [rhLastName, setRhLastName] = useState(company.rhLastName || "");
+  const [rhEmail, setRhEmail] = useState(company.rhEmail || "");
+
+  function openContactsEditor() {
+    setTutorName(company.tutorName || "");
+    setTutorEmail(company.tutorEmail || "");
+    setTutorPhone(company.tutorPhone || "");
+    setRhEnabled(
+      company.rhExtraSigner === true ||
+        Boolean(company.rhEmail || company.rhFirstName || company.rhLastName),
+    );
+    setRhFirstName(company.rhFirstName || "");
+    setRhLastName(company.rhLastName || "");
+    setRhEmail(company.rhEmail || "");
+    setContactsOpen(true);
+  }
+
+  async function submitContacts() {
+    if (!onSaveCompanyContacts) return;
+    const tutorSig = convention.signatures.find((s) => s.role === "tuteur_entreprise");
+    const rhSig = convention.signatures.find((s) => s.role === "rh_entreprise");
+    const tutorIdentityChanged =
+      tutorName.trim().toLowerCase() !== (company.tutorName || "").trim().toLowerCase() ||
+      tutorEmail.trim().toLowerCase() !== (company.tutorEmail || "").trim().toLowerCase();
+    const rhWasEnabled =
+      company.rhExtraSigner === true ||
+      Boolean(company.rhEmail || company.rhFirstName || company.rhLastName);
+    const rhIdentityChanged =
+      rhEnabled !== rhWasEnabled ||
+      (rhEnabled &&
+        (`${rhFirstName} ${rhLastName}`.trim().toLowerCase() !==
+          stageCompanyRhDisplayName(company).toLowerCase() ||
+          rhEmail.trim().toLowerCase() !== (company.rhEmail || "").trim().toLowerCase()));
+    const willInvalidate =
+      (tutorIdentityChanged && tutorSig?.status === "signe") ||
+      (rhIdentityChanged && rhSig?.status === "signe");
+    if (
+      willInvalidate &&
+      !window.confirm(
+        "Le tuteur ou le RH a déjà signé. La signature concernée sera annulée et une nouvelle demande pourra être renvoyée au contact mis à jour. Continuer ?",
+      )
+    ) {
+      return;
+    }
+    try {
+      await onSaveCompanyContacts({
+        tutorName: tutorName.trim(),
+        tutorEmail: tutorEmail.trim(),
+        tutorPhone: tutorPhone.trim() || undefined,
+        rhExtraSigner: rhEnabled,
+        rhFirstName: rhEnabled ? rhFirstName.trim() || undefined : undefined,
+        rhLastName: rhEnabled ? rhLastName.trim() || undefined : undefined,
+        rhEmail: rhEnabled ? rhEmail.trim() || undefined : undefined,
+      });
+      setContactsOpen(false);
+    } catch {
+      /* L’erreur est affichée par le parent. */
+    }
+  }
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3 text-sm text-stone-800">
-      <h3 className="text-xs font-bold uppercase tracking-wide text-stone-600">
-        Informations de la préconvention
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-stone-600">
+          Informations de la préconvention
+        </h3>
+        {canEditCompanyContacts && !contactsOpen ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={openContactsEditor}
+            className="rounded-lg border border-[#2F6B4A] px-2.5 py-1 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
+          >
+            Modifier tuteur / RH
+          </button>
+        ) : null}
+      </div>
+
+      {contactsOpen && canEditCompanyContacts ? (
+        <div className="rounded-xl border border-[#2F6B4A]/30 bg-[#f7faf8] p-3 space-y-3">
+          <p className="text-xs text-stone-600 leading-relaxed">
+            Vous pouvez corriger le tuteur et le RH même si la convention est déjà validée ou en
+            cours de signature. Un changement de nom ou d&apos;e-mail annule la signature concernée
+            et permet de renvoyer la demande au nouveau contact.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-stone-700">
+              Tuteur — nom
+              <input
+                className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-normal"
+                value={tutorName}
+                onChange={(e) => setTutorName(e.target.value)}
+                disabled={busy}
+              />
+            </label>
+            <label className="block text-xs font-semibold text-stone-700">
+              Tuteur — téléphone
+              <input
+                className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-normal"
+                type="tel"
+                value={tutorPhone}
+                onChange={(e) => setTutorPhone(e.target.value)}
+                disabled={busy}
+              />
+            </label>
+            <label className="block text-xs font-semibold text-stone-700 sm:col-span-2">
+              Tuteur — e-mail
+              <input
+                className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-normal"
+                type="email"
+                value={tutorEmail}
+                onChange={(e) => setTutorEmail(e.target.value)}
+                disabled={busy}
+              />
+            </label>
+          </div>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-stone-300 text-[#2F6B4A] focus:ring-[#2F6B4A]"
+              checked={rhEnabled}
+              disabled={busy}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setRhEnabled(checked);
+                if (!checked) {
+                  setRhFirstName("");
+                  setRhLastName("");
+                  setRhEmail("");
+                }
+              }}
+            />
+            <span className="text-sm text-stone-800">
+              <span className="font-semibold">RH / signataire entreprise supplémentaire</span>
+              <span className="mt-0.5 block text-[11px] font-normal text-stone-500">
+                En plus du tuteur. Prénom, nom et e-mail obligatoires pour envoyer le lien.
+              </span>
+            </span>
+          </label>
+          {rhEnabled ? (
+            <div className="grid gap-3 sm:grid-cols-2 pl-6">
+              <label className="block text-xs font-semibold text-stone-700">
+                RH — prénom
+                <input
+                  className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-normal"
+                  value={rhFirstName}
+                  onChange={(e) => setRhFirstName(e.target.value)}
+                  disabled={busy}
+                />
+              </label>
+              <label className="block text-xs font-semibold text-stone-700">
+                RH — nom
+                <input
+                  className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-normal"
+                  value={rhLastName}
+                  onChange={(e) => setRhLastName(e.target.value)}
+                  disabled={busy}
+                />
+              </label>
+              <label className="block text-xs font-semibold text-stone-700 sm:col-span-2">
+                RH — e-mail
+                <input
+                  className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-normal"
+                  type="email"
+                  value={rhEmail}
+                  onChange={(e) => setRhEmail(e.target.value)}
+                  disabled={busy}
+                />
+              </label>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setContactsOpen(false)}
+              className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 disabled:opacity-50"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={submitContacts}
+              className="rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              {busy ? "Enregistrement…" : "Enregistrer tuteur / RH"}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <dl className="grid gap-2 sm:grid-cols-2">
         <InfoRow label="Élève">

@@ -172,6 +172,15 @@ export function isEntCoreDbEnabled(): boolean {
 /** Résout l'UUID tenant courant pour le cœur ENT (null si DB off / hors requête). */
 export async function resolveCurrentEtablissementId(): Promise<string | null> {
   if (!isEntCoreDbEnabled()) return null;
+  // Scripts locaux (seed / smoke) hors requête HTTP — jamais en prod conteneur.
+  const scriptEtab = process.env.SCOLA_SCRIPT_ETABLISSEMENT_ID?.trim();
+  if (
+    scriptEtab &&
+    process.env.SCOLA_ALLOW_SCRIPT_ETAB === "1" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    return scriptEtab;
+  }
   try {
     const { getTenant } = await import("@/app/lib/tenant-context");
     const { ensureEtablissementFromTenant } = await import("@/app/lib/etablissement-db");

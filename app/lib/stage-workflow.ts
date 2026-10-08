@@ -591,6 +591,328 @@ export async function updateTutorEmailAndResend(params: {
   return { ok: true, convention: next };
 }
 
+const COMPANY_CONTACTS_EDITABLE_STATUSES = [
+  "signatures_pending",
+  "signed",
+] as const;
+
+export type StageCompanyContactsUpdate = {
+  tutorName: string;
+  tutorEmail: string;
+  tutorPhone?: string;
+  rhExtraSigner: boolean;
+  rhFirstName?: string;
+  rhLastName?: string;
+  rhEmail?: string;
+};
+
+function normalizeOptionalPhone(value: string | undefined): string | undefined {
+  const trimmed = value?.trim() || "";
+  return trimmed || undefined;
+}
+
+function companyContactIdentityKey(name: string, email: string): string {
+  return `${name.trim().toLowerCase()}|${email.trim().toLowerCase()}`;
+}
+
+async function clearSignatureDepositFields(sig: StageSignature): Promise<StageSignature> {
+  if (sig.signToken) {
+    try {
+      await deleteSignTokenRef(sig.signToken);
+    } catch {
+      /* ignore */
+    }
+  }
+  return {
+    ...sig,
+    status: "en_attente",
+    signedAt: undefined,
+    signedBy: undefined,
+    signMethod: undefined,
+    signaturePngS3Key: undefined,
+    paperUploadS3Key: undefined,
+    paperUploadFileName: undefined,
+    reviewStatus: undefined,
+    reviewNote: undefined,
+    reviewedAt: undefined,
+    reviewedBy: undefined,
+    signConfirmCode: undefined,
+    signConfirmCodeSentAt: undefined,
+    signToken: undefined,
+    signSecureCode: undefined,
+    signSentAt: undefined,
+  };
+}
+
+/**
+ * Admin / direction : modifier tuteur et/ou RH même après validation administrative,
+ * pendant les signatures ou après signature complète.
+ * Si l'identité (nom / e-mail) change alors que la signature était déposée, elle est
+ * annulée et une nouvelle demande peut être renvoyée au contact mis à jour.
+ */
+export async function updateCompanyContactsAfterValidation(params: {
+  convention: StageConvention;
+  contacts: StageCompanyContactsUpdate;
+  byName: string;
+}): Promise<
+  | {
+      ok: true;
+      convention: StageConvention;
+      message: string;
+      resentRoles: StageSignerRole[];
+    }
+  | { ok: false; error: string }
+> {
+  const { convention } = params;
+  if (
+    !COMPANY_CONTACTS_EDITABLE_STATUSES.includes(
+      convention.status as (typeof COMPANY_CONTACTS_EDITABLE_STATUSES)[number],
+    )
+  ) {
+    return {
+      ok: false,
+      error:
+        "Modification possible uniquement lorsque les signatures sont en cours ou déjà déposées.",
+    };
+  }
+
+  const tutorName = params.contacts.tutorName.trim();
+  const tutorEmail = params.contacts.tutorEmail.trim().toLowerCase();
+  const tutorPhone = normalizeOptionalPhone(params.contacts.tutorPhone);
+  if (!tutorName) {
+    return { ok: false, error: "Nom du tuteur obligatoire." };
+  }
+  if (!isValidEmail(tutorEmail)) {
+    return { ok: false, error: "Adresse e-mail du tuteur invalide." };
+  }
+
+  const wantsRh = params.contacts.rhExtraSigner === true;
+  const rhFirstName = wantsRh ? params.contacts.rhFirstName?.trim() || "" : "";
+  const rhLastName = wantsRh ? params.contacts.rhLastName?.trim() || "" : "";
+  const rhEmail = wantsRh ? params.contacts.rhEmail?.trim().toLowerCase() || "" : "";
+  if (wantsRh) {
+    if (!rhFirstName || !rhLastName) {
+      return { ok: false, error: "Prénom et nom du RH obligatoires." };
+    }
+    if (!isValidEmail(rhEmail)) {
+      return { ok: false, error: "Adresse e-mail du RH invalide." };
+    }
+  }
+
+  const prev = convention.company;
+  const prevTutorKey = companyContactIdentityKey(prev.tutorName || "", prev.tutorEmail || "");
+  const nextTutorKey = companyContactIdentityKey(tutorName, tutorEmail);
+  const tutorIdentityChanged = prevTutorKey !== nextTutorKey;
+  const tutorPhoneChanged = (prev.tutorPhone || "") !== (tutorPhone || "");
+
+  const prevWantsRh = stageCompanyWantsRhSigner(prev);
+  const prevRhName = stageCompanyRhDisplayName(prev);
+  const prevRhKey = companyContactIdentityKey(prevRhName, prev.rhEmail || "");
+  const nextRhName = stageCompanyRhDisplayName({ rhFirstName, rhLastName });
+  const nextRhKey = companyContactIdentityKey(nextRhName, rhEmail);
+  const rhIdentityChanged = prevWantsRh !== wantsRh || (wantsRh && prevRhKey !== nextRhKey);
+
+  if (!tutorIdentityChanged && !tutorPhoneChanged && !rhIdentityChanged) {
+    return { ok: false, error: "Aucune modification détectée." };
+  }
+
+  const now = new Date().toISOString();
+  const nextCompany = {
+    ...prev,
+    tutorName,
+    tutorEmail,
+    tutorPhone,
+    rhExtraSigner: wantsRh,
+    rhFirstName: wantsRh ? rhFirstName : undefined,
+    rhLastName: wantsRh ? rhLastName : undefined,
+    rhEmail: wantsRh ? rhEmail : undefined,
+  };
+
+  let signatures = [...convention.signatures];
+  const resentRoles: StageSignerRole[] = [];
+  const revokedSigned: StageSignature[] = [];
+  let touchedSignatureCircuit = false;
+
+  const syncRoleSigner = async (opts: {
+    role: "tuteur_entreprise" | "rh_entreprise";
+    email: string;
+    label: string;
+    identityChanged: boolean;
+    ensurePresent: boolean;
+  }) => {
+    const existing = signatures.find((s) => s.role === opts.role);
+    if (!opts.ensurePresent) {
+      if (!existing) return;
+      if (existing.status === "signe") {
+        revokedSigned.push(existing);
+      }
+      if (existing.signToken) {
+        try {
+          await deleteSignTokenRef(existing.signToken);
+        } catch {
+          /* ignore */
+        }
+      }
+      signatures = signatures.filter((s) => s.id !== existing.id);
+      touchedSignatureCircuit = true;
+      return;
+    }
+
+    if (!existing) {
+      const created = await issuePendingSignatory(
+        convention.id,
+        opts.role,
+        opts.email,
+        opts.label,
+      );
+      signatures = [...signatures, created];
+      resentRoles.push(opts.role);
+      touchedSignatureCircuit = true;
+      return;
+    }
+
+    const emailChanged =
+      (existing.signEmail || "").trim().toLowerCase() !== opts.email.trim().toLowerCase();
+    const wasSigned = existing.status === "signe";
+    const needsReset = opts.identityChanged || emailChanged;
+
+    if (!needsReset) {
+      if (existing.label !== opts.label) {
+        signatures = signatures.map((s) =>
+          s.id === existing.id ? { ...s, label: opts.label, signEmail: opts.email } : s,
+        );
+      }
+      return;
+    }
+
+    let resetSig = await clearSignatureDepositFields(existing);
+    if (wasSigned) {
+      revokedSigned.push(existing);
+    }
+    resetSig = {
+      ...resetSig,
+      label: opts.label,
+      signEmail: opts.email,
+    };
+    resetSig = await regenerateSignatureToken(convention.id, resetSig);
+    signatures = signatures.map((s) => (s.id === existing.id ? resetSig : s));
+    resentRoles.push(opts.role);
+    touchedSignatureCircuit = true;
+  };
+
+  await syncRoleSigner({
+    role: "tuteur_entreprise",
+    email: tutorEmail,
+    label: STAGE_SIGNER_ROLE_LABELS.tuteur_entreprise,
+    identityChanged: tutorIdentityChanged,
+    ensurePresent: true,
+  });
+
+  await syncRoleSigner({
+    role: "rh_entreprise",
+    email: rhEmail,
+    label: nextRhName
+      ? `${STAGE_SIGNER_ROLE_LABELS.rh_entreprise} — ${nextRhName}`
+      : STAGE_SIGNER_ROLE_LABELS.rh_entreprise,
+    identityChanged: rhIdentityChanged,
+    ensurePresent: wantsRh,
+  });
+
+  const allValidated = conventionAllSignaturesValidated(signatures);
+  let nextStatus = convention.status;
+  if (touchedSignatureCircuit) {
+    nextStatus = allValidated ? "signed" : "signatures_pending";
+  }
+
+  let next: StageConvention = {
+    ...convention,
+    company: nextCompany,
+    signatures,
+    status: nextStatus,
+    tutorEmailChangeRequest: undefined,
+    updatedAt: now,
+  };
+
+  const historyBits: string[] = [];
+  if (tutorIdentityChanged || tutorPhoneChanged) {
+    historyBits.push(
+      `tuteur: ${prev.tutorName || "?"} <${prev.tutorEmail || "?"}> → ${tutorName} <${tutorEmail}>`,
+    );
+  }
+  if (rhIdentityChanged) {
+    historyBits.push(
+      wantsRh
+        ? `RH: ${prevRhName || "—"} <${prev.rhEmail || "—"}> → ${nextRhName} <${rhEmail}>`
+        : `RH retiré (${prevRhName || prev.rhEmail || "—"})`,
+    );
+  }
+  next = pushHistory(
+    next,
+    params.byName,
+    "CONTACTS_ENTREPRISE_MODIFIES",
+    historyBits.join(" · ") || "Contacts entreprise mis à jour",
+  );
+  if (revokedSigned.length > 0) {
+    next = pushHistory(
+      next,
+      "Système",
+      "SIGNATURES_INVALIDEES_CONTACTS",
+      revokedSigned.map((s) => s.role).join(", "),
+    );
+  }
+
+  for (const revoked of revokedSigned) {
+    next = await rebuildConventionPdfAfterSignatureRevoke(next, revoked);
+  }
+  if (
+    revokedSigned.length === 0 &&
+    (tutorIdentityChanged || rhIdentityChanged) &&
+    isScoliaGeneratedConventionPdf(next)
+  ) {
+    next = await generateAndStoreConventionPdf(next);
+  }
+
+  await saveStageConvention(next);
+
+  const uniqueResend = [...new Set(resentRoles)];
+  const mailFailures: string[] = [];
+  for (const role of uniqueResend) {
+    const sig = next.signatures.find((s) => s.role === role && s.status === "en_attente");
+    if (!sig) continue;
+    const mail = await notifyStageSignatureRequest(next, sig);
+    if (!mail.sent) {
+      mailFailures.push(role === "tuteur_entreprise" ? "tuteur" : "RH");
+      if (role === "tuteur_entreprise") {
+        void notifyParentTutorEmailFailed(next, tutorEmail, mail.error).catch(() => undefined);
+      }
+    }
+  }
+
+  const parts: string[] = ["Contacts entreprise mis à jour."];
+  if (uniqueResend.length > 0) {
+    parts.push(
+      uniqueResend.includes("tuteur_entreprise") && uniqueResend.includes("rh_entreprise")
+        ? "Demande de signature renvoyée au tuteur et au RH."
+        : uniqueResend.includes("tuteur_entreprise")
+          ? "Demande de signature renvoyée au tuteur."
+          : "Demande de signature renvoyée au RH.",
+    );
+  }
+  if (mailFailures.length > 0) {
+    return {
+      ok: false,
+      error: `Contacts enregistrés, mais l'envoi a échoué pour : ${mailFailures.join(", ")}. Vérifiez les adresses.`,
+    };
+  }
+
+  return {
+    ok: true,
+    convention: next,
+    message: parts.join(" "),
+    resentRoles: uniqueResend,
+  };
+}
+
 /** Le tuteur entreprise n'a pas encore signé → l'élève peut demander un changement d'e-mail. */
 export function canRequestTutorEmailChange(convention: StageConvention): boolean {
   if (convention.status !== "signatures_pending") return false;
