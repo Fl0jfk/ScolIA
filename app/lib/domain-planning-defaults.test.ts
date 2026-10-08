@@ -32,6 +32,9 @@ test("DEFAULT_EVARS_LYCEE_SESSIONS cover 2nde / 1ère / Tle with official themes
     assert.ok(["2nde", "1ere", "tle"].includes(session.niveau));
     assert.ok(session.theme.trim().length > 0);
     assert.ok([1, 2, 3].includes(session.seanceNumber));
+    // Lycée : pas d'association — uniquement choix libre professeurs.
+    assert.equal(session.intervenantConstraint, "free");
+    assert.equal(session.intervenantLabel, "Au choix des professeurs");
   }
   assert.deepEqual(
     [...new Set(DEFAULT_EVARS_LYCEE_SESSIONS.map((s) => s.niveau))].sort(),
@@ -99,7 +102,7 @@ test("buildEmptyLyceeSessions remains an alias of buildDefaultLyceeSessions", ()
   assert.deepEqual(buildEmptyLyceeSessions("custom-lycee"), buildDefaultLyceeSessions("custom-lycee"));
 });
 
-test("hydrateEmptySessionThemes fills empty lycée grids from the 2025 programme", () => {
+test("hydrateEmptySessionThemes fills empty lycée grids from the programme", () => {
   const empty = buildDefaultLyceeSessions("custom-lycee").map((s) => ({
     ...s,
     theme: "",
@@ -109,9 +112,41 @@ test("hydrateEmptySessionThemes fills empty lycée grids from the 2025 programme
   }));
   const hydrated = hydrateEmptySessionThemes(empty);
   assert.equal(hydrated[0]?.theme, "Image, estime et confiance en soi");
-  assert.equal(hydrated[0]?.intervenantConstraint, "svt_only");
+  assert.equal(hydrated[0]?.intervenantConstraint, "free");
   assert.equal(hydrated[4]?.theme, "Savoir dire oui ou non : le consentement");
-  assert.equal(hydrated[4]?.intervenantConstraint, "psy_inf");
+  assert.equal(hydrated[4]?.intervenantConstraint, "free");
+});
+
+test("hydrateEmptySessionThemes unlocks Association / SVT / psy on lycée sessions", () => {
+  const locked = buildDefaultLyceeSessions("custom-lycee").map((s, idx) => {
+    if (idx === 1) {
+      return {
+        ...s,
+        intervenantLabel: "Association",
+        intervenantConstraint: "fixed_association" as const,
+        mixte: false,
+      };
+    }
+    if (idx === 0) {
+      return {
+        ...s,
+        intervenantLabel: "Profs d'SVT",
+        intervenantConstraint: "svt_only" as const,
+      };
+    }
+    if (idx === 4) {
+      return {
+        ...s,
+        intervenantLabel: "Psychologue / Infirmière",
+        intervenantConstraint: "psy_inf" as const,
+        mixte: false,
+      };
+    }
+    return s;
+  });
+  const hydrated = hydrateEmptySessionThemes(locked);
+  assert.ok(hydrated.every((s) => s.intervenantConstraint === "free"));
+  assert.ok(hydrated.every((s) => s.intervenantLabel === "Au choix des professeurs"));
 });
 
 test("hydrateEmptySessionThemes corrects outdated lycée themes already stored", () => {
