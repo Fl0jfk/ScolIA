@@ -10,17 +10,28 @@ export const DEFAULT_DOMAIN_PLANNING_ACTIVITY_COLORS: Record<string, string> = {
 /** Id du domaine collège historique (renommé librement côté UI, id stable). */
 export const DEFAULT_DOMAIN_ID = "evars";
 
+/** Id du domaine lycée par défaut (programme EVARS septembre 2025). */
+export const DEFAULT_EVARS_LYCEE_DOMAIN_ID = "evars-lycee";
+
 export const DEFAULT_DOMAIN_PLANNING_DOMAINS: DomainPlanningDomain[] = [
   {
     id: DEFAULT_DOMAIN_ID,
-    name: "EVARS",
-    description: "Éducation à la vie affective, relationnelle et à la sexualité",
+    name: "EVARS collège",
+    description: "Éducation à la vie affective, relationnelle et à la sexualité — collège",
     color: "bg-rose-600 text-white",
+    coordinatorExternalUserIds: [],
+  },
+  {
+    id: DEFAULT_EVARS_LYCEE_DOMAIN_ID,
+    name: "EVARS lycée",
+    description: "Éducation à la vie affective, relationnelle et à la sexualité — lycée",
+    color: "bg-violet-600 text-white",
     coordinatorExternalUserIds: [],
   },
 ];
 
-function collegeSession(
+function planningSession(
+  domainId: string,
   id: string,
   niveau: DomainPlanningSession["niveau"],
   seanceNumber: 1 | 2 | 3,
@@ -31,7 +42,7 @@ function collegeSession(
 ): DomainPlanningSession {
   return {
     id,
-    domainId: DEFAULT_DOMAIN_ID,
+    domainId,
     niveau,
     seanceNumber,
     theme,
@@ -39,6 +50,27 @@ function collegeSession(
     intervenantConstraint,
     mixte,
   };
+}
+
+function collegeSession(
+  id: string,
+  niveau: DomainPlanningSession["niveau"],
+  seanceNumber: 1 | 2 | 3,
+  theme: string,
+  intervenantLabel: string,
+  intervenantConstraint: DomainPlanningSession["intervenantConstraint"],
+  mixte: boolean,
+): DomainPlanningSession {
+  return planningSession(
+    DEFAULT_DOMAIN_ID,
+    id,
+    niveau,
+    seanceNumber,
+    theme,
+    intervenantLabel,
+    intervenantConstraint,
+    mixte,
+  );
 }
 
 /** Séances collège par défaut — structure issue du tableau de positionnement. */
@@ -55,6 +87,124 @@ export const DEFAULT_EVARS_SESSIONS: DomainPlanningSession[] = [
   collegeSession("3e-s1", "3e", 1, "Liens entre bonheur, émotions et sexualité", "Profs d'SVT", "svt_only", true),
   collegeSession("3e-s2", "3e", 2, "Relations réciproques et égalitaires ; repérer danger et vulnérabilité", "Psychologue / Infirmière", "psy_inf", false),
   collegeSession("3e-s3", "3e", 3, "La sexualité dans la définition des droits humains", "Au choix des professeurs", "free", true),
+];
+
+function lyceeSession(
+  id: string,
+  niveau: DomainPlanningSession["niveau"],
+  seanceNumber: 1 | 2 | 3,
+  theme: string,
+  intervenantLabel: string,
+  intervenantConstraint: DomainPlanningSession["intervenantConstraint"],
+  mixte: boolean,
+): DomainPlanningSession {
+  return planningSession(
+    DEFAULT_EVARS_LYCEE_DOMAIN_ID,
+    id,
+    niveau,
+    seanceNumber,
+    theme,
+    intervenantLabel,
+    intervenantConstraint,
+    mixte,
+  );
+}
+
+/**
+ * Séances lycée par défaut — programme EVARS septembre 2025 (éducation.gouv.fr/evars).
+ * Même principe que le collège : 3 séances / niveau, S1 SVT, S2 association ou psy/inf, S3 libre.
+ */
+export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
+  // Seconde
+  lyceeSession(
+    "2nde-s1",
+    "2nde",
+    1,
+    "Image, estime et confiance en soi",
+    "Profs d'SVT",
+    "svt_only",
+    true,
+  ),
+  lyceeSession(
+    "2nde-s2",
+    "2nde",
+    2,
+    "Reconnaître et comprendre ses émotions",
+    "Association",
+    "fixed_association",
+    false,
+  ),
+  lyceeSession(
+    "2nde-s3",
+    "2nde",
+    3,
+    "L'intimité à l'ère des réseaux sociaux",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  // Première
+  lyceeSession(
+    "1ere-s1",
+    "1ere",
+    1,
+    "Plaisir, excès et conduites à risques : faire des choix éclairés",
+    "Profs d'SVT",
+    "svt_only",
+    true,
+  ),
+  lyceeSession(
+    "1ere-s2",
+    "1ere",
+    2,
+    "Savoir dire oui ou non : le consentement",
+    "Psychologue / Infirmière",
+    "psy_inf",
+    false,
+  ),
+  lyceeSession(
+    "1ere-s3",
+    "1ere",
+    3,
+    "Accueillir la diversité",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  // Terminale
+  lyceeSession(
+    "tle-s1",
+    "tle",
+    1,
+    "Comprendre les enjeux de la pornographie",
+    "Profs d'SVT",
+    "svt_only",
+    true,
+  ),
+  lyceeSession(
+    "tle-s2",
+    "tle",
+    2,
+    "Vivre une sexualité épanouie ou Développer une relation saine",
+    "Association",
+    "fixed_association",
+    false,
+  ),
+  lyceeSession(
+    "tle-s3",
+    "tle",
+    3,
+    "Ma place dans le monde : oser être soi",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+];
+
+/** Toutes les séances EVARS par défaut (collège + lycée). */
+export const DEFAULT_ALL_EVARS_SESSIONS: DomainPlanningSession[] = [
+  ...DEFAULT_EVARS_SESSIONS,
+  ...DEFAULT_EVARS_LYCEE_SESSIONS,
 ];
 
 export const TRANSVERSAL_NIVEAUX = ["6e", "5e", "4e", "3e", "2nde", "1ere", "tle"] as const;
@@ -92,25 +242,90 @@ export function isTransversalNiveau(value: unknown): value is DomainPlanningSess
   );
 }
 
-/** Grille vide 2nde / 1ère / Tle × 3 séances pour un nouveau domaine lycée. */
+/**
+ * Grille lycée 2nde / 1ère / Tle × 3 séances, préremplie avec le programme EVARS 2025.
+ * Les thèmes et contraintes d'intervenants suivent le même principe que le collège.
+ */
+export function buildDefaultLyceeSessions(domainId: string): DomainPlanningSession[] {
+  return DEFAULT_EVARS_LYCEE_SESSIONS.map((session) => ({
+    ...session,
+    id: `${domainId}-${session.niveau}-s${session.seanceNumber}`,
+    domainId,
+  }));
+}
+
+/** @deprecated Préférer `buildDefaultLyceeSessions` — alias conservé pour les appels existants. */
 export function buildEmptyLyceeSessions(domainId: string): DomainPlanningSession[] {
-  const niveaux: DomainPlanningSession["niveau"][] = ["2nde", "1ere", "tle"];
-  const out: DomainPlanningSession[] = [];
-  for (const niveau of niveaux) {
-    for (const seanceNumber of [1, 2, 3] as const) {
-      out.push({
-        id: `${domainId}-${niveau}-s${seanceNumber}`,
-        domainId,
-        niveau,
-        seanceNumber,
-        theme: "",
-        intervenantLabel: "Au choix des professeurs",
-        intervenantConstraint: "free",
-        mixte: true,
-      });
-    }
-  }
-  return out;
+  return buildDefaultLyceeSessions(domainId);
+}
+
+function isLyceeNiveau(niveau: DomainPlanningSession["niveau"]): boolean {
+  return niveau === "2nde" || niveau === "1ere" || niveau === "tle";
+}
+
+/**
+ * Anciennes formulations (flyer mal lu / première version) à remplacer par le programme retenu.
+ * Clé = `niveau:seanceNumber`.
+ */
+const OUTDATED_LYCEE_THEMES_BY_SLOT: Record<string, readonly string[]> = {
+  "1ere:1": ["Plaisir, excès, conduites à risque : faire des choix éclairés"],
+  "1ere:3": ["Ma place dans le monde : oser être soi"],
+  "tle:2": ["Vivre une sexualité épanouie"],
+  "tle:3": ["Être libre d'être soi parmi les autres", "Développer des relations saines"],
+};
+
+/**
+ * Remplit ou corrige les thèmes lycée :
+ * - séances encore vides (ancienne grille vide) ;
+ * - formulations obsolètes déjà enregistrées (correction programme).
+ */
+export function hydrateEmptySessionThemes(
+  sessions: DomainPlanningSession[],
+): DomainPlanningSession[] {
+  const lyceeBySlot = new Map(
+    DEFAULT_EVARS_LYCEE_SESSIONS.map((s) => [`${s.niveau}:${s.seanceNumber}`, s] as const),
+  );
+  return sessions.map((session) => {
+    if (!isLyceeNiveau(session.niveau)) return session;
+    const slotKey = `${session.niveau}:${session.seanceNumber}`;
+    const source = lyceeBySlot.get(slotKey);
+    if (!source) return session;
+    const currentTheme = session.theme.trim();
+    const outdated = OUTDATED_LYCEE_THEMES_BY_SLOT[slotKey] || [];
+    const needsTheme = !currentTheme || outdated.includes(currentTheme);
+    if (!needsTheme) return session;
+    const looksLikeEmptyLyceeSeed =
+      !currentTheme &&
+      session.intervenantConstraint === "free" &&
+      session.intervenantLabel === "Au choix des professeurs";
+    return {
+      ...session,
+      theme: source.theme,
+      ...(looksLikeEmptyLyceeSeed
+        ? {
+            intervenantLabel: source.intervenantLabel,
+            intervenantConstraint: source.intervenantConstraint,
+            mixte: source.mixte,
+          }
+        : {}),
+    };
+  });
+}
+
+/** Ajoute les séances lycée défaut si aucune séance 2nde/1ère/Tle n'est encore présente. */
+export function ensureLyceeSessionsPresent(
+  sessions: DomainPlanningSession[],
+): DomainPlanningSession[] {
+  const hasLycee = sessions.some((s) => isLyceeNiveau(s.niveau));
+  return hasLycee ? sessions : [...sessions, ...DEFAULT_EVARS_LYCEE_SESSIONS];
+}
+
+/** Ajoute le domaine EVARS lycée défaut s'il manque alors que le collège est présent. */
+export function ensureLyceeDomainPresent(domains: DomainPlanningDomain[]): DomainPlanningDomain[] {
+  const ids = new Set(domains.map((d) => d.id));
+  if (!ids.has(DEFAULT_DOMAIN_ID) || ids.has(DEFAULT_EVARS_LYCEE_DOMAIN_ID)) return domains;
+  const lycee = DEFAULT_DOMAIN_PLANNING_DOMAINS.find((d) => d.id === DEFAULT_EVARS_LYCEE_DOMAIN_ID);
+  return lycee ? [...domains, lycee] : domains;
 }
 
 /** Pôles réservés à d'autres modules (ex. réservation de salles). */

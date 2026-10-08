@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  buildEmptyLyceeSessions,
+  buildDefaultLyceeSessions,
   DEFAULT_DOMAIN_ID,
   DEFAULT_DOMAIN_PLANNING_ACTIVITY_COLORS,
   DEFAULT_DOMAIN_PLANNING_DOMAINS,
@@ -111,12 +111,45 @@ export default function DomainPlanningSettingsTab() {
         if (sessionsRes.ok) {
           const sessionsJson = await sessionsRes.json();
           const loadedSessions = (sessionsJson.sessions || []) as DomainPlanningSession[];
-          setSessions(
-            loadedSessions.map((s) => ({
-              ...s,
-              domainId: s.domainId || DEFAULT_DOMAIN_ID,
-            })),
+          // Filet UI : si le serveur n'a pas encore hydraté, préremplir localement les thèmes lycée vides.
+          const normalized = loadedSessions.map((s) => ({
+            ...s,
+            domainId: s.domainId || DEFAULT_DOMAIN_ID,
+          }));
+          const emptyLyceeDomainIds = new Set(
+            normalized
+              .filter(
+                (s) =>
+                  !s.theme.trim() &&
+                  (s.niveau === "2nde" || s.niveau === "1ere" || s.niveau === "tle"),
+              )
+              .map((s) => s.domainId),
           );
+          let nextSessions = normalized;
+          for (const domainId of emptyLyceeDomainIds) {
+            const seeded = buildDefaultLyceeSessions(domainId);
+            nextSessions = [
+              ...nextSessions.filter(
+                (s) =>
+                  !(
+                    s.domainId === domainId &&
+                    (s.niveau === "2nde" || s.niveau === "1ere" || s.niveau === "tle")
+                  ),
+              ),
+              ...seeded,
+            ];
+          }
+          setSessions(nextSessions);
+          if (emptyLyceeDomainIds.size > 0) {
+            // Persiste immédiatement pour que l'onglet réservation voie aussi les thèmes.
+            void fetch("/api/domain-planning/sessions", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sessions: nextSessions }),
+            }).catch(() => {
+              /* ignore — l'affichage local reste correct */
+            });
+          }
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erreur de chargement");
@@ -155,11 +188,15 @@ export default function DomainPlanningSettingsTab() {
   const seedLyceeGrid = () => {
     if (!sessionsDomainId) return;
     if (domainSessions.length > 0) {
-      if (!confirm("Ce domaine a déjà des séances. Remplacer uniquement celles de ce domaine par une grille lycée vide ?")) {
+      if (
+        !confirm(
+          "Ce domaine a déjà des séances. Remplacer uniquement celles de ce domaine par la grille EVARS lycée (programme 2025) ?",
+        )
+      ) {
         return;
       }
     }
-    const seeded = buildEmptyLyceeSessions(sessionsDomainId);
+    const seeded = buildDefaultLyceeSessions(sessionsDomainId);
     setSessions((prev) => [...prev.filter((s) => s.domainId !== sessionsDomainId), ...seeded]);
   };
 
@@ -466,13 +503,14 @@ export default function DomainPlanningSettingsTab() {
                 onClick={seedLyceeGrid}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-violet-300"
               >
-                Initialiser grille lycée (2nde / 1ère / Tle)
+                Initialiser EVARS lycée (2nde / 1ère / Tle)
               </button>
             </div>
             <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-1">
               {domainSessions.length === 0 ? (
                 <p className="text-sm text-slate-500 italic">
-                  Aucune séance pour ce domaine. Ajoutez-en une ou initialisez la grille lycée.
+                  Aucune séance pour ce domaine. Ajoutez-en une ou initialisez la grille EVARS lycée
+                  (thèmes du programme 2025).
                 </p>
               ) : (
                 domainSessions.map((session) => (
