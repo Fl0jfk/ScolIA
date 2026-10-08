@@ -157,9 +157,11 @@ jobs:
           push_with_retry() {
             local ref="$1"
             local attempt=1
-            local max=4
+            local max=8
             while true; do
               echo "Push ${ref} (essai ${attempt}/${max})"
+              # Scaleway renvoie parfois HTTP 500 sur le PUT du manifeste alors que
+              # tous les layers sont déjà « Layer already exists » — backoff long.
               if docker push "${ref}"; then
                 return 0
               fi
@@ -167,7 +169,9 @@ jobs:
                 echo "::error::Échec push après ${max} essais : ${ref}"
                 return 1
               fi
-              sleep $((attempt * 8))
+              local wait=$((attempt * 20))
+              echo "Registry Scaleway flaky (souvent 500 manifeste) — pause ${wait}s avant nouvel essai"
+              sleep "${wait}"
               attempt=$((attempt + 1))
             done
           }
