@@ -155,7 +155,7 @@ test("rôle « direction » générique (sans cycle) traite la file OGEC défaut
   );
 });
 
-test("config absencesValidatorsOgec (compte perso) : direction_lycee traite la file défaut", () => {
+test("config absencesValidatorsOgec (compte perso) : seule l’identité configurée valide", () => {
   const withPerso: NotificationsConfig = {
     ...notifications,
     absencesValidatorsOgec: [
@@ -177,7 +177,7 @@ test("config absencesValidatorsOgec (compte perso) : direction_lycee traite la f
     }),
     true,
   );
-  // Même sans match e-mail session : le rôle lycée + file défaut global.
+  // Config ≠ directeur Établissements → le seul rôle direction_lycee ne suffit plus.
   assert.equal(
     canManageAbsence(abs, ["direction_lycee"], {
       establishments,
@@ -185,7 +185,7 @@ test("config absencesValidatorsOgec (compte perso) : direction_lycee traite la f
       userId: "autre-id",
       email: "autre@etab.fr",
     }),
-    true,
+    false,
   );
 });
 

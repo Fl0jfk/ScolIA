@@ -184,10 +184,18 @@ export type NotificationsConfig = {
   absencesNotifyProfCollegeLycee?: AbsenceNotifyPerson;
   absencesNotifyOgecCompta: string[];
   /**
-   * Personnes nominatives qui valident / refusent les absences du personnel OGEC (GEC).
-   * Si la liste est vide : repli sur tout rôle Direction (comportement historique).
+   * VALIDATION — personnel OGEC (GEC) sans exception fiche RH.
+   * Liste vide → repli sur le directeur de l’établissement lycée (Paramètres → Établissements).
+   * Exception individuelle : fiche RH → « Absences — qui valide ? » (`managerId`).
    */
   absencesValidatorsOgec?: AbsenceNotifyPerson[];
+  /**
+   * VALIDATION — professeurs par cycle.
+   * Liste vide → repli sur le directeur de l’établissement du cycle (Paramètres → Établissements).
+   */
+  absencesValidatorsProfEcole?: AbsenceNotifyPerson[];
+  absencesValidatorsProfCollege?: AbsenceNotifyPerson[];
+  absencesValidatorsProfLycee?: AbsenceNotifyPerson[];
   /**
    * Après validation d'une absence OGEC d'un personnel « éducation / surveillance » :
    * copie aux responsables des surveillants (en plus de la compta RH).
@@ -589,6 +597,9 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     absencesNotifyProfCollegeLycee: parseNotify(o.absencesNotifyProfCollegeLycee),
     absencesNotifyOgecCompta: ogec,
     absencesValidatorsOgec: parseNotifyPeople(o.absencesValidatorsOgec),
+    absencesValidatorsProfEcole: parseNotifyPeople(o.absencesValidatorsProfEcole),
+    absencesValidatorsProfCollege: parseNotifyPeople(o.absencesValidatorsProfCollege),
+    absencesValidatorsProfLycee: parseNotifyPeople(o.absencesValidatorsProfLycee),
     absencesNotifySurveillanceResponsables: surveillance,
     internatRollCallRecipients: parseInternatRollCall(o.internatRollCallRecipients),
     internatEmergencyRecipients: strArr(o.internatEmergencyRecipients).filter(isEmail),

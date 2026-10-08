@@ -132,6 +132,23 @@ export function laprovidenceNotifications(): NotificationsConfig {
       email: SCHOOL.absences.notifyProfCollegeLycee.email,
     },
     absencesNotifyOgecCompta: [...SCHOOL.absences.notifyOgecCompta],
+    // Validation : par défaut = directeurs d’établissement (Établissements).
+    // Listes explicites pour que le routage ne dépende pas d’un hardcode runtime.
+    absencesValidatorsOgec: [
+      {
+        label: SCHOOL.lycee.directrice,
+        email: SCHOOL.lycee.email,
+      },
+    ],
+    absencesValidatorsProfEcole: [
+      { label: SCHOOL.ecole.directrice, email: SCHOOL.ecole.email },
+    ],
+    absencesValidatorsProfCollege: [
+      { label: SCHOOL.college.directrice, email: SCHOOL.college.email },
+    ],
+    absencesValidatorsProfLycee: [
+      { label: SCHOOL.lycee.directrice, email: SCHOOL.lycee.email },
+    ],
     internatRollCallRecipients: {
       directionCollege: SCHOOL.college.email,
       directionLycee: SCHOOL.lycee.email,

@@ -53,6 +53,40 @@ export function viewerIsConfiguredOgecAbsenceValidator(
   return viewerMatchesAbsencePeople(collectAbsenceOgecValidators(notifications), viewer);
 }
 
+/** Validateurs nominatifs (OGEC + professeurs par cycle). */
+export function collectAllConfiguredAbsenceValidators(
+  notifications: NotificationsConfig | null | undefined,
+): AbsenceNotifyPerson[] {
+  if (!notifications) return [];
+  const lists = [
+    notifications.absencesValidatorsOgec,
+    notifications.absencesValidatorsProfEcole,
+    notifications.absencesValidatorsProfCollege,
+    notifications.absencesValidatorsProfLycee,
+  ];
+  const out: AbsenceNotifyPerson[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const p of list) {
+      const email = String(p?.email || "")
+        .trim()
+        .toLowerCase();
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+export function viewerIsConfiguredAbsenceValidator(
+  viewer: { email?: string | null; userId?: string | null },
+  notifications: NotificationsConfig | null | undefined,
+): boolean {
+  return viewerMatchesAbsencePeople(collectAllConfiguredAbsenceValidators(notifications), viewer);
+}
+
 function addProcessor(
   list: AbsenceProcessorRef[],
   seen: Set<string>,

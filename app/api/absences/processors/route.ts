@@ -88,6 +88,9 @@ export async function GET() {
               absencesNotifyProfLycee: n.absencesNotifyProfLycee ?? n.absencesNotifyProfCollegeLycee ?? null,
               absencesNotifyOgecCompta: n.absencesNotifyOgecCompta ?? [],
               absencesValidatorsOgec: n.absencesValidatorsOgec ?? [],
+              absencesValidatorsProfEcole: n.absencesValidatorsProfEcole ?? [],
+              absencesValidatorsProfCollege: n.absencesValidatorsProfCollege ?? [],
+              absencesValidatorsProfLycee: n.absencesValidatorsProfLycee ?? [],
             }
           : null,
       members,
@@ -128,6 +131,15 @@ export async function PUT(req: Request) {
     absencesValidatorsOgec: has("absencesValidatorsOgec")
       ? asPeople(body.absencesValidatorsOgec)
       : n.absencesValidatorsOgec,
+    absencesValidatorsProfEcole: has("absencesValidatorsProfEcole")
+      ? asPeople(body.absencesValidatorsProfEcole)
+      : n.absencesValidatorsProfEcole,
+    absencesValidatorsProfCollege: has("absencesValidatorsProfCollege")
+      ? asPeople(body.absencesValidatorsProfCollege)
+      : n.absencesValidatorsProfCollege,
+    absencesValidatorsProfLycee: has("absencesValidatorsProfLycee")
+      ? asPeople(body.absencesValidatorsProfLycee)
+      : n.absencesValidatorsProfLycee,
   });
   await saveNotifications(next);
   return NextResponse.json({ ok: true, notifications: next });
