@@ -7,6 +7,10 @@ import { internatEtablissementFromRaw, newId } from "@/app/lib/internat-types";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { buildEleveFolderName, type EleveConfig } from "@/app/lib/eleves-config";
 import { isRegimeInterne } from "@/app/lib/eleve-regime";
+import {
+  dedupeInternatStudents,
+  internatStudentMatchesRoster,
+} from "@/app/lib/internat-dedupe";
 
 export const INTERNAT_ROSTER_KEY = "internat/roster.json";
 
@@ -154,12 +158,7 @@ function inferClasse(entry: InternatRosterEntry): string {
 }
 
 function studentMatchesRoster(s: InternatStudent, entry: InternatRosterEntry) {
-  if (entry.ine && s.eleveRef.ine && s.eleveRef.ine.toUpperCase() === entry.ine.toUpperCase()) return true;
-  if (entry.folderName && s.eleveRef.folderName === entry.folderName) return true;
-  return (
-    s.eleveRef.nom.trim().toUpperCase() === entry.nom.trim().toUpperCase() &&
-    s.eleveRef.prenom.trim().toUpperCase() === entry.prenom.trim().toUpperCase()
-  );
+  return internatStudentMatchesRoster(s, entry);
 }
 
 export async function applyInternatRoster(params: {
@@ -186,15 +185,21 @@ export async function applyInternatRoster(params: {
   let skipped = 0;
   let sorties = 0;
   let reactivated = 0;
-  const list = [...params.students];
+  const deduped = dedupeInternatStudents(params.students, {
+    by: params.appliedBy,
+    at: now,
+  });
+  const list = [...deduped.students];
   const matchedIds = new Set<string>();
 
   for (const entry of params.entries) {
     const etablissement = await resolveInternatEtablissement(entry);
     const classe = inferClasse(entry);
-    const idx = list.findIndex((s) => studentMatchesRoster(s, entry));
+    const matchIndexes = list
+      .map((s, i) => (studentMatchesRoster(s, entry) ? i : -1))
+      .filter((i) => i >= 0);
 
-    if (idx < 0) {
+    if (matchIndexes.length === 0) {
       const student: InternatStudent = {
         id: newId("stu"),
         eleveRef: {
@@ -219,11 +224,41 @@ export async function applyInternatRoster(params: {
       continue;
     }
 
+    const idx = matchIndexes[0]!;
     const prev = list[idx]!;
     matchedIds.add(prev.id);
+    for (const extraIdx of matchIndexes.slice(1)) {
+      const extra = list[extraIdx]!;
+      matchedIds.add(extra.id);
+      if (extra.actif) {
+        list[extraIdx] = {
+          ...extra,
+          actif: false,
+          sortieAt: now,
+          sortieMotif: `Doublon fusionné → ${entry.nom} ${entry.prenom}`,
+          updatedAt: now,
+          history: [
+            ...(extra.history || []),
+            {
+              at: now,
+              by: params.appliedBy,
+              action: "SORTIE_DOUBLON",
+              note: `Conservé ${prev.id}`,
+            },
+          ],
+        };
+      }
+    }
+
     const wasSortie = !prev.actif;
     const next: InternatStudent = {
       ...prev,
+      eleveRef: {
+        ine: entry.ine || prev.eleveRef.ine,
+        folderName: entry.folderName || prev.eleveRef.folderName,
+        nom: entry.nom || prev.eleveRef.nom,
+        prenom: entry.prenom || prev.eleveRef.prenom,
+      },
       etablissement,
       classe,
       sexe: entry.sexe === "F" || entry.sexe === "M" ? entry.sexe : prev.sexe,
@@ -351,6 +386,187 @@ export function elevesToInternatRosterEntries(eleves: EleveConfig[]): InternatRo
   return elevesAsInternatRosterEntries(eleves.filter((e) => isRegimeInterne(e.regime)));
 }
 
+/**
+ * Sync ciblé d’un seul élève (changement de régime dossier).
+ * Ne touche pas les autres internes — contrairement à un apply roster complet.
+ */
+export async function syncOneEleveInternatRegime(
+  eleve: EleveConfig,
+  appliedBy: string,
+): Promise<{
+  action: "added" | "updated" | "reactivated" | "sortie" | "noop";
+  removedDuplicates: number;
+} | null> {
+  const nom = eleve.nom?.trim();
+  const prenom = eleve.prenom?.trim();
+  if (!nom || !prenom) return null;
+
+  const { getInternatStudents, saveInternatStudents } = await import(
+    "@/app/lib/internat-storage"
+  );
+  const now = new Date().toISOString();
+  const loaded = await getInternatStudents();
+  const deduped = dedupeInternatStudents(loaded, { by: appliedBy, at: now });
+  let list = deduped.students;
+  const removedDuplicates = deduped.removedActifs;
+
+  const matchIndexes = list
+    .map((s, i) =>
+      studentMatchesRoster(s, {
+        nom,
+        prenom,
+        ine: eleve.ine?.trim() || undefined,
+        folderName: eleve.folderName?.trim() || buildEleveFolderName(nom, prenom),
+      })
+        ? i
+        : -1,
+    )
+    .filter((i) => i >= 0);
+
+  const wantsInterne = isRegimeInterne(eleve.regime);
+
+  if (!wantsInterne) {
+    if (matchIndexes.length === 0 && removedDuplicates === 0) {
+      return { action: "noop", removedDuplicates: 0 };
+    }
+    let sortied = false;
+    for (const idx of matchIndexes) {
+      const prev = list[idx]!;
+      if (!prev.actif) continue;
+      list[idx] = {
+        ...prev,
+        actif: false,
+        sortieAt: now,
+        sortieMotif: `Changement de régime — ${eleve.regime || "non interne"}`,
+        updatedAt: now,
+        history: [
+          ...(prev.history || []),
+          {
+            at: now,
+            by: appliedBy,
+            action: "SORTIE_REGIME",
+            note: eleve.regime || "non interne",
+          },
+        ],
+      };
+      sortied = true;
+    }
+    await saveInternatStudents(list);
+    return {
+      action: sortied ? "sortie" : removedDuplicates > 0 ? "noop" : "noop",
+      removedDuplicates,
+    };
+  }
+
+  const entry: InternatRosterEntry = {
+    nom,
+    prenom,
+    folderName: eleve.folderName?.trim() || buildEleveFolderName(nom, prenom),
+    ine: eleve.ine?.trim() || undefined,
+    mef: eleve.mef || eleve.formation,
+    formation: eleve.formation,
+    secteur: eleve.secteur,
+    classe: eleve.classe,
+    sexe: eleve.sexe,
+  };
+  const p1 = normalizeParentContact({
+    email: eleve.parent1Email || eleve.parentEmail,
+    telephone: eleve.parent1Phone || eleve.parentPhone,
+  });
+  const p2 = normalizeParentContact({
+    email: eleve.parent2Email,
+    telephone: eleve.parent2Phone,
+  });
+  if (p1) entry.parent1 = p1;
+  if (p2) entry.parent2 = p2;
+
+  if (matchIndexes.length === 0) {
+    const etablissement = await resolveInternatEtablissement(entry);
+    const student: InternatStudent = {
+      id: newId("stu"),
+      eleveRef: {
+        ine: entry.ine,
+        folderName: entry.folderName,
+        nom: entry.nom,
+        prenom: entry.prenom,
+      },
+      sexe: entry.sexe === "F" ? "F" : "M",
+      etablissement,
+      classe: inferClasse(entry),
+      parent1: entry.parent1,
+      parent2: entry.parent2,
+      actif: true,
+      createdAt: now,
+      updatedAt: now,
+      history: [
+        { at: now, by: appliedBy, action: "IMPORT_REGIME", note: entry.folderName },
+      ],
+    };
+    list.push(student);
+    await saveInternatStudents(list);
+    return { action: "added", removedDuplicates };
+  }
+
+  const primaryIdx = matchIndexes[0]!;
+  const prev = list[primaryIdx]!;
+  for (const extraIdx of matchIndexes.slice(1)) {
+    const extra = list[extraIdx]!;
+    if (!extra.actif) continue;
+    list[extraIdx] = {
+      ...extra,
+      actif: false,
+      sortieAt: now,
+      sortieMotif: `Doublon fusionné → ${nom} ${prenom}`,
+      updatedAt: now,
+      history: [
+        ...(extra.history || []),
+        {
+          at: now,
+          by: appliedBy,
+          action: "SORTIE_DOUBLON",
+          note: `Conservé ${prev.id}`,
+        },
+      ],
+    };
+  }
+
+  const wasSortie = !prev.actif;
+  const etablissement = await resolveInternatEtablissement(entry);
+  list[primaryIdx] = {
+    ...prev,
+    eleveRef: {
+      ine: entry.ine || prev.eleveRef.ine,
+      folderName: entry.folderName || prev.eleveRef.folderName,
+      nom: entry.nom,
+      prenom: entry.prenom,
+    },
+    etablissement,
+    classe: entry.classe?.trim() || prev.classe || inferClasse(entry),
+    sexe: entry.sexe === "F" || entry.sexe === "M" ? entry.sexe : prev.sexe,
+    parent1: entry.parent1 ?? prev.parent1,
+    parent2: entry.parent2 ?? prev.parent2,
+    actif: true,
+    sortieAt: undefined,
+    sortieMotif: undefined,
+    updatedAt: now,
+    history: [
+      ...(prev.history || []),
+      {
+        at: now,
+        by: appliedBy,
+        action: wasSortie ? "REACTIVATION_REGIME" : "SYNC_REGIME",
+        note: entry.folderName,
+      },
+    ],
+  };
+
+  await saveInternatStudents(list);
+  return {
+    action: wasSortie ? "reactivated" : "updated",
+    removedDuplicates: removedDuplicates + Math.max(0, matchIndexes.length - 1),
+  };
+}
+
 /** Alignement proactif internat ↔ régimes du référentiel (ajouts + sorties). */
 export async function syncInternatFromElevesRegime(
   eleves: EleveConfig[],
@@ -362,6 +578,7 @@ export async function syncInternatFromElevesRegime(
   sorties: number;
   reactivated: number;
   rosterCount: number;
+  dedupedActifs: number;
 } | null> {
   const hasRegime = eleves.some((e) => e.regime?.trim());
   if (!hasRegime) return null;
@@ -376,7 +593,11 @@ export async function syncInternatFromElevesRegime(
   }
 
   const result = await applyInternatRoster({ entries, students, appliedBy });
-  await saveInternatStudents(result.students);
+  const finalDeduped = dedupeInternatStudents(result.students, {
+    by: appliedBy,
+    at: new Date().toISOString(),
+  });
+  await saveInternatStudents(finalDeduped.students);
 
   const now = new Date().toISOString();
   await saveInternatRoster({
@@ -404,5 +625,6 @@ export async function syncInternatFromElevesRegime(
     sorties: result.sorties,
     reactivated: result.reactivated,
     rosterCount: entries.length,
+    dedupedActifs: finalDeduped.removedActifs,
   };
 }

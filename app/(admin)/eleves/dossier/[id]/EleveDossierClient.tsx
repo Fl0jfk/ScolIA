@@ -389,6 +389,12 @@ export default function EleveDossierClient({
   } | null>(null);
   const [dobDraft, setDobDraft] = useState("");
   const [lieuDraft, setLieuDraft] = useState("");
+  const [regimeDraft, setRegimeDraft] = useState<"externe" | "demi_pension" | "interne">(
+    "externe",
+  );
+  const [regimeEffectiveOn, setRegimeEffectiveOn] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const cacheKey = `scola:eleve-dossier:${id}`;
@@ -527,7 +533,16 @@ export default function EleveDossierClient({
     if (!data?.eleve) return;
     setDobDraft(toDateInputValue(data.eleve.dateNaissance));
     setLieuDraft(data.eleve.lieuNaissance || "");
-  }, [data?.eleve?.id, data?.eleve?.dateNaissance, data?.eleve?.lieuNaissance]);
+    const r = data.synthese?.restauration.regime;
+    if (r === "interne" || r === "demi_pension" || r === "externe") {
+      setRegimeDraft(r);
+    }
+  }, [
+    data?.eleve?.id,
+    data?.eleve?.dateNaissance,
+    data?.eleve?.lieuNaissance,
+    data?.synthese?.restauration.regime,
+  ]);
 
   const allowedDocCategories = useMemo((): EleveDocCategorie[] => {
     if (!data?.meta.docCategories?.length) {
@@ -1173,9 +1188,69 @@ export default function EleveDossierClient({
                     <dt className="text-slate-500">Statut</dt>
                     <dd className="font-semibold text-slate-900">{statusLabel}</dd>
                   </div>
-                  <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-                    <dt className="text-slate-500">Restauration</dt>
-                    <dd className="font-semibold text-slate-900">{regimeText}</dd>
+                  <div className="flex flex-col gap-2 rounded-xl bg-slate-50 px-3 py-2 sm:col-span-2">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-slate-500">Régime de pension</dt>
+                      <dd className="font-semibold text-slate-900">{regimeText}</dd>
+                    </div>
+                    {canEdit ? (
+                      <div className="flex flex-wrap items-end gap-2 border-t border-slate-200/80 pt-2">
+                        <label className="flex min-w-[9rem] flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-500">
+                          Nouveau régime
+                          <select
+                            value={regimeDraft}
+                            disabled={busy}
+                            onChange={(ev) =>
+                              setRegimeDraft(
+                                ev.target.value as "externe" | "demi_pension" | "interne",
+                              )
+                            }
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                          >
+                            <option value="externe">Externe</option>
+                            <option value="demi_pension">Demi-pensionnaire</option>
+                            <option value="interne">Interne</option>
+                          </select>
+                        </label>
+                        <label className="flex min-w-[8rem] flex-col gap-1 text-[11px] font-semibold text-slate-500">
+                          Date d’effet
+                          <input
+                            type="date"
+                            value={regimeEffectiveOn}
+                            disabled={busy}
+                            onChange={(ev) => setRegimeEffectiveOn(ev.target.value)}
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={
+                            busy ||
+                            !regimeEffectiveOn ||
+                            regimeDraft === regime ||
+                            data.scolarites.length === 0
+                          }
+                          title={
+                            data.scolarites.length === 0
+                              ? "Posez d’abord une scolarité / classe en cours"
+                              : undefined
+                          }
+                          onClick={() =>
+                            void postAction({
+                              action: "update_regime",
+                              regime: regimeDraft,
+                              effectiveOn: regimeEffectiveOn,
+                              scolariteId:
+                                data.scolarites.find((s) => s.statut === "en_cours")?.id ||
+                                data.scolarites[0]?.id,
+                            })
+                          }
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                        >
+                          Enregistrer le régime
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   {synth?.mef ? (
                     <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 sm:col-span-2">
@@ -1359,6 +1434,13 @@ export default function EleveDossierClient({
                 <p className="mt-1 text-lg font-bold text-slate-900">{regimeText}</p>
                 {synth?.internat.actif && synth.internat.roomLabel ? (
                   <p className="text-xs text-slate-500">Chambre {synth.internat.roomLabel}</p>
+                ) : null}
+                {canEdit ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Pour passer en interne / demi-pension / externe : utilisez le bloc
+                    « Régime de pension » dans la synthèse (l’élève apparaît alors dans
+                    Gestion internat).
+                  </p>
                 ) : null}
               </div>
               {synth?.restauration.inferred ? (

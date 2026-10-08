@@ -204,6 +204,34 @@ export default function InternatStudentsPanel({
     }
   };
 
+  const dedupeStudents = async () => {
+    if (
+      !confirm(
+        "Fusionner les fiches internes en double (même INE, même dossier ou même nom+prénom) ? Une seule fiche est conservée par élève.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setRosterMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/internat/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dedupe" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Dédoublonnage impossible");
+      setRosterMessage(data.message || "Dédoublonnage terminé.");
+      await onRefresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const uploadExcelOrSiecle = async (file: File, forceAllAsInternes = false) => {
     setBusy(true);
     setRosterMessage(null);
@@ -507,6 +535,15 @@ export default function InternatStudentsPanel({
                     title="Corrige les codes 0/1/2/3 encore stockés bruts, puis resync internat"
                   >
                     Normaliser régimes
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void dedupeStudents()}
+                    className="bg-rose-800 text-white px-3 py-2 rounded-xl font-bold text-xs"
+                    title="Fusionne les fiches en double (INE / dossier / nom+prénom)"
+                  >
+                    Anti-doublons
                   </button>
                   <Link
                     href="/parametres?tab=photos"

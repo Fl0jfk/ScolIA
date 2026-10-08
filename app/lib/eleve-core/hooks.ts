@@ -25,10 +25,12 @@ export async function runEleveCoreHooks(
   try {
     const { listElevesFromDb } = await import("@/app/lib/ent-core-db");
     const eleves = await listElevesFromDb(event.etablissementId);
-    const one = eleves.filter((e) => e.id === event.eleveId);
-    if (!one.length) return;
-    const { syncInternatFromElevesRegime } = await import("@/app/lib/internat-import");
-    await syncInternatFromElevesRegime(one, "eleve-core:regime");
+    const one = eleves.find((e) => e.id === event.eleveId);
+    if (!one) return;
+    // Sync ciblé : ne pas passer un roster d’un seul élève à applyInternatRoster
+    // (sinon tous les autres internes seraient sortis).
+    const { syncOneEleveInternatRegime } = await import("@/app/lib/internat-import");
+    await syncOneEleveInternatRegime(one, "eleve-core:regime");
   } catch (error) {
     console.error("[eleve-core] hook internat régime", error);
   }
