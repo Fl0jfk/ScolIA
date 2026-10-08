@@ -98,9 +98,15 @@ const EXTRA_DESTINATIONS: ScoliaDestination[] = [
   {
     id: "rh-absences",
     label: "Absences RH",
-    href: "/rh?tab=dashboard&section=absences",
+    href: "/rh?tab=dashboard&section=absences&view=a-traiter",
     moduleId: "rh",
-    keywords: uniqKeywords("absences profs", "rh", "personnel"),
+    keywords: uniqKeywords(
+      "absences profs",
+      "rh",
+      "personnel",
+      "valider absences",
+      "direction absences",
+    ),
   },
   {
     id: "hse",
