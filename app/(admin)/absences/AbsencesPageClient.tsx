@@ -69,6 +69,7 @@ import {
 } from "@/app/lib/absences-page-model";
 import AbsenceMakeupSlotsEditor from "@/app/components/absences/AbsenceMakeupSlotsEditor";
 import { AbsenceInternalThreadPanel } from "@/app/components/absences/AbsenceInternalThreadPanel";
+import AbsenceSuiviBlock from "@/app/components/absences/AbsenceSuiviBlock";
 
 const AbsencesDeclareOther = dynamic(
   () => import("@/app/components/absences/AbsencesDeclareOther"),
@@ -1324,6 +1325,13 @@ export default function AbsencesPageClient({
                     Décision direction : {formatAbsenceHoursTreatment(item.hoursTreatment)}
                   </p>
                 ) : null}
+                {itemDecision(item) === "VALIDEE" ? (
+                  <AbsenceSuiviBlock
+                    item={asRecord(item)}
+                    notifications={processorNotifications}
+                    establishments={establishments}
+                  />
+                ) : null}
                 {needsMakeupSlotsFromStaff(item) &&
                 (item.createdBy.userId === user?.id ||
                   (user?.primaryEmailAddress?.emailAddress &&
@@ -1828,6 +1836,12 @@ export default function AbsencesPageClient({
                     {formatAbsenceHoursTreatment(item.hoursTreatment)}
                   </p>
                 ) : null}
+                <AbsenceSuiviBlock
+                  item={asRecord(item)}
+                  notifications={processorNotifications}
+                  establishments={establishments}
+                  showProcessorsAlways
+                />
                 {item.staffPreferredTreatment ? (
                   <p className="text-sm text-slate-600 mt-1">
                     <span className="font-bold">Préférence du déclarant : </span>
