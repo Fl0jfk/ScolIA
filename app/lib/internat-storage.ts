@@ -114,9 +114,14 @@ export async function getInternatStudents(): Promise<InternatStudent[]> {
 }
 
 export async function saveInternatStudents(students: InternatStudent[]) {
-  await putJson(INTERNAT_S3.students, students);
+  const { dedupeInternatStudents } = await import("@/app/lib/internat-dedupe");
+  const { students: clean } = dedupeInternatStudents(students, {
+    by: "systeme:save",
+    at: new Date().toISOString(),
+  });
+  await putJson(INTERNAT_S3.students, clean);
   const key = await internatCacheKey();
-  studentsCacheByTenant.set(key, { at: Date.now(), data: students });
+  studentsCacheByTenant.set(key, { at: Date.now(), data: clean });
   const etabId = await resolveCurrentEtablissementId().catch(() => null);
   if (etabId) await valkeyDel(valkeyKeyInternatStudents(etabId));
 }
