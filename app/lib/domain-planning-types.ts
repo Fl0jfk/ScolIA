@@ -29,7 +29,7 @@ export type DomainPlanningBooking = {
   cancelReason?: string;
 };
 
-export type TransversalNiveau = "6e" | "5e" | "4e" | "3e";
+export type TransversalNiveau = "6e" | "5e" | "4e" | "3e" | "2nde" | "1ere" | "tle";
 
 export type TransversalIntervenantConstraint =
   | "svt_only"
@@ -39,6 +39,8 @@ export type TransversalIntervenantConstraint =
 
 export type DomainPlanningSession = {
   id: string;
+  /** Domaine auquel appartient la séance (ex. évars collège / évars lycée). */
+  domainId: string;
   niveau: TransversalNiveau;
   seanceNumber: 1 | 2 | 3;
   theme: string;
@@ -68,6 +70,6 @@ export type DomainPlanningSignup = {
   validationStatus?: DomainPlanningSignupValidationStatus;
   validatedAt?: string;
   validatedByUserId?: string;
-  /** Commentaire de la responsable EVARS (modifications demandées ou refus). */
+  /** Commentaire de la responsable du domaine (modifications demandées ou refus). */
   validationComment?: string;
 };

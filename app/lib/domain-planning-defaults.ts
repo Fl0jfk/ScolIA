@@ -7,9 +7,12 @@ export const DEFAULT_DOMAIN_PLANNING_ACTIVITY_COLORS: Record<string, string> = {
   "Séance 3": "bg-fuchsia-600 text-white",
 };
 
+/** Id du domaine collège historique (renommé librement côté UI, id stable). */
+export const DEFAULT_DOMAIN_ID = "evars";
+
 export const DEFAULT_DOMAIN_PLANNING_DOMAINS: DomainPlanningDomain[] = [
   {
-    id: "evars",
+    id: DEFAULT_DOMAIN_ID,
     name: "EVARS",
     description: "Éducation à la vie affective, relationnelle et à la sexualité",
     color: "bg-rose-600 text-white",
@@ -17,126 +20,98 @@ export const DEFAULT_DOMAIN_PLANNING_DOMAINS: DomainPlanningDomain[] = [
   },
 ];
 
-/** Séances EVARS collège — structure issue du tableau de positionnement. */
+function collegeSession(
+  id: string,
+  niveau: DomainPlanningSession["niveau"],
+  seanceNumber: 1 | 2 | 3,
+  theme: string,
+  intervenantLabel: string,
+  intervenantConstraint: DomainPlanningSession["intervenantConstraint"],
+  mixte: boolean,
+): DomainPlanningSession {
+  return {
+    id,
+    domainId: DEFAULT_DOMAIN_ID,
+    niveau,
+    seanceNumber,
+    theme,
+    intervenantLabel,
+    intervenantConstraint,
+    mixte,
+  };
+}
+
+/** Séances collège par défaut — structure issue du tableau de positionnement. */
 export const DEFAULT_EVARS_SESSIONS: DomainPlanningSession[] = [
-  {
-    id: "6e-s1",
-    niveau: "6e",
-    seanceNumber: 1,
-    theme: "La puberté et les transformations du corps",
-    intervenantLabel: "Profs d'SVT",
-    intervenantConstraint: "svt_only",
-    mixte: true,
-  },
-  {
-    id: "6e-s2",
-    niveau: "6e",
-    seanceNumber: 2,
-    theme: "Construire des relations (famille, amis, amour)",
-    intervenantLabel: "Association",
-    intervenantConstraint: "fixed_association",
-    mixte: false,
-  },
-  {
-    id: "6e-s3",
-    niveau: "6e",
-    seanceNumber: 3,
-    theme: "Trouver sa place dans la société ; être libre et responsable",
-    intervenantLabel: "Au choix des professeurs",
-    intervenantConstraint: "free",
-    mixte: true,
-  },
-  {
-    id: "5e-s1",
-    niveau: "5e",
-    seanceNumber: 1,
-    theme: "Le sexe biologique et l'orientation sexuelle",
-    intervenantLabel: "Profs d'SVT",
-    intervenantConstraint: "svt_only",
-    mixte: true,
-  },
-  {
-    id: "5e-s2",
-    niveau: "5e",
-    seanceNumber: 2,
-    theme: "Choisir ses relations et comprendre ses préférences",
-    intervenantLabel: "Psychologue / Infirmière",
-    intervenantConstraint: "psy_inf",
-    mixte: false,
-  },
-  {
-    id: "5e-s3",
-    niveau: "5e",
-    seanceNumber: 3,
-    theme: "Vie privée / vie publique, liberté individuelle sur les réseaux sociaux",
-    intervenantLabel: "Au choix des professeurs",
-    intervenantConstraint: "free",
-    mixte: true,
-  },
-  {
-    id: "4e-s1",
-    niveau: "4e",
-    seanceNumber: 1,
-    theme: "La sexualité, une réalité complexe (plaisir, amour, reproduction)",
-    intervenantLabel: "Profs d'SVT",
-    intervenantConstraint: "svt_only",
-    mixte: true,
-  },
-  {
-    id: "4e-s2",
-    niveau: "4e",
-    seanceNumber: 2,
-    theme: "Compréhension critique des relations et santé sexuelle",
-    intervenantLabel: "Association",
-    intervenantConstraint: "fixed_association",
-    mixte: false,
-  },
-  {
-    id: "4e-s3",
-    niveau: "4e",
-    seanceNumber: 3,
-    theme: "Représentations de la sexualité dans l'espace public et égalité",
-    intervenantLabel: "Au choix des professeurs",
-    intervenantConstraint: "free",
-    mixte: true,
-  },
-  {
-    id: "3e-s1",
-    niveau: "3e",
-    seanceNumber: 1,
-    theme: "Liens entre bonheur, émotions et sexualité",
-    intervenantLabel: "Profs d'SVT",
-    intervenantConstraint: "svt_only",
-    mixte: true,
-  },
-  {
-    id: "3e-s2",
-    niveau: "3e",
-    seanceNumber: 2,
-    theme: "Relations réciproques et égalitaires ; repérer danger et vulnérabilité",
-    intervenantLabel: "Psychologue / Infirmière",
-    intervenantConstraint: "psy_inf",
-    mixte: false,
-  },
-  {
-    id: "3e-s3",
-    niveau: "3e",
-    seanceNumber: 3,
-    theme: "La sexualité dans la définition des droits humains",
-    intervenantLabel: "Au choix des professeurs",
-    intervenantConstraint: "free",
-    mixte: true,
-  },
+  collegeSession("6e-s1", "6e", 1, "La puberté et les transformations du corps", "Profs d'SVT", "svt_only", true),
+  collegeSession("6e-s2", "6e", 2, "Construire des relations (famille, amis, amour)", "Association", "fixed_association", false),
+  collegeSession("6e-s3", "6e", 3, "Trouver sa place dans la société ; être libre et responsable", "Au choix des professeurs", "free", true),
+  collegeSession("5e-s1", "5e", 1, "Le sexe biologique et l'orientation sexuelle", "Profs d'SVT", "svt_only", true),
+  collegeSession("5e-s2", "5e", 2, "Choisir ses relations et comprendre ses préférences", "Psychologue / Infirmière", "psy_inf", false),
+  collegeSession("5e-s3", "5e", 3, "Vie privée / vie publique, liberté individuelle sur les réseaux sociaux", "Au choix des professeurs", "free", true),
+  collegeSession("4e-s1", "4e", 1, "La sexualité, une réalité complexe (plaisir, amour, reproduction)", "Profs d'SVT", "svt_only", true),
+  collegeSession("4e-s2", "4e", 2, "Compréhension critique des relations et santé sexuelle", "Association", "fixed_association", false),
+  collegeSession("4e-s3", "4e", 3, "Représentations de la sexualité dans l'espace public et égalité", "Au choix des professeurs", "free", true),
+  collegeSession("3e-s1", "3e", 1, "Liens entre bonheur, émotions et sexualité", "Profs d'SVT", "svt_only", true),
+  collegeSession("3e-s2", "3e", 2, "Relations réciproques et égalitaires ; repérer danger et vulnérabilité", "Psychologue / Infirmière", "psy_inf", false),
+  collegeSession("3e-s3", "3e", 3, "La sexualité dans la définition des droits humains", "Au choix des professeurs", "free", true),
 ];
 
-export const TRANSVERSAL_NIVEAUX = ["6e", "5e", "4e", "3e"] as const;
+export const TRANSVERSAL_NIVEAUX = ["6e", "5e", "4e", "3e", "2nde", "1ere", "tle"] as const;
 
 export const TRANSVERSAL_NIVEAU_LABELS: Record<string, string> = {
   "6e": "6ème",
   "5e": "5ème",
   "4e": "4ème",
   "3e": "3ème",
+  "2nde": "2nde",
+  "1ere": "1ère",
+  tle: "Terminale",
 };
+
+/** Préfixes de codes classe (6A, 2B, TA…) pour rattacher une classe à un niveau. */
+const NIVEAU_CLASS_PREFIXES: Record<string, string[]> = {
+  "6e": ["6"],
+  "5e": ["5"],
+  "4e": ["4"],
+  "3e": ["3"],
+  "2nde": ["2"],
+  "1ere": ["1"],
+  tle: ["T"],
+};
+
+export function isTransversalNiveau(value: unknown): value is DomainPlanningSession["niveau"] {
+  return (
+    value === "6e" ||
+    value === "5e" ||
+    value === "4e" ||
+    value === "3e" ||
+    value === "2nde" ||
+    value === "1ere" ||
+    value === "tle"
+  );
+}
+
+/** Grille vide 2nde / 1ère / Tle × 3 séances pour un nouveau domaine lycée. */
+export function buildEmptyLyceeSessions(domainId: string): DomainPlanningSession[] {
+  const niveaux: DomainPlanningSession["niveau"][] = ["2nde", "1ere", "tle"];
+  const out: DomainPlanningSession[] = [];
+  for (const niveau of niveaux) {
+    for (const seanceNumber of [1, 2, 3] as const) {
+      out.push({
+        id: `${domainId}-${niveau}-s${seanceNumber}`,
+        domainId,
+        niveau,
+        seanceNumber,
+        theme: "",
+        intervenantLabel: "Au choix des professeurs",
+        intervenantConstraint: "free",
+        mixte: true,
+      });
+    }
+  }
+  return out;
+}
 
 /** Pôles réservés à d'autres modules (ex. réservation de salles). */
 const EXCLUDED_CLASSES_POLES = new Set(["MAINTENANCE"]);
@@ -156,10 +131,13 @@ export function classesForTransversalNiveau(
   niveau: string,
   classesByPole: Record<string, string[]>,
 ): string[] {
-  const prefix = niveau.replace(/e$/, "");
+  const prefixes = NIVEAU_CLASS_PREFIXES[niveau] || [niveau.replace(/e$/, "")];
   const all = Object.values(classesByPole).flat();
   return all
-    .filter((c) => c.toUpperCase().startsWith(prefix.toUpperCase()))
+    .filter((c) => {
+      const upper = c.toUpperCase();
+      return prefixes.some((p) => upper.startsWith(p.toUpperCase()));
+    })
     .sort((a, b) => a.localeCompare(b, "fr"));
 }
 
