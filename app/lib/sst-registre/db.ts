@@ -310,17 +310,20 @@ export async function getSstSuivi(params: {
   const signedByUser = new Map(emargements.map((e) => [e.userId, e]));
   const people: SstSuiviPerson[] = staff
     .map((m) => {
-      const hit = signedByUser.get(m.userId);
+      const userId = String(m.userId || m.externalUserId || "").trim();
+      if (!userId) return null;
+      const hit = signedByUser.get(userId);
       return {
-        userId: m.userId,
+        userId,
         firstName: m.firstName ?? "",
         lastName: m.lastName ?? "",
         email: m.email,
         fonction: primaryFonctionFromRoles(m.roles),
         signed: Boolean(hit),
         signedAt: hit ? hit.signedAt.toISOString() : null,
-      };
+      } satisfies SstSuiviPerson;
     })
+    .filter((p): p is SstSuiviPerson => p !== null)
     .sort((a, b) => {
       if (a.signed !== b.signed) return a.signed ? 1 : -1;
       return `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "fr");
