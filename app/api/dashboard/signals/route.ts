@@ -616,6 +616,12 @@ export async function GET() {
           tripCount: number;
           messageCount: number;
           firstTripId: string | null;
+          trips: Array<{
+            tripId: string;
+            messageCount: number;
+            title: string;
+            etablissement: string | null;
+          }>;
         }
       | undefined;
 
@@ -759,11 +765,10 @@ export async function GET() {
         const { travelThreadViewerFromStaff } = await import(
           "@/app/lib/travels-thread-unread"
         );
+        // Toujours l’index BDD (site_label / établissement) — pas le JSON legacy,
+        // sinon le filtrage direction par site est faux ou incomplet.
         const { listTravelsIndex } = await import("@/app/lib/travels-storage");
-        const tripsForUnread =
-          Array.isArray(tripsRaw) && tripsRaw.length > 0
-            ? (tripsRaw as import("@/app/lib/travels-types").TravelsTrip[])
-            : await listTravelsIndex();
+        const tripsForUnread = await listTravelsIndex();
         const { travelsDbReady } = await import("@/app/lib/travel-db");
         const etabId = await travelsDbReady();
         if (etabId) {

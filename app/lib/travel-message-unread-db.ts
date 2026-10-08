@@ -209,20 +209,47 @@ export async function attachTravelUnreadCounts(params: {
   }));
 }
 
+export type TravelUnreadTripSummary = {
+  tripId: string;
+  messageCount: number;
+  title: string;
+  etablissement: string | null;
+};
+
+export type TravelUnreadSummary = {
+  tripCount: number;
+  messageCount: number;
+  firstTripId: string | null;
+  /** Un entrée par séjour concerné (pour notifs dashboard par voyage). */
+  trips: TravelUnreadTripSummary[];
+};
+
 export async function summarizeViewerTravelUnread(params: {
   etablissementId: string;
   trips: TravelsTrip[];
   viewer: TravelThreadViewer;
   establishments: Establishment[];
-}): Promise<{ tripCount: number; messageCount: number; firstTripId: string | null }> {
+}): Promise<TravelUnreadSummary> {
   const counts = await unreadCountsByTravelId(params);
-  let tripCount = 0;
+  const byId = new Map(params.trips.map((t) => [t.id, t]));
+  const trips: TravelUnreadTripSummary[] = [];
   let messageCount = 0;
-  let firstTripId: string | null = null;
   for (const [tripId, n] of counts) {
-    tripCount += 1;
+    if (n <= 0) continue;
     messageCount += n;
-    if (!firstTripId) firstTripId = tripId;
+    const trip = byId.get(tripId);
+    trips.push({
+      tripId,
+      messageCount: n,
+      title: String(trip?.data?.title || trip?.data?.destination || "Séjour").trim() || "Séjour",
+      etablissement: trip?.data?.etablissement?.trim() || null,
+    });
   }
-  return { tripCount, messageCount, firstTripId };
+  trips.sort((a, b) => b.messageCount - a.messageCount || a.title.localeCompare(b.title, "fr"));
+  return {
+    tripCount: trips.length,
+    messageCount,
+    firstTripId: trips[0]?.tripId ?? null,
+    trips,
+  };
 }
