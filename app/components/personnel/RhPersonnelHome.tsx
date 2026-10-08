@@ -15,10 +15,14 @@ import {
   canCreateHseOnBehalf,
 } from "@/app/lib/demandes-hse-access";
 import { canAccessRhStaffRequest } from "@/app/lib/rh/rh-hub-access";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { formatAbsencePeriod } from "@/app/lib/absence-period";
 import type { PersonnelRecord } from "@/app/lib/personnel-types";
 import type { RhEspacePhase } from "@/app/lib/rh/rh-space-status";
+
+const ABSENCES_DIRECTION_HREF = "/rh?tab=dashboard&section=absences&view=a-traiter";
+const ABSENCES_RH_HREF = "/rh?tab=dashboard&section=absences";
 
 const AbsencesPageClient = dynamic(() => import("@/app/(admin)/absences/AbsencesPageClient"), {
   ssr: false,
@@ -113,6 +117,7 @@ export default function RhPersonnelHome({
   const canCreateHse = canCreateHseDemand(roles) || canCreateHseOnBehalf(roles);
   const canAccessHse = canAccessHseModule(roles);
   const canAccessDemandeRh = canAccessRhStaffRequest(roles);
+  const canValidateAbsences = isAnyDirectionRole(roles);
 
   const [espace, setEspace] = useState<EspaceData | null>(null);
   const [espaceLoading, setEspaceLoading] = useState(true);
@@ -293,8 +298,16 @@ export default function RhPersonnelHome({
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
+          {canValidateAbsences && (
+            <Link
+              href={ABSENCES_DIRECTION_HREF}
+              className="px-4 py-2.5 rounded-xl bg-amber-600 text-white text-xs font-bold shadow-sm hover:bg-amber-700"
+            >
+              Valider les absences RH
+            </Link>
+          )}
           <Link
-            href="/rh?tab=dashboard&section=absences#nouvelle-absence"
+            href={`${ABSENCES_RH_HREF}#nouvelle-absence`}
             className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-sm hover:bg-indigo-700"
           >
             Demander une autorisation d&apos;absence
@@ -330,13 +343,34 @@ export default function RhPersonnelHome({
         </div>
       </section>
 
+      {canValidateAbsences ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">Direction</p>
+              <h3 className="font-black text-slate-900 mt-1">Absences RH à valider</h3>
+              <p className="text-sm text-slate-600 mt-1">
+                File des demandes d&apos;autorisation du personnel et des professeurs — valider ou
+                refuser avant le traitement RH / rectorat.
+              </p>
+            </div>
+            <Link
+              href={ABSENCES_DIRECTION_HREF}
+              className="shrink-0 inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-amber-700 text-white text-xs font-bold hover:bg-amber-800"
+            >
+              Ouvrir la file Direction →
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
       <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-2 mb-3">
             <h3 className="font-black text-slate-900">Mes absences</h3>
             <button
               type="button"
-              onClick={() => router.push("/rh?tab=dashboard&section=absences")}
+              onClick={() => router.push(ABSENCES_RH_HREF)}
               className="text-[11px] font-bold text-indigo-600 underline"
             >
               Voir tout
