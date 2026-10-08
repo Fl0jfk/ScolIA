@@ -294,8 +294,8 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
         </p>
         <h2 className="mt-1 text-2xl font-black text-slate-900">{me.campagne.title}</h2>
         <p className="mt-2 max-w-3xl text-sm text-slate-600">
-          Registre numérique : émargement annuel, fiches de signalement, suivi direction / CSE. Plus
-          besoin de chercher le classeur à l&apos;accueil.
+          Document officiel de l&apos;établissement : présentation, réglementation, notice,
+          informations pratiques, émargement annuel et fiches de signalement.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
