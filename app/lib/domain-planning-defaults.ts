@@ -111,8 +111,8 @@ function lyceeSession(
 }
 
 /**
- * Séances lycée par défaut — programme EVARS septembre 2025 (éducation.gouv.fr/evars).
- * Même principe que le collège : 3 séances / niveau, S1 SVT, S2 association ou psy/inf, S3 libre.
+ * Séances lycée par défaut — thématiques retenues EVARS.
+ * Pas d'association au lycée : toutes les séances sont ouvertes aux professeurs (choix libre).
  */
 export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
   // Seconde
@@ -121,8 +121,8 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "2nde",
     1,
     "Image, estime et confiance en soi",
-    "Profs d'SVT",
-    "svt_only",
+    "Au choix des professeurs",
+    "free",
     true,
   ),
   lyceeSession(
@@ -130,9 +130,9 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "2nde",
     2,
     "Reconnaître et comprendre ses émotions",
-    "Association",
-    "fixed_association",
-    false,
+    "Au choix des professeurs",
+    "free",
+    true,
   ),
   lyceeSession(
     "2nde-s3",
@@ -149,8 +149,8 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "1ere",
     1,
     "Plaisir, excès et conduites à risques : faire des choix éclairés",
-    "Profs d'SVT",
-    "svt_only",
+    "Au choix des professeurs",
+    "free",
     true,
   ),
   lyceeSession(
@@ -158,9 +158,9 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "1ere",
     2,
     "Savoir dire oui ou non : le consentement",
-    "Psychologue / Infirmière",
-    "psy_inf",
-    false,
+    "Au choix des professeurs",
+    "free",
+    true,
   ),
   lyceeSession(
     "1ere-s3",
@@ -177,8 +177,8 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "tle",
     1,
     "Comprendre les enjeux de la pornographie",
-    "Profs d'SVT",
-    "svt_only",
+    "Au choix des professeurs",
+    "free",
     true,
   ),
   lyceeSession(
@@ -186,9 +186,9 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "tle",
     2,
     "Vivre une sexualité épanouie ou Développer une relation saine",
-    "Association",
-    "fixed_association",
-    false,
+    "Au choix des professeurs",
+    "free",
+    true,
   ),
   lyceeSession(
     "tle-s3",
@@ -243,8 +243,7 @@ export function isTransversalNiveau(value: unknown): value is DomainPlanningSess
 }
 
 /**
- * Grille lycée 2nde / 1ère / Tle × 3 séances, préremplie avec le programme EVARS 2025.
- * Les thèmes et contraintes d'intervenants suivent le même principe que le collège.
+ * Grille lycée 2nde / 1ère / Tle × 3 séances, préremplie (thèmes + choix libre professeurs).
  */
 export function buildDefaultLyceeSessions(domainId: string): DomainPlanningSession[] {
   return DEFAULT_EVARS_LYCEE_SESSIONS.map((session) => ({
@@ -274,10 +273,17 @@ const OUTDATED_LYCEE_THEMES_BY_SLOT: Record<string, readonly string[]> = {
   "tle:3": ["Être libre d'être soi parmi les autres", "Développer des relations saines"],
 };
 
+/** Contraintes héritées du modèle collège — non applicables au lycée (pas d'association). */
+const LOCKED_LYCEE_CONSTRAINTS = new Set<DomainPlanningSession["intervenantConstraint"]>([
+  "fixed_association",
+  "svt_only",
+  "psy_inf",
+]);
+
 /**
- * Remplit ou corrige les thèmes lycée :
- * - séances encore vides (ancienne grille vide) ;
- * - formulations obsolètes déjà enregistrées (correction programme).
+ * Remplit ou corrige les séances lycée :
+ * - thèmes vides / formulations obsolètes ;
+ * - Association / SVT / psy-inf → choix libre professeurs.
  */
 export function hydrateEmptySessionThemes(
   sessions: DomainPlanningSession[],
@@ -293,21 +299,16 @@ export function hydrateEmptySessionThemes(
     const currentTheme = session.theme.trim();
     const outdated = OUTDATED_LYCEE_THEMES_BY_SLOT[slotKey] || [];
     const needsTheme = !currentTheme || outdated.includes(currentTheme);
-    if (!needsTheme) return session;
-    const looksLikeEmptyLyceeSeed =
-      !currentTheme &&
-      session.intervenantConstraint === "free" &&
-      session.intervenantLabel === "Au choix des professeurs";
+    const needsFreeIntervenant = LOCKED_LYCEE_CONSTRAINTS.has(session.intervenantConstraint);
+    if (!needsTheme && !needsFreeIntervenant) return session;
     return {
       ...session,
-      theme: source.theme,
-      ...(looksLikeEmptyLyceeSeed
-        ? {
-            intervenantLabel: source.intervenantLabel,
-            intervenantConstraint: source.intervenantConstraint,
-            mixte: source.mixte,
-          }
-        : {}),
+      theme: needsTheme ? source.theme : session.theme,
+      intervenantLabel: needsFreeIntervenant ? source.intervenantLabel : session.intervenantLabel,
+      intervenantConstraint: needsFreeIntervenant
+        ? source.intervenantConstraint
+        : session.intervenantConstraint,
+      mixte: needsFreeIntervenant ? source.mixte : session.mixte,
     };
   });
 }
