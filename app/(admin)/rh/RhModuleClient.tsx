@@ -33,6 +33,10 @@ const RhRegistrePanel = dynamic(() => import("@/app/components/personnel/RhRegis
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
+const RhSstRegistreClient = dynamic(() => import("@/app/components/personnel/RhSstRegistreClient"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
 
 const LEGACY_TAB_MAP: Record<string, RhHubTab> = {
   dashboard: "dashboard",
@@ -41,6 +45,7 @@ const LEGACY_TAB_MAP: Record<string, RhHubTab> = {
   hse: "dashboard",
   demande: "dashboard",
   planning: "dashboard",
+  sst: "dashboard",
   annuaire: "pilotage",
   admin: "pilotage",
   onboarding: "pilotage",
@@ -53,6 +58,7 @@ const LEGACY_PILOTAGE_MAP: Record<string, RhPilotageSection> = {
   admin: "admin",
   onboarding: "onboarding",
   registre: "registre",
+  sst: "sst",
 };
 
 function parseHubTab(raw: string | null): RhHubTab {
@@ -61,7 +67,10 @@ function parseHubTab(raw: string | null): RhHubTab {
 }
 
 function parsePilotageSection(raw: string | null, legacyTab: string | null): RhPilotageSection {
-  if (raw && ["overview", "validations", "annuaire", "admin", "onboarding", "registre"].includes(raw)) {
+  if (
+    raw &&
+    ["overview", "validations", "annuaire", "admin", "onboarding", "registre", "sst"].includes(raw)
+  ) {
     return raw as RhPilotageSection;
   }
   if (legacyTab && LEGACY_PILOTAGE_MAP[legacyTab]) {
@@ -72,7 +81,9 @@ function parsePilotageSection(raw: string | null, legacyTab: string | null): RhP
 
 function parseDashboardSection(raw: string | null, legacyTab: string | null): string | null {
   if (raw) return raw;
-  if (legacyTab && ["absences", "hse", "demande", "planning"].includes(legacyTab)) return legacyTab;
+  if (legacyTab && ["absences", "hse", "demande", "planning", "sst"].includes(legacyTab)) {
+    return legacyTab;
+  }
   return null;
 }
 
@@ -180,6 +191,8 @@ export default function RhModuleClient() {
             <RhOnboardingPanel />
           ) : pilotageSection === "registre" ? (
             <RhRegistrePanel />
+          ) : pilotageSection === "sst" ? (
+            <RhSstRegistreClient mode="pilotage" />
           ) : pilotageSection === "annuaire" ? (
             <div className="space-y-6">
               <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
