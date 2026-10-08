@@ -2,7 +2,9 @@ import "server-only";
 
 export {
   getAppSession,
+  getEffectiveViewUser,
   requireAppUser,
+  requireViewUser,
   resolveAppSessionIds,
   resolveSession,
   safeCurrentUser,

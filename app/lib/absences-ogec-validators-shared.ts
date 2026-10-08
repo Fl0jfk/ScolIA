@@ -126,44 +126,92 @@ export function resolveOgecValidatorsForAbsence(
 
 export function viewerMatchesOgecValidators(
   validators: Array<Pick<OgecAbsenceValidatorRef, "email" | "userId">>,
-  viewer: { email?: string | null; userId?: string | null },
+  viewer: {
+    email?: string | null;
+    userId?: string | null;
+    userIds?: Array<string | null | undefined>;
+  },
 ): boolean {
   const email = String(viewer.email || "")
     .trim()
     .toLowerCase();
-  const userId = String(viewer.userId || "").trim();
+  const ids = new Set<string>();
+  for (const raw of [viewer.userId, ...(viewer.userIds ?? [])]) {
+    const s = String(raw || "").trim();
+    if (s) ids.add(s);
+  }
   return validators.some((p) => {
     if (email && p.email && p.email.trim().toLowerCase() === email) return true;
-    if (userId && p.userId && p.userId === userId) return true;
+    const validatorId = String(p.userId || "").trim();
+    if (validatorId && ids.has(validatorId)) return true;
     return false;
   });
+}
+
+function validatorIdentityKey(
+  v: Pick<OgecAbsenceValidatorRef, "email" | "userId">,
+): string {
+  const email = String(v.email || "")
+    .trim()
+    .toLowerCase();
+  const userId = String(v.userId || "").trim();
+  return `${email}|${userId}`;
+}
+
+/** True si les validateurs effectifs = la file « défaut global » (config / lycée). */
+export function isGlobalDefaultOgecValidatorQueue(
+  validators: Array<Pick<OgecAbsenceValidatorRef, "email" | "userId">>,
+  notifications: NotificationsConfig | null | undefined,
+  establishments: Establishment[],
+): boolean {
+  if (!validators.length) return false;
+  const defaults = defaultOgecValidatorsFromConfig(notifications, establishments);
+  if (!defaults.length || defaults.length !== validators.length) return false;
+  const defaultKeys = new Set(defaults.map(validatorIdentityKey));
+  return validators.every((v) => defaultKeys.has(validatorIdentityKey(v)));
 }
 
 /**
  * True si le(s) validateur(s) effectif(s) = direction du lycée
  * (pas un rattachement nominatif vers quelqu’un d’autre).
  * Le rôle direction_lycee peut alors traiter même si l’e-mail de session diverge.
+ *
+ * Couvre aussi le cas où la config `absencesValidatorsOgec` pointe vers le compte
+ * perso de la directrice alors que `directorEmail` reste la boîte UAI fonctionnelle.
  */
 export function isDefaultLyceeOgecValidatorQueue(
   validators: Array<Pick<OgecAbsenceValidatorRef, "email" | "userId">>,
-  _notifications: NotificationsConfig | null | undefined,
+  notifications: NotificationsConfig | null | undefined,
   establishments: Establishment[],
 ): boolean {
   if (!validators.length) return false;
   const lycee = lyceeEstablishment(establishments);
-  if (!lycee) return false;
-  const directorEmail = String(lycee.directorEmail || "")
-    .trim()
-    .toLowerCase();
-  const directorId = String(lycee.directorExternalUserId || "").trim();
-  if (!directorEmail && !directorId) return false;
-  return validators.every((v) => {
-    const email = String(v.email || "")
+  if (lycee) {
+    const directorEmail = String(lycee.directorEmail || "")
       .trim()
       .toLowerCase();
-    const userId = String(v.userId || "").trim();
-    if (directorEmail && email && email === directorEmail) return true;
-    if (directorId && userId && userId === directorId) return true;
+    const directorId = String(lycee.directorExternalUserId || "").trim();
+    if (directorEmail || directorId) {
+      const allMatchDirector = validators.every((v) => {
+        const email = String(v.email || "")
+          .trim()
+          .toLowerCase();
+        const userId = String(v.userId || "").trim();
+        if (directorEmail && email && email === directorEmail) return true;
+        if (directorId && userId && userId === directorId) return true;
+        return false;
+      });
+      if (allMatchDirector) return true;
+    }
+  }
+  // File défaut global (config) sans nominatif fiche : assimilée file lycée
+  // lorsque la liste config est vide (repli directeur) OU qu’elle ne contient
+  // qu’un seul destinataire (souvent le compte perso de la directrice).
+  if (!isGlobalDefaultOgecValidatorQueue(validators, notifications, establishments)) {
     return false;
-  });
+  }
+  const configured = (notifications?.absencesValidatorsOgec || []).filter((p) =>
+    String(p?.email || "").trim(),
+  );
+  return configured.length === 0 || configured.length === 1;
 }

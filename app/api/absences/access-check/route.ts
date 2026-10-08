@@ -11,7 +11,7 @@ import {
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
 import { getAbsenceIndex } from "@/app/lib/absences-storage";
-import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { getEffectiveViewUser, safeCurrentUser } from "@/app/lib/intranet-session";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { getAppSession } from "@/app/lib/app-session";
 import { resolveActiveSupervision } from "@/app/lib/supervision";
@@ -26,14 +26,23 @@ export async function GET() {
     return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
   }
   const supervision = await resolveActiveSupervision({ actorUserId: actor.user.id });
+  const viewUser = await getEffectiveViewUser();
   const user = await safeCurrentUser();
-  if (!user) {
+  if (!viewUser && !user) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
   }
 
-  const roles = rolesFromUserLike(user);
-  const email = user.primaryEmailAddress?.emailAddress || "";
-  const userId = String(user.id || "").trim();
+  const roles = viewUser?.roles?.length
+    ? viewUser.roles
+    : rolesFromUserLike(user);
+  const email = viewUser?.email || user?.primaryEmailAddress?.emailAddress || "";
+  const userId = String(viewUser?.businessUserId || user?.id || "").trim();
+  const userIds = [
+    viewUser?.businessUserId,
+    viewUser?.id,
+    viewUser?.externalUserId,
+    user?.id,
+  ];
   let establishments: Awaited<ReturnType<typeof loadAppConfig>>["establishments"] = [];
   let notifications: Awaited<ReturnType<typeof loadAppConfig>>["notifications"] | null = null;
   try {
@@ -47,6 +56,7 @@ export async function GET() {
   const dirCtx = {
     establishments,
     userId,
+    userIds,
     email,
     notifications,
   };
@@ -112,9 +122,12 @@ export async function GET() {
     supervisionActive: Boolean(supervision),
     view: {
       userId,
+      authUserId: viewUser?.id ?? null,
+      businessUserId: viewUser?.businessUserId ?? null,
+      userIds: userIds.filter(Boolean),
       email,
       roles,
-      name: user.fullName,
+      name: viewUser?.name || user?.fullName || null,
     },
     lyceeDirector: lycee
       ? {
