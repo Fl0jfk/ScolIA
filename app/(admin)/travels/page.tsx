@@ -185,18 +185,6 @@ function TripDashboardContent() {
     return { tripCount, messageCount };
   }, [trips]);
 
-  const unreadSummary = useMemo(() => {
-    let tripCount = 0;
-    let messageCount = 0;
-    for (const t of trips) {
-      const n = t.unreadInternalCount ?? 0;
-      if (n <= 0) continue;
-      tripCount += 1;
-      messageCount += n;
-    }
-    return { tripCount, messageCount };
-  }, [trips]);
-
   if (!isLoaded || !isSignedIn) return null;
 
   const formatDate = (trip: TravelsTrip, field: "created" | "travel") => {
