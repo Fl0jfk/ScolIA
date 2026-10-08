@@ -45,6 +45,56 @@ async function dedupeInternatStudentsKeepingPhotos(
   return deduped;
 }
 
+/** Recale `classe` depuis le dossier / référentiel élève (source de vérité). */
+async function overlayClassesFromEleveDossier(
+  students: InternatStudent[],
+): Promise<{ students: InternatStudent[]; drifted: number }> {
+  try {
+    const { resolveCurrentEtablissementId, listElevesFromDb } = await import(
+      "@/app/lib/ent-core-db"
+    );
+    const etabId = await resolveCurrentEtablissementId();
+    if (!etabId) return { students, drifted: 0 };
+    const eleves = await listElevesFromDb(etabId);
+    if (!eleves.length) return { students, drifted: 0 };
+
+    const now = new Date().toISOString();
+    let drifted = 0;
+    const next = students.map((s) => {
+      if (!s.actif) return s;
+      const match = eleves.find((e) =>
+        internatStudentMatchesRoster(s, {
+          nom: e.nom,
+          prenom: e.prenom,
+          ine: e.ine || undefined,
+          folderName: e.folderName,
+        }),
+      );
+      const dossierClasse = match?.classe?.trim();
+      if (!dossierClasse || dossierClasse === s.classe) return s;
+      drifted += 1;
+      return {
+        ...s,
+        classe: dossierClasse,
+        updatedAt: now,
+        history: [
+          ...(s.history || []),
+          {
+            at: now,
+            by: "systeme:dossier",
+            action: "SYNC_CLASSE",
+            note: `${s.classe || "—"} → ${dossierClasse}`,
+          },
+        ],
+      };
+    });
+    return { students: next, drifted };
+  } catch (e) {
+    console.warn("[internat/students] overlay classes dossier", e);
+    return { students, drifted: 0 };
+  }
+}
+
 export async function GET() {
   const access = await requireInternatAccess();
   if (!access.ok) return access.response;
@@ -52,7 +102,9 @@ export async function GET() {
     const [loaded, rooms] = await Promise.all([getInternatStudents(), getInternatRooms()]);
     const deduped = await dedupeInternatStudentsKeepingPhotos(loaded, "systeme:get");
     let students = deduped.students;
-    if (deduped.mergedGroups > 0) {
+    const overlay = await overlayClassesFromEleveDossier(students);
+    students = overlay.students;
+    if (deduped.mergedGroups > 0 || overlay.drifted > 0) {
       await saveInternatStudents(students);
       students = await getInternatStudents();
     }
@@ -68,6 +120,7 @@ export async function GET() {
         deduped.mergedGroups > 0
           ? { mergedGroups: deduped.mergedGroups, removedActifs: deduped.removedActifs }
           : undefined,
+      classesSynced: overlay.drifted > 0 ? overlay.drifted : undefined,
     });
   } catch (e) {
     console.error("[internat/students] GET", e);

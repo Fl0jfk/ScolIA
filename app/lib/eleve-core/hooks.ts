@@ -20,18 +20,34 @@ export async function runEleveCoreHooks(
     console.error("[eleve-core] invalidate registry", error);
   }
 
-  if (event.type !== METIER_EVENT_TYPES.ELEVE_REGIME_CHANGED || !event.eleveId) return;
+  if (!event.eleveId) return;
+
+  const syncRegime =
+    event.type === METIER_EVENT_TYPES.ELEVE_REGIME_CHANGED ||
+    event.type === METIER_EVENT_TYPES.SCOLARITE_OPENED;
+  const syncClasse =
+    event.type === METIER_EVENT_TYPES.SCOLARITE_CLASSE_CHANGED ||
+    event.type === METIER_EVENT_TYPES.SCOLARITE_OPENED;
+
+  if (!syncRegime && !syncClasse) return;
 
   try {
     const { listElevesFromDb } = await import("@/app/lib/ent-core-db");
     const eleves = await listElevesFromDb(event.etablissementId);
     const one = eleves.find((e) => e.id === event.eleveId);
     if (!one) return;
-    // Sync ciblé : ne pas passer un roster d’un seul élève à applyInternatRoster
+    const {
+      syncOneEleveInternatRegime,
+      syncOneEleveInternatClasse,
+    } = await import("@/app/lib/internat-import");
+    // Sync ciblé : ne jamais passer un roster d’un seul élève à applyInternatRoster
     // (sinon tous les autres internes seraient sortis).
-    const { syncOneEleveInternatRegime } = await import("@/app/lib/internat-import");
-    await syncOneEleveInternatRegime(one, "eleve-core:regime");
+    if (syncRegime) {
+      await syncOneEleveInternatRegime(one, `eleve-core:${event.type}`);
+    } else if (syncClasse) {
+      await syncOneEleveInternatClasse(one, `eleve-core:${event.type}`);
+    }
   } catch (error) {
-    console.error("[eleve-core] hook internat régime", error);
+    console.error("[eleve-core] hook internat dossier", error);
   }
 }
