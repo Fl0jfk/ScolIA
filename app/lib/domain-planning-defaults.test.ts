@@ -49,14 +49,14 @@ test("DEFAULT_EVARS_LYCEE_SESSIONS cover 2nde / 1ère / Tle with official themes
     "L'intimité à l'ère des réseaux sociaux",
   ]);
   assert.deepEqual(byNiveau["1ere"], [
-    "Plaisir, excès, conduites à risque : faire des choix éclairés",
+    "Plaisir, excès et conduites à risques : faire des choix éclairés",
     "Savoir dire oui ou non : le consentement",
-    "Ma place dans le monde : oser être soi",
+    "Accueillir la diversité",
   ]);
   assert.deepEqual(byNiveau.tle, [
     "Comprendre les enjeux de la pornographie",
-    "Vivre une sexualité épanouie",
-    "Être libre d'être soi parmi les autres",
+    "Vivre une sexualité épanouie ou Développer une relation saine",
+    "Ma place dans le monde : oser être soi",
   ]);
 });
 
@@ -112,6 +112,41 @@ test("hydrateEmptySessionThemes fills empty lycée grids from the 2025 programme
   assert.equal(hydrated[0]?.intervenantConstraint, "svt_only");
   assert.equal(hydrated[4]?.theme, "Savoir dire oui ou non : le consentement");
   assert.equal(hydrated[4]?.intervenantConstraint, "psy_inf");
+});
+
+test("hydrateEmptySessionThemes corrects outdated lycée themes already stored", () => {
+  const outdated = buildDefaultLyceeSessions("custom-lycee").map((s) => {
+    if (s.niveau === "1ere" && s.seanceNumber === 1) {
+      return { ...s, theme: "Plaisir, excès, conduites à risque : faire des choix éclairés" };
+    }
+    if (s.niveau === "1ere" && s.seanceNumber === 3) {
+      return { ...s, theme: "Ma place dans le monde : oser être soi" };
+    }
+    if (s.niveau === "tle" && s.seanceNumber === 2) {
+      return { ...s, theme: "Vivre une sexualité épanouie" };
+    }
+    if (s.niveau === "tle" && s.seanceNumber === 3) {
+      return { ...s, theme: "Être libre d'être soi parmi les autres" };
+    }
+    return s;
+  });
+  const hydrated = hydrateEmptySessionThemes(outdated);
+  assert.equal(
+    hydrated.find((s) => s.niveau === "1ere" && s.seanceNumber === 1)?.theme,
+    "Plaisir, excès et conduites à risques : faire des choix éclairés",
+  );
+  assert.equal(
+    hydrated.find((s) => s.niveau === "1ere" && s.seanceNumber === 3)?.theme,
+    "Accueillir la diversité",
+  );
+  assert.equal(
+    hydrated.find((s) => s.niveau === "tle" && s.seanceNumber === 2)?.theme,
+    "Vivre une sexualité épanouie ou Développer une relation saine",
+  );
+  assert.equal(
+    hydrated.find((s) => s.niveau === "tle" && s.seanceNumber === 3)?.theme,
+    "Ma place dans le monde : oser être soi",
+  );
 });
 
 test("ensureLyceeSessionsPresent appends defaults when only college exists", () => {

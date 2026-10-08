@@ -148,7 +148,7 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "1ere-s1",
     "1ere",
     1,
-    "Plaisir, excès, conduites à risque : faire des choix éclairés",
+    "Plaisir, excès et conduites à risques : faire des choix éclairés",
     "Profs d'SVT",
     "svt_only",
     true,
@@ -166,7 +166,7 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "1ere-s3",
     "1ere",
     3,
-    "Ma place dans le monde : oser être soi",
+    "Accueillir la diversité",
     "Au choix des professeurs",
     "free",
     true,
@@ -185,7 +185,7 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "tle-s2",
     "tle",
     2,
-    "Vivre une sexualité épanouie",
+    "Vivre une sexualité épanouie ou Développer une relation saine",
     "Association",
     "fixed_association",
     false,
@@ -194,7 +194,7 @@ export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
     "tle-s3",
     "tle",
     3,
-    "Être libre d'être soi parmi les autres",
+    "Ma place dans le monde : oser être soi",
     "Au choix des professeurs",
     "free",
     true,
@@ -264,8 +264,20 @@ function isLyceeNiveau(niveau: DomainPlanningSession["niveau"]): boolean {
 }
 
 /**
- * Remplit les thèmes (et éventuellement intervenants) des séances lycée encore vides —
- * cas typique d'une ancienne « grille lycée vide » déjà enregistrée en stockage.
+ * Anciennes formulations (flyer mal lu / première version) à remplacer par le programme retenu.
+ * Clé = `niveau:seanceNumber`.
+ */
+const OUTDATED_LYCEE_THEMES_BY_SLOT: Record<string, readonly string[]> = {
+  "1ere:1": ["Plaisir, excès, conduites à risque : faire des choix éclairés"],
+  "1ere:3": ["Ma place dans le monde : oser être soi"],
+  "tle:2": ["Vivre une sexualité épanouie"],
+  "tle:3": ["Être libre d'être soi parmi les autres", "Développer des relations saines"],
+};
+
+/**
+ * Remplit ou corrige les thèmes lycée :
+ * - séances encore vides (ancienne grille vide) ;
+ * - formulations obsolètes déjà enregistrées (correction programme).
  */
 export function hydrateEmptySessionThemes(
   sessions: DomainPlanningSession[],
@@ -274,10 +286,16 @@ export function hydrateEmptySessionThemes(
     DEFAULT_EVARS_LYCEE_SESSIONS.map((s) => [`${s.niveau}:${s.seanceNumber}`, s] as const),
   );
   return sessions.map((session) => {
-    if (session.theme.trim() || !isLyceeNiveau(session.niveau)) return session;
-    const source = lyceeBySlot.get(`${session.niveau}:${session.seanceNumber}`);
+    if (!isLyceeNiveau(session.niveau)) return session;
+    const slotKey = `${session.niveau}:${session.seanceNumber}`;
+    const source = lyceeBySlot.get(slotKey);
     if (!source) return session;
+    const currentTheme = session.theme.trim();
+    const outdated = OUTDATED_LYCEE_THEMES_BY_SLOT[slotKey] || [];
+    const needsTheme = !currentTheme || outdated.includes(currentTheme);
+    if (!needsTheme) return session;
     const looksLikeEmptyLyceeSeed =
+      !currentTheme &&
       session.intervenantConstraint === "free" &&
       session.intervenantLabel === "Au choix des professeurs";
     return {
