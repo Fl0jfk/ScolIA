@@ -10,6 +10,9 @@ import {
   DEFAULT_EVARS_LYCEE_DOMAIN_ID,
   DEFAULT_EVARS_LYCEE_SESSIONS,
   DEFAULT_EVARS_SESSIONS,
+  ensureLyceeDomainPresent,
+  ensureLyceeSessionsPresent,
+  hydrateEmptySessionThemes,
   isTransversalNiveau,
 } from "./domain-planning-defaults";
 
@@ -94,4 +97,36 @@ test("buildDefaultLyceeSessions creates a filled 3×3 grid for a domain", () => 
 
 test("buildEmptyLyceeSessions remains an alias of buildDefaultLyceeSessions", () => {
   assert.deepEqual(buildEmptyLyceeSessions("custom-lycee"), buildDefaultLyceeSessions("custom-lycee"));
+});
+
+test("hydrateEmptySessionThemes fills empty lycée grids from the 2025 programme", () => {
+  const empty = buildDefaultLyceeSessions("custom-lycee").map((s) => ({
+    ...s,
+    theme: "",
+    intervenantLabel: "Au choix des professeurs",
+    intervenantConstraint: "free" as const,
+    mixte: true,
+  }));
+  const hydrated = hydrateEmptySessionThemes(empty);
+  assert.equal(hydrated[0]?.theme, "Image, estime et confiance en soi");
+  assert.equal(hydrated[0]?.intervenantConstraint, "svt_only");
+  assert.equal(hydrated[4]?.theme, "Savoir dire oui ou non : le consentement");
+  assert.equal(hydrated[4]?.intervenantConstraint, "psy_inf");
+});
+
+test("ensureLyceeSessionsPresent appends defaults when only college exists", () => {
+  const merged = ensureLyceeSessionsPresent([...DEFAULT_EVARS_SESSIONS]);
+  assert.equal(merged.length, DEFAULT_ALL_EVARS_SESSIONS.length);
+  assert.ok(merged.some((s) => s.niveau === "2nde" && s.theme.includes("estime")));
+});
+
+test("ensureLyceeDomainPresent adds evars-lycee next to college", () => {
+  const domains = ensureLyceeDomainPresent([
+    {
+      id: DEFAULT_DOMAIN_ID,
+      name: "EVARS",
+      coordinatorExternalUserIds: [],
+    },
+  ]);
+  assert.ok(domains.some((d) => d.id === DEFAULT_EVARS_LYCEE_DOMAIN_ID));
 });

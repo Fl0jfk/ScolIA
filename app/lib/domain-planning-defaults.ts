@@ -259,6 +259,57 @@ export function buildEmptyLyceeSessions(domainId: string): DomainPlanningSession
   return buildDefaultLyceeSessions(domainId);
 }
 
+function isLyceeNiveau(niveau: DomainPlanningSession["niveau"]): boolean {
+  return niveau === "2nde" || niveau === "1ere" || niveau === "tle";
+}
+
+/**
+ * Remplit les thèmes (et éventuellement intervenants) des séances lycée encore vides —
+ * cas typique d'une ancienne « grille lycée vide » déjà enregistrée en stockage.
+ */
+export function hydrateEmptySessionThemes(
+  sessions: DomainPlanningSession[],
+): DomainPlanningSession[] {
+  const lyceeBySlot = new Map(
+    DEFAULT_EVARS_LYCEE_SESSIONS.map((s) => [`${s.niveau}:${s.seanceNumber}`, s] as const),
+  );
+  return sessions.map((session) => {
+    if (session.theme.trim() || !isLyceeNiveau(session.niveau)) return session;
+    const source = lyceeBySlot.get(`${session.niveau}:${session.seanceNumber}`);
+    if (!source) return session;
+    const looksLikeEmptyLyceeSeed =
+      session.intervenantConstraint === "free" &&
+      session.intervenantLabel === "Au choix des professeurs";
+    return {
+      ...session,
+      theme: source.theme,
+      ...(looksLikeEmptyLyceeSeed
+        ? {
+            intervenantLabel: source.intervenantLabel,
+            intervenantConstraint: source.intervenantConstraint,
+            mixte: source.mixte,
+          }
+        : {}),
+    };
+  });
+}
+
+/** Ajoute les séances lycée défaut si aucune séance 2nde/1ère/Tle n'est encore présente. */
+export function ensureLyceeSessionsPresent(
+  sessions: DomainPlanningSession[],
+): DomainPlanningSession[] {
+  const hasLycee = sessions.some((s) => isLyceeNiveau(s.niveau));
+  return hasLycee ? sessions : [...sessions, ...DEFAULT_EVARS_LYCEE_SESSIONS];
+}
+
+/** Ajoute le domaine EVARS lycée défaut s'il manque alors que le collège est présent. */
+export function ensureLyceeDomainPresent(domains: DomainPlanningDomain[]): DomainPlanningDomain[] {
+  const ids = new Set(domains.map((d) => d.id));
+  if (!ids.has(DEFAULT_DOMAIN_ID) || ids.has(DEFAULT_EVARS_LYCEE_DOMAIN_ID)) return domains;
+  const lycee = DEFAULT_DOMAIN_PLANNING_DOMAINS.find((d) => d.id === DEFAULT_EVARS_LYCEE_DOMAIN_ID);
+  return lycee ? [...domains, lycee] : domains;
+}
+
 /** Pôles réservés à d'autres modules (ex. réservation de salles). */
 const EXCLUDED_CLASSES_POLES = new Set(["MAINTENANCE"]);
 
