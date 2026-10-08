@@ -40,6 +40,10 @@ const RhPlanningPanel = dynamic(() => import("@/app/components/personnel/RhPlann
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
+const RhSstRegistreClient = dynamic(() => import("@/app/components/personnel/RhSstRegistreClient"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
 
 type MyAbsence = {
   id: string;
@@ -228,6 +232,13 @@ export default function RhPersonnelHome({
       </Suspense>
     );
   }
+  if (dashboardSection === "sst") {
+    return (
+      <Suspense fallback={<ModuleTabFallback />}>
+        <RhSstRegistreClient mode="staff" />
+      </Suspense>
+    );
+  }
 
   if (espaceLoading) {
     return <p className="text-sm text-slate-500 py-10 text-center">Chargement de votre espace…</p>;
@@ -335,10 +346,37 @@ export default function RhPersonnelHome({
             Mon planning
           </Link>
           <Link
+            href="/rh?tab=dashboard&section=sst"
+            className="px-4 py-2.5 rounded-xl bg-white border border-teal-200 text-teal-800 text-xs font-bold hover:bg-teal-50"
+          >
+            Registre SST
+          </Link>
+          <Link
             href="/rh/moi"
             className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
           >
             Voir mon dossier complet →
+          </Link>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-teal-200 bg-teal-50/50 p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-widest text-teal-800">
+              Santé &amp; sécurité
+            </p>
+            <h3 className="mt-1 font-black text-slate-900">Registre SST</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Émargement annuel, notice d&apos;utilisation et fiches de signalement — le registre
+              n&apos;est plus un classeur introuvable.
+            </p>
+          </div>
+          <Link
+            href="/rh?tab=dashboard&section=sst"
+            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-teal-800"
+          >
+            Ouvrir le registre →
           </Link>
         </div>
       </section>

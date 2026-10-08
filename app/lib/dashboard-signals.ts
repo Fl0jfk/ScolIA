@@ -215,6 +215,8 @@ type DashboardSignalsInput = {
   weekSheet?: WeekSheetData | null;
   /** true si l’utilisateur a déjà soumis le pulse RH du jour. */
   moodPulseSubmittedToday?: boolean;
+  /** true si l’émargement annuel du registre SST n’est pas encore fait. */
+  sstEmargementPending?: boolean;
   /** Activité en cours d’après le planning RH. */
   planningNow?: {
     title: string;
@@ -479,6 +481,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     creneauxVidesCount = 0,
     creneauxVidesTravelId = null,
     travelsUnreadMessages = null,
+    sstEmargementPending = false,
   } = input;
 
   const shortcuts: DashboardShortcut[] = [];
@@ -942,6 +945,29 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: "/rh/moi",
         label: "Mon dossier RH",
       });
+      shortcuts.push({
+        id: "rh-sst-registre",
+        pillarId: "compta_rh",
+        moduleId: "rh",
+        href: "/rh?tab=dashboard&section=sst",
+        label: "Registre SST",
+        rich: sstEmargementPending,
+        badge: sstEmargementPending ? "À signer" : undefined,
+        detail: sstEmargementPending
+          ? "Émargement annuel du registre santé & sécurité"
+          : "Registre santé & sécurité au travail",
+        tone: sstEmargementPending ? "warn" : "neutral",
+      });
+      if (sstEmargementPending) {
+        pushNotif({
+          id: "rh-sst-emargement",
+          moduleId: "rh",
+          label: "Registre SST",
+          count: 1,
+          href: "/rh?tab=dashboard&section=sst",
+          detail: "Émargement annuel à signer (registre santé & sécurité)",
+        });
+      }
       if (canCreateHseDemand(roles)) {
         shortcuts.push({
           id: "rh-demande-hse",

@@ -58,6 +58,8 @@ import { readRhPlanning } from "@/app/lib/rh/planning-storage";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import type { RhPlanningDoc } from "@/app/lib/rh/planning-types";
 import { listUnseenSharedFolderInvites } from "@/app/lib/documents-cloud";
+import { canAccessSstRegistre } from "@/app/lib/sst-registre/access";
+import { isSstEmargementPending } from "@/app/lib/sst-registre/db";
 
 async function safeJson<T>(path: string, timeoutMs = 8_000): Promise<T | null> {
   try {
@@ -467,12 +469,23 @@ export async function GET() {
     }
 
     let moodPulseSubmittedToday = false;
+    let sstEmargementPending = false;
     if (accessibleModuleIds.has("rh")) {
       try {
         const dayDoc = await readMoodPulseDay(moodPulseTodayKey());
         moodPulseSubmittedToday = hasVotedMoodPulse(dayDoc, userId);
       } catch {
         moodPulseSubmittedToday = false;
+      }
+      if (canAccessSstRegistre(roles)) {
+        try {
+          sstEmargementPending = await isSstEmargementPending({
+            etablissementId: signalsEtabId,
+            userId: authUserId,
+          });
+        } catch {
+          sstEmargementPending = false;
+        }
       }
     }
 
@@ -790,6 +803,7 @@ export async function GET() {
         internatRollCallStatus,
         weekSheet,
         moodPulseSubmittedToday,
+        sstEmargementPending,
         planningNow,
         establishments,
         absenceNotifications: appBundle?.notifications ?? null,
