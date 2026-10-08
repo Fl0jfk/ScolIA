@@ -210,6 +210,8 @@ type DossierPayload = {
     canDeleteDocuments?: boolean;
     canDeleteElevePermanent?: boolean;
     profRestrictedView?: boolean;
+    /** Classes Siècle + observées (filtre année, comme Voyages). */
+    classOptions?: Array<{ value: string; label: string; siteId: string | null }>;
     tiroirs: string[];
     docCategories?: EleveDocCategorie[];
   };
@@ -395,6 +397,7 @@ export default function EleveDossierClient({
   const [regimeEffectiveOn, setRegimeEffectiveOn] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
+  const [classeDraft, setClasseDraft] = useState("");
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const cacheKey = `scola:eleve-dossier:${id}`;
@@ -533,6 +536,7 @@ export default function EleveDossierClient({
     if (!data?.eleve) return;
     setDobDraft(toDateInputValue(data.eleve.dateNaissance));
     setLieuDraft(data.eleve.lieuNaissance || "");
+    setClasseDraft((data.eleve.classe || "").trim());
     const r = data.synthese?.restauration.regime;
     if (r === "interne" || r === "demi_pension" || r === "externe") {
       setRegimeDraft(r);
@@ -541,6 +545,7 @@ export default function EleveDossierClient({
     data?.eleve?.id,
     data?.eleve?.dateNaissance,
     data?.eleve?.lieuNaissance,
+    data?.eleve?.classe,
     data?.synthese?.restauration.regime,
   ]);
 
@@ -1094,6 +1099,56 @@ export default function EleveDossierClient({
                 ) : (
                   <p className="mt-2 text-lg font-bold text-slate-500">Classe non renseignée</p>
                 )}
+                {canEdit ? (
+                  <div className="mt-3 flex flex-wrap items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-500">
+                      Classe
+                      <select
+                        value={classeDraft}
+                        disabled={busy}
+                        onChange={(ev) => setClasseDraft(ev.target.value)}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                      >
+                        <option value="">— Choisir une classe —</option>
+                        {(data.meta.classOptions || []).map((opt) => (
+                          <option key={`${opt.value}|${opt.siteId || ""}`} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        {classeDraft &&
+                        !(data.meta.classOptions || []).some((o) => o.value === classeDraft) ? (
+                          <option value={classeDraft}>{classeDraft} (actuelle)</option>
+                        ) : null}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        !classeDraft.trim() ||
+                        classeDraft.trim() === (e.classe || "").trim()
+                      }
+                      onClick={() => {
+                        const selected = (data.meta.classOptions || []).find(
+                          (o) => o.value === classeDraft,
+                        );
+                        void postAction({
+                          action: "create_scolarite",
+                          classe: classeDraft.trim(),
+                          siteId: selected?.siteId || undefined,
+                          statut: "en_cours",
+                        });
+                      }}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                    >
+                      Enregistrer la classe
+                    </button>
+                    <p className="basis-full text-[11px] text-slate-500">
+                      Modification réelle : scolarité en cours + listes (dossiers, voyages,
+                      internat).
+                    </p>
+                  </div>
+                ) : null}
                 <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
                   <div
                     className={`rounded-xl px-3 py-2 ${
