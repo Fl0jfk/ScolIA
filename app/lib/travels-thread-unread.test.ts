@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   canUseTravelInternalThread,
   countUnreadTravelMessages,
+  formatTravelMessageAuthorLabel,
   viewerIsTravelThreadAudience,
 } from "@/app/lib/travels-thread-unread";
 import type { Establishment } from "@/app/lib/app-config-schemas";
@@ -96,5 +97,35 @@ const unread = countUnreadTravelMessages({
   viewerUserIds: ["cpta-1"],
 });
 assert.equal(unread, 2, "l’expéditeur ne compte pas ses messages ; les plus récents comptent");
+
+assert.equal(
+  formatTravelMessageAuthorLabel({
+    firstName: "Marie",
+    lastName: "Dupont",
+    name: "Utilisateur",
+    email: "compta@example.com",
+  }),
+  "Marie Dupont",
+  "prénom + nom prioritaire sur le libellé générique",
+);
+assert.equal(
+  formatTravelMessageAuthorLabel({
+    firstName: null,
+    lastName: null,
+    name: "Utilisateur",
+    email: "sophie.martin@example.com",
+  }),
+  "sophie.martin",
+  "fallback e-mail si pas de prénom/nom",
+);
+assert.equal(
+  formatTravelMessageAuthorLabel({
+    firstName: "",
+    lastName: "Bernard",
+    name: "Comptabilité",
+  }),
+  "Bernard",
+  "un seul champ identité suffit",
+);
 
 console.log("travels-thread-unread.test.ts ok");

@@ -671,6 +671,14 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
       platformAdmin: betterAuthState.platformAdmin,
       twoFactorEnabled: betterAuthState.twoFactorEnabled,
       hasPasskey: betterAuthState.hasPasskey,
+      firstName: betterAuthState.firstName ?? undefined,
+      lastName: betterAuthState.lastName ?? undefined,
+      name: betterAuthState.name ?? undefined,
+      imageUrl: betterAuthState.imageUrl ?? undefined,
+      externalUserId:
+        betterAuthState.userId !== betterAuthState.authUserId
+          ? betterAuthState.userId
+          : undefined,
     }),
     request,
     host,

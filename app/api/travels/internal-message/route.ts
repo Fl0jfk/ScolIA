@@ -9,11 +9,14 @@ import {
 } from "@/app/lib/travel-message-unread-db";
 import {
   canUseTravelInternalThread,
+  formatTravelMessageAuthorLabel,
   travelThreadViewerFromStaff,
   viewerIsCompta,
 } from "@/app/lib/travels-thread-unread";
 import { userIsAnyDirection } from "@/app/lib/establishment-catalog";
 import { travelsDbReady } from "@/app/lib/travel-db";
+import { resolveMemberProfileById } from "@/app/lib/members-db";
+import type { AppUser } from "@/app/lib/app-session";
 
 async function resolveThreadContext() {
   const gate = await requireModule("travels");
@@ -21,6 +24,29 @@ async function resolveThreadContext() {
   const tenant = await requireTenantId();
   if (!tenant.ok) return tenant;
   return { ok: true as const, user: gate.ctx.user, etablissementId: tenant.ctx.etablissementId };
+}
+
+/** Prénom + nom de l’émetteur (BDD en priorité — le snapshot auth omet souvent ces champs). */
+async function resolveAuthorLabel(user: AppUser): Promise<string> {
+  try {
+    const profile = await resolveMemberProfileById(user.id);
+    if (profile) {
+      return formatTravelMessageAuthorLabel({
+        firstName: profile.firstName ?? user.firstName,
+        lastName: profile.lastName ?? user.lastName,
+        name: profile.name || user.name,
+        email: profile.email || user.email,
+      });
+    }
+  } catch (err) {
+    console.warn("[travels/internal-message] profil auteur:", err);
+  }
+  return formatTravelMessageAuthorLabel({
+    firstName: user.firstName,
+    lastName: user.lastName,
+    name: user.name,
+    email: user.email,
+  });
 }
 
 export async function POST(req: Request) {
@@ -54,10 +80,7 @@ export async function POST(req: Request) {
       : viewerIsCompta(ctx.user.roles)
         ? "Comptabilité"
         : "Créateur";
-    const userLabel =
-      ctx.user.name?.trim() ||
-      [ctx.user.firstName, ctx.user.lastName].filter(Boolean).join(" ").trim() ||
-      "Utilisateur";
+    const userLabel = await resolveAuthorLabel(ctx.user);
 
     const message = await insertTravelInternalMessage({
       etablissementId: etabId,
