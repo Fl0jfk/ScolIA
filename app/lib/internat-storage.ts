@@ -115,6 +115,32 @@ export async function getInternatStudents(): Promise<InternatStudent[]> {
 
 export async function saveInternatStudents(students: InternatStudent[]) {
   const { dedupeInternatStudents } = await import("@/app/lib/internat-dedupe");
+  let photoS3KeyByStudentId: Map<string, string> | undefined;
+  try {
+    const { photoS3KeysForInternatStudents, aliasPhotoIndexAfterInternatMerge } = await import(
+      "@/app/lib/eleve-photos"
+    );
+    photoS3KeyByStudentId = await photoS3KeysForInternatStudents(students);
+    const deduped = dedupeInternatStudents(students, {
+      by: "systeme:save",
+      at: new Date().toISOString(),
+      photoS3KeyByStudentId,
+    });
+    if (deduped.mergedGroups > 0) {
+      await aliasPhotoIndexAfterInternatMerge({
+        mergeTraces: deduped.mergeTraces,
+        photoS3KeyByStudentId,
+      }).catch((e) => console.warn("[internat-storage] alias photos", e));
+    }
+    await putJson(INTERNAT_S3.students, deduped.students);
+    const key = await internatCacheKey();
+    studentsCacheByTenant.set(key, { at: Date.now(), data: deduped.students });
+    const etabId = await resolveCurrentEtablissementId().catch(() => null);
+    if (etabId) await valkeyDel(valkeyKeyInternatStudents(etabId));
+    return;
+  } catch (e) {
+    console.warn("[internat-storage] dedupe photo-aware fallback", e);
+  }
   const { students: clean } = dedupeInternatStudents(students, {
     by: "systeme:save",
     at: new Date().toISOString(),
