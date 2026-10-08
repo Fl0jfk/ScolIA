@@ -21,6 +21,36 @@ export type TravelThreadViewer = {
   extraUserIds?: string[];
 };
 
+/**
+ * Libellé expéditeur du fil interne séjours : prénom + nom de la personne,
+ * pas le rôle (« Comptabilité », « Direction », …).
+ */
+export function formatTravelMessageAuthorLabel(input: {
+  firstName?: string | null;
+  lastName?: string | null;
+  name?: string | null;
+  email?: string | null;
+}): string {
+  const fromParts = [input.firstName, input.lastName]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (fromParts) return fromParts;
+
+  const name = String(input.name ?? "").trim();
+  if (name && !/^utilisateur$/i.test(name)) return name;
+
+  const email = String(input.email ?? "").trim();
+  if (email.includes("@")) {
+    const local = email.split("@")[0]?.trim();
+    if (local) return local;
+  } else if (email) {
+    return email;
+  }
+  return "Utilisateur";
+}
+
 export function travelThreadViewerFromStaff(user: {
   id: string;
   businessUserId?: string | null;
@@ -28,16 +58,14 @@ export function travelThreadViewerFromStaff(user: {
   name?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  email?: string | null;
   roles: string[];
 }): TravelThreadViewer {
-  const fullName =
-    user.name?.trim() ||
-    [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
-    null;
+  const fullName = formatTravelMessageAuthorLabel(user);
   return {
     user: {
       id: user.id,
-      fullName,
+      fullName: fullName === "Utilisateur" ? null : fullName,
       publicMetadata: { role: user.roles },
     },
     roles: user.roles,
