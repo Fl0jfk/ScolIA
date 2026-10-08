@@ -116,7 +116,12 @@ export async function handleDecideRhAbsence(
           ok: true,
           data: {
             pending: [],
-            ctas: [{ label: "Ouvrir Absences RH", href: "/absences" }],
+            ctas: [
+              {
+                label: "Ouvrir Absences RH",
+                href: "/rh?tab=dashboard&section=absences&view=a-traiter",
+              },
+            ],
           },
           summaryFr: "Aucune absence en attente de votre validation.",
         };
@@ -221,7 +226,7 @@ export async function handleDecideRhAbsence(
 
   if (!applied.ok) return { ok: false, error: applied.error };
 
-  const href = "/absences";
+  const href = "/rh?tab=dashboard&section=absences&view=a-traiter";
   const openAbsences: BrainClientAction = {
     type: "open_route",
     href,
