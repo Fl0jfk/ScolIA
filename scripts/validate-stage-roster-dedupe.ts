@@ -81,13 +81,17 @@ function baseConvention(
       presenceWeekdays: [1, 2, 3, 4, 5],
     },
     signatures: [],
+    createdBy: { role: "staff", name: "validate-stage-roster-dedupe" },
+    history: [{ at: NOW, by: "validate-stage-roster-dedupe", action: "seed_validation" }],
   };
 }
 
 async function main() {
   if (!isDatabaseConfigured()) throw new Error("DATABASE_URL manquant");
   process.env.ENT_CORE_DB = process.env.ENT_CORE_DB || "1";
-  process.env.NODE_ENV = process.env.NODE_ENV || "development";
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Ce script est réservé au développement local (NODE_ENV ≠ production).");
+  }
 
   const db = getDb();
   const [etab] = await db
