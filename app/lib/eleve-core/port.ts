@@ -270,16 +270,24 @@ async function elevePatchStatusIfActif(
     etablissementId: string;
     eleveId: string;
     eleveStatus?: string | null;
+    eleveRow?: Pick<typeof eleve.$inferSelect, "status" | "dateSortie"> | null;
   },
 ): Promise<"inscrit" | undefined> {
-  const db = getDb();
-  const [row] = await db
-    .select({ status: eleve.status, dateSortie: eleve.dateSortie })
-    .from(eleve)
-    .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
-    .limit(1);
-  const status = opts.eleveStatus ?? row?.status;
-  const dateSortie = formatDateSortieFromRow(row?.dateSortie);
+  let status = opts.eleveStatus;
+  let dateSortie: string | null;
+  if (opts.eleveRow) {
+    status = status ?? opts.eleveRow.status;
+    dateSortie = formatDateSortieFromRow(opts.eleveRow.dateSortie);
+  } else {
+    const db = getDb();
+    const [row] = await db
+      .select({ status: eleve.status, dateSortie: eleve.dateSortie })
+      .from(eleve)
+      .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+      .limit(1);
+    status = status ?? row?.status;
+    dateSortie = formatDateSortieFromRow(row?.dateSortie);
+  }
   if (!isEleveActifPourListes({ status, dateSortie })) return undefined;
   return "inscrit";
 }
@@ -297,6 +305,8 @@ export async function applyClasseCourante(
     anneeScolaireId?: string | null;
     etablissementPrecedent?: string | null;
     eleveStatus?: string | null;
+    /** Registre plat déjà lu (backfill / import) — évite un SELECT `eleve` redondant. */
+    eleveSnapshot?: Pick<typeof eleve.$inferSelect, "status" | "dateSortie" | "classe"> | null;
   },
   write?: EleveCoreWriteOpts,
 ): Promise<{ scolariteId: string }> {
@@ -359,15 +369,17 @@ export async function applyClasseCourante(
       return { scolariteId: targetId };
     }
 
-    const [eleveRow] = await db
-      .select({
-        classe: eleve.classe,
-        status: eleve.status,
-        dateSortie: eleve.dateSortie,
-      })
-      .from(eleve)
-      .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
-      .limit(1);
+    const [eleveRow] = opts.eleveSnapshot
+      ? [opts.eleveSnapshot]
+      : await db
+          .select({
+            classe: eleve.classe,
+            status: eleve.status,
+            dateSortie: eleve.dateSortie,
+          })
+          .from(eleve)
+          .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+          .limit(1);
 
     const dateSortie = formatDateSortieFromRow(eleveRow?.dateSortie);
     if (
@@ -401,6 +413,7 @@ export async function applyClasseCourante(
       etablissementId: opts.etablissementId,
       eleveId: opts.eleveId,
       eleveStatus: opts.eleveStatus,
+      eleveRow: eleveRow ?? null,
     });
     const eleveClasse = (eleveRow?.classe ?? "").trim();
     const elevePatch: { classe?: string; status?: string; updatedAt?: Date } = {};
@@ -453,6 +466,11 @@ export async function applyClasseCourante(
     return { scolariteId: targetId };
   }
 
+  let resolvedInsertEleve: Pick<
+    typeof eleve.$inferSelect,
+    "classe" | "status" | "dateSortie"
+  > | null = opts.eleveSnapshot ?? null;
+
   if (write?.skipHooks) {
     const [termineeRow] = await db
       .select({ id: eleveScolarite.id })
@@ -468,15 +486,24 @@ export async function applyClasseCourante(
       .limit(1);
     if (termineeRow) return { scolariteId: termineeRow.id };
 
-    const [eleveRow] = await db
-      .select({ status: eleve.status, dateSortie: eleve.dateSortie })
-      .from(eleve)
-      .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
-      .limit(1);
-    const dateSortie = formatDateSortieFromRow(eleveRow?.dateSortie);
+    if (!resolvedInsertEleve) {
+      resolvedInsertEleve =
+        (
+          await db
+            .select({
+              classe: eleve.classe,
+              status: eleve.status,
+              dateSortie: eleve.dateSortie,
+            })
+            .from(eleve)
+            .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+            .limit(1)
+        )[0] ?? null;
+    }
+    const dateSortie = formatDateSortieFromRow(resolvedInsertEleve?.dateSortie);
     if (
       !isEleveActifPourListes({
-        status: opts.eleveStatus ?? eleveRow?.status,
+        status: opts.eleveStatus ?? resolvedInsertEleve?.status,
         dateSortie,
       })
     ) {
@@ -497,19 +524,30 @@ export async function applyClasseCourante(
     })
     .returning({ id: eleveScolarite.id });
 
+  if (!resolvedInsertEleve) {
+    resolvedInsertEleve =
+      (
+        await db
+          .select({
+            classe: eleve.classe,
+            status: eleve.status,
+            dateSortie: eleve.dateSortie,
+          })
+          .from(eleve)
+          .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+          .limit(1)
+      )[0] ?? null;
+  }
+
   const statusPatch = await elevePatchStatusIfActif({
     etablissementId: opts.etablissementId,
     eleveId: opts.eleveId,
     eleveStatus: opts.eleveStatus,
+    eleveRow: resolvedInsertEleve,
   });
   const eleveInsertPatch: { classe?: string; status?: string; updatedAt?: Date } = {};
-  const [eleveBeforeInsert] = await db
-    .select({ classe: eleve.classe, status: eleve.status })
-    .from(eleve)
-    .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
-    .limit(1);
-  if ((eleveBeforeInsert?.classe ?? "").trim() !== classe) eleveInsertPatch.classe = classe;
-  if (statusPatch && eleveBeforeInsert?.status !== statusPatch) eleveInsertPatch.status = statusPatch;
+  if ((resolvedInsertEleve?.classe ?? "").trim() !== classe) eleveInsertPatch.classe = classe;
+  if (statusPatch && resolvedInsertEleve?.status !== statusPatch) eleveInsertPatch.status = statusPatch;
   if (Object.keys(eleveInsertPatch).length > 0) {
     eleveInsertPatch.updatedAt = new Date();
     await db
@@ -750,6 +788,7 @@ export async function syncScolariteCouranteFromPlat(
     regime?: string | null;
     status?: string | null;
     siteId?: string | null;
+    eleveSnapshot?: Pick<typeof eleve.$inferSelect, "status" | "dateSortie" | "classe"> | null;
   },
   write?: EleveCoreWriteOpts,
 ): Promise<void> {
@@ -783,6 +822,7 @@ export async function syncScolariteCouranteFromPlat(
       classe,
       siteId: opts.siteId,
       eleveStatus: opts.status,
+      eleveSnapshot: opts.eleveSnapshot,
     },
     { ...write, skipHooks: true },
   );
