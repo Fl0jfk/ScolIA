@@ -44,9 +44,9 @@ function TimeChip({
 }) {
   if (!start && !end) {
     return (
-      <div className="flex items-center justify-between gap-2 rounded-md bg-stone-50 px-2 py-1.5 text-[11px] text-stone-400">
+      <div className="flex items-center justify-between gap-2 rounded-md bg-stone-50 px-2 py-1.5 text-[11px] text-stone-500">
         <span>{label}</span>
-        <span>—</span>
+        <span className="font-semibold italic">Absent</span>
       </div>
     );
   }
