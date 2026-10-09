@@ -3,20 +3,52 @@ import {
   canUseTravelInternalThread,
   countUnreadTravelMessages,
   formatTravelMessageAuthorLabel,
+  viewerIsDirectionForTravelTrip,
   viewerIsTravelThreadAudience,
 } from "@/app/lib/travels-thread-unread";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 
 const establishments: Establishment[] = [
-  { id: "ecole", label: "École", kind: "ecole", active: true },
-  { id: "college", label: "Collège", kind: "college", active: true },
-  { id: "lycee", label: "Lycée", kind: "lycee", active: true },
+  {
+    id: "ecole",
+    label: "École",
+    kind: "ecole",
+    active: true,
+    roleSlugs: ["direction_ecole"],
+    directorExternalUserId: "dir-ecole-id",
+  },
+  {
+    id: "college",
+    label: "Collège",
+    kind: "college",
+    active: true,
+    roleSlugs: ["direction_college", "direction collège"],
+    directorExternalUserId: "dir-col-id",
+  },
+  {
+    id: "lycee",
+    label: "Lycée",
+    kind: "lycee",
+    active: true,
+    roleSlugs: ["direction_lycee"],
+    directorExternalUserId: "dir-lyc-id",
+  },
 ];
 
 const tripCollege = {
   ownerId: "prof-1",
   ownerName: "Mme Dupont",
   data: { etablissement: "Collège" },
+};
+
+const tripLycee = {
+  ownerId: "prof-3",
+  data: { etablissement: "Lycée" },
+};
+
+const tripEcole = {
+  ownerId: "prof-4",
+  data: { etablissement: "École" },
 };
 
 const creator = {
@@ -32,6 +64,16 @@ const collegeDir = {
 const lyceeDir = {
   user: { id: "dir-lyc", fullName: "Direction lycée" },
   roles: ["direction_lycee"],
+};
+
+const ecoleDir = {
+  user: { id: "dir-ecole", fullName: "Direction école" },
+  roles: ["direction_ecole"],
+};
+
+const genericDirection = {
+  user: { id: "dir-generic", fullName: "Direction générique" },
+  roles: ["direction"],
 };
 
 const compta = {
@@ -60,6 +102,11 @@ assert.equal(
   "direction lycée non notifiée sur un séjour collège",
 );
 assert.equal(
+  viewerIsTravelThreadAudience(tripCollege, ecoleDir, establishments),
+  false,
+  "direction école non notifiée sur un séjour collège",
+);
+assert.equal(
   viewerIsTravelThreadAudience(tripCollege, compta, establishments),
   true,
   "compta notifiée",
@@ -68,6 +115,33 @@ assert.equal(
   viewerIsTravelThreadAudience(tripCollege, otherProf, establishments),
   false,
   "autre prof non notifié",
+);
+
+assert.equal(
+  viewerIsTravelThreadAudience(tripLycee, lyceeDir, establishments),
+  true,
+  "direction lycée notifiée sur un séjour lycée",
+);
+assert.equal(
+  viewerIsTravelThreadAudience(tripLycee, collegeDir, establishments),
+  false,
+  "direction collège non notifiée sur un séjour lycée",
+);
+assert.equal(
+  viewerIsTravelThreadAudience(tripEcole, ecoleDir, establishments),
+  true,
+  "direction école notifiée sur un séjour école",
+);
+assert.equal(
+  viewerIsTravelThreadAudience(tripEcole, lyceeDir, establishments),
+  false,
+  "direction lycée non notifiée sur un séjour école",
+);
+
+assert.equal(
+  viewerIsDirectionForTravelTrip(tripCollege, genericDirection, establishments),
+  false,
+  "rôle générique « direction » ne croise pas tous les sites",
 );
 
 assert.equal(
@@ -83,7 +157,38 @@ const groupeTrip = {
 assert.equal(
   viewerIsTravelThreadAudience(groupeTrip, lyceeDir, establishments),
   true,
-  "Groupe scolaire : toutes les directions",
+  "Groupe scolaire : direction lycée concernée",
+);
+assert.equal(
+  viewerIsTravelThreadAudience(groupeTrip, collegeDir, establishments),
+  true,
+  "Groupe scolaire : direction collège concernée",
+);
+assert.equal(
+  viewerIsTravelThreadAudience(groupeTrip, ecoleDir, establishments),
+  true,
+  "Groupe scolaire : direction école concernée",
+);
+assert.equal(
+  viewerIsTravelThreadAudience(groupeTrip, genericDirection, establishments),
+  true,
+  "Groupe scolaire : rôle direction générique concerné",
+);
+
+const collegeDirById = {
+  user: { id: "dir-col-id", fullName: "Directrice collège (id)" },
+  roles: ["professeur"],
+  extraUserIds: ["dir-col-id"],
+};
+assert.equal(
+  viewerIsTravelThreadAudience(tripCollege, collegeDirById, establishments),
+  true,
+  "directrice collège notifiée via directorExternalUserId",
+);
+assert.equal(
+  viewerIsTravelThreadAudience(tripLycee, collegeDirById, establishments),
+  false,
+  "directrice collège non notifiée sur un séjour lycée",
 );
 
 const lastRead = new Date("2026-10-06T10:00:00.000Z");
