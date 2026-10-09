@@ -1126,7 +1126,7 @@ export default function TravelsComptaSheetForm({
                     <p className="text-[10px] text-slate-500 mt-0.5">
                       {recettesFigees
                         ? "Prix annoncé × nb élèves facturés"
-                        : "Budget prévisionnel total (dépenses + marge)"}
+                        : "Prix à l'euro près × nb élèves"}
                     </p>
                   </div>
                   <label className="space-y-1 shrink-0">
@@ -1153,7 +1153,7 @@ export default function TravelsComptaSheetForm({
                   <span>
                     Prix par élève définitif
                     <span className="block text-[10px] font-normal text-slate-500 normal-case">
-                      (Budget prévisionnel − subventions) ÷ nb élèves
+                      (Budget prévisionnel − subventions) ÷ nb élèves, arrondi à l&apos;euro près
                     </span>
                   </span>
                   <span className="font-mono whitespace-nowrap">
@@ -1350,7 +1350,7 @@ export default function TravelsComptaSheetForm({
                     ? afficheMarge
                       ? "Recettes (prix annoncé, marge incluse) + subventions − dépenses réelles"
                       : "Recettes figées + subventions − dépenses réelles"
-                    : "Total recettes + subventions − total dépenses"}
+                    : "Recettes (prix à l'euro près × nb) + subventions − total dépenses"}
                 </span>
               </div>
               <span className="font-mono text-lg">
