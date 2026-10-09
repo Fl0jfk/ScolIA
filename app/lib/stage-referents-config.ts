@@ -1,4 +1,5 @@
 import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
+import { normalizeStagePersonName } from "@/app/lib/stage-person-name";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { STAGE_S3, currentStageSchoolYear, type StageConvention } from "@/app/lib/stage-types";
 
@@ -51,12 +52,7 @@ function normalizeRole(raw: unknown): StageReferentRole {
 }
 
 function normalizePersonName(str: string): string {
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[-\s]+/g, " ")
-    .trim();
+  return normalizeStagePersonName(str);
 }
 
 export function stageRosterStudentKey(nom: string, prenom: string, ine?: string): string {

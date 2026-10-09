@@ -6,13 +6,10 @@ import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 export { inferStudentLevelFromClass } from "@/app/lib/stage-level";
 import { inferStudentLevelFromClass } from "@/app/lib/stage-level";
 
+import { normalizeStagePersonName } from "@/app/lib/stage-person-name";
+
 function normalizePersonName(str: string): string {
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[-\s]+/g, " ")
-    .trim();
+  return normalizeStagePersonName(str);
 }
 
 function normalizeClassLabel(str: string): string {
