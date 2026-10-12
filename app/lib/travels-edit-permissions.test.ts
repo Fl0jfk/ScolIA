@@ -38,6 +38,16 @@ assert.equal(
 );
 
 assert.equal(
+  canEditTravelsEffectif({
+    ...base,
+    isGlobalAdmin: true,
+    status: "FINALISE_DIR_ATTENTE_ELEVES",
+  }),
+  true,
+  "administrateur général peut valider liste élèves / repas",
+);
+
+assert.equal(
   canEditTravelsDates({
     isOwner: false,
     isDirection: false,

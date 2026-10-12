@@ -387,7 +387,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
   const handleFinalValidation = async () => {
-    if (!canSign) return alert("Vous n'êtes pas autorisé(e) à valider ce dossier.");
+    if (!canSign && !isGlobalAdmin) {
+      return alert("Vous n'êtes pas autorisé(e) à valider ce dossier.");
+    }
     setLoadingAction("final-validation");
     try {
       const { isTripListeReadyForFinalisation } = await import("@/app/lib/travels-eleves-list");
@@ -1361,6 +1363,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         extractedContactEmail: null,
         extractedPrice: null,
         extractedCompany: null,
+        extractedReference: null,
       };
       const updatedTrip = {
         ...trip,
@@ -1471,8 +1474,15 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     return isNaN(d.getTime()) ? "Date à préciser" : d.toLocaleDateString('fr-FR');
   };
   const nextGuidance = useMemo(
-    () => getTripNextGuidance(trip, { isOwner, canSign, isCompta }),
-    [trip, isOwner, canSign, isCompta],
+    () =>
+      getTripNextGuidance(trip, {
+        isOwner,
+        canSign,
+        isCompta,
+        isGlobalAdmin,
+        isAdministratif,
+      }),
+    [trip, isOwner, canSign, isCompta, isGlobalAdmin, isAdministratif],
   );
   const seriesId = trip.data?.recurrenceSeriesId as string | undefined;
   const seriesIndex = trip.data?.recurrenceIndex as number | undefined;
@@ -1944,6 +1954,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           cuisineOrderSentAt={cuisineOrderSentAt}
           isOwner={isOwner}
           canSign={canSign}
+          isGlobalAdmin={isGlobalAdmin}
           loadingAction={loadingAction}
           sendCuisineAmendment={sendCuisineAmendment}
           cuisineChanged={cuisineChanged}
@@ -2017,11 +2028,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         />
       )}
 
-      {hubTab === "overview" && (isDirection || isCompta) && !isEditing && trip.status !== "BESOIN_MODIFICATION" && trip.status !== "SEANCE_ANNULEE" && trip.status !== "ANNULE" && (
+      {hubTab === "overview" && (isDirection || isCompta || isGlobalAdmin) && !isEditing && trip.status !== "BESOIN_MODIFICATION" && trip.status !== "SEANCE_ANNULEE" && trip.status !== "ANNULE" && (
         <TripDecisionHubPanel
           trip={trip}
           isDirection={isDirection}
           canSign={canSign}
+          isGlobalAdmin={isGlobalAdmin}
           etabForSign={etabForSign || ""}
           isCompta={isCompta}
           handleAction={handleAction}

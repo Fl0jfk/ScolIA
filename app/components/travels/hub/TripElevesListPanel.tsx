@@ -665,7 +665,8 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
         {!canEdit && (
           <TripAlert tone="warning" icon="🔒" title="Lecture seule">
             Vous ne pouvez pas modifier cette liste (réservé au créateur de la sortie, à la
-            direction, à l&apos;administratif ou à la comptabilité).
+            direction, à l&apos;administrateur général, à l&apos;administratif ou à la
+            comptabilité).
           </TripAlert>
         )}
 
@@ -675,11 +676,12 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
             l’effectif (et la fiche compta) sans renvoyer d’e-mails aux parents ni au transporteur.
           </TripAlert>
         )}
-        {trip.status === "FINALISE_DIR_ATTENTE_ELEVES" && !confirmed && (
-          <TripAlert tone="warning" icon="⚠️" title="Action requise — liste élèves">
-            La direction a finalisé le projet. Confirmez la liste nominative des élèves
+        {trip.status === "FINALISE_DIR_ATTENTE_ELEVES" && !confirmed && canEdit && (
+          <TripAlert tone="warning" icon="⚠️" title="Action requise — liste élèves et repas">
+            La direction a finalisé le projet. En tant que créateur, direction ou administrateur
+            général, confirmez la liste nominative des élèves
             {cuisineActive
-              ? " et attribuez tous les paniers (« qui mange ») : tant que ce n’est pas fait, la commande cantine n’est envoyée ni au chef ni à la collègue décompte."
+              ? " et validez les repas (attribuez tous les paniers « qui mange ») : tant que ce n’est pas fait, la commande cantine n’est envoyée ni au chef ni à la collègue décompte."
               : " pour passer le dossier en « Finalisé »."}
             {horairesRequired
               ? " Pour un séjour complexe, les horaires dépôt / reprise parents sont obligatoires."
@@ -1175,11 +1177,15 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                   >
                     {busy === "confirm"
                       ? "…"
-                      : needsBus
-                        ? "Confirmer liste (+ transporteur)"
-                        : horairesRequired
-                          ? "Confirmer liste + horaires parents"
-                          : "Confirmer la liste des élèves"}
+                      : cuisineActive
+                        ? needsBus
+                          ? "Valider liste + repas (+ transporteur)"
+                          : "Valider la liste des élèves et les repas"
+                        : needsBus
+                          ? "Confirmer liste (+ transporteur)"
+                          : horairesRequired
+                            ? "Confirmer liste + horaires parents"
+                            : "Confirmer la liste des élèves"}
                   </TripButton>
                 )}
               </div>

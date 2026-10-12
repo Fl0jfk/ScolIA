@@ -7,6 +7,8 @@ type TripDecisionHubPanelProps = {
   trip: TravelsTrip;
   isDirection: boolean;
   canSign: boolean;
+  /** Administrateur général : peut aussi faire la validation finale (liste / repas). */
+  isGlobalAdmin?: boolean;
   etabForSign: string;
   isCompta: boolean;
   handleAction: (status: string, note?: string, extra?: Record<string, unknown>) => void;
@@ -28,11 +30,12 @@ type TripDecisionHubPanelProps = {
 
 export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
   const {
-    trip, isDirection, canSign, etabForSign, isCompta, handleAction, withBusLogistics,
+    trip, isDirection, canSign, isGlobalAdmin = false, etabForSign, isCompta, handleAction, withBusLogistics,
     isOwner, skipTransportToCompta, loadingAction, seriesId, validateSeriesPedagogy,
     handleFinalValidation, handleRegenerateCircular, reopenStepOptions, selectedReopenStep,
     setReopenStep, handleReopenDossier, canCancelRecurrenceSession, cancelRecurrenceSession,
   } = p;
+  const canFinalValidate = canSign || isGlobalAdmin;
   return (
         <TripDecisionPanel title="Espace décisionnaire">
           <div className="flex flex-wrap gap-2 items-center lg:flex-1">
@@ -102,17 +105,17 @@ export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
                 {loadingAction ? "Validation série…" : "Valider toute la série"}
               </TripButton>
             )}
-            {canSign && trip.status === "EN_ATTENTE_DIR_FINAL" && (
+            {canFinalValidate && trip.status === "EN_ATTENTE_DIR_FINAL" && (
               <TripButton variant="success" size="sm" onClick={handleFinalValidation}>
                 {loadingAction ? "Finalisation…" : "Validation finale"}
               </TripButton>
             )}
-            {trip.status === "VALIDE" && (canSign || isOwner) && (
+            {trip.status === "VALIDE" && (canFinalValidate || isOwner) && (
               <TripButton variant="success" size="sm" onClick={handleRegenerateCircular} disabled={!!loadingAction}>
                 {loadingAction === "regenerate-circular" ? "Génération…" : "Régénérer circulaire"}
               </TripButton>
             )}
-            {canSign &&
+            {canFinalValidate &&
               (trip.status === "VALIDE" || trip.status === "FINALISE_DIR_ATTENTE_ELEVES") &&
               reopenStepOptions.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2">

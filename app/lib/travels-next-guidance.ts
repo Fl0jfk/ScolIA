@@ -31,6 +31,10 @@ type GuidanceCtx = {
   isOwner: boolean;
   canSign: boolean;
   isCompta: boolean;
+  /** Administrateur général / org admin — peut finaliser liste élèves + repas. */
+  isGlobalAdmin?: boolean;
+  /** Administratif intranet — même capacité sur la liste / paniers. */
+  isAdministratif?: boolean;
 };
 
 function statusLabel(status: string): string {
@@ -57,7 +61,9 @@ function buildAiPrompt(trip: TravelsTrip, focusQuestion: string): string {
  * Retourne null pour les états terminaux (validé / annulé / refusé).
  */
 export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNextGuidance | null {
-  const { isOwner, canSign, isCompta } = ctx;
+  const { isOwner, canSign, isCompta, isGlobalAdmin = false, isAdministratif = false } = ctx;
+  /** Peut confirmer la liste élèves + attribution repas (onglet Élèves). */
+  const canConfirmElevesList = isOwner || canSign || isGlobalAdmin || isAdministratif;
   const status = String(trip.status || "");
   const withBus = complexNeedsBus(trip);
   const devisCount = Array.isArray(trip.receivedDevis) ? trip.receivedDevis.length : 0;
@@ -365,20 +371,26 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
   if (status === "FINALISE_DIR_ATTENTE_ELEVES") {
     const cuisineActive = Boolean(trip.data?.piqueNiqueDetails?.active);
     const complex = trip.type === "COMPLEX";
+    const whoActs = canConfirmElevesList
+      ? isOwner
+        ? "Créateur du séjour (ou admin / direction)"
+        : "Administrateur / direction / créateur"
+      : "Créateur du séjour (professeur organisateur)";
     return finish({
       stepLabel,
-      who: "Créateur du séjour (professeur organisateur)",
-      headline: isOwner
-        ? "La direction a validé — à vous de finaliser la liste des élèves."
+      who: whoActs,
+      headline: canConfirmElevesList
+        ? "La direction a validé — finalisez la liste des élèves" +
+          (cuisineActive ? " et les repas." : ".")
         : "En attente de la liste nominative des élèves (créateur).",
-      what: isOwner
+      what: canConfirmElevesList
         ? cuisineActive
-          ? "Ouvrez l’onglet Élèves, sélectionnez les participants, attribuez tous les paniers (« qui mange ») et confirmez. Tant que ce n’est pas fait, ni le chef ni la collègue décompte ne reçoivent la commande."
-          : "Ouvrez l’onglet Élèves, sélectionnez les participants et confirmez la liste pour passer le dossier en « Finalisé »."
+          ? "Ouvrez l’onglet Élèves, sélectionnez les participants, attribuez tous les paniers (« qui mange ») et confirmez. Tant que ce n’est pas fait, ni le chef ni la collègue décompte ne reçoivent la commande. L’administrateur général peut le faire à la place du créateur."
+          : "Ouvrez l’onglet Élèves, sélectionnez les participants et confirmez la liste pour passer le dossier en « Finalisé ». L’administrateur général peut le faire à la place du créateur."
         : cuisineActive
-          ? "Le professeur organisateur doit confirmer la liste élèves et le « qui mange ». Cuisine bloquée en attendant."
-          : "Le professeur organisateur doit confirmer la liste élèves pour clôturer le dossier.",
-      steps: isOwner
+          ? "Le professeur organisateur (ou un admin) doit confirmer la liste élèves et le « qui mange ». Cuisine bloquée en attendant."
+          : "Le professeur organisateur (ou un admin) doit confirmer la liste élèves pour clôturer le dossier.",
+      steps: canConfirmElevesList
         ? [
             "Ouvrez l’onglet « Élèves ».",
             "Sélectionnez tous les élèves participants.",
@@ -388,13 +400,14 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
             ...(complex
               ? ["Renseignez obligatoirement les horaires de dépôt / reprise parents."]
               : ["Horaires parents facultatifs (sortie de proximité)."]),
-            "Cliquez sur « Confirmer la liste »." +
+            "Cliquez sur « Confirmer la liste »" +
+              (cuisineActive ? " (cela valide aussi les repas)." : ".") +
               (cuisineActive
                 ? " Ensuite : commande au chef + liste « qui mange » à la collègue décompte."
                 : ""),
           ]
         : [
-            "Le créateur ouvre l’onglet Élèves.",
+            "Le créateur ou un administrateur ouvre l’onglet Élèves.",
             "Il confirme la liste nominative" +
               (cuisineActive ? " et le « qui mange »" : "") +
               (complex ? " avec horaires dépôt/reprise." : "."),
@@ -402,14 +415,14 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
               ? "Ensuite le dossier passe en Finalisé : mail chef + mail collègue décompte."
               : "Ensuite le dossier passe en Finalisé.",
           ],
-      youMustAct: isOwner,
-      whileWaiting: isOwner
+      youMustAct: canConfirmElevesList,
+      whileWaiting: canConfirmElevesList
         ? undefined
-        : "Vous pouvez relancer l’organisateur ; la direction n’a plus d’action de validation ici.",
+        : "Vous pouvez relancer l’organisateur, ou demander à un administrateur général de valider la liste et les repas.",
       ctaTab: "eleves",
-      ctaLabel: isOwner ? "Ouvrir Élèves" : "Voir Élèves",
+      ctaLabel: canConfirmElevesList ? "Ouvrir Élèves" : "Voir Élèves",
       focusQuestion:
-        "La direction a finalisé. Que doit faire le créateur pour la liste élèves, les horaires et la cuisine ?",
+        "La direction a finalisé. Qui peut confirmer la liste élèves, les horaires et la cuisine ?",
     });
   }
 

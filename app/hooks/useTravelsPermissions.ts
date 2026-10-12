@@ -3,6 +3,7 @@
 import { useAppUser, useSessionUser } from "@/app/hooks/useAppUser";
 import { useMemo } from "react";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { canSignForEstablishmentLabel } from "@/app/lib/establishment-sign-permissions";
 import { userIsAnyDirection } from "@/app/lib/establishment-catalog";
 import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
@@ -18,6 +19,7 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
   const { user } = useSessionUser();
   const { user: appUser } = useAppUser();
   const { data: appCtx } = useAppContext();
+  const isOrgAdmin = useIsOrgAdmin();
   const roles = useMemo(() => {
     const fromContext = appCtx?.session?.intranetRoles;
     if (Array.isArray(fromContext) && fromContext.length > 0) return fromContext;
@@ -43,7 +45,13 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
     });
     const isCompta = roles.includes("comptabilité") || hasRole(roles, "comptabilite");
     const isAdministratif = hasRole(roles, "administratif");
-    const isGlobalAdmin = appCtx?.session?.isGlobalAdmin === true || hasGlobalAdminRole(roles);
+    // Admin général = flag session / orgAdmin DB / rôle `admin` (pas seulement le rôle seul).
+    const isGlobalAdmin =
+      isOrgAdmin ||
+      appCtx?.session?.isGlobalAdmin === true ||
+      Boolean(appUser?.orgAdmin) ||
+      Boolean(appUser?.platformAdmin) ||
+      hasGlobalAdminRole(roles);
     const canReassignTripOwner = isAdministratif || isGlobalAdmin;
     const isOwner = trip ? isTripOwnerOrCreator(trip, user) : false;
     const canManageFiles = isOwner || isDirection || isCompta;
@@ -79,5 +87,15 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
       canEditDates,
       canEditParentCom,
     };
-  }, [trip, user, roles, extraUserIds, appCtx?.session?.isGlobalAdmin, appCtx?.establishments]);
+  }, [
+    trip,
+    user,
+    roles,
+    extraUserIds,
+    isOrgAdmin,
+    appUser?.orgAdmin,
+    appUser?.platformAdmin,
+    appCtx?.session?.isGlobalAdmin,
+    appCtx?.establishments,
+  ]);
 }
