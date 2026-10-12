@@ -1,7 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import PartenariatSignaturePad from "@/app/components/partenariats/PartenariatSignaturePad";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
+import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import SstFicheDetailModal from "@/app/components/personnel/SstFicheDetailModal";
+import { dash } from "@/app/lib/dashboard-brand";
+import { canSubmitSstEmargement } from "@/app/lib/sst-registre/emarger-body";
 import {
   SST_FICHE_STATUS_LABELS,
   type SstConsultationDto,
@@ -53,6 +61,26 @@ type MePayload = SstMyStatus & { content: ContentPayload };
 
 type ViewMode = "accueil" | "fiche" | "suivi";
 
+const ILLEGIBLE_RESPONSE = "Réponse serveur illisible.";
+const NETWORK_ERROR = "Connexion impossible. Réessayez.";
+
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error(ILLEGIBLE_RESPONSE);
+  }
+}
+
+function userFacingActionError(e: unknown, fallback: string): string {
+  if (e instanceof Error) {
+    if (e.message === ILLEGIBLE_RESPONSE) return ILLEGIBLE_RESPONSE;
+    if (e.message === "Failed to fetch") return NETWORK_ERROR;
+    return e.message || fallback;
+  }
+  return fallback;
+}
+
 function todayIso(): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Paris",
@@ -69,7 +97,29 @@ function todayIso(): string {
 function statusBadgeClass(status: string): string {
   if (status === "cloturee") return "bg-emerald-50 text-emerald-800 ring-emerald-200";
   if (status === "ouverte") return "bg-amber-50 text-amber-900 ring-amber-200";
-  return "bg-sky-50 text-sky-900 ring-sky-200";
+  return "bg-[color:var(--dash-soft)] text-[var(--dash-ink)] ring-black/10";
+}
+
+function InlineFeedback({
+  error,
+  success,
+}: {
+  error?: string | null;
+  success?: string | null;
+}) {
+  if (!error && !success) return null;
+  if (error) {
+    return (
+      <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        {error}
+      </p>
+    );
+  }
+  return (
+    <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+      {success}
+    </p>
+  );
 }
 
 export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff" | "pilotage" }) {
@@ -78,12 +128,17 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
   const [me, setMe] = useState<MePayload | null>(null);
   const [view, setView] = useState<ViewMode>(mode === "pilotage" ? "suivi" : "accueil");
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [attestationAcknowledged, setAttestationAcknowledged] = useState(false);
   const [remarques, setRemarques] = useState("");
   const [signing, setSigning] = useState(false);
   const [signOk, setSignOk] = useState(false);
 
   const [fiches, setFiches] = useState<SstFicheListItem[]>([]);
+  const [fichesLoading, setFichesLoading] = useState(false);
+  const [fichesError, setFichesError] = useState<string | null>(null);
   const [suivi, setSuivi] = useState<SstSuiviPayload | null>(null);
+  const [suiviLoading, setSuiviLoading] = useState(false);
+  const [suiviError, setSuiviError] = useState<string | null>(null);
   const [selectedFiche, setSelectedFiche] = useState<SstFicheDetail | null>(null);
 
   const [ficheForm, setFicheForm] = useState({
@@ -95,6 +150,8 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
   });
   const [ficheSignature, setFicheSignature] = useState<string | null>(null);
   const [savingFiche, setSavingFiche] = useState(false);
+  const [ficheFormError, setFicheFormError] = useState<string | null>(null);
+  const [ficheFormSuccess, setFicheFormSuccess] = useState<string | null>(null);
 
   const [advanceNotes, setAdvanceNotes] = useState("");
   const [advanceSignature, setAdvanceSignature] = useState<string | null>(null);
@@ -104,12 +161,28 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
   const [consultSignature, setConsultSignature] = useState<string | null>(null);
   const [savingConsult, setSavingConsult] = useState(false);
 
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  const emargementSigLabelId = useId();
+  const emargementSigHintId = useId();
+  const attestationCheckboxId = useId();
+  const ficheSigLabelId = useId();
+  const ficheSigHintId = useId();
+  const consultSigLabelId = useId();
+  const consultSigHintId = useId();
+
   const loadMe = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/rh/sst", { cache: "no-store" });
-      const json = (await res.json()) as MePayload & { error?: string };
+      let json: MePayload & { error?: string };
+      try {
+        json = (await res.json()) as MePayload & { error?: string };
+      } catch {
+        throw new Error("Réponse serveur illisible");
+      }
       if (!res.ok) throw new Error(json.error || "Registre SST indisponible");
       setMe(json);
       setSignOk(json.signed);
@@ -122,18 +195,45 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
   }, []);
 
   const loadFiches = useCallback(async () => {
-    const res = await fetch("/api/rh/sst/fiches", { cache: "no-store" });
-    const json = (await res.json()) as { fiches?: SstFicheListItem[]; error?: string };
-    if (res.ok) setFiches(json.fiches ?? []);
+    setFichesLoading(true);
+    setFichesError(null);
+    try {
+      const res = await fetch("/api/rh/sst/fiches", { cache: "no-store" });
+      let json: { fiches?: SstFicheListItem[]; error?: string };
+      try {
+        json = (await res.json()) as { fiches?: SstFicheListItem[]; error?: string };
+      } catch {
+        throw new Error("Réponse serveur illisible");
+      }
+      if (!res.ok) throw new Error(json.error || "Impossible de charger les fiches");
+      setFiches(json.fiches ?? []);
+    } catch (e) {
+      setFichesError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setFichesLoading(false);
+    }
   }, []);
 
   const loadSuivi = useCallback(async () => {
     if (!me?.canManage && mode !== "pilotage") return;
-    const res = await fetch("/api/rh/sst/suivi", { cache: "no-store" });
-    const json = (await res.json()) as SstSuiviPayload & { error?: string };
-    if (res.ok) {
+    setSuiviLoading(true);
+    setSuiviError(null);
+    try {
+      const res = await fetch("/api/rh/sst/suivi", { cache: "no-store" });
+      let json: SstSuiviPayload & { error?: string };
+      try {
+        json = (await res.json()) as SstSuiviPayload & { error?: string };
+      } catch {
+        throw new Error("Réponse serveur illisible");
+      }
+      if (!res.ok) throw new Error(json.error || "Impossible de charger le suivi");
       setSuivi(json);
       setFiches(json.fiches);
+    } catch (e) {
+      setSuivi(null);
+      setSuiviError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSuiviLoading(false);
     }
   }, [me?.canManage, mode]);
 
@@ -152,34 +252,59 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
     [suivi],
   );
 
+  const tabItems = useMemo((): Array<{ id: ViewMode; label: string }> => {
+    const tabs: Array<{ id: ViewMode; label: string }> = [
+      { id: "accueil", label: "Registre" },
+      { id: "fiche", label: "Déposer une fiche" },
+    ];
+    if (me?.canManage || mode === "pilotage") {
+      tabs.push({ id: "suivi", label: "Suivi & émargements" });
+    }
+    return tabs;
+  }, [me?.canManage, mode]);
+
   async function submitEmargement() {
-    if (!signatureDataUrl) {
-      alert("Signez dans le cadre (souris ou doigt).");
+    setActionError(null);
+    setActionSuccess(null);
+    const canSubmit = canSubmitSstEmargement({
+      signing,
+      signatureDataUrl,
+      attestationAcknowledged,
+    });
+    if (!canSubmit) {
+      setActionError("Cochez l’attestation ou signez dans le cadre.");
       return;
     }
     setSigning(true);
     try {
+      const body = attestationAcknowledged
+        ? { attestationAcknowledged: true, remarques }
+        : { signatureDataUrl, remarques };
       const res = await fetch("/api/rh/sst/emarger", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureDataUrl, remarques }),
+        body: JSON.stringify(body),
       });
-      const json = await res.json();
+      const json = await readJsonResponse<{ error?: string }>(res);
       if (!res.ok) throw new Error(json.error || "Échec signature");
       setSignOk(true);
       setSignatureDataUrl(null);
+      setAttestationAcknowledged(false);
+      setActionSuccess("Émargement enregistré pour cette année scolaire.");
       await loadMe();
       if (me?.canManage) await loadSuivi();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Erreur");
+      setActionError(userFacingActionError(e, "Impossible d’enregistrer l’émargement."));
     } finally {
       setSigning(false);
     }
   }
 
   async function submitFiche() {
+    setFicheFormError(null);
+    setFicheFormSuccess(null);
     if (!ficheForm.observations.trim()) {
-      alert("Indiquez vos observations.");
+      setFicheFormError("Indiquez vos observations.");
       return;
     }
     setSavingFiche(true);
@@ -192,7 +317,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           signatureDataUrl: ficheSignature || undefined,
         }),
       });
-      const json = await res.json();
+      const json = await readJsonResponse<{ error?: string; fiche?: { numero: number } }>(res);
       if (!res.ok) throw new Error(json.error || "Échec création");
       setFicheForm({
         observedDate: todayIso(),
@@ -206,28 +331,36 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
       await loadFiches();
       await loadMe();
       if (me?.canManage) await loadSuivi();
-      alert(`Fiche n°${json.fiche.numero} enregistrée.`);
+      setFicheFormSuccess(`Fiche n°${json.fiche?.numero ?? "—"} enregistrée.`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Erreur");
+      setFicheFormError(userFacingActionError(e, "Impossible d’enregistrer la fiche."));
     } finally {
       setSavingFiche(false);
     }
   }
 
   async function openFiche(id: string) {
-    const res = await fetch(`/api/rh/sst/fiches/${id}`, { cache: "no-store" });
-    const json = (await res.json()) as { fiche?: SstFicheDetail; error?: string };
-    if (!res.ok || !json.fiche) {
-      alert(json.error || "Fiche introuvable");
-      return;
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const res = await fetch(`/api/rh/sst/fiches/${id}`, { cache: "no-store" });
+      const json = await readJsonResponse<{ fiche?: SstFicheDetail; error?: string }>(res);
+      if (!res.ok || !json.fiche) {
+        setActionError(json.error || "Fiche introuvable");
+        return;
+      }
+      setSelectedFiche(json.fiche);
+      setAdvanceNotes("");
+      setAdvanceSignature(null);
+    } catch (e) {
+      setActionError(userFacingActionError(e, "Impossible d’ouvrir la fiche."));
     }
-    setSelectedFiche(json.fiche);
-    setAdvanceNotes("");
-    setAdvanceSignature(null);
   }
 
   async function advanceFiche() {
     if (!selectedFiche) return;
+    setActionError(null);
+    setActionSuccess(null);
     setAdvancing(true);
     try {
       const res = await fetch(`/api/rh/sst/fiches/${selectedFiche.id}`, {
@@ -239,21 +372,24 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           signatureDataUrl: advanceSignature || undefined,
         }),
       });
-      const json = await res.json();
+      const json = await readJsonResponse<{ error?: string; fiche?: SstFicheDetail }>(res);
       if (!res.ok) throw new Error(json.error || "Échec");
-      setSelectedFiche(json.fiche);
+      if (json.fiche) setSelectedFiche(json.fiche);
       setAdvanceNotes("");
       setAdvanceSignature(null);
       await loadFiches();
       await loadSuivi();
+      setActionSuccess("Étape validée.");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Erreur");
+      setActionError(userFacingActionError(e, "Impossible de valider l’étape."));
     } finally {
       setAdvancing(false);
     }
   }
 
   async function submitConsultation() {
+    setActionError(null);
+    setActionSuccess(null);
     setSavingConsult(true);
     try {
       const res = await fetch("/api/rh/sst/consultations", {
@@ -264,32 +400,44 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           signatureDataUrl: consultSignature || undefined,
         }),
       });
-      const json = await res.json();
+      const json = await readJsonResponse<{ error?: string }>(res);
       if (!res.ok) throw new Error(json.error || "Échec");
       setConsultComments("");
       setConsultSignature(null);
       await loadSuivi();
-      alert("Consultation enregistrée.");
+      setActionSuccess("Consultation enregistrée.");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Erreur");
+      setActionError(userFacingActionError(e, "Impossible d’enregistrer la consultation."));
     } finally {
       setSavingConsult(false);
     }
   }
 
   if (loading) {
-    return <p className="py-10 text-center text-sm text-slate-500">Chargement du registre SST…</p>;
+    return <ModuleTabFallback />;
   }
   if (error || !me) {
-    return <p className="py-10 text-center text-sm text-rose-600">{error || "Indisponible"}</p>;
+    return (
+      <ModuleCard bodyClassName="p-8 text-center">
+        <p role="alert" className="text-sm text-rose-600">{error || "Indisponible"}</p>
+        <ModuleButton variant="secondary" className="mt-4" onClick={() => void loadMe()}>
+          Réessayer
+        </ModuleButton>
+      </ModuleCard>
+    );
   }
 
   const content = me.content;
+  const emargementCanSubmit = canSubmitSstEmargement({
+    signing,
+    signatureDataUrl,
+    attestationAcknowledged,
+  });
 
   return (
     <div className="space-y-5">
-      <header className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-teal-50/50 p-5 sm:p-6">
-        <p className="text-[11px] font-black uppercase tracking-widest text-teal-700">
+      <header className="rounded-[1.35rem] border border-black/6 bg-white p-5 sm:p-6">
+        <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
           Santé &amp; sécurité au travail
         </p>
         <h2 className="mt-1 text-2xl font-black text-slate-900">{me.campagne.title}</h2>
@@ -297,48 +445,22 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           Document officiel de l&apos;établissement : présentation, réglementation, notice,
           informations pratiques, émargement annuel et fiches de signalement.
         </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setView("accueil")}
-            className={`rounded-xl px-3.5 py-2 text-xs font-bold ${
-              view === "accueil"
-                ? "bg-teal-700 text-white"
-                : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            Registre
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("fiche")}
-            className={`rounded-xl px-3.5 py-2 text-xs font-bold ${
-              view === "fiche"
-                ? "bg-teal-700 text-white"
-                : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            Déposer une fiche
-          </button>
-          {(me.canManage || mode === "pilotage") && (
-            <button
-              type="button"
-              onClick={() => {
-                setView("suivi");
-                void loadSuivi();
-              }}
-              className={`rounded-xl px-3.5 py-2 text-xs font-bold ${
-                view === "suivi"
-                  ? "bg-teal-700 text-white"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              Suivi &amp; émargements
-              {suivi && suivi.pendingCount > 0 ? ` (${suivi.pendingCount})` : ""}
-            </button>
-          )}
-        </div>
+        <ModuleTabNav
+          className="mt-4"
+          tabs={tabItems}
+          active={view}
+          onChange={(id) => {
+            setView(id);
+            if (id === "suivi") void loadSuivi();
+          }}
+          badges={{ suivi: suivi?.pendingCount ?? 0 }}
+        />
       </header>
+
+      <InlineFeedback
+        error={selectedFiche ? null : actionError}
+        success={selectedFiche ? null : actionSuccess}
+      />
 
       {view === "accueil" ? (
         <div className="space-y-4">
@@ -357,7 +479,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
             </div>
           )}
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <ModuleCard bodyClassName="p-5">
             <h3 className="font-black text-slate-900">{content.presentation.title}</h3>
             <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
               {content.presentation.paragraphs.map((p) => (
@@ -370,10 +492,10 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                 <li key={item}>{item}</li>
               ))}
             </ol>
-          </section>
+          </ModuleCard>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <ModuleCard bodyClassName="p-5">
               <h3 className="font-black text-slate-900">{content.reglementation.title}</h3>
               <p className="mt-2 text-sm text-slate-700">{content.reglementation.intro}</p>
               <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
@@ -389,9 +511,9 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                   <li key={t}>{t}</li>
                 ))}
               </ul>
-            </section>
+            </ModuleCard>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <ModuleCard bodyClassName="p-5">
               <h3 className="font-black text-slate-900">Informations sur l&apos;établissement</h3>
               <dl className="mt-3 space-y-2 text-sm text-slate-700">
                 <div>
@@ -440,10 +562,10 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                   </li>
                 ))}
               </ul>
-            </section>
+            </ModuleCard>
           </div>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <ModuleCard bodyClassName="p-5">
             <h3 className="font-black text-slate-900">{content.notice.title}</h3>
             <dl className="mt-3 grid gap-4 text-sm text-slate-700 sm:grid-cols-2">
               <div>
@@ -492,58 +614,95 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                 <dd className="mt-1">{content.notice.frequence}</dd>
               </div>
             </dl>
-            <button
-              type="button"
-              onClick={() => setView("fiche")}
-              className="mt-4 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-teal-800"
-            >
+            <ModuleButton variant="secondary" className="mt-4 text-xs" onClick={() => setView("fiche")}>
               Déposer une fiche de signalement
-            </button>
-          </section>
+            </ModuleButton>
+          </ModuleCard>
 
           {!signOk ? (
-            <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm">
-              <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">
+            <ModuleCard bodyClassName="p-5 border-amber-200 bg-amber-50/40">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-800">
                 Émargement — année {me.campagne.anneeLabel}
               </p>
               <h3 className="mt-1 font-black text-slate-900">Prise de connaissance</h3>
               <p className="mt-2 text-sm text-slate-700">{content.emargementTexte}</p>
-              <div className="mt-4">
-                <p className="mb-1 text-xs font-bold text-slate-600">Signature (souris ou doigt)</p>
-                <PartenariatSignaturePad onChange={setSignatureDataUrl} />
+              <div className="mt-4 flex items-start gap-2">
+                <input
+                  id={attestationCheckboxId}
+                  type="checkbox"
+                  checked={attestationAcknowledged}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setAttestationAcknowledged(checked);
+                    if (checked) setSignatureDataUrl(null);
+                  }}
+                  className="mt-1 h-4 w-4 accent-[color:var(--dash-ink)]"
+                />
+                <label htmlFor={attestationCheckboxId} className="text-sm font-semibold text-slate-800">
+                  J&apos;atteste avoir pris connaissance du registre
+                </label>
               </div>
-              <label className="mt-3 block">
+              <div className="mt-4">
+                <p id={emargementSigLabelId} className="mb-1 text-xs font-bold text-slate-600">
+                  Signature manuscrite (optionnel si attestation cochée)
+                </p>
+                <p id={emargementSigHintId} className="mb-2 text-xs text-slate-500">
+                  Souris, doigt ou stylet. Au clavier ou avec un lecteur d&apos;écran, cochez l&apos;attestation
+                  ci-dessus.
+                </p>
+                <PartenariatSignaturePad
+                  labelId={emargementSigLabelId}
+                  describedById={emargementSigHintId}
+                  onChange={(url) => {
+                    setSignatureDataUrl(url);
+                    if (url) setAttestationAcknowledged(false);
+                  }}
+                />
+              </div>
+              <label className="mt-3 block" htmlFor="sst-emargement-remarques">
                 <span className="text-xs font-bold text-slate-600">Remarques (optionnel)</span>
                 <input
+                  id="sst-emargement-remarques"
                   value={remarques}
                   onChange={(e) => setRemarques(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  className={`mt-1 ${dash.field}`}
                   maxLength={500}
                 />
               </label>
-              <button
-                type="button"
-                disabled={signing || !signatureDataUrl}
+              <ModuleButton
+                variant="primary"
+                className="mt-4 text-xs"
+                disabled={!emargementCanSubmit}
                 onClick={() => void submitEmargement()}
-                className="mt-4 rounded-xl bg-amber-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-amber-800 disabled:opacity-50"
               >
                 {signing ? "Enregistrement…" : "Je signe pour cette année scolaire"}
-              </button>
-            </section>
+              </ModuleButton>
+            </ModuleCard>
           ) : null}
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <ModuleCard bodyClassName="p-5">
             <div className="mb-3 flex items-center justify-between gap-2">
               <h3 className="font-black text-slate-900">Fiches du registre</h3>
               <span className="text-xs text-slate-500">
                 {me.openFichesCount} ouverte{me.openFichesCount > 1 ? "s" : ""}
               </span>
             </div>
-            {fiches.length === 0 ? (
-              <p className="text-sm italic text-slate-400">
-                Aucune fiche pour l&apos;instant. C&apos;est ici que les signalements apparaissent une
-                fois déposés.
-              </p>
+            {fichesLoading ? (
+              <ModuleTabFallback />
+            ) : fichesError ? (
+              <div className="space-y-3">
+                <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {fichesError}
+                </p>
+                <ModuleButton variant="secondary" onClick={() => void loadFiches()}>
+                  Réessayer
+                </ModuleButton>
+              </div>
+            ) : fiches.length === 0 ? (
+              <ModuleEmptyState>
+                Aucune fiche pour l&apos;instant. C&apos;est ici que les signalements apparaissent une fois
+                déposés.
+              </ModuleEmptyState>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {fiches.map((f) => (
@@ -559,14 +718,15 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                     </div>
                     <div className="flex items-center gap-2">
                       <span
-                        className={`rounded-md px-2 py-0.5 text-[11px] font-bold ring-1 ${statusBadgeClass(f.status)}`}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ${statusBadgeClass(f.status)}`}
                       >
                         {SST_FICHE_STATUS_LABELS[f.status]}
                       </span>
                       <button
                         type="button"
                         onClick={() => void openFiche(f.id)}
-                        className="text-xs font-bold text-teal-700 underline"
+                        aria-label={`Ouvrir la fiche n°${f.numero}`}
+                        className={`text-xs font-bold underline ${dash.linkBold}`}
                       >
                         Ouvrir
                       </button>
@@ -575,94 +735,116 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                 ))}
               </ul>
             )}
-          </section>
+          </ModuleCard>
         </div>
       ) : null}
 
       {view === "fiche" ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <ModuleCard bodyClassName="p-5">
           <h3 className="font-black text-slate-900">Nouvelle fiche du registre</h3>
           <p className="mt-1 text-sm text-slate-600">
             Signalez un risque, un incident, un dysfonctionnement ou une suggestion d&apos;amélioration.
           </p>
+          <InlineFeedback error={ficheFormError} success={ficheFormSuccess} />
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
+            <label className="block text-sm" htmlFor="sst-fiche-date">
               <span className="font-bold text-slate-700">Date</span>
               <input
+                id="sst-fiche-date"
                 type="date"
                 value={ficheForm.observedDate}
                 onChange={(e) => setFicheForm((f) => ({ ...f, observedDate: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                className={`mt-1 ${dash.field}`}
               />
             </label>
-            <label className="block text-sm">
+            <label className="block text-sm" htmlFor="sst-fiche-time">
               <span className="font-bold text-slate-700">Heure</span>
               <input
+                id="sst-fiche-time"
                 type="time"
                 value={ficheForm.observedTime}
                 onChange={(e) => setFicheForm((f) => ({ ...f, observedTime: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                className={`mt-1 ${dash.field}`}
               />
             </label>
-            <label className="block text-sm sm:col-span-2">
+            <label className="block text-sm sm:col-span-2" htmlFor="sst-fiche-lieu">
               <span className="font-bold text-slate-700">Lieu (service, poste…)</span>
               <input
+                id="sst-fiche-lieu"
                 value={ficheForm.lieu}
                 onChange={(e) => setFicheForm((f) => ({ ...f, lieu: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                className={`mt-1 ${dash.field}`}
                 maxLength={200}
               />
             </label>
-            <label className="block text-sm sm:col-span-2">
+            <label className="block text-sm sm:col-span-2" htmlFor="sst-fiche-obs">
               <span className="font-bold text-slate-700">Observations</span>
               <textarea
+                id="sst-fiche-obs"
                 value={ficheForm.observations}
                 onChange={(e) => setFicheForm((f) => ({ ...f, observations: e.target.value }))}
                 rows={5}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                className={`mt-1 ${dash.field}`}
                 maxLength={8000}
               />
             </label>
-            <label className="block text-sm sm:col-span-2">
+            <label className="block text-sm sm:col-span-2" htmlFor="sst-fiche-sugg">
               <span className="font-bold text-slate-700">Suggestions (facultatif)</span>
               <textarea
+                id="sst-fiche-sugg"
                 value={ficheForm.suggestions}
                 onChange={(e) => setFicheForm((f) => ({ ...f, suggestions: e.target.value }))}
                 rows={3}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                className={`mt-1 ${dash.field}`}
                 maxLength={4000}
               />
             </label>
           </div>
           <div className="mt-4">
-            <p className="mb-1 text-xs font-bold text-slate-600">Signature du déclarant (recommandée)</p>
-            <PartenariatSignaturePad onChange={setFicheSignature} />
+            <p id={ficheSigLabelId} className="mb-1 text-xs font-bold text-slate-600">
+              Signature du déclarant (recommandée)
+            </p>
+            <p id={ficheSigHintId} className="mb-2 text-xs text-slate-500">
+              Signez dans le cadre ci-dessous (souris, doigt ou stylet).
+            </p>
+            <PartenariatSignaturePad
+              labelId={ficheSigLabelId}
+              describedById={ficheSigHintId}
+              onChange={setFicheSignature}
+            />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
+            <ModuleButton
+              variant="primary"
+              className="text-xs"
               disabled={savingFiche}
               onClick={() => void submitFiche()}
-              className="rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-50"
             >
               {savingFiche ? "Enregistrement…" : "Enregistrer la fiche"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("accueil")}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700"
-            >
+            </ModuleButton>
+            <ModuleButton variant="secondary" className="text-xs" onClick={() => setView("accueil")}>
               Annuler
-            </button>
+            </ModuleButton>
           </div>
-        </section>
+        </ModuleCard>
       ) : null}
 
       {view === "suivi" && (me.canManage || mode === "pilotage") ? (
         <div className="space-y-4">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <ModuleCard bodyClassName="p-5">
             <h3 className="font-black text-slate-900">Émargements — {me.campagne.anneeLabel}</h3>
-            {suivi ? (
+            {suiviLoading && !suivi ? (
+              <ModuleTabFallback />
+            ) : suiviError ? (
+              <div className="mt-3 space-y-3">
+                <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {suiviError}
+                </p>
+                <ModuleButton variant="secondary" onClick={() => void loadSuivi()}>
+                  Réessayer
+                </ModuleButton>
+              </div>
+            ) : suivi ? (
               <>
                 <p className="mt-2 text-sm text-slate-600">
                   <strong className="text-slate-900">{suivi.signedCount}</strong> / {suivi.total}{" "}
@@ -705,41 +887,48 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                 </div>
                 {pendingPeople.length > 0 ? (
                   <p className="mt-3 text-xs text-slate-500">
-                    Les retardataires voient un rappel sur le tableau de bord tant qu&apos;ils n&apos;ont
-                    pas signé.
+                    Les retardataires voient un rappel sur le tableau de bord tant qu&apos;ils n&apos;ont pas
+                    signé.
                   </p>
                 ) : null}
               </>
-            ) : (
-              <p className="mt-2 text-sm text-slate-400">Chargement du suivi…</p>
-            )}
-          </section>
+            ) : null}
+          </ModuleCard>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <ModuleCard bodyClassName="p-5">
             <h3 className="font-black text-slate-900">Visa de consultation</h3>
             <p className="mt-1 text-sm text-slate-600">
               Direction, référent sécurité, CSE / OGEC — attestez avoir consulté le registre.
             </p>
-            <label className="mt-3 block text-sm">
+            <label className="mt-3 block text-sm" htmlFor="sst-consult-comments">
               <span className="font-bold text-slate-700">Commentaires</span>
               <textarea
+                id="sst-consult-comments"
                 value={consultComments}
                 onChange={(e) => setConsultComments(e.target.value)}
                 rows={2}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                className={`mt-1 ${dash.field}`}
               />
             </label>
-            <div className="mt-3">
-              <PartenariatSignaturePad onChange={setConsultSignature} />
-            </div>
-            <button
-              type="button"
+            <p id={consultSigLabelId} className="mt-3 text-xs font-bold text-slate-600">
+              Signature (optionnel)
+            </p>
+            <p id={consultSigHintId} className="text-xs text-slate-500">
+              Signature facultative (souris, doigt ou stylet).
+            </p>
+            <PartenariatSignaturePad
+              labelId={consultSigLabelId}
+              describedById={consultSigHintId}
+              onChange={setConsultSignature}
+            />
+            <ModuleButton
+              variant="primary"
+              className="mt-3 text-xs"
               disabled={savingConsult}
               onClick={() => void submitConsultation()}
-              className="mt-3 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-900 disabled:opacity-50"
             >
-              {savingConsult ? "…" : "Enregistrer mon visa de consultation"}
-            </button>
+              {savingConsult ? "Enregistrement…" : "Enregistrer mon visa de consultation"}
+            </ModuleButton>
             {suivi && suivi.consultations.length > 0 ? (
               <ul className="mt-4 space-y-2">
                 {suivi.consultations.map((c: SstConsultationDto) => (
@@ -756,12 +945,18 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                 ))}
               </ul>
             ) : null}
-          </section>
+          </ModuleCard>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <ModuleCard bodyClassName="p-5">
             <h3 className="font-black text-slate-900">Tableau de suivi des fiches</h3>
-            {fiches.length === 0 ? (
-              <p className="mt-2 text-sm italic text-slate-400">Aucune fiche.</p>
+            {fichesLoading ? (
+              <ModuleTabFallback />
+            ) : fichesError ? (
+              <p role="alert" className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {fichesError}
+              </p>
+            ) : fiches.length === 0 ? (
+              <ModuleEmptyState>Aucune fiche.</ModuleEmptyState>
             ) : (
               <ul className="mt-3 divide-y divide-slate-100">
                 {fiches.map((f) => (
@@ -776,14 +971,15 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                     </div>
                     <div className="flex items-center gap-2">
                       <span
-                        className={`rounded-md px-2 py-0.5 text-[11px] font-bold ring-1 ${statusBadgeClass(f.status)}`}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ${statusBadgeClass(f.status)}`}
                       >
                         {SST_FICHE_STATUS_LABELS[f.status]}
                       </span>
                       <button
                         type="button"
                         onClick={() => void openFiche(f.id)}
-                        className="text-xs font-bold text-teal-700 underline"
+                        aria-label={`Traiter la fiche n°${f.numero}`}
+                        className={`text-xs font-bold underline ${dash.linkBold}`}
                       >
                         Traiter
                       </button>
@@ -792,105 +988,26 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                 ))}
               </ul>
             )}
-          </section>
+          </ModuleCard>
         </div>
       ) : null}
 
       {selectedFiche ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 sm:items-center">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-5 shadow-xl">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[11px] font-black uppercase tracking-widest text-teal-700">
-                  Fiche n°{selectedFiche.numero}
-                </p>
-                <h3 className="font-black text-slate-900">
-                  {SST_FICHE_STATUS_LABELS[selectedFiche.status]}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedFiche(null)}
-                className="text-xs font-bold text-slate-500 underline"
-              >
-                Fermer
-              </button>
-            </div>
-            <dl className="mt-3 space-y-2 text-sm text-slate-700">
-              <div>
-                <dt className="font-bold text-slate-900">Déclarant</dt>
-                <dd>
-                  {selectedFiche.declarantFirstName} {selectedFiche.declarantLastName} —{" "}
-                  {selectedFiche.declarantFonction}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-bold text-slate-900">Quand / où</dt>
-                <dd>
-                  {selectedFiche.observedDate}
-                  {selectedFiche.observedTime ? ` à ${selectedFiche.observedTime}` : ""}
-                  {selectedFiche.lieu ? ` — ${selectedFiche.lieu}` : ""}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-bold text-slate-900">Observations</dt>
-                <dd className="whitespace-pre-wrap">{selectedFiche.observations}</dd>
-              </div>
-              {selectedFiche.suggestions ? (
-                <div>
-                  <dt className="font-bold text-slate-900">Suggestions</dt>
-                  <dd className="whitespace-pre-wrap">{selectedFiche.suggestions}</dd>
-                </div>
-              ) : null}
-            </dl>
-
-            {(["responsable", "cse", "decision", "realisation"] as const).map((key) => {
-              const visa = selectedFiche.workflow[key];
-              if (!visa) return null;
-              const labels = {
-                responsable: "Visa responsable sécurité",
-                cse: "Examen CSE / CHSCT",
-                decision: "Décision",
-                realisation: "Réalisation / suivi",
-              };
-              return (
-                <div key={key} className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
-                  <p className="font-bold text-slate-900">{labels[key]}</p>
-                  <p className="text-xs text-slate-500">
-                    {visa.name} — {new Date(visa.at).toLocaleString("fr-FR")}
-                  </p>
-                  {visa.notes ? <p className="mt-1 whitespace-pre-wrap text-slate-700">{visa.notes}</p> : null}
-                </div>
-              );
-            })}
-
-            {selectedFiche.canAdvance && selectedFiche.status !== "cloturee" ? (
-              <div className="mt-4 border-t border-slate-100 pt-4">
-                <p className="text-xs font-bold text-slate-600">
-                  Passer à l&apos;étape suivante — notes &amp; visa
-                </p>
-                <textarea
-                  value={advanceNotes}
-                  onChange={(e) => setAdvanceNotes(e.target.value)}
-                  rows={3}
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="Observations / mesures…"
-                />
-                <div className="mt-2">
-                  <PartenariatSignaturePad onChange={setAdvanceSignature} />
-                </div>
-                <button
-                  type="button"
-                  disabled={advancing}
-                  onClick={() => void advanceFiche()}
-                  className="mt-3 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-50"
-                >
-                  {advancing ? "…" : "Valider l’étape suivante"}
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <SstFicheDetailModal
+          fiche={selectedFiche}
+          advancing={advancing}
+          advanceNotes={advanceNotes}
+          error={actionError}
+          success={actionSuccess}
+          onAdvanceNotesChange={setAdvanceNotes}
+          onAdvanceSignatureChange={setAdvanceSignature}
+          onAdvance={() => void advanceFiche()}
+          onClose={() => {
+            setSelectedFiche(null);
+            setActionError(null);
+            setActionSuccess(null);
+          }}
+        />
       ) : null}
     </div>
   );

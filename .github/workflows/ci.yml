@@ -127,6 +127,7 @@ jobs:
           npm run test:occupancy:db
           npm run test:vs-appels-close
           npm run test:eleve-scolarite-backfill:db
+          npm run test:sst-emargement:db
 
   migrations-fresh-db:
     runs-on: ubuntu-latest

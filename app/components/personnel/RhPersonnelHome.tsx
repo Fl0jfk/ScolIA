@@ -9,6 +9,8 @@ import RhMoodPulseCard from "@/app/components/personnel/RhMoodPulseCard";
 import RhPersonnelOnboarding from "@/app/components/personnel/RhPersonnelOnboarding";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
+import { dash } from "@/app/lib/dashboard-brand";
 import {
   canAccessHseModule,
   canCreateHseDemand,
@@ -312,21 +314,21 @@ export default function RhPersonnelHome({
           {canValidateAbsences && (
             <Link
               href={ABSENCES_DIRECTION_HREF}
-              className="px-4 py-2.5 rounded-xl bg-amber-600 text-white text-xs font-bold shadow-sm hover:bg-amber-700"
+              className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold shadow-sm ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
             >
               Valider les absences RH
             </Link>
           )}
           <Link
             href={`${ABSENCES_RH_HREF}#nouvelle-absence`}
-            className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-sm hover:bg-indigo-700"
+            className={`${dash.btnPrimary} px-4 py-2.5 text-xs shadow-sm`}
           >
             Demander une autorisation d&apos;absence
           </Link>
           {canCreateHse && (
             <Link
               href="/rh?tab=dashboard&section=hse"
-              className="px-4 py-2.5 rounded-xl bg-white border border-indigo-200 text-indigo-800 text-xs font-bold hover:bg-indigo-50"
+              className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
             >
               Faire une demande HSE
             </Link>
@@ -334,36 +336,36 @@ export default function RhPersonnelHome({
           {canAccessDemandeRh && (
             <Link
               href="/rh?tab=dashboard&section=demande"
-              className="px-4 py-2.5 rounded-xl bg-white border border-violet-200 text-violet-800 text-xs font-bold hover:bg-violet-50"
+              className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
             >
               Demande RH
             </Link>
           )}
           <Link
             href="/mon-planning"
-            className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
+            className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
           >
             Mon planning
           </Link>
           <Link
             href="/rh?tab=dashboard&section=sst"
-            className="px-4 py-2.5 rounded-xl bg-white border border-teal-200 text-teal-800 text-xs font-bold hover:bg-teal-50"
+            className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
           >
             Registre SST
           </Link>
           <Link
             href="/rh/moi"
-            className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
+            className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
           >
             Voir mon dossier complet →
           </Link>
         </div>
       </section>
 
-      <section className="rounded-2xl border border-teal-200 bg-teal-50/50 p-5 shadow-sm">
+      <ModuleCard bodyClassName="p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-widest text-teal-800">
+            <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
               Santé &amp; sécurité
             </p>
             <h3 className="mt-1 font-black text-slate-900">Registre SST</h3>
@@ -374,12 +376,12 @@ export default function RhPersonnelHome({
           </div>
           <Link
             href="/rh?tab=dashboard&section=sst"
-            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-teal-800"
+            className={`inline-flex shrink-0 items-center justify-center ${dash.btnPrimary} px-4 py-2.5 text-xs`}
           >
             Ouvrir le registre →
           </Link>
         </div>
-      </section>
+      </ModuleCard>
 
       {canValidateAbsences ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
@@ -394,7 +396,7 @@ export default function RhPersonnelHome({
             </div>
             <Link
               href={ABSENCES_DIRECTION_HREF}
-              className="shrink-0 inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-amber-700 text-white text-xs font-bold hover:bg-amber-800"
+              className={`shrink-0 inline-flex items-center justify-center px-4 py-2.5 text-xs ${dash.btnPrimary}`}
             >
               Ouvrir la file Direction →
             </Link>

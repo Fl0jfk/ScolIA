@@ -14,6 +14,10 @@ import type { DomainPlanningSession } from "@/app/lib/domain-planning-types";
 import { PROF_ROOM_COLOR_PRESETS } from "@/app/lib/prof-room-subject-colors";
 import SubjectColorEditor from "@/app/components/prof-room/SubjectColorEditor";
 import DomainCoordinatorPicker, { type DirectoryMemberOption } from "./DomainCoordinatorPicker";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import { dash } from "@/app/lib/dashboard-brand";
 
 type Domain = {
   id: string;
@@ -466,125 +470,139 @@ export default function DomainPlanningSettingsTab() {
           règles d&apos;inscription.
         </p>
         {domains.length === 0 ? (
-          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 font-bold">
-            Créez d&apos;abord un domaine ci-dessus.
-          </p>
+          <ModuleEmptyState>Créez d&apos;abord un domaine ci-dessus.</ModuleEmptyState>
         ) : (
           <>
-            <div className="flex flex-wrap gap-2">
-              {domains.map((domain) => (
-                <button
-                  key={domain.id}
-                  type="button"
-                  onClick={() => setSessionsDomainId(domain.id)}
-                  className={`rounded-xl px-3 py-1.5 text-xs font-black uppercase ${
-                    domain.id === sessionsDomainId
-                      ? "bg-violet-600 text-white"
-                      : "border border-slate-200 bg-slate-50 text-slate-700 hover:border-violet-300"
-                  }`}
-                >
-                  {domain.name || domain.id}
-                </button>
-              ))}
-            </div>
+            <ModuleTabNav
+              scroll
+              tabs={domains.map((domain) => ({
+                id: domain.id,
+                label: domain.name || domain.id,
+              }))}
+              active={sessionsDomainId}
+              onChange={setSessionsDomainId}
+            />
             <p className="text-sm font-bold text-slate-800">
               Séances de « {sessionsDomain?.name || sessionsDomainId} » ({domainSessions.length})
             </p>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={addSessionToDomain}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-violet-700 hover:border-violet-300"
-              >
+              <ModuleButton variant="secondary" className="px-3 py-2 text-sm" onClick={addSessionToDomain}>
                 + Ajouter une séance
-              </button>
-              <button
-                type="button"
-                onClick={seedLyceeGrid}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-violet-300"
-              >
+              </ModuleButton>
+              <ModuleButton variant="secondary" className="px-3 py-2 text-sm" onClick={seedLyceeGrid}>
                 Initialiser EVARS lycée (2nde / 1ère / Tle)
-              </button>
+              </ModuleButton>
             </div>
             <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-1">
               {domainSessions.length === 0 ? (
-                <p className="text-sm text-slate-500 italic">
-                  Aucune séance pour ce domaine. Ajoutez-en une ou initialisez la grille EVARS lycée
-                  (thèmes du programme 2025).
-                </p>
+                <ModuleEmptyState>
+                  Aucune séance pour ce domaine. Ajoutez-en une ou initialisez la grille EVARS lycée (thèmes du
+                  programme 2025).
+                </ModuleEmptyState>
               ) : (
                 domainSessions.map((session) => (
                   <div key={session.id} className="border rounded-xl p-3 space-y-2 text-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap gap-2">
-                        <select
-                          className="border rounded-lg p-2 text-sm font-bold"
-                          value={session.niveau}
-                          onChange={(e) =>
-                            updateDomainSession(session.id, {
-                              niveau: e.target.value as DomainPlanningSession["niveau"],
-                            })
-                          }
-                        >
-                          {TRANSVERSAL_NIVEAUX.map((n) => (
-                            <option key={n} value={n}>
-                              {TRANSVERSAL_NIVEAU_LABELS[n]}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className="border rounded-lg p-2 text-sm font-bold"
-                          value={session.seanceNumber}
-                          onChange={(e) =>
-                            updateDomainSession(session.id, {
-                              seanceNumber: Number(e.target.value) as 1 | 2 | 3,
-                            })
-                          }
-                        >
-                          <option value={1}>Séance 1</option>
-                          <option value={2}>Séance 2</option>
-                          <option value={3}>Séance 3</option>
-                        </select>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+                        <div>
+                          <label
+                            htmlFor={`sess-${session.id}-niveau`}
+                            className="sr-only"
+                          >
+                            Niveau
+                          </label>
+                          <select
+                            id={`sess-${session.id}-niveau`}
+                            className={dash.field}
+                            value={session.niveau}
+                            onChange={(e) =>
+                              updateDomainSession(session.id, {
+                                niveau: e.target.value as DomainPlanningSession["niveau"],
+                              })
+                            }
+                          >
+                            {TRANSVERSAL_NIVEAUX.map((n) => (
+                              <option key={n} value={n}>
+                                {TRANSVERSAL_NIVEAU_LABELS[n]}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor={`sess-${session.id}-seance`} className="sr-only">
+                            Numéro de séance
+                          </label>
+                          <select
+                            id={`sess-${session.id}-seance`}
+                            className={dash.field}
+                            value={session.seanceNumber}
+                            onChange={(e) =>
+                              updateDomainSession(session.id, {
+                                seanceNumber: Number(e.target.value) as 1 | 2 | 3,
+                              })
+                            }
+                          >
+                            <option value={1}>Séance 1</option>
+                            <option value={2}>Séance 2</option>
+                            <option value={3}>Séance 3</option>
+                          </select>
+                        </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => removeDomainSession(session.id)}
-                        className="text-red-600 text-xs font-bold hover:underline"
+                        className="shrink-0 text-red-600 text-xs font-bold hover:underline"
                       >
                         Supprimer
                       </button>
                     </div>
+                    <label htmlFor={`sess-${session.id}-theme`} className="sr-only">
+                      Thème de la séance
+                    </label>
                     <textarea
-                      className="w-full border rounded-lg p-2 text-sm"
+                      id={`sess-${session.id}-theme`}
+                      className={dash.field}
                       rows={2}
                       value={session.theme}
                       onChange={(e) => updateDomainSession(session.id, { theme: e.target.value })}
                       placeholder="Thème de la séance"
                     />
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <input
-                        className="border rounded-lg p-2 text-sm font-bold"
-                        value={session.intervenantLabel}
-                        onChange={(e) =>
-                          updateDomainSession(session.id, { intervenantLabel: e.target.value })
-                        }
-                        placeholder="Intervenant affiché"
-                      />
-                      <select
-                        className="border rounded-lg p-2 text-sm font-bold"
-                        value={session.intervenantConstraint}
-                        onChange={(e) =>
-                          updateDomainSession(session.id, {
-                            intervenantConstraint: e.target
-                              .value as DomainPlanningSession["intervenantConstraint"],
-                          })
-                        }
-                      >
-                        <option value="svt_only">SVT uniquement</option>
-                        <option value="fixed_association">Association (verrouillé)</option>
-                        <option value="psy_inf">Psychologue / Infirmière</option>
-                        <option value="free">Choix libre (validation responsable)</option>
-                      </select>
+                      <div>
+                        <label htmlFor={`sess-${session.id}-intervenant`} className="sr-only">
+                          Intervenant affiché
+                        </label>
+                        <input
+                          id={`sess-${session.id}-intervenant`}
+                          className={dash.field}
+                          value={session.intervenantLabel}
+                          onChange={(e) =>
+                            updateDomainSession(session.id, { intervenantLabel: e.target.value })
+                          }
+                          placeholder="Intervenant affiché"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor={`sess-${session.id}-contrainte`} className="sr-only">
+                          Contrainte intervenant
+                        </label>
+                        <select
+                          id={`sess-${session.id}-contrainte`}
+                          className={dash.field}
+                          value={session.intervenantConstraint}
+                          onChange={(e) =>
+                            updateDomainSession(session.id, {
+                              intervenantConstraint: e.target
+                                .value as DomainPlanningSession["intervenantConstraint"],
+                            })
+                          }
+                        >
+                          <option value="svt_only">SVT uniquement</option>
+                          <option value="fixed_association">Association (verrouillé)</option>
+                          <option value="psy_inf">Psychologue / Infirmière</option>
+                          <option value="free">Choix libre (validation responsable)</option>
+                        </select>
+                      </div>
                       <label className="flex items-center gap-2 font-bold text-slate-700 px-2">
                         <input
                           type="checkbox"
@@ -598,14 +616,13 @@ export default function DomainPlanningSettingsTab() {
                 ))
               )}
             </div>
-            <button
-              type="button"
+            <ModuleButton
+              variant="primary"
               disabled={saving || sessions.length === 0}
               onClick={() => void saveSessions()}
-              className="bg-rose-600 text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-50"
             >
               Enregistrer les séances
-            </button>
+            </ModuleButton>
           </>
         )}
       </section>
