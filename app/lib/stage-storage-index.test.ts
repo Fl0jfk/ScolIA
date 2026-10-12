@@ -10,7 +10,7 @@ const baseEntry = (id: string): StageConventionIndexEntry => ({
   className: "3A",
   level: "3e",
   companyName: "ACME",
-  internshipKind: "observation",
+  internshipKind: "stage_observation",
   periodStart: "2026-03-01",
   periodEnd: "2026-03-14",
   schoolYear: "2025-2026",
