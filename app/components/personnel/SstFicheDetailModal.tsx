@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useRef, type RefObject } from "react";
 import PartenariatSignaturePad from "@/app/components/partenariats/PartenariatSignaturePad";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import { useModalDialog } from "@/app/hooks/useModalDialog";
@@ -10,25 +10,31 @@ import { SST_FICHE_STATUS_LABELS, type SstFicheDetail } from "@/app/lib/sst-regi
 function ModalInlineFeedback({
   error,
   success,
+  feedbackRef,
 }: {
   error?: string | null;
   success?: string | null;
+  feedbackRef?: RefObject<HTMLDivElement | null>;
 }) {
   if (!error && !success) return null;
   if (error) {
     return (
-      <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-        {error}
-      </p>
+      <div ref={feedbackRef}>
+        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </p>
+      </div>
     );
   }
   return (
-    <p
-      role="status"
-      className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-    >
-      {success}
-    </p>
+    <div ref={feedbackRef}>
+      <p
+        role="status"
+        className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+      >
+        {success}
+      </p>
+    </div>
   );
 }
 
@@ -61,6 +67,15 @@ export default function SstFicheDetailModal({
   const advanceNotesLabelId = useId();
   const advanceSigLabelId = useId();
   const advanceSigHintId = useId();
+  const feedbackRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!error) return;
+    const el = feedbackRef.current;
+    if (!el) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
+  }, [error]);
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center p-4 sm:items-center">
@@ -138,7 +153,7 @@ export default function SstFicheDetailModal({
         })}
 
         <div className="mt-4">
-          <ModalInlineFeedback error={error} success={success} />
+          <ModalInlineFeedback error={error} success={success} feedbackRef={feedbackRef} />
         </div>
 
         {fiche.canAdvance && fiche.status !== "cloturee" ? (
@@ -169,6 +184,11 @@ export default function SstFicheDetailModal({
               describedById={advanceSigHintId}
               onChange={onAdvanceSignatureChange}
             />
+            {error ? (
+              <p className="mt-3 text-xs font-semibold text-rose-700">
+                Erreur lors de la validation — détail dans le bandeau rose en haut de la modale.
+              </p>
+            ) : null}
             <ModuleButton
               variant="primary"
               className="mt-3 text-xs"
