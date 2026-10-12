@@ -126,6 +126,10 @@ export type InvitationDashboardStats = {
   placesRemaining: number | null;
   maxTotalPersons: number;
   eligibleCount: number;
+  /** Invités de la liste (ou RSVP totaux s’il n’y a pas de liste) qui ont répondu. */
+  respondedCount: number;
+  /** Invités de la liste encore sans réponse (décompte). */
+  pendingCount: number;
 };
 
 export type InvitationDuplicateSuspect = {
@@ -244,6 +248,30 @@ export function pickBestIdentityMatch<T extends IdentityMatchCandidate>(
   }
   if (!best || tie) return null;
   return { match: best, score: bestScore };
+}
+
+/** Nom de famille : majuscules (comme les listes établissement). */
+export function formatInvitationLastName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleUpperCase("fr-FR");
+}
+
+/** Prénom : initiale majuscule, reste minuscule (tirets / espaces / apostrophes). */
+export function formatInvitationFirstName(value: string): string {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return "";
+  return trimmed
+    .split(/([ '-]+)/)
+    .map((part) => {
+      if (!part || /^[ '-]+$/.test(part)) return part;
+      const lower = part.toLocaleLowerCase("fr-FR");
+      const first = lower.charAt(0).toLocaleUpperCase("fr-FR");
+      return `${first}${lower.slice(1)}`;
+    })
+    .join("");
+}
+
+export function formatInvitationEleveLabel(firstName: string, lastName: string): string {
+  return `${formatInvitationFirstName(firstName)} ${formatInvitationLastName(lastName)}`.trim();
 }
 
 /** Slug URL sûr (a-z0-9-). */

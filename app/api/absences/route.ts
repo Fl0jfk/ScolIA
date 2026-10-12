@@ -1,4 +1,4 @@
-import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { getEffectiveViewUser, safeCurrentUser } from "@/app/lib/intranet-session";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
@@ -87,8 +87,11 @@ export async function GET(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
+  const viewUser = await getEffectiveViewUser();
   const user = await safeCurrentUser();
-  const roles = rolesFromUserLike(user);
+  const roles = viewUser?.roles?.length
+    ? viewUser.roles
+    : rolesFromUserLike(user);
 
   const { searchParams } = new URL(req.url);
   const calendarOnly = searchParams.get("calendar") === "true";
@@ -121,13 +124,29 @@ export async function GET(req: Request) {
     } catch (cfgErr) {
       console.error("[api/absences] loadAppConfig", cfgErr);
     }
-    const viewerEmail = user?.primaryEmailAddress?.emailAddress || "";
-    const ctx = { establishments, userId };
-    const viewer = { email: viewerEmail, userId, roles };
+    const viewerEmail =
+      viewUser?.email || user?.primaryEmailAddress?.emailAddress || "";
+    // businessUserId + auth id : la supervision / fiches directeur mélangent les deux.
+    const viewerUserId =
+      String(viewUser?.businessUserId || user?.id || userId || "").trim() || userId;
+    const viewerUserIds = [
+      viewUser?.businessUserId,
+      viewUser?.id,
+      viewUser?.externalUserId,
+      userId,
+    ];
+    const ctx = {
+      establishments,
+      userId: viewerUserId,
+      userIds: viewerUserIds,
+      email: viewerEmail,
+      notifications,
+    };
+    const viewer = { email: viewerEmail, userId: viewerUserId, userIds: viewerUserIds, roles };
     let visible = index.filter((a) => {
       try {
         return (
-          canViewAbsence(a, userId, roles, ctx) ||
+          canViewAbsence(a, viewerUserId, roles, ctx) ||
           processorMayAccessValidatedAbsence(a, viewer, notifications, establishments)
         );
       } catch (filterErr) {
@@ -148,7 +167,7 @@ export async function GET(req: Request) {
         if (processorMayAccessValidatedAbsence(abs, viewer, notifications, establishments)) {
           return abs;
         }
-        return filterAbsenceForViewer(abs, userId, roles, ctx);
+        return filterAbsenceForViewer(abs, viewerUserId, roles, ctx);
       } catch (mapErr) {
         console.error(`[api/absences] map ${abs.id}`, mapErr);
         return abs;

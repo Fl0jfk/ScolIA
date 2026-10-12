@@ -59,8 +59,14 @@ import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import {
   buildEleveDossierClassCatalog,
+  dossierClassOptionsForSite,
   type EleveDossierClassCatalog,
 } from "@/app/lib/eleve-dossier-catalog";
+import { listObservedClassNames } from "@/app/lib/classe-site-mapping";
+import {
+  filterObservedClassesForCurrentYearUi,
+  loadOfficialSchoolClasses,
+} from "@/app/lib/nomenclature-classes";
 import {
   buildEleveMealWeek,
   buildEleveSyntheseSnapshot,
@@ -578,12 +584,39 @@ export async function GET(req: Request, ctx: Ctx) {
     classOptions: [],
   };
   let catalog: EleveDossierClassCatalog = catalogFallback;
-  if (loadHeavyExtras) {
+  /** Catalogue classes : toujours si édition structure (changement de classe synthèse)
+   *  ou extras lourds (enrichissement liste / site). Cache Valkey / mémoire côté catalog. */
+  const needClassCatalog =
+    loadHeavyExtras || canEditStructure(roles, { orgAdmin, platformAdmin });
+  if (needClassCatalog) {
     try {
       catalog = await buildEleveDossierClassCatalog(sites, { etablissementId: etabId });
     } catch (catalogErr) {
       console.error("[eleves/dossier] catalog", catalogErr);
       catalog = catalogFallback;
+    }
+  }
+  let classOptionsForUi = catalog.classOptions.map((o) => ({
+    value: o.value,
+    label: o.label,
+    siteId: o.siteId ?? null,
+  }));
+  if (needClassCatalog) {
+    try {
+      const [observedRaw, official] = await Promise.all([
+        listObservedClassNames(etabId).catch(() => [] as string[]),
+        loadOfficialSchoolClasses(etabId).catch(() => null),
+      ]);
+      const extraClasses = filterObservedClassesForCurrentYearUi(observedRaw, official);
+      classOptionsForUi = dossierClassOptionsForSite(catalog, undefined, extraClasses).map(
+        (o) => ({
+          value: o.value,
+          label: o.label,
+          siteId: o.siteId ?? null,
+        }),
+      );
+    } catch (classOptsErr) {
+      console.warn("[eleves/dossier] classOptions année en cours", classOptsErr);
     }
   }
   const currentScolarite = scolarites[0] ?? null;
@@ -767,6 +800,8 @@ export async function GET(req: Request, ctx: Ctx) {
       }),
       canDeleteElevePermanent,
       profRestrictedView,
+      /** Classes officiels Siècle + observées année (même filtre que Voyages / liste dossiers). */
+      classOptions: classOptionsForUi,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
     },

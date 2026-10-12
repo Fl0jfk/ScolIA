@@ -89,6 +89,13 @@ export default function SettingsNotificationsPanel({
   const ogecValidators = Array.isArray(notifications.absencesValidatorsOgec)
     ? (notifications.absencesValidatorsOgec as NotifyPerson[]).filter((p) => p?.email)
     : [];
+  const asPeople = (raw: unknown): NotifyPerson[] =>
+    Array.isArray(raw)
+      ? (raw as NotifyPerson[]).filter((p) => p?.email)
+      : [];
+  const validatorsProfEcole = asPeople(notifications.absencesValidatorsProfEcole);
+  const validatorsProfCollege = asPeople(notifications.absencesValidatorsProfCollege);
+  const validatorsProfLycee = asPeople(notifications.absencesValidatorsProfLycee);
 
   const showInternat = activeEstablishmentKinds.has("college") || activeEstablishmentKinds.has("lycee");
 
@@ -183,12 +190,12 @@ export default function SettingsNotificationsPanel({
 
       <SettingsSection
         icon="🗓️"
-        title="Absences"
-        description="Choisissez qui valide les absences OGEC, puis qui les traite après validation (rectorat / ONISE / RH). Vous pouvez aussi le faire dans Absences → Paramétrage."
+        title="Absences — validation"
+        description="Qui accepte / prend acte (file Direction). Liste vide = directeur de l’établissement (Paramètres → Établissements). Exceptions OGEC : fiche RH → « Absences — qui valide ? ». Aussi dans Absences → Paramétrage."
       >
         <SettingsField
-          label="Validation — personnel OGEC"
-          hint="Défaut pour les absences OGEC sans rattachement individuel sur la fiche RH. Liste vide = direction du lycée. Sur chaque fiche personnel, vous pouvez rattacher une personne à une autre validatrice (ex. école)."
+          label="Personnel OGEC — validateurs par défaut"
+          hint="Sans exception fiche RH. Ex. direction lycée, ou plusieurs personnes."
           as="div"
         >
           <DirectoryPeoplePersonSelect
@@ -199,9 +206,46 @@ export default function SettingsNotificationsPanel({
           />
         </SettingsField>
         {activeEstablishmentKinds.has("ecole") ? (
+          <SettingsField label="Professeurs — école (validation)" as="div">
+            <DirectoryPeoplePersonSelect
+              members={directoryMembers}
+              loading={membersLoading}
+              selected={validatorsProfEcole}
+              onChange={(people) => patch({ absencesValidatorsProfEcole: people })}
+            />
+          </SettingsField>
+        ) : null}
+        {activeEstablishmentKinds.has("college") ? (
+          <SettingsField label="Professeurs — collège (validation)" as="div">
+            <DirectoryPeoplePersonSelect
+              members={directoryMembers}
+              loading={membersLoading}
+              selected={validatorsProfCollege}
+              onChange={(people) => patch({ absencesValidatorsProfCollege: people })}
+            />
+          </SettingsField>
+        ) : null}
+        {activeEstablishmentKinds.has("lycee") ? (
+          <SettingsField label="Professeurs — lycée (validation)" as="div">
+            <DirectoryPeoplePersonSelect
+              members={directoryMembers}
+              loading={membersLoading}
+              selected={validatorsProfLycee}
+              onChange={(people) => patch({ absencesValidatorsProfLycee: people })}
+            />
+          </SettingsField>
+        ) : null}
+      </SettingsSection>
+
+      <SettingsSection
+        icon="📋"
+        title="Absences — traitement"
+        description="Qui clôture après validation (rectorat / ONISE / RH). Professeurs : mail seulement si déclaration instance."
+      >
+        {activeEstablishmentKinds.has("ecole") ? (
           <SettingsField
-            label="Professeurs — école"
-            hint="Personne qui déclare les absences professeurs à l’ONISE. Notifiée après validation direction, y compris saisie accueil."
+            label="Professeurs — école (ONISE)"
+            hint="Après validation direction."
             as="div"
           >
             <DirectoryPersonSelect
@@ -214,11 +258,7 @@ export default function SettingsNotificationsPanel({
           </SettingsField>
         ) : null}
         {activeEstablishmentKinds.has("college") ? (
-          <SettingsField
-            label="Professeurs — collège"
-            hint="Personne qui déclare les absences professeurs au rectorat. Notifiée seulement quand la direction valide une déclaration instance (pas le rattrapage interne), y compris saisie accueil."
-            as="div"
-          >
+          <SettingsField label="Professeurs — collège (rectorat)" as="div">
             <DirectoryPersonSelect
               members={directoryMembers}
               loading={membersLoading}
@@ -229,11 +269,7 @@ export default function SettingsNotificationsPanel({
           </SettingsField>
         ) : null}
         {activeEstablishmentKinds.has("lycee") ? (
-          <SettingsField
-            label="Professeurs — lycée"
-            hint="Personne qui déclare les absences professeurs au rectorat. Notifiée seulement quand la direction valide une déclaration instance (pas le rattrapage interne), y compris saisie accueil."
-            as="div"
-          >
+          <SettingsField label="Professeurs — lycée (rectorat)" as="div">
             <DirectoryPersonSelect
               members={directoryMembers}
               loading={membersLoading}
@@ -243,7 +279,7 @@ export default function SettingsNotificationsPanel({
             />
           </SettingsField>
         ) : null}
-        <SettingsField label="Personnel OGEC, administratif & RH" as="div">
+        <SettingsField label="Personnel OGEC — RH / comptabilité" as="div">
           <DirectoryPeopleSelect
             members={directoryMembers}
             loading={membersLoading}
@@ -253,7 +289,7 @@ export default function SettingsNotificationsPanel({
         </SettingsField>
         <SettingsField
           label="Responsables des surveillants"
-          hint="Notifiés après validation d'une absence d'un personnel Surveillant (en plus de la compta)."
+          hint="Notifiés après validation d'une absence Surveillant (en plus de la compta)."
           as="div"
         >
           <DirectoryPeopleSelect

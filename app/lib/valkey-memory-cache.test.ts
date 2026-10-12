@@ -6,6 +6,7 @@ import {
   resetValkeyMemoryCacheForTests,
   valkeyCached,
   valkeyDel,
+  valkeyPatchScopedCache,
   valkeySetJson,
 } from "@/app/lib/valkey";
 
@@ -136,6 +137,33 @@ test("valkeySetJson sans Valkey — n’alimente pas le cache mémoire global", 
   assert.deepEqual(out, { loaded: true });
   delete process.env.VALKEY_DISABLED;
   resetValkeyMemoryCacheForTests();
+});
+
+test("valkeyPatchScopedCache — met à jour sans relancer le loader", async () => {
+  process.env.VALKEY_DISABLED = "1";
+  resetValkeyMemoryCacheForTests();
+  let runs = 0;
+  const loader = async () => {
+    runs += 1;
+    return [{ id: "1", v: runs }];
+  };
+  await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 45, loader });
+  assert.equal(runs, 1);
+  const ok = valkeyPatchScopedCache<{ id: string; v: number }[]>(SCOPED_KEY_A, 45, (rows) =>
+    rows.map((r) => (r.id === "1" ? { ...r, v: 99 } : r)),
+  );
+  assert.equal(ok, true);
+  const after = await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 45, loader });
+  assert.equal(runs, 1);
+  assert.deepEqual(after, [{ id: "1", v: 99 }]);
+  delete process.env.VALKEY_DISABLED;
+  resetValkeyMemoryCacheForTests();
+});
+
+test("valkeyPatchScopedCache — false si cache froid", () => {
+  resetValkeyMemoryCacheForTests();
+  const ok = valkeyPatchScopedCache(SCOPED_KEY_A, 30, (x: number[]) => x);
+  assert.equal(ok, false);
 });
 
 test("TTL mémoire scopé — plafonné à 30 s même si TTL demandé plus long", async () => {

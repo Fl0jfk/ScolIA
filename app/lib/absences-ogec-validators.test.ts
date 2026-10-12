@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { Establishment, NotificationsConfig } from "./app-config-schemas";
 import {
   canManageAbsence,
+  canViewAbsence,
   type AbsenceRecord,
 } from "./absences-types";
 import {
@@ -115,6 +116,163 @@ test("sans snapshot : directrice lycée valide, pas l’école", () => {
       userId: "u-plantec",
       email: "plantec@etab.fr",
     }),
+    false,
+  );
+});
+
+test("direction_lycee traite le défaut OGEC même si e-mail session ≠ directorEmail", () => {
+  const abs = ogecAbs(null);
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    true,
+  );
+});
+
+test("rôle « direction » générique (sans cycle) traite la file OGEC défaut", () => {
+  const abs = ogecAbs(null);
+  assert.equal(
+    canManageAbsence(abs, ["direction"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    true,
+  );
+  assert.equal(
+    canManageAbsence(abs, ["direction_ecole"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    false,
+  );
+});
+
+test("config absencesValidatorsOgec (compte perso) : seule l’identité configurée valide", () => {
+  const withPerso: NotificationsConfig = {
+    ...notifications,
+    absencesValidatorsOgec: [
+      { label: "Mme Dona", email: "anne-marie.dona@etab.fr", userId: "u-dona-biz" },
+    ],
+  };
+  const abs = ogecAbs({
+    email: "anne-marie.dona@etab.fr",
+    userId: "u-dona-biz",
+    label: "Mme Dona",
+  });
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications: withPerso,
+      userId: "auth-dona",
+      userIds: ["auth-dona", "u-dona-biz"],
+      email: "anne-marie.dona@etab.fr",
+    }),
+    true,
+  );
+  // Config ≠ directeur Établissements → le seul rôle direction_lycee ne suffit plus.
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications: withPerso,
+      userId: "autre-id",
+      email: "autre@etab.fr",
+    }),
+    false,
+  );
+});
+
+test("identité directeur : match sur l’un des userIds (auth vs business)", () => {
+  const abs = ogecAbs(null);
+  assert.equal(
+    canManageAbsence(abs, [], {
+      establishments,
+      notifications,
+      userId: "auth-only",
+      userIds: ["auth-only", "u-dona"],
+      email: "autre@etab.fr",
+    }),
+    true,
+  );
+});
+
+test("snapshot défaut lycée : direction_lycee traite malgré e-mail différent", () => {
+  const abs = ogecAbs({
+    email: "dona@etab.fr",
+    userId: "u-dona",
+    label: "Mme Dona",
+  });
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    true,
+  );
+});
+
+test("rattachement nominatif : direction_lycee ne récupère pas le dossier", () => {
+  const abs = ogecAbs({
+    email: "plantec@etab.fr",
+    userId: "u-plantec",
+    label: "Mme Plantec",
+  });
+  assert.equal(
+    canManageAbsence(abs, ["direction_lycee"], {
+      establishments,
+      notifications,
+      userId: "autre-id",
+      email: "autre.compte@etab.fr",
+    }),
+    false,
+  );
+});
+
+test("directrice lycée par e-mail sans rôle : voit et gère le défaut OGEC", () => {
+  const abs = ogecAbs(null);
+  const ctx = {
+    establishments,
+    notifications,
+    userId: "u-dona",
+    email: "dona@etab.fr",
+  };
+  assert.equal(canManageAbsence(abs, [], ctx), true);
+  assert.equal(canViewAbsence(abs, "u-dona", [], ctx), true);
+});
+
+test("prof lycée : directeur nommé par e-mail sans rôle direction_lycee", () => {
+  const abs: AbsenceRecord = {
+    ...ogecAbs(null),
+    data: {
+      scope: "professeur",
+      etablissement: "Lycée",
+      startDate: "2026-09-24",
+      endDate: "2026-09-24",
+      startAt: "",
+      endAt: "",
+      reason: "Formation",
+      details: "",
+    },
+  };
+  const ctx = {
+    establishments,
+    notifications,
+    userId: "u-dona",
+    email: "dona@etab.fr",
+  };
+  assert.equal(canManageAbsence(abs, [], ctx), true);
+  assert.equal(canViewAbsence(abs, "u-dona", [], ctx), true);
+  assert.equal(
+    canManageAbsence(abs, [], { ...ctx, email: "autre@etab.fr", userId: "x" }),
     false,
   );
 });

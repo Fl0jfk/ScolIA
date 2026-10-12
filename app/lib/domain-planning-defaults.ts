@@ -7,136 +7,327 @@ export const DEFAULT_DOMAIN_PLANNING_ACTIVITY_COLORS: Record<string, string> = {
   "Séance 3": "bg-fuchsia-600 text-white",
 };
 
+/** Id du domaine collège historique (renommé librement côté UI, id stable). */
+export const DEFAULT_DOMAIN_ID = "evars";
+
+/** Id du domaine lycée par défaut (programme EVARS septembre 2025). */
+export const DEFAULT_EVARS_LYCEE_DOMAIN_ID = "evars-lycee";
+
 export const DEFAULT_DOMAIN_PLANNING_DOMAINS: DomainPlanningDomain[] = [
   {
-    id: "evars",
-    name: "EVARS",
-    description: "Éducation à la vie affective, relationnelle et à la sexualité",
+    id: DEFAULT_DOMAIN_ID,
+    name: "EVARS collège",
+    description: "Éducation à la vie affective, relationnelle et à la sexualité — collège",
     color: "bg-rose-600 text-white",
+    coordinatorExternalUserIds: [],
+  },
+  {
+    id: DEFAULT_EVARS_LYCEE_DOMAIN_ID,
+    name: "EVARS lycée",
+    description: "Éducation à la vie affective, relationnelle et à la sexualité — lycée",
+    color: "bg-violet-600 text-white",
     coordinatorExternalUserIds: [],
   },
 ];
 
-/** Séances EVARS collège — structure issue du tableau de positionnement. */
+function planningSession(
+  domainId: string,
+  id: string,
+  niveau: DomainPlanningSession["niveau"],
+  seanceNumber: 1 | 2 | 3,
+  theme: string,
+  intervenantLabel: string,
+  intervenantConstraint: DomainPlanningSession["intervenantConstraint"],
+  mixte: boolean,
+): DomainPlanningSession {
+  return {
+    id,
+    domainId,
+    niveau,
+    seanceNumber,
+    theme,
+    intervenantLabel,
+    intervenantConstraint,
+    mixte,
+  };
+}
+
+function collegeSession(
+  id: string,
+  niveau: DomainPlanningSession["niveau"],
+  seanceNumber: 1 | 2 | 3,
+  theme: string,
+  intervenantLabel: string,
+  intervenantConstraint: DomainPlanningSession["intervenantConstraint"],
+  mixte: boolean,
+): DomainPlanningSession {
+  return planningSession(
+    DEFAULT_DOMAIN_ID,
+    id,
+    niveau,
+    seanceNumber,
+    theme,
+    intervenantLabel,
+    intervenantConstraint,
+    mixte,
+  );
+}
+
+/** Séances collège par défaut — structure issue du tableau de positionnement. */
 export const DEFAULT_EVARS_SESSIONS: DomainPlanningSession[] = [
-  {
-    id: "6e-s1",
-    niveau: "6e",
-    seanceNumber: 1,
-    theme: "La puberté et les transformations du corps",
-    intervenantLabel: "Profs d'SVT",
-    intervenantConstraint: "svt_only",
-    mixte: true,
-  },
-  {
-    id: "6e-s2",
-    niveau: "6e",
-    seanceNumber: 2,
-    theme: "Construire des relations (famille, amis, amour)",
-    intervenantLabel: "Association",
-    intervenantConstraint: "fixed_association",
-    mixte: false,
-  },
-  {
-    id: "6e-s3",
-    niveau: "6e",
-    seanceNumber: 3,
-    theme: "Trouver sa place dans la société ; être libre et responsable",
-    intervenantLabel: "Au choix des professeurs",
-    intervenantConstraint: "free",
-    mixte: true,
-  },
-  {
-    id: "5e-s1",
-    niveau: "5e",
-    seanceNumber: 1,
-    theme: "Le sexe biologique et l'orientation sexuelle",
-    intervenantLabel: "Profs d'SVT",
-    intervenantConstraint: "svt_only",
-    mixte: true,
-  },
-  {
-    id: "5e-s2",
-    niveau: "5e",
-    seanceNumber: 2,
-    theme: "Choisir ses relations et comprendre ses préférences",
-    intervenantLabel: "Psychologue / Infirmière",
-    intervenantConstraint: "psy_inf",
-    mixte: false,
-  },
-  {
-    id: "5e-s3",
-    niveau: "5e",
-    seanceNumber: 3,
-    theme: "Vie privée / vie publique, liberté individuelle sur les réseaux sociaux",
-    intervenantLabel: "Au choix des professeurs",
-    intervenantConstraint: "free",
-    mixte: true,
-  },
-  {
-    id: "4e-s1",
-    niveau: "4e",
-    seanceNumber: 1,
-    theme: "La sexualité, une réalité complexe (plaisir, amour, reproduction)",
-    intervenantLabel: "Profs d'SVT",
-    intervenantConstraint: "svt_only",
-    mixte: true,
-  },
-  {
-    id: "4e-s2",
-    niveau: "4e",
-    seanceNumber: 2,
-    theme: "Compréhension critique des relations et santé sexuelle",
-    intervenantLabel: "Association",
-    intervenantConstraint: "fixed_association",
-    mixte: false,
-  },
-  {
-    id: "4e-s3",
-    niveau: "4e",
-    seanceNumber: 3,
-    theme: "Représentations de la sexualité dans l'espace public et égalité",
-    intervenantLabel: "Au choix des professeurs",
-    intervenantConstraint: "free",
-    mixte: true,
-  },
-  {
-    id: "3e-s1",
-    niveau: "3e",
-    seanceNumber: 1,
-    theme: "Liens entre bonheur, émotions et sexualité",
-    intervenantLabel: "Profs d'SVT",
-    intervenantConstraint: "svt_only",
-    mixte: true,
-  },
-  {
-    id: "3e-s2",
-    niveau: "3e",
-    seanceNumber: 2,
-    theme: "Relations réciproques et égalitaires ; repérer danger et vulnérabilité",
-    intervenantLabel: "Psychologue / Infirmière",
-    intervenantConstraint: "psy_inf",
-    mixte: false,
-  },
-  {
-    id: "3e-s3",
-    niveau: "3e",
-    seanceNumber: 3,
-    theme: "La sexualité dans la définition des droits humains",
-    intervenantLabel: "Au choix des professeurs",
-    intervenantConstraint: "free",
-    mixte: true,
-  },
+  collegeSession("6e-s1", "6e", 1, "La puberté et les transformations du corps", "Profs d'SVT", "svt_only", true),
+  collegeSession("6e-s2", "6e", 2, "Construire des relations (famille, amis, amour)", "Association", "fixed_association", false),
+  collegeSession("6e-s3", "6e", 3, "Trouver sa place dans la société ; être libre et responsable", "Au choix des professeurs", "free", true),
+  collegeSession("5e-s1", "5e", 1, "Le sexe biologique et l'orientation sexuelle", "Profs d'SVT", "svt_only", true),
+  collegeSession("5e-s2", "5e", 2, "Choisir ses relations et comprendre ses préférences", "Psychologue / Infirmière", "psy_inf", false),
+  collegeSession("5e-s3", "5e", 3, "Vie privée / vie publique, liberté individuelle sur les réseaux sociaux", "Au choix des professeurs", "free", true),
+  collegeSession("4e-s1", "4e", 1, "La sexualité, une réalité complexe (plaisir, amour, reproduction)", "Profs d'SVT", "svt_only", true),
+  collegeSession("4e-s2", "4e", 2, "Compréhension critique des relations et santé sexuelle", "Association", "fixed_association", false),
+  collegeSession("4e-s3", "4e", 3, "Représentations de la sexualité dans l'espace public et égalité", "Au choix des professeurs", "free", true),
+  collegeSession("3e-s1", "3e", 1, "Liens entre bonheur, émotions et sexualité", "Profs d'SVT", "svt_only", true),
+  collegeSession("3e-s2", "3e", 2, "Relations réciproques et égalitaires ; repérer danger et vulnérabilité", "Psychologue / Infirmière", "psy_inf", false),
+  collegeSession("3e-s3", "3e", 3, "La sexualité dans la définition des droits humains", "Au choix des professeurs", "free", true),
 ];
 
-export const TRANSVERSAL_NIVEAUX = ["6e", "5e", "4e", "3e"] as const;
+function lyceeSession(
+  id: string,
+  niveau: DomainPlanningSession["niveau"],
+  seanceNumber: 1 | 2 | 3,
+  theme: string,
+  intervenantLabel: string,
+  intervenantConstraint: DomainPlanningSession["intervenantConstraint"],
+  mixte: boolean,
+): DomainPlanningSession {
+  return planningSession(
+    DEFAULT_EVARS_LYCEE_DOMAIN_ID,
+    id,
+    niveau,
+    seanceNumber,
+    theme,
+    intervenantLabel,
+    intervenantConstraint,
+    mixte,
+  );
+}
+
+/**
+ * Séances lycée par défaut — thématiques retenues EVARS.
+ * Pas d'association au lycée : toutes les séances sont ouvertes aux professeurs (choix libre).
+ */
+export const DEFAULT_EVARS_LYCEE_SESSIONS: DomainPlanningSession[] = [
+  // Seconde
+  lyceeSession(
+    "2nde-s1",
+    "2nde",
+    1,
+    "Image, estime et confiance en soi",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  lyceeSession(
+    "2nde-s2",
+    "2nde",
+    2,
+    "Reconnaître et comprendre ses émotions",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  lyceeSession(
+    "2nde-s3",
+    "2nde",
+    3,
+    "L'intimité à l'ère des réseaux sociaux",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  // Première
+  lyceeSession(
+    "1ere-s1",
+    "1ere",
+    1,
+    "Plaisir, excès et conduites à risques : faire des choix éclairés",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  lyceeSession(
+    "1ere-s2",
+    "1ere",
+    2,
+    "Savoir dire oui ou non : le consentement",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  lyceeSession(
+    "1ere-s3",
+    "1ere",
+    3,
+    "Accueillir la diversité",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  // Terminale
+  lyceeSession(
+    "tle-s1",
+    "tle",
+    1,
+    "Comprendre les enjeux de la pornographie",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  lyceeSession(
+    "tle-s2",
+    "tle",
+    2,
+    "Vivre une sexualité épanouie ou Développer une relation saine",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+  lyceeSession(
+    "tle-s3",
+    "tle",
+    3,
+    "Ma place dans le monde : oser être soi",
+    "Au choix des professeurs",
+    "free",
+    true,
+  ),
+];
+
+/** Toutes les séances EVARS par défaut (collège + lycée). */
+export const DEFAULT_ALL_EVARS_SESSIONS: DomainPlanningSession[] = [
+  ...DEFAULT_EVARS_SESSIONS,
+  ...DEFAULT_EVARS_LYCEE_SESSIONS,
+];
+
+export const TRANSVERSAL_NIVEAUX = ["6e", "5e", "4e", "3e", "2nde", "1ere", "tle"] as const;
 
 export const TRANSVERSAL_NIVEAU_LABELS: Record<string, string> = {
   "6e": "6ème",
   "5e": "5ème",
   "4e": "4ème",
   "3e": "3ème",
+  "2nde": "2nde",
+  "1ere": "1ère",
+  tle: "Terminale",
 };
+
+/** Préfixes de codes classe (6A, 2B, TA…) pour rattacher une classe à un niveau. */
+const NIVEAU_CLASS_PREFIXES: Record<string, string[]> = {
+  "6e": ["6"],
+  "5e": ["5"],
+  "4e": ["4"],
+  "3e": ["3"],
+  "2nde": ["2"],
+  "1ere": ["1"],
+  tle: ["T"],
+};
+
+export function isTransversalNiveau(value: unknown): value is DomainPlanningSession["niveau"] {
+  return (
+    value === "6e" ||
+    value === "5e" ||
+    value === "4e" ||
+    value === "3e" ||
+    value === "2nde" ||
+    value === "1ere" ||
+    value === "tle"
+  );
+}
+
+/**
+ * Grille lycée 2nde / 1ère / Tle × 3 séances, préremplie (thèmes + choix libre professeurs).
+ */
+export function buildDefaultLyceeSessions(domainId: string): DomainPlanningSession[] {
+  return DEFAULT_EVARS_LYCEE_SESSIONS.map((session) => ({
+    ...session,
+    id: `${domainId}-${session.niveau}-s${session.seanceNumber}`,
+    domainId,
+  }));
+}
+
+/** @deprecated Préférer `buildDefaultLyceeSessions` — alias conservé pour les appels existants. */
+export function buildEmptyLyceeSessions(domainId: string): DomainPlanningSession[] {
+  return buildDefaultLyceeSessions(domainId);
+}
+
+function isLyceeNiveau(niveau: DomainPlanningSession["niveau"]): boolean {
+  return niveau === "2nde" || niveau === "1ere" || niveau === "tle";
+}
+
+/**
+ * Anciennes formulations (flyer mal lu / première version) à remplacer par le programme retenu.
+ * Clé = `niveau:seanceNumber`.
+ */
+const OUTDATED_LYCEE_THEMES_BY_SLOT: Record<string, readonly string[]> = {
+  "1ere:1": ["Plaisir, excès, conduites à risque : faire des choix éclairés"],
+  "1ere:3": ["Ma place dans le monde : oser être soi"],
+  "tle:2": ["Vivre une sexualité épanouie"],
+  "tle:3": ["Être libre d'être soi parmi les autres", "Développer des relations saines"],
+};
+
+/** Contraintes héritées du modèle collège — non applicables au lycée (pas d'association). */
+const LOCKED_LYCEE_CONSTRAINTS = new Set<DomainPlanningSession["intervenantConstraint"]>([
+  "fixed_association",
+  "svt_only",
+  "psy_inf",
+]);
+
+/**
+ * Remplit ou corrige les séances lycée :
+ * - thèmes vides / formulations obsolètes ;
+ * - Association / SVT / psy-inf → choix libre professeurs.
+ */
+export function hydrateEmptySessionThemes(
+  sessions: DomainPlanningSession[],
+): DomainPlanningSession[] {
+  const lyceeBySlot = new Map<string, DomainPlanningSession>(
+    DEFAULT_EVARS_LYCEE_SESSIONS.map((s) => [`${s.niveau}:${s.seanceNumber}`, s]),
+  );
+  return sessions.map((session) => {
+    if (!isLyceeNiveau(session.niveau)) return session;
+    const slotKey = `${session.niveau}:${session.seanceNumber}`;
+    const source = lyceeBySlot.get(slotKey);
+    if (!source) return session;
+    const currentTheme = session.theme.trim();
+    const outdated = OUTDATED_LYCEE_THEMES_BY_SLOT[slotKey] || [];
+    const needsTheme = !currentTheme || outdated.includes(currentTheme);
+    const needsFreeIntervenant = LOCKED_LYCEE_CONSTRAINTS.has(session.intervenantConstraint);
+    if (!needsTheme && !needsFreeIntervenant) return session;
+    return {
+      ...session,
+      theme: needsTheme ? source.theme : session.theme,
+      intervenantLabel: needsFreeIntervenant ? source.intervenantLabel : session.intervenantLabel,
+      intervenantConstraint: needsFreeIntervenant
+        ? source.intervenantConstraint
+        : session.intervenantConstraint,
+      mixte: needsFreeIntervenant ? source.mixte : session.mixte,
+    };
+  });
+}
+
+/** Ajoute les séances lycée défaut si aucune séance 2nde/1ère/Tle n'est encore présente. */
+export function ensureLyceeSessionsPresent(
+  sessions: DomainPlanningSession[],
+): DomainPlanningSession[] {
+  const hasLycee = sessions.some((s) => isLyceeNiveau(s.niveau));
+  return hasLycee ? sessions : [...sessions, ...DEFAULT_EVARS_LYCEE_SESSIONS];
+}
+
+/** Ajoute le domaine EVARS lycée défaut s'il manque alors que le collège est présent. */
+export function ensureLyceeDomainPresent(domains: DomainPlanningDomain[]): DomainPlanningDomain[] {
+  const ids = new Set(domains.map((d) => d.id));
+  if (!ids.has(DEFAULT_DOMAIN_ID) || ids.has(DEFAULT_EVARS_LYCEE_DOMAIN_ID)) return domains;
+  const lycee = DEFAULT_DOMAIN_PLANNING_DOMAINS.find((d) => d.id === DEFAULT_EVARS_LYCEE_DOMAIN_ID);
+  return lycee ? [...domains, lycee] : domains;
+}
 
 /** Pôles réservés à d'autres modules (ex. réservation de salles). */
 const EXCLUDED_CLASSES_POLES = new Set(["MAINTENANCE"]);
@@ -156,10 +347,13 @@ export function classesForTransversalNiveau(
   niveau: string,
   classesByPole: Record<string, string[]>,
 ): string[] {
-  const prefix = niveau.replace(/e$/, "");
+  const prefixes = NIVEAU_CLASS_PREFIXES[niveau] || [niveau.replace(/e$/, "")];
   const all = Object.values(classesByPole).flat();
   return all
-    .filter((c) => c.toUpperCase().startsWith(prefix.toUpperCase()))
+    .filter((c) => {
+      const upper = c.toUpperCase();
+      return prefixes.some((p) => upper.startsWith(p.toUpperCase()));
+    })
     .sort((a, b) => a.localeCompare(b, "fr"));
 }
 

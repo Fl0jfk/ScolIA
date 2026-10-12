@@ -1,15 +1,15 @@
 import type { AbsenceHoursTreatment } from "@/app/lib/absence-hours-treatment";
 import type { AbsencePeriodType } from "@/app/lib/absence-period";
 import type { Establishment, NotificationsConfig } from "@/app/lib/app-config-schemas";
+import { viewerCanValidateAbsence } from "@/app/lib/absences-routing";
 import {
   normalizeOgecValidatorRef,
-  resolveOgecValidatorsForAbsence,
-  viewerMatchesOgecValidators,
   type OgecAbsenceValidatorRef,
 } from "@/app/lib/absences-ogec-validators-shared";
 import {
   directionRolesMatchEstablishmentRef,
   isAnyDirectionRole,
+  matchEstablishment,
 } from "@/app/lib/establishment-catalog";
 import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import { parseParisDateTime, parisDateKey } from "@/app/lib/paris-time";
@@ -169,10 +169,25 @@ export function canChooseDeclarationScope(roles: string[]) {
 
 export type DirectionAuthCtx = {
   establishments?: Establishment[];
+  /** Identifiant principal (souvent businessUserId / external). */
   userId?: string | null;
+  /**
+   * Tous les ids connus du viewer (auth Better-Auth + business / mapping).
+   * La supervision et les fiches directeur mélangent souvent les deux.
+   */
+  userIds?: Array<string | null | undefined>;
   email?: string | null;
   notifications?: NotificationsConfig | null;
 };
+
+function viewerIdSet(ctx?: Pick<DirectionAuthCtx, "userId" | "userIds"> | null): Set<string> {
+  const ids = new Set<string>();
+  for (const raw of [ctx?.userId, ...(ctx?.userIds ?? [])]) {
+    const s = String(raw || "").trim();
+    if (s) ids.add(s);
+  }
+  return ids;
+}
 
 export function getRoleFlags(roles: string[]) {
   const spaced = roles.map((r) => normRoleSpaced(r));
@@ -323,6 +338,31 @@ export function isEducationSurveillanceStaff(roles: string[] | null | undefined)
   });
 }
 
+/** Directeur nommé d’un site (e-mail ou external id), indépendamment du rôle chargé. */
+function viewerIsEstablishmentDirectorIdentity(
+  etabRef: string | null | undefined,
+  establishments: Establishment[],
+  viewer: {
+    email?: string | null;
+    userId?: string | null;
+    userIds?: Array<string | null | undefined>;
+  },
+): boolean {
+  const est = matchEstablishment(establishments, etabRef);
+  if (!est) return false;
+  const email = String(viewer.email || "")
+    .trim()
+    .toLowerCase();
+  const directorEmail = String(est.directorEmail || "")
+    .trim()
+    .toLowerCase();
+  if (email && directorEmail && email === directorEmail) return true;
+  const directorId = String(est.directorExternalUserId || "").trim();
+  if (!directorId) return false;
+  const ids = viewerIdSet(viewer);
+  return ids.has(directorId);
+}
+
 export function canViewAbsence(
   abs: AbsenceRecord,
   viewerUserId: string,
@@ -330,45 +370,50 @@ export function canViewAbsence(
   ctx?: DirectionAuthCtx,
 ) {
   if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
-  if (abs.createdBy.userId === viewerUserId) return true;
+  const ids = viewerIdSet({ userId: viewerUserId, userIds: ctx?.userIds });
+  if (ids.has(String(abs.createdBy.userId || "").trim())) return true;
   const flags = getRoleFlags(roles);
   const scope = resolveAbsenceScope(abs);
+  const viewCtx: DirectionAuthCtx = {
+    ...ctx,
+    userId: ctx?.userId || viewerUserId,
+    userIds: [...(ctx?.userIds ?? []), viewerUserId],
+  };
   if (scope === "ogec") {
-    return canViewOgecAbsences(roles);
+    if (canViewOgecAbsences(roles)) return true;
+    return canManageAbsence(abs, roles, viewCtx);
   }
   if (flags.isAdministratif || flags.isEducation) return true;
-  return directionRolesMatchEstablishmentRef(
-    roles,
+  if (
+    directionRolesMatchEstablishmentRef(
+      roles,
+      abs.data.etablissement,
+      ctx?.establishments,
+      viewerUserId,
+    )
+  ) {
+    return true;
+  }
+  return viewerIsEstablishmentDirectorIdentity(
     abs.data.etablissement,
-    ctx?.establishments,
-    viewerUserId,
+    ctx?.establishments || [],
+    { email: ctx?.email, userId: viewerUserId, userIds: ctx?.userIds },
   );
 }
 
+/**
+ * Peut valider / prendre acte (file Direction).
+ * Routage 100 % paramétrable : voir `absences-routing.ts`.
+ */
 export function canManageAbsence(abs: AbsenceRecord, roles: string[], ctx?: DirectionAuthCtx) {
   if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
-  const scope = resolveAbsenceScope(abs);
-  if (scope === "ogec") {
-    const validators = resolveOgecValidatorsForAbsence(
-      abs,
-      ctx?.notifications,
-      ctx?.establishments || [],
-    );
-    if (validators.length === 0) {
-      // Aucun destinataire configuré : repli historique = toute direction.
-      return getRoleFlags(roles).isDirection;
-    }
-    return viewerMatchesOgecValidators(validators, {
-      email: ctx?.email,
-      userId: ctx?.userId,
-    });
-  }
-  return directionRolesMatchEstablishmentRef(
-    roles,
-    abs.data.etablissement,
-    ctx?.establishments,
-    ctx?.userId,
-  );
+  return viewerCanValidateAbsence(abs, roles, {
+    establishments: ctx?.establishments || [],
+    notifications: ctx?.notifications,
+    email: ctx?.email,
+    userId: ctx?.userId,
+    userIds: [...(ctx?.userIds ?? []), ctx?.userId],
+  });
 }
 
 /** File « À traiter » : décision en attente, hors saisie admin, pas sa propre déclaration. */
@@ -378,10 +423,15 @@ export function isAbsencePendingForManager(
   roles: string[],
   ctx?: DirectionAuthCtx,
 ): boolean {
-  if (abs.createdBy.userId === viewerUserId) return false;
+  const ids = viewerIdSet({ userId: viewerUserId, userIds: ctx?.userIds });
+  if (ids.has(String(abs.createdBy.userId || "").trim())) return false;
   if (abs.managerDecision !== "EN_ATTENTE" || abs.workflowStatus === "CLOTUREE") return false;
   if (abs.source === "admin_manual" || abs.source === "admin_pdf") return false;
-  return canManageAbsence(abs, roles, { ...ctx, userId: viewerUserId });
+  return canManageAbsence(abs, roles, {
+    ...ctx,
+    userId: viewerUserId,
+    userIds: [...(ctx?.userIds ?? []), viewerUserId],
+  });
 }
 
 /**

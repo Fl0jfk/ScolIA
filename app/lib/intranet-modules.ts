@@ -292,7 +292,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/domain-planning",
       external: false,
-      description: "Positionnements EVARS, séances et validation des intervenants — comme une réservation de salle.",
+      description: "Positionnements, séances et validation des intervenants par domaine.",
     },
   },
   {
@@ -392,6 +392,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/etablissement/evenements",
       "/api/toolbox",
       "/api/invitation/pages",
+      "/api/invitation/lookup",
+      "/api/invitation/register",
     ],
     excludePrefixes: ["/api/toolbox/class-allocation"],
     allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),

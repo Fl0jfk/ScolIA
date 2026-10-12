@@ -2,7 +2,10 @@
 
 import {
   diplomaLabel,
+  formatInvitationFirstName,
+  formatInvitationLastName,
   situationStatusLabel,
+  type InvitationEligibleRecord,
   type InvitationRsvpRecord,
 } from "@/app/lib/invitation-types";
 
@@ -47,8 +50,8 @@ export function buildInvitationRsvpExportCsv(rsvps: InvitationRsvpRecord[]): str
   for (const r of rsvps) {
     lines.push(
       [
-        csvCell(r.eleveFirstName),
-        csvCell(r.eleveLastName),
+        csvCell(formatInvitationFirstName(r.eleveFirstName)),
+        csvCell(formatInvitationLastName(r.eleveLastName)),
         csvCell(r.birthDate || ""),
         csvCell(r.response === "oui" ? "Oui" : "Non"),
         csvCell(r.response === "oui" ? r.presentCount : 0),
@@ -65,10 +68,33 @@ export function buildInvitationRsvpExportCsv(rsvps: InvitationRsvpRecord[]): str
   return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
+export function buildInvitationPendingExportCsv(rows: InvitationEligibleRecord[]): string {
+  const lines = ["prenom_eleve;nom_eleve;date_naissance;diplome"];
+  for (const r of rows) {
+    lines.push(
+      [
+        csvCell(formatInvitationFirstName(r.eleveFirstName)),
+        csvCell(formatInvitationLastName(r.eleveLastName)),
+        csvCell(r.birthDate || ""),
+        csvCell(diplomaLabel(r.diploma) || ""),
+      ].join(";"),
+    );
+  }
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
+}
+
 export function invitationExportFilename(slug: string, now = new Date()): string {
   const stamp = now
     .toLocaleDateString("fr-CA", { timeZone: "Europe/Paris" })
     .replace(/-/g, "");
   const safe = slug.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || "invitation";
   return `invitation-${safe}-${stamp}.csv`;
+}
+
+export function invitationPendingExportFilename(slug: string, now = new Date()): string {
+  const stamp = now
+    .toLocaleDateString("fr-CA", { timeZone: "Europe/Paris" })
+    .replace(/-/g, "");
+  const safe = slug.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || "invitation";
+  return `invitation-restants-${safe}-${stamp}.csv`;
 }

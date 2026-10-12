@@ -124,6 +124,25 @@ export function resetValkeyMemoryCacheForTests(): void {
   scopedMemoryGeneration.clear();
 }
 
+/**
+ * Met à jour une entrée du cache mémoire scopé sans relancer le loader (write-through Valkey si configuré).
+ * Retourne false si la clé n’est pas scopée ou si aucune valeur n’est en mémoire.
+ */
+export function valkeyPatchScopedCache<T>(
+  key: string,
+  ttlSeconds: number,
+  patch: (current: T) => T,
+): boolean {
+  if (!isScopedMemoryCacheKey(key)) return false;
+  const current = scopedMemoryGet<T>(key);
+  if (current === null || current === undefined) return false;
+  const next = patch(current);
+  const gen = getScopedGeneration(key);
+  scopedMemorySet(key, next, ttlSeconds, gen);
+  void valkeySetJson(key, next, ttlSeconds);
+  return true;
+}
+
 async function runScopedCachedLoader<T>(
   key: string,
   ttlSeconds: number,

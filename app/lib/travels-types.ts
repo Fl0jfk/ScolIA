@@ -78,6 +78,20 @@ export type TravelsParticipantEleve = {
   panierRepas?: boolean;
 };
 
+/**
+ * Adulte avec panier repas (« qui mange ») — accompagnateur nommé ou créneau « autre »
+ * (nom optionnel / générique si pas encore connu).
+ * La présence dans la liste = 1 panier attribué.
+ */
+export type TravelsPanierRepasAdulte = {
+  id: string;
+  /** Affichage : nom réel, ou « Accompagnateur autre » si inconnu. */
+  name: string;
+  userId?: string;
+  email?: string;
+  source: "accompagnateur" | "autre";
+};
+
 export type TravelsParentComLog = {
   id: string;
   sentAt: string;
@@ -230,6 +244,11 @@ export type TravelsTripData = {
   listeElevesConfirmedAt?: string;
   listeElevesConfirmedBy?: { userId: string; email?: string; name?: string };
   listeEnvoyeeTransporteurAt?: string;
+  /**
+   * Adultes (accompagnateurs / autres) qui mangent — paniers hors liste élèves.
+   * Cumulé avec `participantEleves[].panierRepas` pour atteindre le total commandé.
+   */
+  panierRepasAdultes?: TravelsPanierRepasAdulte[];
   /** Horodatage envoi de la liste nominative « qui a un panier repas ». */
   panierRepasListSentAt?: string;
   panierRepasListSnapshot?: {
@@ -237,6 +256,7 @@ export type TravelsTripData = {
     count: number;
     mealsOrdered: number;
     eleves: Array<{ ine: string; nom: string; prenom: string; classe?: string }>;
+    adultes?: Array<{ id: string; name: string; source: "accompagnateur" | "autre" }>;
   };
   /** Historique des envois com’ parents (métadonnées, pas les photos). */
   parentComLogs?: TravelsParentComLog[];
@@ -290,7 +310,16 @@ export type TravelsTrip = {
   data: TravelsTripData;
   receivedDevis?: Record<string, unknown>[];
   history?: TravelsHistoryEntry[];
-  messages?: Array<{ id: string; user: string; role: string; text: string; date: string }>;
+  messages?: Array<{
+    id: string;
+    user: string;
+    role: string;
+    text: string;
+    date: string;
+    authorUserId?: string;
+  }>;
+  /** Messages internes non lus pour l’utilisateur courant (direction / compta / créateur). */
+  unreadInternalCount?: number;
 };
 
 export type TravelsHubTab =

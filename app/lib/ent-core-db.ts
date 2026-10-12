@@ -177,6 +177,15 @@ export async function resolveCurrentEtablissementId(): Promise<string | null> {
     return testEtabId;
   }
   if (!isEntCoreDbEnabled()) return null;
+  // Scripts locaux (seed / smoke) hors requête HTTP — jamais en prod conteneur.
+  const scriptEtab = process.env.SCOLA_SCRIPT_ETABLISSEMENT_ID?.trim();
+  if (
+    scriptEtab &&
+    process.env.SCOLA_ALLOW_SCRIPT_ETAB === "1" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    return scriptEtab;
+  }
   try {
     const { getTenant } = await import("@/app/lib/tenant-context");
     const { ensureEtablissementFromTenant } = await import("@/app/lib/etablissement-db");

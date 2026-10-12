@@ -229,7 +229,7 @@ async function loadLightPersonalItems(
           pending.length === 1
             ? "1 absence RH en attente de votre décision"
             : `${pending.length} absences RH en attente de votre décision`,
-        href: "/absences",
+        href: "/rh?tab=dashboard&section=absences&view=a-traiter",
         count: pending.length,
         moduleId: "absences",
       });

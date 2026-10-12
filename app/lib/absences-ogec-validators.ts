@@ -26,6 +26,8 @@ export {
   normalizeOgecValidatorRef,
   resolveOgecValidatorsForAbsence,
   viewerMatchesOgecValidators,
+  isDefaultLyceeOgecValidatorQueue,
+  isGlobalDefaultOgecValidatorQueue,
   defaultOgecValidatorsFromConfig,
   lyceeEstablishment,
   type OgecAbsenceValidatorRef,

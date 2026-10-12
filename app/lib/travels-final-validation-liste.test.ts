@@ -104,4 +104,24 @@ describe("qui mange si cuisine active", () => {
     assert.equal(isCuisineWhoEatsComplete(data), true);
     assert.equal(isTripListeReadyForFinalisation(data), true);
   });
+
+  it("accepte un adulte pour compléter les paniers", () => {
+    const details = {
+      active: true,
+      daysSelection: { lundi: true },
+      orders: { lundi: { picnicTotal: "2" } },
+    };
+    const data = {
+      piqueNiqueDetails: details as never,
+      listeElevesStatus: "confirmed" as const,
+      participantEleves: [
+        { ine: "1", nom: "A", prenom: "B", droitImageOk: true, panierRepas: true },
+      ],
+      panierRepasAdultes: [
+        { id: "acc-1", name: "Mme Dupont", source: "accompagnateur" as const },
+      ],
+    };
+    assert.equal(isCuisineWhoEatsComplete(data), true);
+    assert.equal(isTripListeReadyForFinalisation(data), true);
+  });
 });

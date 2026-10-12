@@ -40,6 +40,9 @@ export function defaultNotifications(): NotificationsConfig {
     travelsCompta: [],
     absencesNotifyOgecCompta: [],
     absencesValidatorsOgec: [],
+    absencesValidatorsProfEcole: [],
+    absencesValidatorsProfCollege: [],
+    absencesValidatorsProfLycee: [],
     absencesNotifySurveillanceResponsables: [],
   };
 }

@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
-import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useAppUser, useSessionUser } from "@/app/hooks/useAppUser";
 import { useRouter, useSearchParams } from "next/navigation";
 import AbsencesCalendar from "@/app/components/absences/AbsencesCalendar";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -69,6 +69,7 @@ import {
 } from "@/app/lib/absences-page-model";
 import AbsenceMakeupSlotsEditor from "@/app/components/absences/AbsenceMakeupSlotsEditor";
 import { AbsenceInternalThreadPanel } from "@/app/components/absences/AbsenceInternalThreadPanel";
+import AbsenceSuiviBlock from "@/app/components/absences/AbsenceSuiviBlock";
 
 const AbsencesDeclareOther = dynamic(
   () => import("@/app/components/absences/AbsencesDeclareOther"),
@@ -93,8 +94,16 @@ export default function AbsencesPageClient({
   embeddedInRh?: boolean;
 } = {}) {
   const { user, isLoaded } = useSessionUser();
+  const { user: appUser } = useAppUser();
   const { data: appCtx } = useAppContext();
   const establishments = appCtx?.establishments ?? [];
+  const viewerUserIds = useMemo(
+    () =>
+      [appUser?.businessUserId, appUser?.id, appUser?.externalUserId, user?.id].filter(
+        (id): id is string => Boolean(id && String(id).trim()),
+      ),
+    [appUser?.businessUserId, appUser?.id, appUser?.externalUserId, user?.id],
+  );
   const [items, setItems] = useState<AbsenceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -152,6 +161,17 @@ export default function AbsencesPageClient({
       roles,
     },
     processorNotifications,
+    establishments,
+  );
+  const directionAuthCtx = useMemo(
+    () => ({
+      establishments,
+      userId: user?.id,
+      userIds: viewerUserIds,
+      email: user?.primaryEmailAddress?.emailAddress,
+      notifications: processorNotifications,
+    }),
+    [establishments, user?.id, viewerUserIds, user?.primaryEmailAddress?.emailAddress, processorNotifications],
   );
 
   const subjectRoles = useMemo(() => {
@@ -282,6 +302,9 @@ export default function AbsencesPageClient({
             absencesNotifyProfLycee?: { email: string; userId?: string } | null;
             absencesNotifyOgecCompta?: string[];
             absencesValidatorsOgec?: Array<{ email: string; userId?: string; label?: string }>;
+            absencesValidatorsProfEcole?: Array<{ email: string; userId?: string; label?: string }>;
+            absencesValidatorsProfCollege?: Array<{ email: string; userId?: string; label?: string }>;
+            absencesValidatorsProfLycee?: Array<{ email: string; userId?: string; label?: string }>;
           };
         } | null;
         if (!res.ok || cancelled || !data) return;
@@ -294,6 +317,9 @@ export default function AbsencesPageClient({
             absencesNotifyProfCollege: data.processors.absencesNotifyProfCollege ?? undefined,
             absencesNotifyProfLycee: data.processors.absencesNotifyProfLycee ?? undefined,
             absencesValidatorsOgec: data.processors.absencesValidatorsOgec ?? [],
+            absencesValidatorsProfEcole: data.processors.absencesValidatorsProfEcole ?? [],
+            absencesValidatorsProfCollege: data.processors.absencesValidatorsProfCollege ?? [],
+            absencesValidatorsProfLycee: data.processors.absencesValidatorsProfLycee ?? [],
           });
         }
       } catch {
@@ -444,12 +470,7 @@ export default function AbsencesPageClient({
     }
   };
   const canManageItem = (item: AbsenceItem) =>
-    canManageAbsence(asRecord(item), roles, {
-      establishments,
-      userId: user?.id,
-      email: user?.primaryEmailAddress?.emailAddress,
-      notifications: processorNotifications,
-    });
+    canManageAbsence(asRecord(item), roles, directionAuthCtx);
 
   const canUseAbsenceThread = (item: AbsenceItem) => {
     const isOwner =
@@ -825,15 +846,15 @@ export default function AbsencesPageClient({
     () =>
       sorted
         .filter((i) =>
-          isAbsencePendingForManager(i as unknown as AbsenceRecord, user?.id || "", roles, {
-            establishments,
-            userId: user?.id,
-            email: user?.primaryEmailAddress?.emailAddress,
-            notifications: processorNotifications,
-          }),
+          isAbsencePendingForManager(
+            i as unknown as AbsenceRecord,
+            user?.id || "",
+            roles,
+            directionAuthCtx,
+          ),
         )
         .sort((a, b) => compareAbsenceRecordsAlphabetically(asRecord(a), asRecord(b))),
-    [sorted, user?.id, user?.primaryEmailAddress?.emailAddress, roles, establishments, processorNotifications],
+    [sorted, user?.id, roles, directionAuthCtx],
   );
   const adminQueue = useMemo(
     () =>
@@ -863,7 +884,7 @@ export default function AbsencesPageClient({
   const tabs = [
     { id: "calendrier", label: "Calendrier", show: showCalendar },
     { id: "se-declarer", label: "Demande d'autorisation", show: true },
-    { id: "a-traiter", label: "Direction", show: canTreat },
+    { id: "a-traiter", label: "Absences à valider", show: canTreat },
     { id: "traitement", label: "Traitement RH / rectorat", show: showTraitementTab },
     { id: "parametrage", label: "Paramétrage", show: canConfigureProcessors },
   ].filter((t) => t.show);
@@ -1303,6 +1324,13 @@ export default function AbsencesPageClient({
                   <p className="text-sm text-indigo-700 mt-1 font-semibold">
                     Décision direction : {formatAbsenceHoursTreatment(item.hoursTreatment)}
                   </p>
+                ) : null}
+                {itemDecision(item) === "VALIDEE" ? (
+                  <AbsenceSuiviBlock
+                    item={asRecord(item)}
+                    notifications={processorNotifications}
+                    establishments={establishments}
+                  />
                 ) : null}
                 {needsMakeupSlotsFromStaff(item) &&
                 (item.createdBy.userId === user?.id ||
@@ -1808,6 +1836,12 @@ export default function AbsencesPageClient({
                     {formatAbsenceHoursTreatment(item.hoursTreatment)}
                   </p>
                 ) : null}
+                <AbsenceSuiviBlock
+                  item={asRecord(item)}
+                  notifications={processorNotifications}
+                  establishments={establishments}
+                  showProcessorsAlways
+                />
                 {item.staffPreferredTreatment ? (
                   <p className="text-sm text-slate-600 mt-1">
                     <span className="font-bold">Préférence du déclarant : </span>

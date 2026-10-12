@@ -527,23 +527,8 @@ export function computeComptaSheetDerived(
   const coutPrevisionnelParEleve = perStudentEuroCeil(montantCibleFacturation, nb);
   const nbFactures = sheet.nbElevesFactures ?? (nb > 0 ? nb : null);
 
-  let recettesEleves: number | null;
-  if (recettesFigees && sheet.prixParEleveAnnonce != null && nbFactures != null && nbFactures > 0) {
-    recettesEleves = Math.round(sheet.prixParEleveAnnonce * nbFactures * 100) / 100;
-  } else {
-    recettesEleves = montantCibleFacturation;
-  }
-
-  const facturations = buildComptaFacturation(sheet, busAmount, montantCibleFacturation);
-
   const totalAidesIndividuelles = sheet.aidesIndividuelles.reduce((sum, a) => sum + (a.amount ?? 0), 0);
   const totalSubventions = recettesLignes.reduce((sum, line) => sum + (line?.amount ?? 0), 0);
-
-  const recettesSum = (recettesEleves ?? 0) + totalSubventions;
-  const totalRecettes =
-    recettesEleves != null || totalSubventions > 0 || depensesTotalRounded != null
-      ? Math.round(recettesSum * 100) / 100
-      : null;
 
   const prixParEleveAvantMargeRisque =
     nb > 0 && depensesTotalRounded != null
@@ -557,9 +542,31 @@ export function computeComptaSheetDerived(
         ? Math.ceil(prixParEleveAvantMargeRisque)
         : null;
 
+  // Recettes élèves = prix facturé aux familles × effectif.
+  // Le prix à l'euro près (ceil) produit un surplus d'arrondi en plus de la marge :
+  // on ne doit PAS utiliser le budget exact (dépenses + marge), sinon l'excédent
+  // ignore cet arrondi (ex. 14,70 € → 15 € × 57 = 855, pas 837,90).
+  let recettesEleves: number | null;
+  if (recettesFigees && sheet.prixParEleveAnnonce != null && nbFactures != null && nbFactures > 0) {
+    recettesEleves = Math.round(sheet.prixParEleveAnnonce * nbFactures * 100) / 100;
+  } else if (prixParEleveAvecSubventions != null && nb > 0) {
+    recettesEleves = Math.round(prixParEleveAvecSubventions * nb * 100) / 100;
+  } else {
+    recettesEleves = montantCibleFacturation;
+  }
+
+  const facturations = buildComptaFacturation(sheet, busAmount, recettesEleves);
+
+  const recettesSum = (recettesEleves ?? 0) + totalSubventions;
+  const totalRecettes =
+    recettesEleves != null || totalSubventions > 0 || depensesTotalRounded != null
+      ? Math.round(recettesSum * 100) / 100
+      : null;
+
   // Après annonce aux familles, la marge est déjà intégrée dans le prix (donc dans
   // les recettes). L'excédent/déficit compare recettes encaissées et dépenses réelles :
-  // la marge non consommée apparaît ainsi en excédent (et non soustraite une 2ᵉ fois).
+  // la marge non consommée + le surplus d'arrondi à l'euro apparaissent en excédent
+  // (et la marge n'est pas soustraite une 2ᵉ fois).
   const excedentOuDeficit =
     depensesTotalRounded != null
       ? Math.round((recettesSum - depensesTotalRounded) * 100) / 100

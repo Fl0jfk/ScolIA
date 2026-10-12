@@ -47,6 +47,7 @@ export * from "./schema-socle-faits";
 export * from "./schema-famille-messaging";
 export * from "./schema-scolia-chat";
 export * from "./schema-travel-image-catalog";
+export * from "./schema-sst-registre";
 
 /** Utilisateur Better-Auth (multi-tenant via etablissement_id). */
 export const user = pgTable(

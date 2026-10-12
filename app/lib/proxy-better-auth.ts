@@ -22,6 +22,11 @@ export type BetterAuthProxyState = {
   userId: string;
   authUserId: string;
   email: string;
+  /** Prénom / nom / name Better-Auth — nécessaires au snapshot (fil séjours, historique…). */
+  firstName?: string | null;
+  lastName?: string | null;
+  name?: string | null;
+  imageUrl?: string | null;
   /** Établissement du hostname courant (rôles scopés). */
   etablissementId: string | null;
   /** Établissement « maison » sur la ligne user (legacy / primaire). */
@@ -150,10 +155,20 @@ export async function resolveBetterAuthProxyState(
     const requiresTwoFactorSetup =
       mfaRequired && !mfaSatisfied && !passkeyCheckFailed;
 
+    const sessionUser = u as typeof u & {
+      firstName?: string | null;
+      lastName?: string | null;
+      name?: string | null;
+      image?: string | null;
+    };
     const state: BetterAuthProxyState = {
       userId: businessUserId,
       authUserId: u.id,
       email: String(u.email || row?.email || "").trim(),
+      firstName: row?.firstName ?? sessionUser.firstName ?? null,
+      lastName: row?.lastName ?? sessionUser.lastName ?? null,
+      name: row?.name ?? sessionUser.name ?? null,
+      imageUrl: row?.image ?? sessionUser.image ?? null,
       etablissementId: activeEtablissementId,
       homeEtablissementId,
       roles,
@@ -218,6 +233,10 @@ export async function resolveBetterAuthProxyStateByUserId(
     userId: row.externalUserId?.trim() || row.id,
     authUserId: row.id,
     email: String(row.email || "").trim(),
+    firstName: row.firstName ?? null,
+    lastName: row.lastName ?? null,
+    name: row.name ?? null,
+    imageUrl: row.image ?? null,
     etablissementId: row.etablissementId,
     homeEtablissementId: row.etablissementId,
     roles,

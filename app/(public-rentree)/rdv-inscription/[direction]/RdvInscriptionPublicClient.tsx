@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 import { parisDateKey, parseParisDateTime } from "@/app/lib/paris-time";
+import { shouldUseHomeEtablissementAsOrigine } from "@/app/lib/rdv-inscription-match";
 import { RDV_BOOK_CONFIRM_PHRASE } from "@/app/lib/rdv-inscription-types";
 import {
   RDV_INSCRIPTION_REGIME_OPTIONS,
@@ -48,7 +49,14 @@ type MatchCandidate = {
 };
 
 type MatchChoice =
-  | { kind: "eleve"; id: string; label: string; parents: MatchParent[] }
+  | {
+      kind: "eleve";
+      id: string;
+      label: string;
+      parents: MatchParent[];
+      /** Statut dossier : seul `inscrit` autorise le raccourci « déjà chez nous ». */
+      status: string;
+    }
   | { kind: "create" }
   | null;
 
@@ -270,6 +278,13 @@ export default function RdvInscriptionPublicClient({
   );
 
   const matchReady = matchChoice?.kind === "eleve";
+  /** Raccourci « déjà scolarisé ici » : uniquement pour une vraie réinscription. */
+  const showHomeOrigineShortcut = Boolean(
+    matchReady &&
+      matchChoice?.kind === "eleve" &&
+      shouldUseHomeEtablissementAsOrigine(matchChoice.status) &&
+      homeEtablissement,
+  );
   const hasExisting = existingBookings.length > 0;
 
   const refreshSlots = useCallback(async () => {
@@ -489,12 +504,13 @@ export default function RdvInscriptionPublicClient({
       id: c.id,
       label: `${c.prenom} ${c.nom}${c.classe ? ` (${c.classe})` : ""}`,
       parents: c.parents || [],
+      status: c.status || "preinscrit",
     });
     setStudentFirstName(c.prenom);
     setStudentLastName(c.nom);
     // Réinscription réelle uniquement : élève déjà « inscrit » chez nous.
     // Les préinscrits (souvent externes) doivent choisir l’établissement d’origine.
-    if (c.status === "inscrit" && homeEtablissement) {
+    if (shouldUseHomeEtablissementAsOrigine(c.status) && homeEtablissement) {
       setOrigineSelected(homeEtablissement);
       setOrigineResults([]);
     } else {
@@ -1305,7 +1321,15 @@ export default function RdvInscriptionPublicClient({
                   </li>
                 </ol>
               </div>
-              {homeEtablissement ? (
+              {matchReady &&
+              matchChoice?.kind === "eleve" &&
+              !shouldUseHomeEtablissementAsOrigine(matchChoice.status) ? (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                  Élève en préinscription : indiquez l’école / collège{" "}
+                  <strong>actuel</strong> (établissement d’où il vient) — pas le nôtre.
+                </p>
+              ) : null}
+              {showHomeOrigineShortcut && homeEtablissement ? (
                 <div className="mt-3">
                   <button
                     type="button"

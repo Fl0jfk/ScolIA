@@ -21,6 +21,7 @@ type Props = {
   vis: EstablishmentVisual;
   canOpenTrip: boolean;
   index?: number;
+  unreadInternalCount?: number;
   onOpen: () => void;
   formatDate: (trip: TravelsTrip, field: "created" | "travel") => string;
 };
@@ -35,6 +36,7 @@ export default function TravelsTripBentoCard({
   vis,
   canOpenTrip,
   index = 0,
+  unreadInternalCount = 0,
   onOpen,
   formatDate,
 }: Props) {
@@ -106,6 +108,12 @@ export default function TravelsTripBentoCard({
           {isPast ? (
             <span className="rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur-sm">
               Terminée
+            </span>
+          ) : null}
+          {unreadInternalCount > 0 ? (
+            <span className="rounded-full bg-[#FF3B30] px-2.5 py-1 text-[11px] font-bold text-white shadow-sm">
+              {unreadInternalCount > 9 ? "9+" : unreadInternalCount} message
+              {unreadInternalCount > 1 ? "s" : ""}
             </span>
           ) : null}
           {seriesLabel ? (

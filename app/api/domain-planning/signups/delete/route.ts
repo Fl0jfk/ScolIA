@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getDomainPlanningUserDisplay, isDomainCoordinator, isEvarsCoordinator } from "@/app/lib/domain-planning-auth";
-import { loadSignups, saveSignups } from "@/app/lib/domain-planning-storage";
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { getDomainPlanningUserDisplay, isDomainCoordinator } from "@/app/lib/domain-planning-auth";
+import { findSessionById, loadSignups, saveSignups } from "@/app/lib/domain-planning-storage";
+import { requireAuth, isIntranetAdmin } from "@/app/lib/intranet-auth";
 
 export async function POST(req: Request) {
   const gate = await requireAuth();
@@ -16,7 +16,10 @@ export async function POST(req: Request) {
   const target = signups.find((s) => s.id === signupId);
   if (!target) return NextResponse.json({ error: "Positionnement introuvable." }, { status: 404 });
 
-  const isCoordinator = await isEvarsCoordinator(authUser.userId);
+  const session = await findSessionById(target.sessionId);
+  const isCoordinator =
+    (await isIntranetAdmin()) ||
+    (session ? await isDomainCoordinator(authUser.userId, session.domainId) : false);
   const isOwner = target.userId === authUser.userId;
 
   if (!isCoordinator && !isOwner) {

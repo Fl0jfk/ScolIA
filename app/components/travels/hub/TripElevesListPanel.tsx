@@ -7,15 +7,27 @@ import {
   elevesListExcelFilename,
 } from "@/app/lib/travels-eleves-excel";
 import {
+  accompagnateurPanierKey,
+  accompagnateurPanierListKey,
   applyParticipantElevesToTripData,
   compareParticipantsByClasseThenName,
-  countPanierRepasAssigned,
+  countPanierRepasTotalAssigned,
   cuisineWhoEatsMissingMessage,
   eleveParticipantKey,
   isCuisineWhoEatsComplete,
+  listOrphanPanierRepasAccompagnateurs,
+  newPanierRepasAdulteAutreId,
+  normalizePanierRepasAutreNameOnBlur,
+  PANIER_REPAS_AUTRE_DEFAULT_NAME,
+  panierRepasAdulteMatchesEscort,
+  panierRepasAutreNameForEdit,
   parentEmailCoverage,
+  sanitizePanierRepasAdultes,
   toParticipantEleve,
 } from "@/app/lib/travels-eleves-list";
+import { dash } from "@/app/lib/dashboard-brand";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import { parseAccompagnateursFromTrip } from "@/app/lib/travels-accompagnateurs";
 import {
   calendarHasDepotAndRecuperation,
   defaultParentCalendarFromTrip,
@@ -26,6 +38,7 @@ import { emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-fo
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import type {
   TravelsCalendarPoint,
+  TravelsPanierRepasAdulte,
   TravelsParentCalendar,
   TravelsParticipantEleve,
   TravelsTrip,
@@ -67,6 +80,9 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [droitByKey, setDroitByKey] = useState<Record<string, boolean>>({});
   const [panierByKey, setPanierByKey] = useState<Record<string, boolean>>({});
+  /** Adultes / accompagnateurs qui mangent (1 entrée = 1 panier). */
+  const [panierAdultes, setPanierAdultes] = useState<TravelsPanierRepasAdulte[]>([]);
+  const [panierNotice, setPanierNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "confirm" | "panier" | null>(null);
   const [classFilter, setClassFilter] = useState("");
   const [calendar, setCalendar] = useState<TravelsParentCalendar>(() =>
@@ -167,8 +183,23 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
     }
     setDroitByKey(droits);
     setPanierByKey(paniers);
+    setPanierAdultes(sanitizePanierRepasAdultes(trip.data.panierRepasAdultes));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from trip only
-  }, [trip.id, trip.data.participantEleves, trip.data.listeElevesStatus]);
+  }, [
+    trip.id,
+    trip.data.participantEleves,
+    trip.data.panierRepasAdultes,
+    trip.data.listeElevesStatus,
+  ]);
+
+  const tripAccompagnateurs = useMemo(
+    () =>
+      parseAccompagnateursFromTrip({
+        accompagnateurs: trip.data.accompagnateurs,
+        nomsAccompagnateurs: trip.data.nomsAccompagnateurs,
+      }),
+    [trip.data.accompagnateurs, trip.data.nomsAccompagnateurs],
+  );
 
   const elevesByKey = useMemo(() => {
     const map = new Map<string, EleveConfig>();
@@ -278,10 +309,26 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
   ]);
 
   const panierAssigned = useMemo(
-    () => countPanierRepasAssigned(buildParticipants()),
-    [buildParticipants],
+    () => countPanierRepasTotalAssigned(buildParticipants(), panierAdultes),
+    [buildParticipants, panierAdultes],
   );
   const panierRemaining = Math.max(0, mealsOrdered - panierAssigned);
+
+  const panierAdultesAutres = useMemo(
+    () => panierAdultes.filter((a) => a.source === "autre"),
+    [panierAdultes],
+  );
+
+  const panierAdultesOrphans = useMemo(
+    () => listOrphanPanierRepasAccompagnateurs(panierAdultes, tripAccompagnateurs),
+    [panierAdultes, tripAccompagnateurs],
+  );
+
+  const panierCapacityMessage = useCallback(
+    () =>
+      `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
+    [mealsOrdered],
+  );
 
   const coverage = useMemo(() => {
     const participants = buildParticipants();
@@ -330,18 +377,92 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
 
   const togglePanierRepas = (key: string) => {
     if (!cuisineActive || !canEdit) return;
-    setPanierByKey((prev) => {
-      const currentlyOn = prev[key] === true;
-      if (currentlyOn) return { ...prev, [key]: false };
-      const assigned = Object.entries(prev).filter(([k, v]) => v && selectedKeys.has(k)).length;
-      if (assigned >= mealsOrdered) {
-        alert(
-          `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
-        );
-        return prev;
+    const currentlyOn = panierByKey[key] === true;
+    if (!currentlyOn) {
+      const elevesOn = Object.entries(panierByKey).filter(
+        ([k, v]) => v && selectedKeys.has(k),
+      ).length;
+      if (elevesOn + panierAdultes.length >= mealsOrdered) {
+        setPanierNotice(panierCapacityMessage());
+        return;
       }
+    }
+    setPanierNotice(null);
+    setPanierByKey((prev) => {
+      const on = prev[key] === true;
+      if (on) return { ...prev, [key]: false };
       return { ...prev, [key]: true };
     });
+  };
+
+  const toggleAccompagnateurPanier = (escort: {
+    userId?: string;
+    name: string;
+    email?: string;
+  }) => {
+    if (!cuisineActive || !canEdit) return;
+    const key = accompagnateurPanierKey(escort);
+    const existing = panierAdultes.find(
+      (a) => a.source === "accompagnateur" && panierRepasAdulteMatchesEscort(a, escort),
+    );
+    if (existing) {
+      setPanierNotice(null);
+      setPanierAdultes((prev) => prev.filter((a) => a.id !== existing.id));
+      return;
+    }
+    const elevesOn = Object.entries(panierByKey).filter(
+      ([k, v]) => v && selectedKeys.has(k),
+    ).length;
+    if (elevesOn + panierAdultes.length >= mealsOrdered) {
+      setPanierNotice(panierCapacityMessage());
+      return;
+    }
+    setPanierNotice(null);
+    setPanierAdultes((prev) => [
+      ...prev,
+      {
+        id: `acc-${key}`,
+        name: escort.name.trim() || "Accompagnateur",
+        ...(escort.userId ? { userId: escort.userId } : {}),
+        ...(escort.email ? { email: escort.email } : {}),
+        source: "accompagnateur" as const,
+      },
+    ]);
+  };
+
+  const addAccompagnateurAutre = () => {
+    if (!cuisineActive || !canEdit) return;
+    const elevesOn = Object.entries(panierByKey).filter(
+      ([k, v]) => v && selectedKeys.has(k),
+    ).length;
+    if (elevesOn + panierAdultes.length >= mealsOrdered) {
+      setPanierNotice(panierCapacityMessage());
+      return;
+    }
+    setPanierNotice(null);
+    setPanierAdultes((prev) => [
+      ...prev,
+      {
+        id: newPanierRepasAdulteAutreId(),
+        name: PANIER_REPAS_AUTRE_DEFAULT_NAME,
+        source: "autre",
+      },
+    ]);
+  };
+
+  const updateAccompagnateurAutreName = (id: string, name: string) => {
+    setPanierAdultes((prev) => prev.map((a) => (a.id === id ? { ...a, name } : a)));
+  };
+
+  const finalizeAccompagnateurAutreName = (id: string, name: string) => {
+    const normalized = normalizePanierRepasAutreNameOnBlur(name);
+    setPanierAdultes((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, name: normalized } : a)),
+    );
+  };
+
+  const removePanierAdulte = (id: string) => {
+    setPanierAdultes((prev) => prev.filter((a) => a.id !== id));
   };
 
   const addWholeClassToList = (classe: string) => {
@@ -456,6 +577,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       });
       if (!data.listeElevesStatus) data.listeElevesStatus = "draft";
       data.parentCalendar = calendar;
+      data.panierRepasAdultes = cuisineActive ? panierAdultes : [];
       if (billingAdjust && data.comptaSheet && typeof data.comptaSheet === "object") {
         data.comptaSheet = {
           ...data.comptaSheet,
@@ -508,12 +630,13 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       const whoEatsData = {
         ...trip.data,
         participantEleves: participants,
+        panierRepasAdultes: panierAdultes,
         piqueNiqueDetails: trip.data.piqueNiqueDetails,
       };
       if (!isCuisineWhoEatsComplete(whoEatsData)) {
         return alert(
           cuisineWhoEatsMissingMessage(whoEatsData) ||
-            `Attribuez exactement ${mealsOrdered} panier(s) repas (« qui mange ») avant de confirmer.`,
+            `Attribuez exactement ${mealsOrdered} panier(s) repas (« qui mange », élèves et/ou adultes) avant de confirmer.`,
         );
       }
     }
@@ -555,6 +678,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
         body: JSON.stringify({
           tripId: trip.id,
           participantEleves: participants,
+          panierRepasAdultes: panierAdultes,
           parentCalendar: calendar,
           activateParentBlog,
         }),
@@ -593,16 +717,17 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
     if (!canEdit || !cuisineActive) return;
     const participants = buildParticipants();
     if (panierAssigned === 0) {
-      return alert("Cochez au moins un élève avec panier repas.");
+      return alert("Cochez au moins un élève ou un adulte avec panier repas.");
     }
     if (panierAssigned > mealsOrdered) {
       return alert(
         `Trop de paniers attribués (${panierAssigned}) pour ${mealsOrdered} commandés.`,
       );
     }
+    const elevesCount = participants.filter((p) => p.panierRepas).length;
     if (
       !confirm(
-        `Envoyer la liste de ${panierAssigned} élève(s) avec panier repas (sur ${mealsOrdered} commandés) ?`,
+        `Envoyer la liste « qui mange » (${elevesCount} élève(s), ${panierAdultes.length} adulte(s) — ${panierAssigned}/${mealsOrdered} paniers) ?`,
       )
     ) {
       return;
@@ -614,6 +739,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
         resetConfirmation: false,
       });
       data.parentCalendar = calendar;
+      data.panierRepasAdultes = panierAdultes;
       const draftTrip: TravelsTrip = { ...trip, data };
       const saveRes = await fetch("/api/travels/update", {
         method: "POST",
@@ -628,7 +754,11 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       const res = await fetch("/api/travels/send-panier-repas-list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tripId: trip.id, participantEleves: participants }),
+        body: JSON.stringify({
+          tripId: trip.id,
+          participantEleves: participants,
+          panierRepasAdultes: panierAdultes,
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Envoi impossible");
@@ -665,7 +795,8 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
         {!canEdit && (
           <TripAlert tone="warning" icon="🔒" title="Lecture seule">
             Vous ne pouvez pas modifier cette liste (réservé au créateur de la sortie, à la
-            direction, à l&apos;administratif ou à la comptabilité).
+            direction, à l&apos;administrateur général, à l&apos;administratif ou à la
+            comptabilité).
           </TripAlert>
         )}
 
@@ -675,11 +806,12 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
             l’effectif (et la fiche compta) sans renvoyer d’e-mails aux parents ni au transporteur.
           </TripAlert>
         )}
-        {trip.status === "FINALISE_DIR_ATTENTE_ELEVES" && !confirmed && (
-          <TripAlert tone="warning" icon="⚠️" title="Action requise — liste élèves">
-            La direction a finalisé le projet. Confirmez la liste nominative des élèves
+        {trip.status === "FINALISE_DIR_ATTENTE_ELEVES" && !confirmed && canEdit && (
+          <TripAlert tone="warning" icon="⚠️" title="Action requise — liste élèves et repas">
+            La direction a finalisé le projet. En tant que créateur, direction ou administrateur
+            général, confirmez la liste nominative des élèves
             {cuisineActive
-              ? " et attribuez tous les paniers (« qui mange ») : tant que ce n’est pas fait, la commande cantine n’est envoyée ni au chef ni à la collègue décompte."
+              ? " et validez les repas (attribuez tous les paniers « qui mange ») : tant que ce n’est pas fait, la commande cantine n’est envoyée ni au chef ni à la collègue décompte."
               : " pour passer le dossier en « Finalisé »."}
             {horairesRequired
               ? " Pour un séjour complexe, les horaires dépôt / reprise parents sont obligatoires."
@@ -941,9 +1073,11 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                       3 — Qui mange / paniers repas ({panierAssigned} / {mealsOrdered}) — obligatoire
                     </h3>
                     <p className="mt-1 text-xs text-amber-900/80">
-                      Cochez les élèves qui ont vraiment besoin d’un panier. Il reste{" "}
+                      Cochez les élèves et/ou les adultes qui mangent. Les accompagnateurs du
+                      séjour apparaissent en priorité ; vous pouvez aussi ajouter un
+                      « accompagnateur autre » sans nom précis. Il reste{" "}
                       <strong>{panierRemaining}</strong> panier
-                      {panierRemaining > 1 ? "s" : ""} à attribuer sur la commande cuisine.
+                      {panierRemaining > 1 ? "s" : ""} à attribuer.
                     </p>
                   </div>
                   <span
@@ -957,9 +1091,19 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                   </span>
                 </div>
 
+                {panierNotice && (
+                  <div
+                    role="status"
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+                  >
+                    {panierNotice}
+                  </div>
+                )}
+
                 {selectedParticipants.length === 0 ? (
                   <p className="text-sm text-amber-900/60">
-                    Ajoutez d’abord des élèves à la liste (étape 2).
+                    Ajoutez d’abord des élèves à la liste (étape 2) — les adultes peuvent être
+                    cochés ensuite.
                   </p>
                 ) : (
                   <div className="max-h-64 overflow-y-auto rounded-xl border border-amber-100 bg-white">
@@ -1008,12 +1152,178 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                   </div>
                 )}
 
+                <div className="rounded-xl border border-amber-100 bg-white p-3 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="mr-auto text-[11px] font-black uppercase tracking-wide text-amber-950">
+                      Adultes / accompagnateurs
+                    </p>
+                    {canEdit && (
+                      <TripButton
+                        variant="secondary"
+                        size="sm"
+                        disabled={panierRemaining <= 0 || !!busy}
+                        onClick={addAccompagnateurAutre}
+                      >
+                        + Accompagnateur autre
+                      </TripButton>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-amber-900/75">
+                    Priorité aux noms déjà saisis comme accompagnateurs du séjour. Sinon, ajoutez
+                    un créneau « autre » (le nom peut rester générique).
+                  </p>
+
+                  {tripAccompagnateurs.length > 0 ? (
+                    <ul className="divide-y divide-amber-50 rounded-lg border border-amber-50">
+                      {tripAccompagnateurs.map((escort, escortIdx) => {
+                        const listKey = accompagnateurPanierListKey(escort, escortIdx);
+                        const checkboxId = `panier-acc-${listKey}`;
+                        const on = panierAdultes.some(
+                          (a) =>
+                            a.source === "accompagnateur" &&
+                            panierRepasAdulteMatchesEscort(a, escort),
+                        );
+                        const disableAdd = !on && panierRemaining <= 0;
+                        return (
+                          <li
+                            key={listKey}
+                            className="flex flex-col gap-1.5 px-3 py-2 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3"
+                          >
+                            <label
+                              htmlFor={checkboxId}
+                              className="flex w-full min-w-0 cursor-pointer items-start gap-3 sm:flex-1 sm:items-center"
+                            >
+                              <input
+                                id={checkboxId}
+                                type="checkbox"
+                                checked={on}
+                                disabled={!canEdit || disableAdd}
+                                onChange={() => toggleAccompagnateurPanier(escort)}
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-300 accent-[color:var(--dash-ink)]"
+                                title={
+                                  disableAdd
+                                    ? "Tous les paniers commandés sont déjà attribués"
+                                    : undefined
+                                }
+                              />
+                              <span className="min-w-0 flex-1 font-medium text-slate-800">
+                                {escort.name}
+                              </span>
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0">
+                              <span
+                                className={`rounded-full ${dash.bgSoft} px-2 py-0.5 text-[10px] font-bold uppercase ${dash.textMid}`}
+                              >
+                                Accompagnateur
+                              </span>
+                              {on ? (
+                                <span className="text-[10px] font-bold uppercase text-amber-800">
+                                  Panier
+                                </span>
+                              ) : null}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className={`text-xs ${dash.textMid}`}>
+                      Aucun accompagnateur nommé sur ce dossier pour l’instant — vous pouvez
+                      quand même ajouter des « accompagnateurs autres ».
+                    </p>
+                  )}
+
+                  {panierAdultesOrphans.length > 0 && (
+                    <ul className="space-y-2">
+                      <p className={`text-xs font-semibold ${dash.textMid}`}>
+                        Paniers sans accompagnateur correspondant dans le dossier :
+                      </p>
+                      {panierAdultesOrphans.map((a) => (
+                        <li
+                          key={a.id}
+                          className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center"
+                        >
+                          <span className="min-w-0 flex-1 font-medium text-slate-800">
+                            {a.name}
+                            <span className={`mt-0.5 block text-xs font-normal ${dash.textMid}`}>
+                              N’est plus accompagnateur sur ce dossier
+                            </span>
+                          </span>
+                          {canEdit && (
+                            <ModuleButton
+                              variant="danger"
+                              className="px-3 py-1.5 text-xs"
+                              aria-label={`Retirer le panier de ${a.name}`}
+                              onClick={() => removePanierAdulte(a.id)}
+                            >
+                              Retirer
+                            </ModuleButton>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {panierRemaining <= 0 && canEdit && (
+                    <p className={`text-xs ${dash.textMid}`}>
+                      Tous les paniers commandés sont attribués.
+                    </p>
+                  )}
+
+                  {panierAdultesAutres.length > 0 && (
+                    <ul className="space-y-2">
+                      {panierAdultesAutres.map((a, idx) => {
+                        const inputId = `panier-autre-${a.id}`;
+                        return (
+                          <li
+                            key={a.id}
+                            className="flex flex-col gap-2 rounded-lg border border-amber-100 bg-amber-50/40 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center"
+                          >
+                            <span
+                              className={`rounded-full ${dash.bgSoft} px-2 py-0.5 text-[10px] font-bold uppercase ${dash.textMid}`}
+                            >
+                              Autre {idx + 1}
+                            </span>
+                            <label htmlFor={inputId} className="sr-only">
+                              Nom de l&apos;accompagnateur autre {idx + 1}
+                            </label>
+                            <input
+                              id={inputId}
+                              type="text"
+                              value={canEdit ? panierRepasAutreNameForEdit(a.name) : a.name}
+                              placeholder="Nom (optionnel)"
+                              disabled={!canEdit}
+                              onChange={(e) =>
+                                updateAccompagnateurAutreName(a.id, e.target.value)
+                              }
+                              onBlur={(e) =>
+                                finalizeAccompagnateurAutreName(a.id, e.target.value)
+                              }
+                              className={`min-w-0 flex-1 ${dash.field} !py-2 !px-3`}
+                            />
+                            {canEdit && (
+                              <ModuleButton
+                                variant="danger"
+                                className="px-3 py-1.5 text-xs"
+                                aria-label={`Retirer l'accompagnateur autre ${idx + 1}`}
+                                onClick={() => removePanierAdulte(a.id)}
+                              >
+                                Retirer
+                              </ModuleButton>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+
                 {trip.data.panierRepasListSentAt && (
                   <p className="text-xs text-amber-900/70">
                     Liste envoyée le{" "}
                     {new Date(trip.data.panierRepasListSentAt).toLocaleString("fr-FR")}
                     {trip.data.panierRepasListSnapshot?.count != null
-                      ? ` (${trip.data.panierRepasListSnapshot.count} élève(s))`
+                      ? ` (${trip.data.panierRepasListSnapshot.count} panier(s))`
                       : ""}
                     .
                   </p>
@@ -1100,8 +1410,9 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
               )}
               {cuisineActive && panierAssigned !== mealsOrdered && (
                 <p className="text-xs font-semibold text-amber-800">
-                  Commande cuisine active : attribuez exactement {mealsOrdered} panier(s) nominatif(s)
-                  (« qui mange ») — actuellement {panierAssigned}/{mealsOrdered}.
+                  Commande cuisine active : attribuez exactement {mealsOrdered} panier(s)
+                  (« qui mange », élèves et/ou adultes) — actuellement {panierAssigned}/
+                  {mealsOrdered}.
                 </p>
               )}
             </div>
@@ -1175,11 +1486,15 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                   >
                     {busy === "confirm"
                       ? "…"
-                      : needsBus
-                        ? "Confirmer liste (+ transporteur)"
-                        : horairesRequired
-                          ? "Confirmer liste + horaires parents"
-                          : "Confirmer la liste des élèves"}
+                      : cuisineActive
+                        ? needsBus
+                          ? "Valider liste + repas (+ transporteur)"
+                          : "Valider la liste des élèves et les repas"
+                        : needsBus
+                          ? "Confirmer liste (+ transporteur)"
+                          : horairesRequired
+                            ? "Confirmer liste + horaires parents"
+                            : "Confirmer la liste des élèves"}
                   </TripButton>
                 )}
               </div>

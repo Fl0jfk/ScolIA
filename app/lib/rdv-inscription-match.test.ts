@@ -7,6 +7,7 @@ import {
   matchRdvInscriptionCandidates,
   normalizeParentPhone,
   scoreEleveNameMatch,
+  shouldUseHomeEtablissementAsOrigine,
 } from "@/app/lib/rdv-inscription-match";
 
 function eleve(partial: Partial<EleveConfig> & Pick<EleveConfig, "id" | "nom" | "prenom">): EleveConfig {
@@ -159,5 +160,15 @@ describe("rdv-inscription-match", () => {
       dateNaissance: "2012-03-15",
     });
     assert.equal(wrong.length, 0);
+  });
+
+  it("n’utilise le groupe scolaire local comme origine que pour les inscrits", () => {
+    assert.equal(shouldUseHomeEtablissementAsOrigine("inscrit"), true);
+    assert.equal(shouldUseHomeEtablissementAsOrigine("Inscrit"), true);
+    assert.equal(shouldUseHomeEtablissementAsOrigine("preinscrit"), false);
+    assert.equal(shouldUseHomeEtablissementAsOrigine("préinscrit"), false);
+    assert.equal(shouldUseHomeEtablissementAsOrigine(""), false);
+    assert.equal(shouldUseHomeEtablissementAsOrigine(null), false);
+    assert.equal(shouldUseHomeEtablissementAsOrigine(undefined), false);
   });
 });

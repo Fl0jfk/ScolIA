@@ -39,7 +39,8 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Séance introuvable." }, { status: 404 });
 
   const isCoordinator =
-    (await isIntranetAdmin()) || (await isDomainCoordinator(authUser.userId, "evars"));
+    (await isIntranetAdmin()) ||
+    (await isDomainCoordinator(authUser.userId, session.domainId));
 
   if (session.intervenantConstraint === "fixed_association" && !isCoordinator) {
     return NextResponse.json(

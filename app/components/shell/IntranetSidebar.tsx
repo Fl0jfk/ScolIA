@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useAppUser, useSessionUser } from "@/app/hooks/useAppUser";
 import { useAdminBootstrap } from "@/app/contexts/admin-bootstrap";
 import { useData } from "@/app/contexts/data";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
@@ -53,6 +53,7 @@ type Props = {
 export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
   const pathname = usePathname();
   const { isSignedIn, user, isLoaded } = useSessionUser();
+  const { supervisionActive } = useAppUser();
   const { sitePublic: siteIdentity, loading: bootstrapLoading } = useAdminBootstrap();
   const data = useData();
   const isOrgAdmin = useIsOrgAdmin();
@@ -105,12 +106,13 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
     return toDashboardQuickLinks(filtered);
   }, [isLoaded, isSignedIn, user, data, isOrgAdmin, userRoles]);
 
-  const showMessagerie = canSeeModule("messagerie");
-  const showChannels = canSeeModule("channels");
+  // Messagerie / salons privés : masqués en supervision (compte acteur, pas la cible).
+  const showMessagerie = !supervisionActive && canSeeModule("messagerie");
+  const showChannels = !supervisionActive && canSeeModule("channels");
   const showOcr = canSeeModule("agent-ia-ocr");
 
   const messagingEnabled = Boolean(
-    isLoaded && isSignedIn && user && (showMessagerie || showChannels),
+    isLoaded && isSignedIn && user && !supervisionActive && (showMessagerie || showChannels),
   );
   const { totalUnread, refresh: refreshMessaging } = useMessagingConversations(messagingEnabled);
   useMessagingStream({

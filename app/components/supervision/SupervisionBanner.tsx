@@ -87,7 +87,7 @@ export default function SupervisionBanner() {
                   <span className="text-amber-800/70">({status.target.email})</span>
                 </>
               ) : null}
-              . Aucune modification n’est possible.
+              . Lecture seule — messagerie personnelle indisponible.
             </p>
           </div>
         </div>

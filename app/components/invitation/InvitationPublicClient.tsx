@@ -7,7 +7,11 @@ import type {
   InvitationResponse,
   InvitationSituationStatus,
 } from "@/app/lib/invitation-types";
-import { shouldAskSituation } from "@/app/lib/invitation-types";
+import {
+  formatInvitationFirstName,
+  formatInvitationLastName,
+  shouldAskSituation,
+} from "@/app/lib/invitation-types";
 
 type Step = "eleve" | "rsvp" | "details" | "done";
 
@@ -124,6 +128,33 @@ function LaurelMark({ className }: { className?: string }) {
   );
 }
 
+function humanizeApiFailure(raw: string): string {
+  const text = raw.trim();
+  if (
+    text.startsWith("read tcp") ||
+    /i\/o timeout|unexpected token|is not valid json|gateway|bad gateway|504|502/i.test(
+      text,
+    )
+  ) {
+    return "Le serveur a mis trop longtemps à répondre. Réessayez dans un instant — votre réponse est peut-être déjà enregistrée.";
+  }
+  return text || "Erreur inattendue.";
+}
+
+async function readApiJson<T extends { error?: string }>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text) {
+    throw new Error(
+      res.ok ? "Réponse vide du serveur." : `Erreur serveur (${res.status}).`,
+    );
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(humanizeApiFailure(text));
+  }
+}
+
 function TenantLogoMark({
   logoUrl,
   festive,
@@ -166,6 +197,7 @@ export default function InvitationPublicClient({ page }: Props) {
   const [diploma, setDiploma] = useState<InvitationDiploma | "">("");
   const [birthDate, setBirthDate] = useState("");
   const [editingExisting, setEditingExisting] = useState(false);
+  const [bookedPresentCount, setBookedPresentCount] = useState(0);
   const [situationStatus, setSituationStatus] = useState<InvitationSituationStatus | "">("");
   const [situationDetail, setSituationDetail] = useState("");
   const [situationEstablishment, setSituationEstablishment] = useState("");
@@ -189,6 +221,7 @@ export default function InvitationPublicClient({ page }: Props) {
   }, [page.startsAt]);
 
   const festive = page.theme !== "neutre";
+  const eleveLabel = `${formatInvitationFirstName(eleveFirstName)} ${formatInvitationLastName(eleveLastName)}`.trim();
 
   const effectiveDiploma: InvitationDiploma | null =
     page.diplomaMode === "bac"
@@ -238,9 +271,11 @@ export default function InvitationPublicClient({ page }: Props) {
             birthDate: birthDate.trim(),
           }),
         });
-        const data = (await res.json()) as {
+        const data = await readApiJson<{
           ok?: boolean;
           error?: string;
+          eleveFirstName?: string;
+          eleveLastName?: string;
           existing?: {
             response: InvitationResponse;
             presentCount: number;
@@ -250,10 +285,15 @@ export default function InvitationPublicClient({ page }: Props) {
             situationDetail: string;
             situationEstablishment: string;
           } | null;
-        };
-        if (!res.ok) throw new Error(data.error || "Vérification impossible.");
+        }>(res);
+        if (!res.ok) throw new Error(humanizeApiFailure(data.error || "Vérification impossible."));
+        if (data.eleveFirstName) setEleveFirstName(data.eleveFirstName);
+        if (data.eleveLastName) setEleveLastName(data.eleveLastName);
         if (data.existing) {
           setEditingExisting(true);
+          setBookedPresentCount(
+            data.existing.response === "oui" ? data.existing.presentCount || 0 : 0,
+          );
           setResponse(data.existing.response);
           setPresentCount(data.existing.presentCount || 2);
           setParentEmail(data.existing.parentEmail || "");
@@ -261,13 +301,14 @@ export default function InvitationPublicClient({ page }: Props) {
           setSituationStatus(data.existing.situationStatus || "");
           setSituationDetail(data.existing.situationDetail || "");
           setSituationEstablishment(data.existing.situationEstablishment || "");
-          setStep("details");
+          setStep("rsvp");
         } else {
           setEditingExisting(false);
+          setBookedPresentCount(0);
           setStep("rsvp");
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e instanceof Error ? humanizeApiFailure(e.message) : String(e));
       }
     });
   }
@@ -297,13 +338,17 @@ export default function InvitationPublicClient({ page }: Props) {
         setError(`Nombre de personnes : entre 1 et ${page.maxPersonsPerEleve}.`);
         return;
       }
-      if (page.placesRemaining != null && presentCount > page.placesRemaining) {
-        setError(
-          page.placesRemaining === 0
-            ? "Il n’y a plus de places disponibles."
-            : `Il ne reste que ${page.placesRemaining} place(s).`,
-        );
-        return;
+      if (page.placesRemaining != null) {
+        const extra = presentCount - bookedPresentCount;
+        if (extra > page.placesRemaining) {
+          const leftForYou = Math.max(0, page.placesRemaining + bookedPresentCount);
+          setError(
+            leftForYou === 0
+              ? "Il n’y a plus de places disponibles."
+              : `Il ne reste que ${leftForYou} place(s).`,
+          );
+          return;
+        }
       }
     }
 
@@ -334,18 +379,18 @@ export default function InvitationPublicClient({ page }: Props) {
             website: "",
           }),
         });
-        const data = (await res.json()) as {
+        const data = await readApiJson<{
           success?: boolean;
           updated?: boolean;
           mailSent?: boolean;
           error?: string;
-        };
-        if (!res.ok) throw new Error(data.error || "Envoi impossible.");
+        }>(res);
+        if (!res.ok) throw new Error(humanizeApiFailure(data.error || "Envoi impossible."));
         setMailSent(Boolean(data.mailSent));
         setUpdatedExisting(Boolean(data.updated));
         setStep("done");
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e instanceof Error ? humanizeApiFailure(e.message) : String(e));
       }
     });
   }
@@ -684,8 +729,14 @@ export default function InvitationPublicClient({ page }: Props) {
             {page.rsvpOpen && step === "rsvp" ? (
               <>
                 <p className="text-center text-sm font-semibold">
-                  {eleveFirstName} {eleveLastName} — serez-vous présents ?
+                  {eleveLabel} — serez-vous présents ?
                 </p>
+                {editingExisting && response ? (
+                  <p className="text-center text-xs font-medium" style={{ color: "var(--inv-muted)" }}>
+                    Réponse actuelle : {response === "oui" ? "Oui, je viens" : "Non, je ne viens pas"}.
+                    Vous pouvez la changer.
+                  </p>
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <button
                     type="button"
@@ -694,7 +745,14 @@ export default function InvitationPublicClient({ page }: Props) {
                     style={{
                       borderColor: "var(--inv-accent)",
                       color: festive ? "var(--inv-accent)" : "var(--inv-accent)",
-                      background: festive ? "rgba(232,212,139,0.08)" : "transparent",
+                      background:
+                        editingExisting && response === "oui"
+                          ? festive
+                            ? "rgba(232,212,139,0.18)"
+                            : "var(--inv-accent-soft)"
+                          : festive
+                            ? "rgba(232,212,139,0.08)"
+                            : "transparent",
                     }}
                   >
                     Oui, je viens
@@ -702,8 +760,25 @@ export default function InvitationPublicClient({ page }: Props) {
                   <button
                     type="button"
                     onClick={() => chooseResponse("non")}
-                    className="rounded-2xl border px-4 py-4 text-sm font-bold transition hover:bg-white/5"
-                    style={{ borderColor: "var(--inv-border)", color: "var(--inv-muted)" }}
+                    className="rounded-2xl border-2 px-4 py-4 text-sm font-bold transition hover:bg-white/5"
+                    style={{
+                      borderColor:
+                        editingExisting && response === "non"
+                          ? "var(--inv-accent)"
+                          : "var(--inv-border)",
+                      color:
+                        editingExisting && response === "non"
+                          ? festive
+                            ? "var(--inv-accent)"
+                            : "var(--inv-ink)"
+                          : "var(--inv-muted)",
+                      background:
+                        editingExisting && response === "non"
+                          ? festive
+                            ? "rgba(232,212,139,0.12)"
+                            : "var(--inv-accent-soft)"
+                          : "transparent",
+                    }}
                   >
                     Non, je ne viens pas
                   </button>
@@ -852,7 +927,7 @@ export default function InvitationPublicClient({ page }: Props) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setStep(editingExisting ? "eleve" : "rsvp")}
+                    onClick={() => setStep("rsvp")}
                     className="text-xs font-semibold underline"
                     style={{ color: "var(--inv-muted)" }}
                   >
@@ -885,7 +960,7 @@ export default function InvitationPublicClient({ page }: Props) {
                     <>
                       Votre inscription pour{" "}
                       <strong style={{ color: "var(--inv-ink)" }}>
-                        {eleveFirstName} {eleveLastName}
+                        {eleveLabel}
                       </strong>{" "}
                       a bien été modifiée
                       {response === "oui"
@@ -897,7 +972,7 @@ export default function InvitationPublicClient({ page }: Props) {
                     <>
                       Présence confirmée pour{" "}
                       <strong style={{ color: "var(--inv-ink)" }}>
-                        {eleveFirstName} {eleveLastName}
+                        {eleveLabel}
                       </strong>{" "}
                       ({presentCount} personne{presentCount > 1 ? "s" : ""}).
                       {mailSent
@@ -908,13 +983,28 @@ export default function InvitationPublicClient({ page }: Props) {
                     <>
                       Nous avons bien noté que vous ne pourrez pas venir pour{" "}
                       <strong style={{ color: "var(--inv-ink)" }}>
-                        {eleveFirstName} {eleveLastName}
+                        {eleveLabel}
                       </strong>
                       .
                       {mailSent ? " Un e-mail de confirmation vous a été envoyé." : ""}
                     </>
                   )}
                 </p>
+                {page.rsvpOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setUpdatedExisting(true);
+                      setEditingExisting(true);
+                      setStep("rsvp");
+                    }}
+                    className="text-xs font-semibold underline"
+                    style={{ color: "var(--inv-muted)" }}
+                  >
+                    Modifier ma réponse
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

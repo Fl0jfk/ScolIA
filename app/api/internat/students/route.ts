@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireInternatManage, requireInternatAccess } from "@/app/api/internat/_auth";
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { resolvePhotoUrlsForInternatStudents } from "@/app/lib/eleve-photos";
+import {
+  aliasPhotoIndexAfterInternatMerge,
+  photoS3KeysForInternatStudents,
+  resolvePhotoUrlsForInternatStudents,
+} from "@/app/lib/eleve-photos";
 import {
   getInternatRooms,
   getInternatStudents,
@@ -15,17 +19,109 @@ import {
   newId,
   type InternatStudent,
 } from "@/app/lib/internat-types";
+import {
+  dedupeInternatStudents,
+  internatStudentMatchesRoster,
+} from "@/app/lib/internat-dedupe";
+
+async function dedupeInternatStudentsKeepingPhotos(
+  loaded: InternatStudent[],
+  by: string,
+) {
+  const photoS3KeyByStudentId = await photoS3KeysForInternatStudents(loaded).catch(
+    () => new Map<string, string>(),
+  );
+  const deduped = dedupeInternatStudents(loaded, {
+    by,
+    at: new Date().toISOString(),
+    photoS3KeyByStudentId,
+  });
+  if (deduped.mergedGroups > 0) {
+    await aliasPhotoIndexAfterInternatMerge({
+      mergeTraces: deduped.mergeTraces,
+      photoS3KeyByStudentId,
+    }).catch((e) => console.warn("[internat/students] alias photos", e));
+  }
+  return deduped;
+}
+
+/** Recale `classe` depuis le dossier / référentiel élève (source de vérité). */
+async function overlayClassesFromEleveDossier(
+  students: InternatStudent[],
+): Promise<{ students: InternatStudent[]; drifted: number }> {
+  try {
+    const { resolveCurrentEtablissementId, listElevesFromDb } = await import(
+      "@/app/lib/ent-core-db"
+    );
+    const etabId = await resolveCurrentEtablissementId();
+    if (!etabId) return { students, drifted: 0 };
+    const eleves = await listElevesFromDb(etabId);
+    if (!eleves.length) return { students, drifted: 0 };
+
+    const now = new Date().toISOString();
+    let drifted = 0;
+    const next = students.map((s) => {
+      if (!s.actif) return s;
+      const match = eleves.find((e) =>
+        internatStudentMatchesRoster(s, {
+          nom: e.nom,
+          prenom: e.prenom,
+          ine: e.ine || undefined,
+          folderName: e.folderName,
+        }),
+      );
+      const dossierClasse = match?.classe?.trim();
+      if (!dossierClasse || dossierClasse === s.classe) return s;
+      drifted += 1;
+      return {
+        ...s,
+        classe: dossierClasse,
+        updatedAt: now,
+        history: [
+          ...(s.history || []),
+          {
+            at: now,
+            by: "systeme:dossier",
+            action: "SYNC_CLASSE",
+            note: `${s.classe || "—"} → ${dossierClasse}`,
+          },
+        ],
+      };
+    });
+    return { students: next, drifted };
+  } catch (e) {
+    console.warn("[internat/students] overlay classes dossier", e);
+    return { students, drifted: 0 };
+  }
+}
 
 export async function GET() {
   const access = await requireInternatAccess();
   if (!access.ok) return access.response;
   try {
-    const [students, rooms] = await Promise.all([getInternatStudents(), getInternatRooms()]);
+    const [loaded, rooms] = await Promise.all([getInternatStudents(), getInternatRooms()]);
+    const deduped = await dedupeInternatStudentsKeepingPhotos(loaded, "systeme:get");
+    let students = deduped.students;
+    const overlay = await overlayClassesFromEleveDossier(students);
+    students = overlay.students;
+    if (deduped.mergedGroups > 0 || overlay.drifted > 0) {
+      await saveInternatStudents(students);
+      students = await getInternatStudents();
+    }
     const photoUrls = await resolvePhotoUrlsForInternatStudents(students).catch((e) => {
       console.warn("[internat/students] photoUrls", e);
       return {} as Record<string, string>;
     });
-    return NextResponse.json({ students, rooms, photoUrls });
+    return NextResponse.json({
+      students,
+      rooms,
+      photoUrls,
+      dedupe:
+        deduped.mergedGroups > 0
+          ? { mergedGroups: deduped.mergedGroups, removedActifs: deduped.removedActifs }
+          : undefined,
+      classesSynced: overlay.drifted > 0 ? overlay.drifted : undefined,
+    });
   } catch (e) {
     console.error("[internat/students] GET", e);
     return NextResponse.json(
@@ -42,6 +138,28 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const action = String(body.action || "create");
 
+  if (action === "dedupe") {
+    const students = await getInternatStudents();
+    const rooms = await getInternatRooms();
+    const result = await dedupeInternatStudentsKeepingPhotos(students, access.userName);
+    await saveInternatStudents(result.students);
+    const photoUrls = await resolvePhotoUrlsForInternatStudents(result.students).catch(
+      () => ({} as Record<string, string>),
+    );
+    return NextResponse.json({
+      ok: true,
+      mergedGroups: result.mergedGroups,
+      removedActifs: result.removedActifs,
+      students: result.students,
+      rooms,
+      photoUrls,
+      message:
+        result.mergedGroups === 0
+          ? "Aucun doublon détecté."
+          : `${result.mergedGroups} groupe(s) fusionné(s), ${result.removedActifs} fiche(s) active(s) sortie(s) — photo / chambre / contacts conservés.`,
+    });
+  }
+
   if (action === "import") {
     const picks = Array.isArray(body.eleves) ? (body.eleves as EleveConfig[]) : [];
     const students = await getInternatStudents();
@@ -51,13 +169,16 @@ export async function POST(req: Request) {
     const added: InternatStudent[] = [];
 
     for (const e of picks) {
-      const key = String(e.folderName || e.ine || "").trim();
+      const key = String(e.folderName || e.ine || `${e.nom}|${e.prenom}`).trim();
       if (!key) continue;
       if (
-        students.some(
-          (s) =>
-            s.eleveRef.folderName === e.folderName ||
-            (e.ine && s.eleveRef.ine && s.eleveRef.ine === e.ine),
+        students.some((s) =>
+          internatStudentMatchesRoster(s, {
+            ine: e.ine,
+            folderName: e.folderName,
+            nom: e.nom,
+            prenom: e.prenom,
+          }),
         )
       ) {
         continue;
@@ -88,7 +209,7 @@ export async function POST(req: Request) {
     }
 
     await saveInternatStudents(students);
-    return NextResponse.json({ added, students, rooms });
+    return NextResponse.json({ added, students: await getInternatStudents(), rooms });
   }
 
   const now = new Date().toISOString();
@@ -98,6 +219,21 @@ export async function POST(req: Request) {
   const prenom = String(body.prenom || "").trim();
   if (!nom || !prenom) {
     return NextResponse.json({ error: "Nom et prénom requis." }, { status: 400 });
+  }
+
+  const ine = body.ine ? String(body.ine).trim() : undefined;
+  const folderName = `${nom} — ${prenom}`;
+  const existing = students.find((s) =>
+    internatStudentMatchesRoster(s, { ine, folderName, nom, prenom }),
+  );
+  if (existing?.actif) {
+    return NextResponse.json(
+      {
+        error: `Doublon : ${existing.eleveRef.nom} ${existing.eleveRef.prenom} est déjà interne.`,
+        existingId: existing.id,
+      },
+      { status: 409 },
+    );
   }
 
   const bundle = await loadAppConfig();
@@ -112,13 +248,44 @@ export async function POST(req: Request) {
   }
 
   const roomId = body.roomId ? String(body.roomId) : null;
+
+  if (existing && !existing.actif) {
+    const idx = students.findIndex((s) => s.id === existing.id);
+    const reactivated: InternatStudent = {
+      ...existing,
+      eleveRef: {
+        ine: ine || existing.eleveRef.ine,
+        folderName: existing.eleveRef.folderName || folderName,
+        nom,
+        prenom,
+      },
+      sexe: body.sexe === "F" ? "F" : body.sexe === "M" ? "M" : existing.sexe,
+      etablissement,
+      classe: String(body.classe || "").trim() || existing.classe || "—",
+      roomId: roomId ?? existing.roomId,
+      actif: true,
+      sortieAt: undefined,
+      sortieMotif: undefined,
+      updatedAt: now,
+      history: [
+        ...(existing.history || []),
+        { at: now, by: access.userName, action: "REACTIVATION_MANUELLE", note: "Création — doublon inactif réactivé" },
+      ],
+    };
+    const cap = validateRoomCapacity(students, rooms, reactivated.id, reactivated.roomId ?? null);
+    if (!cap.ok) return NextResponse.json({ error: cap.error }, { status: 400 });
+    students[idx] = reactivated;
+    await saveInternatStudents(students);
+    return NextResponse.json({ student: reactivated, students: await getInternatStudents(), reactivated: true });
+  }
+
   const draft: InternatStudent = {
     id: newId("stu"),
     eleveRef: {
-      folderName: `${nom} — ${prenom}`,
+      folderName,
       nom,
       prenom,
-      ine: body.ine ? String(body.ine) : undefined,
+      ine,
     },
     sexe: body.sexe === "F" ? "F" : "M",
     etablissement,
@@ -135,7 +302,7 @@ export async function POST(req: Request) {
 
   students.push(draft);
   await saveInternatStudents(students);
-  return NextResponse.json({ student: draft, students });
+  return NextResponse.json({ student: draft, students: await getInternatStudents() });
 }
 
 export async function PATCH(req: Request) {

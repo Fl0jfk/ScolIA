@@ -541,7 +541,7 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
       {
         target: "absences-tabs",
         title: "Les onglets",
-        body: "« Demande d'autorisation » pour vous ou (si vous êtes administratif / direction / compta) pour un collègue via la case dédiée. « Calendrier » pour la vue collective. « À traiter » pour valider ou refuser.",
+        body: "« Demande d'autorisation » pour vous ou (si vous êtes administratif / direction / compta) pour un collègue via la case dédiée. « Calendrier » pour la vue collective. « Absences à valider » pour la file direction (valider ou refuser).",
       },
       {
         target: "absences-declare",

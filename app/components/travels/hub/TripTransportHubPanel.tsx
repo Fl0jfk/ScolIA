@@ -1,7 +1,11 @@
 "use client";
 
-import type { Dispatch, FormEvent, SetStateAction } from "react";
+import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { busLogisticsActive } from "@/app/lib/travels-trip-helpers";
+import {
+  buildTransportReplyRecap,
+  type TransportReplyQuoteLike,
+} from "@/app/lib/travels-transport-reply-context";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import {
@@ -12,6 +16,7 @@ import {
   TripSection,
   TripTextarea,
 } from "@/app/components/travels/TripDetailUI";
+import { dash } from "@/app/lib/dashboard-brand";
 
 type TripTransportHubPanelProps = {
   trip: TravelsTrip;
@@ -84,6 +89,30 @@ export function TripTransportHubPanel({
   transportReplyBusy,
   setTransportReplyBusy,
 }: TripTransportHubPanelProps) {
+  const receivedQuotes = useMemo(
+    () => (Array.isArray(trip.receivedDevis) ? trip.receivedDevis : []),
+    [trip.receivedDevis],
+  );
+  const [replyQuoteId, setReplyQuoteId] = useState<string>(() => {
+    const selectedId = String(trip.data?.selectedBusQuote?.id || "").trim();
+    if (selectedId) return selectedId;
+    const first = receivedQuotes[0] as { id?: string } | undefined;
+    return String(first?.id || "");
+  });
+
+  const replyRecap = useMemo(
+    () => buildTransportReplyRecap(trip, replyQuoteId || null),
+    [trip, replyQuoteId],
+  );
+
+  const focusReplyForQuote = (quote: TransportReplyQuoteLike) => {
+    const id = String(quote.id || "").trim();
+    if (id) setReplyQuoteId(id);
+    const email = orderEmailForQuote(quote);
+    if (email) setTransportReplyTo(email);
+    setTransportReplyBody("");
+  };
+
   return (
         <TripSection
           title="Devis transport"
@@ -260,11 +289,17 @@ export function TripTransportHubPanel({
                       {quote.matchMotif && reviewBus && (
                         <p className="mt-0.5 text-[10px] text-orange-900/90 leading-snug">{quote.matchMotif}</p>
                       )}
-                      {(quote.extractedPrice || quote.extractedCompany) && (
+                      {(quote.extractedPrice || quote.extractedCompany || quote.extractedReference) && (
                         <p className="mt-1 text-[11px] text-slate-600">
                           {quote.extractedCompany ? <span className="font-medium">{quote.extractedCompany}</span> : null}
                           {quote.extractedCompany && quote.extractedPrice ? " · " : null}
                           {quote.extractedPrice ? <span className="font-semibold text-slate-800">{quote.extractedPrice}</span> : null}
+                          {quote.extractedReference ? (
+                            <>
+                              {(quote.extractedCompany || quote.extractedPrice) ? " · " : null}
+                              <span className="font-mono text-slate-700">n° {quote.extractedReference}</span>
+                            </>
+                          ) : null}
                         </p>
                       )}
                       {(() => {
@@ -288,6 +323,17 @@ export function TripTransportHubPanel({
                           </p>
                         );
                       })()}
+                      {orderEmailForQuote(quote) ? (
+                        <TripButton
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          className="mt-2"
+                          onClick={() => focusReplyForQuote(quote)}
+                        >
+                          Écrire à ce transporteur
+                        </TripButton>
+                      ) : null}
                   </TripBusQuoteCard>
                   );
                 })
@@ -420,8 +466,11 @@ export function TripTransportHubPanel({
           {((Array.isArray(trip.data.transportEmailMessages) && trip.data.transportEmailMessages.length > 0) ||
             busLogisticsActive(trip)) && (
             <div className="mt-6 pt-6 border-t border-amber-200/80">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800 mb-3">
-                Messagerie transporteur (e-mail)
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800 mb-1">
+                Messagerie transporteur
+              </p>
+              <p className="text-[11px] text-slate-500 mb-3 leading-snug">
+                Chaque envoi joint automatiquement un rappel (réf. dossier, dates, adresse, montant TTC, n° devis si connu).
               </p>
               {Array.isArray(trip.data.transportEmailMessages) && trip.data.transportEmailMessages.length > 0 && (
               <div className="space-y-3">
@@ -486,7 +535,12 @@ export function TripTransportHubPanel({
                         </p>
                       )}
                       {msg.details && msg.details !== msg.summary && (
-                        <p className="mt-2 text-xs text-slate-600 whitespace-pre-wrap">{msg.details}</p>
+                        <details className="mt-2">
+                          <summary className="text-[10px] font-semibold text-slate-500 cursor-pointer">
+                            Voir le détail / récap joint
+                          </summary>
+                          <p className="mt-1 text-xs text-slate-600 whitespace-pre-wrap">{msg.details}</p>
+                        </details>
                       )}
                       {msg.pdfUrl && (
                         <TripButton
@@ -512,6 +566,11 @@ export function TripTransportHubPanel({
                           className="mt-2"
                           onClick={() => {
                             setTransportReplyTo(msg.fromEmail || "");
+                            const match = receivedQuotes.find((q) => {
+                              const email = orderEmailForQuote(q).toLowerCase();
+                              return email && email === String(msg.fromEmail || "").toLowerCase();
+                            });
+                            if (match?.id) setReplyQuoteId(String(match.id));
                             setTransportReplyBody("");
                           }}
                         >
@@ -524,7 +583,46 @@ export function TripTransportHubPanel({
               </div>
               )}
               <div className="mt-4 rounded-xl border border-slate-200 bg-white/80 p-4 space-y-3">
-                <p className="text-xs font-bold text-slate-800">Répondre au transporteur</p>
+                <p className="text-xs font-bold text-slate-800">Écrire au transporteur</p>
+                {receivedQuotes.length > 0 ? (
+                  <div>
+                    <label
+                      htmlFor="transport-reply-quote"
+                      className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1"
+                    >
+                      Devis concerné
+                    </label>
+                    <select
+                      id="transport-reply-quote"
+                      className={dash.field}
+                      value={replyQuoteId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setReplyQuoteId(id);
+                        const quote = receivedQuotes.find((q) => String(q.id) === id);
+                        if (quote) {
+                          const email = orderEmailForQuote(quote);
+                          if (email) setTransportReplyTo(email);
+                        }
+                      }}
+                    >
+                      <option value="">Général (sans devis précis)</option>
+                      {receivedQuotes.map((q, idx) => {
+                        const id = String(q.id || idx);
+                        const name = String(q.providerName || q.extractedCompany || `Offre ${idx + 1}`);
+                        const price = q.extractedPrice ? ` · ${q.extractedPrice}` : "";
+                        const ref = q.extractedReference ? ` · n° ${q.extractedReference}` : "";
+                        return (
+                          <option key={id} value={String(q.id || "")}>
+                            {name}
+                            {price}
+                            {ref}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                ) : null}
                 <TripInput
                   type="email"
                   placeholder="Adresse e-mail du transporteur"
@@ -533,10 +631,28 @@ export function TripTransportHubPanel({
                 />
                 <TripTextarea
                   rows={4}
-                  placeholder="Votre message…"
+                  placeholder="Votre message (ex. affiner les horaires : être sur place à 10h45, repartir 15h30)…"
                   value={transportReplyBody}
                   onChange={(e) => setTransportReplyBody(e.target.value)}
                 />
+                <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900 mb-1.5">
+                    Récap joint à l&apos;e-mail
+                  </p>
+                  <ul className="space-y-0.5 text-[11px] text-amber-950/90">
+                    {replyRecap.lines.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                  {!replyRecap.quoteReference && replyQuoteId ? (
+                    <p className="mt-2 text-[10px] text-amber-800/80 italic">
+                      N° de devis non détecté sur cette offre — il sera ajouté automatiquement sur les prochains devis reçus.
+                    </p>
+                  ) : null}
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Objet prévu : <span className="font-medium text-slate-700">Re: Transport scolaire — {replyRecap.subjectSuffix}</span>
+                </p>
                 <TripButton
                   type="button"
                   disabled={transportReplyBusy || !transportReplyTo.trim() || transportReplyBody.trim().length < 2}
@@ -551,6 +667,8 @@ export function TripTransportHubPanel({
                           tripId: trip.id,
                           toEmail: transportReplyTo.trim(),
                           bodyText: transportReplyBody.trim(),
+                          quoteId: replyQuoteId || null,
+                          includeRecap: true,
                         }),
                       });
                       const payload = await res.json().catch(() => ({}));

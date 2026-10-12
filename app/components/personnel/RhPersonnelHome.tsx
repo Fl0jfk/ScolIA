@@ -9,16 +9,22 @@ import RhMoodPulseCard from "@/app/components/personnel/RhMoodPulseCard";
 import RhPersonnelOnboarding from "@/app/components/personnel/RhPersonnelOnboarding";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
+import { dash } from "@/app/lib/dashboard-brand";
 import {
   canAccessHseModule,
   canCreateHseDemand,
   canCreateHseOnBehalf,
 } from "@/app/lib/demandes-hse-access";
 import { canAccessRhStaffRequest } from "@/app/lib/rh/rh-hub-access";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { formatAbsencePeriod } from "@/app/lib/absence-period";
 import type { PersonnelRecord } from "@/app/lib/personnel-types";
 import type { RhEspacePhase } from "@/app/lib/rh/rh-space-status";
+
+const ABSENCES_DIRECTION_HREF = "/rh?tab=dashboard&section=absences&view=a-traiter";
+const ABSENCES_RH_HREF = "/rh?tab=dashboard&section=absences";
 
 const AbsencesPageClient = dynamic(() => import("@/app/(admin)/absences/AbsencesPageClient"), {
   ssr: false,
@@ -33,6 +39,10 @@ const RhDemandePanel = dynamic(() => import("@/app/components/personnel/RhDemand
   loading: () => <ModuleTabFallback />,
 });
 const RhPlanningPanel = dynamic(() => import("@/app/components/personnel/RhPlanningPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhSstRegistreClient = dynamic(() => import("@/app/components/personnel/RhSstRegistreClient"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
@@ -113,6 +123,7 @@ export default function RhPersonnelHome({
   const canCreateHse = canCreateHseDemand(roles) || canCreateHseOnBehalf(roles);
   const canAccessHse = canAccessHseModule(roles);
   const canAccessDemandeRh = canAccessRhStaffRequest(roles);
+  const canValidateAbsences = isAnyDirectionRole(roles);
 
   const [espace, setEspace] = useState<EspaceData | null>(null);
   const [espaceLoading, setEspaceLoading] = useState(true);
@@ -223,6 +234,13 @@ export default function RhPersonnelHome({
       </Suspense>
     );
   }
+  if (dashboardSection === "sst") {
+    return (
+      <Suspense fallback={<ModuleTabFallback />}>
+        <RhSstRegistreClient mode="staff" />
+      </Suspense>
+    );
+  }
 
   if (espaceLoading) {
     return <p className="text-sm text-slate-500 py-10 text-center">Chargement de votre espace…</p>;
@@ -293,16 +311,24 @@ export default function RhPersonnelHome({
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
+          {canValidateAbsences && (
+            <Link
+              href={ABSENCES_DIRECTION_HREF}
+              className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold shadow-sm ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
+            >
+              Valider les absences RH
+            </Link>
+          )}
           <Link
-            href="/rh?tab=dashboard&section=absences#nouvelle-absence"
-            className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-sm hover:bg-indigo-700"
+            href={`${ABSENCES_RH_HREF}#nouvelle-absence`}
+            className={`${dash.btnPrimary} px-4 py-2.5 text-xs shadow-sm`}
           >
             Demander une autorisation d&apos;absence
           </Link>
           {canCreateHse && (
             <Link
               href="/rh?tab=dashboard&section=hse"
-              className="px-4 py-2.5 rounded-xl bg-white border border-indigo-200 text-indigo-800 text-xs font-bold hover:bg-indigo-50"
+              className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
             >
               Faire une demande HSE
             </Link>
@@ -310,25 +336,73 @@ export default function RhPersonnelHome({
           {canAccessDemandeRh && (
             <Link
               href="/rh?tab=dashboard&section=demande"
-              className="px-4 py-2.5 rounded-xl bg-white border border-violet-200 text-violet-800 text-xs font-bold hover:bg-violet-50"
+              className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
             >
               Demande RH
             </Link>
           )}
           <Link
             href="/mon-planning"
-            className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
+            className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
           >
             Mon planning
           </Link>
           <Link
+            href="/rh?tab=dashboard&section=sst"
+            className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
+          >
+            Registre SST
+          </Link>
+          <Link
             href="/rh/moi"
-            className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
+            className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
           >
             Voir mon dossier complet →
           </Link>
         </div>
       </section>
+
+      <ModuleCard bodyClassName="p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
+              Santé &amp; sécurité
+            </p>
+            <h3 className="mt-1 font-black text-slate-900">Registre SST</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Émargement annuel, notice d&apos;utilisation et fiches de signalement — le registre
+              n&apos;est plus un classeur introuvable.
+            </p>
+          </div>
+          <Link
+            href="/rh?tab=dashboard&section=sst"
+            className={`inline-flex shrink-0 items-center justify-center ${dash.btnPrimary} px-4 py-2.5 text-xs`}
+          >
+            Ouvrir le registre →
+          </Link>
+        </div>
+      </ModuleCard>
+
+      {canValidateAbsences ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">Direction</p>
+              <h3 className="font-black text-slate-900 mt-1">Absences RH à valider</h3>
+              <p className="text-sm text-slate-600 mt-1">
+                File des demandes d&apos;autorisation du personnel et des professeurs — valider ou
+                refuser avant le traitement RH / rectorat.
+              </p>
+            </div>
+            <Link
+              href={ABSENCES_DIRECTION_HREF}
+              className={`shrink-0 inline-flex items-center justify-center px-4 py-2.5 text-xs ${dash.btnPrimary}`}
+            >
+              Ouvrir la file Direction →
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -336,7 +410,7 @@ export default function RhPersonnelHome({
             <h3 className="font-black text-slate-900">Mes absences</h3>
             <button
               type="button"
-              onClick={() => router.push("/rh?tab=dashboard&section=absences")}
+              onClick={() => router.push(ABSENCES_RH_HREF)}
               className="text-[11px] font-bold text-indigo-600 underline"
             >
               Voir tout

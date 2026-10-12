@@ -80,7 +80,16 @@ type DevisOcrMetadata = {
   price: string | null;
   company: string | null;
   contactEmail: string | null;
+  /** N° / réf. devis lu sur le PDF (ex. DEV-7788). */
+  reference: string | null;
 };
+
+function normalizeDevisReference(v: string | null | undefined): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || s.toLowerCase() === "null") return null;
+  return s.replace(/^[\s#:.-]+/, "").slice(0, 80);
+}
 
 function normalizeContactEmail(v: string | null | undefined): string | null {
   if (v == null) return null;
@@ -118,7 +127,7 @@ type DevisOcrAndTripMatch = DevisOcrMetadata & {
 export async function extractDevisMetadataWithMistral(ocrText: string): Promise<DevisOcrMetadata> {
   const mistralKey = await getMistralApiKey();
   if (!ocrText || !mistralKey) {
-    return { price: null, company: null, contactEmail: null };
+    return { price: null, company: null, contactEmail: null, reference: null };
   }
   try {
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -133,7 +142,7 @@ export async function extractDevisMetadataWithMistral(ocrText: string): Promise<
           {
             role: "system",
             content:
-              "Tu analyses le texte OCR d'un devis de transport. Réponds UNIQUEMENT avec un objet JSON valide, sans markdown, clés: montant_ttc (string ou null, ex: \"1 250,00 €\"), societe_emetrice (string ou null, nom de l'entreprise de transport qui émet le devis), email_contact (string ou null, une seule adresse e-mail professionnelle du service commercial / réservation visible sur le document, pas une URL). Si une info est absente ou incertaine, mets null.",
+              "Tu analyses le texte OCR d'un devis de transport. Réponds UNIQUEMENT avec un objet JSON valide, sans markdown, clés: montant_ttc (string ou null, ex: \"1 250,00 €\"), societe_emetrice (string ou null, nom de l'entreprise de transport qui émet le devis), email_contact (string ou null, une seule adresse e-mail professionnelle du service commercial / réservation visible sur le document, pas une URL), numero_devis (string ou null, numéro ou référence du devis tel qu'imprimé sur le document, ex: \"DEV-7788\" ou \"1815\"). Si une info est absente ou incertaine, mets null.",
           },
           { role: "user", content: `Texte:\n${ocrText.slice(0, 4000)}` },
         ],
@@ -143,20 +152,22 @@ export async function extractDevisMetadataWithMistral(ocrText: string): Promise<
     });
     const data = (await res.json()) as Record<string, unknown>;
     if (!res.ok) {
-      return { price: null, company: null, contactEmail: null };
+      return { price: null, company: null, contactEmail: null, reference: null };
     }
     const raw = (data.choices as { message?: { content?: string } }[] | undefined)?.[0]?.message?.content?.trim() || "";
     const parsed = JSON.parse(raw) as {
       montant_ttc?: string | null;
       societe_emetrice?: string | null;
       email_contact?: string | null;
+      numero_devis?: string | null;
     };
     const price = parsed.montant_ttc && String(parsed.montant_ttc).toLowerCase() !== "null" ? String(parsed.montant_ttc).trim() : null;
     const company = parsed.societe_emetrice && String(parsed.societe_emetrice).toLowerCase() !== "null" ? String(parsed.societe_emetrice).trim() : null;
     const contactEmail = normalizeContactEmail(parsed.email_contact);
-    return { price: price || null, company: company || null, contactEmail };
+    const reference = normalizeDevisReference(parsed.numero_devis);
+    return { price: price || null, company: company || null, contactEmail, reference };
   } catch {
-    return { price: null, company: null, contactEmail: null };
+    return { price: null, company: null, contactEmail: null, reference: null };
   }
 }
 
@@ -201,10 +212,10 @@ async function callMistralDevisTripMatch(
           role: "system",
           content:
             "Tu es un assistant pour une école. On te donne le texte OCR d'un devis de transport, l'objet et un extrait d'email, et une liste JSON de voyages scolaires (id, titre, destination, dates, statut, classes). " +
-            "Tu dois: (1) extraire montant_ttc et societe_emetrice du devis; (2) choisir UN SEUL id de voyage qui correspond au devis (destination, intitulé, dates, classes dans l'OCR ou l'email). " +
+            "Tu dois: (1) extraire montant_ttc, societe_emetrice et numero_devis du devis; (2) choisir UN SEUL id de voyage qui correspond au devis (destination, intitulé, dates, classes dans l'OCR ou l'email). " +
             "Si vraiment aucun voyage ne ressemble au devis, mets trip_id à null. " +
             "confidence: \"high\" = très sûr; \"medium\" = plausible, humain devra vérifier; \"low\" = hypothèse fragile mais tu peux quand même mettre le trip_id le plus plausible si un voyage domine légèrement — sinon null. " +
-            "Réponds UNIQUEMENT avec un objet JSON: montant_ttc (string|null), societe_emetrice (string|null), email_contact (string|null, e-mail professionnel commercial/réservation visible sur le devis OCR, une seule adresse), trip_id (string|null, exactement un id de la liste ou null), confidence (\"high\"|\"medium\"|\"low\"), motif (string court en français).",
+            "Réponds UNIQUEMENT avec un objet JSON: montant_ttc (string|null), societe_emetrice (string|null), email_contact (string|null, e-mail professionnel commercial/réservation visible sur le devis OCR, une seule adresse), numero_devis (string|null, n°/réf. devis imprimé), trip_id (string|null, exactement un id de la liste ou null), confidence (\"high\"|\"medium\"|\"low\"), motif (string court en français).",
         },
         {
           role: "user",
@@ -241,6 +252,7 @@ async function interpretMistralDevisMatchResponse(
     montant_ttc?: string | null;
     societe_emetrice?: string | null;
     email_contact?: string | null;
+    numero_devis?: string | null;
     trip_id?: string | null;
     confidence?: string;
     motif?: string | null;
@@ -268,6 +280,7 @@ async function interpretMistralDevisMatchResponse(
       ? String(parsed.societe_emetrice).trim()
       : null;
   const contactEmail = normalizeContactEmail(parsed.email_contact);
+  const reference = normalizeDevisReference(parsed.numero_devis);
 
   const allowedIds = new Set(candidates.map((c) => String(c.id)));
   const confRaw = String(parsed.confidence || "").toLowerCase();
@@ -284,6 +297,7 @@ async function interpretMistralDevisMatchResponse(
     price: price || null,
     company: company || null,
     contactEmail,
+    reference,
     matchedTripId,
     matchConfidence,
     matchMotif: parsed.motif ? String(parsed.motif).slice(0, 500) : null,
@@ -301,6 +315,7 @@ async function extractDevisAndMatchTripWithMistral(
     price: null,
     company: null,
     contactEmail: null,
+    reference: null,
     matchedTripId: null,
     matchConfidence: null,
     matchMotif: null,

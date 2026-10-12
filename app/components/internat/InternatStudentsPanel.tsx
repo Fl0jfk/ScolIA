@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import type { InternatBuilding, InternatRoom, InternatStudent } from "@/app/lib/internat-types";
 import { roomLocationLabel, studentDisplayName } from "@/app/lib/internat-types";
 import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import InternatStudentFiche from "@/app/components/internat/InternatStudentFiche";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { internatEligibleEstablishments } from "@/app/lib/establishment-catalog";
@@ -196,6 +197,34 @@ export default function InternatStudentsPanel({
       if (!res.ok) throw new Error(data?.error || "Normalisation impossible");
       setRosterMessage(data.message);
       await loadRoster();
+      await onRefresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dedupeStudents = async () => {
+    if (
+      !confirm(
+        "Fusionner les fiches internes en double (même INE, même dossier ou même nom+prénom) ? Une seule fiche est conservée par élève.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setRosterMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/internat/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dedupe" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Dédoublonnage impossible");
+      setRosterMessage(data.message || "Dédoublonnage terminé.");
       await onRefresh();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -508,6 +537,15 @@ export default function InternatStudentsPanel({
                   >
                     Normaliser régimes
                   </button>
+                  <ModuleButton
+                    variant="danger"
+                    disabled={busy}
+                    onClick={() => void dedupeStudents()}
+                    className="px-3 py-2 text-xs"
+                    title="Fusionne les fiches en double (INE / dossier / nom+prénom)"
+                  >
+                    Anti-doublons
+                  </ModuleButton>
                   <Link
                     href="/parametres?tab=photos"
                     className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl font-bold text-xs inline-flex items-center"

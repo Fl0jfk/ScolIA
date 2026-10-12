@@ -33,7 +33,8 @@ export type RhPilotageSection =
   | "annuaire"
   | "admin"
   | "onboarding"
-  | "registre";
+  | "registre"
+  | "sst";
 
 export function RhPilotageNav({
   active,
@@ -48,7 +49,8 @@ export function RhPilotageNav({
     { id: "annuaire", label: "Annuaire" },
     { id: "admin", label: "Entrées / sorties" },
     { id: "onboarding", label: "Nouveaux arrivants" },
-    { id: "registre", label: "Registre" },
+    { id: "registre", label: "Registre RH" },
+    { id: "sst", label: "Registre SST" },
   ];
 
   return (

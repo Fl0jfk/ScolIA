@@ -233,10 +233,17 @@ export function directionRolesMatchEstablishmentRef(
   establishments: Establishment[] = [],
   userId?: string | null,
 ): boolean {
-  if (establishments.length > 0) {
-    return rolesCanManageEstablishmentLabel(roles, establishments, etabRef, userId);
-  }
   if (!etabRef || isGroupeScolaireRef(etabRef)) return false;
+  if (establishments.length > 0) {
+    if (rolesCanManageEstablishmentLabel(roles, establishments, etabRef, userId)) {
+      return true;
+    }
+    // Repli : rôle direction du cycle même si le libellé stocké n’a pas matché un site.
+    return userRolesMatchSlug(
+      roles,
+      directionRoleForKind(inferEstablishmentKind({ label: etabRef })),
+    );
+  }
   return userRolesMatchSlug(
     roles,
     directionRoleForKind(inferEstablishmentKind({ label: etabRef })),

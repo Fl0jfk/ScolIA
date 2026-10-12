@@ -8,6 +8,9 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import {
   diplomaLabel,
+  formatInvitationEleveLabel,
+  formatInvitationFirstName,
+  formatInvitationLastName,
   situationStatusLabel,
   type InvitationAskSituation,
   type InvitationDashboardStats,
@@ -18,6 +21,10 @@ import {
   type InvitationRsvpRecord,
   type InvitationTheme,
 } from "@/app/lib/invitation-types";
+import {
+  buildInvitationPendingExportCsv,
+  invitationPendingExportFilename,
+} from "@/app/lib/invitation-export";
 
 type DashboardPayload = {
   page: InvitationPageRecord;
@@ -144,6 +151,16 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
         stats: {
           ...json.stats,
           eligibleCount: json.stats.eligibleCount ?? (json.eligible || []).length,
+          respondedCount:
+            json.stats.respondedCount ??
+            (json.rsvps || []).length,
+          pendingCount:
+            json.stats.pendingCount ??
+            Math.max(
+              0,
+              (json.stats.eligibleCount ?? (json.eligible || []).length) -
+                (json.stats.respondedCount ?? (json.rsvps || []).length),
+            ),
         },
       });
       applyPage(json.page);
@@ -343,6 +360,15 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
     }
   }
 
+  const rsvpByEligibleId = useMemo(() => {
+    const m = new Map<string, InvitationRsvpRecord>();
+    for (const r of data?.rsvps || []) {
+      if (r.eligibleId) m.set(r.eligibleId, r);
+      m.set(`${r.eleveNameNorm}|${r.birthDate || ""}`, r);
+    }
+    return m;
+  }, [data?.rsvps]);
+
   const duplicateIdSet = useMemo(() => {
     const s = new Set<string>();
     for (const d of data?.duplicates || []) {
@@ -350,6 +376,26 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
     }
     return s;
   }, [data?.duplicates]);
+
+  const pendingEligible = useMemo(() => {
+    const rows = (data?.eligible || []).filter((e) => {
+      const rsvp =
+        rsvpByEligibleId.get(e.id) ||
+        rsvpByEligibleId.get(`${e.eleveNameNorm}|${e.birthDate || ""}`);
+      return !rsvp;
+    });
+    return rows.sort((a, b) => {
+      const last = formatInvitationLastName(a.eleveLastName).localeCompare(
+        formatInvitationLastName(b.eleveLastName),
+        "fr",
+      );
+      if (last !== 0) return last;
+      return formatInvitationFirstName(a.eleveFirstName).localeCompare(
+        formatInvitationFirstName(b.eleveFirstName),
+        "fr",
+      );
+    });
+  }, [data?.eligible, rsvpByEligibleId]);
 
   const filteredRsvps = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -367,6 +413,21 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
       : data
         ? `/invitation/${data.page.slug}`
         : "";
+
+  function downloadPendingCsv() {
+    if (!data || pendingEligible.length === 0) return;
+    const csv = buildInvitationPendingExportCsv(pendingEligible);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = invitationPendingExportFilename(data.page.slug);
+    a.click();
+    URL.revokeObjectURL(url);
+    setNotice(
+      `CSV exporté : ${pendingEligible.length} invité${pendingEligible.length > 1 ? "s" : ""} restant${pendingEligible.length > 1 ? "s" : ""} à répondre.`,
+    );
+  }
 
   return (
     <RequireModuleAccess moduleId="evenements">
@@ -402,7 +463,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
 
         {data ? (
           <>
-            <section className="grid gap-3 sm:grid-cols-5">
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               <Kpi label="Oui" value={String(data.stats.ouiCount)} />
               <Kpi label="Non" value={String(data.stats.nonCount)} />
               <Kpi label="Personnes" value={String(data.stats.totalPersons)} />
@@ -415,6 +476,14 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                 }
               />
               <Kpi label="Liste invités" value={String(data.stats.eligibleCount)} />
+              <Kpi
+                label="Reste à répondre"
+                value={
+                  data.stats.eligibleCount > 0
+                    ? String(data.stats.pendingCount)
+                    : "—"
+                }
+              />
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
@@ -600,9 +669,12 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                     La date sert de filet (match 2/3 avec prénom et nom).
                   </p>
                 </div>
-                <p className="text-xs font-bold text-slate-600">
-                  {data.eligible.length} élève(s)
-                </p>
+                {data.stats.eligibleCount > 0 ? (
+                  <p className="text-xs font-bold text-slate-700">
+                    {data.stats.pendingCount} restant
+                    {data.stats.pendingCount > 1 ? "s" : ""} à répondre
+                  </p>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4 space-y-3">
@@ -673,49 +745,88 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                 </div>
               </details>
               {data.eligible.length > 0 ? (
-                <div className="max-h-56 overflow-auto rounded-xl border border-slate-100">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="px-2 py-2">Élève</th>
-                        <th className="px-2 py-2">Né(e) le</th>
-                        <th className="px-2 py-2">Diplôme</th>
-                        <th className="px-2 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.eligible.map((e) => (
-                        <tr key={e.id} className="border-t border-slate-100">
-                          <td className="px-2 py-1.5 font-semibold text-slate-900">
-                            {e.eleveFirstName} {e.eleveLastName}
-                          </td>
-                          <td className="px-2 py-1.5 text-slate-600">
-                            {e.birthDate
-                              ? new Date(e.birthDate + "T12:00:00").toLocaleDateString("fr-FR")
-                              : "—"}
-                          </td>
-                          <td className="px-2 py-1.5 text-slate-600">
-                            {diplomaLabel(e.diploma) || "—"}
-                          </td>
-                          <td className="px-2 py-1.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void removeEligible(
-                                  e.id,
-                                  `${e.eleveFirstName} ${e.eleveLastName}`,
-                                )
-                              }
-                              className="text-[11px] font-bold text-rose-700 hover:underline"
-                            >
-                              Retirer
-                            </button>
-                          </td>
+                <>
+                  <div className="max-h-56 overflow-auto rounded-xl border border-slate-100">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-2 py-2">Élève</th>
+                          <th className="px-2 py-2">Né(e) le</th>
+                          <th className="px-2 py-2">Diplôme</th>
+                          <th className="px-2 py-2">Réponse</th>
+                          <th className="px-2 py-2" />
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {data.eligible.map((e) => {
+                          const rsvp =
+                            rsvpByEligibleId.get(e.id) ||
+                            rsvpByEligibleId.get(`${e.eleveNameNorm}|${e.birthDate || ""}`);
+                          return (
+                            <tr key={e.id} className="border-t border-slate-100">
+                              <td className="px-2 py-1.5 font-semibold text-slate-900">
+                                {formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}
+                              </td>
+                              <td className="px-2 py-1.5 text-slate-600">
+                                {e.birthDate
+                                  ? new Date(e.birthDate + "T12:00:00").toLocaleDateString("fr-FR")
+                                  : "—"}
+                              </td>
+                              <td className="px-2 py-1.5 text-slate-600">
+                                {diplomaLabel(e.diploma) || "—"}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                {rsvp ? (
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                                      rsvp.response === "oui"
+                                        ? "bg-emerald-100 text-emerald-800"
+                                        : "bg-slate-100 text-slate-600"
+                                    }`}
+                                  >
+                                    {rsvp.response === "oui" ? `Oui (${rsvp.presentCount})` : "Non"}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] font-semibold text-amber-700">
+                                    En attente
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void removeEligible(
+                                      e.id,
+                                      `${formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}`,
+                                    )
+                                  }
+                                  className="text-[11px] font-bold text-rose-700 hover:underline"
+                                >
+                                  Retirer
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {pendingEligible.length > 0 ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">
+                        Pour relancer : exporter uniquement ceux encore sans réponse.
+                      </p>
+                      <ModuleButton variant="secondary" className="px-3 py-2 text-xs" onClick={downloadPendingCsv}>
+                        Extraire CSV restants ({pendingEligible.length})
+                      </ModuleButton>
+                    </div>
+                  ) : (
+                    <p className="text-xs font-semibold text-emerald-700">
+                      Tout le monde a répondu.
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-sm text-slate-500">
                   Aucun élève pour l’instant. Sans liste + option protection, le formulaire reste ouvert.
@@ -821,7 +932,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                             }`}
                           >
                             <td className="px-2 py-2 font-semibold text-slate-900">
-                              {r.eleveFirstName} {r.eleveLastName}
+                              {formatInvitationEleveLabel(r.eleveFirstName, r.eleveLastName)}
                               {suspect ? (
                                 <span className="ml-1 text-[10px] font-bold text-amber-700">
                                   doublon ?
@@ -864,7 +975,7 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                                 onClick={() =>
                                   void deleteRsvp(
                                     r.id,
-                                    `${r.eleveFirstName} ${r.eleveLastName}`,
+                                    `${formatInvitationEleveLabel(r.eleveFirstName, r.eleveLastName)}`,
                                   )
                                 }
                                 className="text-[11px] font-bold text-rose-700 hover:underline"

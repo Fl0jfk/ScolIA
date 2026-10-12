@@ -2,7 +2,11 @@ import type { EleveConfig } from "@/app/lib/eleves-config";
 import { getTotalMeals } from "@/app/lib/travels-cuisine-form";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 import { splitClassesValue } from "@/app/lib/travels-classes";
-import type { TravelsParticipantEleve, TravelsTripData } from "@/app/lib/travels-types";
+import type {
+  TravelsPanierRepasAdulte,
+  TravelsParticipantEleve,
+  TravelsTripData,
+} from "@/app/lib/travels-types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -115,12 +119,139 @@ export function elevesListExcelFilename(tripLabel?: string | null): string {
   return `liste-eleves${raw ? `-${raw}` : ""}-${stamp}.xlsx`;
 }
 
-/** Nombre de paniers attribués dans la liste nominative. */
+/** Nombre de paniers attribués aux élèves. */
 export function countPanierRepasAssigned(participants: TravelsParticipantEleve[]): number {
   return participants.filter((p) => p.panierRepas === true).length;
 }
 
-/** Plafonne les paniers au nombre de repas commandés (garde les premiers cochés). */
+/** Nombre de paniers attribués aux adultes (accompagnateurs / autres). */
+export function countPanierRepasAdultesAssigned(
+  adultes: TravelsPanierRepasAdulte[] | null | undefined,
+): number {
+  return Array.isArray(adultes) ? adultes.length : 0;
+}
+
+/** Total paniers « qui mange » = élèves + adultes. */
+export function countPanierRepasTotalAssigned(
+  participants: TravelsParticipantEleve[],
+  adultes?: TravelsPanierRepasAdulte[] | null,
+): number {
+  return countPanierRepasAssigned(participants) + countPanierRepasAdultesAssigned(adultes);
+}
+
+export const PANIER_REPAS_AUTRE_DEFAULT_NAME = "Accompagnateur autre";
+
+/** Valeur affichée dans le champ « autre » en édition (placeholder pour le nom par défaut). */
+export function panierRepasAutreNameForEdit(name: string): string {
+  if (name === PANIER_REPAS_AUTRE_DEFAULT_NAME) return "";
+  return name;
+}
+
+/** Normalise le nom « autre » à la fin de saisie (blur / sauvegarde) — pas pendant la frappe. */
+export function normalizePanierRepasAutreNameOnBlur(name: string): string {
+  const trimmed = String(name || "").trim();
+  return trimmed || PANIER_REPAS_AUTRE_DEFAULT_NAME;
+}
+
+/** Clé stable pour lier un accompagnateur du séjour à une case panier. */
+export function accompagnateurPanierKey(a: {
+  userId?: string | null;
+  name?: string | null;
+}): string {
+  const uid = String(a.userId || "").trim();
+  if (uid) return `uid:${uid}`;
+  return `name:${String(a.name || "")
+    .trim()
+    .toLowerCase()}`;
+}
+
+/** Clé React pour une ligne accompagnateur (évite les doublons si homonymes sans userId). */
+export function accompagnateurPanierListKey(
+  escort: { userId?: string | null; name?: string | null },
+  index: number,
+): string {
+  const uid = String(escort.userId || "").trim();
+  if (uid) return `uid:${uid}`;
+  const name = String(escort.name || "")
+    .trim()
+    .toLowerCase();
+  return `name:${name}#${index}`;
+}
+
+/** Panier adulte « accompagnateur » encore rattaché à un accompagnateur du dossier. */
+export function panierRepasAdulteMatchesEscort(
+  adult: TravelsPanierRepasAdulte,
+  escort: { userId?: string | null; name?: string | null },
+): boolean {
+  if (adult.source !== "accompagnateur") return false;
+  const uid = String(adult.userId || "").trim();
+  const escortUid = String(escort.userId || "").trim();
+  if (uid && escortUid) return uid === escortUid;
+  const aName = String(adult.name || "").trim().toLowerCase();
+  const eName = String(escort.name || "").trim().toLowerCase();
+  return Boolean(aName && eName && aName === eName);
+}
+
+/** Paniers « accompagnateur » dont le nom n’est plus dans le dossier (retiré ou renommé). */
+export function listOrphanPanierRepasAccompagnateurs(
+  adultes: TravelsPanierRepasAdulte[],
+  escorts: Array<{ userId?: string | null; name?: string | null }>,
+): TravelsPanierRepasAdulte[] {
+  return adultes.filter(
+    (a) =>
+      a.source === "accompagnateur" &&
+      !escorts.some((e) => panierRepasAdulteMatchesEscort(a, e)),
+  );
+}
+
+/** Nombre de lignes adultes visibles dans l’UI (accompagnateurs liés + autres + orphelins). */
+export function countPanierRepasAdultesVisibleRows(
+  adultes: TravelsPanierRepasAdulte[],
+  escorts: Array<{ userId?: string | null; name?: string | null }>,
+): number {
+  const sanitized = sanitizePanierRepasAdultes(adultes);
+  const orphans = listOrphanPanierRepasAccompagnateurs(sanitized, escorts);
+  const autres = sanitized.filter((a) => a.source === "autre");
+  const linkedAccompagnateurs = escorts.filter((e) =>
+    sanitized.some((a) => panierRepasAdulteMatchesEscort(a, e)),
+  );
+  return linkedAccompagnateurs.length + autres.length + orphans.length;
+}
+
+export function sanitizePanierRepasAdultes(
+  raw: unknown,
+): TravelsPanierRepasAdulte[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TravelsPanierRepasAdulte[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const id = String(row.id || "").trim() || `adulte-${out.length + 1}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const nameRaw = String(row.name || "").trim();
+    const source = row.source === "accompagnateur" ? ("accompagnateur" as const) : ("autre" as const);
+    out.push({
+      id,
+      name: nameRaw || PANIER_REPAS_AUTRE_DEFAULT_NAME,
+      ...(typeof row.userId === "string" && row.userId.trim()
+        ? { userId: row.userId.trim() }
+        : {}),
+      ...(typeof row.email === "string" && row.email.trim()
+        ? { email: row.email.trim() }
+        : {}),
+      source,
+    });
+  }
+  return out;
+}
+
+export function newPanierRepasAdulteAutreId(): string {
+  return `autre-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Plafonne les paniers élèves au nombre de repas commandés (garde les premiers cochés). */
 export function clampPanierRepasAssignments(
   participants: TravelsParticipantEleve[],
   mealsOrdered: number,
@@ -138,19 +269,58 @@ export function clampPanierRepasAssignments(
   });
 }
 
-/** CSV liste nominative paniers repas pour la cuisine. */
-export function buildPanierRepasListCsv(participants: TravelsParticipantEleve[]): string {
+/**
+ * Plafonne élèves + adultes au total commandé.
+ * Priorité : paniers élèves déjà cochés, puis adultes dans l’ordre.
+ */
+export function clampPanierRepasWhoEats(
+  participants: TravelsParticipantEleve[],
+  adultes: TravelsPanierRepasAdulte[],
+  mealsOrdered: number,
+): { participants: TravelsParticipantEleve[]; adultes: TravelsPanierRepasAdulte[] } {
+  const limit = Number.isFinite(mealsOrdered) && mealsOrdered > 0 ? Math.floor(mealsOrdered) : 0;
+  if (limit <= 0) {
+    return {
+      participants: participants.map((p) => ({ ...p, panierRepas: false })),
+      adultes: [],
+    };
+  }
+  const clampedEleves = clampPanierRepasAssignments(participants, limit);
+  const elevesUsed = countPanierRepasAssigned(clampedEleves);
+  const remaining = Math.max(0, limit - elevesUsed);
+  return {
+    participants: clampedEleves,
+    adultes: sanitizePanierRepasAdultes(adultes).slice(0, remaining),
+  };
+}
+
+/** CSV liste nominative paniers repas pour la cuisine (élèves + adultes). */
+export function buildPanierRepasListCsv(
+  participants: TravelsParticipantEleve[],
+  adultes?: TravelsPanierRepasAdulte[] | null,
+): string {
   const withPanier = participants.filter((p) => p.panierRepas === true);
-  const header = "Nom;Prénom;Classe;INE";
-  const rows = withPanier
+  const header = "Nom;Prénom;Classe;INE;Type";
+  const eleveRows = withPanier
     .slice()
     .sort(compareParticipantsByClasseThenName)
     .map((p) =>
-      [p.nom, p.prenom, p.classe || "", p.ine.startsWith("local:") ? "" : p.ine]
+      [
+        p.nom,
+        p.prenom,
+        p.classe || "",
+        p.ine.startsWith("local:") ? "" : p.ine,
+        "Eleve",
+      ]
         .map((c) => csvCell(String(c)))
         .join(";"),
     );
-  return [header, ...rows].join("\n");
+  const adulteRows = sanitizePanierRepasAdultes(adultes).map((a) =>
+    [a.name, "", "Adulte", "", a.source === "accompagnateur" ? "Accompagnateur" : "Adulte autre"]
+      .map((c) => csvCell(String(c)))
+      .join(";"),
+  );
+  return [header, ...eleveRows, ...adulteRows].join("\n");
 }
 
 /**
@@ -292,7 +462,10 @@ export function getCuisineMealsOrdered(data: TravelsTripData | undefined): numbe
 export function isCuisineWhoEatsComplete(data: TravelsTripData | undefined): boolean {
   const meals = getCuisineMealsOrdered(data);
   if (meals <= 0) return true;
-  const assigned = countPanierRepasAssigned(data?.participantEleves || []);
+  const assigned = countPanierRepasTotalAssigned(
+    data?.participantEleves || [],
+    data?.panierRepasAdultes,
+  );
   return assigned === meals;
 }
 
@@ -304,7 +477,10 @@ export function isTripListeReadyForFinalisation(data: TravelsTripData | undefine
 export function cuisineWhoEatsMissingMessage(data: TravelsTripData | undefined): string | null {
   const meals = getCuisineMealsOrdered(data);
   if (meals <= 0) return null;
-  const assigned = countPanierRepasAssigned(data?.participantEleves || []);
+  const assigned = countPanierRepasTotalAssigned(
+    data?.participantEleves || [],
+    data?.panierRepasAdultes,
+  );
   if (assigned === meals) return null;
-  return `Attribuez exactement ${meals} panier(s) repas nominatif(s) (« qui mange ») — actuellement ${assigned}/${meals}.`;
+  return `Attribuez exactement ${meals} panier(s) repas (« qui mange », élèves et/ou adultes) — actuellement ${assigned}/${meals}.`;
 }

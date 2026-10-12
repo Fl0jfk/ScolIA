@@ -1,5 +1,5 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry, loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   getStagePeriodsForClass,
@@ -8,14 +8,16 @@ import {
   type StageClassPeriod,
 } from "@/app/lib/stage-periods-config";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import {
+  orphanConventionDisposition,
+  stageStudentNameMatchesEleve,
+} from "@/app/lib/stage-person-name";
 import { classKey, stageRosterStudentKey } from "@/app/lib/stage-referents-config";
 import { getConventionsIndex } from "@/app/lib/stage-storage";
-import { loadStageConventionsByIds } from "@/app/lib/stage-convention-load";
-import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
+import type { StageSignatureSummary } from "@/app/lib/stage-signature-summary";
 import {
   currentStageSchoolYear,
   STAGE_CONVENTION_STATUS_LABELS,
-  type StageConvention,
   type StageConventionIndexEntry,
   type StageConventionStatus,
 } from "@/app/lib/stage-types";
@@ -77,26 +79,6 @@ export type StageClassRoster = {
   note?: string;
 };
 
-function normalizeName(str: string): string {
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[-\s]+/g, " ")
-    .trim();
-}
-
-function namesMatch(
-  a: { nom: string; prenom: string },
-  b: { lastName: string; firstName: string },
-): boolean {
-  const an = normalizeName(a.nom);
-  const ap = normalizeName(a.prenom);
-  const bn = normalizeName(b.lastName);
-  const bp = normalizeName(b.firstName);
-  return an === bn && ap === bp;
-}
-
 /** Classe explicite (champ `classe` de la liste élèves). */
 function resolveEleveClassName(eleve: EleveConfig): string | null {
   const explicit = String(eleve.classe ?? "").trim();
@@ -121,8 +103,12 @@ function eleveMatchesClass(eleve: EleveConfig, className: string): boolean {
   return schoolClassesMatch(resolved, className);
 }
 
-async function loadEleves(): Promise<EleveConfig[]> {
+async function loadElevesActifs(): Promise<EleveConfig[]> {
   return loadElevesActifsRegistry();
+}
+
+async function loadAllEleves(): Promise<EleveConfig[]> {
+  return loadElevesRegistry();
 }
 
 function isTerminalStatus(status: StageConventionStatus): boolean {
@@ -141,22 +127,25 @@ function rosterStatusFromConventions(conventions: StageRosterConvention[]): Stag
   return "en_cours";
 }
 
-function toRosterConvention(c: StageConvention): StageRosterConvention {
+function emptySignatureSummary(): StageSignatureSummary {
+  return { total: 0, signed: 0, pending: 0, refused: 0, complete: false, items: [] };
+}
+
+/** Liste classe : métadonnées index uniquement — le dossier complet se charge au clic. */
+function toRosterConventionFromIndex(e: StageConventionIndexEntry): StageRosterConvention {
   return {
-    id: c.id,
-    status: c.status,
-    statusLabel: STAGE_CONVENTION_STATUS_LABELS[c.status] || c.status,
-    stageLabel: c.stageLabel,
-    companyName: c.company.name,
-    periodStart: c.schedule.periodStart,
-    periodEnd: c.schedule.periodEnd,
-    internshipKind: c.internshipKind,
-    oneDriveFiled: Boolean(c.oneDriveFiling?.filedAt),
-    canFileOneDrive: c.status === "signed" && !c.oneDriveFiling?.filedAt,
-    signatureSummary: buildSignatureSummary(c),
-    teacherReferentName: c.teacherReferent.name?.trim() || undefined,
-    teacherReferentEmail: c.teacherReferent.email?.trim() || undefined,
-    teacherReferentUserId: c.teacherReferent.userId?.trim() || undefined,
+    id: e.id,
+    status: e.status,
+    statusLabel: STAGE_CONVENTION_STATUS_LABELS[e.status] || e.status,
+    stageLabel: e.stageLabel,
+    companyName: e.companyName,
+    periodStart: e.periodStart,
+    periodEnd: e.periodEnd,
+    internshipKind: e.internshipKind,
+    oneDriveFiled: false,
+    canFileOneDrive: false,
+    signatureSummary: emptySignatureSummary(),
+    teacherReferentEmail: e.teacherReferentEmail,
   };
 }
 
@@ -164,18 +153,6 @@ function studentKey(nom: string, prenom: string, ine?: string): string {
   return stageRosterStudentKey(nom, prenom, ine);
 }
 
-function isRosterVisibleConvention(c: StageConvention, schoolYear: string): boolean {
-  // Brouillon élève : visible uniquement côté élève, pas dans le suivi admin / classe.
-  if (c.status === "archived" || c.status === "cancelled" || c.status === "draft") return false;
-  if (c.schoolYear === schoolYear) return true;
-  // Même année calendaire de stage mais schoolYear mal renseigné / N-1 encore actif :
-  // Absences repas les listait déjà ; le suivi classe doit les retrouver.
-  return (
-    c.status === "signed" ||
-    c.status === "signatures_pending" ||
-    c.status === "convention_ready"
-  );
-}
 
 /**
  * Classes disponibles dans le suivi : config stages activée + classes
@@ -315,27 +292,29 @@ async function buildStageClassRosterUncached(
   const indexPromise = opts?.index
     ? Promise.resolve(opts.index)
     : getConventionsIndex();
-  const [eleves, index, officialPeriods, classEnabledInConfig] = await Promise.all([
-    loadEleves(),
-    indexPromise,
-    getStagePeriodsForClass(className, year),
-    isClassEnabledInStagePeriods(className, year),
-  ]);
+  const [elevesActifs, elevesAll, index, officialPeriods, classEnabledInConfig] =
+    await Promise.all([
+      loadElevesActifs(),
+      loadAllEleves(),
+      indexPromise,
+      getStagePeriodsForClass(className, year),
+      isClassEnabledInStagePeriods(className, year),
+    ]);
   const expectsMandatoryStage = officialPeriods.length > 0;
   /** Classe ouverte aux stages dans les réglages → toujours lister tout le registre (lycée sans période, etc.). */
   const listFullClassRoster = expectsMandatoryStage || classEnabledInConfig;
-  const classEleves = eleves.filter((e) => eleveMatchesClass(e, className));
+  const classEleves = elevesActifs.filter((e) => eleveMatchesClass(e, className));
 
-  const candidateIds = index
-    .filter((e) => {
-      if (!isRosterVisibleIndexEntry(e, year)) return false;
-      return schoolClassesMatch(String(e.className ?? ""), className);
-    })
-    .map((e) => e.id);
-
-  const conventions = (await loadStageConventionsByIds(candidateIds)).filter((c) =>
-    isRosterVisibleConvention(c, year),
-  );
+  /**
+   * Conventions visibles pour cette classe :
+   * - taguées avec cette classe sur l’index, ou
+   * - rattachées par nom à un élève actif de la classe (classe sur la convention obsolète).
+   */
+  const classEntries = index.filter((e) => {
+    if (!isRosterVisibleIndexEntry(e, year)) return false;
+    if (schoolClassesMatch(String(e.className ?? ""), className)) return true;
+    return classEleves.some((el) => stageStudentNameMatchesEleve(e.studentName, el));
+  });
 
   const studentMap = new Map<string, StageRosterStudent>();
 
@@ -354,34 +333,64 @@ async function buildStageClassRosterUncached(
     });
   }
 
-  for (const convention of conventions) {
-    const matchedKey = [...studentMap.entries()].find(([, s]) =>
-      namesMatch(s, convention.student),
-    )?.[0];
+  for (const entry of classEntries) {
+    const matchedEleveInClass = classEleves.find((el) =>
+      stageStudentNameMatchesEleve(entry.studentName, el),
+    );
+    const matchedKey = matchedEleveInClass
+      ? studentKey(matchedEleveInClass.nom, matchedEleveInClass.prenom, matchedEleveInClass.ine)
+      : [...studentMap.entries()].find(([, s]) =>
+          stageStudentNameMatchesEleve(entry.studentName, s),
+        )?.[0];
+
+    const { firstName, lastName } = splitStudentName(entry.studentName);
+
+    if (!matchedKey) {
+      const actifElsewhere = elevesActifs.some(
+        (e) =>
+          stageStudentNameMatchesEleve(entry.studentName, e) &&
+          !eleveMatchesClass(e, className),
+      );
+      const knownInAll = elevesAll.find((e) =>
+        stageStudentNameMatchesEleve(entry.studentName, e),
+      );
+      const knownButNotActif =
+        !actifElsewhere &&
+        Boolean(knownInAll) &&
+        !elevesActifs.some((e) => stageStudentNameMatchesEleve(entry.studentName, e));
+      const disposition = orphanConventionDisposition({
+        actifInOtherClass: actifElsewhere,
+        knownButNotActif,
+      });
+      if (disposition !== "create_orphan") {
+        continue;
+      }
+    }
 
     const key =
       matchedKey ??
-      studentKey(convention.student.lastName, convention.student.firstName);
+      (matchedEleveInClass
+        ? studentKey(matchedEleveInClass.nom, matchedEleveInClass.prenom, matchedEleveInClass.ine)
+        : studentKey(lastName, firstName));
 
     const existing = studentMap.get(key);
     const row: StageRosterStudent = existing ?? {
       key,
-      nom: convention.student.lastName,
-      prenom: convention.student.firstName,
+      nom: matchedEleveInClass?.nom ?? lastName,
+      prenom: matchedEleveInClass?.prenom ?? firstName,
       rosterStatus: "sans_stage",
       conventions: [],
     };
 
-    if (!row.eleveId) {
-      const matchedEleve = classEleves.find((e) => namesMatch(e, convention.student));
-      if (matchedEleve?.id?.trim()) {
-        row.eleveId = matchedEleve.id.trim();
-        row.photoKey = matchedEleve.photoKey?.trim() || row.photoKey;
-        row.ine = row.ine || matchedEleve.ine || undefined;
-      }
+    if (!row.eleveId && matchedEleveInClass?.id?.trim()) {
+      row.eleveId = matchedEleveInClass.id.trim();
+      row.photoKey = matchedEleveInClass.photoKey?.trim() || row.photoKey;
+      row.ine = row.ine || matchedEleveInClass.ine || undefined;
+      row.nom = matchedEleveInClass.nom;
+      row.prenom = matchedEleveInClass.prenom;
     }
 
-    row.conventions.push(toRosterConvention(convention));
+    row.conventions.push(toRosterConventionFromIndex(entry));
     studentMap.set(key, row);
   }
 

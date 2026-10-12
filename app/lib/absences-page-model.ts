@@ -75,6 +75,13 @@ export type AbsenceItem = {
     roleLabel: string;
     text: string;
   }>;
+  /** Journal append-only (validation, traitement…). */
+  history?: Array<{
+    at: string;
+    by: string;
+    action: string;
+    note?: string;
+  }>;
 };
 
 export function itemDecision(item: AbsenceItem): AbsenceDecision {

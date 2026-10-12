@@ -157,6 +157,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     savedTrip: TravelsTrip;
   } | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
   const [transportReplyTo, setTransportReplyTo] = useState("");
   const [transportReplyBody, setTransportReplyBody] = useState("");
   const [transportReplyBusy, setTransportReplyBusy] = useState(false);
@@ -386,7 +387,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
   const handleFinalValidation = async () => {
-    if (!canSign) return alert("Vous n'êtes pas autorisé(e) à valider ce dossier.");
+    if (!canSign && !isGlobalAdmin) {
+      return alert("Vous n'êtes pas autorisé(e) à valider ce dossier.");
+    }
     setLoadingAction("final-validation");
     try {
       const { isTripListeReadyForFinalisation } = await import("@/app/lib/travels-eleves-list");
@@ -532,22 +535,55 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   };
   const postInternalMessage = async () => {
     const text = draftMessage.trim();
-    if (!text || !canUseInternalThread) return;
-    const roleLabel = isDirection ? "Direction" : isCompta ? "Comptabilité" : "Créateur";
-    const newMsg = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      user: user?.fullName || "Utilisateur",
-      role: roleLabel,
-      text,
-      date: new Date().toISOString(),
-    };
-    const updatedTrip = {
-      ...trip,
-      messages: [...(trip.messages || []), newMsg],
-    };
-    await saveUpdates(updatedTrip);
-    setDraftMessage("");
+    if (!text || !canUseInternalThread || sendingMessage) return;
+    setSendingMessage(true);
+    try {
+      const res = await fetch("/api/travels/internal-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId: trip.id, text }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        trip?: TravelsTrip;
+        message?: NonNullable<TravelsTrip["messages"]>[number];
+      };
+      if (!res.ok) {
+        alert(payload.error || "Impossible d'envoyer le message.");
+        return;
+      }
+      if (payload.trip) {
+        setTrip({ ...payload.trip, unreadInternalCount: 0 });
+      } else if (payload.message) {
+        setTrip({
+          ...trip,
+          messages: [...(trip.messages || []), payload.message],
+          unreadInternalCount: 0,
+        });
+      }
+      setDraftMessage("");
+    } catch (err) {
+      console.error("[travels] internal message:", err);
+      alert("Impossible d'envoyer le message.");
+    } finally {
+      setSendingMessage(false);
+    }
   };
+  const markThreadRead = useCallback(() => {
+    if (!trip?.id || !canUseInternalThread) return;
+    void fetch("/api/travels/internal-message", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tripId: trip.id }),
+    }).then((res) => {
+      if (!res.ok) return;
+      setTrip((prev) =>
+        prev && (prev.unreadInternalCount ?? 0) > 0
+          ? { ...prev, unreadInternalCount: 0 }
+          : prev,
+      );
+    });
+  }, [trip?.id, canUseInternalThread]);
   const handleAction = async (
     newStatus: string,
     note: string = "",
@@ -1327,6 +1363,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         extractedContactEmail: null,
         extractedPrice: null,
         extractedCompany: null,
+        extractedReference: null,
       };
       const updatedTrip = {
         ...trip,
@@ -1437,8 +1474,15 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     return isNaN(d.getTime()) ? "Date à préciser" : d.toLocaleDateString('fr-FR');
   };
   const nextGuidance = useMemo(
-    () => getTripNextGuidance(trip, { isOwner, canSign, isCompta }),
-    [trip, isOwner, canSign, isCompta],
+    () =>
+      getTripNextGuidance(trip, {
+        isOwner,
+        canSign,
+        isCompta,
+        isGlobalAdmin,
+        isAdministratif,
+      }),
+    [trip, isOwner, canSign, isCompta, isGlobalAdmin, isAdministratif],
   );
   const seriesId = trip.data?.recurrenceSeriesId as string | undefined;
   const seriesIndex = trip.data?.recurrenceIndex as number | undefined;
@@ -1547,6 +1591,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     documents: documentCount,
     eleves: participantCount || undefined,
     communication: trip.data.parentComLogs?.length || undefined,
+    messages: trip.unreadInternalCount || undefined,
   };
   const currentSteps =
     trip.type === "COMPLEX"
@@ -1909,6 +1954,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           cuisineOrderSentAt={cuisineOrderSentAt}
           isOwner={isOwner}
           canSign={canSign}
+          isGlobalAdmin={isGlobalAdmin}
           loadingAction={loadingAction}
           sendCuisineAmendment={sendCuisineAmendment}
           cuisineChanged={cuisineChanged}
@@ -1962,6 +2008,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           draftMessage={draftMessage}
           setDraftMessage={setDraftMessage}
           postInternalMessage={postInternalMessage}
+          sending={sendingMessage}
+          currentUserId={user?.id}
+          onMarkRead={markThreadRead}
         />
       )}
 
@@ -1979,11 +2028,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         />
       )}
 
-      {hubTab === "overview" && (isDirection || isCompta) && !isEditing && trip.status !== "BESOIN_MODIFICATION" && trip.status !== "SEANCE_ANNULEE" && trip.status !== "ANNULE" && (
+      {hubTab === "overview" && (isDirection || isCompta || isGlobalAdmin) && !isEditing && trip.status !== "BESOIN_MODIFICATION" && trip.status !== "SEANCE_ANNULEE" && trip.status !== "ANNULE" && (
         <TripDecisionHubPanel
           trip={trip}
           isDirection={isDirection}
           canSign={canSign}
+          isGlobalAdmin={isGlobalAdmin}
           etabForSign={etabForSign || ""}
           isCompta={isCompta}
           handleAction={handleAction}

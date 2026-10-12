@@ -10,6 +10,7 @@ type TripCuisineHubPanelProps = {
   cuisineOrderSentAt: string | null | undefined;
   isOwner: boolean;
   canSign: boolean;
+  isGlobalAdmin?: boolean;
   loadingAction: string | null;
   sendCuisineAmendment: () => void;
   cuisineChanged: boolean;
@@ -17,9 +18,10 @@ type TripCuisineHubPanelProps = {
 };
 
 export function TripCuisineHubPanel({
-  trip, cuisineOrderSent, cuisineOrderSentAt, isOwner, canSign, loadingAction,
+  trip, cuisineOrderSent, cuisineOrderSentAt, isOwner, canSign, isGlobalAdmin = false, loadingAction,
   sendCuisineAmendment, cuisineChanged, dateLabel,
 }: TripCuisineHubPanelProps) {
+  const canAmendCuisine = isOwner || canSign || isGlobalAdmin;
   return (
         <TripSection
           title="Commande restauration"
@@ -27,7 +29,7 @@ export function TripCuisineHubPanel({
           icon="🍽️"
           accent="emerald"
           action={
-            cuisineOrderSent && (isOwner || canSign) ? (
+            cuisineOrderSent && canAmendCuisine ? (
               <TripButton
                 variant="warning"
                 size="sm"

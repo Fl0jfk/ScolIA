@@ -58,6 +58,8 @@ import { readRhPlanning } from "@/app/lib/rh/planning-storage";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import type { RhPlanningDoc } from "@/app/lib/rh/planning-types";
 import { listUnseenSharedFolderInvites } from "@/app/lib/documents-cloud";
+import { canAccessSstRegistre } from "@/app/lib/sst-registre/access";
+import { isSstEmargementPending } from "@/app/lib/sst-registre/db";
 
 async function safeJson<T>(path: string, timeoutMs = 8_000): Promise<T | null> {
   try {
@@ -467,12 +469,23 @@ export async function GET() {
     }
 
     let moodPulseSubmittedToday = false;
+    let sstEmargementPending = false;
     if (accessibleModuleIds.has("rh")) {
       try {
         const dayDoc = await readMoodPulseDay(moodPulseTodayKey());
         moodPulseSubmittedToday = hasVotedMoodPulse(dayDoc, userId);
       } catch {
         moodPulseSubmittedToday = false;
+      }
+      if (canAccessSstRegistre(roles)) {
+        try {
+          sstEmargementPending = await isSstEmargementPending({
+            etablissementId: signalsEtabId,
+            userId: authUserId,
+          });
+        } catch {
+          sstEmargementPending = false;
+        }
       }
     }
 
@@ -598,6 +611,13 @@ export async function GET() {
     }> = [];
     let creneauxVidesCount = 0;
     let creneauxVidesTravelId: string | null = null;
+    let travelsUnreadMessages:
+      | {
+          tripCount: number;
+          messageCount: number;
+          firstTripId: string | null;
+        }
+      | undefined;
 
     try {
       const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
@@ -731,6 +751,35 @@ export async function GET() {
       }
     }
 
+    if (accessibleModuleIds.has("travels")) {
+      try {
+        const { summarizeViewerTravelUnread } = await import(
+          "@/app/lib/travel-message-unread-db"
+        );
+        const { travelThreadViewerFromStaff } = await import(
+          "@/app/lib/travels-thread-unread"
+        );
+        const { listTravelsIndex } = await import("@/app/lib/travels-storage");
+        const tripsForUnread =
+          Array.isArray(tripsRaw) && tripsRaw.length > 0
+            ? (tripsRaw as import("@/app/lib/travels-types").TravelsTrip[])
+            : await listTravelsIndex();
+        const { travelsDbReady } = await import("@/app/lib/travel-db");
+        const etabId = await travelsDbReady();
+        if (etabId) {
+          travelsUnreadMessages = await summarizeViewerTravelUnread({
+            etablissementId: etabId,
+            trips: tripsForUnread,
+            viewer: travelThreadViewerFromStaff(user),
+            establishments,
+          });
+        }
+      } catch (err) {
+        console.warn("[dashboard/signals] travels unread", err);
+        travelsUnreadMessages = undefined;
+      }
+    }
+
     try {
       const signals = getDashboardSignals({
         roles,
@@ -754,6 +803,7 @@ export async function GET() {
         internatRollCallStatus,
         weekSheet,
         moodPulseSubmittedToday,
+        sstEmargementPending,
         planningNow,
         establishments,
         absenceNotifications: appBundle?.notifications ?? null,
@@ -768,6 +818,7 @@ export async function GET() {
         unseenAccompagnementAlerts,
         creneauxVidesCount,
         creneauxVidesTravelId,
+        travelsUnreadMessages,
       });
       void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
       return NextResponse.json(signals);

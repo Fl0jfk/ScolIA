@@ -1,5 +1,14 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
-import { DEFAULT_DOMAIN_PLANNING_DOMAINS, DEFAULT_EVARS_SESSIONS, normalizeSessionConstraint } from "@/app/lib/domain-planning-defaults";
+import {
+  DEFAULT_ALL_EVARS_SESSIONS,
+  DEFAULT_DOMAIN_ID,
+  DEFAULT_DOMAIN_PLANNING_DOMAINS,
+  ensureLyceeDomainPresent,
+  ensureLyceeSessionsPresent,
+  hydrateEmptySessionThemes,
+  isTransversalNiveau,
+  normalizeSessionConstraint,
+} from "@/app/lib/domain-planning-defaults";
 import type {
   DomainPlanningBooking,
   DomainPlanningDomain,
@@ -32,6 +41,12 @@ function parseDomain(raw: unknown): DomainPlanningDomain | null {
   };
 }
 
+function domainsSignature(domains: DomainPlanningDomain[]): string {
+  return domains
+    .map((d) => `${d.id}\0${d.name}\0${(d.coordinatorExternalUserIds || []).join(",")}`)
+    .join("|");
+}
+
 export async function loadDomains(): Promise<DomainPlanningDomain[]> {
   const hit = await getJson<{ domains?: unknown[] } | unknown[]>(DOMAINS_KEY);
   const data = hit?.data;
@@ -39,7 +54,13 @@ export async function loadDomains(): Promise<DomainPlanningDomain[]> {
   if (!raw?.length) return [...DEFAULT_DOMAIN_PLANNING_DOMAINS];
   const parsed = raw.map(parseDomain).filter(Boolean) as DomainPlanningDomain[];
   const filtered = parsed.filter((d) => !DEPRECATED_DOMAIN_IDS.has(d.id));
-  return filtered.length > 0 ? filtered : [...DEFAULT_DOMAIN_PLANNING_DOMAINS];
+  if (filtered.length === 0) return [...DEFAULT_DOMAIN_PLANNING_DOMAINS];
+  const next = ensureLyceeDomainPresent(filtered);
+  // Persiste le domaine lycée s'il manquait (auto-réparation, une seule écriture).
+  if (domainsSignature(next) !== domainsSignature(filtered)) {
+    await saveDomains(next);
+  }
+  return next;
 }
 
 export async function saveDomains(domains: DomainPlanningDomain[]): Promise<void> {
@@ -64,17 +85,23 @@ function parseSession(raw: unknown): DomainPlanningSession | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const id = typeof o.id === "string" ? o.id.trim() : "";
+  const domainId =
+    typeof o.domainId === "string" && o.domainId.trim()
+      ? o.domainId.trim()
+      : DEFAULT_DOMAIN_ID;
   const niveau = o.niveau;
   const seanceNumber = o.seanceNumber;
   const theme = typeof o.theme === "string" ? o.theme.trim() : "";
   const intervenantLabel = typeof o.intervenantLabel === "string" ? o.intervenantLabel.trim() : "";
   const constraint = normalizeSessionConstraint(o.intervenantConstraint, intervenantLabel);
-  if (!id || !theme || !intervenantLabel) return null;
-  if (niveau !== "6e" && niveau !== "5e" && niveau !== "4e" && niveau !== "3e") return null;
+  // Thème vide autorisé (domaine lycée tout juste créé, grille à remplir).
+  if (!id || !intervenantLabel) return null;
+  if (!isTransversalNiveau(niveau)) return null;
   if (seanceNumber !== 1 && seanceNumber !== 2 && seanceNumber !== 3) return null;
   if (!constraint) return null;
   return {
     id,
+    domainId,
     niveau,
     seanceNumber,
     theme,
@@ -84,13 +111,28 @@ function parseSession(raw: unknown): DomainPlanningSession | null {
   };
 }
 
+function sessionsSignature(sessions: DomainPlanningSession[]): string {
+  return sessions
+    .map(
+      (s) =>
+        `${s.id}\0${s.domainId}\0${s.niveau}\0${s.seanceNumber}\0${s.theme}\0${s.intervenantLabel}\0${s.intervenantConstraint}\0${s.mixte ? 1 : 0}`,
+    )
+    .join("|");
+}
+
 export async function loadSessions(): Promise<DomainPlanningSession[]> {
   const hit = await getJson<{ sessions?: unknown[] } | unknown[]>(SESSIONS_KEY);
   const data = hit?.data;
   const raw = Array.isArray(data) ? data : (data as { sessions?: unknown[] })?.sessions;
-  if (!raw?.length) return [...DEFAULT_EVARS_SESSIONS];
+  if (!raw?.length) return [...DEFAULT_ALL_EVARS_SESSIONS];
   const parsed = raw.map(parseSession).filter(Boolean) as DomainPlanningSession[];
-  return parsed.length > 0 ? parsed : [...DEFAULT_EVARS_SESSIONS];
+  if (parsed.length === 0) return [...DEFAULT_ALL_EVARS_SESSIONS];
+  const next = ensureLyceeSessionsPresent(hydrateEmptySessionThemes(parsed));
+  // Persiste les thèmes lycée s'ils étaient vides en base (ex. ancienne « grille vide »).
+  if (sessionsSignature(next) !== sessionsSignature(parsed)) {
+    await saveSessions(next);
+  }
+  return next;
 }
 
 export async function saveSessions(sessions: DomainPlanningSession[]): Promise<void> {

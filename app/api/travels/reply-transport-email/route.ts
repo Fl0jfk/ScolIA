@@ -8,9 +8,13 @@ import {
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
 import { buildTransportReplyTo, mergeTransportMailCc } from "@/app/lib/travel-email-routing";
+import {
+  buildTransportReplyRecap,
+  composeTransportReplyBody,
+} from "@/app/lib/travels-transport-reply-context";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
-/** Réponse e-mail au transporteur depuis le fil du séjour. */
+/** Réponse e-mail au transporteur depuis le fil du séjour (avec récap contexte). */
 export async function POST(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
@@ -25,7 +29,9 @@ export async function POST(req: Request) {
     toEmail?: string;
     subject?: string;
     bodyText?: string;
+    quoteId?: string | null;
     replyToMessageId?: string;
+    includeRecap?: boolean;
   };
   try {
     body = await req.json();
@@ -65,10 +71,12 @@ export async function POST(req: Request) {
 
   const user = await safeCurrentUser();
   const userName = user?.fullName || user?.primaryEmailAddress?.emailAddress || "Administration";
-  const dest = String(trip.data.destination || trip.data.title || "sortie");
+  const includeRecap = body.includeRecap !== false;
+  const recap = buildTransportReplyRecap(trip, body.quoteId);
+  const fullBody = includeRecap ? composeTransportReplyBody(bodyText, recap) : bodyText;
   const subject =
     String(body.subject || "").trim() ||
-    `Re: Transport scolaire — ${dest}`;
+    `Re: Transport scolaire — ${recap.subjectSuffix}`;
   const replyTo = await buildTransportReplyTo();
   const now = new Date().toISOString();
 
@@ -80,7 +88,7 @@ export async function POST(req: Request) {
       cc: mergeTransportMailCc(),
       subject,
       text: [
-        bodyText,
+        fullBody,
         ``,
         `—`,
         `${userName}`,
@@ -103,11 +111,13 @@ export async function POST(req: Request) {
     subject,
     messageType: "reponse_generique",
     summary: bodyText.slice(0, 500),
-    details: bodyText,
+    details: fullBody,
     receivedAt: now,
     source: "app_reply",
     direction: "outbound" as const,
     replyToMessageId: body.replyToMessageId || null,
+    quoteId: body.quoteId || null,
+    recapLines: includeRecap ? recap.lines : [],
   };
 
   const data = { ...trip.data };
@@ -136,5 +146,10 @@ export async function POST(req: Request) {
     index.map((t) => (String(t.id) === tripId ? { ...t, ...updated } : t)),
   );
 
-  return NextResponse.json({ success: true, message: outboundMsg, trip: updated });
+  return NextResponse.json({
+    success: true,
+    message: outboundMsg,
+    trip: updated,
+    recap,
+  });
 }
