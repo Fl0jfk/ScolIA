@@ -11,6 +11,10 @@ import SstFicheDetailModal from "@/app/components/personnel/SstFicheDetailModal"
 import { dash } from "@/app/lib/dashboard-brand";
 import { canSubmitSstEmargement } from "@/app/lib/sst-registre/emarger-body";
 import {
+  formatSstFicheCreatedSuccess,
+  sstFicheCreatedSuccessChannel,
+} from "@/app/lib/sst-registre/fiche-submit-feedback";
+import {
   SST_FICHE_STATUS_LABELS,
   type SstConsultationDto,
   type SstFicheDetail,
@@ -163,6 +167,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [advanceErrorRevision, setAdvanceErrorRevision] = useState(0);
 
   const emargementSigLabelId = useId();
   const emargementSigHintId = useId();
@@ -327,11 +332,18 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
         suggestions: "",
       });
       setFicheSignature(null);
-      setView("accueil");
+      const viewAfterSubmit: ViewMode = "accueil";
+      setView(viewAfterSubmit);
       await loadFiches();
       await loadMe();
       if (me?.canManage) await loadSuivi();
-      setFicheFormSuccess(`Fiche n°${json.fiche?.numero ?? "—"} enregistrée.`);
+      const successMessage = formatSstFicheCreatedSuccess(json.fiche?.numero);
+      if (sstFicheCreatedSuccessChannel(viewAfterSubmit) === "page") {
+        setActionError(null);
+        setActionSuccess(successMessage);
+      } else {
+        setFicheFormSuccess(successMessage);
+      }
     } catch (e) {
       setFicheFormError(userFacingActionError(e, "Impossible d’enregistrer la fiche."));
     } finally {
@@ -388,6 +400,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
       setActionSuccess("Étape validée.");
     } catch (e) {
       setActionError(userFacingActionError(e, "Impossible de valider l’étape."));
+      setAdvanceErrorRevision((n) => n + 1);
     } finally {
       setAdvancing(false);
     }
@@ -626,7 +639,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           </ModuleCard>
 
           {!signOk ? (
-            <ModuleCard bodyClassName="p-5 border-amber-200 bg-amber-50/40">
+            <ModuleCard className="border-amber-200 bg-amber-50/40" bodyClassName="p-5">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-800">
                 Émargement — année {me.campagne.anneeLabel}
               </p>
@@ -1005,6 +1018,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           advanceNotes={advanceNotes}
           error={actionError}
           success={actionSuccess}
+          errorRevision={advanceErrorRevision}
           onAdvanceNotesChange={setAdvanceNotes}
           onAdvanceSignatureChange={setAdvanceSignature}
           onAdvance={() => void advanceFiche()}

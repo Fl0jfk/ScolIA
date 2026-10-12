@@ -98,7 +98,7 @@ export default function PartenariatSignaturePad({
         aria-label={labelId ? undefined : "Zone de signature manuscrite"}
         aria-labelledby={labelId ?? undefined}
         aria-describedby={describedById}
-        className="w-full touch-none rounded-xl border border-slate-300 bg-white outline-none focus:ring-2 focus:ring-[color:var(--dash-lime)]/50"
+        className="w-full touch-none rounded-xl border border-slate-300 bg-white outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--dash-lime)]/50"
         onPointerDown={start}
         onPointerMove={move}
         onPointerUp={end}

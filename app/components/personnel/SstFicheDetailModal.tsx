@@ -7,20 +7,32 @@ import { useModalDialog } from "@/app/hooks/useModalDialog";
 import { dash } from "@/app/lib/dashboard-brand";
 import { SST_FICHE_STATUS_LABELS, type SstFicheDetail } from "@/app/lib/sst-registre/types";
 
+function briefAdvanceErrorMessage(error: string, maxLen = 120): string {
+  const trimmed = error.trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen - 1)}…`;
+}
+
 function ModalInlineFeedback({
   error,
   success,
   feedbackRef,
+  errorAlertId,
 }: {
   error?: string | null;
   success?: string | null;
   feedbackRef?: RefObject<HTMLDivElement | null>;
+  errorAlertId?: string;
 }) {
   if (!error && !success) return null;
   if (error) {
     return (
       <div ref={feedbackRef}>
-        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <p
+          id={errorAlertId}
+          role="alert"
+          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+        >
           {error}
         </p>
       </div>
@@ -44,6 +56,8 @@ type Props = {
   advanceNotes: string;
   error?: string | null;
   success?: string | null;
+  /** Incrémenté à chaque échec de validation pour re-déclencher le scroll même si le message est identique. */
+  errorRevision?: number;
   onAdvanceNotesChange: (v: string) => void;
   onAdvanceSignatureChange: (v: string | null) => void;
   onAdvance: () => void;
@@ -56,6 +70,7 @@ export default function SstFicheDetailModal({
   advanceNotes,
   error,
   success,
+  errorRevision = 0,
   onAdvanceNotesChange,
   onAdvanceSignatureChange,
   onAdvance,
@@ -67,6 +82,8 @@ export default function SstFicheDetailModal({
   const advanceNotesLabelId = useId();
   const advanceSigLabelId = useId();
   const advanceSigHintId = useId();
+  const errorAlertId = useId();
+  const advanceErrorHintId = useId();
   const feedbackRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -75,7 +92,10 @@ export default function SstFicheDetailModal({
     if (!el) return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
-  }, [error]);
+  }, [error, errorRevision]);
+
+  const validerDescribedBy =
+    error ? `${errorAlertId} ${advanceErrorHintId}` : undefined;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center p-4 sm:items-center">
@@ -153,7 +173,12 @@ export default function SstFicheDetailModal({
         })}
 
         <div className="mt-4">
-          <ModalInlineFeedback error={error} success={success} feedbackRef={feedbackRef} />
+          <ModalInlineFeedback
+            error={error}
+            success={success}
+            feedbackRef={feedbackRef}
+            errorAlertId={error ? errorAlertId : undefined}
+          />
         </div>
 
         {fiche.canAdvance && fiche.status !== "cloturee" ? (
@@ -185,14 +210,15 @@ export default function SstFicheDetailModal({
               onChange={onAdvanceSignatureChange}
             />
             {error ? (
-              <p className="mt-3 text-xs font-semibold text-rose-700">
-                Erreur lors de la validation — détail dans le bandeau rose en haut de la modale.
+              <p id={advanceErrorHintId} className="mt-3 text-xs font-semibold text-slate-800">
+                Échec : {briefAdvanceErrorMessage(error)}
               </p>
             ) : null}
             <ModuleButton
               variant="primary"
               className="mt-3 text-xs"
               disabled={advancing}
+              aria-describedby={validerDescribedBy}
               onClick={onAdvance}
             >
               {advancing ? "Validation…" : "Valider l’étape suivante"}
