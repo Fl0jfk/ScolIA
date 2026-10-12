@@ -46,6 +46,8 @@ export type TravelEmailAnalysis = {
   price: string | null;
   company: string | null;
   contactEmail: string | null;
+  /** N° / réf. devis (OCR ou corps du mail). */
+  reference: string | null;
   suggestedTripId: string | null;
   matchReviewRequired: boolean;
 };
@@ -80,9 +82,17 @@ const EMPTY_ANALYSIS: TravelEmailAnalysis = {
   price: null,
   company: null,
   contactEmail: null,
+  reference: null,
   suggestedTripId: null,
   matchReviewRequired: false,
 };
+
+function normalizeDevisReference(v: string | null | undefined): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || s.toLowerCase() === "null") return null;
+  return s.replace(/^[\s#:.-]+/, "").slice(0, 80);
+}
 
 function parseMessageType(raw: string): TravelEmailMessageType {
   const t = raw.toLowerCase();
@@ -148,10 +158,10 @@ export async function analyzeTravelEmailWithMistral(input: {
               "1) Associer UN séjour (trip_id) de la liste, ou null si impossible sans inventer.\n" +
               "2) Classer le message (message_type) selon le CONTENU.\n" +
               "3) Résumer en 1-2 phrases (resume).\n" +
-              "4) Extraire si présent: nom_chauffeur, telephone_chauffeur, details_confirmation, montant_ttc, societe_emetrice, email_contact.\n" +
+              "4) Extraire si présent: nom_chauffeur, telephone_chauffeur, details_confirmation, montant_ttc, societe_emetrice, email_contact, numero_devis.\n" +
               "confidence: high/medium/low. motif: courte explication en français (dates/lieux/titre qui ont convaincu).\n" +
               `Pièce jointe PDF détectée: ${hasPdfAttachment ? "oui — analyser l'OCR" : "non — s'appuyer sur objet et corps"}.\n` +
-              "Réponds UNIQUEMENT en JSON: message_type, trip_id, confidence, motif, resume, nom_chauffeur, telephone_chauffeur, details_confirmation, montant_ttc, societe_emetrice, email_contact.",
+              "Réponds UNIQUEMENT en JSON: message_type, trip_id, confidence, motif, resume, nom_chauffeur, telephone_chauffeur, details_confirmation, montant_ttc, societe_emetrice, email_contact, numero_devis.",
           },
           {
             role: "user",
@@ -213,6 +223,9 @@ export async function analyzeTravelEmailWithMistral(input: {
           : null,
       contactEmail: normalizeContactEmail(
         parsed.email_contact != null ? String(parsed.email_contact) : null,
+      ),
+      reference: normalizeDevisReference(
+        parsed.numero_devis != null ? String(parsed.numero_devis) : null,
       ),
       suggestedTripId: !tripOk && tripRaw ? tripRaw : null,
       matchReviewRequired: tripOk && matchConfidence !== "high",
