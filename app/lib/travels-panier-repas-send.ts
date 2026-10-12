@@ -9,14 +9,19 @@ import { resolveTravelsCuisineListePaniersEmails } from "@/app/lib/app-config-sc
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   buildPanierRepasListCsv,
-  clampPanierRepasAssignments,
+  clampPanierRepasWhoEats,
   compareParticipantsByClasseThenName,
-  countPanierRepasAssigned,
+  countPanierRepasTotalAssigned,
   getCuisineMealsOrdered,
+  sanitizePanierRepasAdultes,
 } from "@/app/lib/travels-eleves-list";
 import { cuisineDateRangeLabel } from "@/app/lib/travels-cuisine-shared";
 import { buildCuisineOrderPdfBase64 } from "@/app/lib/travels-cuisine-pdf";
-import type { TravelsParticipantEleve, TravelsTrip } from "@/app/lib/travels-types";
+import type {
+  TravelsPanierRepasAdulte,
+  TravelsParticipantEleve,
+  TravelsTrip,
+} from "@/app/lib/travels-types";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
@@ -27,6 +32,7 @@ export type SendPanierRepasListParams = {
   trip: TravelsTrip;
   tripId: string;
   participants?: TravelsParticipantEleve[];
+  adultes?: TravelsPanierRepasAdulte[];
   userName?: string;
   userEmail?: string | null;
   /** Joindre le PDF de commande cuisine (pour la collègue décompte repas). */
@@ -72,7 +78,12 @@ export async function sendPanierRepasListForTrip(
       ? trip.data.participantEleves
       : [];
 
-  participants = clampPanierRepasAssignments(
+  let adultes: TravelsPanierRepasAdulte[] =
+    params.adultes !== undefined
+      ? sanitizePanierRepasAdultes(params.adultes)
+      : sanitizePanierRepasAdultes(trip.data.panierRepasAdultes);
+
+  const clamped = clampPanierRepasWhoEats(
     participants
       .filter((p) => p && typeof p.ine === "string" && p.ine.trim())
       .map((p) => ({
@@ -83,21 +94,26 @@ export async function sendPanierRepasListForTrip(
         droitImageOk: p.droitImageOk !== false,
         panierRepas: p.panierRepas === true,
       })),
+    adultes,
     mealsOrdered,
   );
+  participants = clamped.participants;
+  adultes = clamped.adultes;
 
-  const withPanier = participants.filter((p) => p.panierRepas === true);
-  if (withPanier.length === 0) {
+  const withPanierEleves = participants.filter((p) => p.panierRepas === true);
+  const totalAssigned = countPanierRepasTotalAssigned(participants, adultes);
+  if (totalAssigned === 0) {
     return {
       ok: false,
-      error: "Sélectionnez au moins un élève avec panier repas (« qui mange »).",
+      error:
+        "Sélectionnez au moins un élève ou un adulte avec panier repas (« qui mange »).",
       status: 400,
     };
   }
-  if (withPanier.length !== mealsOrdered) {
+  if (totalAssigned !== mealsOrdered) {
     return {
       ok: false,
-      error: `Attribuez exactement ${mealsOrdered} panier(s) (« qui mange ») — actuellement ${withPanier.length}/${mealsOrdered}.`,
+      error: `Attribuez exactement ${mealsOrdered} panier(s) (« qui mange », élèves et/ou adultes) — actuellement ${totalAssigned}/${mealsOrdered}.`,
       status: 400,
     };
   }
@@ -123,15 +139,23 @@ export async function sendPanierRepasListForTrip(
   const userEmail = params.userEmail || trip.ownerEmail;
   const dateRange = cuisineDateRangeLabel(trip.data);
   const title = String(trip.data.title || "Sortie");
-  const csv = buildPanierRepasListCsv(participants);
+  const csv = buildPanierRepasListCsv(participants, adultes);
   const now = new Date().toISOString();
 
-  const lines = withPanier
+  const eleveLines = withPanierEleves
     .slice()
     .sort(compareParticipantsByClasseThenName)
-    .map(
-      (p, i) => `${i + 1}. ${p.nom} ${p.prenom}${p.classe ? ` (${p.classe})` : ""}`,
-    );
+    .map((p) => `Élève — ${p.nom} ${p.prenom}${p.classe ? ` (${p.classe})` : ""}`);
+  const adulteLines = adultes.map((a) => {
+    const label =
+      a.source === "accompagnateur"
+        ? "Accompagnateur"
+        : a.name.trim().toLowerCase() === "accompagnateur autre"
+          ? "Adulte (autre)"
+          : "Adulte";
+    return `${label} — ${a.name}`;
+  });
+  const lines = [...eleveLines, ...adulteLines].map((line, i) => `${i + 1}. ${line}`);
 
   const attachments: Array<{
     filename: string;
@@ -166,17 +190,18 @@ export async function sendPanierRepasListForTrip(
     }
   }
 
-  const subject = `Qui mange + commande cuisine — ${title} — ${withPanier.length}/${mealsOrdered}`;
+  const subject = `Qui mange + commande cuisine — ${title} — ${totalAssigned}/${mealsOrdered}`;
   const text = [
     "Bonjour,",
     "",
-    `Voici la commande cuisine et la liste nominative des élèves qui mangent pour « ${title} » (${dateRange}).`,
+    `Voici la commande cuisine et la liste nominative (élèves et adultes) qui mangent pour « ${title} » (${dateRange}).`,
     "",
     `Organisateur : ${userName}`,
-    `Paniers / qui mange : ${withPanier.length} / ${mealsOrdered} commandés`,
+    `Paniers / qui mange : ${totalAssigned} / ${mealsOrdered} commandés` +
+      ` (${withPanierEleves.length} élève(s), ${adultes.length} adulte(s))`,
     `Lieu de récupération : ${details.deliveryPlace || "—"} à ${details.deliveryTime || "—"}`,
     "",
-    "Élèves qui mangent :",
+    "Qui mange :",
     ...lines,
     "",
     cuisinePdfAttached
@@ -200,13 +225,18 @@ export async function sendPanierRepasListForTrip(
 
   const snapshot = {
     sentAt: now,
-    count: withPanier.length,
+    count: totalAssigned,
     mealsOrdered,
-    eleves: withPanier.map((p) => ({
+    eleves: withPanierEleves.map((p) => ({
       ine: p.ine,
       nom: p.nom,
       prenom: p.prenom,
       ...(p.classe ? { classe: p.classe } : {}),
+    })),
+    adultes: adultes.map((a) => ({
+      id: a.id,
+      name: a.name,
+      source: a.source,
     })),
   };
 
@@ -215,6 +245,7 @@ export async function sendPanierRepasListForTrip(
     data: {
       ...trip.data,
       participantEleves: participants,
+      panierRepasAdultes: adultes,
       panierRepasListSentAt: now,
       panierRepasListSnapshot: snapshot,
     },
@@ -223,7 +254,7 @@ export async function sendPanierRepasListForTrip(
       {
         date: now,
         user: userName,
-        action: `Liste « qui mange » envoyée à la collègue décompte (${withPanier.length}/${mealsOrdered})`,
+        action: `Liste « qui mange » envoyée à la collègue décompte (${totalAssigned}/${mealsOrdered} : ${withPanierEleves.length} élève(s), ${adultes.length} adulte(s))`,
       },
     ],
   };
@@ -244,7 +275,7 @@ export async function sendPanierRepasListForTrip(
     ok: true,
     trip: updatedTrip,
     sentTo: toEmails,
-    count: countPanierRepasAssigned(participants),
+    count: countPanierRepasTotalAssigned(participants, adultes),
     mealsOrdered,
   };
 }

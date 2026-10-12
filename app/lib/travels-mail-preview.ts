@@ -133,18 +133,22 @@ function buildTravelsMailPreview(
 
   if (type === "panier_repas_list") {
     const withPanier = (data.participantEleves || []).filter((p) => p.panierRepas === true);
-    const lines = withPanier.map(
-      (p, i) => `${i + 1}. ${p.nom} ${p.prenom}${p.classe ? ` (${p.classe})` : ""}`,
+    const adultes = Array.isArray(data.panierRepasAdultes) ? data.panierRepasAdultes : [];
+    const eleveLines = withPanier.map(
+      (p) => `Élève — ${p.nom} ${p.prenom}${p.classe ? ` (${p.classe})` : ""}`,
     );
+    const adulteLines = adultes.map((a) => `Adulte — ${a.name}`);
+    const lines = [...eleveLines, ...adulteLines].map((line, i) => `${i + 1}. ${line}`);
+    const total = withPanier.length + adultes.length;
     return {
       type,
       to: chefEmails,
       cc: [trip.ownerEmail].filter(Boolean) as string[],
-      subject: `Liste paniers repas — ${data.title} — ${withPanier.length}`,
+      subject: `Liste paniers repas — ${data.title} — ${total}`,
       text: [
         "Bonjour,",
         "",
-        `Liste nominative des élèves avec panier repas pour « ${data.title} » (${dateRange}).`,
+        `Liste nominative (élèves et adultes) avec panier repas pour « ${data.title} » (${dateRange}).`,
         `Organisateur : ${userName}`,
         "",
         ...lines,
