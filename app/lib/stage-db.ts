@@ -460,7 +460,7 @@ const LEGACY_CONVENTIONS_COLLECTION = "stages__conventions";
 const CONVENTIONS_LEGACY_MARKER_KIND: StageTokenKind = "auto_purge";
 /** Verrou advisory par établissement (namespace fixe + hashtext(etablissement_id)). */
 const STAGE_LEGACY_MIGRATION_LOCK_NS = 584_921;
-const LEGACY_MIGRATION_ERROR_BACKOFF_MS = 60_000;
+export const LEGACY_MIGRATION_ERROR_BACKOFF_MS = 60_000;
 
 /** Établissements dont le marqueur legacy est confirmé (évite les lectures SQL répétées). */
 const conventionsLegacyMigrationDone = new Set<string>();
@@ -479,6 +479,24 @@ export function resetConventionsLegacyMigrationMemoryForTests(): void {
 /** Compteur d’appels à `collectLegacyConventionIds` (tests PGlite uniquement). */
 export function getLegacyCollectConventionIdsCallsForTests(): number {
   return legacyCollectConventionIdsCallsForTest;
+}
+
+/** SCOLIA_TEST_MODE — enregistre un backoff comme après échec migration lazy. */
+export function armLegacyMigrationBackoffForTests(etablissementId: string): void {
+  if (process.env.SCOLIA_TEST_MODE !== "1") {
+    throw new Error("armLegacyMigrationBackoffForTests: SCOLIA_TEST_MODE requis");
+  }
+  legacyMigrationBackoffUntil.set(etablissementId, Date.now() + LEGACY_MIGRATION_ERROR_BACKOFF_MS);
+}
+
+/** SCOLIA_TEST_MODE — fin de fenêtre backoff (ms epoch) ou undefined. */
+export function getLegacyMigrationBackoffUntilForTests(
+  etablissementId: string,
+): number | undefined {
+  if (process.env.SCOLIA_TEST_MODE !== "1") {
+    throw new Error("getLegacyMigrationBackoffUntilForTests: SCOLIA_TEST_MODE requis");
+  }
+  return legacyMigrationBackoffUntil.get(etablissementId);
 }
 
 function legacyMigrationMarkerStorageKey(etablissementId: string): string {

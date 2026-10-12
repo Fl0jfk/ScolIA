@@ -481,3 +481,37 @@ test("id convention global autre établissement — marqueur posé, pas de boucl
   await closeDb();
   await destroyStagePgliteFixture(fixture);
 });
+
+test("migration legacy — pendant le backoff 60s, pas de rescan collection", async () => {
+  const fixture = await createStagePgliteFixture();
+  setIntegrationTestDb(fixture.db);
+  process.env.SCOLA_TEST_ETAB_ID = fixture.etablissementId;
+
+  const legacy = tomLegacyConvention();
+  await upsertCollectionRecord(
+    fixture.etablissementId,
+    "stages__conventions",
+    TOM_LEGACY_ID,
+    legacy as unknown as Record<string, unknown>,
+  );
+
+  const {
+    armLegacyMigrationBackoffForTests,
+    getLegacyCollectConventionIdsCallsForTests,
+    listConventionIndexFromDb,
+    resetConventionsLegacyMigrationMemoryForTests,
+  } = await import("@/app/lib/stage-db");
+
+  resetConventionsLegacyMigrationMemoryForTests();
+  armLegacyMigrationBackoffForTests(fixture.etablissementId);
+  const callsBefore = getLegacyCollectConventionIdsCallsForTests();
+  await listConventionIndexFromDb(fixture.etablissementId);
+  assert.equal(
+    getLegacyCollectConventionIdsCallsForTests(),
+    callsBefore,
+    "backoff actif : pas de collectLegacyConventionIds",
+  );
+
+  await closeDb();
+  await destroyStagePgliteFixture(fixture);
+});

@@ -1,13 +1,11 @@
 import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
 import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
-import { conventionToIndexEntry } from "@/app/lib/stage-db";
 import {
   valkeyCached,
   valkeyDel,
   valkeyDeleteByPrefix,
   valkeyGetJson,
-  valkeyPatchScopedCache,
   valkeySetJson,
 } from "@/app/lib/valkey";
 import {
@@ -145,32 +143,12 @@ export async function getStageConvention(id: string): Promise<StageConvention | 
   return data;
 }
 
-export function patchConventionIndexEntry(
-  index: StageConventionIndexEntry[],
-  entry: StageConventionIndexEntry,
-): StageConventionIndexEntry[] {
-  const pos = index.findIndex((x) => x.id === entry.id);
-  const next = [...index];
-  if (pos >= 0) next[pos] = entry;
-  else next.unshift(entry);
-  return next;
-}
-
 export async function saveStageConvention(convention: StageConvention) {
   const sanitized = withSanitizedStudentEmail(convention);
   const etabId = await stagesEtabId();
   await putJson(STAGE_S3.convention(sanitized.id), sanitized);
   if (etabId) {
-    const indexKey = valkeyKeyStagesConventionsIndex(etabId);
-    const entry = conventionToIndexEntry(sanitized);
-    const patched = valkeyPatchScopedCache<StageConventionIndexEntry[]>(
-      indexKey,
-      VALKEY_TTL.stagesConventionsIndex,
-      (index) => patchConventionIndexEntry(index, entry),
-    );
-    if (!patched) {
-      await invalidateStagesConventionsIndexCache(etabId);
-    }
+    await invalidateStagesConventionsIndexCache(etabId);
     void valkeySetJson(
       valkeyKeyStagesConvention(etabId, sanitized.id),
       sanitized,

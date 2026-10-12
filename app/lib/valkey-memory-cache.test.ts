@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { mock, test } from "node:test";
 import { valkeyKeyStagesConventionsIndex } from "@/app/lib/valkey-keys";
 import {
   isScopedMemoryCacheKey,
   resetValkeyMemoryCacheForTests,
   valkeyCached,
   valkeyDel,
-  valkeyPatchScopedCache,
   valkeySetJson,
 } from "@/app/lib/valkey";
 
@@ -139,44 +138,50 @@ test("valkeySetJson sans Valkey — n’alimente pas le cache mémoire global", 
   resetValkeyMemoryCacheForTests();
 });
 
-test("valkeyPatchScopedCache — met à jour sans relancer le loader", async () => {
+test("invalidation type save — sauvegardes fréquentes relancent le loader (pas de cache périmé)", async () => {
   process.env.VALKEY_DISABLED = "1";
   resetValkeyMemoryCacheForTests();
   let runs = 0;
   const loader = async () => {
     runs += 1;
-    return [{ id: "1", v: runs }];
+    return { generation: runs };
   };
-  await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 45, loader });
+  await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 120, loader });
   assert.equal(runs, 1);
-  const ok = valkeyPatchScopedCache<{ id: string; v: number }[]>(SCOPED_KEY_A, 45, (rows) =>
-    rows.map((r) => (r.id === "1" ? { ...r, v: 99 } : r)),
-  );
-  assert.equal(ok, true);
-  const after = await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 45, loader });
-  assert.equal(runs, 1);
-  assert.deepEqual(after, [{ id: "1", v: 99 }]);
+  for (let i = 0; i < 8; i += 1) {
+    await valkeyDel(SCOPED_KEY_A);
+    const row = await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 120, loader });
+    assert.equal(row.generation, i + 2);
+  }
+  assert.equal(runs, 9);
   delete process.env.VALKEY_DISABLED;
   resetValkeyMemoryCacheForTests();
 });
 
-test("valkeyPatchScopedCache — false si cache froid", () => {
-  resetValkeyMemoryCacheForTests();
-  const ok = valkeyPatchScopedCache(SCOPED_KEY_A, 30, (x: number[]) => x);
-  assert.equal(ok, false);
-});
-
-test("TTL mémoire scopé — plafonné à 30 s même si TTL demandé plus long", async () => {
+test("TTL mémoire scopé — plafond 30 s, rechargement même sans invalidation", async () => {
   process.env.VALKEY_DISABLED = "1";
   resetValkeyMemoryCacheForTests();
+  mock.timers.enable({ apis: ["Date"] });
   let runs = 0;
   const loader = async () => {
     runs += 1;
     return runs;
   };
-  await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 120, loader });
-  await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 120, loader });
+  const first = await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 120, loader });
+  assert.equal(first, 1);
   assert.equal(runs, 1);
+
+  mock.timers.tick(5_000);
+  const stillCached = await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 120, loader });
+  assert.equal(stillCached, 1);
+  assert.equal(runs, 1);
+
+  mock.timers.tick(26_000);
+  const reloaded = await valkeyCached({ key: SCOPED_KEY_A, ttlSeconds: 120, loader });
+  assert.equal(reloaded, 2);
+  assert.equal(runs, 2);
+
+  mock.timers.reset();
   delete process.env.VALKEY_DISABLED;
   resetValkeyMemoryCacheForTests();
 });
