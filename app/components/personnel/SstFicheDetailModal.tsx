@@ -137,6 +137,10 @@ export default function SstFicheDetailModal({
           );
         })}
 
+        <div className="mt-4">
+          <ModalInlineFeedback error={error} success={success} />
+        </div>
+
         {fiche.canAdvance && fiche.status !== "cloturee" ? (
           <div className="mt-4 border-t border-slate-100 pt-4">
             <label
@@ -165,9 +169,6 @@ export default function SstFicheDetailModal({
               describedById={advanceSigHintId}
               onChange={onAdvanceSignatureChange}
             />
-            <div className="mt-3 space-y-3">
-              <ModalInlineFeedback error={error} success={success} />
-            </div>
             <ModuleButton
               variant="primary"
               className="mt-3 text-xs"
