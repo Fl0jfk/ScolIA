@@ -139,6 +139,20 @@ export function countPanierRepasTotalAssigned(
   return countPanierRepasAssigned(participants) + countPanierRepasAdultesAssigned(adultes);
 }
 
+export const PANIER_REPAS_AUTRE_DEFAULT_NAME = "Accompagnateur autre";
+
+/** Valeur affichée dans le champ « autre » en édition (placeholder pour le nom par défaut). */
+export function panierRepasAutreNameForEdit(name: string): string {
+  if (name === PANIER_REPAS_AUTRE_DEFAULT_NAME) return "";
+  return name;
+}
+
+/** Normalise le nom « autre » à la fin de saisie (blur / sauvegarde) — pas pendant la frappe. */
+export function normalizePanierRepasAutreNameOnBlur(name: string): string {
+  const trimmed = String(name || "").trim();
+  return trimmed || PANIER_REPAS_AUTRE_DEFAULT_NAME;
+}
+
 /** Clé stable pour lier un accompagnateur du séjour à une case panier. */
 export function accompagnateurPanierKey(a: {
   userId?: string | null;
@@ -149,6 +163,59 @@ export function accompagnateurPanierKey(a: {
   return `name:${String(a.name || "")
     .trim()
     .toLowerCase()}`;
+}
+
+/** Clé React pour une ligne accompagnateur (évite les doublons si homonymes sans userId). */
+export function accompagnateurPanierListKey(
+  escort: { userId?: string | null; name?: string | null },
+  index: number,
+): string {
+  const uid = String(escort.userId || "").trim();
+  if (uid) return `uid:${uid}`;
+  const name = String(escort.name || "")
+    .trim()
+    .toLowerCase();
+  return `name:${name}#${index}`;
+}
+
+/** Panier adulte « accompagnateur » encore rattaché à un accompagnateur du dossier. */
+export function panierRepasAdulteMatchesEscort(
+  adult: TravelsPanierRepasAdulte,
+  escort: { userId?: string | null; name?: string | null },
+): boolean {
+  if (adult.source !== "accompagnateur") return false;
+  const uid = String(adult.userId || "").trim();
+  const escortUid = String(escort.userId || "").trim();
+  if (uid && escortUid) return uid === escortUid;
+  const aName = String(adult.name || "").trim().toLowerCase();
+  const eName = String(escort.name || "").trim().toLowerCase();
+  return Boolean(aName && eName && aName === eName);
+}
+
+/** Paniers « accompagnateur » dont le nom n’est plus dans le dossier (retiré ou renommé). */
+export function listOrphanPanierRepasAccompagnateurs(
+  adultes: TravelsPanierRepasAdulte[],
+  escorts: Array<{ userId?: string | null; name?: string | null }>,
+): TravelsPanierRepasAdulte[] {
+  return adultes.filter(
+    (a) =>
+      a.source === "accompagnateur" &&
+      !escorts.some((e) => panierRepasAdulteMatchesEscort(a, e)),
+  );
+}
+
+/** Nombre de lignes adultes visibles dans l’UI (accompagnateurs liés + autres + orphelins). */
+export function countPanierRepasAdultesVisibleRows(
+  adultes: TravelsPanierRepasAdulte[],
+  escorts: Array<{ userId?: string | null; name?: string | null }>,
+): number {
+  const sanitized = sanitizePanierRepasAdultes(adultes);
+  const orphans = listOrphanPanierRepasAccompagnateurs(sanitized, escorts);
+  const autres = sanitized.filter((a) => a.source === "autre");
+  const linkedAccompagnateurs = escorts.filter((e) =>
+    sanitized.some((a) => panierRepasAdulteMatchesEscort(a, e)),
+  );
+  return linkedAccompagnateurs.length + autres.length + orphans.length;
 }
 
 export function sanitizePanierRepasAdultes(
@@ -167,7 +234,7 @@ export function sanitizePanierRepasAdultes(
     const source = row.source === "accompagnateur" ? ("accompagnateur" as const) : ("autre" as const);
     out.push({
       id,
-      name: nameRaw || "Accompagnateur autre",
+      name: nameRaw || PANIER_REPAS_AUTRE_DEFAULT_NAME,
       ...(typeof row.userId === "string" && row.userId.trim()
         ? { userId: row.userId.trim() }
         : {}),
