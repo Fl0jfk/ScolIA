@@ -17,6 +17,7 @@ import {
   canManageSstRegistre,
   primaryFonctionFromRoles,
 } from "@/app/lib/sst-registre/access";
+import { SST_ATTESTATION_ONLY_DATA_URL } from "@/app/lib/sst-registre/emarger-body";
 import {
   isSstFicheStatus,
   parseSignaturePngDataUrl,
@@ -233,10 +234,19 @@ export async function signSstEmargement(params: {
   lastName: string;
   roles: string[];
   signatureDataUrl: string;
+  attestationOnly?: boolean;
   remarques?: string;
 }): Promise<{ ok: true; emargement: SstEmargementDto } | { ok: false; error: string }> {
-  const png = parseSignaturePngDataUrl(params.signatureDataUrl);
-  if (!png) return { ok: false, error: "Signature manuscrite invalide (pad requis)." };
+  let png: string | null = null;
+  if (params.attestationOnly) {
+    if (params.signatureDataUrl.trim() !== SST_ATTESTATION_ONLY_DATA_URL) {
+      return { ok: false, error: "Attestation invalide." };
+    }
+    png = SST_ATTESTATION_ONLY_DATA_URL;
+  } else {
+    png = parseSignaturePngDataUrl(params.signatureDataUrl);
+    if (!png) return { ok: false, error: "Signature manuscrite invalide (pad requis)." };
+  }
 
   const db = assertDb();
   const campagne = await ensureSstCampagne(params.etablissementId);
@@ -261,7 +271,9 @@ export async function signSstEmargement(params: {
       lastName: params.lastName.trim(),
       fonction: primaryFonctionFromRoles(params.roles),
       signaturePngBase64: png,
-      remarques: (params.remarques ?? "").trim().slice(0, 500),
+      remarques: params.attestationOnly
+        ? `[Attestation sans signature manuscrite] ${(params.remarques ?? "").trim()}`.trim().slice(0, 500)
+        : (params.remarques ?? "").trim().slice(0, 500),
       signedAt: new Date(),
     })
     .returning();

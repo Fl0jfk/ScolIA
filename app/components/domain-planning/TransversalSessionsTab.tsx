@@ -23,6 +23,10 @@ import type {
   DomainPlanningSignup,
 } from "@/app/lib/domain-planning-types";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
+import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import { dash } from "@/app/lib/dashboard-brand";
 import { getSubjectColorPresentation } from "@/app/lib/prof-room-subject-colors";
 
 const FALLBACK_CLASSES: Record<string, string[]> = {
@@ -307,16 +311,18 @@ export default function TransversalSessionsTab() {
 
   if (loading) {
     return (
-      <div className="p-8 text-center text-slate-500 font-bold">
-        Chargement des enseignements transversaux…
+      <div className="p-4">
+        <ModuleTabFallback />
       </div>
     );
   }
 
   if (domains.length === 0) {
     return (
-      <div className="mx-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-900">
-        Aucun domaine configuré. Ouvrez l&apos;onglet <strong>Paramétrage</strong> pour en créer un.
+      <div className="mx-4">
+        <ModuleEmptyState>
+          Aucun domaine configuré. Ouvrez l&apos;onglet <strong>Paramétrage</strong> pour en créer un.
+        </ModuleEmptyState>
       </div>
     );
   }
@@ -339,15 +345,17 @@ export default function TransversalSessionsTab() {
                 key={domain.id}
                 type="button"
                 onClick={() => setSelectedDomainId(domain.id)}
-                className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-violet-400 hover:shadow-md"
+                className="group relative flex min-h-[11rem] flex-col rounded-[1.75rem] bg-white p-5 text-left ring-1 ring-black/6 transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(0,0,0,0.45)]"
               >
                 <p className="text-base font-black text-slate-900">{domain.name}</p>
                 {domain.description ? (
                   <p className="mt-1 text-sm text-slate-600 line-clamp-2">{domain.description}</p>
                 ) : null}
-                <p className="mt-3 text-xs font-bold uppercase tracking-wide text-violet-700">
+                <span
+                  className={`mt-3 inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${dash.bgLime} ${dash.ink}`}
+                >
                   {count === 0 ? "Aucune séance — à paramétrer" : `${count} séance${count > 1 ? "s" : ""}`}
-                </p>
+                </span>
               </button>
             );
           })}
@@ -359,30 +367,20 @@ export default function TransversalSessionsTab() {
   return (
     <div className="space-y-8 px-4 pb-8">
       {domains.length > 1 && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3">
           <button
             type="button"
             onClick={() => setSelectedDomainId(null)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black uppercase text-slate-700 hover:border-violet-300"
+            className={`self-start rounded-xl border bg-white px-3 py-1.5 text-xs font-black uppercase ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
           >
             ← Changer de domaine
           </button>
-          <div className="flex flex-wrap gap-2">
-            {domains.map((domain) => (
-              <button
-                key={domain.id}
-                type="button"
-                onClick={() => setSelectedDomainId(domain.id)}
-                className={`rounded-xl px-3 py-1.5 text-xs font-black uppercase ${
-                  domain.id === selectedDomainId
-                    ? "bg-violet-600 text-white"
-                    : "border border-slate-200 bg-white text-slate-700 hover:border-violet-300"
-                }`}
-              >
-                {domain.name}
-              </button>
-            ))}
-          </div>
+          <ModuleTabNav
+            scroll
+            tabs={domains.map((domain) => ({ id: domain.id, label: domain.name }))}
+            active={selectedDomainId}
+            onChange={setSelectedDomainId}
+          />
         </div>
       )}
 
@@ -395,10 +393,10 @@ export default function TransversalSessionsTab() {
       </div>
 
       {domainSessions.length === 0 && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+        <ModuleEmptyState>
           Aucune séance pour « {selectedDomain.name} ». Ouvrez l&apos;onglet <strong>Paramétrage</strong> pour
           créer la grille (thèmes, niveaux, règles d&apos;inscription).
-        </div>
+        </ModuleEmptyState>
       )}
 
       {isCoordinator && pendingForCoordinator.length > 0 && (

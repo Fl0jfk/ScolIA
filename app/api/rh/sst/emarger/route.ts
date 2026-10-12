@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { requireAppUser } from "@/app/lib/app-session";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import { canAccessSstRegistre } from "@/app/lib/sst-registre/access";
 import { signSstEmargement } from "@/app/lib/sst-registre/db";
-
-const BodySchema = z.object({
-  signatureDataUrl: z.string().min(40).max(1_200_000),
-  remarques: z.string().max(500).optional(),
-});
+import { parseEmargerBody } from "@/app/lib/sst-registre/emarger-body";
 
 export async function POST(req: Request) {
   const scope = await requireTenantId();
@@ -27,9 +22,9 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "JSON invalide." }, { status: 400 });
   }
-  const parsed = BodySchema.safeParse(json);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Données invalides." }, { status: 400 });
+  const parsed = parseEmargerBody(json);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
 
   const result = await signSstEmargement({
@@ -39,6 +34,7 @@ export async function POST(req: Request) {
     lastName: appUser.user.lastName ?? "",
     roles: appUser.user.roles,
     signatureDataUrl: parsed.data.signatureDataUrl,
+    attestationOnly: parsed.data.attestationOnly,
     remarques: parsed.data.remarques,
   });
 
