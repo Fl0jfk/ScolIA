@@ -1,5 +1,6 @@
 import "server-only";
 
+import { after } from "next/server";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
@@ -517,16 +518,21 @@ export async function ensureEleveScolariteCourante(
     status?: string | null;
   },
   catalog?: EleveDossierClassCatalog,
+  knownEleve?: Pick<EleveRow, "status" | "dateSortie">,
 ): Promise<void> {
   const classe = input.classe?.trim() || null;
   if (!classe) return;
 
   const db = getDb();
-  const [curEleve] = await db
-    .select({ status: eleve.status, dateSortie: eleve.dateSortie })
-    .from(eleve)
-    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, eleveId)))
-    .limit(1);
+  const curEleve =
+    knownEleve ??
+    (
+      await db
+        .select({ status: eleve.status, dateSortie: eleve.dateSortie })
+        .from(eleve)
+        .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, eleveId)))
+        .limit(1)
+    )[0];
   const mergedStatus = normalizeEleveStatus(input.status ?? curEleve?.status);
   const dateSortie = formatDateSortieFromRow(curEleve?.dateSortie);
   if (
@@ -558,6 +564,11 @@ export async function ensureEleveScolariteCourante(
       regime: input.regime,
       status: input.status,
       siteId,
+      eleveSnapshot: {
+        status: curEleve?.status ?? input.status ?? null,
+        dateSortie: curEleve?.dateSortie ?? null,
+        classe,
+      },
     },
     { skipHooks: true },
   );
@@ -583,6 +594,7 @@ export async function syncEleveScolariteFromEleveRow(
     row.id,
     { classe: row.classe, regime: row.regime, status: row.status },
     catalog,
+    { status: row.status, dateSortie: row.dateSortie },
   );
 }
 
@@ -753,15 +765,23 @@ export async function ensureEleveFoyerFromParentContacts(
 }
 
 const scolariteBackfillDone = new Set<string>();
+const scolariteBackfillInFlight = new Map<string, Promise<number>>();
+let scolariteBackfillRunCount = 0;
 
-/**
- * Une fois par établissement (marqueur Postgres) : aligne les scolarités année courante
- * sur le registre plat. Idempotent : aucune écriture si déjà aligné.
- */
-export async function backfillElevesScolariteCouranteOnce(
-  etablissementId: string,
-): Promise<number> {
-  if (scolariteBackfillDone.has(etablissementId)) return 0;
+/** Réinitialise le cache process (tests uniquement). */
+export function resetScolariteBackfillCacheForTests(): void {
+  scolariteBackfillDone.clear();
+  scolariteBackfillInFlight.clear();
+  scolariteBackfillRunCount = 0;
+}
+
+/** Nombre de passes effectives depuis le dernier reset (tests). */
+export function getScolariteBackfillRunCountForTests(): number {
+  return scolariteBackfillRunCount;
+}
+
+async function runBackfillElevesScolariteCouranteWork(etablissementId: string): Promise<number> {
+  scolariteBackfillRunCount += 1;
   const {
     isEleveScolariteBackfillDone,
     markEleveScolariteBackfillDone,
@@ -800,6 +820,55 @@ export async function backfillElevesScolariteCouranteOnce(
   await markEleveScolariteBackfillDone(etablissementId);
   scolariteBackfillDone.add(etablissementId);
   return touched;
+}
+
+/**
+ * Une fois par établissement (marqueur Postgres) : aligne les scolarités année courante
+ * sur le registre plat. Idempotent : aucune écriture si déjà aligné.
+ */
+export async function backfillElevesScolariteCouranteOnce(
+  etablissementId: string,
+): Promise<number> {
+  if (scolariteBackfillDone.has(etablissementId)) return 0;
+  const existing = scolariteBackfillInFlight.get(etablissementId);
+  if (existing) return existing;
+
+  const flight = runBackfillElevesScolariteCouranteWork(etablissementId).finally(() => {
+    scolariteBackfillInFlight.delete(etablissementId);
+  });
+  scolariteBackfillInFlight.set(etablissementId, flight);
+  return flight;
+}
+
+/**
+ * Lit le marqueur BDD avant de planifier le rattrapage (hors chemin critique liste dossiers).
+ */
+export function scheduleBackfillElevesScolariteCouranteIfNeeded(etablissementId: string): void {
+  if (scolariteBackfillDone.has(etablissementId)) return;
+  if (scolariteBackfillInFlight.has(etablissementId)) return;
+
+  void (async () => {
+    try {
+      const { isEleveScolariteBackfillDone } = await import(
+        "@/app/lib/eleve-scolarite-backfill-marker"
+      );
+      if (await isEleveScolariteBackfillDone(etablissementId)) {
+        scolariteBackfillDone.add(etablissementId);
+        return;
+      }
+    } catch (e) {
+      console.warn("[eleves/dossiers/list] backfill scolarité — lecture marqueur", e);
+      return;
+    }
+
+    if (scolariteBackfillInFlight.has(etablissementId)) return;
+
+    after(() => {
+      void backfillElevesScolariteCouranteOnce(etablissementId).catch((e) =>
+        console.warn("[eleves/dossiers/list] backfill scolarité", e),
+      );
+    });
+  })();
 }
 
 export async function replaceElevesInDb(

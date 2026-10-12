@@ -1,4 +1,4 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import {
@@ -28,7 +28,7 @@ import {
   resolveSiteLabel,
 } from "@/app/lib/eleve-dossier-catalog";
 import { requireTenantId } from "@/app/lib/tenant-scope";
-import { backfillElevesScolariteCouranteOnce } from "@/app/lib/ent-core-db";
+import { scheduleBackfillElevesScolariteCouranteIfNeeded } from "@/app/lib/ent-core-db";
 import {
   elevePhotoProxyPath,
   loadElevePhotoIndex,
@@ -126,12 +126,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Backfill hors chemin critique (1er hit process pouvait bloquer toute la liste).
-  after(() => {
-    void backfillElevesScolariteCouranteOnce(tenant.ctx.etablissementId).catch((e) =>
-      console.warn("[eleves/dossiers/list] backfill scolarité", e),
-    );
-  });
+  scheduleBackfillElevesScolariteCouranteIfNeeded(tenant.ctx.etablissementId);
 
   const db = getDb();
   const sitesPromise = db
