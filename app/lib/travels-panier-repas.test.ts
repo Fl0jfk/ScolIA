@@ -3,9 +3,15 @@ import test from "node:test";
 import {
   clampPanierRepasAssignments,
   clampPanierRepasWhoEats,
+  countPanierRepasAdultesAssigned,
+  countPanierRepasAdultesVisibleRows,
   countPanierRepasAssigned,
   countPanierRepasTotalAssigned,
   isCuisineWhoEatsComplete,
+  listOrphanPanierRepasAccompagnateurs,
+  normalizePanierRepasAutreNameOnBlur,
+  PANIER_REPAS_AUTRE_DEFAULT_NAME,
+  panierRepasAutreNameForEdit,
 } from "./travels-eleves-list";
 import type { TravelsPanierRepasAdulte, TravelsParticipantEleve } from "./travels-types";
 
@@ -61,6 +67,33 @@ test("clampPanierRepasWhoEats — élèves d’abord, puis adultes", () => {
   );
   assert.equal(countPanierRepasAssigned(out.participants), 2);
   assert.equal(out.adultes.length, 1);
+});
+
+test("panierRepasAutreName — espaces conservés en saisie, trim au blur", () => {
+  assert.equal(panierRepasAutreNameForEdit(PANIER_REPAS_AUTRE_DEFAULT_NAME), "");
+  assert.equal(panierRepasAutreNameForEdit("Jean Dupont"), "Jean Dupont");
+  assert.equal(normalizePanierRepasAutreNameOnBlur("Jean "), "Jean");
+  assert.equal(normalizePanierRepasAutreNameOnBlur("Jean Dupont"), "Jean Dupont");
+  assert.equal(normalizePanierRepasAutreNameOnBlur("   "), PANIER_REPAS_AUTRE_DEFAULT_NAME);
+});
+
+test("listOrphanPanierRepasAccompagnateurs — panier orphelin retirable, compteur cohérent", () => {
+  const escorts = [{ name: "Paul", source: "directory" as const }];
+  let adultes = [
+    { id: "orphan", name: "Marie", source: "accompagnateur" as const },
+    { id: "linked", name: "Paul", source: "accompagnateur" as const },
+  ];
+  let orphans = listOrphanPanierRepasAccompagnateurs(adultes, escorts);
+  assert.equal(orphans.length, 1);
+  assert.equal(orphans[0]?.id, "orphan");
+  assert.equal(countPanierRepasAdultesAssigned(adultes), 2);
+  assert.equal(countPanierRepasAdultesVisibleRows(adultes, escorts), 2);
+
+  adultes = adultes.filter((a) => a.id !== "orphan");
+  orphans = listOrphanPanierRepasAccompagnateurs(adultes, escorts);
+  assert.equal(orphans.length, 0);
+  assert.equal(countPanierRepasAdultesAssigned(adultes), 1);
+  assert.equal(countPanierRepasAdultesVisibleRows(adultes, escorts), 1);
 });
 
 test("isCuisineWhoEatsComplete — adultes comblent le total", () => {
