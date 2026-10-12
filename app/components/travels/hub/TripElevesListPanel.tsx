@@ -7,15 +7,19 @@ import {
   elevesListExcelFilename,
 } from "@/app/lib/travels-eleves-excel";
 import {
+  accompagnateurPanierKey,
   applyParticipantElevesToTripData,
   compareParticipantsByClasseThenName,
-  countPanierRepasAssigned,
+  countPanierRepasTotalAssigned,
   cuisineWhoEatsMissingMessage,
   eleveParticipantKey,
   isCuisineWhoEatsComplete,
+  newPanierRepasAdulteAutreId,
   parentEmailCoverage,
+  sanitizePanierRepasAdultes,
   toParticipantEleve,
 } from "@/app/lib/travels-eleves-list";
+import { parseAccompagnateursFromTrip } from "@/app/lib/travels-accompagnateurs";
 import {
   calendarHasDepotAndRecuperation,
   defaultParentCalendarFromTrip,
@@ -26,6 +30,7 @@ import { emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-fo
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import type {
   TravelsCalendarPoint,
+  TravelsPanierRepasAdulte,
   TravelsParentCalendar,
   TravelsParticipantEleve,
   TravelsTrip,
@@ -67,6 +72,8 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [droitByKey, setDroitByKey] = useState<Record<string, boolean>>({});
   const [panierByKey, setPanierByKey] = useState<Record<string, boolean>>({});
+  /** Adultes / accompagnateurs qui mangent (1 entrée = 1 panier). */
+  const [panierAdultes, setPanierAdultes] = useState<TravelsPanierRepasAdulte[]>([]);
   const [busy, setBusy] = useState<"save" | "confirm" | "panier" | null>(null);
   const [classFilter, setClassFilter] = useState("");
   const [calendar, setCalendar] = useState<TravelsParentCalendar>(() =>
@@ -167,8 +174,23 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
     }
     setDroitByKey(droits);
     setPanierByKey(paniers);
+    setPanierAdultes(sanitizePanierRepasAdultes(trip.data.panierRepasAdultes));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from trip only
-  }, [trip.id, trip.data.participantEleves, trip.data.listeElevesStatus]);
+  }, [
+    trip.id,
+    trip.data.participantEleves,
+    trip.data.panierRepasAdultes,
+    trip.data.listeElevesStatus,
+  ]);
+
+  const tripAccompagnateurs = useMemo(
+    () =>
+      parseAccompagnateursFromTrip({
+        accompagnateurs: trip.data.accompagnateurs,
+        nomsAccompagnateurs: trip.data.nomsAccompagnateurs,
+      }),
+    [trip.data.accompagnateurs, trip.data.nomsAccompagnateurs],
+  );
 
   const elevesByKey = useMemo(() => {
     const map = new Map<string, EleveConfig>();
@@ -278,10 +300,24 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
   ]);
 
   const panierAssigned = useMemo(
-    () => countPanierRepasAssigned(buildParticipants()),
-    [buildParticipants],
+    () => countPanierRepasTotalAssigned(buildParticipants(), panierAdultes),
+    [buildParticipants, panierAdultes],
   );
   const panierRemaining = Math.max(0, mealsOrdered - panierAssigned);
+
+  const panierAdultesByEscortKey = useMemo(() => {
+    const map = new Map<string, TravelsPanierRepasAdulte>();
+    for (const a of panierAdultes) {
+      if (a.source !== "accompagnateur") continue;
+      map.set(accompagnateurPanierKey(a), a);
+    }
+    return map;
+  }, [panierAdultes]);
+
+  const panierAdultesAutres = useMemo(
+    () => panierAdultes.filter((a) => a.source === "autre"),
+    [panierAdultes],
+  );
 
   const coverage = useMemo(() => {
     const participants = buildParticipants();
@@ -333,8 +369,8 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
     setPanierByKey((prev) => {
       const currentlyOn = prev[key] === true;
       if (currentlyOn) return { ...prev, [key]: false };
-      const assigned = Object.entries(prev).filter(([k, v]) => v && selectedKeys.has(k)).length;
-      if (assigned >= mealsOrdered) {
+      const elevesOn = Object.entries(prev).filter(([k, v]) => v && selectedKeys.has(k)).length;
+      if (elevesOn + panierAdultes.length >= mealsOrdered) {
         alert(
           `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
         );
@@ -342,6 +378,71 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       }
       return { ...prev, [key]: true };
     });
+  };
+
+  const toggleAccompagnateurPanier = (escort: {
+    userId?: string;
+    name: string;
+    email?: string;
+  }) => {
+    if (!cuisineActive || !canEdit) return;
+    const key = accompagnateurPanierKey(escort);
+    setPanierAdultes((prev) => {
+      const existing = prev.find(
+        (a) => a.source === "accompagnateur" && accompagnateurPanierKey(a) === key,
+      );
+      if (existing) return prev.filter((a) => a.id !== existing.id);
+      const elevesOn = Object.entries(panierByKey).filter(
+        ([k, v]) => v && selectedKeys.has(k),
+      ).length;
+      if (elevesOn + prev.length >= mealsOrdered) {
+        alert(
+          `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
+        );
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          id: `acc-${key}`,
+          name: escort.name.trim() || "Accompagnateur",
+          ...(escort.userId ? { userId: escort.userId } : {}),
+          ...(escort.email ? { email: escort.email } : {}),
+          source: "accompagnateur" as const,
+        },
+      ];
+    });
+  };
+
+  const addAccompagnateurAutre = () => {
+    if (!cuisineActive || !canEdit) return;
+    const elevesOn = Object.entries(panierByKey).filter(
+      ([k, v]) => v && selectedKeys.has(k),
+    ).length;
+    if (elevesOn + panierAdultes.length >= mealsOrdered) {
+      alert(
+        `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
+      );
+      return;
+    }
+    setPanierAdultes((prev) => [
+      ...prev,
+      {
+        id: newPanierRepasAdulteAutreId(),
+        name: "Accompagnateur autre",
+        source: "autre",
+      },
+    ]);
+  };
+
+  const updateAccompagnateurAutreName = (id: string, name: string) => {
+    setPanierAdultes((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, name: name.trim() || "Accompagnateur autre" } : a)),
+    );
+  };
+
+  const removePanierAdulte = (id: string) => {
+    setPanierAdultes((prev) => prev.filter((a) => a.id !== id));
   };
 
   const addWholeClassToList = (classe: string) => {
@@ -456,6 +557,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       });
       if (!data.listeElevesStatus) data.listeElevesStatus = "draft";
       data.parentCalendar = calendar;
+      data.panierRepasAdultes = cuisineActive ? panierAdultes : [];
       if (billingAdjust && data.comptaSheet && typeof data.comptaSheet === "object") {
         data.comptaSheet = {
           ...data.comptaSheet,
@@ -508,12 +610,13 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       const whoEatsData = {
         ...trip.data,
         participantEleves: participants,
+        panierRepasAdultes: panierAdultes,
         piqueNiqueDetails: trip.data.piqueNiqueDetails,
       };
       if (!isCuisineWhoEatsComplete(whoEatsData)) {
         return alert(
           cuisineWhoEatsMissingMessage(whoEatsData) ||
-            `Attribuez exactement ${mealsOrdered} panier(s) repas (« qui mange ») avant de confirmer.`,
+            `Attribuez exactement ${mealsOrdered} panier(s) repas (« qui mange », élèves et/ou adultes) avant de confirmer.`,
         );
       }
     }
@@ -555,6 +658,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
         body: JSON.stringify({
           tripId: trip.id,
           participantEleves: participants,
+          panierRepasAdultes: panierAdultes,
           parentCalendar: calendar,
           activateParentBlog,
         }),
@@ -593,16 +697,17 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
     if (!canEdit || !cuisineActive) return;
     const participants = buildParticipants();
     if (panierAssigned === 0) {
-      return alert("Cochez au moins un élève avec panier repas.");
+      return alert("Cochez au moins un élève ou un adulte avec panier repas.");
     }
     if (panierAssigned > mealsOrdered) {
       return alert(
         `Trop de paniers attribués (${panierAssigned}) pour ${mealsOrdered} commandés.`,
       );
     }
+    const elevesCount = participants.filter((p) => p.panierRepas).length;
     if (
       !confirm(
-        `Envoyer la liste de ${panierAssigned} élève(s) avec panier repas (sur ${mealsOrdered} commandés) ?`,
+        `Envoyer la liste « qui mange » (${elevesCount} élève(s), ${panierAdultes.length} adulte(s) — ${panierAssigned}/${mealsOrdered} paniers) ?`,
       )
     ) {
       return;
@@ -614,6 +719,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
         resetConfirmation: false,
       });
       data.parentCalendar = calendar;
+      data.panierRepasAdultes = panierAdultes;
       const draftTrip: TravelsTrip = { ...trip, data };
       const saveRes = await fetch("/api/travels/update", {
         method: "POST",
@@ -628,7 +734,11 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       const res = await fetch("/api/travels/send-panier-repas-list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tripId: trip.id, participantEleves: participants }),
+        body: JSON.stringify({
+          tripId: trip.id,
+          participantEleves: participants,
+          panierRepasAdultes: panierAdultes,
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Envoi impossible");
@@ -943,9 +1053,11 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                       3 — Qui mange / paniers repas ({panierAssigned} / {mealsOrdered}) — obligatoire
                     </h3>
                     <p className="mt-1 text-xs text-amber-900/80">
-                      Cochez les élèves qui ont vraiment besoin d’un panier. Il reste{" "}
+                      Cochez les élèves et/ou les adultes qui mangent. Les accompagnateurs du
+                      séjour apparaissent en priorité ; vous pouvez aussi ajouter un
+                      « accompagnateur autre » sans nom précis. Il reste{" "}
                       <strong>{panierRemaining}</strong> panier
-                      {panierRemaining > 1 ? "s" : ""} à attribuer sur la commande cuisine.
+                      {panierRemaining > 1 ? "s" : ""} à attribuer.
                     </p>
                   </div>
                   <span
@@ -961,7 +1073,8 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
 
                 {selectedParticipants.length === 0 ? (
                   <p className="text-sm text-amber-900/60">
-                    Ajoutez d’abord des élèves à la liste (étape 2).
+                    Ajoutez d’abord des élèves à la liste (étape 2) — les adultes peuvent être
+                    cochés ensuite.
                   </p>
                 ) : (
                   <div className="max-h-64 overflow-y-auto rounded-xl border border-amber-100 bg-white">
@@ -1010,12 +1123,110 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                   </div>
                 )}
 
+                <div className="rounded-xl border border-amber-100 bg-white p-3 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="mr-auto text-[11px] font-black uppercase tracking-wide text-amber-950">
+                      Adultes / accompagnateurs
+                    </p>
+                    {canEdit && (
+                      <TripButton
+                        variant="secondary"
+                        size="sm"
+                        disabled={panierRemaining <= 0 || !!busy}
+                        onClick={addAccompagnateurAutre}
+                      >
+                        + Accompagnateur autre
+                      </TripButton>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-amber-900/75">
+                    Priorité aux noms déjà saisis comme accompagnateurs du séjour. Sinon, ajoutez
+                    un créneau « autre » (le nom peut rester générique).
+                  </p>
+
+                  {tripAccompagnateurs.length > 0 ? (
+                    <ul className="divide-y divide-amber-50 rounded-lg border border-amber-50">
+                      {tripAccompagnateurs.map((escort) => {
+                        const key = accompagnateurPanierKey(escort);
+                        const on = panierAdultesByEscortKey.has(key);
+                        const disableAdd = !on && panierRemaining <= 0;
+                        return (
+                          <li
+                            key={key}
+                            className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              disabled={!canEdit || disableAdd}
+                              onChange={() => toggleAccompagnateurPanier(escort)}
+                              className="rounded border-amber-300"
+                            />
+                            <span className="min-w-0 flex-1 font-medium text-slate-800">
+                              {escort.name}
+                            </span>
+                            <span className="text-[10px] font-bold uppercase text-slate-500">
+                              Accompagnateur
+                            </span>
+                            {on ? (
+                              <span className="text-[10px] font-bold uppercase text-amber-800">
+                                Panier
+                              </span>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-amber-900/60">
+                      Aucun accompagnateur nommé sur ce dossier pour l’instant — vous pouvez
+                      quand même ajouter des « accompagnateurs autres ».
+                    </p>
+                  )}
+
+                  {panierAdultesAutres.length > 0 && (
+                    <ul className="space-y-2">
+                      {panierAdultesAutres.map((a, idx) => (
+                        <li
+                          key={a.id}
+                          className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-100 bg-amber-50/40 px-3 py-2"
+                        >
+                          <span className="text-[10px] font-bold uppercase text-amber-800">
+                            Autre {idx + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={
+                              a.name === "Accompagnateur autre" && canEdit ? "" : a.name
+                            }
+                            placeholder="Nom (optionnel)"
+                            disabled={!canEdit}
+                            onChange={(e) =>
+                              updateAccompagnateurAutreName(a.id, e.target.value)
+                            }
+                            className="min-w-0 flex-1 rounded-md border border-amber-200 bg-white px-2 py-1 text-sm"
+                          />
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => removePanierAdulte(a.id)}
+                              className="text-xs font-bold text-rose-600 hover:underline"
+                            >
+                              Retirer
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
                 {trip.data.panierRepasListSentAt && (
                   <p className="text-xs text-amber-900/70">
                     Liste envoyée le{" "}
                     {new Date(trip.data.panierRepasListSentAt).toLocaleString("fr-FR")}
                     {trip.data.panierRepasListSnapshot?.count != null
-                      ? ` (${trip.data.panierRepasListSnapshot.count} élève(s))`
+                      ? ` (${trip.data.panierRepasListSnapshot.count} panier(s))`
                       : ""}
                     .
                   </p>
@@ -1102,8 +1313,9 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
               )}
               {cuisineActive && panierAssigned !== mealsOrdered && (
                 <p className="text-xs font-semibold text-amber-800">
-                  Commande cuisine active : attribuez exactement {mealsOrdered} panier(s) nominatif(s)
-                  (« qui mange ») — actuellement {panierAssigned}/{mealsOrdered}.
+                  Commande cuisine active : attribuez exactement {mealsOrdered} panier(s)
+                  (« qui mange », élèves et/ou adultes) — actuellement {panierAssigned}/
+                  {mealsOrdered}.
                 </p>
               )}
             </div>

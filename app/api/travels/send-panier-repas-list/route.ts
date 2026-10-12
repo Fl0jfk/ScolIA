@@ -4,10 +4,14 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { getJson } from "@/app/lib/s3-storage";
 import { sendPanierRepasListForTrip } from "@/app/lib/travels-panier-repas-send";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
-import type { TravelsParticipantEleve, TravelsTrip } from "@/app/lib/travels-types";
+import type {
+  TravelsPanierRepasAdulte,
+  TravelsParticipantEleve,
+  TravelsTrip,
+} from "@/app/lib/travels-types";
 
 /**
- * Envoie la liste nominative des élèves avec panier repas (+ PDF commande cuisine)
+ * Envoie la liste nominative « qui mange » (élèves + adultes) + PDF commande cuisine
  * aux destinataires configurés (notifications.travelsCuisineListePaniers).
  */
 export async function POST(req: Request) {
@@ -39,6 +43,9 @@ export async function POST(req: Request) {
       tripId,
       participants: Array.isArray(body.participantEleves)
         ? (body.participantEleves as TravelsParticipantEleve[])
+        : undefined,
+      adultes: Array.isArray(body.panierRepasAdultes)
+        ? (body.panierRepasAdultes as TravelsPanierRepasAdulte[])
         : undefined,
       userName,
       userEmail,

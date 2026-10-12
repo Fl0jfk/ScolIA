@@ -5,10 +5,11 @@ import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   applyParticipantElevesToTripData,
   buildElevesListCsvForTransporter,
-  clampPanierRepasAssignments,
+  clampPanierRepasWhoEats,
   cuisineWhoEatsMissingMessage,
   eleveParticipantKey,
   isCuisineWhoEatsComplete,
+  sanitizePanierRepasAdultes,
 } from "@/app/lib/travels-eleves-list";
 import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import type { EleveConfig } from "@/app/lib/eleves-config";
@@ -24,6 +25,7 @@ import {
   sanitizeParentCalendar,
 } from "@/app/lib/travels-parent-calendar";
 import type {
+  TravelsPanierRepasAdulte,
   TravelsParentCalendar,
   TravelsParentComLog,
   TravelsParticipantEleve,
@@ -81,7 +83,13 @@ export async function POST(req: Request) {
     const mealsOrdered = getTotalMeals(
       trip.data.piqueNiqueDetails as Parameters<typeof getTotalMeals>[0],
     );
-    participants = clampPanierRepasAssignments(participants, mealsOrdered);
+    let panierAdultes: TravelsPanierRepasAdulte[] =
+      body.panierRepasAdultes !== undefined
+        ? sanitizePanierRepasAdultes(body.panierRepasAdultes)
+        : sanitizePanierRepasAdultes(trip.data.panierRepasAdultes);
+    const clampedWhoEats = clampPanierRepasWhoEats(participants, panierAdultes, mealsOrdered);
+    participants = clampedWhoEats.participants;
+    panierAdultes = clampedWhoEats.adultes;
 
     if (participants.length === 0) {
       return NextResponse.json(
@@ -101,6 +109,7 @@ export async function POST(req: Request) {
     let data = applyParticipantElevesToTripData(trip.data, participants, {
       syncNbEleves: "exact",
     });
+    data = { ...data, panierRepasAdultes: panierAdultes };
     const parentCalendar = sanitizeParentCalendar(
       (body.parentCalendar as TravelsParentCalendar | undefined) || data.parentCalendar,
       data,
@@ -118,13 +127,17 @@ export async function POST(req: Request) {
     }
 
     if (trip.data.piqueNiqueDetails?.active && mealsOrdered > 0) {
-      const whoEatsData = { ...data, participantEleves: participants };
+      const whoEatsData = {
+        ...data,
+        participantEleves: participants,
+        panierRepasAdultes: panierAdultes,
+      };
       if (!isCuisineWhoEatsComplete(whoEatsData)) {
         return NextResponse.json(
           {
             error:
               cuisineWhoEatsMissingMessage(whoEatsData) ||
-              "Attribuez nominativement tous les paniers repas (« qui mange ») avant de confirmer.",
+              "Attribuez tous les paniers repas (« qui mange », élèves et/ou adultes) avant de confirmer.",
           },
           { status: 400 },
         );
@@ -134,6 +147,7 @@ export async function POST(req: Request) {
     data = {
       ...data,
       parentCalendar,
+      panierRepasAdultes: panierAdultes,
       listeElevesStatus: "confirmed",
       listeElevesConfirmedAt: now,
       listeElevesConfirmedBy: {
