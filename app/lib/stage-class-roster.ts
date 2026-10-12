@@ -266,13 +266,16 @@ export async function searchStageConventionsGlobal(
   return hits;
 }
 
-export async function listStageRosterClassNames(schoolYear?: string): Promise<string[]> {
+export async function listStageRosterClassNames(
+  schoolYear?: string,
+  index?: StageConventionIndexEntry[],
+): Promise<string[]> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
-  const [enabled, index] = await Promise.all([
+  const [enabled, resolvedIndex] = await Promise.all([
     listStageEnabledClassNames(year),
-    getConventionsIndex(),
+    index ? Promise.resolve(index) : getConventionsIndex(),
   ]);
-  const fromConventions = index
+  const fromConventions = resolvedIndex
     .filter((e) => isRosterVisibleIndexEntry(e, year))
     .map((e) => String(e.className ?? "").trim())
     .filter(Boolean);
@@ -284,12 +287,16 @@ export async function listStageRosterClassNames(schoolYear?: string): Promise<st
 async function buildStageClassRosterUncached(
   className: string,
   year: string,
+  opts?: { index?: StageConventionIndexEntry[] },
 ): Promise<StageClassRoster> {
+  const indexPromise = opts?.index
+    ? Promise.resolve(opts.index)
+    : getConventionsIndex();
   const [elevesActifs, elevesAll, index, officialPeriods, classEnabledInConfig] =
     await Promise.all([
       loadElevesActifs(),
       loadAllEleves(),
-      getConventionsIndex(),
+      indexPromise,
       getStagePeriodsForClass(className, year),
       isClassEnabledInStagePeriods(className, year),
     ]);
@@ -447,14 +454,15 @@ async function buildStageClassRosterUncached(
 export async function buildStageClassRoster(
   className: string,
   schoolYear?: string,
+  opts?: { index?: StageConventionIndexEntry[] },
 ): Promise<StageClassRoster> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
   const etabId = await resolveCurrentEtablissementId().catch(() => null);
-  if (!etabId) return buildStageClassRosterUncached(className, year);
+  if (!etabId) return buildStageClassRosterUncached(className, year, opts);
 
   return valkeyCached({
     key: valkeyKeyStagesClassRoster(etabId, year, classKey(className)),
     ttlSeconds: VALKEY_TTL.stagesClassRoster,
-    loader: () => buildStageClassRosterUncached(className, year),
+    loader: () => buildStageClassRosterUncached(className, year, opts),
   });
 }

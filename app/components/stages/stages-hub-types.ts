@@ -61,6 +61,7 @@ export type StagesHubBoard = {
   permissions: StagesHubPermissions;
   counts: Record<string, number>;
   myPendingSignatures?: PendingStageSignature[];
+  hasStoredSignature?: boolean;
   pendingOffers: Array<{ id: string; companyName: string; kind: string; targetLevels: string[] }>;
   adminQueue: StagesHubBoardCard[];
   signaturesPending: StagesHubBoardCard[];
