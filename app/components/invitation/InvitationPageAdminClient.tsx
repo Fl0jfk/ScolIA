@@ -817,13 +817,9 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                       <p className="text-xs text-slate-500">
                         Pour relancer : exporter uniquement ceux encore sans réponse.
                       </p>
-                      <button
-                        type="button"
-                        onClick={downloadPendingCsv}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50"
-                      >
+                      <ModuleButton variant="secondary" className="px-3 py-2 text-xs" onClick={downloadPendingCsv}>
                         Extraire CSV restants ({pendingEligible.length})
-                      </button>
+                      </ModuleButton>
                     </div>
                   ) : (
                     <p className="text-xs font-semibold text-emerald-700">

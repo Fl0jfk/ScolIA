@@ -16,6 +16,7 @@ import {
   TripSection,
   TripTextarea,
 } from "@/app/components/travels/TripDetailUI";
+import { dash } from "@/app/lib/dashboard-brand";
 
 type TripTransportHubPanelProps = {
   trip: TravelsTrip;
@@ -585,11 +586,15 @@ export function TripTransportHubPanel({
                 <p className="text-xs font-bold text-slate-800">Écrire au transporteur</p>
                 {receivedQuotes.length > 0 ? (
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+                    <label
+                      htmlFor="transport-reply-quote"
+                      className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1"
+                    >
                       Devis concerné
                     </label>
                     <select
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                      id="transport-reply-quote"
+                      className={dash.field}
                       value={replyQuoteId}
                       onChange={(e) => {
                         const id = e.target.value;
