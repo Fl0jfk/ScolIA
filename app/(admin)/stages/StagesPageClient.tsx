@@ -1059,7 +1059,9 @@ function StagesContent() {
         badges={{ classe: board?.counts?.myPendingSignatures }}
       />
 
-      {tab === "classe" && (permissions == null || permissions.canViewClassRoster) && (
+      {tab === "classe" && permissions == null && <ModuleTabFallback />}
+
+      {tab === "classe" && permissions?.canViewClassRoster && (
         <StagesClassePanel
           onOpenConvention={(id) => {
             void loadDetail(id);
