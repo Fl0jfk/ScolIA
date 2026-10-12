@@ -357,6 +357,12 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
     }
   }
 
+  const closeSelectedFiche = useCallback(() => {
+    setSelectedFiche(null);
+    setActionError(null);
+    setActionSuccess(null);
+  }, []);
+
   async function advanceFiche() {
     if (!selectedFiche) return;
     setActionError(null);
@@ -1002,11 +1008,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           onAdvanceNotesChange={setAdvanceNotes}
           onAdvanceSignatureChange={setAdvanceSignature}
           onAdvance={() => void advanceFiche()}
-          onClose={() => {
-            setSelectedFiche(null);
-            setActionError(null);
-            setActionSuccess(null);
-          }}
+          onClose={closeSelectedFiche}
         />
       ) : null}
     </div>

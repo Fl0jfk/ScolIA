@@ -6,9 +6,16 @@ import { handleModalDialogKeyDown } from "@/app/lib/ui/modal-dialog-keydown";
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+/** Layout effect must depend only on `open` (not `onClose`) to avoid focus theft on each parent render. */
+export function modalDialogLayoutEffectDeps(open: boolean): readonly [boolean] {
+  return [open];
+}
+
 export function useModalDialog(open: boolean, onClose: () => void) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -22,7 +29,7 @@ export function useModalDialog(open: boolean, onClose: () => void) {
     (title ?? firstFocusable)?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
-      handleModalDialogKeyDown(e, onClose);
+      handleModalDialogKeyDown(e, () => onCloseRef.current());
       if (e.key !== "Tab" || !panel) return;
       const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (el) => !el.hasAttribute("disabled") && el.tabIndex !== -1,
@@ -46,7 +53,7 @@ export function useModalDialog(open: boolean, onClose: () => void) {
       restoreFocusRef.current?.focus?.();
       restoreFocusRef.current = null;
     };
-  }, [open, onClose]);
+  }, modalDialogLayoutEffectDeps(open));
 
   return { panelRef };
 }
