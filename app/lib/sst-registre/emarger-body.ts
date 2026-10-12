@@ -8,6 +8,9 @@ export function isSstAttestationOnlySignature(stored: string): boolean {
   return stored.trim() === SST_ATTESTATION_ONLY_DATA_URL;
 }
 
+export const SST_MARKER_AS_DRAWN_SIGNATURE_ERROR =
+  "Ce format est réservé à l’attestation. Cochez l’attestation ou fournissez une signature manuscrite distincte.";
+
 const EmargerBodySchema = z
   .object({
     signatureDataUrl: z.string().max(1_200_000).optional(),
@@ -60,6 +63,9 @@ export function parseEmargerBody(
     };
   }
   const drawn = (signatureDataUrl ?? "").trim();
+  if (isSstAttestationOnlySignature(drawn)) {
+    return { ok: false, error: SST_MARKER_AS_DRAWN_SIGNATURE_ERROR };
+  }
   return {
     ok: true,
     data: {

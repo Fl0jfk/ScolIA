@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 type Props = {
   onChange: (dataUrl: string | null) => void;
@@ -20,8 +20,6 @@ export default function PartenariatSignaturePad({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
-  const clearButtonId = useId();
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -89,8 +87,6 @@ export default function PartenariatSignaturePad({
     onChange(null);
   }
 
-  const labelledBy = [labelId, clearButtonId].filter(Boolean).join(" ") || undefined;
-
   return (
     <div className={className}>
       <canvas
@@ -99,8 +95,8 @@ export default function PartenariatSignaturePad({
         height={220}
         tabIndex={0}
         role="img"
-        aria-label="Zone de signature manuscrite"
-        aria-labelledby={labelledBy}
+        aria-label={labelId ? undefined : "Zone de signature manuscrite"}
+        aria-labelledby={labelId ?? undefined}
         aria-describedby={describedById}
         className="w-full touch-none rounded-xl border border-slate-300 bg-white outline-none focus:ring-2 focus:ring-[color:var(--dash-lime)]/50"
         onPointerDown={start}
@@ -110,10 +106,9 @@ export default function PartenariatSignaturePad({
         onPointerLeave={end}
       />
       <button
-        id={clearButtonId}
         type="button"
         onClick={clear}
-        className="mt-2 text-xs font-bold text-slate-600 hover:underline"
+        className="mt-2 rounded text-xs font-bold text-slate-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--dash-lime)]/50"
       >
         Effacer la signature
       </button>

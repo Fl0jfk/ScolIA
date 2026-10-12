@@ -2,13 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   SST_ATTESTATION_ONLY_DATA_URL,
+  SST_MARKER_AS_DRAWN_SIGNATURE_ERROR,
   canSubmitSstEmargement,
   isSstAttestationOnlySignature,
   parseEmargerBody,
 } from "./emarger-body";
-
-const DRAWN_PNG =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==AAAAAAAA";
+import { SST_DRAWN_SIGNATURE_TEST_DATA_URL } from "./emarger-test-fixtures";
 
 describe("parseEmargerBody", () => {
   it("accepte attestation sans signature dessinée", () => {
@@ -20,12 +19,19 @@ describe("parseEmargerBody", () => {
     assert.equal(r.data.remarques, "ok");
   });
 
-  it("accepte signature PNG valide", () => {
-    const r = parseEmargerBody({ signatureDataUrl: DRAWN_PNG });
+  it("accepte signature PNG valide distincte du marqueur", () => {
+    const r = parseEmargerBody({ signatureDataUrl: SST_DRAWN_SIGNATURE_TEST_DATA_URL });
     assert.equal(r.ok, true);
     if (!r.ok) return;
     assert.equal(r.data.attestationOnly, false);
-    assert.equal(r.data.signatureDataUrl, DRAWN_PNG);
+    assert.equal(r.data.signatureDataUrl, SST_DRAWN_SIGNATURE_TEST_DATA_URL);
+  });
+
+  it("refuse le marqueur d’attestation en mode signature dessinée", () => {
+    const r = parseEmargerBody({ signatureDataUrl: SST_ATTESTATION_ONLY_DATA_URL });
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.equal(r.error, SST_MARKER_AS_DRAWN_SIGNATURE_ERROR);
   });
 
   it("refuse ni signature ni attestation", () => {
@@ -36,7 +42,7 @@ describe("parseEmargerBody", () => {
   it("refuse attestation et signature simultanées", () => {
     const r = parseEmargerBody({
       attestationAcknowledged: true,
-      signatureDataUrl: DRAWN_PNG,
+      signatureDataUrl: SST_DRAWN_SIGNATURE_TEST_DATA_URL,
     });
     assert.equal(r.ok, false);
   });
@@ -58,7 +64,7 @@ describe("canSubmitSstEmargement", () => {
     assert.equal(
       canSubmitSstEmargement({
         signing: true,
-        signatureDataUrl: DRAWN_PNG,
+        signatureDataUrl: SST_DRAWN_SIGNATURE_TEST_DATA_URL,
         attestationAcknowledged: true,
       }),
       false,
@@ -69,6 +75,6 @@ describe("canSubmitSstEmargement", () => {
 describe("isSstAttestationOnlySignature", () => {
   it("reconnaît le marqueur d’attestation", () => {
     assert.equal(isSstAttestationOnlySignature(SST_ATTESTATION_ONLY_DATA_URL), true);
-    assert.equal(isSstAttestationOnlySignature(DRAWN_PNG), false);
+    assert.equal(isSstAttestationOnlySignature(SST_DRAWN_SIGNATURE_TEST_DATA_URL), false);
   });
 });

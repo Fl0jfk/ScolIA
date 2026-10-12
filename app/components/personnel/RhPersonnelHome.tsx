@@ -314,7 +314,7 @@ export default function RhPersonnelHome({
           {canValidateAbsences && (
             <Link
               href={ABSENCES_DIRECTION_HREF}
-              className={`${dash.btnPrimary} px-4 py-2.5 text-xs shadow-sm`}
+              className={`rounded-xl border bg-white px-4 py-2.5 text-xs font-bold shadow-sm ${dash.border} ${dash.ink} ${dash.hoverBorder}`}
             >
               Valider les absences RH
             </Link>

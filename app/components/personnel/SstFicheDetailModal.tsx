@@ -7,10 +7,37 @@ import { useModalDialog } from "@/app/hooks/useModalDialog";
 import { dash } from "@/app/lib/dashboard-brand";
 import { SST_FICHE_STATUS_LABELS, type SstFicheDetail } from "@/app/lib/sst-registre/types";
 
+function ModalInlineFeedback({
+  error,
+  success,
+}: {
+  error?: string | null;
+  success?: string | null;
+}) {
+  if (!error && !success) return null;
+  if (error) {
+    return (
+      <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        {error}
+      </p>
+    );
+  }
+  return (
+    <p
+      role="status"
+      className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+    >
+      {success}
+    </p>
+  );
+}
+
 type Props = {
   fiche: SstFicheDetail;
   advancing: boolean;
   advanceNotes: string;
+  error?: string | null;
+  success?: string | null;
   onAdvanceNotesChange: (v: string) => void;
   onAdvanceSignatureChange: (v: string | null) => void;
   onAdvance: () => void;
@@ -21,6 +48,8 @@ export default function SstFicheDetailModal({
   fiche,
   advancing,
   advanceNotes,
+  error,
+  success,
   onAdvanceNotesChange,
   onAdvanceSignatureChange,
   onAdvance,
@@ -136,6 +165,9 @@ export default function SstFicheDetailModal({
               describedById={advanceSigHintId}
               onChange={onAdvanceSignatureChange}
             />
+            <div className="mt-3 space-y-3">
+              <ModalInlineFeedback error={error} success={success} />
+            </div>
             <ModuleButton
               variant="primary"
               className="mt-3 text-xs"

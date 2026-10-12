@@ -61,6 +61,26 @@ type MePayload = SstMyStatus & { content: ContentPayload };
 
 type ViewMode = "accueil" | "fiche" | "suivi";
 
+const ILLEGIBLE_RESPONSE = "Réponse serveur illisible.";
+const NETWORK_ERROR = "Connexion impossible. Réessayez.";
+
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error(ILLEGIBLE_RESPONSE);
+  }
+}
+
+function userFacingActionError(e: unknown, fallback: string): string {
+  if (e instanceof Error) {
+    if (e.message === ILLEGIBLE_RESPONSE) return ILLEGIBLE_RESPONSE;
+    if (e.message === "Failed to fetch") return NETWORK_ERROR;
+    return e.message || fallback;
+  }
+  return fallback;
+}
+
 function todayIso(): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Paris",
@@ -265,7 +285,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const json = (await res.json()) as { error?: string };
+      const json = await readJsonResponse<{ error?: string }>(res);
       if (!res.ok) throw new Error(json.error || "Échec signature");
       setSignOk(true);
       setSignatureDataUrl(null);
@@ -274,7 +294,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
       await loadMe();
       if (me?.canManage) await loadSuivi();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Erreur");
+      setActionError(userFacingActionError(e, "Impossible d’enregistrer l’émargement."));
     } finally {
       setSigning(false);
     }
@@ -297,7 +317,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           signatureDataUrl: ficheSignature || undefined,
         }),
       });
-      const json = (await res.json()) as { error?: string; fiche?: { numero: number } };
+      const json = await readJsonResponse<{ error?: string; fiche?: { numero: number } }>(res);
       if (!res.ok) throw new Error(json.error || "Échec création");
       setFicheForm({
         observedDate: todayIso(),
@@ -313,7 +333,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
       if (me?.canManage) await loadSuivi();
       setFicheFormSuccess(`Fiche n°${json.fiche?.numero ?? "—"} enregistrée.`);
     } catch (e) {
-      setFicheFormError(e instanceof Error ? e.message : "Erreur");
+      setFicheFormError(userFacingActionError(e, "Impossible d’enregistrer la fiche."));
     } finally {
       setSavingFiche(false);
     }
@@ -321,20 +341,26 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
 
   async function openFiche(id: string) {
     setActionError(null);
-    const res = await fetch(`/api/rh/sst/fiches/${id}`, { cache: "no-store" });
-    const json = (await res.json()) as { fiche?: SstFicheDetail; error?: string };
-    if (!res.ok || !json.fiche) {
-      setActionError(json.error || "Fiche introuvable");
-      return;
+    setActionSuccess(null);
+    try {
+      const res = await fetch(`/api/rh/sst/fiches/${id}`, { cache: "no-store" });
+      const json = await readJsonResponse<{ fiche?: SstFicheDetail; error?: string }>(res);
+      if (!res.ok || !json.fiche) {
+        setActionError(json.error || "Fiche introuvable");
+        return;
+      }
+      setSelectedFiche(json.fiche);
+      setAdvanceNotes("");
+      setAdvanceSignature(null);
+    } catch (e) {
+      setActionError(userFacingActionError(e, "Impossible d’ouvrir la fiche."));
     }
-    setSelectedFiche(json.fiche);
-    setAdvanceNotes("");
-    setAdvanceSignature(null);
   }
 
   async function advanceFiche() {
     if (!selectedFiche) return;
     setActionError(null);
+    setActionSuccess(null);
     setAdvancing(true);
     try {
       const res = await fetch(`/api/rh/sst/fiches/${selectedFiche.id}`, {
@@ -346,7 +372,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           signatureDataUrl: advanceSignature || undefined,
         }),
       });
-      const json = (await res.json()) as { error?: string; fiche?: SstFicheDetail };
+      const json = await readJsonResponse<{ error?: string; fiche?: SstFicheDetail }>(res);
       if (!res.ok) throw new Error(json.error || "Échec");
       if (json.fiche) setSelectedFiche(json.fiche);
       setAdvanceNotes("");
@@ -355,7 +381,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
       await loadSuivi();
       setActionSuccess("Étape validée.");
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Erreur");
+      setActionError(userFacingActionError(e, "Impossible de valider l’étape."));
     } finally {
       setAdvancing(false);
     }
@@ -374,14 +400,14 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           signatureDataUrl: consultSignature || undefined,
         }),
       });
-      const json = (await res.json()) as { error?: string };
+      const json = await readJsonResponse<{ error?: string }>(res);
       if (!res.ok) throw new Error(json.error || "Échec");
       setConsultComments("");
       setConsultSignature(null);
       await loadSuivi();
       setActionSuccess("Consultation enregistrée.");
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Erreur");
+      setActionError(userFacingActionError(e, "Impossible d’enregistrer la consultation."));
     } finally {
       setSavingConsult(false);
     }
@@ -431,7 +457,10 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
         />
       </header>
 
-      <InlineFeedback error={actionError} success={actionSuccess} />
+      <InlineFeedback
+        error={selectedFiche ? null : actionError}
+        success={selectedFiche ? null : actionSuccess}
+      />
 
       {view === "accueil" ? (
         <div className="space-y-4">
@@ -592,7 +621,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
 
           {!signOk ? (
             <ModuleCard bodyClassName="p-5 border-amber-200 bg-amber-50/40">
-              <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-800">
                 Émargement — année {me.campagne.anneeLabel}
               </p>
               <h3 className="mt-1 font-black text-slate-900">Prise de connaissance</h3>
@@ -618,8 +647,8 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                   Signature manuscrite (optionnel si attestation cochée)
                 </p>
                 <p id={emargementSigHintId} className="mb-2 text-xs text-slate-500">
-                  Souris, doigt ou stylet dans le cadre ci-dessous. Accessible au clavier : placez le focus sur
-                  la zone puis dessinez au pointeur.
+                  Souris, doigt ou stylet. Au clavier ou avec un lecteur d&apos;écran, cochez l&apos;attestation
+                  ci-dessus.
                 </p>
                 <PartenariatSignaturePad
                   labelId={emargementSigLabelId}
@@ -885,7 +914,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
               Signature (optionnel)
             </p>
             <p id={consultSigHintId} className="text-xs text-slate-500">
-              Zone de signature accessible au clavier (Tab).
+              Signature facultative (souris, doigt ou stylet).
             </p>
             <PartenariatSignaturePad
               labelId={consultSigLabelId}
@@ -968,10 +997,16 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           fiche={selectedFiche}
           advancing={advancing}
           advanceNotes={advanceNotes}
+          error={actionError}
+          success={actionSuccess}
           onAdvanceNotesChange={setAdvanceNotes}
           onAdvanceSignatureChange={setAdvanceSignature}
           onAdvance={() => void advanceFiche()}
-          onClose={() => setSelectedFiche(null)}
+          onClose={() => {
+            setSelectedFiche(null);
+            setActionError(null);
+            setActionSuccess(null);
+          }}
         />
       ) : null}
     </div>

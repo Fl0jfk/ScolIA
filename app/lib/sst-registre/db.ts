@@ -17,7 +17,11 @@ import {
   canManageSstRegistre,
   primaryFonctionFromRoles,
 } from "@/app/lib/sst-registre/access";
-import { SST_ATTESTATION_ONLY_DATA_URL } from "@/app/lib/sst-registre/emarger-body";
+import {
+  isSstAttestationOnlySignature,
+  SST_ATTESTATION_ONLY_DATA_URL,
+  SST_MARKER_AS_DRAWN_SIGNATURE_ERROR,
+} from "@/app/lib/sst-registre/emarger-body";
 import {
   isSstFicheStatus,
   parseSignaturePngDataUrl,
@@ -244,6 +248,9 @@ export async function signSstEmargement(params: {
     }
     png = SST_ATTESTATION_ONLY_DATA_URL;
   } else {
+    if (isSstAttestationOnlySignature(params.signatureDataUrl)) {
+      return { ok: false, error: SST_MARKER_AS_DRAWN_SIGNATURE_ERROR };
+    }
     png = parseSignaturePngDataUrl(params.signatureDataUrl);
     if (!png) return { ok: false, error: "Signature manuscrite invalide (pad requis)." };
   }

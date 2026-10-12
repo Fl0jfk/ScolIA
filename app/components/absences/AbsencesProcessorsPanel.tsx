@@ -9,6 +9,7 @@ import DirectoryPersonSelect, {
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import type { AbsenceNotifyPerson } from "@/app/lib/app-config-schemas";
 import { dash } from "@/app/lib/dashboard-brand";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 
 const stepBannerClass = `rounded-[1.35rem] border p-5 ${dash.border} bg-[color:var(--dash-soft-muted)]`;
 
@@ -277,14 +278,9 @@ export default function AbsencesProcessorsPanel() {
       {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
       {message ? <p className="text-sm font-medium text-emerald-700">{message}</p> : null}
 
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() => void save()}
-        className="rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
-      >
+      <ModuleButton variant="primary" disabled={saving} onClick={() => void save()}>
         {saving ? "Enregistrement…" : "Enregistrer"}
-      </button>
+      </ModuleButton>
     </div>
   );
 }
