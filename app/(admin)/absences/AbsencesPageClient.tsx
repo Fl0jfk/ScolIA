@@ -43,6 +43,8 @@ import {
   isNonDiscretionaryAbsence,
   isNonDiscretionaryTreatment,
   isRattrapageTreatment,
+  isRhRetardAbsence,
+  isSansIncidenceTreatment,
   needsMakeupSlotsFromStaff,
   NON_DISCRETIONARY_ABSENCE_REASONS,
   nonDiscretionaryKindLabel,
@@ -529,6 +531,7 @@ export default function AbsencesPageClient({
             item.data.scope,
             item.data.etablissement,
             treatmentValue,
+            { isRetard: isRhRetardAbsence(asRecord(item)) },
           );
       if (!treatmentCheck.ok) {
         alert(treatmentCheck.error);
@@ -602,19 +605,25 @@ export default function AbsencesPageClient({
           "Relance envoyée. La personne peut indiquer ses créneaux de rattrapage dans « Se déclarer ».",
         );
       }
-      if (action === "VALIDER" && item && item.data.scope !== "ogec") {
+      if (action === "VALIDER" && item) {
         const treatment = resolvedHoursTreatment(item, managerHoursTreatment);
-        const emails = Array.isArray(payload?.validationRecipients)
-          ? (payload.validationRecipients as unknown[]).filter((e) => typeof e === "string")
-          : [];
-        if (isRattrapageTreatment(treatment)) {
+        if (isSansIncidenceTreatment(treatment)) {
           alert(
-            "Absence validée et affichée au calendrier. Rattrapage interne : pas d’envoi au secrétariat rectorat.",
+            "Retard validé et affiché au calendrier. Prise d’acte seule : aucune suite (ni rectorat, ni rattrapage).",
           );
-        } else if (emails.length === 0) {
-          alert(
-            "Absence validée et affichée au calendrier. Aucune personne n’est configurée pour le traitement rectorat (Absences → Paramétrage).",
-          );
+        } else if (item.data.scope !== "ogec") {
+          const emails = Array.isArray(payload?.validationRecipients)
+            ? (payload.validationRecipients as unknown[]).filter((e) => typeof e === "string")
+            : [];
+          if (isRattrapageTreatment(treatment)) {
+            alert(
+              "Absence validée et affichée au calendrier. Rattrapage interne : pas d’envoi au secrétariat rectorat.",
+            );
+          } else if (emails.length === 0) {
+            alert(
+              "Absence validée et affichée au calendrier. Aucune personne n’est configurée pour le traitement rectorat (Absences → Paramétrage).",
+            );
+          }
         }
       }
       await fetchItems();
@@ -1107,6 +1116,7 @@ export default function AbsencesPageClient({
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"
               >
                 <option value="">— Choisir un motif —</option>
+                <option value="Retard">Retard</option>
                 {NON_DISCRETIONARY_ABSENCE_REASONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -1114,6 +1124,12 @@ export default function AbsencesPageClient({
                 ))}
                 <option value="__other__">Autre motif (autorisation d&apos;absence)…</option>
               </select>
+              {reasonSelect === "Retard" ? (
+                <p className="text-xs text-slate-500 mt-2">
+                  Pour un retard, la direction pourra valider sans suite (ni déclaration rectorat /
+                  instance, ni rattrapage), ou exiger un traitement classique selon la durée.
+                </p>
+              ) : null}
               {reasonSelect === "__other__" ? (
                 <input
                   value={reasonOther}
@@ -1701,16 +1717,20 @@ export default function AbsencesPageClient({
                             className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white"
                           >
                             <option value="">— Choisir —</option>
-                            {getHoursTreatmentOptions(item.data.scope, item.data.etablissement).map((option) => (
+                            {getHoursTreatmentOptions(item.data.scope, item.data.etablissement, {
+                              isRetard: isRhRetardAbsence(asRecord(item)),
+                            }).map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>
                             ))}
                           </select>
                           <p className="text-xs text-slate-400 mt-1">
-                            {item.data.scope === "ogec"
-                              ? "Décision direction — heures rattrapées ou déduites du salaire."
-                              : "Décision direction — rattrapage en interne ou déclaration ONISE / rectorat."}
+                            {isRhRetardAbsence(asRecord(item))
+                              ? "Retard : vous pouvez prendre acte sans suite, demander un rattrapage, ou une déclaration administrative."
+                              : item.data.scope === "ogec"
+                                ? "Décision direction — heures rattrapées ou déduites du salaire."
+                                : "Décision direction — rattrapage en interne ou déclaration ONISE / rectorat."}
                           </p>
                         </div>
                         {(resolvedHoursTreatment(item, managerHoursTreatment) === "RATTRAPAGE_INTERNE" ||

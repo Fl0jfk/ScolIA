@@ -775,7 +775,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
         decision: { type: "string", enum: ["VALIDER", "REFUSER"] },
         hoursTreatment: {
           type: "string",
-          description: "RATTRAPAGE | DEDUCTION_SALAIRE | RATTRAPAGE_INTERNE | DECLARATION_RECTORAT | DECLARATION_ONISE…",
+          description: "RATTRAPAGE | DEDUCTION_SALAIRE | RATTRAPAGE_INTERNE | DECLARATION_RECTORAT | DECLARATION_ONISE | SANS_INCIDENCE (retards)…",
         },
         managerNote: { type: "string" },
       },

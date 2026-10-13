@@ -15,6 +15,8 @@ export type AccueilAbsenceCanal = "telephone" | "physique" | "mail";
 export type AccueilPeriodMode = "today" | "hours" | "multi_day";
 /** Nature élève à l’accueil : journée / créneau (absence) ou retard signalé. */
 export type AccueilEleveNature = "absence" | "retard";
+/** Nature staff (prof / OGEC) à l’accueil : absence ou retard (validation direction sans suite possible). */
+export type AccueilStaffNature = "absence" | "retard";
 export type AccueilVsSource = "appel" | "accueil" | "famille" | "charlemagne";
 
 export type AccueilSearchHit = {

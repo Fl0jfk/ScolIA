@@ -104,6 +104,7 @@ test("absencesToLeaveSpans filtre + mergeLeaveSpans déduplique", () => {
 test("paie : rattrapage skip ; maladie / déduction ok", () => {
   assert.equal(absenceShouldCreatePaieElement("RATTRAPAGE"), false);
   assert.equal(absenceShouldCreatePaieElement("RATTRAPAGE_INTERNE"), false);
+  assert.equal(absenceShouldCreatePaieElement("SANS_INCIDENCE"), false);
   assert.equal(absenceShouldCreatePaieElement("MALADIE"), true);
   assert.equal(absenceShouldCreatePaieElement("DEDUCTION_SALAIRE"), true);
   assert.equal(absenceShouldCreatePaieElement("DECLARATION_RECTORAT"), true);

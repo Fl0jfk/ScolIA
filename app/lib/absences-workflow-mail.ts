@@ -160,8 +160,13 @@ export async function notifyAbsenceValidated(
   record: AbsenceRecord,
 ): Promise<{ sent: boolean; recipients: string[]; skippedReason?: string }> {
   const scope = resolveAbsenceScope(record);
-  if (scope === "professeur" && !requiresProcessorAfterValidation(record)) {
-    return { sent: false, recipients: [], skippedReason: "rattrapage_interne" };
+  if (!requiresProcessorAfterValidation(record)) {
+    return {
+      sent: false,
+      recipients: [],
+      skippedReason:
+        record.hoursTreatment === "SANS_INCIDENCE" ? "sans_incidence" : "rattrapage_interne",
+    };
   }
 
   let recipients: string[] = [];
@@ -269,22 +274,29 @@ export async function notifyAbsenceCreatorValidated(record: AbsenceRecord): Prom
     : "";
   const needsProcessor = requiresProcessorAfterValidation(record);
   const followUp =
-    scope === "professeur" && isRattrapageTreatment(record.hoursTreatment)
+    record.hoursTreatment === "SANS_INCIDENCE"
       ? [
-          `Les heures seront rattrapées en interne : aucune déclaration au rectorat n’est requise de la part du secrétariat.`,
-          record.directionConfirmedMakeupSlots
-            ? `Moment de rattrapage retenu : ${record.directionConfirmedMakeupSlots}`
-            : `Si ce n’est pas déjà fait, indiquez dans l’application quand vous comptez rattraper vos heures.`,
+          `Aucune déclaration administrative ni rattrapage n’est demandé pour ce retard.`,
           ``,
           `Suivi dans l’application :`,
           link,
         ]
-      : needsProcessor
+      : scope === "professeur" && isRattrapageTreatment(record.hoursTreatment)
         ? [
-            `Le dossier est maintenant chez la personne qui assure le traitement administratif (rectorat / RH). Vous pouvez suivre l’avancement et déposer une pièce si elle vous est demandée :`,
+            `Les heures seront rattrapées en interne : aucune déclaration au rectorat n’est requise de la part du secrétariat.`,
+            record.directionConfirmedMakeupSlots
+              ? `Moment de rattrapage retenu : ${record.directionConfirmedMakeupSlots}`
+              : `Si ce n’est pas déjà fait, indiquez dans l’application quand vous comptez rattraper vos heures.`,
+            ``,
+            `Suivi dans l’application :`,
             link,
           ]
-        : [`Suivi dans l’application :`, link];
+        : needsProcessor
+          ? [
+              `Le dossier est maintenant chez la personne qui assure le traitement administratif (rectorat / RH). Vous pouvez suivre l’avancement et déposer une pièce si elle vous est demandée :`,
+              link,
+            ]
+          : [`Suivi dans l’application :`, link];
   await mail.transporter.sendMail({
     from: `"Absences" <${mail.smtp.user}>`,
     to: email,

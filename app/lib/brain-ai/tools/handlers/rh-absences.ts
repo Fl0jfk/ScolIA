@@ -10,6 +10,7 @@ import {
 import {
   getHoursTreatmentOptions,
   isNonDiscretionaryAbsence,
+  isRhRetardAbsence,
 } from "@/app/lib/absence-hours-treatment";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getAbsenceIndex, getAbsenceRecord, purgeExpiredAbsences } from "@/app/lib/absences-storage";
@@ -179,6 +180,7 @@ export async function handleDecideRhAbsence(
     const opts = getHoursTreatmentOptions(
       resolveAbsenceScope(target),
       target.data.etablissement,
+      { isRetard: isRhRetardAbsence(target) },
     );
     return choicesResult(
       "decide_rh_absence",

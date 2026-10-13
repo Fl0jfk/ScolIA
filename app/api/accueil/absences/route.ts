@@ -25,6 +25,8 @@ const DeclareSchema = z.object({
   motif: z.string().max(400).optional().nullable(),
   canal: z.enum(["telephone", "physique", "mail"]).optional(),
   eleveNature: z.enum(["absence", "retard"]).optional(),
+  /** Professeurs / personnel : absence ou retard. */
+  staffNature: z.enum(["absence", "retard"]).optional(),
   /** Professeurs : école / collège / lycée (libellé établissement). */
   etablissement: z.string().min(1).max(120).optional().nullable(),
   /** Élèves : passer outre le garde-fou `en_sortie`. */
@@ -61,14 +63,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Données invalides." }, { status: 400 });
   }
   const body = parsed.data;
+  const staffIsRetard = body.kind !== "eleve" && body.staffNature === "retard";
+  const eleveIsRetard = body.kind === "eleve" && body.eleveNature === "retard";
+  const effectiveMode =
+    staffIsRetard || eleveIsRetard ? ("hours" as const) : body.mode;
   const startDate = body.startDate;
-  const endDate = body.mode === "multi_day" ? body.endDate || body.startDate : body.startDate;
+  const endDate = effectiveMode === "multi_day" ? body.endDate || body.startDate : body.startDate;
 
   try {
     const created = await declareAccueilAbsence(etabId, {
       kind: body.kind,
       subjectId: body.subjectId,
-      mode: body.mode,
+      mode: effectiveMode,
       startDate,
       endDate,
       startTime: body.startTime,
@@ -76,6 +82,7 @@ export async function POST(req: Request) {
       motif: body.motif,
       canal: body.canal || "telephone",
       eleveNature: body.kind === "eleve" ? body.eleveNature || "absence" : undefined,
+      staffNature: body.kind === "eleve" ? undefined : staffIsRetard ? "retard" : "absence",
       etablissement: body.kind === "eleve" ? undefined : body.etablissement || undefined,
       force: body.force === true,
       actor: {
