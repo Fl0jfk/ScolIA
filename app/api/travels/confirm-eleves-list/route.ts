@@ -185,57 +185,66 @@ export async function POST(req: Request) {
       if (recipients.length === 0) {
         transportSkippedReason =
           "Aucun transporteur retenu avec e-mail — liste confirmée sans envoi. Sélectionnez un devis bus puis reconduirez la confirmation si besoin.";
+      } else if (!smtp || !transporter) {
+        // Ne bloque plus la confirmation : la liste reste le geste critique.
+        transportSkippedReason =
+          "SMTP non configuré — liste confirmée sans envoi au transporteur. Configurez la messagerie puis reconduirez la confirmation si besoin.";
       } else {
-        if (!smtp || !transporter) {
-          return NextResponse.json(
-            { error: "SMTP non configuré — impossible d'envoyer au transporteur." },
-            { status: 503 },
-          );
-        }
+        try {
+          const eleves = await loadElevesActifsRegistry().catch(() => [] as EleveConfig[]);
+          const elevesByKey = new Map<string, EleveConfig>();
+          for (const e of eleves) elevesByKey.set(eleveParticipantKey(e), e);
+          const csv = buildElevesListCsvForTransporter(participants, elevesByKey);
+          const destSlug = String(data.destination || data.title || "sortie").replace(/\s+/g, "_");
+          const replyTo = await buildTransportReplyTo();
+          const dates =
+            data.startDate && data.endDate
+              ? `Du ${data.startDate} au ${data.endDate}`
+              : data.date || data.startDate || "—";
 
-        const eleves = await loadElevesActifsRegistry().catch(() => [] as EleveConfig[]);
-        const elevesByKey = new Map<string, EleveConfig>();
-        for (const e of eleves) elevesByKey.set(eleveParticipantKey(e), e);
-        const csv = buildElevesListCsvForTransporter(participants, elevesByKey);
-        const destSlug = String(data.destination || data.title || "sortie").replace(/\s+/g, "_");
-        const replyTo = await buildTransportReplyTo();
-        const dates =
-          data.startDate && data.endDate
-            ? `Du ${data.startDate} au ${data.endDate}`
-            : data.date || data.startDate || "—";
-
-        for (const r of recipients) {
-          await transporter.sendMail({
-            from: `"Plateforme Voyages" <${smtp.user}>`,
-            to: r.email,
-            ...(replyTo ? { replyTo } : {}),
-            subject: `Liste des élèves — ${String(data.title || data.destination || tripId)}`,
-            text: [
-              `Bonjour ${r.name},`,
-              "",
-              `Veuillez trouver ci-joint la liste nominative des élèves pour la sortie :`,
-              `Titre : ${data.title || "—"}`,
-              `Destination : ${data.destination || "—"}`,
-              `Dates : ${dates}`,
-              `Effectif élèves : ${participants.length}`,
-              `Accompagnateurs : ${data.nbAccompagnateurs || "—"}`,
-              "",
-              "Le fichier CSV contient : Nom, Prénom, Classe, Email parent, Tél. parent.",
-              "",
-              "Cordialement,",
-              "Plateforme Voyages",
-            ].join("\n"),
-            attachments: [
+          for (const r of recipients) {
+            await sendMailWithTimeout(
+              transporter,
               {
-                filename: `Liste_eleves_${destSlug}.csv`,
-                content: Buffer.from(`\uFEFF${csv}`, "utf8"),
-                contentType: "text/csv; charset=utf-8",
+                from: `"Plateforme Voyages" <${smtp.user}>`,
+                to: r.email,
+                ...(replyTo ? { replyTo } : {}),
+                subject: `Liste des élèves — ${String(data.title || data.destination || tripId)}`,
+                text: [
+                  `Bonjour ${r.name},`,
+                  "",
+                  `Veuillez trouver ci-joint la liste nominative des élèves pour la sortie :`,
+                  `Titre : ${data.title || "—"}`,
+                  `Destination : ${data.destination || "—"}`,
+                  `Dates : ${dates}`,
+                  `Effectif élèves : ${participants.length}`,
+                  `Accompagnateurs : ${data.nbAccompagnateurs || "—"}`,
+                  "",
+                  "Le fichier CSV contient : Nom, Prénom, Classe, Email parent, Tél. parent.",
+                  "",
+                  "Cordialement,",
+                  "Plateforme Voyages",
+                ].join("\n"),
+                attachments: [
+                  {
+                    filename: `Liste_eleves_${destSlug}.csv`,
+                    content: Buffer.from(`\uFEFF${csv}`, "utf8"),
+                    contentType: "text/csv; charset=utf-8",
+                  },
+                ],
               },
-            ],
-          });
-          sentTo.push(r.email);
+              120_000,
+            );
+            sentTo.push(r.email);
+          }
+          data.listeEnvoyeeTransporteurAt = now;
+        } catch (mailErr) {
+          console.error("[confirm-eleves-list] transporteur mail", mailErr);
+          transportSkippedReason =
+            mailErr instanceof Error
+              ? `Envoi transporteur échoué (${mailErr.message}) — liste tout de même confirmée.`
+              : "Envoi transporteur échoué — liste tout de même confirmée.";
         }
-        data.listeEnvoyeeTransporteurAt = now;
       }
     }
 
@@ -297,52 +306,57 @@ export async function POST(req: Request) {
           parentsSkippedReason = "SMTP non configuré — calendrier parents non envoyé.";
         }
       } else if (parentsNotified === 0) {
-        const eleves = await loadElevesActifsRegistry().catch(() => [] as EleveConfig[]);
-        const byIne = new Map(eleves.map((e) => [e.ine, e]));
-        const emailSet = new Set<string>();
-        for (const p of participants) {
-          const full = byIne.get(p.ine);
-          if (!full) continue;
-          for (const mail of collectEleveParentEmails(full)) emailSet.add(mail);
-        }
-        const parentEmails = [...emailSet];
-        if (parentEmails.length === 0) {
-          parentsSkippedReason = "Aucun e-mail parent trouvé pour les élèves de la liste.";
-        } else {
-          const tripTitle = String(data.title || data.destination || "Sortie scolaire");
-          const ics = buildTravelsParentsTripIcs({
-            tripId,
-            tripTitle,
-            destination: data.destination ? String(data.destination) : undefined,
-            data,
-            calendar: parentCalendar,
-          });
-          icsAttached = true;
-          const mailCopy = buildParentsCalendarMailCopy({
-            tripTitle,
-            data,
-            calendar: parentCalendar,
-          });
+        try {
+          const eleves = await loadElevesActifsRegistry().catch(() => [] as EleveConfig[]);
+          const byKey = new Map<string, EleveConfig>();
+          for (const e of eleves) {
+            byKey.set(eleveParticipantKey(e), e);
+            const rawIne = String(e.ine || "").trim();
+            if (rawIne) byKey.set(rawIne, e);
+          }
+          const emailSet = new Set<string>();
+          for (const p of participants) {
+            const full = byKey.get(eleveParticipantKey(p)) || byKey.get(String(p.ine || "").trim());
+            if (!full) continue;
+            for (const mail of collectEleveParentEmails(full)) emailSet.add(mail);
+          }
+          const parentEmails = [...emailSet];
+          if (parentEmails.length === 0) {
+            parentsSkippedReason = "Aucun e-mail parent trouvé pour les élèves de la liste.";
+          } else {
+            const tripTitle = String(data.title || data.destination || "Sortie scolaire");
+            const ics = buildTravelsParentsTripIcs({
+              tripId,
+              tripTitle,
+              destination: data.destination ? String(data.destination) : undefined,
+              data,
+              calendar: parentCalendar,
+            });
+            const mailCopy = buildParentsCalendarMailCopy({
+              tripTitle,
+              data,
+              calendar: parentCalendar,
+            });
 
-          const subject = `Calendrier — ${tripTitle}`;
-          const text = [
-            "Bonjour,",
-            "",
-            mailCopy.intro,
-            "",
-            "Voici l’heure de départ et l’heure de reprise de votre enfant.",
-            "Un fichier calendrier (.ics) est joint : ouvrez-le pour ajouter ces créneaux à votre agenda",
-            "(séjour ou journée + dépôt + récupération).",
-            "",
-            mailCopy.pointsBlock,
-            "",
-            "Cordialement,",
-            "L'établissement",
-          ]
-            .filter(Boolean)
-            .join("\n");
+            const subject = `Calendrier — ${tripTitle}`;
+            const text = [
+              "Bonjour,",
+              "",
+              mailCopy.intro,
+              "",
+              "Voici l’heure de départ et l’heure de reprise de votre enfant.",
+              "Un fichier calendrier (.ics) est joint : ouvrez-le pour ajouter ces créneaux à votre agenda",
+              "(séjour ou journée + dépôt + récupération).",
+              "",
+              mailCopy.pointsBlock,
+              "",
+              "Cordialement,",
+              "L'établissement",
+            ]
+              .filter(Boolean)
+              .join("\n");
 
-          const html = `
+            const html = `
             <div style="font-family: sans-serif; line-height: 1.55; color: #334155; max-width: 560px;">
               <p>Bonjour,</p>
               <p>${escapeHtml(mailCopy.intro)}</p>
@@ -358,40 +372,50 @@ export async function POST(req: Request) {
             </div>
           `;
 
-          for (let i = 0; i < parentEmails.length; i += PARENT_BATCH) {
-            const batch = parentEmails.slice(i, i + PARENT_BATCH);
-            await sendMailWithTimeout(
-              transporter,
-              {
-                from: `"Sorties scolaires" <${smtp.user}>`,
-                bcc: batch,
-                subject,
-                text,
-                html,
-                attachments: [
-                  {
-                    filename: "calendrier-sortie.ics",
-                    content: Buffer.from(ics, "utf8"),
-                    contentType: "text/calendar; charset=utf-8",
-                  },
-                ],
-              },
-              120_000,
-            );
-          }
-          parentsNotified = parentEmails.length;
+            for (let i = 0; i < parentEmails.length; i += PARENT_BATCH) {
+              const batch = parentEmails.slice(i, i + PARENT_BATCH);
+              await sendMailWithTimeout(
+                transporter,
+                {
+                  from: `"Sorties scolaires" <${smtp.user}>`,
+                  bcc: batch,
+                  subject,
+                  text,
+                  html,
+                  attachments: [
+                    {
+                      filename: "calendrier-sortie.ics",
+                      content: Buffer.from(ics, "utf8"),
+                      contentType: "text/calendar; charset=utf-8",
+                    },
+                  ],
+                },
+                120_000,
+              );
+            }
+            icsAttached = true;
+            parentsNotified = parentEmails.length;
 
-          const log: TravelsParentComLog = {
-            id: `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-            sentAt: now,
-            sentBy: { userId: access.user.id, name: userName },
-            subject,
-            body: text,
-            photoCount: 0,
-            recipientCount: parentsNotified,
-            icsAttached: true,
-          };
-          data.parentComLogs = [...(data.parentComLogs || []), log];
+            const log: TravelsParentComLog = {
+              id: `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+              sentAt: now,
+              sentBy: { userId: access.user.id, name: userName },
+              subject,
+              body: text,
+              photoCount: 0,
+              recipientCount: parentsNotified,
+              icsAttached: true,
+            };
+            data.parentComLogs = [...(data.parentComLogs || []), log];
+          }
+        } catch (mailErr) {
+          console.error("[confirm-eleves-list] parents calendar mail", mailErr);
+          parentsSkippedReason =
+            mailErr instanceof Error
+              ? `Calendrier parents non envoyé (${mailErr.message}) — liste tout de même confirmée.`
+              : "Calendrier parents non envoyé — liste tout de même confirmée.";
+          icsAttached = false;
+          parentsNotified = 0;
         }
       }
     }
@@ -519,7 +543,15 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error("[confirm-eleves-list]", e);
-    return NextResponse.json({ error: "Confirmation impossible" }, { status: 500 });
+    const detail = e instanceof Error ? e.message.trim() : "";
+    return NextResponse.json(
+      {
+        error: detail
+          ? `Confirmation impossible : ${detail.slice(0, 240)}`
+          : "Confirmation impossible",
+      },
+      { status: 500 },
+    );
   }
 }
 
