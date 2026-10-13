@@ -55,6 +55,8 @@ export type AccueilDeclareInput = {
   canal?: AccueilAbsenceCanal;
   /** Élèves uniquement : absence (défaut) ou retard. */
   eleveNature?: AccueilEleveNature;
+  /** Professeurs / personnel : absence (défaut) ou retard. */
+  staffNature?: AccueilEleveNature;
   /**
    * Professeurs : libellé établissement (école / collège / lycée) pour router
    * la validation direction et le filtre du tableau des absents.
@@ -340,7 +342,15 @@ export async function declareAccueilAbsence(
     throw new Error(periodResult.error || "Période invalide.");
   }
   const period = periodResult.data;
-  const motif = input.motif?.trim() || "Absence déclarée à l’accueil";
+  const staffIsRetard =
+    input.kind !== "eleve" && input.staffNature === "retard";
+  const motif =
+    input.motif?.trim() ||
+    (staffIsRetard
+      ? "Retard"
+      : input.kind === "eleve" && input.eleveNature === "retard"
+        ? "Retard"
+        : "Absence déclarée à l’accueil");
 
   if (input.kind === "eleve") {
     const db = getDb();

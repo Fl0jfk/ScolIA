@@ -6,6 +6,7 @@ import {
   isNonDiscretionaryTreatment,
   isRattrapageTreatment,
   isRectoratDeclarationTreatment,
+  isSansIncidenceTreatment,
   needsMakeupSlotsFromStaff,
   nonDiscretionaryKindLabel,
   suggestHoursTreatmentFromPreference,
@@ -121,6 +122,9 @@ export function validationConfirmMessage(
     return `Valider cette absence (${kind}) ?\n\nTraitement des heures : déclaration administrative obligatoire (sans rattrapage). Pas de refus possible. Le calendrier est mis à jour. ${dest}`;
   }
   const base = "Valider cette absence ? La décision direction est définitive.";
+  if (isSansIncidenceTreatment(hoursTreatment)) {
+    return `${base}\n\nLe calendrier est mis à jour. Prise d’acte seule : aucune déclaration rectorat / instance, aucun rattrapage, aucune déduction. Le dossier est clôturé.`;
+  }
   if (item.data.scope === "ogec") {
     return `${base}\n\nLe calendrier est mis à jour. La RH traite ensuite le dossier dans l’application (pièces, clôture).`;
   }
@@ -141,6 +145,9 @@ export function transmissionLabel(item: AbsenceItem) {
         ? "Validée — traitement des heures (arrêt de travail / enfant malade / congé exceptionnel) en cours à la comptabilité / RH."
         : "Validée — traitement des heures (arrêt de travail / enfant malade / congé exceptionnel) en cours au secrétariat.";
     }
+    if (isSansIncidenceTreatment(item.hoursTreatment)) {
+      return "Validée — retard pris en compte sans suite.";
+    }
     if (item.data.scope === "ogec") {
       return "Validée par la direction — en traitement RH.";
     }
@@ -154,6 +161,9 @@ export function transmissionLabel(item: AbsenceItem) {
       return item.data.scope === "ogec"
         ? "Traitée par la RH (arrêt de travail / enfant malade / congé exceptionnel)."
         : "Traitée administrativement (arrêt de travail / enfant malade / congé exceptionnel).";
+    }
+    if (isSansIncidenceTreatment(item.hoursTreatment)) {
+      return "Validée — retard pris en compte sans suite (clôturée).";
     }
     return item.data.scope === "ogec"
       ? "Traitée par la RH."

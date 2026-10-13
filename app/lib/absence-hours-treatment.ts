@@ -3,6 +3,7 @@ import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 export type OgecHoursTreatment =
   | "RATTRAPAGE"
   | "DEDUCTION_SALAIRE"
+  | "SANS_INCIDENCE"
   | "MALADIE"
   | "ENFANT_MALADE"
   | "CONGE_EXCEPTIONNEL";
@@ -10,10 +11,17 @@ export type ProfHoursTreatment =
   | "RATTRAPAGE_INTERNE"
   | "DECLARATION_ONISE"
   | "DECLARATION_RECTORAT"
+  | "SANS_INCIDENCE"
   | "MALADIE"
   | "ENFANT_MALADE"
   | "CONGE_EXCEPTIONNEL";
 export type AbsenceHoursTreatment = OgecHoursTreatment | ProfHoursTreatment;
+
+/** Retard pris en compte sans suite (ni rectorat / instance, ni rattrapage, ni déduction). */
+export const SANS_INCIDENCE_OPTION = {
+  value: "SANS_INCIDENCE" as const,
+  label: "Prise d’acte seule (sans suite — ni déclaration, ni rattrapage)",
+};
 export type NonDiscretionaryAbsenceTreatment = "MALADIE" | "ENFANT_MALADE" | "CONGE_EXCEPTIONNEL";
 
 export type CongeExceptionnelSubmotifCode =
@@ -314,20 +322,40 @@ export function nonDiscretionaryKindLabel(
   return "arrêt de travail";
 }
 
-export function getHoursTreatmentOptions(scope: AbsenceScope, etablissement: Etablissement | null) {
+/**
+ * Un retard RH = motif qui mentionne « retard » (ex. « Retard », « Retard 10 min »).
+ * Réservé à cette nature : la direction peut alors valider sans suite.
+ */
+export function isRhRetardAbsence(record: {
+  data?: { reason?: string | null } | null;
+}): boolean {
+  const reason = String(record.data?.reason || "").trim();
+  if (!reason) return false;
+  return /\bretard\b/i.test(reason);
+}
+
+export function getHoursTreatmentOptions(
+  scope: AbsenceScope,
+  etablissement: Etablissement | null,
+  options?: { isRetard?: boolean },
+) {
+  const sansIncidence = options?.isRetard ? [SANS_INCIDENCE_OPTION] : [];
   if (scope === "ogec") {
     return [
+      ...sansIncidence,
       { value: "RATTRAPAGE" as const, label: "Heures à rattraper" },
       { value: "DEDUCTION_SALAIRE" as const, label: "Heures déduites du salaire" },
     ];
   }
   if (inferEstablishmentKind({ label: etablissement || "" }) === "ecole") {
     return [
+      ...sansIncidence,
       RATTRAPAGE_INTERNE_OPTION,
       { value: "DECLARATION_ONISE" as const, label: "À déclarer auprès de l'ONISE (instance)" },
     ];
   }
   return [
+    ...sansIncidence,
     RATTRAPAGE_INTERNE_OPTION,
     { value: "DECLARATION_RECTORAT" as const, label: "À déclarer auprès du rectorat (instance)" },
   ];
@@ -340,6 +368,7 @@ function parseAbsenceHoursTreatment(value: unknown): AbsenceHoursTreatment | nul
     value === "RATTRAPAGE_INTERNE" ||
     value === "DECLARATION_ONISE" ||
     value === "DECLARATION_RECTORAT" ||
+    value === "SANS_INCIDENCE" ||
     value === "MALADIE" ||
     value === "ENFANT_MALADE" ||
     value === "CONGE_EXCEPTIONNEL"
@@ -353,7 +382,7 @@ export function validateHoursTreatmentForAbsence(
   scope: AbsenceScope,
   etablissement: Etablissement | null,
   value: unknown,
-  options?: { allowNonDiscretionary?: boolean },
+  options?: { allowNonDiscretionary?: boolean; isRetard?: boolean },
 ): { ok: true; treatment: AbsenceHoursTreatment } | { ok: false; error: string } {
   const treatment = parseAbsenceHoursTreatment(value);
   if (!treatment) {
@@ -367,7 +396,15 @@ export function validateHoursTreatmentForAbsence(
         "Traitement arrêt de travail / enfant malade / congé exceptionnel réservé aux absences de ce type.",
     };
   }
-  const allowed = getHoursTreatmentOptions(scope, etablissement).map((o) => o.value as string);
+  if (treatment === "SANS_INCIDENCE" && !options?.isRetard) {
+    return {
+      ok: false,
+      error: "La prise d’acte sans suite est réservée aux retards.",
+    };
+  }
+  const allowed = getHoursTreatmentOptions(scope, etablissement, {
+    isRetard: options?.isRetard,
+  }).map((o) => o.value as string);
   if (!allowed.includes(treatment)) {
     return { ok: false, error: "Traitement de l'absence invalide pour ce type de déclaration." };
   }
@@ -380,12 +417,38 @@ export function formatAbsenceHoursTreatment(value?: AbsenceHoursTreatment | null
   if (value === "RATTRAPAGE_INTERNE") return "Heures rattrapées en interne (sans déclaration instance)";
   if (value === "DECLARATION_ONISE") return "À déclarer auprès de l'ONISE (instance)";
   if (value === "DECLARATION_RECTORAT") return "À déclarer auprès du rectorat (instance)";
+  if (value === "SANS_INCIDENCE") {
+    return "Prise d’acte seule (sans suite — ni déclaration, ni rattrapage)";
+  }
   if (value === "MALADIE") return "Arrêt de travail — heures à déclarer (sans rattrapage)";
   if (value === "ENFANT_MALADE") return "Enfant malade — heures à déclarer (sans rattrapage)";
   if (value === "CONGE_EXCEPTIONNEL") {
     return "Congé exceptionnel — heures à déclarer (sans rattrapage)";
   }
   return null;
+}
+
+export function isSansIncidenceTreatment(value?: string | null): boolean {
+  return value === "SANS_INCIDENCE";
+}
+
+/**
+ * Clôture admin immédiate après validation direction :
+ * rattrapage interne prof (rien à déclarer) ou prise d’acte sans suite (retard).
+ */
+export function autoClosesAfterDirectionValidation(
+  scope: AbsenceScope | string | null | undefined,
+  hoursTreatment?: string | null,
+): boolean {
+  if (isSansIncidenceTreatment(hoursTreatment)) return true;
+  return scope === "professeur" && isRattrapageTreatment(hoursTreatment);
+}
+
+export function autoCloseAdminNote(hoursTreatment?: string | null): string {
+  if (isSansIncidenceTreatment(hoursTreatment)) {
+    return "Clôture automatique — retard pris en compte sans suite (ni déclaration, ni rattrapage).";
+  }
+  return "Clôture automatique — rattrapage interne, sans déclaration rectorat.";
 }
 
 /** Ligne dédiée aux e-mails compta / secrétariat. */
@@ -407,6 +470,9 @@ export function formatHoursTreatmentMailLine(
     return scope === "ogec"
       ? "Traitement des heures : congé exceptionnel — à traiter en comptabilité (sans rattrapage)."
       : "Traitement des heures : congé exceptionnel — à traiter au secrétariat (sans rattrapage).";
+  }
+  if (treatment === "SANS_INCIDENCE") {
+    return "Décision de la direction : retard pris en compte sans suite (ni déclaration, ni rattrapage, ni déduction).";
   }
   if (scope === "ogec") {
     if (treatment === "RATTRAPAGE") return "Décision de la direction : les heures seront rattrapées.";
@@ -434,6 +500,9 @@ export function formatHoursTreatmentCreatorMailLine(
   }
   if (treatment === "CONGE_EXCEPTIONNEL") {
     return "Votre congé exceptionnel a été pris en compte par la direction. Le dossier est transmis pour traitement administratif.";
+  }
+  if (treatment === "SANS_INCIDENCE") {
+    return "Votre retard a été pris en compte par la direction, sans suite (ni déclaration, ni rattrapage).";
   }
   if (scope === "ogec") {
     if (treatment === "RATTRAPAGE") return "Les heures d'absence seront rattrapées.";
@@ -669,6 +738,7 @@ export function requiresProcessorAfterValidation(record: {
   data?: { scope?: string | null } | null;
   hoursTreatment?: string | null;
 }): boolean {
+  if (isSansIncidenceTreatment(record.hoursTreatment)) return false;
   const scope = record.data?.scope;
   if (scope === "ogec") return true;
   if (scope === "professeur") {
@@ -699,6 +769,9 @@ export function formatTransmissionSummary(
     return scope === "ogec"
       ? "Transmise à la comptabilité — congé exceptionnel."
       : "Transmise au secrétariat — congé exceptionnel.";
+  }
+  if (treatment === "SANS_INCIDENCE") {
+    return "Validée — retard pris en compte sans suite (ni déclaration, ni rattrapage).";
   }
   if (scope === "ogec") return "Transmise à la comptabilité.";
   if (treatment === "RATTRAPAGE_INTERNE") {

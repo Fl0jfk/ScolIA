@@ -2,12 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addOuvrableDays,
+  autoClosesAfterDirectionValidation,
   formatCongeExceptionnelReason,
   forcedHoursTreatmentForNonDiscretionaryAbsence,
+  getHoursTreatmentOptions,
   isNonDiscretionaryAbsence,
+  isRhRetardAbsence,
+  isSansIncidenceTreatment,
   needsMakeupSlotsFromStaff,
   requiresProcessorAfterValidation,
   suggestHoursTreatmentFromPreference,
+  validateHoursTreatmentForAbsence,
 } from "./absence-hours-treatment";
 
 test("préférence prof déclaration → préremplit rectorat (collège/lycée)", () => {
@@ -247,4 +252,37 @@ test("processeur : uniquement déclaration rectorat pour les profs (hors non dis
     }),
     true,
   );
+});
+
+test("retard RH : détection motif + option sans incidence", () => {
+  assert.equal(isRhRetardAbsence({ data: { reason: "Retard" } }), true);
+  assert.equal(isRhRetardAbsence({ data: { reason: "Retard 10 min" } }), true);
+  assert.equal(isRhRetardAbsence({ data: { reason: "RDV médical" } }), false);
+  assert.equal(
+    getHoursTreatmentOptions("professeur", "Lycée", { isRetard: true }).some(
+      (o) => o.value === "SANS_INCIDENCE",
+    ),
+    true,
+  );
+  assert.equal(
+    getHoursTreatmentOptions("professeur", "Lycée").some((o) => o.value === "SANS_INCIDENCE"),
+    false,
+  );
+  const ok = validateHoursTreatmentForAbsence("professeur", "Lycée", "SANS_INCIDENCE", {
+    isRetard: true,
+  });
+  assert.equal(ok.ok, true);
+  const refused = validateHoursTreatmentForAbsence("professeur", "Lycée", "SANS_INCIDENCE");
+  assert.equal(refused.ok, false);
+  assert.equal(isSansIncidenceTreatment("SANS_INCIDENCE"), true);
+  assert.equal(requiresProcessorAfterValidation({
+    data: { scope: "professeur" },
+    hoursTreatment: "SANS_INCIDENCE",
+  }), false);
+  assert.equal(requiresProcessorAfterValidation({
+    data: { scope: "ogec" },
+    hoursTreatment: "SANS_INCIDENCE",
+  }), false);
+  assert.equal(autoClosesAfterDirectionValidation("professeur", "SANS_INCIDENCE"), true);
+  assert.equal(autoClosesAfterDirectionValidation("ogec", "SANS_INCIDENCE"), true);
 });

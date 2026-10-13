@@ -10,11 +10,15 @@ import { getBucketName } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
 import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
 import {
+  autoCloseAdminNote,
+  autoClosesAfterDirectionValidation,
   forcedHoursTreatmentForNonDiscretionaryAbsence,
   hasMakeupSlotsInfo,
   isNonDiscretionaryAbsence,
   isNonDiscretionaryTreatment,
   isRattrapageTreatment,
+  isRhRetardAbsence,
+  isSansIncidenceTreatment,
   getCongeExceptionnelSubmotif,
   nonDiscretionaryTreatmentFromReason,
   reasonLabelForNonDiscretionaryTreatment,
@@ -604,17 +608,19 @@ export async function PATCH(req: Request) {
           current.data.scope,
           current.data.etablissement,
           body?.hoursTreatment,
+          { isRetard: isRhRetardAbsence(current) },
         );
         if (!treatmentResult.ok) {
           return NextResponse.json({ error: treatmentResult.error }, { status: 400 });
         }
         hoursTreatment = treatmentResult.treatment;
       }
-      const directionConfirmedMakeupSlots = isNonDiscretionaryTreatment(hoursTreatment)
-        ? null
-        : body?.directionConfirmedMakeupSlots
-          ? String(body.directionConfirmedMakeupSlots).trim() || null
-          : null;
+      const directionConfirmedMakeupSlots =
+        isNonDiscretionaryTreatment(hoursTreatment) || isSansIncidenceTreatment(hoursTreatment)
+          ? null
+          : body?.directionConfirmedMakeupSlots
+            ? String(body.directionConfirmedMakeupSlots).trim() || null
+            : null;
       const decidedAt = new Date().toISOString();
       const isMakeup =
         isRattrapageTreatment(hoursTreatment) &&
@@ -622,20 +628,20 @@ export async function PATCH(req: Request) {
           staffPreferredMakeupSlots: current.staffPreferredMakeupSlots,
           directionConfirmedMakeupSlots,
         });
-      // Professeurs en rattrapage : pas de file rectorat → clôture admin auto.
-      // Les créneaux manquants restent demandables au déclarant même après clôture.
-      const autoCloseProfRattrapage =
-        current.data.scope === "professeur" && isRattrapageTreatment(hoursTreatment);
+      // Rattrapage interne prof ou retard sans suite : pas de file rectorat/RH → clôture auto.
+      // Les créneaux manquants (rattrapage) restent demandables au déclarant même après clôture.
+      const autoClose = autoClosesAfterDirectionValidation(current.data.scope, hoursTreatment);
+      const closeNote = autoCloseAdminNote(hoursTreatment);
       updated = {
         ...updated,
         managerDecision: "VALIDEE",
-        workflowStatus: autoCloseProfRattrapage
+        workflowStatus: autoClose
           ? "CLOTUREE"
           : current.justification?.fileUrl
             ? "JUSTIFICATIF_DEPOSE"
             : "A_TRAITER",
         calendarVisible: true,
-        closedAt: autoCloseProfRattrapage ? decidedAt : null,
+        closedAt: autoClose ? decidedAt : null,
         hoursTreatment,
         // Aligne motif / préférence si prise d'acte maladie.
         ...(forcedMedical
@@ -652,11 +658,9 @@ export async function PATCH(req: Request) {
           : {}),
         directionConfirmedMakeupSlots,
         makeupSlotsRelanceAt: isMakeup ? decidedAt : null,
-        adminTreatedAt: autoCloseProfRattrapage ? decidedAt : null,
-        adminTreatedBy: autoCloseProfRattrapage ? actor : null,
-        adminNote: autoCloseProfRattrapage
-          ? "Clôture automatique — rattrapage interne, sans déclaration rectorat."
-          : current.adminNote ?? null,
+        adminTreatedAt: autoClose ? decidedAt : null,
+        adminTreatedBy: autoClose ? actor : null,
+        adminNote: autoClose ? closeNote : current.adminNote ?? null,
         history: [
           ...(current.history || []),
           {
@@ -667,15 +671,17 @@ export async function PATCH(req: Request) {
               managerNote ||
               (forcedMedical
                 ? `Prise d'acte direction — ${reasonLabelForNonDiscretionaryTreatment(forcedMedical).toLowerCase()}.`
-                : undefined),
+                : isSansIncidenceTreatment(hoursTreatment)
+                  ? "Prise d’acte direction — retard sans suite."
+                  : undefined),
           },
-          ...(autoCloseProfRattrapage
+          ...(autoClose
             ? [
                 {
                   at: decidedAt,
                   by: actor,
                   action: "TRAITEMENT_ADMIN",
-                  note: "Clôture automatique — rattrapage interne (pas de déclaration rectorat).",
+                  note: closeNote,
                 },
               ]
             : []),

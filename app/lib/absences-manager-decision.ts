@@ -6,12 +6,16 @@ import "server-only";
  */
 
 import {
+  autoCloseAdminNote,
+  autoClosesAfterDirectionValidation,
   forcedHoursTreatmentForNonDiscretionaryAbsence,
   formatAbsenceHoursTreatment,
   hasMakeupSlotsInfo,
   isNonDiscretionaryAbsence,
   isNonDiscretionaryTreatment,
   isRattrapageTreatment,
+  isRhRetardAbsence,
+  isSansIncidenceTreatment,
   reasonLabelForNonDiscretionaryTreatment,
   validateHoursTreatmentForAbsence,
   type AbsenceHoursTreatment,
@@ -70,6 +74,7 @@ export async function applyAbsenceManagerDecision(
         resolveAbsenceScope(current),
         current.data.etablissement,
         input.hoursTreatment,
+        { isRetard: isRhRetardAbsence(current) },
       );
       if (!treatmentResult.ok) {
         return { ok: false, error: treatmentResult.error };
@@ -77,11 +82,12 @@ export async function applyAbsenceManagerDecision(
       hoursTreatment = treatmentResult.treatment;
     }
 
-    const directionConfirmedMakeupSlots = isNonDiscretionaryTreatment(hoursTreatment)
-      ? null
-      : input.directionConfirmedMakeupSlots
-        ? String(input.directionConfirmedMakeupSlots).trim() || null
-        : null;
+    const directionConfirmedMakeupSlots =
+      isNonDiscretionaryTreatment(hoursTreatment) || isSansIncidenceTreatment(hoursTreatment)
+        ? null
+        : input.directionConfirmedMakeupSlots
+          ? String(input.directionConfirmedMakeupSlots).trim() || null
+          : null;
 
     const decidedAt = new Date().toISOString();
     const isMakeup =
@@ -90,21 +96,22 @@ export async function applyAbsenceManagerDecision(
         staffPreferredMakeupSlots: current.staffPreferredMakeupSlots,
         directionConfirmedMakeupSlots,
       });
-    const autoCloseProfRattrapage =
-      resolveAbsenceScope(current) === "professeur" && isRattrapageTreatment(hoursTreatment);
+    const scope = resolveAbsenceScope(current);
+    const autoClose = autoClosesAfterDirectionValidation(scope, hoursTreatment);
+    const closeNote = autoCloseAdminNote(hoursTreatment);
 
     updated = {
       ...current,
       managerNote,
       updatedAt: decidedAt,
       managerDecision: "VALIDEE",
-      workflowStatus: autoCloseProfRattrapage
+      workflowStatus: autoClose
         ? "CLOTUREE"
         : current.justification?.fileUrl
           ? "JUSTIFICATIF_DEPOSE"
           : "A_TRAITER",
       calendarVisible: true,
-      closedAt: autoCloseProfRattrapage ? decidedAt : null,
+      closedAt: autoClose ? decidedAt : null,
       hoursTreatment,
       ...(forcedMedical
         ? {
@@ -120,11 +127,9 @@ export async function applyAbsenceManagerDecision(
         : {}),
       directionConfirmedMakeupSlots,
       makeupSlotsRelanceAt: isMakeup ? decidedAt : null,
-      adminTreatedAt: autoCloseProfRattrapage ? decidedAt : null,
-      adminTreatedBy: autoCloseProfRattrapage ? actor : null,
-      adminNote: autoCloseProfRattrapage
-        ? "Clôture automatique — rattrapage interne, sans déclaration rectorat."
-        : current.adminNote ?? null,
+      adminTreatedAt: autoClose ? decidedAt : null,
+      adminTreatedBy: autoClose ? actor : null,
+      adminNote: autoClose ? closeNote : current.adminNote ?? null,
       history: [
         ...(current.history || []),
         {
@@ -135,15 +140,17 @@ export async function applyAbsenceManagerDecision(
             managerNote ||
             (forcedMedical
               ? `Prise d'acte direction — ${reasonLabelForNonDiscretionaryTreatment(forcedMedical).toLowerCase()}.`
-              : undefined),
+              : isSansIncidenceTreatment(hoursTreatment)
+                ? "Prise d’acte direction — retard sans suite."
+                : undefined),
         },
-        ...(autoCloseProfRattrapage
+        ...(autoClose
           ? [
               {
                 at: decidedAt,
                 by: actor,
                 action: "TRAITEMENT_ADMIN",
-                note: "Clôture automatique — rattrapage interne (pas de déclaration rectorat).",
+                note: closeNote,
               },
             ]
           : []),
