@@ -141,6 +141,8 @@ export default function StageClassRosterPanel({
   filingConventionId,
   canCreateOffline,
   onCreateOffline,
+  canCreatePlatform,
+  onCreatePlatform,
   refreshToken,
 }: {
   onOpenConvention: (conventionId: string) => void;
@@ -153,6 +155,13 @@ export default function StageClassRosterPanel({
   filingConventionId?: string | null;
   canCreateOffline?: boolean;
   onCreateOffline?: (preset: {
+    firstName: string;
+    lastName: string;
+    className: string;
+    ine?: string;
+  }) => void;
+  canCreatePlatform?: boolean;
+  onCreatePlatform?: (preset: {
     firstName: string;
     lastName: string;
     className: string;
@@ -684,6 +693,21 @@ export default function StageClassRosterPanel({
         {loading ? (
           <p className="pb-2 text-xs text-stone-400">Mise à jour…</p>
         ) : null}
+        {canCreatePlatform && onCreatePlatform ? (
+          <button
+            type="button"
+            onClick={() =>
+              onCreatePlatform({
+                firstName: "",
+                lastName: "",
+                className: selectedClass || roster.className || "",
+              })
+            }
+            className="rounded-lg bg-[#2F6B4A] px-3 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#275a3e]"
+          >
+            Créer un stage
+          </button>
+        ) : null}
       </div>
 
       {globalQuery.trim().length >= 2 ? (
@@ -933,22 +957,40 @@ export default function StageClassRosterPanel({
             <h3 className="text-sm font-bold text-[#1F3D2B]">
               {selectedStudent.prenom} {selectedStudent.nom}
             </h3>
-            {canCreateOffline && onCreateOffline ? (
-              <button
-                type="button"
-                onClick={() =>
-                  onCreateOffline({
-                    firstName: selectedStudent.prenom,
-                    lastName: selectedStudent.nom,
-                    className: roster.className || selectedClass,
-                    ine: selectedStudent.ine,
-                  })
-                }
-                className="text-xs font-semibold text-[#2F6B4A] underline"
-              >
-                + Stage hors plateforme
-              </button>
-            ) : null}
+            <div className="flex flex-wrap items-center gap-3">
+              {canCreatePlatform && onCreatePlatform ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onCreatePlatform({
+                      firstName: selectedStudent.prenom,
+                      lastName: selectedStudent.nom,
+                      className: roster.className || selectedClass,
+                      ine: selectedStudent.ine,
+                    })
+                  }
+                  className="text-xs font-semibold text-[#2F6B4A] underline"
+                >
+                  + Stage plateforme
+                </button>
+              ) : null}
+              {canCreateOffline && onCreateOffline ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onCreateOffline({
+                      firstName: selectedStudent.prenom,
+                      lastName: selectedStudent.nom,
+                      className: roster.className || selectedClass,
+                      ine: selectedStudent.ine,
+                    })
+                  }
+                  className="text-xs font-semibold text-stone-600 underline"
+                >
+                  + Hors plateforme
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {selectedStudent.conventions.length === 0 ? (

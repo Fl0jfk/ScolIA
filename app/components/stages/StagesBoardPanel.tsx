@@ -410,6 +410,7 @@ export default function StagesBoardPanel({
   onQuickReview,
   quickReviewBusyId,
   onCreateOffline,
+  onCreatePlatform,
   onBulkResendSignatures,
   bulkResendBusy,
 }: {
@@ -422,6 +423,7 @@ export default function StagesBoardPanel({
   onQuickReview?: (card: StagesHubBoardCard, approved: boolean) => void;
   quickReviewBusyId?: string | null;
   onCreateOffline?: () => void;
+  onCreatePlatform?: () => void;
   onBulkResendSignatures?: (filters: {
     secteur: SecteurFilter;
     className: string;
@@ -601,11 +603,20 @@ export default function StagesBoardPanel({
                 : `Relancer les signataires (${bulkTargetCount})`}
             </button>
           ) : null}
+          {permissions?.canReviewPreconvention && onCreatePlatform ? (
+            <button
+              type="button"
+              onClick={onCreatePlatform}
+              className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#275a3e]"
+            >
+              Créer un stage
+            </button>
+          ) : null}
           {permissions?.canReviewPreconvention && onCreateOffline ? (
             <button
               type="button"
               onClick={onCreateOffline}
-              className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#275a3e]"
+              className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-800 shadow-sm hover:bg-stone-50"
             >
               Stage hors plateforme
             </button>

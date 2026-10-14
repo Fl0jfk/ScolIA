@@ -14,6 +14,8 @@ export default function StagesClassePanel({
   filingConventionId,
   canCreateOffline,
   onCreateOffline,
+  canCreatePlatform,
+  onCreatePlatform,
   refreshToken,
 }: {
   onOpenConvention: (id: string) => void;
@@ -26,6 +28,13 @@ export default function StagesClassePanel({
   filingConventionId: string | null;
   canCreateOffline?: boolean;
   onCreateOffline?: (preset: {
+    firstName: string;
+    lastName: string;
+    className: string;
+    ine?: string;
+  }) => void;
+  canCreatePlatform?: boolean;
+  onCreatePlatform?: (preset: {
     firstName: string;
     lastName: string;
     className: string;
@@ -53,6 +62,8 @@ export default function StagesClassePanel({
         filingConventionId={filingConventionId}
         canCreateOffline={canCreateOffline}
         onCreateOffline={onCreateOffline}
+        canCreatePlatform={canCreatePlatform}
+        onCreatePlatform={onCreatePlatform}
         refreshToken={refreshToken}
       />
     </section>

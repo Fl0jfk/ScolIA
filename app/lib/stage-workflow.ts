@@ -2599,6 +2599,265 @@ export async function createAdminOfflineSignedConvention(params: {
   return { ok: true, convention };
 }
 
+/**
+ * Création administrative d'un stage « plateforme » : l'administratif saisit les
+ * renseignements (comme une préconvention famille), puis le circuit de signatures
+ * numériques est lancé immédiatement (PDF généré + e-mails), sans file admin_review.
+ */
+export async function createAdminPlatformConvention(params: {
+  by: string;
+  byName: string;
+  student: {
+    firstName: string;
+    lastName: string;
+    className: string;
+    level?: string;
+    dateNaissance?: string;
+    email?: string;
+    matchedEleveIne?: string;
+  };
+  parent1Email?: string;
+  parent2Email?: string;
+  company: {
+    name: string;
+    address: string;
+    postalCode: string;
+    city: string;
+    siret?: string;
+    activity?: string;
+    tutorName: string;
+    tutorEmail: string;
+    tutorPhone?: string;
+    rhExtraSigner?: boolean;
+    rhFirstName?: string;
+    rhLastName?: string;
+    rhEmail?: string;
+  };
+  schedule?: unknown;
+  periodStart?: string;
+  periodEnd?: string;
+  internshipKind?: StageInternshipKind;
+  stageLabel?: string;
+  note?: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const firstName = params.student.firstName.trim();
+  const lastName = params.student.lastName.trim();
+  const className = params.student.className.trim();
+  const companyName = params.company.name.trim();
+  const companyAddress = params.company.address.trim();
+  const postalCode = params.company.postalCode.replace(/\s/g, "").trim();
+  const city = params.company.city.trim();
+  const tutorName = params.company.tutorName.trim();
+  const tutorEmail = params.company.tutorEmail.trim().toLowerCase();
+
+  if (!firstName || !lastName) {
+    return { ok: false, error: "Nom et prénom de l'élève requis." };
+  }
+  if (!className) {
+    return { ok: false, error: "Classe de l'élève requise." };
+  }
+  if (!companyName || !companyAddress) {
+    return { ok: false, error: "Entreprise d'accueil incomplète (nom et adresse obligatoires)." };
+  }
+  if (!postalCode || !city) {
+    return { ok: false, error: "Indiquez le code postal et la ville de l'entreprise d'accueil." };
+  }
+  if (!/^\d{5}$/.test(postalCode)) {
+    return { ok: false, error: "Code postal invalide : 5 chiffres attendus." };
+  }
+  if (!tutorName || !tutorEmail) {
+    return { ok: false, error: "Tuteur en entreprise obligatoire (nom et e-mail)." };
+  }
+  if (!isValidEmail(tutorEmail)) {
+    return { ok: false, error: "E-mail du tuteur en entreprise invalide." };
+  }
+
+  let dateNaissance =
+    normalizeEleveDateNaissance(params.student.dateNaissance ?? "") || undefined;
+  let studentEmail = sanitizeElevePersonalEmail(params.student.email);
+  let parent1 = params.parent1Email?.trim().toLowerCase() || "";
+  let parent2 = params.parent2Email?.trim().toLowerCase() || "";
+  const matchedIne = params.student.matchedEleveIne?.trim().toUpperCase() || "";
+
+  if (matchedIne) {
+    try {
+      const eleve = await findEleveByIne(matchedIne);
+      if (eleve) {
+        if (!dateNaissance) {
+          dateNaissance = normalizeEleveDateNaissance(eleve.dateNaissance ?? "") || undefined;
+        }
+        if (!studentEmail) {
+          studentEmail = sanitizeElevePersonalEmail(eleve.email);
+        }
+        if (!parent1) {
+          parent1 =
+            String(eleve.parent1Email || eleve.parentEmail || "")
+              .trim()
+              .toLowerCase() || "";
+        }
+        if (!parent2) {
+          parent2 = String(eleve.parent2Email || "")
+            .trim()
+            .toLowerCase();
+        }
+      }
+    } catch {
+      /* registre optionnel */
+    }
+  }
+
+  if (!parent1 || !isValidEmail(parent1)) {
+    return {
+      ok: false,
+      error: "Indiquez au moins un e-mail de responsable légal pour la signature.",
+    };
+  }
+  if (parent2 && !isValidEmail(parent2)) {
+    return { ok: false, error: "E-mail du responsable légal 2 invalide." };
+  }
+
+  let schedule: StageSchedule;
+  if (params.schedule != null) {
+    schedule = normalizeStageSchedule(params.schedule);
+  } else {
+    const periodStart = String(params.periodStart || "").trim().slice(0, 10);
+    const periodEnd = String(params.periodEnd || "").trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+      return { ok: false, error: "Période de stage invalide (format AAAA-MM-JJ)." };
+    }
+    if (periodEnd < periodStart) {
+      return { ok: false, error: "La date de fin doit être postérieure au début." };
+    }
+    schedule = {
+      ...defaultStageSchedule("uniform_week"),
+      periodStart,
+      periodEnd,
+    };
+    if (dateNaissance) {
+      const age = ageInYearsAt(dateNaissance, periodStart);
+      if (age != null && age < 15) {
+        schedule = {
+          ...schedule,
+          presenceWeekdays: [...STAGE_DEFAULT_WEEKDAYS],
+          days: buildUniformWeekDays(
+            {
+              hasLunchBreak: true,
+              morningStart: "08:00",
+              morningEnd: "12:00",
+              afternoonStart: "13:00",
+              afternoonEnd: "15:00",
+            },
+            STAGE_DEFAULT_WEEKDAYS,
+          ),
+        };
+      }
+    }
+  }
+
+  const internshipKind: StageInternshipKind =
+    params.internshipKind === "pfmp" ||
+    params.internshipKind === "job_ete" ||
+    params.internshipKind === "autre"
+      ? params.internshipKind
+      : "stage_observation";
+
+  const siret = normalizeSiret(params.company.siret);
+  if (siret && siret.length !== 14) {
+    return { ok: false, error: "SIRET invalide : 14 chiffres attendus (ou laissez le champ vide)." };
+  }
+
+  const rhExtra = Boolean(params.company.rhExtraSigner);
+  const now = new Date().toISOString();
+  let convention: StageConvention = {
+    id: stageUid("conv"),
+    schoolYear: currentStageSchoolYear(),
+    status: "admin_review",
+    internshipKind,
+    stageLabel: params.stageLabel?.trim() || undefined,
+    student: {
+      firstName,
+      lastName,
+      className,
+      level: params.student.level?.trim() || inferStudentLevelFromClass(className),
+      dateNaissance,
+      email: studentEmail,
+      parent1Email: parent1,
+      parent2Email: parent2 || undefined,
+      parentEmail: parent1,
+    },
+    parentSignerEmail: parent1,
+    parent2SignerEmail: parent2 || undefined,
+    company: {
+      name: companyName,
+      address: companyAddress,
+      postalCode,
+      city,
+      siret: siret || undefined,
+      activity: params.company.activity?.trim() || "—",
+      tutorName,
+      tutorEmail,
+      tutorPhone: params.company.tutorPhone?.trim() || undefined,
+      rhExtraSigner: rhExtra || undefined,
+      rhFirstName: rhExtra ? params.company.rhFirstName?.trim() || undefined : undefined,
+      rhLastName: rhExtra ? params.company.rhLastName?.trim() || undefined : undefined,
+      rhEmail: rhExtra ? params.company.rhEmail?.trim().toLowerCase() || undefined : undefined,
+    },
+    schedule,
+    teacherReferent: { name: "", email: "" },
+    signatures: [],
+    createdAt: now,
+    updatedAt: now,
+    createdBy: {
+      role: "staff",
+      userId: params.by,
+      name: params.byName,
+    },
+    history: [
+      {
+        at: now,
+        by: params.byName,
+        action: "CREATION_ADMIN_PLATEFORME",
+        note:
+          params.note?.trim() ||
+          "Stage créé par l'administratif — lancement du circuit de signatures numériques.",
+      },
+    ],
+    ocrMeta: matchedIne
+      ? {
+          extractedAt: now,
+          matchedEleveIne: matchedIne,
+          matchScore: 100,
+          raw: { adminPlatformCreate: true },
+        }
+      : {
+          extractedAt: now,
+          matchScore: 0,
+          raw: { adminPlatformCreate: true },
+        },
+  };
+
+  await ensureClassRegisteredForStages(convention.student.className, convention.schoolYear);
+  convention = sanitizeConventionParents(await ensureConventionReferent(convention));
+  convention = await ensureStudentAccessToken(convention);
+
+  try {
+    const launched = await reviewPreconvention(convention, {
+      by: params.by,
+      byName: params.byName,
+      approved: true,
+      note:
+        params.note?.trim() ||
+        "Validation immédiate — création administrative plateforme.",
+    });
+    return { ok: true, convention: launched };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
 export async function resolveConventionByStudentToken(token: string) {
   const ref = await getStudentTokenRef(token);
   if (!ref) return null;
