@@ -14,6 +14,7 @@ import StagesBoardPanel, {
   resolveBoardQuickReviewKind,
 } from "@/app/components/stages/StagesBoardPanel";
 import StageOfflineCreateModal from "@/app/components/stages/StageOfflineCreateModal";
+import StagePlatformCreateModal from "@/app/components/stages/StagePlatformCreateModal";
 import StageSignaturesDrawer, {
   type StageSignaturePanelData,
 } from "@/app/components/stages/StageSignaturesDrawer";
@@ -109,6 +110,13 @@ function StagesContent() {
   const [adminEditing, setAdminEditing] = useState(false);
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   const [offlinePreset, setOfflinePreset] = useState<{
+    firstName: string;
+    lastName: string;
+    className: string;
+    ine?: string;
+  } | null>(null);
+  const [platformModalOpen, setPlatformModalOpen] = useState(false);
+  const [platformPreset, setPlatformPreset] = useState<{
     firstName: string;
     lastName: string;
     className: string;
@@ -1086,6 +1094,11 @@ function StagesContent() {
             setOfflinePreset(preset);
             setOfflineModalOpen(true);
           }}
+          canCreatePlatform={Boolean(permissions?.canReviewPreconvention)}
+          onCreatePlatform={(preset) => {
+            setPlatformPreset(preset);
+            setPlatformModalOpen(true);
+          }}
           detailSlot={
             detail && detail.convention.id === selectedId ? (
               <StageConventionDetail
@@ -1154,6 +1167,14 @@ function StagesContent() {
                 }
               : undefined
           }
+          onCreatePlatform={
+            permissions?.canReviewPreconvention
+              ? () => {
+                  setPlatformPreset(null);
+                  setPlatformModalOpen(true);
+                }
+              : undefined
+          }
           onBulkResendSignatures={
             permissions?.canReviewPreconvention
               ? (filters) => void bulkResendSignatures(filters)
@@ -1187,6 +1208,22 @@ function StagesContent() {
         }}
         onCreated={(conventionId) => {
           setMsg("Stage hors plateforme enregistré — convention signée (PDF papier).");
+          void load();
+          void loadDetail(conventionId);
+          setTab("classe");
+        }}
+      />
+
+      <StagePlatformCreateModal
+        open={platformModalOpen}
+        presetStudent={platformPreset}
+        onClose={() => {
+          setPlatformModalOpen(false);
+          setPlatformPreset(null);
+        }}
+        onCreated={(conventionId) => {
+          setMsg("Stage plateforme créé — signatures numériques envoyées.");
+          setClasseRefreshToken((n) => n + 1);
           void load();
           void loadDetail(conventionId);
           setTab("classe");
