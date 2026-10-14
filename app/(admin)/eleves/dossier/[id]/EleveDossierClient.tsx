@@ -391,6 +391,8 @@ export default function EleveDossierClient({
   } | null>(null);
   const [dobDraft, setDobDraft] = useState("");
   const [lieuDraft, setLieuDraft] = useState("");
+  const [nomDraft, setNomDraft] = useState("");
+  const [prenomDraft, setPrenomDraft] = useState("");
   const [regimeDraft, setRegimeDraft] = useState<"externe" | "demi_pension" | "interne">(
     "externe",
   );
@@ -536,6 +538,8 @@ export default function EleveDossierClient({
     if (!data?.eleve) return;
     setDobDraft(toDateInputValue(data.eleve.dateNaissance));
     setLieuDraft(data.eleve.lieuNaissance || "");
+    setNomDraft(data.eleve.nom || "");
+    setPrenomDraft(data.eleve.prenom || "");
     setClasseDraft((data.eleve.classe || "").trim());
     const r = data.synthese?.restauration.regime;
     if (r === "interne" || r === "demi_pension" || r === "externe") {
@@ -545,6 +549,8 @@ export default function EleveDossierClient({
     data?.eleve?.id,
     data?.eleve?.dateNaissance,
     data?.eleve?.lieuNaissance,
+    data?.eleve?.nom,
+    data?.eleve?.prenom,
     data?.eleve?.classe,
     data?.synthese?.restauration.regime,
   ]);
@@ -1080,6 +1086,57 @@ export default function EleveDossierClient({
                 <h2 className="mt-1 text-2xl font-black text-slate-900">
                   {e.prenom} {e.nom}
                 </h2>
+                {canEdit ? (
+                  <div className="mt-3 flex flex-wrap items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <label className="flex min-w-[8rem] flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-500">
+                      Prénom
+                      <input
+                        type="text"
+                        value={prenomDraft}
+                        disabled={busy}
+                        autoComplete="off"
+                        onChange={(ev) => setPrenomDraft(ev.target.value)}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                        aria-label="Prénom de l’élève"
+                      />
+                    </label>
+                    <label className="flex min-w-[8rem] flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-500">
+                      Nom
+                      <input
+                        type="text"
+                        value={nomDraft}
+                        disabled={busy}
+                        autoComplete="off"
+                        onChange={(ev) => setNomDraft(ev.target.value)}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                        aria-label="Nom de l’élève"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        !nomDraft.trim() ||
+                        !prenomDraft.trim() ||
+                        (nomDraft.trim() === e.nom.trim() &&
+                          prenomDraft.trim() === e.prenom.trim())
+                      }
+                      onClick={() =>
+                        void postAction({
+                          action: "update_identite",
+                          nom: nomDraft.trim(),
+                          prenom: prenomDraft.trim(),
+                        })
+                      }
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                    >
+                      Enregistrer le nom
+                    </button>
+                    <p className="basis-full text-[11px] text-slate-500">
+                      Corrige l’identité affichée partout (listes, absences, facturation…).
+                    </p>
+                  </div>
+                ) : null}
                 {e.classe ? (
                   <Link
                     href={classeListHref}
