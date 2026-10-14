@@ -14,7 +14,12 @@ import {
   foyerResponsable,
 } from "@/db/schema";
 import { getAppSession, requireAppUser } from "@/app/lib/intranet-session";
-import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow, ensureEleveFoyerFromParentContacts } from "@/app/lib/ent-core-db";
+import {
+  resolveCurrentEtablissementId,
+  syncEleveScolariteFromEleveRow,
+  ensureEleveFoyerFromParentContacts,
+  eleveSourceKey,
+} from "@/app/lib/ent-core-db";
 import {
   canDecideDocumentAccessGrant,
   canDeleteEleveAccompagnementDocument,
@@ -869,7 +874,9 @@ type DossierBody = {
   fileUrl?: string | null;
   mimeType?: string | null;
   source?: string;
-  /** Identité élève (date / lieu de naissance). */
+  /** Identité élève (nom / prénom / date / lieu de naissance). */
+  nom?: string;
+  prenom?: string;
   dateNaissance?: string | null;
   lieuNaissance?: string | null;
   /** Confirmation textuelle pour delete_eleve_permanent. */
@@ -1659,12 +1666,86 @@ export async function POST(req: Request, ctx: Ctx) {
     if (!canEditStructure(roles, { orgAdmin, platformAdmin })) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     }
-    const { normalizeEleveDateNaissance } = await import("@/app/lib/eleves-config");
+    const {
+      buildEleveFolderName,
+      normalizeEleveDateNaissance,
+    } = await import("@/app/lib/eleves-config");
+
+    const [current] = await db
+      .select({
+        id: eleve.id,
+        nom: eleve.nom,
+        prenom: eleve.prenom,
+        ine: eleve.ine,
+        sourceKey: eleve.sourceKey,
+        dateNaissance: eleve.dateNaissance,
+        lieuNaissance: eleve.lieuNaissance,
+      })
+      .from(eleve)
+      .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, id)))
+      .limit(1);
+    if (!current) {
+      return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+    }
+
     const patch: {
+      nom?: string;
+      prenom?: string;
+      folderName?: string;
+      sourceKey?: string;
       dateNaissance?: string | null;
       lieuNaissance?: string | null;
       updatedAt: Date;
     } = { updatedAt: new Date() };
+
+    const hasNom = "nom" in body;
+    const hasPrenom = "prenom" in body;
+    if (hasNom || hasPrenom) {
+      const nextNom = hasNom ? String(body.nom ?? "").trim() : current.nom.trim();
+      const nextPrenom = hasPrenom ? String(body.prenom ?? "").trim() : current.prenom.trim();
+      if (!nextNom || !nextPrenom) {
+        return NextResponse.json(
+          { error: "Nom et prénom sont obligatoires." },
+          { status: 400 },
+        );
+      }
+      if (nextNom.length > 120 || nextPrenom.length > 120) {
+        return NextResponse.json(
+          { error: "Nom ou prénom trop long (120 caractères max)." },
+          { status: 400 },
+        );
+      }
+      patch.nom = nextNom;
+      patch.prenom = nextPrenom;
+      patch.folderName = buildEleveFolderName(nextNom, nextPrenom);
+
+      // Clé d’upsert sans INE : garder sourceKey aligné sur l’identité affichée.
+      if (!current.ine?.trim() && current.sourceKey.startsWith("person:")) {
+        const nextSourceKey = eleveSourceKey({ nom: nextNom, prenom: nextPrenom });
+        if (nextSourceKey !== current.sourceKey) {
+          const [conflict] = await db
+            .select({ id: eleve.id })
+            .from(eleve)
+            .where(
+              and(
+                eq(eleve.etablissementId, etabId),
+                eq(eleve.sourceKey, nextSourceKey),
+              ),
+            )
+            .limit(1);
+          if (conflict && conflict.id !== id) {
+            return NextResponse.json(
+              {
+                error:
+                  "Un autre élève porte déjà cette identité (nom / prénom). Vérifiez les homonymes.",
+              },
+              { status: 409 },
+            );
+          }
+          patch.sourceKey = nextSourceKey;
+        }
+      }
+    }
 
     if ("dateNaissance" in body) {
       const raw = body.dateNaissance;
@@ -1687,7 +1768,12 @@ export async function POST(req: Request, ctx: Ctx) {
       patch.lieuNaissance = lieu || null;
     }
 
-    if (!("dateNaissance" in body) && !("lieuNaissance" in body)) {
+    if (
+      !hasNom &&
+      !hasPrenom &&
+      !("dateNaissance" in body) &&
+      !("lieuNaissance" in body)
+    ) {
       return NextResponse.json(
         { error: "Aucune donnée d’identité à mettre à jour." },
         { status: 400 },
@@ -1700,6 +1786,9 @@ export async function POST(req: Request, ctx: Ctx) {
       .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, id)))
       .returning({
         id: eleve.id,
+        nom: eleve.nom,
+        prenom: eleve.prenom,
+        folderName: eleve.folderName,
         dateNaissance: eleve.dateNaissance,
         lieuNaissance: eleve.lieuNaissance,
       });
@@ -1712,6 +1801,8 @@ export async function POST(req: Request, ctx: Ctx) {
       eleveId: id,
       action: "update_identite",
       metadata: {
+        nom: updated?.nom ?? null,
+        prenom: updated?.prenom ?? null,
         dateNaissance: updated?.dateNaissance ?? null,
         lieuNaissance: updated?.lieuNaissance ?? null,
       },
@@ -1720,6 +1811,8 @@ export async function POST(req: Request, ctx: Ctx) {
       success: true,
       eleve: {
         id,
+        nom: updated?.nom ?? null,
+        prenom: updated?.prenom ?? null,
         dateNaissance: updated?.dateNaissance ?? null,
         lieuNaissance: updated?.lieuNaissance ?? null,
       },
