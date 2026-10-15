@@ -5880,6 +5880,8 @@ impl PgEnt {
         annee_cible: &str,
         code: &str,
         titre: &str,
+        mime_type: Option<&str>,
+        contenu: Option<&[u8]>,
     ) -> Result<EleveDocument, EntDbError> {
         let lien = self
             .lien_parent_eleve(etablissement_id, parent_user_id, eleve_id)
@@ -5903,7 +5905,11 @@ impl PgEnt {
             .iter()
             .find(|e| e.code == code_norm)
             .ok_or(DomainError::ExigenceDocInvalide)?;
-        self.deposer_document(DeposerDocument {
+        let mime = mime_type
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("application/pdf");
+        let cmd = DeposerDocument {
             etablissement_id,
             eleve_id,
             tiroir: exigence.tiroir,
@@ -5913,15 +5919,23 @@ impl PgEnt {
                 titre.to_string()
             },
             code: Some(code_norm),
-            mime_type: Some("application/pdf".into()),
-            storage_key: Some(format!(
-                "reinscription/{etablissement_id}/{eleve_id}/{}.pdf",
-                exigence.code
-            )),
+            mime_type: Some(mime.into()),
+            storage_key: if contenu.is_some() {
+                None
+            } else {
+                Some(format!(
+                    "reinscription/{etablissement_id}/{eleve_id}/{}.pdf",
+                    exigence.code
+                ))
+            },
             confidentialite: DocConfidentialite::Standard,
             actor_user_id: parent_user_id,
-        })
-        .await
+        };
+        if contenu.is_some() {
+            self.deposer_document_with_contenu(cmd, contenu).await
+        } else {
+            self.deposer_document(cmd).await
+        }
     }
 
     /// Parent confirme la réinscription N+1 (statut → reinscription).

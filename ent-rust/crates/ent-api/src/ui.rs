@@ -234,6 +234,32 @@ function fileToBase64(file) {
   });
 }
 
+function textToBase64(text) {
+  return btoa(unescape(encodeURIComponent(text)));
+}
+
+/** Ouvre le sélecteur de fichier natif ; résout le File choisi ou null. */
+function pickLocalFile(accept) {
+  return new Promise((resolve) => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    if (accept) inp.accept = accept;
+    let settled = false;
+    const done = (f) => { if (!settled) { settled = true; resolve(f); } };
+    inp.onchange = () => done(inp.files && inp.files[0] ? inp.files[0] : null);
+    inp.addEventListener('cancel', () => done(null));
+    inp.click();
+    // Repli navigateurs sans événement cancel : focus fenêtre après fermeture du dialog.
+    window.setTimeout(() => {
+      const onFocus = () => {
+        window.removeEventListener('focus', onFocus);
+        window.setTimeout(() => done(inp.files && inp.files[0] ? inp.files[0] : null), 250);
+      };
+      window.addEventListener('focus', onFocus);
+    }, 300);
+  });
+}
+
 const DEMO_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADedQkTAAAAFUlEQVQYV2NkYGD4z0ABYBw1cNQAAKn0A/0lG9aXAAAAAElFTkSuQmCC';
 
 async function ensureMe() {
@@ -2034,6 +2060,15 @@ async function bindHome() {
 /* ---------- Portail famille ---------- */
 function viewFamilleHome() {
   return shell('/famille', `
+    <div id="famPushBanner" class="panel" style="display:none;margin-bottom:.75rem;border-left:3px solid var(--accent,#c45c26)">
+      <div class="row" style="align-items:center;justify-content:space-between;gap:.75rem">
+        <p style="margin:0">Activez les notifications push (lab) pour recevoir les alertes vie scolaire sur cet appareil.</p>
+        <div class="row" style="gap:.35rem">
+          <button type="button" class="primary" id="btnFamPushBannerGo">Activer</button>
+          <button type="button" id="btnFamPushBannerDismiss">Plus tard</button>
+        </div>
+      </div>
+    </div>
     <div class="bento" id="famPulse"></div>
     <div class="bento">
       <section class="panel bento-span-12">
@@ -2164,24 +2199,50 @@ async function bindFamilleHome() {
         ? `<ul style="margin:0;padding-left:1.1rem">${lines.join('')}</ul>`
         : '<p class="ok">Rien en attente.</p>';
     }
+    async function registerFamPush() {
+      const msg = document.getElementById('famPushMsg');
+      try {
+        const d = await api('/devices/push', {
+          method: 'POST',
+          body: JSON.stringify({
+            platform: (document.getElementById('famPushPlat') || {}).value || 'web',
+            token: ((document.getElementById('famPushToken') || {}).value || '').trim() || 'lab-famille-token',
+            app_id: 'ent-famille-lab',
+          }),
+        });
+        try { localStorage.setItem('ent_fam_push_ok', '1'); } catch {}
+        const banner = document.getElementById('famPushBanner');
+        if (banner) banner.style.display = 'none';
+        if (msg) msg.innerHTML = `<span class="ok">Device ${esc(d.platform)} · ${esc(String(d.id || '').slice(0, 8))}</span>`;
+        return d;
+      } catch (err) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+        throw err;
+      }
+    }
     const btnPush = document.getElementById('btnFamPush');
-    if (btnPush) {
-      btnPush.onclick = async () => {
-        const msg = document.getElementById('famPushMsg');
-        try {
-          const d = await api('/devices/push', {
-            method: 'POST',
-            body: JSON.stringify({
-              platform: document.getElementById('famPushPlat').value,
-              token: document.getElementById('famPushToken').value.trim() || 'lab-famille-token',
-              app_id: 'ent-famille-lab',
-            }),
-          });
-          if (msg) msg.innerHTML = `<span class="ok">Device ${esc(d.platform)} · ${esc(String(d.id || '').slice(0, 8))}</span>`;
-        } catch (err) {
-          if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
-        }
-      };
+    if (btnPush) btnPush.onclick = () => registerFamPush().catch(() => {});
+    const banner = document.getElementById('famPushBanner');
+    let pushDismissed = false;
+    try { pushDismissed = localStorage.getItem('ent_fam_push_ok') === '1' || localStorage.getItem('ent_fam_push_dismiss') === '1'; } catch {}
+    if (banner && !pushDismissed) {
+      banner.style.display = '';
+      const go = document.getElementById('btnFamPushBannerGo');
+      if (go) {
+        go.onclick = async () => {
+          try {
+            await registerFamPush();
+            document.getElementById('famPushToken')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } catch {}
+        };
+      }
+      const dismiss = document.getElementById('btnFamPushBannerDismiss');
+      if (dismiss) {
+        dismiss.onclick = () => {
+          try { localStorage.setItem('ent_fam_push_dismiss', '1'); } catch {}
+          banner.style.display = 'none';
+        };
+      }
     }
     const btnTel = document.getElementById('btnFamTel');
     if (btnTel && me && me.user_id) {
@@ -3760,6 +3821,10 @@ function renderDossier(d) {
         <a href="/app/notes">Saisie notes</a>
         <a href="/app/vs">Vie scolaire</a>
         <a href="/app/facturation">Facturation (foyer)</a>
+        <label class="muted" style="display:inline-flex;align-items:center;gap:.35rem;margin:0">
+          Photo <input id="photoFile" type="file" accept="image/png,image/jpeg,image/jpg" style="max-width:11rem"/>
+        </label>
+        <button type="button" class="primary" id="btnPhotoUpload">Déposer</button>
         <button type="button" id="btnPhotoDemo">Photo démo</button>
         <span id="photoMsg" class="muted"></span>
       </div>
@@ -4021,9 +4086,18 @@ function renderDossier(d) {
   if (s.continuum) {
     const cont = d.continuum || [];
     const optsC = d.options_continuum || [];
+    const role = (me && me.role) || '';
+    const canMontee = role === 'admin' || role === 'direction' || role === 'administratif';
     html += `<section class="panel dossier-section" id="dos-continuum">
       <h3>Années scolaires (continuité)</h3>
       <p class="dossier-help">N-1 / N / N+1 sur la fiche — pas de bascule « Fichier » Charlemagne. La montée rapide N+1 n’est pas un passage juridique.</p>`;
+    if (canMontee) {
+      html += `<div class="row" style="margin:.5rem 0">
+        <button type="button" class="primary" id="btnDosMontee">Montée rapide N+1</button>
+        <a href="/app/reinscription">Campagne réinscription</a>
+        <span id="dosMonteeMsg" class="muted"></span>
+      </div>`;
+    }
     html += cont.length
       ? `<table><thead><tr><th>Année</th><th>Classe</th><th>Niveau</th><th>MEF</th><th>Statut</th><th>Source</th><th>Passage</th><th>Redoublement</th></tr></thead>
          <tbody>${cont.map(c => `<tr>
@@ -4461,27 +4535,67 @@ async function bindDossier(id) {
         }
       } catch {}
     }
+    async function refreshDossierPhoto() {
+      if (!preview) return;
+      try {
+        const res = await fetch('/eleves/' + id + '/photo', { headers });
+        if (res.ok) {
+          const url = URL.createObjectURL(await res.blob());
+          preview.innerHTML = `<img src="${url}" alt="" style="width:72px;height:72px;object-fit:cover"/>`;
+        }
+      } catch {}
+    }
+    async function poseDossierPhoto(b64, mime, okLabel) {
+      const msg = document.getElementById('photoMsg');
+      try {
+        await api('/eleves/' + id + '/photo', {
+          method: 'POST',
+          body: JSON.stringify({
+            mime_type: mime || 'image/png',
+            contenu_base64: b64,
+          }),
+        });
+        if (msg) msg.innerHTML = `<span class="ok">${esc(okLabel || 'Photo posée')}</span>`;
+        await refreshDossierPhoto();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    }
+    const btnPhotoUp = document.getElementById('btnPhotoUpload');
+    if (btnPhotoUp) {
+      btnPhotoUp.onclick = async () => {
+        const msg = document.getElementById('photoMsg');
+        const file = (document.getElementById('photoFile') || {}).files
+          && document.getElementById('photoFile').files[0];
+        if (!file) { if (msg) msg.innerHTML = '<span class="bad">Choisir un fichier image</span>'; return; }
+        const b64 = await fileToBase64(file);
+        await poseDossierPhoto(b64, file.type || 'image/png', 'Photo déposée · ' + file.name);
+        if (document.getElementById('photoFile')) document.getElementById('photoFile').value = '';
+      };
+    }
     const btnPhoto = document.getElementById('btnPhotoDemo');
     if (btnPhoto) {
       btnPhoto.onclick = async () => {
-        const msg = document.getElementById('photoMsg');
+        await poseDossierPhoto(DEMO_PNG_B64, 'image/png', 'Photo démo posée');
+      };
+    }
+    const btnDosMontee = document.getElementById('btnDosMontee');
+    if (btnDosMontee) {
+      btnDosMontee.onclick = async () => {
+        const msg = document.getElementById('dosMonteeMsg');
+        if (!confirm('Créer une projection N+1 pour cet élève ? (pas un passage juridique)')) return;
         try {
-          // PNG 8×8 gris minimal (base64)
-          await api('/eleves/' + id + '/photo', {
+          const s = await api('/reinscription/montee', {
             method: 'POST',
-            body: JSON.stringify({
-              mime_type: 'image/png',
-              contenu_base64: DEMO_PNG_B64,
-            }),
+            body: JSON.stringify({ eleve_id: id }),
           });
-          msg.innerHTML = '<span class="ok">Photo posée</span>';
-          const res = await fetch('/eleves/' + id + '/photo', { headers });
-          if (res.ok && preview) {
-            const url = URL.createObjectURL(await res.blob());
-            preview.innerHTML = `<img src="${url}" alt="" style="width:72px;height:72px;object-fit:cover"/>`;
+          if (msg) {
+            msg.innerHTML = `<span class="ok">Projection ${esc(s.annee_scolaire)} · ${esc(s.niveau || '—')} (${esc(s.statut)})</span>`;
           }
+          await bindDossier(id);
         } catch (e) {
-          msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          else alert(e.message);
         }
       };
     }
@@ -6029,14 +6143,14 @@ async function bindEditionsVs() {
         method: 'POST',
         body: JSON.stringify({
           titre: 'Édition VS ' + code,
-          tiroir: 'vie_scolaire',
-          confidentialite: 'personnel',
+          tiroir: 'scolaire',
+          confidentialite: 'restreint',
           code,
           mime_type: 'text/plain',
-          storage_key: null,
+          contenu_base64: textToBase64(texte),
         }),
       });
-      post.innerHTML = `<span class="ok">Déposé — <a href="/app/eleves/${esc(eleve)}">dossier</a> · ${esc(d.titre || d.id)}</span>`;
+      post.innerHTML = `<span class="ok">Déposé — <a href="/app/eleves/${esc(eleve)}">dossier</a> · ${esc(d.titre || d.id)}${d.storage_key ? ' · contenu' : ''}</span>`;
     } catch (e) {
       post.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
@@ -7158,21 +7272,26 @@ async function bindInscriptions() {
         btn.onclick = async () => {
           const msg = document.getElementById('insDepotMsg') || document.getElementById('insMsg');
           const eid = btn.dataset.eid;
-          const titre = prompt('Titre de la pièce', 'Pièce inscription');
-          if (!titre) return;
+          const file = await pickLocalFile('.pdf,.png,.jpg,.jpeg,.txt,application/pdf,image/*');
+          if (!file) {
+            if (msg) msg.innerHTML = '<span class="muted">Dépôt annulé</span>';
+            return;
+          }
+          const titre = file.name || 'Pièce inscription';
           try {
+            const body = {
+              titre,
+              tiroir: 'administratif',
+              confidentialite: 'standard',
+              code: 'inscription',
+              mime_type: file.type || 'application/octet-stream',
+              contenu_base64: await fileToBase64(file),
+            };
             const d = await api('/eleves/' + encodeURIComponent(eid) + '/documents', {
               method: 'POST',
-              body: JSON.stringify({
-                titre: titre.trim(),
-                tiroir: 'administratif',
-                confidentialite: 'standard',
-                code: 'inscription',
-                mime_type: 'application/pdf',
-                storage_key: 'inscription/' + eid + '/' + Date.now() + '.pdf',
-              }),
+              body: JSON.stringify(body),
             });
-            if (msg) msg.innerHTML = `<span class="ok">Déposé — ${esc(d.titre)}</span>`;
+            if (msg) msg.innerHTML = `<span class="ok">Déposé — ${esc(d.titre)} · ${esc(file.name)}</span>`;
             await loadBoard();
           } catch (err) {
             if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -11364,7 +11483,7 @@ async function bindAlertesCpe() {
         return;
       }
       await hydrateEleveNames(shown.map(a => a.eleve_id));
-      out.innerHTML = `<table><thead><tr><th>Jour</th><th>Élève</th><th>Titre</th><th>Détail</th><th>Sév.</th><th>Fam.</th><th></th></tr></thead>
+      out.innerHTML = `<table><thead><tr><th>Jour</th><th>Élève</th><th>Titre</th><th>Détail</th><th>Sév.</th><th>Fam.</th><th>Clôture</th></tr></thead>
         <tbody>${shown.map(a => `<tr>
           <td>${esc(a.jour)}</td>
           <td>${eleveCell(a)}</td>
@@ -11372,11 +11491,15 @@ async function bindAlertesCpe() {
           <td class="muted">${esc(a.detail || '—')}</td>
           <td><span class="pill">${esc(a.severite)}</span></td>
           <td>${a.visible_famille ? 'oui' : 'non'}</td>
-          <td><button type="button" class="btnAlClore" data-id="${a.id}">Clôturer</button></td>
+          <td>
+            <input class="alCloreNote" data-id="${a.id}" value="Traité" size="12" placeholder="Note"/>
+            <button type="button" class="btnAlClore" data-id="${a.id}">Clôturer</button>
+          </td>
         </tr>`).join('')}</tbody></table>`;
       out.querySelectorAll('.btnAlClore').forEach(btn => {
         btn.onclick = async () => {
-          const note = prompt('Note de clôture', 'Traité') || 'Traité';
+          const inp = out.querySelector('.alCloreNote[data-id="' + btn.dataset.id + '"]');
+          const note = ((inp && inp.value) || 'Traité').trim() || 'Traité';
           try {
             await api('/vs/alertes-cpe/' + btn.dataset.id + '/clore', {
               method: 'POST',
@@ -12502,10 +12625,41 @@ async function bindNotes() {
     const p = document.getElementById('expPeriode').value.trim();
     downloadCsv('/exports/lsl?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsl.csv');
   };
-  document.getElementById('btnExpLsun').onclick = () => {
+  document.getElementById('btnExpLsun').onclick = async () => {
+    const msg = document.getElementById('expMsg');
     const c = document.getElementById('expClasse').value.trim();
     const p = document.getElementById('expPeriode').value.trim();
-    downloadCsv('/exports/lsun?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsun.csv');
+    if (!c || !p) {
+      if (msg) msg.innerHTML = '<span class="bad">LSUN : classe et période requis</span>';
+      return;
+    }
+    if (msg) msg.innerHTML = 'Préflight LSUN…';
+    try {
+      const token = localStorage.getItem('ent_token') || '';
+      const path = '/exports/lsun?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p);
+      const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+      if (!r.ok) throw new Error(await r.text() || r.statusText);
+      const text = await r.text();
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+      const nData = Math.max(0, lines.length - 1);
+      if (!nData) {
+        if (msg) msg.innerHTML = `<span class="warn">LSUN préflight : 0 ligne pour ${esc(c)} — export annulé</span>`;
+        return;
+      }
+      if (!confirm(`LSUN ${c} · ${nData} ligne(s). Télécharger le CSV ?`)) {
+        if (msg) msg.innerHTML = `<span class="muted">LSUN préflight OK (${nData}) — téléchargement annulé</span>`;
+        return;
+      }
+      const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'export-lsun.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      if (msg) msg.innerHTML = `<span class="ok">export-lsun.csv · ${nData} ligne(s)</span>`;
+    } catch (e) {
+      if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
   };
   document.getElementById('btnExpNotanet').onclick = () => {
     const c = document.getElementById('expClasse').value.trim();
@@ -12669,10 +12823,38 @@ async function bindExportsEn() {
     const p = document.getElementById('expEnPeriode').value.trim();
     downloadCsv('/exports/lsl?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsl.csv');
   };
-  document.getElementById('btnExpEnLsun').onclick = () => {
+  document.getElementById('btnExpEnLsun').onclick = async () => {
     const c = document.getElementById('expEnClasse').value.trim();
     const p = document.getElementById('expEnPeriode').value.trim();
-    downloadCsv('/exports/lsun?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsun.csv');
+    if (!c || !p) {
+      msg.innerHTML = '<span class="bad">LSUN : classe et période requis</span>';
+      return;
+    }
+    const n = await previewEffectif();
+    if (!n) {
+      msg.innerHTML = '<span class="bad">LSUN préflight : effectif vide — export annulé</span>';
+      return;
+    }
+    if (!confirm(`LSUN ${c} · ${n} élève(s) en effectif. Télécharger le CSV ?`)) {
+      msg.innerHTML = `<span class="muted">LSUN préflight OK (${n}) — téléchargement annulé</span>`;
+      return;
+    }
+    msg.textContent = 'Téléchargement…';
+    try {
+      const token = localStorage.getItem('ent_token') || '';
+      const path = '/exports/lsun?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p);
+      const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+      if (!r.ok) throw new Error(await r.text() || r.statusText);
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'export-lsun.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      msg.innerHTML = `<span class="ok">export-lsun.csv · ${n} élève(s)</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
   };
   document.getElementById('btnExpEnNotanet').onclick = () => {
     const c = document.getElementById('expEnClasse').value.trim();
@@ -12959,11 +13141,12 @@ async function bindReinscriptionFamille() {
             html += `<li>${esc(x.libelle)} <span class="pill">${esc(x.code)}</span>
               ${ok ? '<span class="ok">ok</span>' : '<span class="warn">manquant</span>'}
               ${!ok && d.campagne && d.campagne.ouverte
-                ? ` <button type="button" class="btnDepDoc" data-eleve="${esc(e.id)}" data-code="${esc(x.code)}" data-libelle="${esc(x.libelle)}">Déposer</button>`
+                ? ` <button type="button" class="btnDepDoc" data-eleve="${esc(e.id)}" data-code="${esc(x.code)}" data-libelle="${esc(x.libelle)}">Déposer fichier</button>`
                 : ''}
             </li>`;
           }
-          html += `</ul>`;
+          html += `</ul>
+            <div id="reinsDepMsg" class="muted" style="margin-top:.35rem"></div>`;
         }
         if (row.acompte_requis_centimes > 0) {
           html += `<p>Acompte : ${row.acompte_encaisse_centimes} / ${row.acompte_requis_centimes} c
@@ -12995,13 +13178,28 @@ async function bindReinscriptionFamille() {
       });
       out.querySelectorAll('.btnDepDoc').forEach(btn => {
         btn.onclick = async () => {
+          const msg = document.getElementById('reinsDepMsg');
+          const file = await pickLocalFile('.pdf,.png,.jpg,.jpeg,.txt,application/pdf,image/*');
+          if (!file) {
+            if (msg) msg.innerHTML = '<span class="muted">Dépôt annulé</span>';
+            return;
+          }
           try {
             await api('/reinscription/famille/' + btn.dataset.eleve + '/documents', {
               method: 'POST',
-              body: JSON.stringify({ code: btn.dataset.code, titre: btn.dataset.libelle }),
+              body: JSON.stringify({
+                code: btn.dataset.code,
+                titre: btn.dataset.libelle || file.name,
+                mime_type: file.type || 'application/octet-stream',
+                contenu_base64: await fileToBase64(file),
+              }),
             });
+            if (msg) msg.innerHTML = `<span class="ok">Déposé · ${esc(file.name)}</span>`;
             await load();
-          } catch (err) { alert(err.message); }
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+            else alert(err.message);
+          }
         };
       });
       out.querySelectorAll('.btnConfirmer').forEach(btn => {

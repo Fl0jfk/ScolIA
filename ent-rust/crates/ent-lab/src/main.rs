@@ -1251,6 +1251,8 @@ async fn explorer_continuum_montee(
             &np1,
             "ASSURANCE_RC",
             "Attestation assurance RC Harry",
+            None,
+            None,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -1267,6 +1269,8 @@ async fn explorer_continuum_montee(
             &np1,
             "ASSURANCE_RC",
             "Hack",
+            None,
+            None,
         )
         .await;
     if narcissadoc.is_ok() {

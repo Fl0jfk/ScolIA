@@ -7114,6 +7114,14 @@ async fn famille_deposer_doc_reinscription(
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
     let jour = today_utc();
     let (_, _, annee_n1) = annees_continuum(jour);
+    let contenu = if let Some(b64) = body.contenu_base64.as_ref() {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64.trim())
+            .map_err(|_| (StatusCode::BAD_REQUEST, "contenu_base64 invalide".into()))?;
+        Some(bytes)
+    } else {
+        None
+    };
     let doc = state
         .ent
         .deposer_doc_reinscription_for_parent(
@@ -7123,6 +7131,8 @@ async fn famille_deposer_doc_reinscription(
             &annee_n1,
             &body.code,
             body.titre.as_deref().unwrap_or(""),
+            body.mime_type.as_deref(),
+            contenu.as_deref(),
         )
         .await
         .map_err(map_db)?;
@@ -7133,6 +7143,7 @@ async fn famille_deposer_doc_reinscription(
             "code": doc.code,
             "titre": doc.titre,
             "tiroir": doc.tiroir.as_str(),
+            "storage_key": doc.storage_key,
         })),
     ))
 }

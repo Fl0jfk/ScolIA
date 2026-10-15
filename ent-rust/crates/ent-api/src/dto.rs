@@ -1472,6 +1472,11 @@ pub struct PoserExigenceDocBody {
 pub struct DeposerDocReinscriptionBody {
     pub code: String,
     pub titre: Option<String>,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    /// Contenu binaire (lab / dépôt famille) — écrit dans l’object store.
+    #[serde(default)]
+    pub contenu_base64: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
