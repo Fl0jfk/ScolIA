@@ -1,0 +1,19 @@
+[package]
+name = "ent-lab"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Runner labo — fait vivre le cast multi-personas et rapporte ce qui remonte"
+
+[[bin]]
+name = "ent-lab"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { workspace = true }
+domain-eleve = { path = "../domain-eleve" }
+ent-auth = { path = "../ent-auth" }
+ent-db = { path = "../ent-db" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+uuid = { workspace = true }

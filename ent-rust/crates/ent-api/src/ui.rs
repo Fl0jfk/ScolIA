@@ -1,0 +1,16721 @@
+//! Face web labo — pages HTML (pas de dump JSON). Les données viennent de Postgres via l’API.
+
+use axum::response::Html;
+
+pub fn app_html() -> Html<&'static str> {
+    Html(APP)
+}
+
+const APP: &str = r##"<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ENT — labo</title>
+<link rel="stylesheet" href="/static/css/app.css"/>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const STORE = {
+  get token() { return localStorage.getItem('ent_token') || ''; },
+  set token(v) { v ? localStorage.setItem('ent_token', v) : localStorage.removeItem('ent_token'); },
+  get etab() { return localStorage.getItem('ent_etab') || ''; },
+  set etab(v) { v ? localStorage.setItem('ent_etab', v) : localStorage.removeItem('ent_etab'); },
+  get cast() {
+    try { return JSON.parse(localStorage.getItem('ent_cast') || 'null'); } catch { return null; }
+  },
+  set cast(v) { v ? localStorage.setItem('ent_cast', JSON.stringify(v)) : localStorage.removeItem('ent_cast'); },
+};
+
+let me = null;
+let routeState = {};
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function path() {
+  const p = location.pathname.replace(/\/$/, '') || '/';
+  return p;
+}
+
+function queryParams() {
+  return new URLSearchParams(location.search || '');
+}
+
+/** Seed routeState depuis ?eleve=&com=&fil=&etape=&dos= puis nettoie la query (one-shot). */
+function seedRouteFromQuery() {
+  const qp = queryParams();
+  let dirty = false;
+  if (qp.get('eleve')) { routeState.absEleveId = qp.get('eleve'); qp.delete('eleve'); dirty = true; }
+  if (qp.get('com')) { routeState.comId = qp.get('com'); qp.delete('com'); dirty = true; }
+  if (qp.get('dos')) { routeState.comDosId = qp.get('dos'); qp.delete('dos'); dirty = true; }
+  if (qp.get('fil')) { routeState.pendingFilId = qp.get('fil'); qp.delete('fil'); dirty = true; }
+  if (qp.get('etape')) { routeState.insEtape = qp.get('etape'); qp.delete('etape'); dirty = true; }
+  if (qp.get('fac')) { routeState.openFacId = qp.get('fac'); qp.delete('fac'); dirty = true; }
+  if (qp.get('section')) { routeState.famSection = qp.get('section'); qp.delete('section'); dirty = true; }
+  if (dirty) {
+    const q = qp.toString();
+    history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + (location.hash || ''));
+  }
+}
+
+function go(to) {
+  history.pushState(null, '', to);
+  render();
+}
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (opts.body && !headers['content-type']) headers['content-type'] = 'application/json';
+  if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 204) return null;
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+  if (!res.ok) {
+    const msg = (data && (data.error || data.message)) || text || ('HTTP ' + res.status);
+    const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+/** Recherche élèves → options <select> (un ou plusieurs ids synchronisés). */
+function elevePickerRow(selectId, queryId, btnId) {
+  return `<label>Recherche <input id="${queryId}" placeholder="nom…" style="width:7rem"/></label>
+        <button type="button" id="${btnId}">Chercher</button>
+        <label>Élève <select id="${selectId}" style="min-width:12rem"></select></label>`;
+}
+
+async function bindElevePickers(selectIds, queryId, btnId) {
+  const ids = Array.isArray(selectIds) ? selectIds : [selectIds];
+  async function fill(q) {
+    const eleves = await api('/eleves/search?q=' + encodeURIComponent((q || 'a').trim() || 'a'));
+    const opts = (eleves || []).map(e =>
+      `<option value="${esc(e.id)}" data-foyer="${esc(e.foyer_id || '')}">${esc(e.prenom)} ${esc(e.nom)} (${esc(e.classe || '')})</option>`
+    ).join('') || '<option value="">—</option>';
+    ids.forEach(id => {
+      const sel = document.getElementById(id);
+      if (sel) sel.innerHTML = opts;
+    });
+  }
+  const btn = document.getElementById(btnId);
+  if (btn) {
+    btn.onclick = async () => {
+      try {
+        const qEl = document.getElementById(queryId);
+        await fill(qEl ? qEl.value : 'a');
+      } catch (e) { alert(e.message); }
+    };
+  }
+  try { await fill('a'); } catch (_) { /* hors droits */ }
+}
+
+/** Recherche personnel staff → options <select>. emptyOption = libellé pour valeur vide. */
+function staffPickerRow(selectId, queryId, btnId, selectLabel) {
+  return `<label>Recherche <input id="${queryId}" placeholder="e-mail / rôle…" style="width:8rem"/></label>
+        <button type="button" id="${btnId}">Chercher</button>
+        <label>${selectLabel || 'Personnel'} <select id="${selectId}" style="min-width:12rem"></select></label>`;
+}
+
+async function bindStaffPickers(selectIds, queryId, btnId, emptyOption) {
+  const ids = Array.isArray(selectIds) ? selectIds : [selectIds];
+  const empty = emptyOption == null ? '— (moi si vide)' : emptyOption;
+  async function fill(q) {
+    const list = await api('/personnel/search?q=' + encodeURIComponent((q || '').trim()));
+    const opts = `<option value="">${esc(empty)}</option>` + (list || []).map(p =>
+      `<option value="${esc(p.user_id)}">${esc(p.label || p.email)} (${esc(p.role)})</option>`
+    ).join('');
+    ids.forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const prev = sel.value;
+      const emptyLabel = id === 'affProf' ? '— inchangé' : empty;
+      sel.innerHTML = `<option value="">${esc(emptyLabel)}</option>` + (list || []).map(p =>
+        `<option value="${esc(p.user_id)}">${esc(p.label || p.email)} (${esc(p.role)})</option>`
+      ).join('');
+      if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+    });
+    return list || [];
+  }
+  const btn = document.getElementById(btnId);
+  if (btn) {
+    btn.onclick = async () => {
+      try {
+        const qEl = document.getElementById(queryId);
+        await fill(qEl ? qEl.value : '');
+      } catch (e) { alert(e.message); }
+    };
+  }
+  try { return await fill(''); } catch (_) { return []; }
+}
+
+/** Cache noms élèves pour listes jour (évite UUID tronqués). */
+const ELEVE_NAME_CACHE = {};
+function seedEleveLabel(id, label) {
+  if (id && label) ELEVE_NAME_CACHE[id] = label;
+}
+async function eleveNameOf(id) {
+  if (!id) return '—';
+  if (ELEVE_NAME_CACHE[id]) return ELEVE_NAME_CACHE[id];
+  try {
+    const e = await api('/eleves/' + id);
+    ELEVE_NAME_CACHE[id] = ((e.prenom || '') + ' ' + (e.nom || '')).trim() || id.slice(0, 8);
+  } catch {
+    ELEVE_NAME_CACHE[id] = id.slice(0, 8);
+  }
+  return ELEVE_NAME_CACHE[id];
+}
+async function hydrateEleveNames(ids) {
+  const uniq = [...new Set((ids || []).filter(Boolean))].filter(id => !ELEVE_NAME_CACHE[id]);
+  if (!uniq.length) return;
+  try {
+    const rows = await api('/eleves/labels?ids=' + uniq.map(encodeURIComponent).join(','));
+    (rows || []).forEach(r => { if (r.id && r.label) ELEVE_NAME_CACHE[r.id] = r.label; });
+  } catch (_) {
+    await Promise.all(uniq.map(id => eleveNameOf(id)));
+  }
+}
+function eleveCell(row) {
+  const id = row && row.eleve_id;
+  const lab = (row && row.eleve_label) || ELEVE_NAME_CACHE[id] || (id ? id.slice(0, 8) : '—');
+  if (row && row.eleve_label) seedEleveLabel(id, row.eleve_label);
+  if (id && !isParent() && !isEleve()) {
+    return `<a href="/app/eleves/${esc(id)}">${esc(lab)}</a>`;
+  }
+  return esc(lab);
+}
+
+async function downloadFile(path, fallbackName) {
+  const headers = {};
+  if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
+  const res = await fetch(path, { headers });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || ('HTTP ' + res.status));
+  }
+  const blob = await res.blob();
+  let name = fallbackName || 'document.bin';
+  const cd = res.headers.get('content-disposition') || '';
+  const m = /filename=\"([^\"]+)\"/.exec(cd);
+  if (m) name = m[1];
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadPdf(path, fallbackName) {
+  return downloadFile(path, fallbackName || 'document.pdf');
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result || '');
+      const i = s.indexOf(',');
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = () => reject(new Error('lecture fichier'));
+    r.readAsDataURL(file);
+  });
+}
+
+const DEMO_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADedQkTAAAAFUlEQVQYV2NkYGD4z0ABYBw1cNQAAKn0A/0lG9aXAAAAAElFTkSuQmCC';
+
+async function ensureMe() {
+  if (!STORE.token) { me = null; return null; }
+  try {
+    me = await api('/auth/me');
+    return me;
+  } catch {
+    STORE.token = '';
+    me = null;
+    return null;
+  }
+}
+
+function isParent() {
+  return me && me.role === 'parent';
+}
+function isEleve() {
+  return me && me.role === 'eleve';
+}
+function isStaff() {
+  return me && !isParent() && !isEleve();
+}
+
+function homeForRole() {
+  if (isParent()) return '/famille';
+  if (isEleve()) return '/eleve';
+  return '/app';
+}
+
+function linkActive(active, href) {
+  return active === href
+    || (href !== '/app' && href !== '/famille' && href !== '/eleve' && active.startsWith(href + '/'))
+    || (href === '/famille' && (active === '/famille' || active === '/famille/'))
+    || (href === '/eleve' && (active === '/eleve' || active === '/eleve/'));
+}
+
+function navLink(active, href, label) {
+  return `<a href="${href}" class="side-link${linkActive(active, href) ? ' active' : ''}">${label}</a>`;
+}
+
+function navGroup(active, label, items) {
+  const on = items.some(([href]) => linkActive(active, href));
+  return `<details class="side-group${on ? ' on' : ''}" ${on ? 'open' : ''}>
+    <summary>${esc(label)}</summary>
+    <div class="side-sub">${items.map(([href, lab]) => navLink(active, href, lab)).join('')}</div>
+  </details>`;
+}
+
+function navHtml(active) {
+  if (isParent()) {
+    return [
+      ['/famille', 'Mes enfants'],
+      ['/famille/vie-scolaire', 'Vie scolaire'],
+      ['/famille/sante', 'Santé'],
+      ['/famille/journal', 'Journal'],
+      ['/famille/internat', 'Internat'],
+      ['/famille/accompagnement', 'Accompagnement'],
+      ['/famille/cahier', 'Cahier'],
+      ['/famille/messages', 'Messages'],
+      ['/famille/factures', 'Factures'],
+      ['/famille/quittances', 'Quittances'],
+      ['/famille/repas', 'Repas'],
+      ['/famille/sorties', 'Sorties'],
+      ['/famille/orientation', 'Orientation'],
+      ['/famille/reinscription', 'Réinscription'],
+    ].map(([h, l]) => navLink(active, h, l)).join('');
+  }
+  if (isEleve()) {
+    return [
+      ['/eleve', 'Accueil'],
+      ['/eleve/cahier', 'Cahier'],
+      ['/eleve/messages', 'Messages'],
+      ['/eleve/notes', 'Notes'],
+      ['/eleve/edt', 'EDT'],
+      ['/eleve/absences', 'Absences'],
+      ['/eleve/vie-scolaire', 'Vie scolaire'],
+      ['/eleve/sorties', 'Sorties'],
+      ['/eleve/docs', 'Docs à signer'],
+      ['/eleve/documents', 'Mes documents'],
+      ['/eleve/sante', 'Santé'],
+      ['/eleve/repas', 'Repas'],
+      ['/eleve/internat', 'Internat'],
+      ['/eleve/stages', 'Stages'],
+      ['/eleve/orientation', 'Orientation'],
+      ['/eleve/journal', 'Journal'],
+    ].map(([h, l]) => navLink(active, h, l)).join('');
+  }
+  // Staff — groupes métier filtrés par rôle (RBAC API reste la vérité).
+  const role = (me && me.role) || '';
+  const isAdminish = ['admin', 'direction', 'administratif'].includes(role);
+  const isVs = isAdminish || ['cpe'].includes(role);
+  const isProf = role === 'prof';
+  const isCompta = role === 'compta' || isAdminish;
+  const isSante = isAdminish || ['infirmerie', 'psy', 'cpe'].includes(role);
+  const isPedago = isAdminish || isProf || role === 'cpe';
+  const parts = [navLink(active, '/app', 'Accueil')];
+  if (isAdminish) {
+    parts.push(navGroup(active, 'Administration', [
+      ['/app/eleves', 'Élèves'],
+      ['/app/foyers', 'Foyers / familles'],
+      ['/app/adultes', 'Adultes'],
+      ['/app/etab', 'Établissement'],
+      ['/app/rh', 'RH'],
+      ['/app/comms', 'Mails / SMS'],
+    ]));
+  } else if (isProf || role === 'cpe') {
+    parts.push(navGroup(active, 'Moi', [
+      ['/app/rh', 'RH'],
+      ['/app/mon-edt', 'Mon EDT'],
+    ]));
+  } else if (role === 'compta') {
+    parts.push(navGroup(active, 'Administration', [
+      ['/app/eleves', 'Élèves'],
+      ['/app/foyers', 'Foyers / familles'],
+      ['/app/rh', 'RH'],
+    ]));
+  } else {
+    parts.push(navGroup(active, 'Moi', [
+      ['/app/rh', 'RH'],
+    ]));
+  }
+  if (isVs || isProf) {
+    const vsItems = [
+      ['/app/vs', 'Aujourd’hui'],
+      ['/app/appel', 'Appel'],
+      ['/app/mon-edt', 'Mon EDT'],
+    ];
+    if (isVs || isProf) {
+      vsItems.push(['/app/absences', 'Absences & commissions']);
+      vsItems.push(['/app/cahier', 'Cahier de texte']);
+    }
+    if (isVs) {
+      vsItems.push(
+        ['/app/sorties', 'Sorties'],
+        ['/app/dispenses', 'Dispenses'],
+        ['/app/alertes', 'Alertes CPE'],
+        ['/app/editions', 'Éditions VS'],
+      );
+    }
+    parts.push(navGroup(active, 'Vie scolaire', vsItems));
+  }
+  if (isPedago) {
+    const ped = [
+      ['/app/notes', 'Notes'],
+      ['/app/cahier', 'Cahier de texte'],
+    ];
+    if (isAdminish || role === 'cpe') {
+      ped.push(['/app/edt', 'Emploi du temps'], ['/app/conseils', 'Conseils de classe']);
+    }
+    if (isAdminish) {
+      ped.push(['/app/exports', 'Exports EN'], ['/app/stages', 'Stages']);
+    } else if (isProf) {
+      ped.push(['/app/stages', 'Stages']);
+    }
+    parts.push(navGroup(active, 'Pédagogie', ped));
+  }
+  {
+    const fam = [['/app/messages', 'Messages']];
+    if (isCompta) {
+      fam.push(['/app/facturation', 'Facturation'], ['/app/bourses', 'Bourses']);
+    }
+    if (isAdminish || role === 'cpe' || role === 'compta') {
+      fam.push(['/app/cantine', 'Cantine'], ['/app/internat', 'Internat']);
+    }
+    if (isVs || isAdminish) {
+      fam.push(['/app/docs-signer', 'Docs à signer']);
+    }
+    if (isAdminish) {
+      fam.push(['/app/comms', 'Mails / SMS']);
+    }
+    parts.push(navGroup(active, 'Famille & services', fam));
+  }
+  if (isSante) {
+    const sante = [];
+    if (isAdminish || role === 'infirmerie' || role === 'cpe') sante.push(['/app/infirmerie', 'Infirmerie']);
+    if (isAdminish || role === 'psy' || role === 'cpe') sante.push(['/app/psy', 'Psy']);
+    if (sante.length) parts.push(navGroup(active, 'Santé', sante));
+  }
+  if (isAdminish) {
+    parts.push(navGroup(active, 'Inscriptions', [
+      ['/app/inscriptions', 'Inscriptions'],
+      ['/app/reinscription', 'Réinscription'],
+    ]));
+  }
+  return parts.join('');
+}
+
+function shell(active, body) {
+  const email = me ? esc(me.email) : '';
+  const role = me ? esc(me.role) : '';
+  const home = homeForRole();
+  return `<div class="shell">
+    <button type="button" class="nav-scrim" id="btnNavScrim" aria-label="Fermer le menu"></button>
+    <aside class="sidebar" id="sidebar">
+      <div class="side-head">
+        <a href="${home}" class="brand">ENT</a>
+        <p class="side-tag">labo</p>
+        <button type="button" class="side-close" id="btnNavClose" aria-label="Fermer">✕</button>
+      </div>
+      <p class="side-label">Espaces</p>
+      <nav class="side-nav">${navHtml(active)}</nav>
+      <div class="side-foot">
+        <div class="side-profile">
+          <div class="side-avatar">${role ? role.charAt(0).toUpperCase() : '?'}</div>
+          <div class="side-profile-text">
+            <p class="side-name">${email || 'Compte'}</p>
+            <p class="side-role">${role}</p>
+          </div>
+        </div>
+        <button type="button" id="btnLogout" class="side-logout">Se déconnecter</button>
+      </div>
+    </aside>
+    <div class="shell-main">
+      <div class="mobile-bar">
+        <button type="button" id="btnNavOpen" class="mobile-menu" aria-label="Ouvrir le menu">
+          <span></span><span></span><span></span>
+        </button>
+        <span class="brand">ENT</span>
+      </div>
+      <main class="content">${body}</main>
+    </div>
+  </div>`;
+}
+
+/* ---------- Login ---------- */
+function viewLogin() {
+  const cast = STORE.cast;
+  const personas = (cast && cast.personas) ? cast.personas : [];
+  const etab = STORE.etab || (cast && cast.etablissement_id) || '';
+  const opts = personas.map(p =>
+    `<option value="${esc(p.email)}">${esc(p.label)}</option>`
+  ).join('');
+  return `<div class="login-wrap"><form class="login-card" id="loginForm">
+    <h1>ENT</h1>
+    <p class="muted">Connexion labo — Postgres local. Mot de passe seed : <code>DevLocalPass1!</code></p>
+    <div class="actions">
+      <button type="button" class="primary" id="btnBoot">Créer l’école labo (Harry Potter)</button>
+      <span id="bootMsg" class="muted"></span>
+    </div>
+    <label>Persona
+      <select id="persona" ${opts ? '' : 'disabled'}>
+        ${opts || '<option value="">— bootstrap d’abord —</option>'}
+      </select>
+    </label>
+    <label>E-mail
+      <input id="email" type="email" required value="${esc(personas[0] && personas[0].email || '')}" autocomplete="username"/>
+    </label>
+    <label>Mot de passe
+      <input id="password" type="password" required value="DevLocalPass1!" autocomplete="current-password"/>
+    </label>
+    <label>Établissement
+      <input id="etab" required value="${esc(etab)}" placeholder="uuid après bootstrap" autocomplete="off"/>
+    </label>
+    <div class="actions">
+      <button type="submit" class="primary">Se connecter</button>
+    </div>
+    <div id="loginErr"></div>
+  </form></div>`;
+}
+
+async function bindLogin() {
+  const persona = document.getElementById('persona');
+  const email = document.getElementById('email');
+  if (persona) {
+    persona.onchange = () => { email.value = persona.value; };
+  }
+  document.getElementById('btnBoot').onclick = async () => {
+    const msg = document.getElementById('bootMsg');
+    msg.textContent = 'Création… (20–30 s)';
+    try {
+      const cast = await api('/labo/bootstrap', { method: 'POST', body: '{}' });
+      STORE.cast = cast;
+      STORE.etab = cast.etablissement_id;
+      msg.innerHTML = `<span class="ok">OK</span> — ${cast.eleves.length} élèves`;
+      render();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('loginForm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const box = document.getElementById('loginErr');
+    box.innerHTML = '';
+    try {
+      const body = {
+        email: document.getElementById('email').value.trim(),
+        password: document.getElementById('password').value,
+        etablissement_id: document.getElementById('etab').value.trim(),
+      };
+      const sess = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
+      STORE.token = sess.token;
+      STORE.etab = sess.etablissement_id;
+      await ensureMe();
+      go(homeForRole());
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+}
+
+/* ---------- Portail élève ---------- */
+function viewEleveHome() {
+  return shell('/eleve', `
+    <div class="bento" id="eleveHomeStats"></div>
+    <div id="elevePushBanner" class="panel" style="margin-bottom:.75rem">
+      <div class="row" style="align-items:center">
+        <div style="flex:1">
+          <strong>Activer les notifications</strong>
+          <p class="muted" style="margin:.2rem 0 0">Enregistre un token device (lab) pour les alertes carnet / absences.</p>
+        </div>
+        <label>Plateforme <select id="eleveHomePushPlat"><option value="web">web</option><option value="ios">ios</option><option value="android">android</option></select></label>
+        <button type="button" class="primary" id="btnEleveHomePush">Activer</button>
+        <button type="button" id="btnEleveHomePushHide">Plus tard</button>
+      </div>
+      <div id="eleveHomePushMsg" class="muted"></div>
+    </div>
+    <div class="bento">
+      <div class="panel bento-span-4">
+        <h2>Espace élève</h2>
+        <div id="eleveHomeIdent" class="muted">…</div>
+        <ul style="margin-top:.75rem">
+          <li><a href="/eleve/notes">Notes &amp; appréciations</a></li>
+          <li><a href="/eleve/cahier">Cahier de texte</a></li>
+          <li><a href="/eleve/edt">EDT du jour</a></li>
+          <li><a href="/eleve/vie-scolaire">Vie scolaire</a></li>
+          <li><a href="/eleve/absences">Mes absences</a></li>
+          <li><a href="/eleve/sorties">Sorties</a></li>
+          <li><a href="/eleve/docs">Docs à signer</a></li>
+          <li><a href="/eleve/documents">Mes documents</a></li>
+          <li><a href="/eleve/sante">Santé / PAI</a></li>
+          <li><a href="/eleve/repas">Repas / menus</a></li>
+          <li><a href="/eleve/internat">Internat</a></li>
+          <li><a href="/eleve/stages">Stages</a></li>
+          <li><a href="/eleve/orientation">Orientation</a></li>
+          <li><a href="/eleve/journal">Mon journal</a></li>
+          <li><a href="/eleve/messages">Messages</a></li>
+        </ul>
+      </div>
+      <div class="panel bento-span-4">
+        <h2>Aujourd’hui</h2>
+        <div id="eleveHomeEdt" class="muted">…</div>
+      </div>
+      <div class="panel bento-span-4">
+        <h2>Carnet &amp; messages</h2>
+        <div id="eleveHomeCarnet" class="muted">…</div>
+      </div>
+    </div>`);
+}
+
+async function bindEleveHome() {
+  const stats = document.getElementById('eleveHomeStats');
+  const ident = document.getElementById('eleveHomeIdent');
+  const edtBox = document.getElementById('eleveHomeEdt');
+  const carBox = document.getElementById('eleveHomeCarnet');
+  const pushBanner = document.getElementById('elevePushBanner');
+  if (pushBanner && localStorage.getItem('ent_eleve_push_hide') === '1') {
+    pushBanner.style.display = 'none';
+  }
+  const btnPushHide = document.getElementById('btnEleveHomePushHide');
+  if (btnPushHide) {
+    btnPushHide.onclick = () => {
+      localStorage.setItem('ent_eleve_push_hide', '1');
+      if (pushBanner) pushBanner.style.display = 'none';
+    };
+  }
+  const btnPush = document.getElementById('btnEleveHomePush');
+  if (btnPush) {
+    btnPush.onclick = async () => {
+      const msg = document.getElementById('eleveHomePushMsg');
+      try {
+        const d = await api('/devices/push', {
+          method: 'POST',
+          body: JSON.stringify({
+            platform: (document.getElementById('eleveHomePushPlat') || {}).value || 'web',
+            token: 'lab-eleve-home-' + ((me && me.user_id) || 'x').toString().slice(0, 8),
+          }),
+        });
+        if (msg) msg.innerHTML = `<span class="ok">Notifications activées · ${esc(d.platform)}</span>`;
+        localStorage.setItem('ent_eleve_push_hide', '1');
+        if (pushBanner) setTimeout(() => { pushBanner.style.display = 'none'; }, 1200);
+      } catch (err) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    };
+  }
+  const eid = me && me.eleve_id;
+  if (!eid) {
+    if (ident) ident.innerHTML = '<p class="empty">Compte élève sans eleve_id.</p>';
+    return;
+  }
+  const jour = today();
+  const debutMois = jour.slice(0, 8) + '01';
+  try {
+    const [notes, edt, fils, abs, carnet, periodes, docs] = await Promise.all([
+      api('/eleves/' + eid + '/notes').catch(() => []),
+      api('/eleves/' + eid + '/edt?jour=' + encodeURIComponent(jour)).catch(() => []),
+      api('/messages/fils').catch(() => []),
+      api('/eleves/' + eid + '/absences').catch(() => []),
+      api('/eleves/' + eid + '/carnet').catch(() => []),
+      api('/eleves/' + eid + '/periodes').catch(() => []),
+      api('/eleves/' + eid + '/docs-a-signer').catch(() => []),
+    ]);
+    let vol = null;
+    try {
+      vol = await api('/eleves/' + eid + '/repas/volume?debut=' + debutMois + '&fin=' + jour + '&kind=midi');
+    } catch {}
+    let photo = '';
+    try {
+      const headers = {};
+      if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
+      const res = await fetch('/eleves/' + eid + '/photo', { headers });
+      if (res.ok) {
+        const url = URL.createObjectURL(await res.blob());
+        photo = `<img src="${url}" alt="" style="width:72px;height:72px;object-fit:cover;border:1px solid var(--line)"/>`;
+      }
+    } catch {}
+    const aTraiter = (abs || []).filter(a => a.statut === 'a_traiter').length;
+    const nonLus = (fils || []).reduce((s, f) => s + (f.nb_non_lus || 0), 0);
+    const carASigner = (carnet || []).filter(c => !c.signe_at).length;
+    const docsASigner = (docs || []).filter(d => !d.signe_at && (d.statut === 'a_signer' || !d.statut)).length;
+    const regime = (periodes || []).find(p => p.kind === 'regime' && !p.date_fin);
+    const classe = (periodes || []).find(p => p.kind === 'classe' && !p.date_fin);
+    if (stats) {
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-2"><strong>${(edt || []).length}</strong><span>Cours aujourd’hui</span></div>
+        <div class="stat-tile bento-span-2"><strong>${(notes || []).length}</strong><span>Notes</span></div>
+        <div class="stat-tile bento-span-2"><strong>${aTraiter}</strong><span>Absences à traiter</span></div>
+        <a class="stat-tile bento-span-2" href="/eleve/docs"><strong>${docsASigner}</strong><span>Docs à signer</span></a>
+        <div class="stat-tile bento-span-2"><strong>${carASigner}</strong><span>Carnet</span></div>
+        <div class="stat-tile bento-span-2"><strong>${nonLus || (fils || []).length}</strong><span>${nonLus ? 'Msg non lus' : 'Fils'}</span></div>`;
+    }
+    if (ident) {
+      ident.innerHTML = `${photo}
+        <p style="margin:.5rem 0 0"><strong>${esc((me && me.email) || 'Élève')}</strong></p>
+        <p class="muted" style="margin:.25rem 0">Classe ${esc((classe && classe.valeur) || '—')} · régime ${esc((regime && regime.valeur) || '—')}</p>
+        ${vol ? `<p class="muted">Repas midi ce mois : <strong>${vol.jours_facturables}</strong> jour(s)</p>` : ''}`;
+    }
+    if (edtBox) {
+      edtBox.innerHTML = !(edt || []).length
+        ? '<p class="empty">Aucun créneau aujourd’hui.</p>'
+        : `<ul style="margin:0;padding-left:1.1rem">${edt.map(c =>
+            `<li><strong>${esc(c.heure_debut)}–${esc(c.heure_fin)}</strong> ${esc(c.matiere_libelle)}
+             <span class="muted">${esc(c.salle || '')}</span></li>`
+          ).join('')}</ul>`;
+    }
+    if (carBox) {
+      const recent = (carnet || []).slice(0, 5);
+      carBox.innerHTML = `
+        <p>${carASigner ? `<span class="pill-unread">${carASigner} à signer</span>` : '<span class="ok">Carnet à jour</span>'}
+           · <a href="/eleve/messages">${(fils || []).length} fil(s)</a>
+           · <a href="/eleve/docs">Docs</a></p>
+        ${recent.length
+          ? `<ul style="margin:.5rem 0 0;padding-left:1.1rem">${recent.map(c =>
+              `<li><strong>${esc(c.titre)}</strong>
+               <span class="muted">${esc(c.date_entree)} · ${esc(c.categorie)}</span>
+               ${c.signe_at
+                 ? ' <span class="ok">signé</span>'
+                 : ` <button type="button" class="btnEleveCarSigne" data-id="${esc(c.id)}">Signer</button>`}</li>`
+            ).join('')}</ul>`
+          : '<p class="empty">Aucune entrée carnet.</p>'}`;
+      carBox.querySelectorAll('.btnEleveCarSigne').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/carnet/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
+            await bindEleveHome();
+          } catch (err) { alert(err.message); }
+        };
+      });
+    }
+  } catch (e) {
+    if (ident) ident.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+function viewEleveAbsences() {
+  return shell('/eleve/absences', `
+    <div class="bento" id="eleveAbsStats"></div>
+    <div class="panel">
+      <h2>Prévenir une absence</h2>
+      <p class="muted">Signaler à l’avance — la justification / décision reste famille &amp; vie scolaire.</p>
+      <div class="row">
+        <label>Du <input id="elevePrevDebut" type="date" value="${today()}"/></label>
+        <label>Au <input id="elevePrevFin" type="date" value="${today()}"/></label>
+        <label>Motif <select id="elevePrevMotif"></select></label>
+        <button type="button" class="primary" id="btnElevePrev">Envoyer</button>
+      </div>
+      <div id="elevePrevMsg" class="muted"></div>
+    </div>
+    <div class="panel">
+      <h2>Mes absences</h2>
+      <div id="eleveAbsOut" class="muted">Chargement…</div>
+      <p class="muted" style="margin-top:.75rem"><a href="/eleve/messages">Messagerie</a> · <a href="/eleve/sorties">Sorties</a> · <a href="/eleve">Accueil</a></p>
+    </div>`);
+}
+
+async function bindEleveAbsences() {
+  const out = document.getElementById('eleveAbsOut');
+  const stats = document.getElementById('eleveAbsStats');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  let motifOpts = '<option value="maladie" selected>Maladie</option>';
+  try {
+    const motifs = await api('/motifs-absence');
+    motifOpts = motifs.map(m =>
+      `<option value="${esc(m.code)}"${m.code === 'maladie' ? ' selected' : ''}>${esc(m.libelle)}</option>`
+    ).join('') || motifOpts;
+  } catch { /* défaut */ }
+  const motifSel = document.getElementById('elevePrevMotif');
+  if (motifSel) motifSel.innerHTML = motifOpts;
+  const btnPrev = document.getElementById('btnElevePrev');
+  if (btnPrev) {
+    btnPrev.onclick = async () => {
+      const msg = document.getElementById('elevePrevMsg');
+      try {
+        await api('/eleves/' + eid + '/absences', {
+          method: 'POST',
+          body: JSON.stringify({
+            debut: document.getElementById('elevePrevDebut').value || today(),
+            fin: document.getElementById('elevePrevFin').value || today(),
+            motif: (document.getElementById('elevePrevMotif').value || 'maladie').trim(),
+          }),
+        });
+        msg.innerHTML = '<span class="ok">Absence déclarée — la vie scolaire la traitera.</span>';
+        await bindEleveAbsences();
+      } catch (err) {
+        msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    };
+  }
+  try {
+    const [list, points] = await Promise.all([
+      api('/eleves/' + eid + '/absences'),
+      api('/eleves/' + eid + '/points-vs').catch(() => null),
+    ]);
+    const aTraiter = list.filter(a => a.statut === 'declaree' || a.statut === 'a_traiter' || a.statut === 'ouverte').length;
+    const justif = list.filter(a => a.statut === 'justifiee' || a.motif_justif).length;
+    const pts = points && points.solde != null ? points.solde : '—';
+    const ptsDepart = points && points.depart != null ? points.depart : '';
+    if (stats) {
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Absences</span></div>
+        <div class="stat-tile bento-span-4"><strong>${aTraiter}</strong><span>À traiter</span></div>
+        <div class="stat-tile bento-span-4"><strong>${justif}</strong><span>Justifiées · ${pts}${ptsDepart !== '' ? ' / ' + ptsDepart : ''} pts VS</span></div>`;
+    }
+    if (!list.length) {
+      out.innerHTML = '<p class="empty">Aucune absence.</p>';
+      return;
+    }
+    out.innerHTML = `<table>
+      <thead><tr><th>Période</th><th>Motif</th><th>Statut</th><th>Justif</th></tr></thead>
+      <tbody>${list.map(a => `<tr>
+        <td>${esc(a.debut)} → ${esc(a.fin)}</td>
+        <td>${esc(a.motif)}</td>
+        <td><span class="pill">${esc(a.statut)}</span></td>
+        <td>${esc(a.motif_justif || '—')}</td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+function viewEleveVieScolaire() {
+  return shell('/eleve/vie-scolaire', `
+    <div class="bento" id="eleveVsStats"></div>
+    <div class="panel">
+      <h2>Vie scolaire</h2>
+      <p class="muted">Sanctions, incidents, commissions signalées, alertes CPE et décisions de conseil (lecture).</p>
+      <div id="eleveVsOut" class="muted">Chargement…</div>
+      <p class="muted" style="margin-top:.75rem"><a href="/eleve/absences">Absences</a> · <a href="/eleve/notes">Notes</a> · <a href="/eleve">Accueil</a></p>
+    </div>`);
+}
+
+async function bindEleveVieScolaire() {
+  const out = document.getElementById('eleveVsOut');
+  const stats = document.getElementById('eleveVsStats');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  try {
+    const [sanctions, incidents, commissions, alertes, conseils, points] = await Promise.all([
+      api('/eleves/' + eid + '/sanctions').catch(() => []),
+      api('/eleves/' + eid + '/incidents').catch(() => []),
+      api('/eleves/' + eid + '/commissions').catch(() => []),
+      api('/eleves/' + eid + '/alertes-cpe').catch(() => []),
+      api('/eleves/' + eid + '/conseils').catch(() => []),
+      api('/eleves/' + eid + '/points-vs').catch(() => null),
+    ]);
+    const comVis = (commissions || []).filter(d => d.signale_famille);
+    const consVis = (conseils || []).filter(c => c.visible_famille !== false);
+    const pts = points && points.solde != null ? points.solde : '—';
+    if (stats) {
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-2"><strong>${(sanctions || []).length}</strong><span>Sanctions</span></div>
+        <div class="stat-tile bento-span-2"><strong>${(incidents || []).length}</strong><span>Incidents</span></div>
+        <div class="stat-tile bento-span-2"><strong>${comVis.length}</strong><span>Commissions</span></div>
+        <div class="stat-tile bento-span-2"><strong>${(alertes || []).length}</strong><span>Alertes</span></div>
+        <div class="stat-tile bento-span-2"><strong>${consVis.length}</strong><span>Conseils</span></div>
+        <div class="stat-tile bento-span-2"><strong>${esc(String(pts))}</strong><span>Points VS</span></div>`;
+    }
+    const sec = (title, body) => `<section style="margin-top:1rem"><h3>${esc(title)}</h3>${body}</section>`;
+    let html = '';
+    html += sec('Sanctions', !(sanctions || []).length
+      ? '<p class="empty">Aucune sanction.</p>'
+      : `<ul>${sanctions.map(s =>
+          `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}${s.note ? ' — ' + esc(s.note) : ''}</li>`
+        ).join('')}</ul>`);
+    html += sec('Incidents', !(incidents || []).length
+      ? '<p class="empty">Aucun incident.</p>'
+      : `<ul>${incidents.map(i =>
+          `<li>${esc(i.jour)}${i.type_label ? ' · ' + esc(i.type_label) : ''}${i.description ? ' — ' + esc(i.description) : ''}</li>`
+        ).join('')}</ul>`);
+    html += sec('Commissions', !comVis.length
+      ? '<p class="empty">Aucune commission signalée.</p>'
+      : `<ul>${comVis.map(d =>
+          `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.points_retires ? ' · −' + d.points_retires + ' pts' : ''}${d.commission_jour ? ' · ' + esc(d.commission_jour) : ''}${d.lieu ? ' · ' + esc(d.lieu) : ''}</li>`
+        ).join('')}</ul>`);
+    html += sec('Alertes CPE', !(alertes || []).length
+      ? '<p class="empty">Aucune alerte.</p>'
+      : `<ul>${alertes.map(a =>
+          `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}</li>`
+        ).join('')}</ul>`);
+    html += sec('Décisions de conseil', !consVis.length
+      ? '<p class="empty">Aucune décision visible.</p>'
+      : `<ul>${consVis.map(c =>
+          `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}${c.classe ? ' · ' + esc(c.classe) : ''}</li>`
+        ).join('')}</ul>`);
+    out.innerHTML = html;
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+function viewEleveSorties() {
+  return shell('/eleve/sorties', `
+    <div class="panel">
+      <h2>Mes sorties</h2>
+      <p class="muted">Autorisation permanente (lecture) et demande exceptionnelle.</p>
+      <div id="eleveSortieOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindEleveSorties() {
+  const out = document.getElementById('eleveSortieOut');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  try {
+    const recap = await api('/eleves/' + eid + '/sorties');
+    const a = recap.autorisation;
+    let html = a
+      ? `<p>Permanent — matin ${a.matin ? 'oui' : 'non'} · midi ${a.midi ? 'oui' : 'non'} · soir ${a.soir ? 'oui' : 'non'}${a.interdit_etablissement ? ' · <span class="bad">interdit</span>' : ''}</p>`
+      : '<p class="empty">Pas d’autorisation permanente (réglée par la famille).</p>';
+    if (!a || !a.interdit_etablissement) {
+      html += `<div class="row">
+        <label>Jour <input id="eleveSortieJour" type="date" value="${today()}"/></label>
+        <label>Créneau <select id="eleveSortieCreneau">
+          <option value="matin">matin</option>
+          <option value="midi">midi</option>
+          <option value="soir">soir</option>
+        </select></label>
+        <label>Motif <input id="eleveSortieMotif" value="RDV médical" style="min-width:10rem"/></label>
+        <button type="button" class="primary" id="btnEleveSortieDem">Demande exceptionnelle</button>
+      </div>
+      <div id="eleveSortieMsg" class="muted"></div>`;
+    }
+    const dem = recap.demandes_ouvertes || [];
+    if (dem.length) {
+      html += `<h3 style="margin-top:1rem">Demandes ouvertes</h3>
+        <ul>${dem.map(d => `<li>${esc(d.jour)} ${esc(d.creneau)} — ${esc(d.statut)} · ${esc(d.motif)}</li>`).join('')}</ul>`;
+    }
+    out.innerHTML = html;
+    const btn = document.getElementById('btnEleveSortieDem');
+    if (btn) {
+      btn.onclick = async () => {
+        const msg = document.getElementById('eleveSortieMsg');
+        try {
+          await api('/eleves/' + eid + '/sorties/demandes', {
+            method: 'POST',
+            body: JSON.stringify({
+              jour: document.getElementById('eleveSortieJour').value || today(),
+              creneau: document.getElementById('eleveSortieCreneau').value || 'matin',
+              motif: document.getElementById('eleveSortieMotif').value.trim() || 'RDV',
+            }),
+          });
+          msg.innerHTML = '<span class="ok">Demande envoyée</span>';
+          await bindEleveSorties();
+        } catch (err) {
+          msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+        }
+      };
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+function viewEleveDocuments() {
+  return shell('/eleve/documents', `
+    <div class="panel">
+      <h2>Mes documents</h2>
+      <p class="muted">Tiroir famille (bulletins, attestations…) — distinct des <a href="/eleve/docs">docs à signer</a>.</p>
+      <div class="row">
+        <label>Titre <input id="eleveDocTitre" value="Pièce élève"/></label>
+        <label>Code <input id="eleveDocCode" placeholder="bulletin" style="width:7rem"/></label>
+        <label>Fichier <input id="eleveDocFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.txt"/></label>
+        <button type="button" class="primary" id="btnEleveDocDepot">Déposer</button>
+      </div>
+      <div id="eleveDocMsg" class="muted"></div>
+      <div id="eleveDocsMetierOut" class="muted" style="margin-top:.5rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindEleveDocuments() {
+  const out = document.getElementById('eleveDocsMetierOut');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  async function load() {
+    try {
+      const list = await api('/eleves/' + eid + '/documents');
+      out.innerHTML = !list.length
+        ? '<p class="empty">Aucun document.</p>'
+        : `<table><thead><tr><th>Titre</th><th>Code</th><th>Tiroir</th><th>État</th><th></th></tr></thead>
+           <tbody>${list.map(d => `<tr>
+             <td>${esc(d.titre)}</td>
+             <td class="muted">${esc(d.code || '—')}</td>
+             <td><span class="pill">${esc(d.tiroir || '—')}</span></td>
+             <td>${d.accessible ? '<span class="ok">accessible</span>' : '<span class="bad">verrouillé</span>'}</td>
+             <td>${d.accessible
+               ? `<button type="button" class="btnEleveDocDl" data-id="${esc(d.id)}" data-titre="${esc(d.titre)}">Télécharger</button>`
+               : `<button type="button" class="btnEleveDocGrant" data-id="${esc(d.id)}">Demander un accès</button>`}</td>
+           </tr>`).join('')}</tbody></table>`;
+      out.querySelectorAll('.btnEleveDocDl').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'document');
+          } catch (err) { alert(err.message); }
+        };
+      });
+      out.querySelectorAll('.btnEleveDocGrant').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/documents/' + btn.dataset.id + '/grants', {
+              method: 'POST',
+              body: JSON.stringify({ duration_days: 14, note: 'besoin de lecture (élève)' }),
+            });
+            alert('Demande envoyée à l’administration');
+            await load();
+          } catch (err) { alert(err.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btn = document.getElementById('btnEleveDocDepot');
+  if (btn) {
+    btn.onclick = async () => {
+      const msg = document.getElementById('eleveDocMsg');
+      const file = (document.getElementById('eleveDocFile') || {}).files
+        && document.getElementById('eleveDocFile').files[0];
+      let titre = (document.getElementById('eleveDocTitre') || {}).value.trim();
+      if (!titre && file) titre = file.name;
+      if (!titre) { msg.innerHTML = '<span class="bad">Titre ou fichier requis</span>'; return; }
+      const mime = file ? (file.type || 'application/octet-stream') : 'application/pdf';
+      try {
+        const body = {
+          titre,
+          tiroir: 'famille',
+          confidentialite: 'standard',
+          code: (document.getElementById('eleveDocCode') || {}).value.trim() || null,
+          mime_type: mime,
+        };
+        if (file) body.contenu_base64 = await fileToBase64(file);
+        const d = await api('/eleves/' + eid + '/documents', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        msg.innerHTML = `<span class="ok">Déposé · ${esc(d.titre)}</span>`;
+        if (document.getElementById('eleveDocFile')) document.getElementById('eleveDocFile').value = '';
+        await load();
+      } catch (err) {
+        msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    };
+  }
+  await load();
+}
+
+function viewEleveInternat() {
+  return shell('/eleve/internat', `
+    <div class="panel">
+      <h2>Internat</h2>
+      <p class="muted">Chambre, présence du jour et suivis visibles famille.</p>
+      <div class="row">
+        <label>Jour <input id="eleveIntJour" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnEleveInt">Charger</button>
+      </div>
+      <div id="eleveIntOut" class="muted" style="margin-top:.5rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindEleveInternat() {
+  const out = document.getElementById('eleveIntOut');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  async function load() {
+    const jour = (document.getElementById('eleveIntJour') || {}).value || today();
+    out.textContent = 'Chargement…';
+    try {
+      const r = await api('/eleves/' + eid + '/internat?jour=' + encodeURIComponent(jour));
+      if (!r.chambre && !(r.suivis || []).length && !r.presence_du_jour) {
+        out.innerHTML = '<p class="empty">Pas d’internat pour ce compte.</p>';
+        return;
+      }
+      let h = '';
+      if (r.chambre) {
+        h += `<p><strong>Chambre ${esc(r.chambre.code)}</strong> — bât. ${esc(r.chambre.batiment)} · ét. ${esc(String(r.chambre.etage))}</p>`;
+      }
+      if (r.affectation) {
+        h += `<p class="muted">Affectation depuis ${esc(r.affectation.date_debut || '—')}</p>`;
+      }
+      if (r.presence_du_jour) {
+        h += `<p>Présence ${esc(r.presence_du_jour.jour)} : <span class="pill">${esc(r.presence_du_jour.statut)}</span></p>`;
+      } else {
+        h += `<p class="muted">Aucune présence pointée le ${esc(jour)}.</p>`;
+      }
+      if ((r.suivis || []).length) {
+        h += `<h3>Suivis</h3><ul>${r.suivis.map(s =>
+          `<li>${esc(s.jour)} — ${esc(s.texte)}</li>`
+        ).join('')}</ul>`;
+      }
+      out.innerHTML = h;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btn = document.getElementById('btnEleveInt');
+  if (btn) btn.onclick = load;
+  const jour = document.getElementById('eleveIntJour');
+  if (jour) jour.onchange = load;
+  await load();
+}
+
+function viewEleveStages() {
+  return shell('/eleve/stages', `
+    <div class="panel">
+      <h2>Stages</h2>
+      <p class="muted">Conventions de stage liées à votre dossier.</p>
+      <div id="eleveStagesOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h3>Notifications push (lab)</h3>
+      <p class="muted">Enregistre un token device pour ce compte élève.</p>
+      <div class="row">
+        <label>Plateforme <select id="elevePushPlat"><option value="web">web</option><option value="ios">ios</option><option value="android">android</option></select></label>
+        <label>Token <input id="elevePushToken" value="lab-eleve-token" style="min-width:12rem"/></label>
+        <button type="button" class="primary" id="btnElevePush">Enregistrer</button>
+      </div>
+      <div id="elevePushMsg" class="muted"></div>
+    </div>`);
+}
+
+async function bindEleveStages() {
+  const out = document.getElementById('eleveStagesOut');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  try {
+    const list = await api('/eleves/' + eid + '/conventions-stage');
+    out.innerHTML = list.length
+      ? `<table><thead><tr><th>Période</th><th>Tuteur</th><th>Statut</th></tr></thead>
+         <tbody>${list.map(c => `<tr>
+           <td>${esc(c.debut)} → ${esc(c.fin)}</td>
+           <td>${esc(c.tuteur_nom || '—')}</td>
+           <td><span class="pill">${esc(c.statut || '—')}</span></td>
+         </tr>`).join('')}</tbody></table>`
+      : '<p class="empty">Aucune convention.</p>';
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+  const btn = document.getElementById('btnElevePush');
+  if (btn) {
+    btn.onclick = async () => {
+      const msg = document.getElementById('elevePushMsg');
+      try {
+        const d = await api('/devices/push', {
+          method: 'POST',
+          body: JSON.stringify({
+            platform: document.getElementById('elevePushPlat').value,
+            token: document.getElementById('elevePushToken').value.trim() || 'lab-eleve-token',
+            app_id: 'ent-eleve-lab',
+          }),
+        });
+        if (msg) msg.innerHTML = `<span class="ok">Device ${esc(d.platform)} · ${esc(String(d.id || '').slice(0, 8))}</span>`;
+      } catch (err) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    };
+  }
+}
+
+function viewEleveOrientation() {
+  return shell('/eleve/orientation', `
+    <div class="panel">
+      <h2>Orientation</h2>
+      <p class="muted">Vœux et informations complémentaires visibles pour votre compte.</p>
+      <h3>Vœux</h3>
+      <div class="row">
+        <label>Filière <select id="eleveVoeFil" style="min-width:12rem"></select></label>
+        <label>Rang <input id="eleveVoeRang" type="number" value="1" min="1" max="10" style="width:4rem"/></label>
+        <label>Année <input id="eleveVoeAnnee" value="2026-2027" style="width:7rem"/></label>
+        <button type="button" class="primary" id="btnEleveVoePose">Poser</button>
+      </div>
+      <div id="eleveVoeMsg" class="muted"></div>
+      <div id="eleveVoeuxOut" class="muted" style="margin-top:.5rem">Chargement…</div>
+      <h3 style="margin-top:1rem">Info-comp</h3>
+      <div id="eleveInfoCompOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindEleveOrientation() {
+  const eid = me && me.eleve_id;
+  const voeuxOut = document.getElementById('eleveVoeuxOut');
+  const icOut = document.getElementById('eleveInfoCompOut');
+  if (!eid) {
+    if (voeuxOut) voeuxOut.innerHTML = '<p class="empty">eleve_id manquant</p>';
+    return;
+  }
+  try {
+    const filSel = document.getElementById('eleveVoeFil');
+    if (filSel) {
+      const fils = await api('/filieres');
+      filSel.innerHTML = (fils || []).map(f =>
+        `<option value="${esc(f.id)}">${esc(f.code)} — ${esc(f.libelle)}</option>`
+      ).join('') || '<option value="">—</option>';
+    }
+  } catch (e) {
+    if (voeuxOut) voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+  async function loadVoeux() {
+    if (!voeuxOut) return;
+    try {
+      const annee = (document.getElementById('eleveVoeAnnee') || {}).value.trim() || '';
+      let url = '/eleves/' + eid + '/voeux';
+      if (annee) url += '?annee_scolaire=' + encodeURIComponent(annee);
+      const list = await api(url);
+      voeuxOut.innerHTML = list.length
+        ? `<table><thead><tr><th>Rang</th><th>Filière</th><th>Année</th></tr></thead>
+           <tbody>${list.map(v => `<tr>
+             <td>${v.rang ?? '—'}</td>
+             <td>${esc(v.filiere_label || v.filiere_id || '—')}</td>
+             <td>${esc(v.annee_scolaire || '—')}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucun vœu.</p>';
+    } catch (e) {
+      voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btn = document.getElementById('btnEleveVoePose');
+  if (btn) {
+    btn.onclick = async () => {
+      const msg = document.getElementById('eleveVoeMsg');
+      const fid = (document.getElementById('eleveVoeFil') || {}).value;
+      if (!fid) { msg.innerHTML = '<span class="bad">Filière requise</span>'; return; }
+      try {
+        const v = await api('/eleves/' + eid + '/voeux', {
+          method: 'POST',
+          body: JSON.stringify({
+            filiere_id: fid,
+            rang: Number((document.getElementById('eleveVoeRang') || {}).value) || 1,
+            annee_scolaire: (document.getElementById('eleveVoeAnnee') || {}).value.trim() || '2026-2027',
+          }),
+        });
+        msg.innerHTML = `<span class="ok">Vœu rang ${v.rang}</span>`;
+        await loadVoeux();
+      } catch (err) {
+        msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    };
+  }
+  await loadVoeux();
+  try {
+    const pack = await api('/eleves/' + eid + '/info-comp');
+    const champs = (pack && pack.champs) || [];
+    const vals = (pack && pack.valeurs) || [];
+    const byChamp = Object.fromEntries(vals.map(v => [v.champ_id, v]));
+    if (!champs.length) {
+      icOut.innerHTML = '<p class="empty">Aucun champ visible.</p>';
+    } else {
+      icOut.innerHTML = champs.map(c => {
+        const cur = byChamp[c.id];
+        return `<div class="row" style="margin:.35rem 0">
+          <label style="flex:1">${esc(c.libelle || c.code)}
+            <input class="eleveIcVal" data-cid="${esc(c.id)}" value="${esc((cur && cur.valeur) || '')}" style="width:100%"/>
+          </label>
+          <button type="button" class="btnEleveIcSave" data-cid="${esc(c.id)}">OK</button>
+        </div>`;
+      }).join('') + '<div id="eleveIcMsg" class="muted"></div>';
+      icOut.querySelectorAll('.btnEleveIcSave').forEach(btn => {
+        btn.onclick = async () => {
+          const inp = icOut.querySelector('.eleveIcVal[data-cid="' + btn.dataset.cid + '"]');
+          const msg = document.getElementById('eleveIcMsg');
+          try {
+            await api('/eleves/' + eid + '/info-comp', {
+              method: 'PUT',
+              body: JSON.stringify({ champ_id: btn.dataset.cid, valeur: (inp && inp.value) || '' }),
+            });
+            if (msg) msg.innerHTML = '<span class="ok">Enregistré</span>';
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      });
+    }
+  } catch (e) {
+    if (icOut) icOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+function viewEleveSante() {
+  return shell('/eleve/sante', `
+    <div class="panel">
+      <h2>Fiche santé</h2>
+      <p class="muted">Consultation (sans note confidentielle). Mise à jour par la famille / l’infirmerie.</p>
+      <div id="eleveSanteOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h2>PAI</h2>
+      <div id="elevePaiOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h2>Dispenses EPS</h2>
+      <div id="eleveDispVsOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h2>Passages infirmière</h2>
+      <div id="eleveInfOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindEleveSante() {
+  const santeOut = document.getElementById('eleveSanteOut');
+  const paiOut = document.getElementById('elevePaiOut');
+  const eid = me && me.eleve_id;
+  if (!eid) {
+    if (santeOut) santeOut.innerHTML = '<p class="empty">eleve_id manquant</p>';
+    return;
+  }
+  try {
+    const f = await api('/eleves/' + eid + '/fiche-sante');
+    if (!f) {
+      santeOut.innerHTML = '<p class="empty">Aucune fiche santé.</p>';
+    } else {
+      santeOut.innerHTML = `<ul>
+        <li><strong>Allergies</strong> — ${esc(f.allergies || '—')}</li>
+        <li><strong>Traitements</strong> — ${esc(f.traitements || '—')}</li>
+        <li><strong>Contre-indications</strong> — ${esc(f.contre_indications || '—')}</li>
+        <li><strong>PAI</strong> — ${f.pai_actif ? '<span class="warn">actif</span>' : 'non'}</li>
+        <li><strong>Médecin</strong> — ${esc(f.medecin_nom || '—')}</li>
+        <li><strong>Urgence</strong> — ${esc(f.urgence_tel || '—')}</li>
+      </ul>
+      <p><button type="button" id="btnEleveSantePdf">PDF fiche santé</button></p>`;
+      const btn = document.getElementById('btnEleveSantePdf');
+      if (btn) {
+        btn.onclick = async () => {
+          try { await downloadPdf('/eleves/' + eid + '/fiche-sante.pdf', 'fiche-sante.pdf'); }
+          catch (err) { alert(err.message); }
+        };
+      }
+    }
+  } catch (e) {
+    santeOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+  try {
+    const pai = await api('/eleves/' + eid + '/pai');
+    if (!pai) {
+      paiOut.innerHTML = '<p class="empty">Aucun PAI actif.</p>';
+    } else {
+      let piecesHtml = '';
+      try {
+        const pieces = await api('/eleves/' + eid + '/pai/pieces');
+        if (pieces.length) {
+          piecesHtml = `<ul>${pieces.map(x =>
+            `<li><button type="button" class="btnElevePaiDl" data-pid="${x.id}" data-nom="${esc(x.nom)}">${esc(x.nom)}</button></li>`
+          ).join('')}</ul>`;
+        }
+      } catch (_) { /* ignore */ }
+      paiOut.innerHTML = `<p><strong>${esc(pai.motif)}</strong> · du ${esc(pai.date_debut)}${pai.date_fin ? ' au ' + esc(pai.date_fin) : ''}</p>
+        <p>${esc(pai.mesures_accueil || '')}</p>
+        ${pai.protocole_urgence ? `<p class="muted">Urgence : ${esc(pai.protocole_urgence)}</p>` : ''}
+        ${piecesHtml || '<p class="empty">Pas d’ordonnance jointe.</p>'}`;
+      paiOut.querySelectorAll('.btnElevePaiDl').forEach(b => {
+        b.onclick = async () => {
+          try { await downloadFile('/pai/pieces/' + b.dataset.pid, b.dataset.nom || 'ordonnance.pdf'); }
+          catch (err) { alert(err.message); }
+        };
+      });
+    }
+  } catch (e) {
+    if (paiOut) paiOut.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+  }
+  const dispOut = document.getElementById('eleveDispVsOut');
+  if (dispOut) {
+    try {
+      const list = await api('/eleves/' + eid + '/dispenses-vs');
+      const actives = (list || []).filter(d => d.statut === 'active' || d.statut === 'ouverte');
+      dispOut.innerHTML = !(list || []).length
+        ? '<p class="empty">Aucune dispense EPS.</p>'
+        : `<table><thead><tr><th>Début</th><th>Fin</th><th>Motif</th><th>État</th></tr></thead>
+           <tbody>${list.map(d => `<tr>
+             <td>${esc(d.debut || '—')}</td>
+             <td>${esc(d.fin || '—')}</td>
+             <td>${esc(d.commentaire || d.motif || '—')}</td>
+             <td><span class="pill">${esc(d.statut || '—')}</span></td>
+           </tr>`).join('')}</tbody></table>
+           <p class="muted">${actives.length} active(s)</p>`;
+    } catch (e) {
+      dispOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const infOut = document.getElementById('eleveInfOut');
+  if (infOut) {
+    try {
+      const list = await api('/infirmerie/passages?eleve_id=' + encodeURIComponent(eid));
+      infOut.innerHTML = !(list || []).length
+        ? '<p class="empty">Aucun passage visible.</p>'
+        : `<ul>${list.map(p =>
+            `<li>${esc(p.jour)} — ${esc(p.motif_libelle || p.motif)}${p.note_soins ? ' · ' + esc(p.note_soins) : ''}</li>`
+          ).join('')}</ul>`;
+    } catch (e) {
+      infOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+}
+
+function viewEleveJournal() {
+  return shell('/eleve/journal', `
+    <div class="bento" id="eleveJourStats"></div>
+    <div class="panel">
+      <h2>Mon journal</h2>
+      <p class="muted">Entrées visibles famille (même filtre que le portail parent).</p>
+      <div id="eleveJourOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindEleveJournal() {
+  const out = document.getElementById('eleveJourOut');
+  const stats = document.getElementById('eleveJourStats');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  try {
+    const list = await api('/eleves/' + eid + '/journal?limit=50');
+    const byDom = {};
+    (list || []).forEach(j => {
+      const d = j.domaine || 'autre';
+      byDom[d] = (byDom[d] || 0) + 1;
+    });
+    if (stats) {
+      const keys = Object.keys(byDom);
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-3"><strong>${list.length}</strong><span>Entrées</span></div>
+        ${keys.slice(0, 3).map(k =>
+          `<div class="stat-tile bento-span-3"><strong>${byDom[k]}</strong><span>${esc(k)}</span></div>`
+        ).join('')}`;
+    }
+    if (!list.length) {
+      out.innerHTML = '<p class="empty">Aucune entrée visible.</p>';
+      return;
+    }
+    const groups = {};
+    list.forEach(j => {
+      const d = j.domaine || 'autre';
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(j);
+    });
+    out.innerHTML = Object.keys(groups).sort().map(dom => `
+      <h3 style="margin:1rem 0 .4rem">${esc(dom)}</h3>
+      <ul>${groups[dom].map(j =>
+        `<li><strong>${esc(j.libelle)}</strong> <span class="muted">${esc((j.created_at || '').slice(0, 16))}</span></li>`
+      ).join('')}</ul>`).join('');
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+function viewEleveDocs() {
+  return shell('/eleve/docs', `
+    <div class="bento" id="eleveDocsStats"></div>
+    <div class="panel">
+      <h2>Documents à signer</h2>
+      <p class="muted">Règlement, chartes et pièces VS en attente de votre signature.</p>
+      <div id="eleveDocsOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h2>Carnet</h2>
+      <div id="eleveCarnetOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindEleveDocs() {
+  const out = document.getElementById('eleveDocsOut');
+  const carOut = document.getElementById('eleveCarnetOut');
+  const stats = document.getElementById('eleveDocsStats');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  try {
+    const [docs, carnet] = await Promise.all([
+      api('/eleves/' + eid + '/docs-a-signer'),
+      api('/eleves/' + eid + '/carnet').catch(() => []),
+    ]);
+    const pendingDocs = (docs || []).filter(d => !d.signe_at);
+    const pendingCar = (carnet || []).filter(c => !c.signe_at);
+    if (stats) {
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-4"><strong>${pendingDocs.length}</strong><span>Docs à signer</span></div>
+        <div class="stat-tile bento-span-4"><strong>${pendingCar.length}</strong><span>Carnet à signer</span></div>
+        <div class="stat-tile bento-span-4"><strong>${(docs || []).length}</strong><span>Docs total</span></div>`;
+    }
+    out.innerHTML = !pendingDocs.length
+      ? '<p class="empty">Aucun document en attente.</p>'
+      : `<table><thead><tr><th>Titre</th><th>Code</th><th></th></tr></thead>
+         <tbody>${pendingDocs.map(d => `<tr>
+           <td>${esc(d.titre)}</td><td class="muted">${esc(d.code)}</td>
+           <td><button type="button" class="primary btnEleveDoc" data-id="${esc(d.id)}">Signer</button></td>
+         </tr>`).join('')}</tbody></table>`;
+    out.querySelectorAll('.btnEleveDoc').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await api('/docs-a-signer/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
+          await bindEleveDocs();
+        } catch (err) { alert(err.message); }
+      };
+    });
+    if (carOut) {
+      carOut.innerHTML = !(carnet || []).length
+        ? '<p class="empty">Aucune entrée carnet.</p>'
+        : `<table><thead><tr><th>Date</th><th>Titre</th><th>Catégorie</th><th></th></tr></thead>
+           <tbody>${(carnet || []).map(c => `<tr>
+             <td>${esc(c.date_entree)}</td>
+             <td>${esc(c.titre)}</td>
+             <td class="muted">${esc(c.categorie || '—')}</td>
+             <td>${c.signe_at
+               ? '<span class="ok">signé</span>'
+               : `<button type="button" class="primary btnEleveCarDoc" data-id="${esc(c.id)}">Signer</button>`}</td>
+           </tr>`).join('')}</tbody></table>`;
+      carOut.querySelectorAll('.btnEleveCarDoc').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/carnet/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
+            await bindEleveDocs();
+          } catch (err) { alert(err.message); }
+        };
+      });
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+function viewEleveRepas() {
+  return shell('/eleve/repas', `
+    <div class="bento" id="eleveRepasStats"></div>
+    <div class="panel">
+      <h2>Mes repas</h2>
+      <p class="muted">Passages badge et menus publiés.</p>
+      <div class="row">
+        <label>Du <input id="eleveRepasDebut" type="date"/></label>
+        <label>Au <input id="eleveRepasFin" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnEleveRepas">Charger</button>
+      </div>
+      <div id="eleveRepasOut" class="muted" style="margin-top:.5rem">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h3>Dispenses / prévenances</h3>
+      <p class="muted">Jours non facturés déclarés par la famille ou l’établissement.</p>
+      <div id="eleveDispOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h3>Menus publiés</h3>
+      <div id="eleveMenusOut" class="muted">…</div>
+    </div>`);
+}
+
+async function bindEleveRepas() {
+  const out = document.getElementById('eleveRepasOut');
+  const menusOut = document.getElementById('eleveMenusOut');
+  const stats = document.getElementById('eleveRepasStats');
+  const debut = document.getElementById('eleveRepasDebut');
+  const fin = document.getElementById('eleveRepasFin');
+  const eid = me && me.eleve_id;
+  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  const d0 = new Date();
+  d0.setDate(d0.getDate() - 14);
+  if (debut && !debut.value) debut.value = d0.toISOString().slice(0, 10);
+  async function load() {
+    out.textContent = 'Chargement…';
+    try {
+      const [list, vol, menus] = await Promise.all([
+        api('/eleves/' + eid + '/repas/passages?debut='
+          + encodeURIComponent(debut.value) + '&fin=' + encodeURIComponent(fin.value)),
+        api('/eleves/' + eid + '/repas/volume?debut=' + encodeURIComponent(debut.value)
+          + '&fin=' + encodeURIComponent(fin.value) + '&kind=midi').catch(() => null),
+        api('/menus-cantine?debut=' + encodeURIComponent(debut.value)
+          + '&fin=' + encodeURIComponent(fin.value)).catch(() => []),
+      ]);
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Passages</span></div>
+          <div class="stat-tile bento-span-4"><strong>${vol ? vol.jours_facturables : '—'}</strong><span>Jours facturables</span></div>
+          <div class="stat-tile bento-span-4"><strong>${(menus || []).filter(m => m.publie).length}</strong><span>Menus publiés</span></div>`;
+      }
+      out.innerHTML = !list.length
+        ? '<p class="empty">Aucun passage sur la période.</p>'
+        : `<table><thead><tr><th>Jour</th><th>Badge</th><th>Source</th></tr></thead>
+           <tbody>${list.map(p => `<tr>
+             <td>${esc(p.jour)}</td>
+             <td>${esc(p.badge_lu || '—')}</td>
+             <td><span class="pill">${esc(p.source || '—')}</span></td>
+           </tr>`).join('')}</tbody></table>`;
+      if (menusOut) {
+        const publies = (menus || []).filter(m => m.publie);
+        menusOut.innerHTML = publies.length
+          ? `<table><thead><tr><th>Jour</th><th>Entrée</th><th>Plat</th><th>Dessert</th></tr></thead>
+             <tbody>${publies.map(m => `<tr>
+               <td>${esc(m.jour)}</td>
+               <td>${esc(m.entree || '—')}</td>
+               <td><strong>${esc(m.plat || '—')}</strong></td>
+               <td>${esc(m.dessert || '—')}</td>
+             </tr>`).join('')}</tbody></table>`
+          : '<p class="empty">Aucun menu publié.</p>';
+      }
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btn = document.getElementById('btnEleveRepas');
+  if (btn) btn.onclick = load;
+  if (debut) debut.onchange = load;
+  if (fin) fin.onchange = load;
+  await load();
+  const dispOut = document.getElementById('eleveDispOut');
+  if (dispOut) {
+    try {
+      const list = await api('/eleves/' + eid + '/repas/dispenses');
+      const actives = (list || []).filter(d => !d.annulee);
+      dispOut.innerHTML = !actives.length
+        ? '<p class="empty">Aucune dispense active.</p>'
+        : `<table><thead><tr><th>Jour</th><th>Motif</th><th>Source</th></tr></thead>
+           <tbody>${actives.map(d => `<tr>
+             <td>${esc(d.jour)}</td>
+             <td>${esc(d.motif || '—')}</td>
+             <td><span class="pill">${esc(d.source || '—')}</span></td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      dispOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+}
+
+function viewEleveNotes() {
+  return shell('/eleve/notes', `
+    <div class="panel">
+      <h2>Notes</h2>
+      <div class="row">
+        <label>Période <select id="eleveNotePeriode" style="min-width:12rem"></select></label>
+        <button type="button" id="btnEleveBulletin">Télécharger le bulletin</button>
+      </div>
+      <div id="eleveBulletinMsg" class="muted"></div>
+      <div id="eleveNotesOut" class="muted" style="margin-top:.5rem">Chargement…</div>
+      <h3 style="margin-top:1rem">Devoirs (classe)</h3>
+      <div id="eleveDevOut" class="muted">…</div>
+      <h3 style="margin-top:1rem">Moyennes</h3>
+      <div id="eleveMoyOut" class="muted">…</div>
+      <h3 style="margin-top:1rem">Appréciations</h3>
+      <div id="eleveAppOut" class="muted">…</div>
+      <h3 style="margin-top:1rem">Décisions de conseil</h3>
+      <div id="eleveConseilOut" class="muted">…</div>
+    </div>`);
+}
+
+async function bindEleveNotes() {
+  const eid = me && me.eleve_id;
+  const notesOut = document.getElementById('eleveNotesOut');
+  const devOut = document.getElementById('eleveDevOut');
+  const moyOut = document.getElementById('eleveMoyOut');
+  const appOut = document.getElementById('eleveAppOut');
+  const conseilOut = document.getElementById('eleveConseilOut');
+  if (!eid) {
+    notesOut.innerHTML = '<p class="empty">eleve_id manquant</p>';
+    return;
+  }
+  async function loadNotesAll() {
+  try {
+    const pid = (document.getElementById('eleveNotePeriode') || {}).value || '';
+    let notesUrl = '/eleves/' + eid + '/notes';
+    if (pid) notesUrl += '?periode_id=' + encodeURIComponent(pid);
+    const notes = await api(notesUrl);
+    notesOut.innerHTML = !notes.length
+      ? '<p class="empty">Aucune note.</p>'
+      : `<table><thead><tr><th>Date</th><th>Libellé</th><th>Note</th></tr></thead>
+         <tbody>${notes.map(n => `<tr>
+           <td>${esc(n.date_note || '—')}</td>
+           <td>${esc(n.libelle || '—')}</td>
+           <td><strong>${esc(String(n.valeur))}/${esc(String(n.sur || 20))}</strong></td>
+         </tr>`).join('')}</tbody></table>`;
+  } catch (e) {
+    notesOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+  try {
+    const periodes = await api('/note-periodes');
+    const sel = document.getElementById('eleveNotePeriode');
+    if (sel && !(sel.options && sel.options.length)) {
+      sel.innerHTML = (periodes || []).map(x =>
+        `<option value="${esc(x.id)}">${esc(x.code)} — ${esc(x.libelle)}</option>`
+      ).join('') || '<option value="">—</option>';
+      const ouverte = (periodes || []).find(x => x.statut === 'ouverte') || (periodes || [])[0];
+      if (ouverte) sel.value = ouverte.id;
+      sel.onchange = loadNotesAll;
+    }
+    const pidSel = (document.getElementById('eleveNotePeriode') || {}).value;
+    const p = (periodes || []).find(x => x.id === pidSel) || periodes.find(x => x.statut === 'ouverte') || periodes[0];
+    if (!p) {
+      if (devOut) devOut.innerHTML = '<p class="empty">Aucune période.</p>';
+      moyOut.innerHTML = '<p class="empty">Aucune période.</p>';
+      appOut.innerHTML = '<p class="empty">Aucune période.</p>';
+      return;
+    }
+    if (devOut) {
+      try {
+        const devoirs = await api('/eleves/' + eid + '/devoirs?periode_id=' + encodeURIComponent(p.id));
+        devOut.innerHTML = !devoirs.length
+          ? `<p class="empty">Aucun devoir (${esc(p.libelle)}).</p>`
+          : `<p class="muted">${esc(p.libelle)}</p>
+             <table><thead><tr><th>Titre</th><th>Date</th><th>Coef</th><th>Sur</th></tr></thead>
+             <tbody>${devoirs.map(d => `<tr>
+               <td><strong>${esc(d.titre)}</strong> · ${esc(d.classe)}</td>
+               <td>${esc(d.date_devoir)}</td>
+               <td>${esc(String(d.coef))}</td>
+               <td>${esc(String(d.sur))}</td>
+             </tr>`).join('')}</tbody></table>`;
+      } catch (e) {
+        devOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      }
+    }
+    const moy = await api('/eleves/' + eid + '/moyennes?periode_id=' + encodeURIComponent(p.id));
+    moyOut.innerHTML = moy.length
+      ? `<p class="muted">${esc(p.libelle)}</p><ul>${moy.map(m =>
+          `<li>${esc(m.matiere_libelle || 'Matière')} — ${Number(m.moyenne_sur_20).toFixed(1)} / 20</li>`
+        ).join('')}</ul>`
+      : `<p class="empty">Pas de moyenne (${esc(p.libelle)}).</p>`;
+    const apps = await api('/eleves/' + eid + '/appreciations?periode_id=' + encodeURIComponent(p.id));
+    appOut.innerHTML = apps.length
+      ? `<ul>${apps.map(a =>
+          `<li><span class="pill">${esc(a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'))}</span> ${esc(a.texte)}${a.auteur_label ? ' <span class="muted">· ' + esc(a.auteur_label) + '</span>' : ''}</li>`
+        ).join('')}</ul>`
+      : '<p class="empty">Aucune appréciation.</p>';
+  } catch (e) {
+    moyOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+  if (conseilOut) {
+    try {
+      const list = await api('/eleves/' + eid + '/conseils');
+      const vis = (list || []).filter(c => c.visible_famille !== false);
+      conseilOut.innerHTML = vis.length
+        ? `<ul>${vis.map(c =>
+            `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}${c.classe ? ' · ' + esc(c.classe) : ''}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucune décision visible. <a href="/eleve/vie-scolaire">Vie scolaire</a></p>';
+    } catch (e) {
+      conseilOut.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+    }
+  }
+  }
+  const btnBul = document.getElementById('btnEleveBulletin');
+  if (btnBul) {
+    btnBul.onclick = async () => {
+      const msg = document.getElementById('eleveBulletinMsg');
+      try {
+        const docs = await api('/eleves/' + eid + '/documents');
+        const bulletins = (docs || []).filter(d =>
+          d.accessible && (/bulletin/i.test(d.titre || '') || /bulletin/i.test(d.code || ''))
+        );
+        if (!bulletins.length) {
+          if (msg) msg.innerHTML = '<span class="bad">Aucun bulletin accessible</span>';
+          return;
+        }
+        const sel = document.getElementById('eleveNotePeriode');
+        const plabel = sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
+        let doc = bulletins[0];
+        if (plabel) {
+          const hit = bulletins.find(d => (d.titre || '').includes(plabel.split('—')[0].trim())
+            || (d.titre || '').toLowerCase().includes((plabel || '').toLowerCase().slice(0, 8)));
+          if (hit) doc = hit;
+        }
+        await downloadFile('/documents/' + doc.id + '/fichier', doc.titre || 'bulletin.pdf');
+        if (msg) msg.innerHTML = `<span class="ok">${esc(doc.titre)}</span>`;
+      } catch (err) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    };
+  }
+  await loadNotesAll();
+}
+
+function viewEleveEdt() {
+  return shell('/eleve/edt', `
+    <div class="bento" id="eleveEdtStats"></div>
+    <div class="panel">
+      <h2>Emploi du temps</h2>
+      <div class="row">
+        <label>Semaine (lundi) <input id="eleveEdtJour" type="date" value="${mondayOf(today())}"/></label>
+        <button type="button" class="primary" id="btnEleveEdt">Semaine</button>
+        <button type="button" id="btnEleveEdtPrev">←</button>
+        <button type="button" id="btnEleveEdtNext">→</button>
+        <button type="button" id="btnEleveEdtJour">Jour seul</button>
+      </div>
+      <div id="eleveVacBanner" class="muted" style="margin-top:.35rem"></div>
+      <div id="eleveEdtOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h3>Vacances / fermetures</h3>
+      <div id="eleveVacList" class="muted">…</div>
+    </div>`);
+}
+
+async function bindEleveEdt() {
+  const eid = me && me.eleve_id;
+  const out = document.getElementById('eleveEdtOut');
+  const stats = document.getElementById('eleveEdtStats');
+  const joursLib = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+  async function loadVacList() {
+    const box = document.getElementById('eleveVacList');
+    if (!box) return;
+    try {
+      const list = await api('/vacances');
+      box.innerHTML = !(list || []).length
+        ? '<p class="empty">Aucune période publiée.</p>'
+        : `<ul>${list.slice(0, 12).map(v =>
+            `<li><strong>${esc(v.libelle || v.kind || 'fermeture')}</strong> · ${esc(v.debut)} → ${esc(v.fin)}</li>`
+          ).join('')}</ul>`;
+    } catch (e) {
+      box.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+    }
+  }
+  async function loadJourSeul() {
+    if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+    const jour = document.getElementById('eleveEdtJour').value || today();
+    try {
+      const [list, ferme] = await Promise.all([
+        api('/eleves/' + eid + '/edt?jour=' + encodeURIComponent(jour)),
+        api('/vacances/jour-ferme?jour=' + encodeURIComponent(jour)).catch(() => ({ ferme: false })),
+      ]);
+      const ban = document.getElementById('eleveVacBanner');
+      if (ban) {
+        ban.innerHTML = ferme && ferme.ferme
+          ? '<p class="warn" style="margin:0">Jour fermé (vacances / férié)</p>'
+          : '';
+      }
+      if (stats) {
+        stats.innerHTML = `<div class="stat-tile bento-span-12"><strong>${list.length}</strong><span>Cours le ${esc(jour)}</span></div>`;
+      }
+      out.innerHTML = !list.length
+        ? '<p class="empty">Aucun créneau.</p>'
+        : `<ul>${list.map(c =>
+            `<li>${esc(c.heure_debut)}–${esc(c.heure_fin)} · ${esc(c.matiere_libelle)} · ${esc(c.salle || '—')}</li>`
+          ).join('')}</ul>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  async function load() {
+    if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+    const lundi = mondayOf(document.getElementById('eleveEdtJour').value || today());
+    document.getElementById('eleveEdtJour').value = lundi;
+    out.textContent = 'Chargement…';
+    try {
+      const jours = [0, 1, 2, 3, 4].map(i => addDaysIso(lundi, i));
+      const [lists, fermes] = await Promise.all([
+        Promise.all(jours.map(j =>
+          api('/eleves/' + eid + '/edt?jour=' + encodeURIComponent(j)).catch(() => [])
+        )),
+        Promise.all(jours.map(j =>
+          api('/vacances/jour-ferme?jour=' + encodeURIComponent(j)).catch(() => ({ jour: j, ferme: false }))
+        )),
+      ]);
+      const total = lists.reduce((s, l) => s + (l || []).length, 0);
+      const nFerme = fermes.filter(f => f && f.ferme).length;
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${total}</strong><span>Cours cette semaine</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nFerme}</strong><span>Jour(s) fermé(s)</span></div>
+          <div class="stat-tile bento-span-4"><strong>${esc(lundi)}</strong><span>Semaine du</span></div>`;
+      }
+      const ban = document.getElementById('eleveVacBanner');
+      if (ban) {
+        ban.innerHTML = nFerme
+          ? `<p class="warn" style="margin:0">${nFerme} jour(s) fermé(s) cette semaine</p>`
+          : '';
+      }
+      out.innerHTML = `<div class="edt-week">${jours.map((j, i) => {
+        const slots = [...(lists[i] || [])].sort((a, b) => String(a.heure_debut).localeCompare(String(b.heure_debut)));
+        const ferme = fermes[i] && fermes[i].ferme;
+        const body = slots.length
+          ? slots.map(c => `<div class="edt-slot">
+              <strong>${esc(c.heure_debut)}–${esc(c.heure_fin)}</strong>
+              <div>${esc(c.matiere_libelle)}</div>
+              <div class="muted">${esc(c.salle || '—')}</div>
+            </div>`).join('')
+          : '<p class="empty" style="margin:0;padding:.35rem 0">—</p>';
+        return `<div class="edt-day">
+          <div class="edt-day-head">${joursLib[i]} <span class="muted">${esc(j.slice(8, 10))}/${esc(j.slice(5, 7))}</span>
+            ${ferme ? ' <span class="pill">fermé</span>' : ''}</div>
+          ${body}
+        </div>`;
+      }).join('')}</div>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnEleveEdt').onclick = load;
+  document.getElementById('btnEleveEdtJour').onclick = loadJourSeul;
+  document.getElementById('btnEleveEdtPrev').onclick = () => {
+    document.getElementById('eleveEdtJour').value = addDaysIso(mondayOf(document.getElementById('eleveEdtJour').value), -7);
+    load();
+  };
+  document.getElementById('btnEleveEdtNext').onclick = () => {
+    document.getElementById('eleveEdtJour').value = addDaysIso(mondayOf(document.getElementById('eleveEdtJour').value), 7);
+    load();
+  };
+  document.getElementById('eleveEdtJour').onchange = load;
+  await loadVacList();
+  await load();
+}
+
+/* ---------- Accueil ---------- */
+function viewHome() {
+  const role = (me && me.role) || '';
+  const isAdminish = ['admin', 'direction', 'administratif'].includes(role);
+  let tiles = '';
+  if (role === 'prof') {
+    tiles = `
+      <a class="stat-tile bento-span-4" href="/app/appel"><strong>Appel</strong><span>Mes créneaux du jour</span></a>
+      <a class="stat-tile bento-span-4" href="/app/mon-edt"><strong>Mon EDT</strong><span>Semaine + ouvrir appel</span></a>
+      <a class="stat-tile bento-span-4" href="/app/cahier"><strong>Cahier</strong><span>Publier le travail</span></a>
+      <a class="stat-tile bento-span-4" href="/app/notes"><strong>Notes</strong><span>Saisie &amp; moyennes</span></a>
+      <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils familles</span></a>
+      <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Déclarer une absence</span></a>`;
+  } else if (role === 'cpe') {
+    tiles = `
+      <a class="stat-tile bento-span-4" href="/app/vs"><strong>Vie scolaire</strong><span>File du jour</span></a>
+      <a class="stat-tile bento-span-4" href="/app/appel"><strong>Appel</strong><span>Créneaux</span></a>
+      <a class="stat-tile bento-span-4" href="/app/absences"><strong>Absences</strong><span>Commissions &amp; incidents</span></a>
+      <a class="stat-tile bento-span-4" href="/app/alertes"><strong>Alertes</strong><span>Suivi CPE</span></a>
+      <a class="stat-tile bento-span-4" href="/app/editions"><strong>Éditions</strong><span>Convocs &amp; courriers</span></a>
+      <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils familles</span></a>`;
+  } else if (role === 'compta') {
+    tiles = `
+      <a class="stat-tile bento-span-4" href="/app/facturation"><strong>Facturation</strong><span>Factures &amp; SEPA</span></a>
+      <a class="stat-tile bento-span-4" href="/app/bourses"><strong>Bourses</strong><span>File à décider</span></a>
+      <a class="stat-tile bento-span-4" href="/app/cantine"><strong>Cantine</strong><span>Passages &amp; volumes</span></a>
+      <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; foyers</span></a>
+      <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>
+      <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Absences agents</span></a>`;
+  } else if (role === 'infirmerie') {
+    tiles = `
+      <a class="stat-tile bento-span-6" href="/app/infirmerie"><strong>Infirmerie</strong><span>Passages, PAI, fiches</span></a>
+      <a class="stat-tile bento-span-6" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>`;
+  } else if (role === 'psy') {
+    tiles = `
+      <a class="stat-tile bento-span-6" href="/app/psy"><strong>Psy</strong><span>Dossiers &amp; RDV</span></a>
+      <a class="stat-tile bento-span-6" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>`;
+  } else {
+    const lastHref = isAdminish ? '/app/inscriptions' : '/app/messages';
+    const lastTitle = isAdminish ? 'Inscriptions' : 'Messages';
+    const lastSub = isAdminish ? 'Arrivée + réinscription' : 'Fils familles';
+    tiles = `
+      <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Admin</strong><span>Élèves, foyers, adultes</span></a>
+      <a class="stat-tile bento-span-4" href="/app/vs"><strong>Vie scolaire</strong><span>File · appel · absences</span></a>
+      <a class="stat-tile bento-span-4" href="/app/notes"><strong>Pédagogie</strong><span>Notes, EDT, conseils</span></a>
+      <a class="stat-tile bento-span-4" href="/app/facturation"><strong>Famille</strong><span>Factu, cantine, internat</span></a>
+      <a class="stat-tile bento-span-4" href="/app/infirmerie"><strong>Santé</strong><span>Infirmerie / psy</span></a>
+      <a class="stat-tile bento-span-4" href="${lastHref}"><strong>${lastTitle}</strong><span>${lastSub}</span></a>`;
+  }
+  return shell('/app', `
+    <div class="bento" id="homePulse"></div>
+    <div class="bento">
+      <section class="panel bento-span-12">
+        <h2>ENT</h2>
+        <p class="muted" style="margin:0">Espace métier — vue adaptée au rôle <strong>${esc(role || 'staff')}</strong>.</p>
+      </section>
+      ${tiles}
+    </div>
+    <div class="panel" style="margin-top:.75rem">
+      <h3>À traiter aujourd’hui</h3>
+      <div id="homeTodo" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindHome() {
+  const pulse = document.getElementById('homePulse');
+  const todo = document.getElementById('homeTodo');
+  const jour = today();
+  const settle = (p, fallback) => p.then(v => v).catch(() => fallback);
+  const role = (me && me.role) || '';
+  const isAdminish = ['admin', 'direction', 'administratif'].includes(role);
+  const isVs = isAdminish || role === 'cpe';
+  const wantInsc = isAdminish;
+  const wantAlert = isVs;
+  const wantSort = isVs;
+  const wantDocs = isVs || isAdminish;
+  const wantGrants = isAdminish;
+  const INSC_HOME = ['dossier', 'pieces', 'entretien', 'decision', 'paiement'];
+  const [abs, sig, docs, fils, rh, alertes, sorties, grants, ...insByEtape] = await Promise.all([
+    settle(api('/vs/absences?jour=' + encodeURIComponent(jour)), []),
+    settle(api('/vs/signaux'), []),
+    wantDocs ? settle(api('/vs/docs-a-signer'), []) : Promise.resolve([]),
+    settle(api('/messages/fils'), []),
+    settle(api('/rh/absences?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour)), []),
+    wantAlert ? settle(api('/vs/alertes-cpe'), []) : Promise.resolve([]),
+    wantSort ? settle(api('/vs/sorties/demandes'), []) : Promise.resolve([]),
+    wantGrants ? settle(api('/documents/grants/pending'), []) : Promise.resolve([]),
+    ...(wantInsc
+      ? INSC_HOME.map(et => settle(api('/inscriptions/par-etape?etape=' + encodeURIComponent(et)), []))
+      : INSC_HOME.map(() => Promise.resolve([]))),
+  ]);
+  const nAbs = (abs || []).filter(a => a.statut === 'a_traiter' || a.statut === 'signalee').length;
+  const nSig = (sig || []).filter(s => s.statut === 'ouvert' || s.statut === 'en_cours').length;
+  const nDocs = (docs || []).filter(d => d.statut === 'a_signer').length;
+  const nMsg = (fils || []).reduce((s, f) => s + (f.nb_non_lus || 0), 0);
+  const nRh = (rh || []).filter(a => a.statut === 'signalee').length;
+  const nAlert = (alertes || []).length;
+  const nSort = (sorties || []).filter(d => {
+    const s = String(d.statut || '');
+    return s === 'en_attente' || s === 'demandee' || s === 'ouverte' || s === 'soumise';
+  }).length;
+  const nIns = INSC_HOME.reduce((s, _, i) => s + ((insByEtape[i] || []).length), 0);
+  const nGrants = (grants || []).length;
+  if (pulse) {
+    if (role === 'prof') {
+      pulse.innerHTML = `
+        <a class="stat-tile bento-span-3" href="/app/appel"><strong>·</strong><span>Faire l’appel</span></a>
+        <a class="stat-tile bento-span-3" href="/app/mon-edt"><strong>·</strong><span>Mon EDT</span></a>
+        <a class="stat-tile bento-span-3" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
+        <a class="stat-tile bento-span-3" href="/app/rh"><strong>${(rh || []).length}</strong><span>Mes absences RH</span></a>`;
+    } else if (role === 'compta') {
+      pulse.innerHTML = `
+        <a class="stat-tile bento-span-3" href="/app/facturation"><strong>·</strong><span>Facturation</span></a>
+        <a class="stat-tile bento-span-3" href="/app/bourses"><strong>·</strong><span>Bourses</span></a>
+        <a class="stat-tile bento-span-3" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
+        <a class="stat-tile bento-span-3" href="/app/cantine"><strong>·</strong><span>Cantine</span></a>`;
+    } else if (role === 'infirmerie' || role === 'psy') {
+      pulse.innerHTML = `
+        <a class="stat-tile bento-span-6" href="${role === 'psy' ? '/app/psy' : '/app/infirmerie'}"><strong>·</strong><span>${role === 'psy' ? 'Psy' : 'Infirmerie'}</span></a>
+        <a class="stat-tile bento-span-6" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>`;
+    } else {
+      pulse.innerHTML = `
+        <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
+        <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nSig}</strong><span>Signaux</span></a>
+        ${wantDocs ? `<a class="stat-tile bento-span-2" href="/app/docs-signer"><strong>${nDocs}</strong><span>Docs à signer</span></a>` : ''}
+        <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
+        ${wantSort ? `<a class="stat-tile bento-span-2" href="/app/sorties"><strong>${nSort}</strong><span>Sorties</span></a>` : ''}
+        ${wantInsc ? `<a class="stat-tile bento-span-2" href="/app/inscriptions"><strong>${nIns}</strong><span>Inscrip. actives</span></a>` : ''}
+        <a class="stat-tile bento-span-2" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
+        ${wantAlert ? `<a class="stat-tile bento-span-2" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>` : ''}
+        ${wantGrants ? `<a class="stat-tile bento-span-2" href="/app/etab"><strong>${nGrants}</strong><span>Grants docs</span></a>` : ''}
+        <a class="stat-tile bento-span-2" href="/app/appel"><strong>·</strong><span>Faire l’appel</span></a>
+        <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>`;
+    }
+  }
+  if (todo) {
+    const lines = [];
+    if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) à traiter</a></li>`);
+    if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
+    if (wantDocs && nDocs) lines.push(`<li><a href="/app/docs-signer">${nDocs} document(s) à signer</a></li>`);
+    if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
+    if (wantSort && nSort) lines.push(`<li><a href="/app/sorties">${nSort} demande(s) de sortie</a></li>`);
+    if (wantInsc) {
+      INSC_HOME.forEach((et, i) => {
+        const n = (insByEtape[i] || []).length;
+        if (n) {
+          lines.push(`<li><a href="/app/inscriptions?etape=${encodeURIComponent(et)}">${n} inscription(s) · ${esc(et)}</a></li>`);
+        }
+      });
+    }
+    if (nRh) lines.push(`<li><a href="/app/rh">${nRh} absence(s) RH à valider</a></li>`);
+    if (wantAlert && nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE</a></li>`);
+    if (wantGrants && nGrants) lines.push(`<li><a href="/app/etab">${nGrants} demande(s) d’accès document</a></li>`);
+    if (role === 'prof') {
+      lines.length = 0;
+      if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
+      lines.push('<li><a href="/app/appel">Faire l’appel du jour</a></li>');
+      lines.push('<li><a href="/app/mon-edt">Voir mon EDT</a></li>');
+    }
+    todo.innerHTML = lines.length
+      ? `<ul style="margin:0;padding-left:1.1rem">${lines.join('')}</ul>`
+      : '<p class="ok">Rien en file pour aujourd’hui — ou modules hors droits.</p>';
+  }
+}
+
+/* ---------- Portail famille ---------- */
+function viewFamilleHome() {
+  return shell('/famille', `
+    <div class="bento" id="famPulse"></div>
+    <div class="bento">
+      <section class="panel bento-span-12">
+        <h2>Espace famille</h2>
+        <p class="muted" style="margin:0">Absences, carnet, messages, factures — un enfant = une fiche.</p>
+      </section>
+      <a class="stat-tile bento-span-2" href="/famille/vie-scolaire"><strong>Vie scolaire</strong><span>Sanctions, commissions…</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/sante"><strong>Santé</strong><span>Fiche, PAI, infirmerie</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/messages"><strong>Messages</strong><span>Fils école ↔ famille</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/cahier"><strong>Cahier</strong><span>Travail à faire</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/factures"><strong>Factures</strong><span>Paiements</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/repas"><strong>Repas</strong><span>Passages cantine</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/sorties"><strong>Sorties</strong><span>Autorisations</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/journal"><strong>Journal</strong><span>Entrées visibles</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/internat"><strong>Internat</strong><span>Chambre &amp; présence</span></a>
+      <a class="stat-tile bento-span-2" href="/famille/reinscription"><strong>Réinscription</strong><span>Campagne N+1</span></a>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <h2>Mes enfants</h2>
+      <div id="enfantsOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel" style="margin-top:.75rem">
+      <h3>À faire</h3>
+      <div id="famTodo" class="muted">…</div>
+    </div>
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Mon contact</h3>
+      <p class="muted">Téléphone pour SMS vie scolaire / RH (self-service).</p>
+      <div class="row">
+        <label>Téléphone <input id="famTel" placeholder="06…" style="min-width:10rem"/></label>
+        <button type="button" class="primary" id="btnFamTel">Enregistrer</button>
+      </div>
+      <div id="famTelMsg" class="muted"></div>
+    </div>
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Notifications push (lab)</h3>
+      <p class="muted">Enregistre un token device pour ce compte famille (dry-run).</p>
+      <div class="row">
+        <label>Plateforme <select id="famPushPlat"><option value="web">web</option><option value="ios">ios</option><option value="android">android</option></select></label>
+        <label>Token <input id="famPushToken" value="lab-famille-token" style="min-width:12rem"/></label>
+        <button type="button" class="primary" id="btnFamPush">Enregistrer</button>
+      </div>
+      <div id="famPushMsg" class="muted"></div>
+    </div>`);
+}
+
+function viewFamilleEnfant(id) {
+  return shell('/famille', `
+    <div class="panel">
+      <div class="row"><a href="/famille">← Mes enfants</a></div>
+      <div id="enfantOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindFamilleHome() {
+  const out = document.getElementById('enfantsOut');
+  const pulse = document.getElementById('famPulse');
+  const todo = document.getElementById('famTodo');
+  try {
+    const list = await api('/famille/enfants');
+    if (!list.length) {
+      out.innerHTML = `<p class="empty">Aucun enfant lié à ce compte.</p>`;
+      if (pulse) pulse.innerHTML = '';
+      if (todo) todo.innerHTML = '<p class="empty">Aucun enfant.</p>';
+      return;
+    }
+    const [resumes, docsLists, fils, reinsc] = await Promise.all([
+      Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
+      Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
+      api('/messages/fils').catch(() => []),
+      api('/reinscription/famille').catch(() => null),
+    ]);
+    let nAbs = 0, nCarnet = 0, nDocs = 0;
+    const lines = [];
+    const rows = list.map((e, i) => {
+      const r = resumes[i] || {};
+      const abs = (r.absences_a_justifier || []).length;
+      const car = (r.carnet_a_signer || []).length;
+      const docs = (docsLists[i] || []).filter(d => d.statut === 'a_signer').length;
+      nAbs += abs;
+      nCarnet += car;
+      nDocs += docs;
+      if (abs) lines.push(`<li><a href="/famille/enfants/${e.id}?section=absences">${esc(e.prenom)} — ${abs} absence(s) à justifier</a></li>`);
+      if (car) lines.push(`<li><a href="/famille/enfants/${e.id}?section=carnet">${esc(e.prenom)} — ${car} carnet à signer</a></li>`);
+      if (docs) lines.push(`<li><a href="/famille/enfants/${e.id}?section=docs">${esc(e.prenom)} — ${docs} doc(s) à signer</a></li>`);
+      return `<tr>
+        <td><strong>${esc(e.prenom)} ${esc(e.nom)}</strong></td>
+        <td>${esc(e.classe || '—')}</td>
+        <td>${esc(e.lien)}</td>
+        <td>
+          ${abs ? `<span class="pill-unread">${abs} abs</span> ` : ''}
+          ${car ? `<span class="pill-unread">${car} carnet</span> ` : ''}
+          ${docs ? `<span class="pill-unread">${docs} docs</span> ` : ''}
+          ${!abs && !car && !docs ? '<span class="ok">à jour</span>' : ''}
+        </td>
+        <td>
+          <a href="/famille/enfants/${e.id}">Fiche</a>
+          · <a href="/famille/enfants/${e.id}?section=sorties">Sorties</a>
+          · <a href="/famille/enfants/${e.id}?section=pai">PAI</a>
+        </td>
+      </tr>`;
+    });
+    const nMsg = (fils || []).reduce((s, f) => s + (Number(f.nb_non_lus) || 0), 0);
+    if (nMsg) lines.push(`<li><a href="/famille/messages">${nMsg} message(s) non lu(s)</a></li>`);
+    const campOuverte = !!(reinsc && reinsc.campagne && reinsc.campagne.ouverte);
+    const nReinsc = campOuverte
+      ? ((reinsc.enfants || []).filter(x => !x.confirmee).length)
+      : 0;
+    if (nReinsc) {
+      lines.push(`<li><a href="/famille/reinscription">${nReinsc} réinscription(s) à finaliser</a></li>`);
+    } else if (campOuverte) {
+      lines.push(`<li><a href="/famille/reinscription">Campagne réinscription ouverte</a></li>`);
+    }
+    if (pulse) {
+      pulse.innerHTML = `
+        <div class="stat-tile bento-span-2"><strong>${list.length}</strong><span>Enfant(s)</span></div>
+        <div class="stat-tile bento-span-2"><strong>${nAbs}</strong><span>Abs. à justifier</span></div>
+        <div class="stat-tile bento-span-2"><strong>${nCarnet}</strong><span>Carnet</span></div>
+        <div class="stat-tile bento-span-2"><strong>${nDocs}</strong><span>Docs</span></div>
+        <div class="stat-tile bento-span-2"><strong>${nMsg}</strong><span>Msg non lus</span></div>
+        <a class="stat-tile bento-span-2" href="/famille/reinscription"><strong>${nReinsc || (campOuverte ? '·' : '—')}</strong><span>Réinscription</span></a>`;
+    }
+    out.innerHTML = `<table>
+      <thead><tr><th>Enfant</th><th>Classe</th><th>Lien</th><th>À traiter</th><th></th></tr></thead>
+      <tbody>${rows.join('')}</tbody></table>`;
+    if (todo) {
+      todo.innerHTML = lines.length
+        ? `<ul style="margin:0;padding-left:1.1rem">${lines.join('')}</ul>`
+        : '<p class="ok">Rien en attente.</p>';
+    }
+    const btnPush = document.getElementById('btnFamPush');
+    if (btnPush) {
+      btnPush.onclick = async () => {
+        const msg = document.getElementById('famPushMsg');
+        try {
+          const d = await api('/devices/push', {
+            method: 'POST',
+            body: JSON.stringify({
+              platform: document.getElementById('famPushPlat').value,
+              token: document.getElementById('famPushToken').value.trim() || 'lab-famille-token',
+              app_id: 'ent-famille-lab',
+            }),
+          });
+          if (msg) msg.innerHTML = `<span class="ok">Device ${esc(d.platform)} · ${esc(String(d.id || '').slice(0, 8))}</span>`;
+        } catch (err) {
+          if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+        }
+      };
+    }
+    const btnTel = document.getElementById('btnFamTel');
+    if (btnTel && me && me.user_id) {
+      btnTel.onclick = async () => {
+        const msg = document.getElementById('famTelMsg');
+        const tel = (document.getElementById('famTel') || {}).value.trim();
+        if (!tel) { if (msg) msg.innerHTML = '<span class="bad">Téléphone requis</span>'; return; }
+        try {
+          await api('/users/' + me.user_id + '/telephone', {
+            method: 'PUT',
+            body: JSON.stringify({ telephone: tel }),
+          });
+          if (msg) msg.innerHTML = '<span class="ok">Téléphone enregistré</span>';
+        } catch (err) {
+          if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+        }
+      };
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+async function bindFamilleEnfant(id) {
+  const out = document.getElementById('enfantOut');
+  try {
+    const [enfants, resume, dossier] = await Promise.all([
+      api('/famille/enfants'),
+      api('/famille/enfants/' + id + '/resume'),
+      api('/eleves/' + id + '/dossier').catch(() => null),
+    ]);
+    const e = enfants.find(x => x.id === id) || {};
+    let html = `<h2>${esc(e.prenom || '')} ${esc(e.nom || '')}</h2>
+      <p class="muted">${esc(e.classe || '')} · lien ${esc(e.lien || '')}</p>`;
+
+    // Absences à justifier
+    html += `<h3 id="fam-sec-absences">Absences à justifier</h3>`;
+    const abs = resume.absences_a_justifier || [];
+    if (!e.peut_justifier_absence && !e.peut_voir_vs) {
+      html += `<p class="empty">Pas le droit de voir / justifier les absences.</p>`;
+    } else if (!abs.length) {
+      html += `<p class="empty">Rien à justifier pour le moment.</p>`;
+    } else {
+      html += `<table><thead><tr><th>Période</th><th>Motif école</th><th>Justificatif</th><th></th></tr></thead><tbody>
+        ${abs.map(a => `<tr>
+          <td>${esc(a.debut)} → ${esc(a.fin)}</td>
+          <td>${esc(a.motif)}</td>
+          <td>${e.peut_justifier_absence
+            ? `<select class="famJustifMotif" data-for="${esc(a.id)}" style="min-width:8rem"><option value="maladie">Maladie</option></select>`
+            : '—'}</td>
+          <td>${e.peut_justifier_absence
+            ? `<button type="button" class="primary btnJustifFam" data-id="${esc(a.id)}">Justifier</button>`
+            : '<span class="muted">lecture seule</span>'}</td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    }
+
+    // Prévenir une absence
+    if (e.peut_justifier_absence) {
+      html += `<h3>Prévenir une absence</h3>
+        <div class="row">
+          <label>Du <input id="prevDebut" type="date" value="${today()}"/></label>
+          <label>Au <input id="prevFin" type="date" value="${today()}"/></label>
+          <label>Motif <select id="prevMotif"></select></label>
+          <button type="button" id="btnPrevenir">Envoyer</button>
+        </div>
+        <div id="prevMsg" class="muted"></div>`;
+    }
+
+    // Prévenance cantine (dispense jour)
+    const grilleFam = (dossier && dossier.grille_repas) || [];
+    if (grilleFam.length) {
+      const act0 = grilleFam[0].activite_id;
+      const disps = (dossier && dossier.dispenses_repas) || [];
+      html += `<h3>Prévenance cantine</h3>
+        <div class="row">
+          <label>Jour <input id="dispJour" type="date" value="${today()}"/></label>
+          <label>Motif <input id="dispMotif" value="sortie scolaire"/></label>
+          <input type="hidden" id="dispAct" value="${esc(act0)}"/>
+          <button type="button" id="btnDispense">Dispenser ce jour</button>
+        </div>
+        <div id="dispMsg" class="muted"></div>`;
+      if (disps.length) {
+        html += `<table style="margin-top:.5rem"><thead><tr><th>Jour</th><th>Motif</th><th></th></tr></thead>
+          <tbody>${disps.map(x => `<tr>
+            <td>${esc(x.jour)}</td><td>${esc(x.motif)}</td>
+            <td><button type="button" class="btnAnnulDisp" data-id="${esc(x.id)}">Annuler</button></td>
+          </tr>`).join('')}</tbody></table>`;
+      }
+    }
+
+    html += `<h3>Repas pointés (badge)</h3>
+      <div class="row">
+        <label>Du <input id="famRepasDebut" type="date"/></label>
+        <label>Au <input id="famRepasFin" type="date" value="${today()}"/></label>
+        <button type="button" id="btnFamRepas">Charger</button>
+        <button type="button" id="btnFamVol">Volume facturable</button>
+        <span id="famVolMsg" class="muted"></span>
+      </div>
+      <div id="famRepasOut" class="muted">…</div>`;
+
+    // Carnet (à signer + historique)
+    html += `<h3 id="fam-sec-carnet">Carnet</h3>`;
+    const carnet = resume.carnet_a_signer || [];
+    if (!e.peut_voir_vs) {
+      html += `<p class="empty">Carnet non visible (droit VS désactivé).</p>`;
+    } else if (!carnet.length) {
+      html += `<p class="empty">Aucune entrée en attente de signature.</p>`;
+    } else {
+      html += `<table><thead><tr><th>Date</th><th>Titre</th><th>Message</th><th></th></tr></thead><tbody>
+        ${carnet.map(c => `<tr>
+          <td>${esc(c.date_entree)}</td>
+          <td>${esc(c.titre)}</td>
+          <td>${esc(c.corps)}</td>
+          <td><button type="button" class="primary btnSigne" data-id="${esc(c.id)}">Signer</button></td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    }
+    html += `<div id="carnetHistoFam" class="muted" style="margin-top:.5rem">Chargement historique…</div>`;
+
+    // Notes (période sélectionnable)
+    html += `<h3>Notes</h3>`;
+    if (!e.peut_voir_notes) {
+      html += `<p class="empty">Notes non visibles pour ce lien.</p>`;
+    } else {
+      html += `<div class="row">
+        <label>Période <select id="famNotePeriode" style="min-width:12rem"></select></label>
+        <button type="button" id="btnFamBulletin">Télécharger le bulletin</button>
+      </div>
+      <div id="famBulletinMsg" class="muted"></div>
+      <div id="notesFamOut" class="muted" style="margin-top:.5rem">Chargement…</div>`;
+    }
+    const secOpts = dossier && dossier.sections && dossier.sections.options;
+    if (secOpts) {
+      html += `<h3 id="fam-sec-options">Options</h3><div id="optionsFamOut" class="muted">Chargement…</div>`;
+    }
+    html += `<h3>Devoirs</h3><div id="famDevOut" class="muted">…</div>`;
+
+    // PAI (signature famille)
+    html += `<h3 id="fam-sec-pai">PAI</h3><div id="paiFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Fiche santé</h3><div id="santeFamOut" class="muted">Chargement…</div>`;
+
+    html += `<h3 id="fam-sec-docs">Documents à signer</h3><div id="docsFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Documents / bulletins</h3>
+      <div class="row">
+        <label>Titre <input id="famDocTitre" value="Pièce famille"/></label>
+        <label>Code <input id="famDocCode" placeholder="bulletin" style="width:7rem"/></label>
+        <label>Fichier <input id="famDocFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.txt"/></label>
+        <button type="button" class="primary" id="btnFamDocDepot">Déposer</button>
+      </div>
+      <div id="famDocMsg" class="muted"></div>
+      <div id="docsTiroirFam" class="muted" style="margin-top:.5rem">Chargement…</div>`;
+    html += `<h3>Orientation (info-comp)</h3><div id="infoCompFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Sanctions</h3><div id="sanFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Incidents</h3><div id="incFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Commissions VS</h3><div id="comFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Suivi psy</h3><div id="psyFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Alertes CPE</h3><div id="alerteFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Internat</h3><div id="intFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Conseil de classe</h3><div id="conseilFamOut" class="muted">Chargement…</div>`;
+    html += `<h3 id="fam-sec-sorties">Sorties</h3><div id="sortieFamOut" class="muted">Chargement…</div>
+      <p class="muted"><a href="/famille/sorties">Ouvrir la page Sorties</a></p>`;
+    const secBourses = dossier && dossier.sections && dossier.sections.bourses;
+    const secCont = dossier && dossier.sections && dossier.sections.continuum;
+    if (secBourses) {
+      html += `<h3 id="fam-sec-bourses">Bourses</h3><div id="boursesFamOut" class="muted">Chargement…</div>`;
+    }
+    if (secCont) {
+      html += `<h3 id="fam-sec-continuum">Parcours scolaire</h3><div id="continuumFamOut" class="muted">Chargement…</div>`;
+    }
+    html += `<h3>Dispenses VS (EPS)</h3>
+      <div class="row">
+        <label>Début <input id="dvFamDebut" type="date" value="${today()}"/></label>
+        <label>Fin <input id="dvFamFin" type="date" value="${today()}"/></label>
+        <label>Commentaire <input id="dvFamCom" value="blessure légère" style="min-width:10rem"/></label>
+        <button type="button" class="primary" id="btnDvFamPose">Déclarer EPS</button>
+      </div>
+      <div id="dvFamMsg" class="muted"></div>
+      <div id="dvFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Moyennes</h3><div id="moyFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Appréciations</h3><div id="appFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Photo</h3>
+      <div class="row">
+        <label>Fichier <input id="famPhotoFile" type="file" accept="image/png,image/jpeg,image/jpg"/></label>
+        <button type="button" class="primary" id="btnFamPhotoUp">Déposer</button>
+        <button type="button" id="btnFamPhotoDemo">PNG démo</button>
+      </div>
+      <div id="photoFamMsg" class="muted"></div>
+      <div id="photoFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Passages infirmière</h3><div id="infFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Permis à points</h3><div id="ptsFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Menus cantine</h3><div id="menusFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>EDT du jour</h3><div id="edtFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Stages</h3><div id="stagesFamOut" class="muted">Chargement…</div>`;
+    html += `<h3>Vœux</h3>
+      <div class="row">
+        <label>Filière <select id="famVoeFil" style="min-width:12rem"></select></label>
+        <label>Rang <input id="famVoeRang" type="number" value="1" min="1" max="10" style="width:4rem"/></label>
+        <label>Année <input id="famVoeAnnee" value="2026-2027" style="width:7rem"/></label>
+        <button type="button" class="primary" id="btnFamVoePose">Poser</button>
+      </div>
+      <div id="famVoeMsg" class="muted"></div>
+      <div id="voeuxFamOut" class="muted" style="margin-top:.5rem">Chargement…</div>`;
+    html += `<h3>Journal</h3><div id="jourFamOut" class="muted">Chargement…</div>`;
+
+    if (dossier && dossier.sections) {
+      html += `<p class="muted" style="margin-top:1rem">Dossier famille — sections ci-dessus (absences, carnet, notes, PAI…).</p>`;
+    }
+
+    out.innerHTML = html;
+
+    const repasDebut = document.getElementById('famRepasDebut');
+    const repasFin = document.getElementById('famRepasFin');
+    if (repasDebut && repasFin) {
+      const d0 = new Date();
+      d0.setDate(d0.getDate() - 14);
+      repasDebut.value = d0.toISOString().slice(0, 10);
+      async function loadFamRepas() {
+        const box = document.getElementById('famRepasOut');
+        box.textContent = 'Chargement…';
+        try {
+          const list = await api('/eleves/' + id + '/repas/passages?debut='
+            + encodeURIComponent(repasDebut.value)
+            + '&fin=' + encodeURIComponent(repasFin.value));
+          if (!list.length) {
+            box.innerHTML = '<p class="empty">Aucun passage badge sur cette période.</p>';
+            return;
+          }
+          box.innerHTML = `<table><thead><tr><th>Jour</th><th>Badge</th><th>Source</th></tr></thead>
+            <tbody>${list.map(p => `<tr>
+              <td>${esc(p.jour)}</td>
+              <td>${esc(p.badge_lu || '—')}</td>
+              <td><span class="pill">${esc(p.source || '—')}</span></td>
+            </tr>`).join('')}</tbody></table>
+            <p class="muted">${list.length} passage(s)</p>`;
+        } catch (err) {
+          box.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
+        }
+      }
+      document.getElementById('btnFamRepas').onclick = loadFamRepas;
+      repasDebut.onchange = loadFamRepas;
+      repasFin.onchange = loadFamRepas;
+      const btnVol = document.getElementById('btnFamVol');
+      if (btnVol) {
+        btnVol.onclick = async () => {
+          const msg = document.getElementById('famVolMsg');
+          try {
+            const vol = await api('/eleves/' + id + '/repas/volume?debut=' + encodeURIComponent(repasDebut.value)
+              + '&fin=' + encodeURIComponent(repasFin.value) + '&kind=midi');
+            msg.innerHTML = `<span class="ok">${vol.jours_facturables} jour(s) facturables midi</span>`;
+          } catch (err) {
+            msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+      await loadFamRepas();
+    }
+
+    try {
+      const santeBox = document.getElementById('santeFamOut');
+      if (santeBox) {
+        try {
+          const f = await api('/eleves/' + id + '/fiche-sante');
+          santeBox.innerHTML = `
+            <p class="muted">Allergies, traitements, contacts — le PAI clinique reste géré par l’infirmerie.</p>
+            <div class="row">
+              <label style="flex:1">Allergies <input id="santeFamAll" style="width:100%" value="${esc((f && f.allergies) || '')}"/></label>
+            </div>
+            <div class="row">
+              <label style="flex:1">Traitements <input id="santeFamTrait" style="width:100%" value="${esc((f && f.traitements) || '')}"/></label>
+            </div>
+            <div class="row">
+              <label style="flex:1">Contre-indications <input id="santeFamContre" style="width:100%" value="${esc((f && f.contre_indications) || '')}"/></label>
+            </div>
+            <div class="row">
+              <label>Médecin <input id="santeFamMed" value="${esc((f && f.medecin_nom) || '')}"/></label>
+              <label>Tél. urgence <input id="santeFamUrg" value="${esc((f && f.urgence_tel) || '')}"/></label>
+              <button type="button" class="primary" id="btnSanteFamSave">Enregistrer</button>
+              <button type="button" id="btnSanteFamPdf">PDF</button>
+            </div>
+            <p class="muted">PAI : ${f && f.pai_actif ? '<span class="warn">actif</span>' : 'non'}</p>
+            <div id="santeFamMsg" class="muted"></div>`;
+          const btnSave = document.getElementById('btnSanteFamSave');
+          if (btnSave) {
+            btnSave.onclick = async () => {
+              const msg = document.getElementById('santeFamMsg');
+              try {
+                await api('/eleves/' + id + '/fiche-sante', {
+                  method: 'PUT',
+                  body: JSON.stringify({
+                    allergies: document.getElementById('santeFamAll').value,
+                    traitements: document.getElementById('santeFamTrait').value,
+                    contre_indications: document.getElementById('santeFamContre').value,
+                    medecin_nom: document.getElementById('santeFamMed').value || null,
+                    urgence_tel: document.getElementById('santeFamUrg').value || null,
+                    pai_actif: !!(f && f.pai_actif),
+                    note_confidentielle: '',
+                  }),
+                });
+                msg.innerHTML = '<span class="ok">Fiche santé enregistrée</span>';
+              } catch (err) {
+                msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+              }
+            };
+          }
+          const btnPdf = document.getElementById('btnSanteFamPdf');
+          if (btnPdf) {
+            btnPdf.onclick = async () => {
+              try {
+                await downloadPdf('/eleves/' + id + '/fiche-sante.pdf', 'fiche-sante.pdf');
+              } catch (err) { alert(err.message); }
+            };
+          }
+        } catch (err) {
+          santeBox.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+        }
+      }
+    } catch (_) { /* ignore */ }
+
+    try {
+      const pai = await api('/eleves/' + id + '/pai');
+      const box = document.getElementById('paiFamOut');
+      if (!pai) {
+        box.innerHTML = '<p class="empty">Aucun PAI actif.</p>';
+      } else {
+        let piecesHtml = '';
+        try {
+          const pieces = await api('/eleves/' + id + '/pai/pieces');
+          if (pieces.length) {
+            piecesHtml = `<ul>${pieces.map(x =>
+              `<li><button type="button" class="btnDlPai" data-pid="${x.id}" data-nom="${esc(x.nom)}">${esc(x.nom)}</button> (${x.taille_octets} o)</li>`
+            ).join('')}</ul>`;
+          }
+        } catch (_) { /* ignore */ }
+        box.innerHTML = `<p><strong>${esc(pai.motif)}</strong> · du ${esc(pai.date_debut)}${pai.date_fin ? ' au ' + esc(pai.date_fin) : ''}</p>
+          <p>${esc(pai.mesures_accueil)}</p>
+          ${pai.protocole_urgence ? `<p class="muted">Urgence : ${esc(pai.protocole_urgence)}</p>` : ''}
+          ${piecesHtml}
+          <div class="row" style="margin-top:.5rem">
+            <input type="file" id="paiFamFile" accept=".pdf,image/*"/>
+            <button type="button" id="btnPaiFamPiece">Joindre ordonnance</button>
+          </div>
+          <div id="paiFamUploadMsg" class="muted"></div>
+          ${pai.signe_famille
+            ? `<p class="ok">Signé le ${esc(pai.signe_famille_at || '')}</p>`
+            : `<button type="button" class="primary" id="btnSignePai">J'ai pris connaissance du PAI</button>
+               <div id="paiFamMsg" class="muted"></div>`}`;
+        const btn = document.getElementById('btnSignePai');
+        if (btn) {
+          btn.onclick = async () => {
+            const msg = document.getElementById('paiFamMsg');
+            try {
+              await api('/eleves/' + id + '/pai/signer', { method: 'POST', body: '{}' });
+              await bindFamilleEnfant(id);
+            } catch (err) {
+              msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+            }
+          };
+        }
+        const btnPiece = document.getElementById('btnPaiFamPiece');
+        if (btnPiece) {
+          btnPiece.onclick = async () => {
+            const msg = document.getElementById('paiFamUploadMsg');
+            const file = document.getElementById('paiFamFile').files[0];
+            if (!file) { msg.innerHTML = '<span class="bad">fichier requis</span>'; return; }
+            try {
+              const buf = await file.arrayBuffer();
+              const bytes = new Uint8Array(buf);
+              let bin = '';
+              for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+              const b64 = btoa(bin);
+              const d = await api('/eleves/' + id + '/pai/pieces', {
+                method: 'POST',
+                body: JSON.stringify({
+                  nom: file.name,
+                  mime_type: file.type || 'application/pdf',
+                  contenu_base64: b64,
+                }),
+              });
+              msg.innerHTML = `<span class="ok">${esc(d.nom)} joint (${d.taille_octets} o)</span>`;
+              await bindFamilleEnfant(id);
+            } catch (err) {
+              msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+            }
+          };
+        }
+        box.querySelectorAll('.btnDlPai').forEach(b => {
+          b.onclick = async () => {
+            try {
+              await downloadFile('/pai/pieces/' + b.dataset.pid, b.dataset.nom || 'ordonnance.pdf');
+            } catch (err) { alert(err.message); }
+          };
+        });
+      }
+    } catch (err) {
+      const box = document.getElementById('paiFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    let motifOptsFam = '<option value="maladie" selected>Maladie</option>';
+    try {
+      const motifs = await api('/motifs-absence');
+      motifOptsFam = motifs.map(m =>
+        `<option value="${esc(m.code)}"${m.code === 'maladie' ? ' selected' : ''}>${esc(m.libelle)}</option>`
+      ).join('') || motifOptsFam;
+    } catch { /* défaut maladie */ }
+    out.querySelectorAll('.famJustifMotif').forEach(sel => { sel.innerHTML = motifOptsFam; });
+    out.querySelectorAll('.btnJustifFam').forEach(btn => {
+      btn.onclick = async () => {
+        const sel = out.querySelector('.famJustifMotif[data-for="' + btn.dataset.id + '"]');
+        const motif = (sel && sel.value) || 'maladie';
+        try {
+          await api('/absences/' + btn.dataset.id + '/justifier', {
+            method: 'POST', body: JSON.stringify({ motif_justif: motif }),
+          });
+          await bindFamilleEnfant(id);
+        } catch (err) { alert(err.message); }
+      };
+    });
+    out.querySelectorAll('.btnSigne').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await api('/carnet/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
+          await bindFamilleEnfant(id);
+        } catch (err) { alert(err.message); }
+      };
+    });
+    try {
+      const histoBox = document.getElementById('carnetHistoFam');
+      if (histoBox && e.peut_voir_vs) {
+        const all = await api('/eleves/' + id + '/carnet');
+        const signed = (all || []).filter(c => c.signe_at);
+        histoBox.innerHTML = !signed.length
+          ? '<p class="empty">Aucun historique signé.</p>'
+          : `<p class="muted" style="margin:.35rem 0">Historique signé (${signed.length})</p>
+             <table><thead><tr><th>Date</th><th>Titre</th><th>Signé</th></tr></thead>
+             <tbody>${signed.slice(0, 20).map(c => `<tr>
+               <td>${esc(c.date_entree)}</td>
+               <td>${esc(c.titre)}</td>
+               <td class="ok">${esc((c.signe_at || '').slice(0, 16).replace('T', ' '))}</td>
+             </tr>`).join('')}</tbody></table>`;
+      } else if (histoBox) {
+        histoBox.innerHTML = '';
+      }
+    } catch (err) {
+      const histoBox = document.getElementById('carnetHistoFam');
+      if (histoBox) histoBox.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+    const prevMotif = document.getElementById('prevMotif');
+    if (prevMotif) {
+      prevMotif.innerHTML = motifOptsFam;
+    }
+    const btnPrev = document.getElementById('btnPrevenir');
+    if (btnPrev) {
+      btnPrev.onclick = async () => {
+        const msg = document.getElementById('prevMsg');
+        try {
+          await api('/eleves/' + id + '/absences', {
+            method: 'POST',
+            body: JSON.stringify({
+              debut: document.getElementById('prevDebut').value,
+              fin: document.getElementById('prevFin').value,
+              motif: document.getElementById('prevMotif').value.trim() || 'maladie',
+            }),
+          });
+          msg.innerHTML = `<span class="ok">Absence déclarée — la vie scolaire la traitera.</span>`;
+          await bindFamilleEnfant(id);
+        } catch (err) {
+          msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+        }
+      };
+    }
+    const btnDisp = document.getElementById('btnDispense');
+    if (btnDisp) {
+      btnDisp.onclick = async () => {
+        const msg = document.getElementById('dispMsg');
+        try {
+          await api('/eleves/' + id + '/repas/dispenses', {
+            method: 'POST',
+            body: JSON.stringify({
+              activite_id: document.getElementById('dispAct').value,
+              jour: document.getElementById('dispJour').value,
+              motif: document.getElementById('dispMotif').value.trim() || 'prévenance',
+            }),
+          });
+          msg.innerHTML = `<span class="ok">Dispense enregistrée — jour non facturé.</span>`;
+          await bindFamilleEnfant(id);
+        } catch (err) {
+          msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+        }
+      };
+    }
+    out.querySelectorAll('.btnAnnulDisp').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await api('/eleves/' + id + '/repas/dispenses/' + btn.dataset.id + '/annuler', {
+            method: 'POST', body: '{}',
+          });
+          await bindFamilleEnfant(id);
+        } catch (err) { alert(err.message); }
+      };
+    });
+
+    try {
+      const docs = await api('/eleves/' + id + '/docs-a-signer');
+      const box = document.getElementById('docsFamOut');
+      const pending = (docs || []).filter(d => !d.signe_at);
+      if (!pending.length) {
+        box.innerHTML = '<p class="empty">Aucun document en attente.</p>';
+      } else {
+        box.innerHTML = `<table><thead><tr><th>Titre</th><th>Code</th><th></th></tr></thead>
+          <tbody>${pending.map(d => `<tr>
+            <td>${esc(d.titre)}</td><td class="muted">${esc(d.code)}</td>
+            <td><button type="button" class="primary btnDocFam" data-id="${esc(d.id)}">Signer</button></td>
+          </tr>`).join('')}</tbody></table>`;
+        box.querySelectorAll('.btnDocFam').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/docs-a-signer/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
+              await bindFamilleEnfant(id);
+            } catch (err) { alert(err.message); }
+          };
+        });
+      }
+    } catch (err) {
+      const box = document.getElementById('docsFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    async function loadFamDocsTiroir() {
+      const box = document.getElementById('docsTiroirFam');
+      if (!box) return;
+      try {
+        const list = await api('/eleves/' + id + '/documents');
+        const shown = list || [];
+        box.innerHTML = !shown.length
+          ? '<p class="empty">Aucun document.</p>'
+          : `<table><thead><tr><th>Titre</th><th>Code</th><th>Tiroir</th><th>État</th><th></th></tr></thead>
+             <tbody>${shown.map(d => `<tr>
+               <td>${esc(d.titre)}</td>
+               <td class="muted">${esc(d.code || '—')}</td>
+               <td><span class="pill">${esc(d.tiroir || '—')}</span></td>
+               <td>${d.accessible ? '<span class="ok">accessible</span>' : '<span class="bad">verrouillé</span>'}</td>
+               <td>${d.accessible
+                 ? `<button type="button" class="btnFamDocDl" data-id="${esc(d.id)}" data-titre="${esc(d.titre)}">Télécharger</button>`
+                 : `<button type="button" class="btnFamDocGrant" data-id="${esc(d.id)}">Demander un accès</button>`}</td>
+             </tr>`).join('')}</tbody></table>
+             <p class="muted">${shown.length} document(s)</p>`;
+        box.querySelectorAll('.btnFamDocDl').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'document');
+            } catch (err) { alert(err.message); }
+          };
+        });
+        box.querySelectorAll('.btnFamDocGrant').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/documents/' + btn.dataset.id + '/grants', {
+                method: 'POST',
+                body: JSON.stringify({ duration_days: 14, note: 'besoin de lecture (famille)' }),
+              });
+              alert('Demande envoyée à l’administration');
+              await loadFamDocsTiroir();
+            } catch (err) { alert(err.message); }
+          };
+        });
+      } catch (err) {
+        box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+      }
+    }
+    await loadFamDocsTiroir();
+    const btnFamDoc = document.getElementById('btnFamDocDepot');
+    if (btnFamDoc) {
+      btnFamDoc.onclick = async () => {
+        const msg = document.getElementById('famDocMsg');
+        const file = (document.getElementById('famDocFile') || {}).files
+          && document.getElementById('famDocFile').files[0];
+        let titre = (document.getElementById('famDocTitre') || {}).value.trim();
+        if (!titre && file) titre = file.name;
+        if (!titre) { msg.innerHTML = '<span class="bad">Titre ou fichier requis</span>'; return; }
+        const mime = file ? (file.type || 'application/octet-stream') : 'application/pdf';
+        try {
+          const body = {
+            titre,
+            tiroir: 'famille',
+            confidentialite: 'standard',
+            code: (document.getElementById('famDocCode') || {}).value.trim() || null,
+            mime_type: mime,
+          };
+          if (file) body.contenu_base64 = await fileToBase64(file);
+          const d = await api('/eleves/' + id + '/documents', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          msg.innerHTML = `<span class="ok">Déposé · ${esc(d.titre)}</span>`;
+          if (document.getElementById('famDocFile')) document.getElementById('famDocFile').value = '';
+          await loadFamDocsTiroir();
+        } catch (err) {
+          msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+        }
+      };
+    }
+
+    try {
+      const pack = await api('/eleves/' + id + '/info-comp');
+      const box = document.getElementById('infoCompFamOut');
+      if (box) {
+        const champs = (pack && pack.champs) || [];
+        const vals = (pack && pack.valeurs) || [];
+        const byChamp = Object.fromEntries(vals.map(v => [v.champ_id, v]));
+        if (!champs.length) {
+          box.innerHTML = '<p class="empty">Aucun champ visible famille.</p>';
+        } else {
+          box.innerHTML = champs.map(c => {
+            const cur = byChamp[c.id];
+            return `<div class="row" style="margin:.35rem 0">
+              <label style="flex:1">${esc(c.libelle || c.code)}
+                <input class="famIcVal" data-cid="${esc(c.id)}" value="${esc((cur && cur.valeur) || '')}" style="width:100%"/>
+              </label>
+              <button type="button" class="btnFamIcSave" data-cid="${esc(c.id)}">OK</button>
+            </div>`;
+          }).join('') + '<div id="famIcMsg" class="muted"></div>';
+          box.querySelectorAll('.btnFamIcSave').forEach(btn => {
+            btn.onclick = async () => {
+              const msg = document.getElementById('famIcMsg');
+              const inp = box.querySelector('.famIcVal[data-cid="' + btn.dataset.cid + '"]');
+              try {
+                await api('/eleves/' + id + '/info-comp', {
+                  method: 'PUT',
+                  body: JSON.stringify({
+                    champ_id: btn.dataset.cid,
+                    valeur: (inp && inp.value) || '',
+                  }),
+                });
+                msg.innerHTML = '<span class="ok">Enregistré</span>';
+              } catch (err) {
+                msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+              }
+            };
+          });
+        }
+      }
+    } catch (err) {
+      const box = document.getElementById('infoCompFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/sanctions');
+      const box = document.getElementById('sanFamOut');
+      if (!e.peut_voir_vs) {
+        box.innerHTML = '<p class="empty">Vie scolaire non visible pour ce lien.</p>';
+      } else if (!list.length) {
+        box.innerHTML = '<p class="empty">Aucune sanction.</p>';
+      } else {
+        box.innerHTML = `<ul>${list.map(s =>
+          `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}${s.duree_minutes ? ' · ' + s.duree_minutes + ' min' : ''}${s.note ? ' — ' + esc(s.note) : ''}</li>`
+        ).join('')}</ul>`;
+      }
+    } catch (err) {
+      const box = document.getElementById('sanFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/incidents');
+      const box = document.getElementById('incFamOut');
+      if (!e.peut_voir_vs) {
+        box.innerHTML = '<p class="empty">Vie scolaire non visible pour ce lien.</p>';
+      } else if (!list.length) {
+        box.innerHTML = '<p class="empty">Aucun incident.</p>';
+      } else {
+        box.innerHTML = `<ul>${list.map(i =>
+          `<li>${esc(i.jour)}${i.type_label ? ' · ' + esc(i.type_label) : ''}${i.description ? ' — ' + esc(i.description) : ''}</li>`
+        ).join('')}</ul>`;
+      }
+    } catch (err) {
+      const box = document.getElementById('incFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/commissions');
+      const box = document.getElementById('comFamOut');
+      const visibles = (list || []).filter(d => d.signale_famille);
+      box.innerHTML = visibles.length
+        ? `<ul>${visibles.map(d =>
+            `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.points_retires ? ' · −' + d.points_retires + ' pts' : ''}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucune commission signalée.</p>';
+    } catch (err) {
+      const box = document.getElementById('comFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const box = document.getElementById('psyFamOut');
+      let h = '';
+      try {
+        const d = await api('/eleves/' + id + '/dossier-psy');
+        if (d && d.signale_famille) {
+          h += `<p><strong>Suivi actif:</strong> ${d.suivi_actif ? 'oui' : 'non'}</p>`;
+          if (d.axes_suivi) h += `<p>${esc(d.axes_suivi)}</p>`;
+        } else {
+          h += '<p class="empty">Aucun dossier psy signalé à la famille.</p>';
+        }
+      } catch (_) {
+        h += '<p class="empty">Aucun dossier psy visible.</p>';
+      }
+      try {
+        const rdvs = await api('/psy/rdvs?eleve_id=' + encodeURIComponent(id));
+        const vis = (rdvs || []).filter(r => r.signale_famille);
+        if (vis.length) {
+          h += `<h4>RDV</h4><ul>${vis.map(r =>
+            `<li>${esc(r.jour)} ${esc(r.heure_debut)}–${esc(r.heure_fin)} · ${esc(r.kind_libelle || r.kind)} · ${esc(r.statut)}</li>`
+          ).join('')}</ul>`;
+        }
+      } catch (_) { /* ignore */ }
+      box.innerHTML = h;
+    } catch (err) {
+      const box = document.getElementById('psyFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/alertes-cpe');
+      const box = document.getElementById('alerteFamOut');
+      box.innerHTML = list.length
+        ? `<ul>${list.map(a =>
+            `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucune alerte.</p>';
+    } catch (err) {
+      const box = document.getElementById('alerteFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const r = await api('/eleves/' + id + '/internat?jour=' + encodeURIComponent(today()));
+      const box = document.getElementById('intFamOut');
+      if (!r.chambre && !(r.suivis || []).length && !r.presence_du_jour) {
+        box.innerHTML = '<p class="empty">Pas d’internat pour cet enfant.</p>';
+      } else {
+        let h = '';
+        if (r.chambre) h += `<p>Chambre ${esc(r.chambre.code)} — bât. ${esc(r.chambre.batiment)} ét. ${r.chambre.etage}</p>`;
+        if (r.presence_du_jour) h += `<p class="muted">Présence ${esc(r.presence_du_jour.jour)} : ${esc(r.presence_du_jour.statut)}</p>`;
+        if ((r.suivis || []).length) {
+          h += `<ul>${r.suivis.map(s => `<li>${esc(s.jour)} — ${esc(s.texte)}</li>`).join('')}</ul>`;
+        }
+        box.innerHTML = h;
+      }
+    } catch (err) {
+      const box = document.getElementById('intFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/conseils');
+      const box = document.getElementById('conseilFamOut');
+      const vis = (list || []).filter(c => c.visible_famille !== false);
+      box.innerHTML = vis.length
+        ? `<ul>${vis.map(c =>
+            `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucune décision visible.</p>';
+    } catch (err) {
+      const box = document.getElementById('conseilFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const recap = await api('/eleves/' + id + '/sorties');
+      const box = document.getElementById('sortieFamOut');
+      const a = recap.autorisation;
+      let sHtml = a
+        ? `<p>Permanent — matin ${a.matin ? 'oui' : 'non'} · midi ${a.midi ? 'oui' : 'non'} · soir ${a.soir ? 'oui' : 'non'}${a.interdit_etablissement ? ' · <span class="bad">interdit</span>' : ''}</p>`
+        : '<p class="empty">Pas d’autorisation permanente.</p>';
+      if (!a || !a.interdit_etablissement) {
+        sHtml += `<div class="row">
+          <label><input type="checkbox" id="famSortieMidi" ${a && a.midi ? 'checked' : ''}/> Midi</label>
+          <label><input type="checkbox" id="famSortieSoir" ${a && a.soir ? 'checked' : ''}/> Soir</label>
+          <button type="button" id="btnFamSortieSave">Enregistrer</button>
+          <button type="button" id="btnFamSortieDem">Demande exceptionnelle (matin)</button>
+        </div>
+        <div id="famSortieMsg" class="muted"></div>`;
+      }
+      const dem = recap.demandes_ouvertes || [];
+      if (dem.length) {
+        sHtml += `<ul>${dem.map(d => `<li>${esc(d.jour)} ${esc(d.creneau)} — ${esc(d.statut)} · ${esc(d.motif)}</li>`).join('')}</ul>`;
+      }
+      box.innerHTML = sHtml;
+      const btnSave = document.getElementById('btnFamSortieSave');
+      if (btnSave) {
+        btnSave.onclick = async () => {
+          const msg = document.getElementById('famSortieMsg');
+          try {
+            await api('/eleves/' + id + '/sorties', {
+              method: 'PUT',
+              body: JSON.stringify({
+                matin: false,
+                midi: document.getElementById('famSortieMidi').checked,
+                soir: document.getElementById('famSortieSoir').checked,
+                interdit_etablissement: false,
+              }),
+            });
+            msg.innerHTML = '<span class="ok">Autorisation enregistrée</span>';
+            await bindFamilleEnfant(id);
+          } catch (err) {
+            msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+      const btnDem = document.getElementById('btnFamSortieDem');
+      if (btnDem) {
+        btnDem.onclick = async () => {
+          const msg = document.getElementById('famSortieMsg');
+          try {
+            await api('/eleves/' + id + '/sorties/demandes', {
+              method: 'POST',
+              body: JSON.stringify({
+                jour: today(),
+                creneau: 'matin',
+                motif: 'RDV médical',
+              }),
+            });
+            msg.innerHTML = '<span class="ok">Demande envoyée</span>';
+            await bindFamilleEnfant(id);
+          } catch (err) {
+            msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+    } catch (err) {
+      const box = document.getElementById('sortieFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/dispenses-vs');
+      const box = document.getElementById('dvFamOut');
+      if (box) {
+        box.innerHTML = !list.length
+          ? '<p class="empty">Aucune dispense VS.</p>'
+          : `<ul>${list.map(d =>
+              `<li><span class="pill">${esc(d.motif)}</span> ${esc(d.debut)} → ${esc(d.fin)} · ${esc(d.statut)}${d.commentaire ? ' — ' + esc(d.commentaire) : ''}</li>`
+            ).join('')}</ul>`;
+      }
+      const btn = document.getElementById('btnDvFamPose');
+      if (btn) {
+        btn.onclick = async () => {
+          const msg = document.getElementById('dvFamMsg');
+          try {
+            const d = await api('/eleves/' + id + '/dispenses-vs', {
+              method: 'POST',
+              body: JSON.stringify({
+                motif: 'eps',
+                debut: document.getElementById('dvFamDebut').value || today(),
+                fin: document.getElementById('dvFamFin').value || today(),
+                commentaire: document.getElementById('dvFamCom').value.trim() || 'EPS',
+              }),
+            });
+            msg.innerHTML = `<span class="ok">Dispense ${esc(d.motif)} posée</span>`;
+            await bindFamilleEnfant(id);
+          } catch (err) {
+            msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+    } catch (err) {
+      const box = document.getElementById('dvFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const periodes = await api('/note-periodes');
+      const box = document.getElementById('moyFamOut');
+      const appBox = document.getElementById('appFamOut');
+      const devBox = document.getElementById('famDevOut');
+      const notesBox = document.getElementById('notesFamOut');
+      const selPer = document.getElementById('famNotePeriode');
+      if (!e.peut_voir_notes) {
+        if (box) box.innerHTML = '<p class="empty">Notes non visibles pour ce lien.</p>';
+        if (appBox) appBox.innerHTML = '<p class="empty">Appréciations non visibles.</p>';
+        if (devBox) devBox.innerHTML = '<p class="empty">Devoirs non visibles pour ce lien.</p>';
+      } else {
+        if (selPer && !(selPer.options && selPer.options.length)) {
+          selPer.innerHTML = (periodes || []).map(x =>
+            `<option value="${esc(x.id)}">${esc(x.code)} — ${esc(x.libelle)}</option>`
+          ).join('') || '<option value="">—</option>';
+          const ouverte = (periodes || []).find(x => x.statut === 'ouverte') || (periodes || [])[0];
+          if (ouverte) selPer.value = ouverte.id;
+        }
+        async function loadFamNotesPeriode() {
+          const pid = (selPer && selPer.value) || '';
+          const p = (periodes || []).find(x => x.id === pid) || (periodes || []).find(x => x.statut === 'ouverte') || (periodes || [])[0];
+          if (!p) {
+            if (notesBox) notesBox.innerHTML = '<p class="empty">Aucune période.</p>';
+            if (box) box.innerHTML = '<p class="empty">Aucune période.</p>';
+            if (appBox) appBox.innerHTML = '<p class="empty">Aucune période.</p>';
+            if (devBox) devBox.innerHTML = '<p class="empty">Aucune période.</p>';
+            return;
+          }
+          if (notesBox) {
+            try {
+              const notes = await api('/eleves/' + id + '/notes?periode_id=' + encodeURIComponent(p.id));
+              notesBox.innerHTML = !notes.length
+                ? `<p class="empty">Pas encore de note (${esc(p.libelle)}).</p>`
+                : `<p class="muted">${esc(p.libelle)}</p>
+                   <table><thead><tr><th>Date</th><th>Matière</th><th>Libellé</th><th>Note</th></tr></thead><tbody>
+                   ${notes.map(n => `<tr>
+                     <td>${esc(n.date_note || '—')}</td>
+                     <td>${esc(n.matiere_libelle || '—')}</td>
+                     <td>${esc(n.libelle || '—')}</td>
+                     <td><strong>${esc(String(n.valeur))}/${esc(String(n.sur || 20))}</strong></td>
+                   </tr>`).join('')}</tbody></table>`;
+            } catch (err) {
+              notesBox.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+            }
+          }
+          if (devBox) {
+            try {
+              const devoirs = await api('/eleves/' + id + '/devoirs?periode_id=' + encodeURIComponent(p.id));
+              devBox.innerHTML = !devoirs.length
+                ? `<p class="empty">Aucun devoir (${esc(p.libelle)}).</p>`
+                : `<p class="muted">${esc(p.libelle)}</p><ul>${devoirs.map(d =>
+                    `<li><strong>${esc(d.titre)}</strong> · ${esc(d.date_devoir)} · coef ${esc(String(d.coef))} / ${esc(String(d.sur))}</li>`
+                  ).join('')}</ul>`;
+            } catch (err) {
+              devBox.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+            }
+          }
+          if (box) {
+            try {
+              const moy = await api('/eleves/' + id + '/moyennes?periode_id=' + encodeURIComponent(p.id));
+              box.innerHTML = moy.length
+                ? `<p class="muted">${esc(p.libelle)}</p><ul>${moy.map(m =>
+                    `<li>${Number(m.moyenne_sur_20).toFixed(1)} / 20</li>`
+                  ).join('')}</ul>`
+                : `<p class="empty">Pas de moyenne (${esc(p.libelle)}).</p>`;
+            } catch (err) {
+              box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+            }
+          }
+          if (appBox) {
+            try {
+              const apps = await api('/eleves/' + id + '/appreciations?periode_id=' + encodeURIComponent(p.id));
+              appBox.innerHTML = apps.length
+                ? `<p class="muted">${esc(p.libelle)}</p><ul>${apps.map(a =>
+                    `<li><span class="pill">${esc(a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'))}</span> ${esc(a.texte)}</li>`
+                  ).join('')}</ul>`
+                : `<p class="empty">Aucune appréciation (${esc(p.libelle)}).</p>`;
+            } catch (ae) {
+              appBox.innerHTML = `<p class="empty">${esc(ae.message)}</p>`;
+            }
+          }
+        }
+        if (selPer) selPer.onchange = loadFamNotesPeriode;
+        await loadFamNotesPeriode();
+      }
+    } catch (err) {
+      const box = document.getElementById('moyFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+      const notesBox = document.getElementById('notesFamOut');
+      if (notesBox) notesBox.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    async function refreshFamPhoto() {
+      const photoBox = document.getElementById('photoFamOut');
+      if (!photoBox) return;
+      try {
+        const headers = {};
+        if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
+        const res = await fetch('/eleves/' + id + '/photo', { headers });
+        if (res.ok) {
+          const url = URL.createObjectURL(await res.blob());
+          photoBox.innerHTML = `<img src="${url}" alt="" style="width:96px;height:96px;object-fit:cover;border:1px solid var(--line)"/>`;
+        } else {
+          photoBox.innerHTML = '<p class="empty">Pas de photo.</p>';
+        }
+      } catch (err) {
+        photoBox.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+      }
+    }
+    await refreshFamPhoto();
+    async function poseFamPhoto(b64, mime) {
+      const msg = document.getElementById('photoFamMsg');
+      try {
+        await api('/eleves/' + id + '/photo', {
+          method: 'POST',
+          body: JSON.stringify({ mime_type: mime || 'image/png', contenu_base64: b64 }),
+        });
+        if (msg) msg.innerHTML = '<span class="ok">Photo enregistrée</span>';
+        await refreshFamPhoto();
+      } catch (err) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    }
+    const btnFamPhotoUp = document.getElementById('btnFamPhotoUp');
+    if (btnFamPhotoUp) {
+      btnFamPhotoUp.onclick = async () => {
+        const file = (document.getElementById('famPhotoFile') || {}).files
+          && document.getElementById('famPhotoFile').files[0];
+        const msg = document.getElementById('photoFamMsg');
+        if (!file) { if (msg) msg.innerHTML = '<span class="bad">Choisir un fichier</span>'; return; }
+        const b64 = await fileToBase64(file);
+        await poseFamPhoto(b64, file.type || 'image/png');
+      };
+    }
+    const btnFamPhotoDemo = document.getElementById('btnFamPhotoDemo');
+    if (btnFamPhotoDemo) {
+      btnFamPhotoDemo.onclick = () => poseFamPhoto(DEMO_PNG_B64, 'image/png');
+    }
+
+    try {
+      const list = await api('/infirmerie/passages?eleve_id=' + encodeURIComponent(id));
+      const box = document.getElementById('infFamOut');
+      box.innerHTML = list.length
+        ? `<ul>${list.map(p =>
+            `<li>${esc(p.jour)} — ${esc(p.motif_libelle || p.motif)}${p.note_soins ? ' · ' + esc(p.note_soins) : ''}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucun passage visible.</p>';
+    } catch (err) {
+      const box = document.getElementById('infFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const p = await api('/eleves/' + id + '/points-vs');
+      document.getElementById('ptsFamOut').innerHTML =
+        `<p><strong>${p.solde}</strong> / ${p.depart}</p>`;
+    } catch (err) {
+      const box = document.getElementById('ptsFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const fin = today();
+      const d = new Date(fin + 'T12:00:00');
+      d.setDate(d.getDate() + 6);
+      const finSem = d.toISOString().slice(0, 10);
+      const list = await api('/menus-cantine?debut=' + encodeURIComponent(fin) + '&fin=' + encodeURIComponent(finSem));
+      const box = document.getElementById('menusFamOut');
+      const pubs = (list || []).filter(m => m.publie !== false);
+      box.innerHTML = pubs.length
+        ? `<ul>${pubs.map(m =>
+            `<li>${esc(m.jour)} — ${esc(m.plat || m.entree || 'menu')}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucun menu publié.</p>';
+    } catch (err) {
+      const box = document.getElementById('menusFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/edt?jour=' + encodeURIComponent(today()));
+      const box = document.getElementById('edtFamOut');
+      box.innerHTML = list.length
+        ? `<ul>${list.map(c =>
+            `<li>${esc(c.heure_debut)}–${esc(c.heure_fin)} · ${esc(c.matiere_libelle)} · ${esc(c.salle || '—')}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucun créneau aujourd’hui.</p>';
+    } catch (err) {
+      const box = document.getElementById('edtFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/conventions-stage');
+      const box = document.getElementById('stagesFamOut');
+      box.innerHTML = list.length
+        ? `<ul>${list.map(c =>
+            `<li>${esc(c.debut)} → ${esc(c.fin)} · ${esc(c.tuteur_nom)} · ${esc(c.statut)}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucune convention.</p>';
+    } catch (err) {
+      const box = document.getElementById('stagesFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const filSel = document.getElementById('famVoeFil');
+      if (filSel) {
+        const fils = await api('/filieres');
+        filSel.innerHTML = (fils || []).map(f =>
+          `<option value="${esc(f.id)}">${esc(f.code)} — ${esc(f.libelle)}</option>`
+        ).join('') || '<option value="">—</option>';
+      }
+      async function loadFamVoeux() {
+        const box = document.getElementById('voeuxFamOut');
+        if (!box) return;
+        const annee = (document.getElementById('famVoeAnnee') || {}).value.trim() || '';
+        let url = '/eleves/' + id + '/voeux';
+        if (annee) url += '?annee_scolaire=' + encodeURIComponent(annee);
+        const list = await api(url);
+        box.innerHTML = list.length
+          ? `<table><thead><tr><th>Rang</th><th>Filière</th><th>Année</th></tr></thead>
+             <tbody>${list.map(v => `<tr>
+               <td>${v.rang ?? '—'}</td>
+               <td>${esc(v.filiere_label || v.filiere_id || '—')}</td>
+               <td>${esc(v.annee_scolaire || '—')}</td>
+             </tr>`).join('')}</tbody></table>`
+          : '<p class="empty">Aucun vœu.</p>';
+      }
+      await loadFamVoeux();
+      const btnVoe = document.getElementById('btnFamVoePose');
+      if (btnVoe) {
+        btnVoe.onclick = async () => {
+          const msg = document.getElementById('famVoeMsg');
+          const fid = (document.getElementById('famVoeFil') || {}).value;
+          if (!fid) { msg.innerHTML = '<span class="bad">Filière requise</span>'; return; }
+          try {
+            const v = await api('/eleves/' + id + '/voeux', {
+              method: 'POST',
+              body: JSON.stringify({
+                filiere_id: fid,
+                rang: Number((document.getElementById('famVoeRang') || {}).value) || 1,
+                annee_scolaire: (document.getElementById('famVoeAnnee') || {}).value.trim() || '2026-2027',
+              }),
+            });
+            msg.innerHTML = `<span class="ok">Vœu rang ${v.rang}</span>`;
+            await loadFamVoeux();
+          } catch (err) {
+            msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+    } catch (err) {
+      const box = document.getElementById('voeuxFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    try {
+      const list = await api('/eleves/' + id + '/journal?limit=40');
+      const box = document.getElementById('jourFamOut');
+      box.innerHTML = list.length
+        ? `<ul>${list.map(j =>
+            `<li><strong>${esc(j.libelle)}</strong> <span class="muted">${esc(j.domaine)} · ${esc((j.created_at || '').slice(0, 16))}</span></li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucune entrée visible.</p>';
+    } catch (err) {
+      const box = document.getElementById('jourFamOut');
+      if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+
+    const optsBox = document.getElementById('optionsFamOut');
+    if (optsBox) {
+      const opts = (dossier && dossier.options) || [];
+      optsBox.innerHTML = opts.length
+        ? `<table><thead><tr><th>Nature</th><th>Code</th><th>Libellé</th><th>Début</th></tr></thead>
+           <tbody>${opts.map(o => `<tr>
+             <td><span class="pill">${esc(typeof optionNatureLabel === 'function' ? optionNatureLabel(o.nature) : (o.nature || '—'))}</span></td>
+             <td>${esc(o.code || '—')}</td>
+             <td>${esc(o.libelle || '—')}</td>
+             <td>${esc(o.date_debut || '—')}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucune option.</p>';
+    }
+    const btnFamBul = document.getElementById('btnFamBulletin');
+    if (btnFamBul) {
+      btnFamBul.onclick = async () => {
+        const msg = document.getElementById('famBulletinMsg');
+        try {
+          const docs = await api('/eleves/' + id + '/documents');
+          const bulletins = (docs || []).filter(d =>
+            d.accessible && (/bulletin/i.test(d.titre || '') || /bulletin/i.test(d.code || ''))
+          );
+          if (!bulletins.length) {
+            if (msg) msg.innerHTML = '<span class="bad">Aucun bulletin accessible</span>';
+            return;
+          }
+          await downloadFile('/documents/' + bulletins[0].id + '/fichier', bulletins[0].titre || 'bulletin.pdf');
+          if (msg) msg.innerHTML = `<span class="ok">${esc(bulletins[0].titre)}</span>`;
+        } catch (err) {
+          if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+        }
+      };
+    }
+    const boursesBox = document.getElementById('boursesFamOut');
+    if (boursesBox) {
+      const bourses = (dossier && dossier.bourses) || [];
+      boursesBox.innerHTML = bourses.length
+        ? `<table><thead><tr><th>Type</th><th>Échelon</th><th>Statut</th><th>Procuration</th><th>Début</th><th>Fin</th></tr></thead>
+           <tbody>${bourses.map(b => `<tr>
+             <td>${esc(b.bourse_type_label || '—')}</td>
+             <td>${esc(b.echelon)}</td>
+             <td><span class="pill">${esc(b.status)}</span></td>
+             <td>${b.avec_procuration ? 'oui' : 'non'}</td>
+             <td>${esc(b.date_debut)}</td>
+             <td>${esc(b.date_fin || '—')}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucune bourse.</p>';
+    }
+    const contBox = document.getElementById('continuumFamOut');
+    if (contBox) {
+      const cont = (dossier && dossier.continuum) || [];
+      const optsC = (dossier && dossier.options_continuum) || [];
+      let h = cont.length
+        ? `<table><thead><tr><th>Année</th><th>Classe</th><th>Niveau</th><th>Statut</th><th>Source</th></tr></thead>
+           <tbody>${cont.map(c => `<tr>
+             <td><strong>${esc(c.annee_scolaire)}</strong></td>
+             <td>${esc(c.classe || '—')}</td>
+             <td>${esc(c.niveau || '—')}</td>
+             <td><span class="pill">${esc(c.statut)}</span></td>
+             <td>${esc(c.source || '—')}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Pas encore d’historique multi-années.</p>';
+      if (optsC.length) {
+        h += `<p class="muted" style="margin:.5rem 0 .25rem">Options par année</p>
+          <ul>${optsC.map(o =>
+            `<li>${esc(o.annee_scolaire)} · ${esc(o.code)} ${esc(o.libelle)} · ${esc(o.statut)}</li>`
+          ).join('')}</ul>`;
+      }
+      contBox.innerHTML = h;
+    }
+
+    if (routeState.famSection) {
+      const sec = routeState.famSection;
+      delete routeState.famSection;
+      const el = document.getElementById('fam-sec-' + sec);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.style.outline = '2px solid var(--accent, #2563eb)';
+        setTimeout(() => { el.style.outline = ''; }, 1800);
+      }
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+/* ---------- Élèves ---------- */
+function viewEleves() {
+  return shell('/app/eleves', `
+    <div class="bento" id="elevesStats"></div>
+    <div class="panel">
+      <h2>Élèves</h2>
+      <div class="row">
+        <input id="q" placeholder="Nom, prénom, classe…" style="min-width:14rem"/>
+        <button type="button" class="primary" id="btnSearch">Chercher</button>
+        <button type="button" id="btnAll">Tout lister</button>
+        <button type="button" id="btnSansCompte">Sans compte</button>
+        <button type="button" id="btnProvLot">Provisionner le lot</button>
+        <button type="button" id="btnInvitations">Invitations</button>
+      </div>
+      <div id="elevesOut" class="muted">Chargement…</div>
+      <div id="provOut" class="muted" style="margin-top:.75rem"></div>
+    </div>
+    <div class="panel">
+      <h2>Trombinoscope</h2>
+      <p class="muted">Classe → vignettes (photo si posée). Pose photo : dossier élève ou PNG 1×1 base64 de démo.</p>
+      <div class="row">
+        <label>Classe <input id="trombiClasse" value="4B" style="width:4rem"/></label>
+        <button type="button" id="btnTrombi">Charger</button>
+      </div>
+      <div id="trombiOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Homonymes</h2>
+      <div class="row">
+        <label>Nom <input id="homNom" value="Potter"/></label>
+        <label>Prénom <input id="homPrenom" value="Harry"/></label>
+        <label>Naissance <input id="homNaiss" type="date"/></label>
+        <button type="button" id="btnHomonymes">Rechercher</button>
+      </div>
+      <div id="homOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Créer un élève</h2>
+      <div class="row">
+        <label>Nom <input id="newNom" value="Nouveau"/></label>
+        <label>Prénom <input id="newPrenom" value="Élève"/></label>
+        <label>Classe <input id="newClasse" value="6A" style="width:4rem"/></label>
+        <label>Régime <select id="newRegime"><option value="EXT">EXT</option><option value="DP" selected>DP</option><option value="INT">INT</option></select></label>
+        <label>Naissance <input id="newNaiss" type="date" value="2014-01-15"/></label>
+        <button type="button" class="primary" id="btnNewEleve">Créer</button>
+      </div>
+      <div id="newEleveMsg" class="muted"></div>
+    </div>`);
+}
+
+async function bindEleves() {
+  const out = document.getElementById('elevesOut');
+  const provOut = document.getElementById('provOut');
+
+  async function refreshElevesStats(list) {
+    const box = document.getElementById('elevesStats');
+    if (!box) return;
+    let nSans = 0;
+    try {
+      const sans = await api('/eleves/sans-compte');
+      nSans = (sans || []).length;
+    } catch (_) { /* hors droits */ }
+    const nActifs = (list || []).filter(e => !e.status || e.status === 'inscrit' || e.status === 'actif').length;
+    box.innerHTML = `
+      <div class="stat-tile bento-span-4"><strong>${(list || []).length}</strong><span>Dans la liste</span></div>
+      <div class="stat-tile bento-span-4"><strong>${nActifs}</strong><span>Actifs / inscrits</span></div>
+      <button type="button" class="stat-tile bento-span-4" id="btnStatSansCompte">
+        <strong>${nSans}</strong><span>Sans compte</span></button>`;
+    const btn = document.getElementById('btnStatSansCompte');
+    if (btn) btn.onclick = () => loadSans();
+  }
+
+  function renderList(list, withInvite) {
+    if (!list.length) { out.innerHTML = '<p class="empty">Aucun élève.</p>'; return; }
+    out.innerHTML = `<table>
+      <thead><tr><th>Élève</th><th>Classe</th><th>Régime</th><th>Site</th><th>MEF</th><th>Statut</th><th>INE</th><th></th></tr></thead>
+      <tbody>${list.map(e => `<tr>
+        <td>${esc(e.prenom)} ${esc(e.nom)}</td>
+        <td>${esc(e.classe || '—')}</td>
+        <td>${esc(e.regime || '—')}</td>
+        <td>${esc(e.site || '—')}</td>
+        <td>${esc(e.mef || '—')}</td>
+        <td><span class="pill">${esc(e.status || '—')}</span></td>
+        <td class="muted">${esc(e.ine || '—')}</td>
+        <td>
+          <a href="/app/eleves/${e.id}">Dossier</a>
+          ${withInvite ? ` · <button type="button" class="btnInvite" data-id="${esc(e.id)}">Inviter compte</button>` : ''}
+        </td>
+      </tr>`).join('')}</tbody></table>`;
+    if (withInvite) {
+      out.querySelectorAll('.btnInvite').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            const d = await api('/eleves/' + btn.dataset.id + '/compte/inviter', {
+              method: 'POST', body: JSON.stringify({}),
+            });
+            provOut.innerHTML = `<span class="ok">Compte ${esc(d.email)} · mdp temporaire <code>${esc(d.mot_de_passe_temporaire)}</code> (à noter maintenant)</span>`;
+            await loadSans();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    }
+  }
+
+  async function load(q) {
+    out.textContent = 'Chargement…';
+    provOut.textContent = '';
+    try {
+      const list = await api('/eleves/search?q=' + encodeURIComponent(q || 'a'));
+      await refreshElevesStats(list);
+      renderList(list, false);
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function loadSans() {
+    out.textContent = 'Chargement…';
+    try {
+      const list = await api('/eleves/sans-compte');
+      await refreshElevesStats(list);
+      renderList(list, true);
+      if (!list.length) provOut.innerHTML = '<span class="ok">Tous les élèves actifs ont un compte.</span>';
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnSearch').onclick = () => load(document.getElementById('q').value.trim());
+  let elevesQTimer = null;
+  const elevesQ = document.getElementById('q');
+  if (elevesQ) {
+    elevesQ.oninput = () => {
+      clearTimeout(elevesQTimer);
+      elevesQTimer = setTimeout(() => load(elevesQ.value.trim()), 300);
+    };
+  }
+  document.getElementById('btnAll').onclick = () => load('a');
+  document.getElementById('btnSansCompte').onclick = () => loadSans();
+  document.getElementById('btnInvitations').onclick = async () => {
+    out.textContent = 'Chargement…';
+    try {
+      const list = await api('/eleves/comptes/invitations');
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucune invitation.</p>';
+        return;
+      }
+      await hydrateEleveNames(list.map(i => i.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>E-mail</th><th>Élève</th><th>Statut</th><th>Créée</th><th>User</th></tr></thead>
+        <tbody>${list.map(i => `<tr>
+          <td>${esc(i.email)}</td>
+          <td><a href="/app/eleves/${esc(i.eleve_id)}">${eleveCell(i)}</a></td>
+          <td><span class="pill">${esc(i.statut)}</span></td>
+          <td class="muted">${esc((i.created_at || '').slice(0, 16))}</td>
+          <td class="muted">${i.activated_user_id ? esc(i.activated_user_label || i.activated_user_id.slice(0, 8)) : '—'}</td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnProvLot').onclick = async () => {
+    if (!confirm('Créer un compte pour tous les élèves actifs sans compte ?')) return;
+    try {
+      const lot = await api('/eleves/comptes/provisionner-lot', { method: 'POST', body: '{}' });
+      provOut.innerHTML = `<span class="ok">${lot.length} compte(s) provisionné(s)</span>` +
+        (lot.length ? `<ul>${lot.map(d => `<li>${esc(d.email)} · <code>${esc(d.mot_de_passe_temporaire)}</code></li>`).join('')}</ul>` : '');
+      await loadSans();
+    } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btnNewEleve').onclick = async () => {
+    const msg = document.getElementById('newEleveMsg');
+    msg.textContent = '';
+    try {
+      const e = await api('/eleves', {
+        method: 'POST',
+        body: JSON.stringify({
+          nom: document.getElementById('newNom').value.trim(),
+          prenom: document.getElementById('newPrenom').value.trim(),
+          classe: document.getElementById('newClasse').value.trim() || null,
+          regime: document.getElementById('newRegime').value || null,
+          date_naissance: document.getElementById('newNaiss').value || null,
+          date_entree: today(),
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Créé</span> <a href="/app/eleves/${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}</a>`;
+      await load(document.getElementById('newNom').value.trim() || 'a');
+    } catch (err) {
+      msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+    }
+  };
+  document.getElementById('q').onkeydown = (ev) => { if (ev.key === 'Enter') load(ev.target.value.trim()); };
+  const trombiOut = document.getElementById('trombiOut');
+  async function loadTrombi() {
+    const classe = document.getElementById('trombiClasse').value.trim() || '4B';
+    trombiOut.textContent = 'Chargement…';
+    try {
+      const list = await api('/classes/' + encodeURIComponent(classe) + '/trombi');
+      if (!list.length) {
+        trombiOut.innerHTML = '<p class="empty">Aucun élève dans cette classe.</p>';
+        return;
+      }
+      const avecPhoto = list.filter(t => t.photo_key).length;
+      trombiOut.innerHTML = `<p class="muted" style="margin:0 0 .5rem">${list.length} élève(s) · ${avecPhoto} photo(s)</p>
+        <div id="trombiGrid" style="display:flex;flex-wrap:wrap;gap:.75rem">${list.map(t => `
+        <a href="/app/eleves/${esc(t.eleve_id)}" style="text-align:center;width:88px">
+          <div data-photo="${t.photo_key ? esc(t.eleve_id) : ''}" style="width:72px;height:72px;border:1px solid var(--line);background:#eee;display:grid;place-items:center;font-size:.7rem;color:var(--muted);overflow:hidden">${t.photo_key ? '…' : 'sans photo'}</div>
+          <div style="font-size:.8rem;margin-top:.25rem">${esc(t.prenom)} ${esc(t.nom)}</div>
+        </a>`).join('')}</div>`;
+      const headers = {};
+      if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
+      for (const box of trombiOut.querySelectorAll('[data-photo]')) {
+        const eid = box.getAttribute('data-photo');
+        if (!eid) continue;
+        try {
+          const res = await fetch('/eleves/' + eid + '/photo', { headers });
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          box.innerHTML = `<img src="${url}" alt="" style="width:72px;height:72px;object-fit:cover"/>`;
+        } catch {}
+      }
+    } catch (e) {
+      trombiOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnTrombi').onclick = loadTrombi;
+  document.getElementById('trombiClasse').onchange = loadTrombi;
+  document.getElementById('trombiClasse').onkeydown = (ev) => {
+    if (ev.key === 'Enter') loadTrombi();
+  };
+  await loadTrombi();
+  document.getElementById('btnHomonymes').onclick = async () => {
+    const homOut = document.getElementById('homOut');
+    try {
+      const body = {
+        nom: document.getElementById('homNom').value.trim(),
+        prenom: document.getElementById('homPrenom').value.trim(),
+      };
+      const naiss = document.getElementById('homNaiss').value;
+      if (naiss) body.date_naissance = naiss;
+      const list = await api('/eleves/homonymes', { method: 'POST', body: JSON.stringify(body) });
+      homOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun candidat.</p>'
+        : `<table><thead><tr><th>Score</th><th>Élève</th><th>Classe</th><th></th></tr></thead>
+           <tbody>${list.map(h => `<tr>
+             <td>${h.score}</td>
+             <td>${esc(h.prenom)} ${esc(h.nom)}</td>
+             <td>${esc(h.classe || '—')}</td>
+             <td><a href="/app/eleves/${esc(h.eleve_id)}">Dossier</a></td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      document.getElementById('homOut').innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  await load('a');
+  await loadTrombi();
+}
+
+/* ---------- Dossier ---------- */
+function yesNo(v) { return v ? 'oui' : 'non'; }
+
+function joursLabel(j) {
+  if (!j || typeof j !== 'object') return '—';
+  const map = [['lun','lun'],['mar','mar'],['mer','mer'],['jeu','jeu'],['ven','ven'],['sam','sam'],['dim','dim']];
+  const on = map.filter(([k]) => j[k]).map(([,l]) => l);
+  return on.length ? on.join(' ') : 'aucun';
+}
+
+function viewDossier(id) {
+  return shell('/app/eleves', `
+    <div class="dossier">
+      <p class="muted" style="margin:0 0 .5rem"><a href="/app/eleves">← Annuaire élèves</a></p>
+      <div id="dossierOut" class="muted">Chargement de la fiche…</div>
+    </div>`);
+}
+
+function confLabel(c) {
+  return ({
+    standard: 'Visible staff + famille',
+    restreint: 'Verrouillé (accès à demander)',
+    sante: 'Santé (restreint)',
+  })[c] || c;
+}
+function tiroirLabel(t) {
+  return ({
+    scolaire: 'Scolaire',
+    administratif: 'Administratif',
+    sante: 'Santé',
+    famille: 'Famille',
+    autre: 'Autre',
+  })[t] || t;
+}
+function periodeKindLabel(k) {
+  return ({
+    classe: 'Classe',
+    regime: 'Régime',
+    mef: 'Formation (MEF)',
+    site: 'Site',
+  })[k] || k;
+}
+function optionNatureLabel(n) {
+  return ({ academique: 'Académique (SIECLE)', interne: 'Interne établissement' })[n] || n;
+}
+function statutEleveLabel(st) {
+  return ({ actif: 'Scolarisé', sorti: 'Sorti', inscrit: 'Inscrit' })[st] || st || '—';
+}
+function regimeLabel(r) {
+  return ({ EXT: 'Externe', DP: 'Demi-pensionnaire', INT: 'Interne' })[r] || r;
+}
+
+function renderDossier(d) {
+  const s = d.sections || {};
+  const e = d.eleve || {};
+  const eid = e.id;
+  const foyerPrincipal = (d.liens || []).find(l => l.foyer_id);
+
+  const navItems = [];
+  // Un seul onglet « Fiche » = identité + scolarité + entrée/sortie (tout réglable au même endroit)
+  if (s.identite || s.scolarite) navItems.push(['fiche', 'Fiche']);
+  if (s.famille) navItems.push(['famille', 'Famille']);
+  if (s.options) navItems.push(['options', 'Options']);
+  if (s.documents) navItems.push(['documents', 'Documents']);
+  if (s.dispositifs) navItems.push(['dispositifs', 'Dispositifs']);
+  if (s.repas) navItems.push(['repas', 'Repas']);
+  if (s.bourses) navItems.push(['bourses', 'Bourses']);
+  if (s.continuum) navItems.push(['continuum', 'Années']);
+  if (s.notes) navItems.push(['notes', 'Notes']);
+  if (s.vs) navItems.push(['vs', 'Vie scolaire']);
+
+  let html = `<header class="dossier-bandeau">
+    <div class="dossier-photo" id="photoPreview">Photo</div>
+    <div>
+      <h1 class="dossier-titre">${esc(e.prenom)} ${esc(e.nom)}</h1>
+      <p class="dossier-meta">
+        <strong>${esc(e.classe || 'Sans classe')}</strong>
+        · ${esc(statutEleveLabel(e.status))}
+        ${d.age_ans != null ? ' · ' + d.age_ans + ' ans' : ''}
+        ${e.mef ? ' · MEF ' + esc(e.mef) : ''}
+        ${e.regime ? ' · ' + esc(regimeLabel(e.regime)) : ''}
+      </p>
+      <div class="dossier-raccourcis">
+        ${s.notes ? `<a href="#" data-dos-tab="notes">Notes</a>` : ''}
+        ${s.vs ? `<a href="#" data-dos-tab="vs">Vie scolaire</a>` : ''}
+        ${s.famille && foyerPrincipal ? `<a href="/app/foyers/${esc(foyerPrincipal.foyer_id)}">Foyer</a>` : ''}
+        <a href="/app/notes">Saisie notes</a>
+        <a href="/app/vs">Vie scolaire</a>
+        <a href="/app/facturation">Facturation (foyer)</a>
+        <button type="button" id="btnPhotoDemo">Photo démo</button>
+        <span id="photoMsg" class="muted"></span>
+      </div>
+    </div>
+    <div class="dossier-search">
+      <span class="label-fr">Chercher un autre élève</span>
+      <input id="dossierSearchQ" placeholder="Nom, prénom, classe…" autocomplete="off"/>
+      <button type="button" id="btnDossierSearch">Ouvrir</button>
+      <div id="dossierSearchOut" class="muted"></div>
+    </div>
+  </header>
+  <div class="dossier-layout">
+    <nav class="dossier-nav" id="dossierNav">
+      ${navItems.map(([id, label], i) =>
+        `<a href="#dos-${id}" class="${i === 0 ? 'on' : ''}" data-sec="${id}">${esc(label)}</a>`
+      ).join('')}
+    </nav>
+    <div class="dossier-main">`;
+
+  if (s.identite || s.scolarite) {
+    const periodes = d.periodes || [];
+    const reg = e.regime || 'EXT';
+    html += `<section class="panel dossier-section" id="dos-fiche">
+      <h3>Fiche administrative</h3>
+      <p class="dossier-help">Tout se règle ici · une date d’effet pour les mouvements scolaires · audit sur chaque enregistrement.</p>
+      <div class="row" style="flex-wrap:wrap;gap:.65rem">
+        <label><span class="label-fr">Nom</span><input id="idNom" value="${esc(e.nom || '')}"/></label>
+        <label><span class="label-fr">Prénom</span><input id="idPrenom" value="${esc(e.prenom || '')}"/></label>
+        <label><span class="label-fr">INE</span><input id="idIne" value="${esc(e.ine || '')}" style="width:9rem"/></label>
+        <label><span class="label-fr">Sexe</span><select id="idSexe">
+          <option value="" ${!e.sexe ? 'selected' : ''}>—</option>
+          <option value="M" ${e.sexe === 'M' ? 'selected' : ''}>M</option>
+          <option value="F" ${e.sexe === 'F' ? 'selected' : ''}>F</option>
+        </select></label>
+        <label><span class="label-fr">Naissance</span><input id="idDn" type="date" value="${esc(e.date_naissance || '')}"/></label>
+        <label><span class="label-fr">Badge</span><input id="idBadge" value="${esc(e.numero_badge || '')}" style="width:7rem"/></label>
+        <label><span class="label-fr">Redoublant</span><input type="checkbox" id="idRedoub" ${e.redoublant ? 'checked' : ''}/></label>
+      </div>
+      <div class="row" style="flex-wrap:wrap;gap:.65rem;margin-top:.35rem">
+        <label><span class="label-fr">Classe</span><input id="movClasse" value="${esc(e.classe || '')}" style="width:5rem"/></label>
+        <label><span class="label-fr">Régime</span><select id="movRegime">
+          <option value="EXT" ${reg === 'EXT' ? 'selected' : ''}>Externe</option>
+          <option value="DP" ${reg === 'DP' ? 'selected' : ''}>Demi-pensionnaire</option>
+          <option value="INT" ${reg === 'INT' ? 'selected' : ''}>Interne</option>
+        </select></label>
+        <label><span class="label-fr">Formation (MEF)</span><input id="movMef" value="${esc(e.mef || '')}" style="width:7rem"/></label>
+        <label><span class="label-fr">Site</span><input id="movSite" value="${esc(e.site || '')}" style="width:7rem"/></label>
+        <label><span class="label-fr">Date d’effet (mouvements)</span><input id="movEffet" type="date" value="${today()}"/></label>
+      </div>
+      <div class="row" style="flex-wrap:wrap;gap:.65rem;margin-top:.35rem">
+        <label><span class="label-fr">Date d’entrée</span><input id="idEntree" type="date" value="${esc(e.date_entree || '')}"/></label>
+        <label><span class="label-fr">Date de sortie</span><input id="movSortieDate" type="date" value="${esc(e.date_sortie || '')}"/></label>
+        <label><span class="label-fr">Motif de sortie</span><input id="movSortieMotif" value="${esc(e.motif_sortie || '')}" style="width:10rem" placeholder="déménagement…"/></label>
+      </div>
+      <div class="row" style="margin-top:.65rem">
+        <button type="button" class="primary" id="btnFicheSave">Enregistrer la fiche</button>
+        <button type="button" class="danger" id="btnMovSortie" ${e.status === 'sorti' ? 'disabled' : ''}>Confirmer la sortie</button>
+        <span id="idMsg" class="muted"></span>
+        <span id="movMsg" class="muted"></span>
+      </div>
+      <h4 style="margin:1.1rem 0 .4rem">Historique daté</h4>
+      <p class="dossier-help">Le jeudi n’écrase pas le mardi — appel, cantine et facture respectent ces dates.</p>`;
+    html += periodes.length
+      ? `<table><thead><tr><th>Élément</th><th>Valeur</th><th>Date d’effet</th><th>Fin</th></tr></thead>
+         <tbody>${periodes.map(p => `<tr>
+           <td>${esc(periodeKindLabel(p.kind))}</td>
+           <td>${esc(p.kind === 'regime' ? regimeLabel(p.valeur) : p.valeur)}</td>
+           <td>${esc(p.date_debut)}</td><td>${esc(p.date_fin || 'en cours')}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucun historique de scolarité.</p>`;
+    html += `</section>`;
+  }
+
+  if (s.famille) {
+    const liens = d.liens || [];
+    const foyersUniq = [];
+    const seenF = new Set();
+    liens.forEach(l => {
+      if (l.foyer_id && !seenF.has(l.foyer_id)) {
+        seenF.add(l.foyer_id);
+        foyersUniq.push({ id: l.foyer_id, lib: l.foyer_libelle || 'Foyer' });
+      }
+    });
+    html += `<section class="panel dossier-section" id="dos-famille">
+      <h3>Famille &amp; foyers</h3>
+      <p class="dossier-help">Responsables par foyer · droits d’accès parent ↔ élève · parts payeurs = 100&nbsp;% pour cet élève. La facturation se gère sur le foyer, pas ici.</p>`;
+    if (foyersUniq.length) {
+      html += `<p>Foyer(s) rattaché(s) :
+        ${foyersUniq.map(f => `<a class="pill" href="/app/foyers/${esc(f.id)}">${esc(f.lib)}</a>`).join(' ')}
+      </p>`;
+    }
+    html += liens.length
+      ? `<table id="famLiensTable"><thead><tr>
+           <th>Responsable</th><th>Contact</th><th>Lien</th><th>Foyer</th>
+           <th>Payeur</th><th>Part %</th>
+           <th>Notes / bulletins</th><th>Vie scolaire</th><th>Justifier absences</th><th>Autoriser sorties</th><th></th>
+         </tr></thead>
+         <tbody>${liens.map(l => `<tr data-lien-id="${esc(l.lien_id)}">
+           <td><strong>${esc(l.display_name || 'Responsable')}</strong>
+             ${l.foyer_id ? `<div><a href="/app/foyers/${esc(l.foyer_id)}">Ouvrir la fiche foyer</a></div>` : ''}
+           </td>
+           <td class="muted" style="font-size:.85rem;line-height:1.35">
+             <div>${esc(l.telephone || 'tél. —')}</div>
+             <div>${esc(l.email || 'e-mail —')}</div>
+           </td>
+           <td><input class="famLien" value="${esc(l.lien)}" style="width:5.5rem" title="mère / père / autre"/></td>
+           <td>${esc(l.foyer_libelle || '—')}</td>
+           <td><input type="checkbox" class="famPayeur" ${l.est_payeur ? 'checked' : ''} title="Participe au paiement"/></td>
+           <td><input type="number" class="famPart" min="0" max="100" value="${l.part_paiement != null ? l.part_paiement : ''}" style="width:3.5rem"/></td>
+           <td><input type="checkbox" class="famNotes" ${l.peut_voir_notes ? 'checked' : ''}/></td>
+           <td><input type="checkbox" class="famVs" ${l.peut_voir_vs ? 'checked' : ''}/></td>
+           <td><input type="checkbox" class="famJustif" ${l.peut_justifier_absence ? 'checked' : ''}/></td>
+           <td><input type="checkbox" class="famSorties" ${l.peut_autoriser_sorties ? 'checked' : ''}/></td>
+           <td><button type="button" class="btnFamDelLien" data-lien-id="${esc(l.lien_id)}">Retirer</button></td>
+         </tr>`).join('')}</tbody></table>
+         <div class="row" style="margin-top:.5rem">
+           <button type="button" class="primary" id="btnFamSaveLiens">Enregistrer droits &amp; parts</button>
+           <span id="famLiensMsg" class="muted"></span>
+         </div>
+         <p class="dossier-help">La somme des parts des payeurs doit faire exactement 100&nbsp;% — sinon l’enregistrement est refusé.</p>`
+      : `<p class="empty">Aucun responsable lié.</p>`;
+    html += `</section>`;
+  }
+
+  if (s.options) {
+    const opts = d.options || [];
+    html += `<section class="panel dossier-section" id="dos-options">
+      <h3>Options</h3>
+      <p class="dossier-help">Académiques = nomenclatures SIECLE (remontent au rectorat). Internes = usage établissement seulement.</p>`;
+    html += opts.length
+      ? `<table><thead><tr><th>Année / depuis</th><th>Nature</th><th>Code</th><th>Libellé</th><th>Statut</th></tr></thead>
+         <tbody>${opts.map(o => `<tr>
+           <td>${esc(o.annee_scolaire || o.date_debut || '—')}</td>
+           <td><span class="pill">${esc(optionNatureLabel(o.nature))}</span></td>
+           <td>${esc(o.code)}</td>
+           <td>${esc(o.libelle)}</td>
+           <td><span class="pill">${esc(o.statut || (o.date_fin ? 'clôturée' : 'active'))}</span></td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucune option.</p>`;
+    html += `</section>`;
+  }
+
+  if (s.documents) {
+    html += `<section class="panel dossier-section" id="dos-documents">
+      <h3>Documents</h3>
+      <p class="dossier-help">Par défaut verrouillés. Un professeur peut demander un accès temporaire (14 jours) ; l’administration l’accorde ou le refuse.</p>
+      <div id="docsMetaOut" class="muted">Chargement des documents…</div>
+      <h4 style="margin:1rem 0 .35rem">Déposer un document</h4>
+      <div class="row">
+        <label><span class="label-fr">Titre</span><input id="docTitre" value="Attestation"/></label>
+        <label><span class="label-fr">Tiroir</span><select id="docTiroir">
+          <option value="scolaire">Scolaire</option>
+          <option value="administratif">Administratif</option>
+          <option value="sante">Santé</option>
+          <option value="famille" selected>Famille</option>
+          <option value="autre">Autre</option>
+        </select></label>
+        <label><span class="label-fr">Niveau d’accès</span><select id="docConf">
+          <option value="standard" selected>Visible staff + famille</option>
+          <option value="restreint">Verrouillé (accès à demander)</option>
+          <option value="sante">Santé</option>
+        </select></label>
+        <label><span class="label-fr">Code métier</span><input id="docCode" placeholder="ex. PAP" style="width:7rem"/></label>
+        <label><span class="label-fr">Fichier</span><input id="docFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.txt"/></label>
+        <button type="button" class="primary" id="btnDocDepot">Déposer</button>
+      </div>
+      <p class="muted" style="margin:.35rem 0 0">Le fichier sert de référence (nom / type) — stockage objet à brancher.</p>
+      <div id="docDepotMsg" class="muted"></div>
+      <h4 style="margin:1rem 0 .35rem">Demandes d’accès en attente</h4>
+      <div id="grantsPendingOut" class="muted">…</div>
+    </section>`;
+  }
+
+  if (s.dispositifs) {
+    const disps = d.dispositifs || [];
+    html += `<section class="panel dossier-section" id="dos-dispositifs">
+      <h3>Dispositifs</h3>
+      <p class="dossier-help">PAP, PPS… avec pièce jointe possible côté documents.</p>`;
+    html += disps.length
+      ? `<table><thead><tr><th>Type</th><th>Libellé</th><th>Début</th><th>Fin</th></tr></thead>
+         <tbody>${disps.map(x => `<tr>
+           <td>${esc(x.kind)}</td><td>${esc(x.libelle || '—')}</td>
+           <td>${esc(x.date_debut)}</td><td>${esc(x.date_fin || '—')}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucun dispositif.</p>`;
+    html += `</section>`;
+  }
+
+  if (s.repas) {
+    const grille = d.grille_repas || [];
+    html += `<section class="panel dossier-section" id="dos-repas">
+      <h3>Repas</h3>
+      <p class="dossier-help">Grille cantine / étude — alimente passages et facturation foyer.</p>`;
+    html += grille.length
+      ? `<table><thead><tr><th>Activité</th><th>Jours</th><th>Début</th><th>Fin</th></tr></thead>
+         <tbody>${grille.map(g => `<tr>
+           <td>${esc(g.activite_label || g.activite_id)}</td><td>${esc(joursLabel(g.jours))}</td>
+           <td>${esc(g.date_debut)}</td><td>${esc(g.date_fin || '—')}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Pas de grille repas.</p>`;
+    html += `<h4 style="margin:.75rem 0 .25rem">Poser / remplacer une grille</h4>
+      <div class="row">
+        <label>Activité <select id="grilleAct"></select></label>
+        <label>Début <input id="grilleDebut" type="date" value="${today()}"/></label>
+        <label><input type="checkbox" id="jg_lun" checked/> lun</label>
+        <label><input type="checkbox" id="jg_mar" checked/> mar</label>
+        <label><input type="checkbox" id="jg_mer" checked/> mer</label>
+        <label><input type="checkbox" id="jg_jeu" checked/> jeu</label>
+        <label><input type="checkbox" id="jg_ven" checked/> ven</label>
+        <label><input type="checkbox" id="jg_sam"/> sam</label>
+        <label><input type="checkbox" id="jg_dim"/> dim</label>
+        <button type="button" class="primary" id="btnGrillePose">Poser grille</button>
+      </div>
+      <div id="grilleMsg" class="muted"></div>`;
+    const dispenses = d.dispenses_repas || [];
+    html += `<h4 style="margin:.75rem 0 .25rem">Dispenses / prévenances</h4>`;
+    html += dispenses.length
+      ? `<table><thead><tr><th>Jour</th><th>Activité</th><th>Motif</th><th>Source</th><th>Statut</th><th></th></tr></thead>
+         <tbody>${dispenses.map(x => `<tr>
+           <td>${esc(x.jour)}</td><td>${esc(x.activite_label || x.activite_id)}</td>
+           <td>${esc(x.motif)}</td><td><span class="pill">${esc(x.source)}</span></td>
+           <td>${x.annulee ? '<span class="muted">annulée</span>' : '<span class="ok">active</span>'}</td>
+           <td>${x.annulee ? '' : `<button type="button" class="btnDosAnnulDisp" data-id="${esc(x.id)}">Annuler</button>`}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucune dispense active.</p>`;
+    html += `</section>`;
+  }
+
+  if (s.bourses) {
+    const bourses = d.bourses || [];
+    html += `<section class="panel dossier-section" id="dos-bourses">
+      <h3>Bourses</h3>
+      <p class="dossier-help">Avec procuration = l’établissement touche → déduction possible sur facture foyer.</p>`;
+    html += bourses.length
+      ? `<table><thead><tr><th>Type</th><th>Échelon</th><th>Statut</th><th>Procuration</th><th>Début</th><th>Fin</th><th></th></tr></thead>
+         <tbody>${bourses.map(b => `<tr>
+           <td>${esc(b.bourse_type_label || '—')}</td>
+           <td>${esc(b.echelon)}</td><td><span class="pill">${esc(b.status)}</span></td>
+           <td>${yesNo(b.avec_procuration)}</td>
+           <td>${esc(b.date_debut)}</td><td>${esc(b.date_fin || '—')}</td>
+           <td>${b.status === 'demandee'
+             ? `<button type="button" class="primary btnBourseAcc" data-id="${esc(b.id)}">Accepter</button>
+                <button type="button" class="btnBourseRef" data-id="${esc(b.id)}">Refuser</button>`
+             : ''}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucune bourse.</p>`;
+    html += `<h4 style="margin:.75rem 0 .25rem">Affecter une bourse</h4>
+      <div class="row">
+        <label>Type <select id="bourseType"></select></label>
+        <label>Échelon <input id="bourseEch" value="1" style="width:3rem"/></label>
+        <label>Début <input id="bourseDebut" type="date" value="${today()}"/></label>
+        <label><input type="checkbox" id="bourseProc" checked/> Procuration</label>
+        <button type="button" class="primary" id="btnBourseAff">Affecter</button>
+      </div>
+      <div id="bourseMsg" class="muted"></div>
+    </section>`;
+  }
+
+  if (s.continuum) {
+    const cont = d.continuum || [];
+    const optsC = d.options_continuum || [];
+    html += `<section class="panel dossier-section" id="dos-continuum">
+      <h3>Années scolaires (continuité)</h3>
+      <p class="dossier-help">N-1 / N / N+1 sur la fiche — pas de bascule « Fichier » Charlemagne. La montée rapide N+1 n’est pas un passage juridique.</p>`;
+    html += cont.length
+      ? `<table><thead><tr><th>Année</th><th>Classe</th><th>Niveau</th><th>MEF</th><th>Statut</th><th>Source</th><th>Passage</th><th>Redoublement</th></tr></thead>
+         <tbody>${cont.map(c => `<tr>
+           <td><strong>${esc(c.annee_scolaire)}</strong></td><td>${esc(c.classe || '—')}</td>
+           <td>${esc(c.niveau || '—')}</td><td>${esc(c.mef || '—')}</td>
+           <td><span class="pill">${esc(c.statut)}</span></td><td>${esc(c.source)}</td>
+           <td>${c.passage_juridique ? 'juridique' : 'projection'}</td>
+           <td>${c.redoublement_possible ? 'possible' : '—'}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Pas encore d’historique multi-années.</p>`;
+    if (optsC.length) {
+      html += `<h4 style="margin:1rem 0 .35rem">Options par année (N / N+1)</h4>
+        <table><thead><tr><th>Année</th><th>Nature</th><th>Code</th><th>Libellé</th><th>Statut</th></tr></thead>
+        <tbody>${optsC.map(o => `<tr>
+          <td>${esc(o.annee_scolaire)}</td>
+          <td>${esc(optionNatureLabel(o.nature))}</td>
+          <td>${esc(o.code)}</td><td>${esc(o.libelle)}</td>
+          <td><span class="pill">${esc(o.statut)}</span></td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+    html += `</section>`;
+  }
+
+  if (s.notes) {
+    const notes = d.notes || [];
+    html += `<section class="panel dossier-section" id="dos-notes">
+      <h3>Notes</h3>
+      <p class="dossier-help">Consultation sur la fiche · saisie dans le module Notes. Bulletins : période fermée → publication documents famille.</p>`;
+    html += notes.length
+      ? `<table><thead><tr><th>Date</th><th>Libellé</th><th>Note</th><th>Matière</th><th>Période</th><th>Devoir</th></tr></thead>
+         <tbody>${notes.map(n => `<tr>
+           <td>${esc(n.date_note)}</td>
+           <td>${esc(n.libelle || '—')}</td>
+           <td><strong>${esc(String(n.valeur))}/${esc(String(n.sur))}</strong></td>
+           <td>${esc(n.matiere_libelle || '—')}</td>
+           <td class="muted">${n.periode_id ? esc(String(n.periode_id).slice(0, 8)) : '—'}</td>
+           <td class="muted">${n.devoir_id ? esc(String(n.devoir_id).slice(0, 8)) : '—'}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucune note.</p>`;
+    html += `<p style="margin-top:.75rem"><a href="/app/notes">Ouvrir le module Notes</a></p>
+    </section>`;
+  }
+
+  if (s.vs) {
+    const sanctions = d.sanctions || [];
+    const incidents = d.incidents || [];
+    const carnet = d.carnet || [];
+    html += `<section class="panel dossier-section" id="dos-vs">
+      <h3>Vie scolaire</h3>
+      <p class="dossier-help">Carnet, sanctions, incidents, commissions — visibles selon les droits du parent sur ce lien.</p>
+      <h4>Carnet de liaison</h4>`;
+    html += carnet.length
+      ? `<table><thead><tr><th>Date</th><th>Catégorie</th><th>Titre</th><th>Message</th><th>Signature</th></tr></thead>
+         <tbody>${carnet.map(x => `<tr>
+           <td>${esc(x.date_entree)}</td><td>${esc(x.categorie)}</td>
+           <td>${esc(x.titre)}</td><td>${esc(x.corps)}</td>
+           <td>${x.signe_at ? '<span class="ok">signé famille</span>' : (x.visible_famille ? '<span class="warn">à signer</span>' : 'interne')}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucune entrée carnet.</p>`;
+    html += `<div class="row" style="margin-top:.75rem;flex-wrap:wrap;gap:.5rem">
+      <label>Date <input id="carDate" type="date" value="${today()}"/></label>
+      <label>Catégorie <select id="carCat">
+        <option value="information">Information</option>
+        <option value="correspondance">Correspondance</option>
+        <option value="accompagnement">Accompagnement</option>
+      </select></label>
+      <label><input type="checkbox" id="carVisFam" checked/> Visible famille</label>
+    </div>
+    <div class="row">
+      <label style="flex:1">Titre <input id="carTitre" style="width:100%" placeholder="Retard / information"/></label>
+    </div>
+    <div class="row">
+      <label style="flex:1">Message <input id="carCorps" style="width:100%"/></label>
+      <button type="button" class="primary" id="btnCarnetSave">Publier au carnet</button>
+    </div>
+    <div id="carMsg" class="muted"></div>
+    <h4 style="margin-top:1.25rem">Sanctions</h4>`;
+    html += sanctions.length
+      ? `<table><thead><tr><th>Jour</th><th>Type</th><th>Motif</th><th>Statut</th><th>Durée</th><th>Note</th><th></th></tr></thead>
+         <tbody>${sanctions.map(x => `<tr>
+           <td>${esc(x.jour)}</td>
+           <td>${esc(x.type_label || '—')}</td>
+           <td>${esc(x.motif_label || '—')}</td>
+           <td>${esc(x.statut)}</td>
+           <td>${x.duree_minutes != null ? x.duree_minutes + ' min' : '—'}</td>
+           <td>${esc(x.note || '—')}</td>
+           <td>${x.statut !== 'annulee'
+             ? `<button type="button" class="btnSanAnnul" data-id="${esc(x.id)}">Annuler</button>`
+             : ''}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucune sanction.</p>`;
+    html += `<h4 style="margin-top:1.25rem">Incidents</h4>`;
+    html += incidents.length
+      ? `<table><thead><tr><th>Jour</th><th>Type</th><th>Description</th></tr></thead>
+         <tbody>${incidents.map(x => `<tr>
+           <td>${esc(x.jour)}</td>
+           <td>${esc(x.type_label || '—')}</td>
+           <td>${esc(x.description || '—')}</td>
+         </tr>`).join('')}</tbody></table>`
+      : `<p class="empty">Aucun incident.</p>`;
+    html += `<h4 style="margin-top:1.25rem">Commissions VS</h4>
+      <div id="comDossierOut" class="muted">Chargement…</div>
+    <h4 style="margin-top:1.25rem">Journal du jour</h4>
+      <div id="journalDossierOut" class="muted">Chargement…</div>
+    </section>`;
+  }
+
+  const hidden = Object.entries(s).filter(([,v]) => !v).map(([k]) => k);
+  if (hidden.length) {
+    const labels = {
+      identite: 'Fiche', scolarite: 'Fiche', famille: 'Famille',
+      options: 'Options', notes: 'Notes', vs: 'Vie scolaire', documents: 'Documents',
+      dispositifs: 'Dispositifs', repas: 'Repas', bourses: 'Bourses', continuum: 'Années',
+    };
+    html += `<p class="muted" style="margin-top:.5rem">Non visibles pour votre rôle :
+      ${hidden.map(k => esc(labels[k] || k)).join(', ')}</p>`;
+  }
+  html += `</div></div>`;
+  return html;
+}
+
+async function bindDossier(id) {
+  const out = document.getElementById('dossierOut');
+  try {
+    const d = await api('/eleves/' + id + '/dossier');
+    out.innerHTML = renderDossier(d);
+
+    function showDossierTab(secId) {
+      const links = [...out.querySelectorAll('#dossierNav a[data-sec]')];
+      const sections = [...out.querySelectorAll('.dossier-section')];
+      sections.forEach(sec => {
+        const id = (sec.id || '').replace(/^dos-/, '');
+        sec.classList.toggle('is-hidden', id !== secId);
+      });
+      links.forEach(a => a.classList.toggle('on', a.dataset.sec === secId));
+    }
+    const nav = document.getElementById('dossierNav');
+    if (nav) {
+      const links = [...nav.querySelectorAll('a[data-sec]')];
+      links.forEach(a => {
+        a.onclick = (ev) => {
+          ev.preventDefault();
+          showDossierTab(a.dataset.sec);
+        };
+      });
+      if (links[0]) showDossierTab(links[0].dataset.sec);
+    }
+    out.querySelectorAll('[data-dos-tab]').forEach(a => {
+      a.onclick = (ev) => {
+        ev.preventDefault();
+        showDossierTab(a.getAttribute('data-dos-tab'));
+      };
+    });
+
+    const btnDossierSearch = document.getElementById('btnDossierSearch');
+    const dossierSearchQ = document.getElementById('dossierSearchQ');
+    const dossierSearchOut = document.getElementById('dossierSearchOut');
+    async function runDossierSearch() {
+      if (!dossierSearchOut) return;
+      const q = (dossierSearchQ && dossierSearchQ.value || '').trim();
+      if (!q) { dossierSearchOut.innerHTML = '<span class="bad">Saisir un nom ou une classe</span>'; return; }
+      try {
+        const list = await api('/eleves/search?q=' + encodeURIComponent(q));
+        if (!list.length) {
+          dossierSearchOut.innerHTML = '<span class="muted">Aucun élève</span>';
+          return;
+        }
+        dossierSearchOut.innerHTML = list.slice(0, 8).map(e =>
+          `<div><a href="/app/eleves/${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}</a>
+            <span class="muted"> · ${esc(e.classe || '—')}</span></div>`
+        ).join('');
+      } catch (e) {
+        dossierSearchOut.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    }
+    if (btnDossierSearch) btnDossierSearch.onclick = runDossierSearch;
+    if (dossierSearchQ) {
+      dossierSearchQ.onkeydown = (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); runDossierSearch(); }
+      };
+    }
+
+    async function loadDocsMeta() {
+      const box = document.getElementById('docsMetaOut');
+      if (!box) return;
+      try {
+        const list = await api('/eleves/' + id + '/documents');
+        if (!list.length) {
+          box.innerHTML = '<p class="empty">Aucun document déposé.</p>';
+          return;
+        }
+        box.innerHTML = `<table><thead><tr><th>Titre</th><th>Code</th><th>Source</th><th>Tiroir</th><th>Niveau d’accès</th><th>État</th><th></th></tr></thead>
+          <tbody>${list.map(doc => `<tr>
+            <td>${esc(doc.titre)}</td>
+            <td><code>${esc(doc.code || '—')}</code></td>
+            <td class="muted">${esc(doc.source || '—')}</td>
+            <td>${esc(tiroirLabel(doc.tiroir))}</td>
+            <td><span class="pill">${esc(confLabel(doc.confidentialite))}</span></td>
+            <td>${doc.accessible ? '<span class="ok">accessible</span>' : '<span class="bad">verrouillé</span>'}</td>
+            <td>${doc.accessible
+              ? `<button type="button" class="btnDocDl" data-id="${esc(doc.id)}" data-titre="${esc(doc.titre)}">Télécharger</button>`
+              : `<button type="button" class="btnGrantDem" data-id="${esc(doc.id)}">Demander un accès temporaire</button>`}</td>
+          </tr>`).join('')}</tbody></table>`;
+        box.querySelectorAll('.btnDocDl').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'document');
+            } catch (e) { alert(e.message); }
+          };
+        });
+        box.querySelectorAll('.btnGrantDem').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/documents/' + btn.dataset.id + '/grants', {
+                method: 'POST',
+                body: JSON.stringify({ duration_days: 14, note: 'besoin de lecture pédagogique' }),
+              });
+              await loadGrantsPending();
+              alert('Demande d’accès envoyée à l’administration');
+            } catch (e) { alert(e.message); }
+          };
+        });
+      } catch (e) {
+        box.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+      }
+    }
+
+    async function loadGrantsPending() {
+      const box = document.getElementById('grantsPendingOut');
+      if (!box) return;
+      try {
+        const list = await api('/documents/grants/pending');
+        if (!list.length) {
+          box.innerHTML = '<p class="empty">Aucune demande en attente.</p>';
+          return;
+        }
+        box.innerHTML = `<table><thead><tr><th>Document</th><th>Demandeur</th><th>Durée</th><th>Motif</th><th></th></tr></thead>
+          <tbody>${list.map(g => `<tr>
+            <td>${esc(g.document_titre || g.document_id.slice(0, 8) + '…')}</td>
+            <td>${esc(g.grantee_label || g.grantee_user_id.slice(0, 8) + '…')}</td>
+            <td>${g.duration_days} jours</td>
+            <td>${esc(g.note || '—')}</td>
+            <td>
+              <button type="button" class="primary btnGrantOk" data-id="${esc(g.id)}">Accorder l’accès</button>
+              <button type="button" class="btnGrantNo" data-id="${esc(g.id)}">Refuser</button>
+            </td>
+          </tr>`).join('')}</tbody></table>`;
+        box.querySelectorAll('.btnGrantOk').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/documents/grants/' + btn.dataset.id + '/decider', {
+                method: 'POST',
+                body: JSON.stringify({ accepter: true, note: 'accès accordé' }),
+              });
+              await loadGrantsPending();
+              await loadDocsMeta();
+            } catch (e) { alert(e.message); }
+          };
+        });
+        box.querySelectorAll('.btnGrantNo').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/documents/grants/' + btn.dataset.id + '/decider', {
+                method: 'POST',
+                body: JSON.stringify({ accepter: false }),
+              });
+              await loadGrantsPending();
+            } catch (e) { alert(e.message); }
+          };
+        });
+      } catch (e) {
+        // Prof / rôles sans manage : file masquée.
+        box.innerHTML = `<p class="muted">File des demandes réservée à l’administration.</p>`;
+      }
+    }
+    await loadDocsMeta();
+    await loadGrantsPending();
+    const btnDocDepot = document.getElementById('btnDocDepot');
+    if (btnDocDepot) {
+      btnDocDepot.onclick = async () => {
+        const msg = document.getElementById('docDepotMsg');
+        const file = (document.getElementById('docFile') || {}).files && document.getElementById('docFile').files[0];
+        const titreEl = document.getElementById('docTitre');
+        let titre = titreEl.value.trim();
+        if (!titre && file) titre = file.name;
+        if (!titre) { msg.innerHTML = '<span class="bad">Titre ou fichier requis</span>'; return; }
+        const mime = file ? (file.type || 'application/octet-stream') : 'application/pdf';
+        try {
+          const body = {
+            titre,
+            tiroir: document.getElementById('docTiroir').value,
+            confidentialite: document.getElementById('docConf').value,
+            code: document.getElementById('docCode').value.trim() || null,
+            mime_type: mime,
+          };
+          if (file) body.contenu_base64 = await fileToBase64(file);
+          const d = await api('/eleves/' + id + '/documents', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          msg.innerHTML = `<span class="ok">Déposé · ${esc(d.titre)} (${esc(d.confidentialite)})${file ? ' · ' + esc(file.name) : ''}</span>`;
+          if (document.getElementById('docFile')) document.getElementById('docFile').value = '';
+          await loadDocsMeta();
+        } catch (e) {
+          msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    }
+
+    const btnFicheSave = document.getElementById('btnFicheSave');
+    if (btnFicheSave) {
+      btnFicheSave.onclick = async () => {
+        const msg = document.getElementById('idMsg');
+        const movMsg = document.getElementById('movMsg');
+        const ineRaw = document.getElementById('idIne').value.trim();
+        const sexeRaw = document.getElementById('idSexe').value;
+        const dnRaw = document.getElementById('idDn').value;
+        const badgeRaw = document.getElementById('idBadge').value.trim();
+        const entreeRaw = document.getElementById('idEntree').value;
+        const effet = (document.getElementById('movEffet') && document.getElementById('movEffet').value) || today();
+        const cur = d.eleve || {};
+        try {
+          await api('/eleves/' + id + '/identite', {
+            method: 'PUT',
+            body: JSON.stringify({
+              nom: document.getElementById('idNom').value.trim(),
+              prenom: document.getElementById('idPrenom').value.trim(),
+              ine: ineRaw ? ineRaw : null,
+              sexe: sexeRaw ? sexeRaw : null,
+              date_naissance: dnRaw ? dnRaw : null,
+              numero_badge: badgeRaw ? badgeRaw : null,
+              redoublant: document.getElementById('idRedoub').checked,
+              date_entree: entreeRaw || null,
+            }),
+          });
+          const nouvelleClasse = document.getElementById('movClasse').value.trim();
+          const nouveauRegime = document.getElementById('movRegime').value;
+          const nouveauMef = document.getElementById('movMef').value.trim();
+          const nouveauSite = document.getElementById('movSite').value.trim();
+          const done = [];
+          if (nouvelleClasse && nouvelleClasse !== (cur.classe || '')) {
+            await api('/eleves/' + id + '/classe', {
+              method: 'POST',
+              body: JSON.stringify({ nouvelle_classe: nouvelleClasse, date_effet: effet }),
+            });
+            done.push('classe');
+          }
+          if (nouveauRegime && nouveauRegime !== (cur.regime || '')) {
+            await api('/eleves/' + id + '/regime', {
+              method: 'POST',
+              body: JSON.stringify({ nouveau_regime: nouveauRegime, date_effet: effet }),
+            });
+            done.push('régime');
+          }
+          if (nouveauMef && nouveauMef !== (cur.mef || '')) {
+            await api('/eleves/' + id + '/mef', {
+              method: 'POST',
+              body: JSON.stringify({ nouveau_mef: nouveauMef, date_effet: effet }),
+            });
+            done.push('MEF');
+          }
+          if (nouveauSite && nouveauSite !== (cur.site || '')) {
+            await api('/eleves/' + id + '/site', {
+              method: 'POST',
+              body: JSON.stringify({ nouveau_site: nouveauSite, date_effet: effet }),
+            });
+            done.push('site');
+          }
+          msg.innerHTML = '<span class="ok">Fiche enregistrée'
+            + (done.length ? ' · mouvements : ' + done.join(', ') : '')
+            + '</span>';
+          if (movMsg) movMsg.textContent = '';
+          await bindDossier(id);
+        } catch (e) {
+          msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    }
+
+    const btnFamSave = document.getElementById('btnFamSaveLiens');
+    if (btnFamSave) {
+      btnFamSave.onclick = async () => {
+        const msg = document.getElementById('famLiensMsg');
+        const rows = [...document.querySelectorAll('#famLiensTable tbody tr')];
+        const liens = rows.map(tr => {
+          const partRaw = tr.querySelector('.famPart').value;
+          const part = partRaw === '' ? null : Number(partRaw);
+          return {
+            lien_id: tr.dataset.lienId,
+            lien: tr.querySelector('.famLien').value.trim(),
+            peut_voir_notes: tr.querySelector('.famNotes').checked,
+            peut_voir_vs: tr.querySelector('.famVs').checked,
+            peut_justifier_absence: tr.querySelector('.famJustif').checked,
+            peut_autoriser_sorties: tr.querySelector('.famSorties').checked,
+            est_payeur: tr.querySelector('.famPayeur').checked,
+            part_paiement: Number.isFinite(part) ? part : null,
+          };
+        });
+        try {
+          await api('/eleves/' + id + '/liens', {
+            method: 'PUT',
+            body: JSON.stringify({ liens }),
+          });
+          msg.innerHTML = '<span class="ok">Liens enregistrés</span>';
+          await bindDossier(id);
+        } catch (e) {
+          msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    }
+    out.querySelectorAll('.btnFamDelLien').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Retirer ce lien responsable ↔ élève ?')) return;
+        const msg = document.getElementById('famLiensMsg');
+        try {
+          await api('/eleves/' + id + '/liens/' + btn.dataset.lienId, { method: 'DELETE' });
+          if (msg) msg.innerHTML = '<span class="ok">Lien retiré</span>';
+          await bindDossier(id);
+        } catch (e) {
+          if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          else alert(e.message);
+        }
+      };
+    });
+
+    const headers = {};
+    if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
+    const preview = document.getElementById('photoPreview');
+    if (preview) {
+      try {
+        const res = await fetch('/eleves/' + id + '/photo', { headers });
+        if (res.ok) {
+          const url = URL.createObjectURL(await res.blob());
+          preview.innerHTML = `<img src="${url}" alt="" style="width:72px;height:72px;object-fit:cover"/>`;
+        }
+      } catch {}
+    }
+    const btnPhoto = document.getElementById('btnPhotoDemo');
+    if (btnPhoto) {
+      btnPhoto.onclick = async () => {
+        const msg = document.getElementById('photoMsg');
+        try {
+          // PNG 8×8 gris minimal (base64)
+          await api('/eleves/' + id + '/photo', {
+            method: 'POST',
+            body: JSON.stringify({
+              mime_type: 'image/png',
+              contenu_base64: DEMO_PNG_B64,
+            }),
+          });
+          msg.innerHTML = '<span class="ok">Photo posée</span>';
+          const res = await fetch('/eleves/' + id + '/photo', { headers });
+          if (res.ok && preview) {
+            const url = URL.createObjectURL(await res.blob());
+            preview.innerHTML = `<img src="${url}" alt="" style="width:72px;height:72px;object-fit:cover"/>`;
+          }
+        } catch (e) {
+          msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    }
+    out.querySelectorAll('.btnSanAnnul').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Annuler cette sanction ?')) return;
+        try {
+          await api('/vs/sanctions/' + btn.dataset.id + '/annuler', { method: 'POST', body: '{}' });
+          await bindDossier(id);
+        } catch (e) { alert(e.message); }
+      };
+    });
+    const movMsg = document.getElementById('movMsg');
+    const btnMovSortie = document.getElementById('btnMovSortie');
+    if (btnMovSortie && movMsg) {
+      btnMovSortie.onclick = async () => {
+        if (!confirm('Confirmer la sortie de l’établissement ?')) return;
+        try {
+          await api('/eleves/' + id + '/sortie', {
+            method: 'POST',
+            body: JSON.stringify({
+              date_sortie: document.getElementById('movSortieDate').value || today(),
+              motif_sortie: document.getElementById('movSortieMotif').value.trim() || null,
+            }),
+          });
+          movMsg.innerHTML = '<span class="ok">Élève sorti</span>';
+          await bindDossier(id);
+        } catch (e) {
+          movMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    }
+    const btnCarnet = document.getElementById('btnCarnetSave');
+    if (btnCarnet) {
+      btnCarnet.onclick = async () => {
+        const msg = document.getElementById('carMsg');
+        const titre = document.getElementById('carTitre').value.trim();
+        const corps = document.getElementById('carCorps').value.trim();
+        if (!titre) { msg.innerHTML = '<span class="bad">Titre requis</span>'; return; }
+        try {
+          await api('/eleves/' + id + '/carnet', {
+            method: 'POST',
+            body: JSON.stringify({
+              date_entree: document.getElementById('carDate').value || today(),
+              categorie: document.getElementById('carCat').value,
+              titre,
+              corps,
+              visible_famille: document.getElementById('carVisFam').checked,
+            }),
+          });
+          msg.innerHTML = '<span class="ok">Entrée publiée</span>';
+          await bindDossier(id);
+        } catch (e) {
+          msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    }
+    const bourseType = document.getElementById('bourseType');
+    if (bourseType) {
+      try {
+        const types = await api('/bourses/types');
+        bourseType.innerHTML = types.map(t =>
+          `<option value="${esc(t.id)}">${esc(t.libelle)} (${esc(t.code)})</option>`
+        ).join('') || '<option value="">—</option>';
+      } catch {
+        bourseType.innerHTML = '<option value="">—</option>';
+      }
+      const btnAff = document.getElementById('btnBourseAff');
+      if (btnAff) {
+        btnAff.onclick = async () => {
+          const msg = document.getElementById('bourseMsg');
+          const tid = bourseType.value;
+          if (!tid) { msg.innerHTML = '<span class="bad">Choisir un type</span>'; return; }
+          try {
+            await api('/eleves/' + id + '/bourses', {
+              method: 'POST',
+              body: JSON.stringify({
+                bourse_type_id: tid,
+                echelon: document.getElementById('bourseEch').value.trim() || '1',
+                avec_procuration: document.getElementById('bourseProc').checked,
+                date_debut: document.getElementById('bourseDebut').value || today(),
+              }),
+            });
+            msg.innerHTML = '<span class="ok">Bourse affectée (demandée)</span>';
+            await bindDossier(id);
+          } catch (e) {
+            msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      }
+      out.querySelectorAll('.btnBourseAcc').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/bourses/' + btn.dataset.id + '/decider', {
+              method: 'POST',
+              body: JSON.stringify({ accepter: true }),
+            });
+            await bindDossier(id);
+          } catch (e) { alert(e.message); }
+        };
+      });
+      out.querySelectorAll('.btnBourseRef').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/bourses/' + btn.dataset.id + '/decider', {
+              method: 'POST',
+              body: JSON.stringify({ accepter: false }),
+            });
+            await bindDossier(id);
+          } catch (e) { alert(e.message); }
+        };
+      });
+    }
+    const grilleAct = document.getElementById('grilleAct');
+    if (grilleAct) {
+      try {
+        const acts = await api('/repas/activites');
+        grilleAct.innerHTML = acts.map(a =>
+          `<option value="${esc(a.id)}">${esc(a.libelle)} (${esc(a.kind)})</option>`
+        ).join('') || '<option value="">—</option>';
+      } catch {
+        grilleAct.innerHTML = '<option value="">—</option>';
+      }
+      const btnGrille = document.getElementById('btnGrillePose');
+      if (btnGrille) {
+        btnGrille.onclick = async () => {
+          const msg = document.getElementById('grilleMsg');
+          const aid = grilleAct.value;
+          if (!aid) { msg.innerHTML = '<span class="bad">Choisir une activité</span>'; return; }
+          try {
+            await api('/eleves/' + id + '/repas/grilles', {
+              method: 'POST',
+              body: JSON.stringify({
+                activite_id: aid,
+                date_debut: document.getElementById('grilleDebut').value || today(),
+                jours: {
+                  lun: document.getElementById('jg_lun').checked,
+                  mar: document.getElementById('jg_mar').checked,
+                  mer: document.getElementById('jg_mer').checked,
+                  jeu: document.getElementById('jg_jeu').checked,
+                  ven: document.getElementById('jg_ven').checked,
+                  sam: document.getElementById('jg_sam').checked,
+                  dim: document.getElementById('jg_dim').checked,
+                },
+              }),
+            });
+            msg.innerHTML = '<span class="ok">Grille posée</span>';
+            await bindDossier(id);
+          } catch (e) {
+            msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      }
+      out.querySelectorAll('.btnDosAnnulDisp').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Annuler cette dispense repas ?')) return;
+          try {
+            await api('/eleves/' + id + '/repas/dispenses/' + btn.dataset.id + '/annuler', {
+              method: 'POST', body: '{}',
+            });
+            await bindDossier(id);
+          } catch (e) { alert(e.message); }
+        };
+      });
+    }
+    const comBox = document.getElementById('comDossierOut');
+    if (comBox) {
+      try {
+        const list = await api('/eleves/' + id + '/commissions');
+        comBox.innerHTML = list.length
+          ? `<table><thead><tr><th>Motifs</th><th>Décision</th><th>Pts</th><th>Famille</th><th>Le</th><th></th></tr></thead>
+             <tbody>${list.map(c => `<tr>
+               <td>${esc(c.motifs)}</td>
+               <td>${esc(c.decision_libelle || '—')}</td>
+               <td>${c.points_retires || 0}</td>
+               <td>${c.signale_famille ? 'oui' : 'non'}</td>
+               <td class="muted">${c.decided_at ? esc(String(c.decided_at).slice(0, 10)) : '—'}</td>
+               <td><button type="button" class="btnComDossierOpen" data-eid="${esc(id)}" data-did="${esc(c.id)}" data-cid="${esc(c.commission_id)}">Ouvrir</button></td>
+             </tr>`).join('')}</tbody></table>`
+          : '<p class="empty">Aucune commission VS.</p>';
+        comBox.querySelectorAll('.btnComDossierOpen').forEach(btn => {
+          btn.onclick = () => {
+            routeState.comEleveId = btn.dataset.eid;
+            if (btn.dataset.did) routeState.comDosId = btn.dataset.did;
+            if (btn.dataset.cid) routeState.comId = btn.dataset.cid;
+            go('/app/absences');
+          };
+        });
+      } catch (e) {
+        comBox.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      }
+    }
+    const jourBox = document.getElementById('journalDossierOut');
+    if (jourBox) {
+      try {
+        const list = await api('/eleves/' + id + '/journal?limit=50');
+        jourBox.innerHTML = list.length
+          ? `<table><thead><tr><th>Quand</th><th>Domaine</th><th>Action</th><th>Libellé</th><th>Famille</th></tr></thead>
+             <tbody>${list.map(j => `<tr>
+               <td class="muted">${esc((j.created_at || '').slice(0, 16))}</td>
+               <td>${esc(j.domaine)}</td><td>${esc(j.action)}</td>
+               <td>${esc(j.libelle)}</td>
+               <td>${j.visible_famille ? 'oui' : 'non'}</td>
+             </tr>`).join('')}</tbody></table>`
+          : '<p class="empty">Aucune entrée journal.</p>';
+      } catch (e) {
+        jourBox.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      }
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+/* ---------- Appel ---------- */
+function viewAppel() {
+  let body = `
+    <div class="bento" id="appelStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h2>Créneaux</h2>
+        <p class="muted">Un appel = un créneau EDT (prof + matière + classe).</p>
+        <div class="row">
+          <label>Jour <input id="jour" type="date" value="${today()}"/></label>
+          <button type="button" class="primary" id="btnCreneaux">Mes créneaux</button>
+        </div>
+        <div id="creneauxOut" class="muted" style="margin-top:.5rem">Charger les créneaux…</div>
+        <div id="effectifPreview" class="muted" style="margin-top:.75rem"></div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>Appel en cours</h2>
+        <div id="appelOut" class="muted">Choisir un créneau…</div>
+        <div id="appelPostCloture" class="muted" style="margin-top:.75rem"></div>
+      </div>
+    </div>`;
+  return shell('/app/appel', body);
+}
+
+function renderAppelPanel(appel, names, absentMap) {
+  const nameOf = (l) => {
+    if (l && l.eleve_label) {
+      seedEleveLabel(l.eleve_id, l.eleve_label);
+      return l.eleve_label;
+    }
+    const id = l && l.eleve_id;
+    return (id && names[id]) || (id ? id.slice(0, 8) : '—');
+  };
+  const clos = appel.statut === 'clos';
+  const lignes = appel.lignes || [];
+  const nAbs = lignes.filter(l => l.etat === 'absent').length;
+  const nRet = lignes.filter(l => l.etat === 'retard').length;
+  const nPres = lignes.filter(l => l.etat === 'present').length;
+  const matiere = appel.matiere_libelle ? esc(appel.matiere_libelle) + ' · ' : '';
+  const creneauLien = appel.creneau_id
+    ? ` · <a href="/app/edt">créneau ${esc(String(appel.creneau_id).slice(0, 8))}</a>`
+    : '';
+  let html = `<p><strong>${matiere}Classe ${esc(appel.classe)}</strong> · ${esc(appel.jour)} ·
+    statut <span class="pill">${esc(appel.statut)}</span>${creneauLien}
+    · <span class="ok">${nPres}P</span> / <span class="bad">${nAbs}A</span> / <span class="warn">${nRet}R</span></p>`;
+  html += `<table><thead><tr><th>Élève</th><th>VS</th><th>État</th>${clos ? '' : '<th>Marquer</th>'}<th></th></tr></thead><tbody>`;
+  for (const l of lignes) {
+    const cls = 'etat-' + l.etat;
+    const deja = absentMap && absentMap[l.eleve_id];
+    html += `<tr>
+      <td>${esc(nameOf(l))}</td>
+      <td>${deja ? '<span class="pill-unread" title="Déjà signalé absent VS">VS</span>' : '<span class="muted">—</span>'}</td>
+      <td class="${cls}">${esc(l.etat)}</td>`;
+    if (!clos) {
+      html += `<td><div class="seg" data-eleve="${l.eleve_id}">
+        <button type="button" data-etat="present" class="${l.etat==='present'?'on-present':''}">Présent</button>
+        <button type="button" data-etat="absent" class="${l.etat==='absent'?'on-absent':''}">Absent</button>
+        <button type="button" data-etat="retard" class="${l.etat==='retard'?'on-retard':''}">Retard</button>
+      </div></td>`;
+    }
+    html += `<td><button type="button" class="btnAppelInc" data-eid="${esc(l.eleve_id)}" data-label="${esc(nameOf(l))}">Incident</button></td>`;
+    html += `</tr>`;
+  }
+  html += `</tbody></table>`;
+  html += `<div id="appelIncPanel" class="panel" style="margin-top:.75rem;display:none">
+    <h3>Signaler un incident</h3>
+    <p class="muted" id="appelIncEleveLabel"></p>
+    <div class="row">
+      <label>Type <select id="appelIncType" style="min-width:12rem"></select></label>
+      <label>Jour <input id="appelIncJour" type="date" value="${esc(appel.jour || today())}"/></label>
+      <label style="flex:1">Description <input id="appelIncDesc" style="width:100%" placeholder="Contexte…"/></label>
+      <button type="button" class="primary" id="btnAppelIncSave">Déclarer</button>
+      <button type="button" id="btnAppelIncCancel">Annuler</button>
+    </div>
+    <div id="appelIncMsg" class="muted"></div>
+  </div>`;
+  if (!clos) {
+    html += `<div class="row" style="margin-top:.75rem">
+      <button type="button" class="danger" id="btnClore">Clôturer l’appel</button>
+      <span class="muted">Les absents deviennent des absences VS.</span>
+    </div>`;
+  } else {
+    html += `<p class="ok">Appel clos — <a href="/app/absences">voir Absences</a> · <a href="/app/mon-edt">Mon EDT</a>.</p>`;
+  }
+  return html;
+}
+
+async function bindAppel() {
+  const out = document.getElementById('appelOut');
+  const creneauxOut = document.getElementById('creneauxOut');
+  const preview = document.getElementById('effectifPreview');
+  const postBox = document.getElementById('appelPostCloture');
+  const stats = document.getElementById('appelStats');
+  const names = {};
+  let lastEffectif = [];
+
+  async function loadNames(classe, jour) {
+    const eff = await api('/classes/' + encodeURIComponent(classe) + '/effectif?jour=' + jour);
+    lastEffectif = eff.eleves || [];
+    for (const e of lastEffectif) names[e.id] = e.prenom + ' ' + e.nom;
+    return lastEffectif;
+  }
+
+  async function loadAbsentMap(lignes, jour) {
+    const map = {};
+    await Promise.all((lignes || []).map(async (l) => {
+      try {
+        const r = await api('/eleves/' + l.eleve_id + '/absent?jour=' + encodeURIComponent(jour));
+        if (r && r.absent) map[l.eleve_id] = true;
+      } catch {}
+    }));
+    return map;
+  }
+
+  async function refresh(appel) {
+    routeState.appel = appel;
+    await loadNames(appel.classe, appel.jour);
+    const absentMap = await loadAbsentMap(appel.lignes, appel.jour);
+    const nAbs = (appel.lignes || []).filter(l => l.etat === 'absent').length;
+    const nVs = Object.keys(absentMap).length;
+    if (stats) {
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-3"><strong>${(appel.lignes || []).length}</strong><span>Élèves</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nAbs}</strong><span>Absents appel</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nVs}</strong><span>Déjà absents VS</span></div>
+        <div class="stat-tile bento-span-3"><strong>${esc(appel.statut)}</strong><span>Statut</span></div>`;
+    }
+    out.innerHTML = renderAppelPanel(appel, names, absentMap);
+    out.querySelectorAll('.seg button').forEach(btn => {
+      btn.onclick = async () => {
+        const eleve_id = btn.parentElement.dataset.eleve;
+        const etat = btn.dataset.etat;
+        try {
+          await api('/appels/' + appel.id + '/lignes', {
+            method: 'POST',
+            body: JSON.stringify({ eleve_id, etat }),
+          });
+          const fresh = await api('/appels/' + appel.id);
+          await refresh(fresh);
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    });
+    let appelIncEleveId = null;
+    const bindAppelIncUi = async () => {
+      const panel = document.getElementById('appelIncPanel');
+      const typeSel = document.getElementById('appelIncType');
+      if (!panel || !typeSel) return;
+      if (!typeSel.options.length) {
+        try {
+          const types = await api('/vs/incident-types');
+          typeSel.innerHTML = (types || []).map(t =>
+            `<option value="${esc(t.id)}">${esc(t.libelle || t.code || t.id)}</option>`
+          ).join('') || '<option value="">—</option>';
+        } catch (e) {
+          typeSel.innerHTML = '<option value="">' + esc(e.message) + '</option>';
+        }
+      }
+      out.querySelectorAll('.btnAppelInc').forEach(btn => {
+        btn.onclick = () => {
+          appelIncEleveId = btn.dataset.eid;
+          const lab = document.getElementById('appelIncEleveLabel');
+          if (lab) lab.textContent = 'Élève : ' + (btn.dataset.label || appelIncEleveId);
+          panel.style.display = '';
+          const msg = document.getElementById('appelIncMsg');
+          if (msg) msg.innerHTML = '';
+        };
+      });
+      const btnCancel = document.getElementById('btnAppelIncCancel');
+      if (btnCancel) {
+        btnCancel.onclick = () => {
+          panel.style.display = 'none';
+          appelIncEleveId = null;
+        };
+      }
+      const btnSave = document.getElementById('btnAppelIncSave');
+      if (btnSave) {
+        btnSave.onclick = async () => {
+          const msg = document.getElementById('appelIncMsg');
+          if (!appelIncEleveId) {
+            if (msg) msg.innerHTML = '<span class="bad">Choisir un élève</span>';
+            return;
+          }
+          const typeId = typeSel.value;
+          if (!typeId) {
+            if (msg) msg.innerHTML = '<span class="bad">Type requis</span>';
+            return;
+          }
+          try {
+            const d = await api('/eleves/' + appelIncEleveId + '/incidents', {
+              method: 'POST',
+              body: JSON.stringify({
+                type_id: typeId,
+                jour: (document.getElementById('appelIncJour') || {}).value || appel.jour || today(),
+                description: ((document.getElementById('appelIncDesc') || {}).value || '').trim() || null,
+              }),
+            });
+            if (msg) msg.innerHTML = `<span class="ok">Incident ${esc(String(d.id).slice(0, 8))} — <a href="/app/absences">Absences &amp; commissions</a></span>`;
+            panel.style.display = 'none';
+            appelIncEleveId = null;
+          } catch (e) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      }
+    };
+    await bindAppelIncUi();
+    const clore = document.getElementById('btnClore');
+    if (clore) {
+      clore.onclick = async () => {
+        if (!confirm('Clôturer cet appel ?')) return;
+        try {
+          const beforeAbs = (appel.lignes || []).filter(l => l.etat === 'absent');
+          const fresh = await api('/appels/' + appel.id + '/clore', { method: 'POST', body: '{}' });
+          await refresh(fresh);
+          if (postBox) {
+            const namesList = beforeAbs.map(l => names[l.eleve_id] || l.eleve_id.slice(0, 8)).join(', ');
+            postBox.innerHTML = beforeAbs.length
+              ? `<div class="errbox" style="background:#fff4e5;color:inherit;border-color:#f0c36d">
+                   <strong>${beforeAbs.length} absence(s) VS créée(s)</strong> :
+                   ${esc(namesList)} —
+                   <a href="/app/absences">Ouvrir Absences</a>
+                 </div>`
+              : `<p class="ok">Clôture sans absence — aucun signal VS.</p>`;
+          }
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    }
+  }
+
+  async function showEffectifPreview(classe, jour) {
+    if (!preview) return;
+    try {
+      const eleves = await loadNames(classe, jour);
+      if (!eleves.length) {
+        preview.innerHTML = '<p class="empty">Effectif vide.</p>';
+        return;
+      }
+      preview.innerHTML = `<h3>Effectif ${esc(classe)} (${eleves.length})</h3>
+        <ul style="margin:0;padding-left:1.1rem;columns:2">${eleves.map(e =>
+          `<li>${esc(e.prenom)} ${esc(e.nom)}</li>`
+        ).join('')}</ul>`;
+    } catch (e) {
+      preview.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+    }
+  }
+
+  async function loadCreneaux() {
+    const jour = document.getElementById('jour').value;
+    creneauxOut.textContent = 'Chargement…';
+    if (preview) preview.innerHTML = '';
+    try {
+      const list = await api('/edt/mes-creneaux?jour=' + jour);
+      if (!list.length) {
+        creneauxOut.innerHTML = '<p class="empty">Aucun créneau pour toi ce jour.</p>';
+        return;
+      }
+      creneauxOut.innerHTML = `<table>
+        <thead><tr><th>Horaire</th><th>Classe</th><th>Matière</th><th>Salle</th><th></th></tr></thead>
+        <tbody>${list.map(c => `<tr>
+          <td>${esc(c.heure_debut)}–${esc(c.heure_fin)}</td>
+          <td>${esc(c.classe)}</td>
+          <td>${esc(c.matiere_libelle)}</td>
+          <td>${esc(c.salle || '—')}</td>
+          <td>
+            <button type="button" data-prev="${esc(c.classe)}" data-jour="${esc(jour)}">Effectif</button>
+            <button type="button" class="primary" data-id="${c.id}">Appel</button>
+          </td>
+        </tr>`).join('')}</tbody></table>`;
+      creneauxOut.querySelectorAll('button[data-prev]').forEach(btn => {
+        btn.onclick = () => showEffectifPreview(btn.dataset.prev, btn.dataset.jour);
+      });
+      creneauxOut.querySelectorAll('button[data-id]').forEach(btn => {
+        btn.onclick = async () => {
+          out.textContent = 'Ouverture…';
+          if (postBox) postBox.innerHTML = '';
+          try {
+            const appel = await api('/appels', {
+              method: 'POST',
+              body: JSON.stringify({ creneau_id: btn.dataset.id, jour }),
+            });
+            await refresh(appel);
+          } catch (e) {
+            out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+          }
+        };
+      });
+    } catch (e) {
+      creneauxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnCreneaux').onclick = loadCreneaux;
+  document.getElementById('jour').onchange = loadCreneaux;
+  await loadCreneaux();
+  if (routeState.appel) await refresh(routeState.appel);
+}
+
+/* ---------- Cahier de texte ---------- */
+function viewCahier(base) {
+  const active = base.startsWith('/famille') ? '/famille/cahier'
+    : (base.startsWith('/eleve') ? '/eleve/cahier' : '/app/cahier');
+  const staff = base.startsWith('/app');
+  const eleveFace = base.startsWith('/eleve');
+  return shell(active, `
+    <div class="bento" id="cdtStats"></div>
+    <div class="bento">
+      ${staff ? `
+      <div class="panel bento-span-5">
+        <h2>Publier</h2>
+        <p class="muted">Travail pour la classe — visible élèves et parents liés.</p>
+        <div class="row">
+          <label>Classe <input id="cdtClasse" value="4B" style="width:4rem"/></label>
+          <label>Matière <select id="cdtMatiere" style="min-width:10rem"></select></label>
+          <label>Pour le <input id="cdtPourLe" type="date" value="${today()}"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Titre <input id="cdtTitre" value="Exercices" style="width:100%"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Consigne <textarea id="cdtConsigne" rows="3" style="width:100%" placeholder="Pages…"></textarea></label>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnCdtCreer">Publier</button>
+          <button type="button" id="btnCdtLoad">Actualiser</button>
+        </div>
+        <div id="cdtMsg" class="muted"></div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>Cahier — classe</h2>
+        <div id="cdtOut" class="muted">…</div>
+      </div>
+      ` : eleveFace ? `
+      <div class="panel bento-span-12">
+        <h2>Mon cahier de texte</h2>
+        <p class="muted">Travaux à faire — lecture seule.</p>
+        <div class="row">
+          <button type="button" class="primary" id="btnCdtLoad">Actualiser</button>
+        </div>
+        <div id="cdtMsg" class="muted"></div>
+        <div id="cdtOut" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+      ` : `
+      <div class="panel bento-span-12">
+        <h2>Cahier de texte</h2>
+        <div class="row">
+          <label>Élève <select id="cdtEleve"></select></label>
+          <button type="button" class="primary" id="btnCdtLoad">Actualiser</button>
+        </div>
+        <div id="cdtMsg" class="muted"></div>
+        <div id="cdtOut" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+      `}
+    </div>`);
+}
+
+async function bindCahier(base) {
+  const staff = base.startsWith('/app');
+  const eleveFace = base.startsWith('/eleve');
+  const out = document.getElementById('cdtOut');
+  const msg = document.getElementById('cdtMsg');
+  const stats = document.getElementById('cdtStats');
+
+  async function load() {
+    out.textContent = 'Chargement…';
+    try {
+      let q = '';
+      if (staff) {
+        const cl = (document.getElementById('cdtClasse')?.value || '4B').trim();
+        q = '?classe=' + encodeURIComponent(cl);
+      } else if (eleveFace) {
+        const eid = me && me.eleve_id;
+        if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+        q = '?eleve_id=' + encodeURIComponent(eid);
+      } else {
+        const eid = document.getElementById('cdtEleve')?.value;
+        if (!eid) { out.innerHTML = '<p class="empty">Choisir un enfant.</p>'; return; }
+        q = '?eleve_id=' + encodeURIComponent(eid);
+      }
+      const list = await api('/cahier-texte' + q);
+      const todayIso = today();
+      const aVenir = list.filter(e => e.pour_le >= todayIso).length;
+      const matieres = [...new Set(list.map(e => e.matiere_libelle).filter(Boolean))];
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Entrées</span></div>
+          <div class="stat-tile bento-span-4"><strong>${aVenir}</strong><span>À venir / aujourd’hui</span></div>
+          <div class="stat-tile bento-span-4"><strong>${matieres.length}</strong><span>Matières</span></div>`;
+      }
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucune entrée.</p>';
+        return;
+      }
+      const byDay = {};
+      list.forEach(e => {
+        const d = e.pour_le || '?';
+        if (!byDay[d]) byDay[d] = [];
+        byDay[d].push(e);
+      });
+      const days = Object.keys(byDay).sort();
+      out.innerHTML = days.map(d => {
+        const items = byDay[d];
+        const soon = d === todayIso ? ' <span class="pill">aujourd’hui</span>' : (d < todayIso ? ' <span class="muted">passé</span>' : '');
+        return `<div style="margin-bottom:1rem">
+          <h3 style="margin:0 0 .4rem">${esc(d)}${soon}</h3>
+          <table><thead><tr><th>Matière</th><th>Classe</th><th>Titre</th><th>Consigne</th><th>Publié</th></tr></thead>
+          <tbody>${items.map(e => `<tr>
+            <td><span class="pill">${esc(e.matiere_libelle)}</span></td>
+            <td>${esc(e.classe || '—')}</td>
+            <td><strong>${esc(e.titre)}</strong></td>
+            <td>${esc(e.consigne)}</td>
+            <td class="muted">${esc((e.cree_le || e.created_at || '').toString().slice(0, 16).replace('T', ' ') || '—')}</td>
+          </tr>`).join('')}</tbody></table>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnCdtLoad').onclick = load;
+  const btnCreer = document.getElementById('btnCdtCreer');
+  if (btnCreer) {
+    btnCreer.onclick = async () => {
+      msg.textContent = '';
+      try {
+        await api('/cahier-texte', {
+          method: 'POST',
+          body: JSON.stringify({
+            classe: document.getElementById('cdtClasse').value.trim(),
+            matiere_libelle: document.getElementById('cdtMatiere').value.trim(),
+            titre: document.getElementById('cdtTitre').value.trim(),
+            consigne: document.getElementById('cdtConsigne').value.trim(),
+            pour_le: document.getElementById('cdtPourLe').value,
+          }),
+        });
+        msg.innerHTML = '<span class="ok">Publié</span>';
+        document.getElementById('cdtConsigne').value = '';
+        await load();
+      } catch (e) {
+        msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  if (staff) {
+    const matSel = document.getElementById('cdtMatiere');
+    if (matSel) {
+      try {
+        const mats = await api('/matieres');
+        matSel.innerHTML = (mats || []).map(m =>
+          `<option value="${esc(m.libelle)}">${esc(m.code)} — ${esc(m.libelle)}</option>`
+        ).join('') || '<option value="Travail">Travail</option>';
+      } catch (_) {
+        matSel.innerHTML = '<option value="Travail">Travail</option>';
+      }
+    }
+    const classeEl = document.getElementById('cdtClasse');
+    if (classeEl) classeEl.onchange = load;
+    const pourEl = document.getElementById('cdtPourLe');
+    if (pourEl) pourEl.onchange = load;
+  }
+  if (!staff) {
+    try {
+      const enfants = await api('/famille/enfants');
+      const sel = document.getElementById('cdtEleve');
+      sel.innerHTML = enfants.map(e =>
+        `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}</option>`
+      ).join('') || '<option value="">—</option>';
+      sel.onchange = load;
+    } catch {}
+  }
+  await load();
+}
+
+/* ---------- EDT exceptions ---------- */
+function mondayOf(iso) {
+  const x = new Date((iso || today()) + 'T12:00:00');
+  const day = x.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  x.setDate(x.getDate() + diff);
+  return x.toISOString().slice(0, 10);
+}
+
+function addDaysIso(iso, n) {
+  const x = new Date(iso + 'T12:00:00');
+  x.setDate(x.getDate() + n);
+  return x.toISOString().slice(0, 10);
+}
+
+function viewMonEdt() {
+  return shell('/app/mon-edt', `
+    <div class="bento" id="monEdtStats"></div>
+    <div class="panel">
+      <h2>Mon emploi du temps</h2>
+      <p class="muted">Créneaux du jour / semaine — ouvrir l’appel directement. Admin EDT : <a href="/app/edt">Emploi du temps</a>.</p>
+      <div class="row">
+        <label>Jour <input id="monEdtJour" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnMonEdtJour">Jour</button>
+        <button type="button" id="btnMonEdtSemaine">Semaine</button>
+        <button type="button" id="btnMonEdtPrev">←</button>
+        <button type="button" id="btnMonEdtNext">→</button>
+        <span id="monEdtMode" class="muted">jour</span>
+      </div>
+      <div id="monEdtOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindMonEdt() {
+  const out = document.getElementById('monEdtOut');
+  const stats = document.getElementById('monEdtStats');
+  const jourEl = document.getElementById('monEdtJour');
+  const modeEl = document.getElementById('monEdtMode');
+  let mode = 'jour';
+  async function load() {
+    const base = (jourEl && jourEl.value) || today();
+    const jours = mode === 'semaine'
+      ? [0, 1, 2, 3, 4].map(i => addDaysIso(mondayOf(base), i))
+      : [base];
+    if (modeEl) modeEl.textContent = mode === 'semaine' ? 'semaine' : 'jour';
+    out.textContent = 'Chargement…';
+    try {
+      const packs = await Promise.all(jours.map(async j => {
+        const ferme = await api('/vacances/jour-ferme?jour=' + encodeURIComponent(j)).catch(() => ({ ferme: false }));
+        const list = await api('/edt/mes-creneaux?jour=' + encodeURIComponent(j)).catch(e => {
+          throw e;
+        });
+        return { jour: j, ferme: !!(ferme && ferme.ferme), list: list || [] };
+      }));
+      const total = packs.reduce((s, p) => s + p.list.length, 0);
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${total}</strong><span>Créneaux</span></div>
+          <div class="stat-tile bento-span-4"><strong>${packs.filter(p => p.ferme).length}</strong><span>Jours fermés</span></div>
+          <a class="stat-tile bento-span-4" href="/app/appel"><strong>→</strong><span>Page Appel</span></a>`;
+      }
+      if (!total && packs.every(p => !p.ferme)) {
+        out.innerHTML = '<p class="empty">Aucun créneau pour toi sur cette période.</p>';
+        return;
+      }
+      out.innerHTML = packs.map(p => {
+        const head = `<h3 style="margin:1rem 0 .4rem">${esc(p.jour)}${p.ferme ? ' <span class="warn">· fermé</span>' : ''}</h3>`;
+        if (p.ferme && !p.list.length) {
+          return head + '<p class="warn" style="margin:0">Jour fermé (vacances / férié)</p>';
+        }
+        if (!p.list.length) {
+          return head + '<p class="empty">Aucun créneau.</p>';
+        }
+        return head + `<table><thead><tr><th>Horaire</th><th>Classe</th><th>Matière</th><th>Salle</th><th></th></tr></thead>
+          <tbody>${p.list.map(c => `<tr>
+            <td>${esc(c.heure_debut)}–${esc(c.heure_fin)}</td>
+            <td>${esc(c.classe)}</td>
+            <td>${esc(c.matiere_libelle)}</td>
+            <td>${esc(c.salle || '—')}</td>
+            <td><button type="button" class="primary btnMonEdtAppel" data-id="${c.id}" data-jour="${esc(p.jour)}">Ouvrir appel</button></td>
+          </tr>`).join('')}</tbody></table>`;
+      }).join('');
+      out.querySelectorAll('.btnMonEdtAppel').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            const appel = await api('/appels', {
+              method: 'POST',
+              body: JSON.stringify({ creneau_id: btn.dataset.id, jour: btn.dataset.jour }),
+            });
+            routeState.appel = appel;
+            go('/app/appel');
+          } catch (e) {
+            alert(e.message);
+          }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btnJ = document.getElementById('btnMonEdtJour');
+  const btnS = document.getElementById('btnMonEdtSemaine');
+  const btnP = document.getElementById('btnMonEdtPrev');
+  const btnN = document.getElementById('btnMonEdtNext');
+  if (btnJ) btnJ.onclick = () => { mode = 'jour'; load(); };
+  if (btnS) btnS.onclick = () => { mode = 'semaine'; load(); };
+  if (btnP) {
+    btnP.onclick = () => {
+      if (!jourEl) return;
+      jourEl.value = addDaysIso(jourEl.value || today(), mode === 'semaine' ? -7 : -1);
+      load();
+    };
+  }
+  if (btnN) {
+    btnN.onclick = () => {
+      if (!jourEl) return;
+      jourEl.value = addDaysIso(jourEl.value || today(), mode === 'semaine' ? 7 : 1);
+      load();
+    };
+  }
+  if (jourEl) jourEl.onchange = load;
+  await load();
+}
+
+function viewEdt() {
+  return shell('/app/edt', `
+    <div class="panel">
+      <h2>Emploi du temps — semaine</h2>
+      <p class="muted">Vue métier par jour · filtre classe optionnel. Les outils (exceptions, import, solveur) sont en dessous.</p>
+      <div class="row">
+        <label>Semaine (lundi) <input id="edtSemaine" type="date" value="${mondayOf(today())}"/></label>
+        <label>Classe <input id="edtClasseFiltre" placeholder="ex. 4B" style="width:5rem"/></label>
+        <button type="button" class="primary" id="btnEdtSemaine">Afficher</button>
+        <button type="button" id="btnEdtSemainePrev">←</button>
+        <button type="button" id="btnEdtSemaineNext">→</button>
+        <span id="edtSemaineMsg" class="muted"></span>
+      </div>
+      <div id="edtSemaineOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>EDT — exceptions &amp; semaines A/B</h2>
+      <p class="muted">Annulation, remplacement, salle · calendrier A/B (lundi de référence = semaine A).</p>
+      <div class="row">
+        <label>Réf. lundi A <input id="edtRefLundi" type="date"/></label>
+        <button type="button" id="btnEdtCal">Enregistrer calendrier A/B</button>
+        <span id="edtCalInfo" class="muted"></span>
+      </div>
+      <div class="row">
+        <label>Jour <input id="edtJour" type="date" value="${today()}"/></label>
+        <button type="button" id="btnEdtLoad">Créneaux &amp; exceptions</button>
+      </div>
+      <div class="row">
+        <label>Recherche staff <input id="edtStaffQ" placeholder="prof…" style="width:7rem"/></label>
+        <button type="button" id="btnEdtStaffSearch">Chercher</button>
+      </div>
+      <div class="row">
+        <label>Créneau <select id="edtCreneau" style="min-width:16rem"></select></label>
+        <label>Type <select id="edtKind">
+          <option value="annulation">Annulation</option>
+          <option value="remplacement">Remplacement</option>
+          <option value="changement_salle">Changement de salle</option>
+        </select></label>
+        <label>Remplaçant <select id="edtRemplacant" style="min-width:10rem"><option value="">—</option></select></label>
+        <label>Nouvelle salle <select id="edtSalle" style="min-width:8rem"><option value="">—</option></select></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Motif <input id="edtMotif" style="width:100%;min-width:14rem" placeholder="Maladie, sortie…"/></label>
+        <button type="button" class="primary" id="btnEdtSave">Poser l’exception</button>
+      </div>
+      <div id="edtMsg" class="muted"></div>
+      <div id="edtOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <h2>Affectation créneau</h2>
+      <p class="muted">Prof titulaire et/ou salle (code ou id référentiel) — conflits refusés.</p>
+      <div class="row">
+        <label>Créneau <select id="affCreneau" style="min-width:16rem"></select></label>
+        <label>Prof <select id="affProf" style="min-width:10rem"><option value="">— inchangé</option></select></label>
+        <label>Salle <select id="affSalleId" style="min-width:10rem"><option value="">—</option></select></label>
+        <button type="button" class="primary" id="btnAffSave">Affecter</button>
+      </div>
+      <div id="affMsg" class="muted"></div>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <h2>Contraintes soft</h2>
+      <p class="muted">Indispos prof / salle — consommées par le solveur greedy.</p>
+      <div class="row">
+        <label>Type <select id="ctrKind">
+          <option value="prof_indispo">Prof indispo</option>
+          <option value="salle_indispo">Salle indispo</option>
+          <option value="preference">Préférence</option>
+        </select></label>
+        <label>Prof <select id="ctrProf" style="min-width:10rem"><option value="">—</option></select></label>
+        <label>Salle <select id="ctrSalle" style="min-width:8rem"><option value="">—</option></select></label>
+        <label>Jour (1–7) <input id="ctrJour" type="number" min="1" max="7" value="1" style="width:3rem"/></label>
+        <label>Début <input id="ctrDeb" value="12:00" style="width:4rem"/></label>
+        <label>Fin <input id="ctrFin" value="14:00" style="width:4rem"/></label>
+        <label>Détail <input id="ctrDetail" placeholder="réunion"/></label>
+        <button type="button" id="btnCtrSave">Ajouter</button>
+      </div>
+      <div id="ctrMsg" class="muted"></div>
+      <div id="ctrList" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <h2>Import CSV / Pronote</h2>
+      <p class="muted">Native : <code>classe;matiere;prof_user_id;jour_semaine;heure_debut;heure_fin;salle;semaine_ab</code>. Pronote : jours FR + e-mail enseignant.</p>
+      <div class="row">
+        <label>Format <select id="edtImpFmt"><option value="native">native</option><option value="pronote">pronote</option></select></label>
+        <label><input type="checkbox" id="edtImpDry" checked/> Dry-run</label>
+        <button type="button" class="primary" id="btnEdtImport">Importer</button>
+      </div>
+      <textarea id="edtImpCsv" rows="5" style="width:100%;font-family:monospace;font-size:.85rem" placeholder="classe;matiere;prof_user_id;jour_semaine;heure_debut;heure_fin;salle;semaine_ab"></textarea>
+      <div id="edtImpMsg" class="muted" style="margin-top:.5rem"></div>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <h2>Solveur greedy</h2>
+      <p class="muted">Demandes JSON (classe, matiere, prof_user_id, duree_minutes, salle?, semaine_ab?).</p>
+      <div class="row">
+        <label><input type="checkbox" id="edtSolDry" checked/> Dry-run</label>
+        <button type="button" class="primary" id="btnEdtSolve">Résoudre</button>
+      </div>
+      <textarea id="edtSolJson" rows="4" style="width:100%;font-family:monospace;font-size:.85rem">[{"classe":"3A","matiere":"Maths","prof_user_id":"","duree_minutes":60,"salle":"B12","semaine_ab":"toutes"}]</textarea>
+      <div id="edtSolMsg" class="muted" style="margin-top:.5rem"></div>
+    </div>`);
+}
+
+async function bindEdt() {
+  const msg = document.getElementById('edtMsg');
+  const out = document.getElementById('edtOut');
+  const sel = document.getElementById('edtCreneau');
+  const calInfo = document.getElementById('edtCalInfo');
+  const staffLabel = {};
+  const profIds = new Set();
+  const joursLib = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+
+  async function loadSemaine() {
+    const box = document.getElementById('edtSemaineOut');
+    const info = document.getElementById('edtSemaineMsg');
+    const lundi = mondayOf(document.getElementById('edtSemaine').value || today());
+    document.getElementById('edtSemaine').value = lundi;
+    const filtre = (document.getElementById('edtClasseFiltre').value || '').trim().toLowerCase();
+    box.textContent = 'Chargement…';
+    info.textContent = '';
+    try {
+      const jours = [0, 1, 2, 3, 4].map(i => addDaysIso(lundi, i));
+      const [lists, fermes] = await Promise.all([
+        Promise.all(jours.map(j => api('/edt/creneaux?jour=' + encodeURIComponent(j)).catch(() => []))),
+        Promise.all(jours.map(j => api('/vacances/jour-ferme?jour=' + encodeURIComponent(j)).catch(() => ({ jour: j, ferme: false })))),
+      ]);
+      let total = 0;
+      let nFermes = 0;
+      const cols = jours.map((j, i) => {
+        const ferme = !!(fermes[i] && fermes[i].ferme);
+        if (ferme) nFermes++;
+        let slots = lists[i] || [];
+        if (filtre) slots = slots.filter(c => String(c.classe || '').toLowerCase() === filtre);
+        total += slots.length;
+        slots = [...slots].sort((a, b) => String(a.heure_debut).localeCompare(String(b.heure_debut)));
+        const body = ferme
+          ? '<p class="warn" style="padding:.35rem 0;margin:0">Jour fermé (vacances / férié)</p>'
+          : (slots.length
+            ? slots.map(c => `<div class="edt-slot" data-cid="${esc(c.id)}" data-jour="${esc(j)}" style="cursor:pointer">
+                <strong>${esc(c.heure_debut)}–${esc(c.heure_fin)}</strong>
+                <div>${esc(c.classe)} · ${esc(c.matiere_libelle)}</div>
+                <div class="muted">${esc(c.prof_label || '—')} · ${esc(c.salle || '—')}${c.semaine_ab && c.semaine_ab !== 'toutes' ? ' · ' + esc(c.semaine_ab) : ''}</div>
+              </div>`).join('')
+            : '<p class="empty" style="padding:.35rem 0;margin:0">—</p>');
+        return `<div class="edt-day${ferme ? ' edt-day-ferme' : ''}" data-jour="${esc(j)}">
+          <div class="edt-day-head" data-jour="${esc(j)}" style="cursor:pointer">${joursLib[i]} <span class="muted">${esc(j.slice(8, 10))}/${esc(j.slice(5, 7))}</span>
+            ${ferme ? ' <span class="pill">fermé</span>' : ''}</div>
+          ${body}
+        </div>`;
+      }).join('');
+      box.innerHTML = `<div class="edt-week">${cols}</div>`;
+      info.textContent = total + ' créneau(x) · semaine du ' + lundi
+        + (nFermes ? ' · ' + nFermes + ' jour(s) fermé(s)' : '');
+      box.querySelectorAll('.edt-day-head[data-jour]').forEach(h => {
+        h.onclick = async () => {
+          document.getElementById('edtJour').value = h.dataset.jour;
+          await loadJour();
+        };
+      });
+      box.querySelectorAll('.edt-slot[data-cid]').forEach(slot => {
+        slot.onclick = async () => {
+          document.getElementById('edtJour').value = slot.dataset.jour;
+          await loadJour();
+          const cid = slot.dataset.cid;
+          const edtSel = document.getElementById('edtCreneau');
+          const affSel = document.getElementById('affCreneau');
+          if (edtSel && [...edtSel.options].some(o => o.value === cid)) edtSel.value = cid;
+          if (affSel && [...affSel.options].some(o => o.value === cid)) affSel.value = cid;
+          msg.innerHTML = '<span class="ok">Créneau prérempli pour exception / affectation</span>';
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnEdtSemaine').onclick = loadSemaine;
+  document.getElementById('edtSemaine').onchange = loadSemaine;
+  const edtClasseFiltre = document.getElementById('edtClasseFiltre');
+  if (edtClasseFiltre) {
+    edtClasseFiltre.onchange = loadSemaine;
+    edtClasseFiltre.onkeydown = (ev) => { if (ev.key === 'Enter') loadSemaine(); };
+  }
+  document.getElementById('btnEdtSemainePrev').onclick = () => {
+    document.getElementById('edtSemaine').value = addDaysIso(mondayOf(document.getElementById('edtSemaine').value), -7);
+    loadSemaine();
+  };
+  document.getElementById('btnEdtSemaineNext').onclick = () => {
+    document.getElementById('edtSemaine').value = addDaysIso(mondayOf(document.getElementById('edtSemaine').value), 7);
+    loadSemaine();
+  };
+
+  function fillProfSelects() {
+    const labeled = [...profIds].map(id => {
+      const lab = staffLabel[id] || (id.slice(0, 8) + '…');
+      return `<option value="${esc(id)}">${esc(lab)}</option>`;
+    }).join('');
+    ['edtRemplacant', 'affProf', 'ctrProf'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const prev = el.value;
+      el.innerHTML = (id === 'affProf' ? '<option value="">— inchangé</option>' : '<option value="">—</option>') + labeled;
+      if (prev && [...el.options].some(o => o.value === prev)) el.value = prev;
+    });
+  }
+
+  async function loadStaffProfs(q) {
+    try {
+      const list = await api('/personnel/search?q=' + encodeURIComponent((q || '').trim()));
+      (list || []).forEach(p => {
+        profIds.add(p.user_id);
+        staffLabel[p.user_id] = (p.label || p.email) + ' (' + p.role + ')';
+      });
+      const cast = STORE.cast;
+      if (cast && cast.personnel) {
+        cast.personnel.forEach(p => {
+          if (p.user_id) {
+            profIds.add(p.user_id);
+            staffLabel[p.user_id] = (p.label || p.email) + ' (' + p.role + ')';
+          }
+        });
+      }
+      fillProfSelects();
+    } catch (_) { fillProfSelects(); }
+  }
+  await loadStaffProfs('');
+  const btnStaff = document.getElementById('btnEdtStaffSearch');
+  if (btnStaff) {
+    btnStaff.onclick = async () => {
+      await loadStaffProfs(document.getElementById('edtStaffQ').value);
+    };
+  }
+
+  async function loadSallesEdt() {
+    try {
+      const list = await api('/salles');
+      const optsCode = '<option value="">—</option>' + (list || []).map(s =>
+        `<option value="${esc(s.code)}">${esc(s.code)} — ${esc(s.libelle)}</option>`
+      ).join('');
+      const optsId = '<option value="">—</option>' + (list || []).map(s =>
+        `<option value="${esc(s.id)}" data-code="${esc(s.code)}">${esc(s.code)} — ${esc(s.libelle)}</option>`
+      ).join('');
+      const edtSalle = document.getElementById('edtSalle');
+      const ctrSalle = document.getElementById('ctrSalle');
+      const affSalleId = document.getElementById('affSalleId');
+      if (edtSalle) edtSalle.innerHTML = optsCode;
+      if (ctrSalle) ctrSalle.innerHTML = optsCode;
+      if (affSalleId) affSalleId.innerHTML = optsId;
+    } catch (_) { /* hors droits */ }
+  }
+  await loadSallesEdt();
+  const cast = STORE.cast;
+
+  function syncKindFields() {
+    const k = document.getElementById('edtKind').value;
+    document.getElementById('edtRemplacant').disabled = k !== 'remplacement';
+    document.getElementById('edtSalle').disabled = k !== 'changement_salle';
+  }
+  document.getElementById('edtKind').onchange = syncKindFields;
+  syncKindFields();
+
+  async function loadCal() {
+    try {
+      const cal = await api('/edt/calendrier-ab');
+      if (cal && cal.reference_lundi) {
+        document.getElementById('edtRefLundi').value = cal.reference_lundi;
+        calInfo.textContent = 'Réf. A = ' + cal.reference_lundi;
+      } else {
+        calInfo.textContent = 'Pas encore de calendrier A/B';
+      }
+    } catch (e) {
+      calInfo.textContent = e.message;
+    }
+  }
+
+  document.getElementById('btnEdtCal').onclick = async () => {
+    msg.textContent = '';
+    try {
+      const d = await api('/edt/calendrier-ab', {
+        method: 'PUT',
+        body: JSON.stringify({ reference_lundi: document.getElementById('edtRefLundi').value }),
+      });
+      msg.innerHTML = `<span class="ok">Calendrier A/B · réf. ${esc(d.reference_lundi)}</span>`;
+  await loadCal();
+  await loadJour();
+  await loadSemaine();
+} catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function loadJour() {
+    const jour = document.getElementById('edtJour').value || today();
+    out.textContent = 'Chargement…';
+    msg.textContent = '';
+    try {
+      const [creneaux, exs] = await Promise.all([
+        api('/edt/creneaux?jour=' + encodeURIComponent(jour)),
+        api('/edt/exceptions?jour=' + encodeURIComponent(jour)),
+      ]);
+      sel.innerHTML = (creneaux || []).map(c =>
+        `<option value="${c.id}">${esc(c.heure_debut)}–${esc(c.heure_fin)} · ${esc(c.classe)} · ${esc(c.matiere_libelle)} · ${esc(c.semaine_ab || 'toutes')} · ${esc((c.salle||'—'))}</option>`
+      ).join('') || '<option value="">(aucun créneau)</option>';
+      const affSelEl = document.getElementById('affCreneau');
+      if (affSelEl) {
+        affSelEl.innerHTML = sel.innerHTML;
+      }
+      (creneaux || []).forEach(c => {
+        if (c.prof_user_id) {
+          profIds.add(c.prof_user_id);
+          if (c.prof_label) staffLabel[c.prof_user_id] = c.prof_label;
+        }
+      });
+      (exs || []).forEach(e => {
+        if (e.remplacant_user_id) profIds.add(e.remplacant_user_id);
+      });
+      fillProfSelects();
+      const byId = Object.fromEntries((creneaux || []).map(c => [c.id, c]));
+      if (!exs.length) {
+        out.innerHTML = '<p class="empty">Aucune exception ce jour.</p>';
+        return;
+      }
+      out.innerHTML = `<table><thead><tr><th>Créneau</th><th>Type</th><th>Détail</th><th>Motif</th></tr></thead>
+        <tbody>${exs.map(e => {
+          const c = byId[e.creneau_id];
+          const label = c
+            ? `${esc(c.classe)} ${esc(c.matiere_libelle)} ${esc(c.heure_debut)}`
+            : esc(e.creneau_label || e.creneau_id.slice(0, 8));
+          let detail = '—';
+          if (e.kind === 'remplacement' && e.remplacant_user_id) {
+            detail = '→ ' + esc(e.remplacant_label || staffLabel[e.remplacant_user_id] || e.remplacant_user_id.slice(0, 8) + '…');
+          }
+          if (e.kind === 'changement_salle') detail = esc(e.nouvelle_salle || '—');
+          return `<tr>
+            <td>${label}</td>
+            <td><span class="pill">${esc(e.kind)}</span></td>
+            <td>${detail}</td>
+            <td>${esc(e.motif)}</td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnEdtSave').onclick = async () => {
+    msg.textContent = '';
+    const kind = document.getElementById('edtKind').value;
+    const body = {
+      creneau_id: sel.value,
+      jour: document.getElementById('edtJour').value || today(),
+      kind,
+      remplacant_user_id: kind === 'remplacement'
+        ? (document.getElementById('edtRemplacant').value.trim() || null)
+        : null,
+      nouvelle_salle: kind === 'changement_salle'
+        ? (document.getElementById('edtSalle').value.trim() || null)
+        : null,
+      motif: document.getElementById('edtMotif').value,
+    };
+    try {
+      const d = await api('/edt/exceptions', { method: 'POST', body: JSON.stringify(body) });
+      msg.innerHTML = `<span class="ok">Exception ${esc(d.kind)} posée</span>`;
+      document.getElementById('edtMotif').value = '';
+      await loadJour();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnEdtLoad').onclick = loadJour;
+  document.getElementById('edtJour').onchange = loadJour;
+
+  const affMsg = document.getElementById('affMsg');
+  document.getElementById('btnAffSave').onclick = async () => {
+    affMsg.textContent = '';
+    const id = document.getElementById('affCreneau').value;
+    if (!id) { affMsg.innerHTML = '<span class="bad">Créneau requis</span>'; return; }
+    const prof = document.getElementById('affProf').value.trim();
+    const affSalleEl = document.getElementById('affSalleId');
+    const salleId = affSalleEl.value.trim();
+    const salleCode = salleId && affSalleEl.selectedOptions[0]
+      ? (affSalleEl.selectedOptions[0].dataset.code || '')
+      : '';
+    const body = {
+      prof_user_id: prof || null,
+      salle: salleCode || null,
+      salle_id: salleId || null,
+    };
+    try {
+      const d = await api('/edt/creneaux/' + id + '/affectation', {
+        method: 'POST', body: JSON.stringify(body),
+      });
+      affMsg.innerHTML = `<span class="ok">Affecté · salle ${esc(d.salle || '—')}</span>`;
+      await loadJour();
+    } catch (e) {
+      affMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function loadContraintes() {
+    const box = document.getElementById('ctrList');
+    try {
+      const list = await api('/edt/contraintes');
+      (list || []).forEach(c => {
+        if (c.prof_user_id) profIds.add(c.prof_user_id);
+      });
+      fillProfSelects();
+      box.innerHTML = !list.length
+        ? '<p class="empty">Aucune contrainte.</p>'
+        : `<table><thead><tr><th>Type</th><th>Cible</th><th>Créneau</th><th>Détail</th></tr></thead><tbody>${
+            list.map(c => {
+              const cible = c.kind === 'salle_indispo'
+                ? esc(c.salle_code || '—')
+                : esc(c.prof_label || staffLabel[c.prof_user_id] || ((c.prof_user_id || '').slice(0, 8) + '…') || '—');
+              const plage = (c.jour_semaine || '—') + ' '
+                + (c.heure_debut || '') + '–' + (c.heure_fin || '');
+              return `<tr><td><span class="pill">${esc(c.kind)}</span></td><td>${cible}</td><td>${esc(plage)}</td><td>${esc(c.detail)}</td></tr>`;
+            }).join('')
+          }</tbody></table>`;
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnCtrSave').onclick = async () => {
+    const msg = document.getElementById('ctrMsg');
+    msg.textContent = '';
+    try {
+      await api('/edt/contraintes', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: document.getElementById('ctrKind').value,
+          prof_user_id: document.getElementById('ctrProf').value.trim() || null,
+          salle_code: document.getElementById('ctrSalle').value.trim() || null,
+          jour_semaine: Number(document.getElementById('ctrJour').value) || null,
+          heure_debut: document.getElementById('ctrDeb').value || null,
+          heure_fin: document.getElementById('ctrFin').value || null,
+          detail: document.getElementById('ctrDetail').value || null,
+        }),
+      });
+      msg.innerHTML = '<span class="ok">Contrainte enregistrée</span>';
+      await loadContraintes();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  document.getElementById('btnEdtImport').onclick = async () => {
+    const box = document.getElementById('edtImpMsg');
+    box.textContent = '';
+    try {
+      const r = await api('/edt/import', {
+        method: 'POST',
+        body: JSON.stringify({
+          csv: document.getElementById('edtImpCsv').value,
+          dry_run: document.getElementById('edtImpDry').checked,
+          format: document.getElementById('edtImpFmt').value,
+        }),
+      });
+      box.innerHTML = `<span class="ok">${esc(r.format)} · lignes ${r.lines} · ok ${r.ok_count} · conflits ${r.conflicts}${r.dry_run ? ' (dry-run)' : ''}</span>`;
+      if (!r.dry_run) await loadJour();
+    } catch (e) {
+      box.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnEdtSolve').onclick = async () => {
+    const box = document.getElementById('edtSolMsg');
+    box.textContent = '';
+    try {
+      let demandes;
+      try {
+        demandes = JSON.parse(document.getElementById('edtSolJson').value);
+      } catch (pe) {
+        throw new Error('JSON demandes invalide');
+      }
+      if (!Array.isArray(demandes)) throw new Error('demandes doit être un tableau');
+      const r = await api('/edt/resoudre', {
+        method: 'POST',
+        body: JSON.stringify({
+          demandes,
+          dry_run: document.getElementById('edtSolDry').checked,
+        }),
+      });
+      box.innerHTML = `<span class="ok">placés ${r.placed} · non placés ${r.unplaced}${r.dry_run ? ' (dry-run)' : ''}</span>`;
+      if (!r.dry_run) await loadJour();
+    } catch (e) {
+      box.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  if (cast && cast.profs && cast.profs[0]) {
+    const pid = cast.profs[0].user_id || cast.profs[0].id || '';
+    if (pid) {
+      const sample = document.getElementById('edtSolJson');
+      if (sample && sample.value.indexOf('"prof_user_id":""') >= 0) {
+        sample.value = sample.value.replace('"prof_user_id":""', '"prof_user_id":"' + pid + '"');
+      }
+      const csv = document.getElementById('edtImpCsv');
+      if (csv && !csv.value.trim()) {
+        csv.value = 'classe;matiere;prof_user_id;jour_semaine;heure_debut;heure_fin;salle;semaine_ab\n'
+          + '6A;Histoire;' + pid + ';1;18:00;19:00;Salle H;toutes\n';
+      }
+    }
+  }
+
+  await loadCal();
+  await loadJour();
+  await loadContraintes();
+  await loadSemaine();
+}
+
+/* ---------- Éditions VS ---------- */
+function viewEditionsVs() {
+  return shell('/app/editions', `
+    <div class="bento" id="edStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h2>Modèle</h2>
+        <p class="muted">Placeholders : {{nom}} {{prenom}} {{classe}} {{date}}</p>
+        <div class="row">
+          <label>Code <input id="edCode" placeholder="CONVOC" style="width:8rem"/></label>
+          <label style="flex:1">Titre <input id="edTitre" placeholder="Convocation" style="width:100%"/></label>
+        </div>
+        <label style="display:block;margin:.5rem 0">Corps
+          <textarea id="edCorps" rows="8" style="width:100%">Madame, Monsieur,
+
+Nous convoquons {{prenom}} {{nom}} ({{classe}}) le {{date}}.
+
+La vie scolaire.</textarea>
+        </label>
+        <button type="button" class="primary" id="btnEdSave">Enregistrer</button>
+        <div id="edMsg" class="muted"></div>
+        <h3 style="margin-top:1rem">Bibliothèque</h3>
+        <div id="edList" class="muted">…</div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>Rendre un document</h2>
+        <div class="row">
+          <label>Modèle <select id="edTpl" style="min-width:12rem"></select></label>
+          ${elevePickerRow('edEleve', 'edEleveQ', 'btnEdEleveSearch')}
+          <label>Date <input id="edDate" type="date" value="${today()}"/></label>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnEdRender">Rendre</button>
+          <label>ou code <input id="edRenderCode" value="CONVOC" style="width:8rem"/></label>
+          <button type="button" id="btnEdRenderCode">Rendre par code</button>
+          <button type="button" id="btnEdCopy">Copier</button>
+          <button type="button" id="btnEdPrint" disabled>Imprimer</button>
+          <button type="button" id="btnEdDl" disabled>Télécharger .txt</button>
+          <button type="button" id="btnEdDepot" disabled>Déposer au dossier</button>
+          <button type="button" id="btnEdFil" disabled>Ouvrir un fil</button>
+        </div>
+        <div id="edPostMsg" class="muted"></div>
+        <pre id="edRendu" class="muted" style="white-space:pre-wrap;margin-top:.75rem;min-height:12rem;border:1px solid var(--line);border-radius:12px;padding:1rem;background:rgba(255,255,255,.6)"></pre>
+      </div>
+    </div>`);
+}
+
+async function bindEditionsVs() {
+  const msg = document.getElementById('edMsg');
+  const list = document.getElementById('edList');
+  const sel = document.getElementById('edTpl');
+  const stats = document.getElementById('edStats');
+  let lastItems = [];
+  async function refresh() {
+    try {
+      const items = await api('/editions-vs');
+      lastItems = items || [];
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-6"><strong>${lastItems.length}</strong><span>Modèles VS</span></div>
+          <div class="stat-tile bento-span-6"><strong>{{nom}} {{prenom}}…</strong><span>Placeholders actifs</span></div>`;
+      }
+      list.innerHTML = !lastItems.length
+        ? '<p class="empty">Aucun modèle.</p>'
+        : `<table><thead><tr><th>Code</th><th>Titre</th><th></th></tr></thead><tbody>${
+            lastItems.map(t => `<tr>
+              <td><strong>${esc(t.code)}</strong></td>
+              <td>${esc(t.titre)}</td>
+              <td><button type="button" data-tid="${esc(t.id)}" data-code="${esc(t.code)}">Choisir</button></td>
+            </tr>`).join('')
+          }</tbody></table>`;
+      list.querySelectorAll('button[data-tid]').forEach(btn => {
+        btn.onclick = () => {
+          if (sel) sel.value = btn.dataset.tid;
+          document.getElementById('edRenderCode').value = btn.dataset.code || '';
+          const t = lastItems.find(x => x.id === btn.dataset.tid);
+          if (t) {
+            document.getElementById('edCode').value = t.code || '';
+            document.getElementById('edTitre').value = t.titre || '';
+            if (t.corps) document.getElementById('edCorps').value = t.corps;
+          }
+          if (typeof scheduleEdRender === 'function') scheduleEdRender();
+        };
+      });
+      sel.innerHTML = lastItems.map(t =>
+        `<option value="${t.id}">${esc(t.code)} — ${esc(t.titre)}</option>`
+      ).join('') || '<option value="">(aucun)</option>';
+    } catch (e) {
+      list.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnEdSave').onclick = async () => {
+    msg.textContent = '';
+    try {
+      const d = await api('/editions-vs', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('edCode').value,
+          titre: document.getElementById('edTitre').value,
+          corps: document.getElementById('edCorps').value,
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Modèle ${esc(d.code)} enregistré</span>`;
+      await refresh();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  async function showRendu(texte) {
+    document.getElementById('edRendu').textContent = texte || '';
+    const ok = !!(texte && !texte.startsWith('Modèle') && !texte.startsWith('Code'));
+    document.getElementById('btnEdDepot').disabled = !ok;
+    document.getElementById('btnEdFil').disabled = !ok;
+    const btnPrint = document.getElementById('btnEdPrint');
+    const btnDl = document.getElementById('btnEdDl');
+    if (btnPrint) btnPrint.disabled = !ok;
+    if (btnDl) btnDl.disabled = !ok;
+  }
+  async function doRender() {
+    const id = sel.value;
+    const eleve = document.getElementById('edEleve').value.trim();
+    if (!id || !eleve) { await showRendu('Modèle et élève requis'); return; }
+    try {
+      const d = await api('/editions-vs/' + id + '/rendre', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: eleve,
+          date: document.getElementById('edDate').value || today(),
+        }),
+      });
+      await showRendu(d.texte || '');
+    } catch (e) {
+      await showRendu(e.message);
+    }
+  }
+  async function doRenderCode() {
+    const code = document.getElementById('edRenderCode').value.trim();
+    const eleve = document.getElementById('edEleve').value.trim();
+    if (!code || !eleve) {
+      await showRendu('Code et élève requis');
+      return;
+    }
+    try {
+      const d = await api('/editions-vs/par-code/' + encodeURIComponent(code) + '/rendre', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: eleve,
+          date: document.getElementById('edDate').value || today(),
+        }),
+      });
+      await showRendu(d.texte || '');
+    } catch (e) {
+      await showRendu(e.message);
+    }
+  }
+  document.getElementById('btnEdRender').onclick = doRender;
+  document.getElementById('btnEdRenderCode').onclick = doRenderCode;
+  let edRenderTimer = null;
+  function scheduleEdRender() {
+    clearTimeout(edRenderTimer);
+    edRenderTimer = setTimeout(() => {
+      const code = (document.getElementById('edRenderCode') || {}).value || '';
+      if (String(code).trim()) doRenderCode();
+      else if (sel.value) doRender();
+    }, 300);
+  }
+  const edEleveEl = document.getElementById('edEleve');
+  if (edEleveEl) edEleveEl.onchange = scheduleEdRender;
+  if (sel) sel.onchange = scheduleEdRender;
+  const edDateEl = document.getElementById('edDate');
+  if (edDateEl) edDateEl.onchange = scheduleEdRender;
+  document.getElementById('btnEdCopy').onclick = async () => {
+    const t = document.getElementById('edRendu').textContent || '';
+    if (!t) return;
+    try {
+      await navigator.clipboard.writeText(t);
+      msg.innerHTML = '<span class="ok">Texte copié</span>';
+    } catch {
+      msg.innerHTML = '<span class="bad">Copie impossible</span>';
+    }
+  };
+  const btnEdPrint = document.getElementById('btnEdPrint');
+  if (btnEdPrint) {
+    btnEdPrint.onclick = () => {
+      const t = document.getElementById('edRendu').textContent || '';
+      if (!t) return;
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=720,height=900');
+      if (!w) { alert('Pop-up bloquée'); return; }
+      const code = ((document.getElementById('edRenderCode') || {}).value || 'edition').trim();
+      w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"/><title>${esc(code)}</title>
+        <style>body{font:14px/1.45 Georgia,serif;margin:2rem;white-space:pre-wrap}</style></head>
+        <body>${esc(t)}</body></html>`);
+      w.document.close();
+      w.focus();
+      w.print();
+    };
+  }
+  const btnEdDl = document.getElementById('btnEdDl');
+  if (btnEdDl) {
+    btnEdDl.onclick = () => {
+      const t = document.getElementById('edRendu').textContent || '';
+      if (!t) return;
+      const code = ((document.getElementById('edRenderCode') || {}).value || 'edition').trim() || 'edition';
+      const blob = new Blob([t], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = code.replace(/[^\w.-]+/g, '_') + '.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      const post = document.getElementById('edPostMsg');
+      if (post) post.innerHTML = '<span class="ok">Fichier téléchargé</span>';
+    };
+  }
+  document.getElementById('btnEdDepot').onclick = async () => {
+    const post = document.getElementById('edPostMsg');
+    const eleve = document.getElementById('edEleve').value.trim();
+    const texte = document.getElementById('edRendu').textContent || '';
+    const code = document.getElementById('edRenderCode').value.trim() || 'EDITION';
+    if (!eleve || !texte) return;
+    try {
+      const d = await api('/eleves/' + encodeURIComponent(eleve) + '/documents', {
+        method: 'POST',
+        body: JSON.stringify({
+          titre: 'Édition VS ' + code,
+          tiroir: 'vie_scolaire',
+          confidentialite: 'personnel',
+          code,
+          mime_type: 'text/plain',
+          storage_key: null,
+        }),
+      });
+      post.innerHTML = `<span class="ok">Déposé — <a href="/app/eleves/${esc(eleve)}">dossier</a> · ${esc(d.titre || d.id)}</span>`;
+    } catch (e) {
+      post.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnEdFil').onclick = async () => {
+    const post = document.getElementById('edPostMsg');
+    const eleve = document.getElementById('edEleve').value.trim();
+    const texte = document.getElementById('edRendu').textContent || '';
+    const code = document.getElementById('edRenderCode').value.trim() || 'Édition';
+    if (!eleve || !texte) return;
+    try {
+      const f = await api('/messages/fils', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: eleve,
+          sujet: 'Convocation / ' + code,
+          message: texte,
+        }),
+      });
+      post.innerHTML = `<span class="ok">Fil ouvert — <a href="/app/messages">messagerie</a> · ${esc(f.sujet || f.id)}</span>`;
+    } catch (e) {
+      post.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  await bindElevePickers('edEleve', 'edEleveQ', 'btnEdEleveSearch');
+  await refresh();
+}
+
+/* ---------- Stages ---------- */
+function viewStages() {
+  return shell('/app/stages', `
+    <div class="bento" id="stStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h2>Entreprises</h2>
+        <p class="muted">Référentiel partenaires de stage.</p>
+        <div class="row">
+          <label style="flex:1">Raison sociale <input id="stRaison" style="width:100%"/></label>
+        </div>
+        <div class="row">
+          <label>SIRET <input id="stSiret" maxlength="14" style="width:10rem"/></label>
+          <label style="flex:1">Adresse <input id="stAdresse" style="width:100%"/></label>
+          <button type="button" class="primary" id="btnStEnt">Créer</button>
+        </div>
+        <div id="stMsg" class="muted"></div>
+        <div id="stEntList" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>Conventions</h2>
+        <div class="row">
+          <label>Entreprise <select id="stEntSel" style="min-width:12rem"></select></label>
+          ${elevePickerRow('stEleve', 'stEleveQ', 'btnStEleveSearch')}
+        </div>
+        <div class="row">
+          <label>Début <input id="stDebut" type="date" value="${today()}"/></label>
+          <label>Fin <input id="stFin" type="date"/></label>
+          <label style="flex:1">Tuteur <input id="stTuteur" style="width:100%"/></label>
+          <button type="button" class="primary" id="btnStConv">Créer</button>
+          <button type="button" id="btnStConvLoad">Conventions élève</button>
+        </div>
+        <div id="stConvMsg" class="muted"></div>
+        <div id="stConvList" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+    </div>`);
+}
+
+async function bindStages() {
+  const msg = document.getElementById('stMsg');
+  const entList = document.getElementById('stEntList');
+  const sel = document.getElementById('stEntSel');
+  const stats = document.getElementById('stStats');
+  await bindElevePickers('stEleve', 'stEleveQ', 'btnStEleveSearch');
+
+  async function loadConventionsEleve() {
+    const eid = document.getElementById('stEleve').value.trim();
+    const box = document.getElementById('stConvList');
+    if (!eid) { box.innerHTML = '<p class="empty">Choisir un élève.</p>'; return; }
+    try {
+      const list = await api('/eleves/' + encodeURIComponent(eid) + '/conventions-stage');
+      if (!list.length) { box.innerHTML = '<p class="empty">Aucune convention.</p>'; return; }
+      box.innerHTML = `<table><thead><tr><th>Entreprise</th><th>Début</th><th>Fin</th><th>Tuteur</th><th>Statut</th></tr></thead><tbody>${
+        list.map(c => `<tr>
+          <td>${esc(c.entreprise_label || '—')}</td>
+          <td>${esc(c.debut)}</td><td>${esc(c.fin)}</td>
+          <td>${esc(c.tuteur_nom || '—')}</td>
+          <td><span class="pill">${esc(c.statut)}</span></td>
+        </tr>`).join('')
+      }</tbody></table>`;
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function refreshEnt() {
+    try {
+      const items = await api('/entreprises');
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-6"><strong>${items.length}</strong><span>Entreprises</span></div>
+          <div class="stat-tile bento-span-6"><strong>—</strong><span>Choisir un élève pour ses conventions</span></div>`;
+      }
+      entList.innerHTML = !items.length
+        ? '<p class="empty">Aucune entreprise.</p>'
+        : `<table><thead><tr><th>Raison</th><th>SIRET</th><th>Adresse</th><th></th></tr></thead><tbody>${
+            items.map(e => `<tr>
+              <td><strong>${esc(e.raison_sociale)}</strong></td>
+              <td>${esc(e.siret || '—')}</td>
+              <td class="muted">${esc(e.adresse || '—')}</td>
+              <td><button type="button" data-eid="${esc(e.id)}">Choisir</button></td>
+            </tr>`).join('')
+          }</tbody></table>`;
+      entList.querySelectorAll('button[data-eid]').forEach(btn => {
+        btn.onclick = () => { if (sel) sel.value = btn.dataset.eid; };
+      });
+      sel.innerHTML = items.map(e =>
+        `<option value="${e.id}">${esc(e.raison_sociale)}</option>`
+      ).join('') || '<option value="">(aucune)</option>';
+    } catch (e) {
+      entList.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnStEnt').onclick = async () => {
+    msg.textContent = '';
+    try {
+      const d = await api('/entreprises', {
+        method: 'POST',
+        body: JSON.stringify({
+          raison_sociale: document.getElementById('stRaison').value,
+          siret: document.getElementById('stSiret').value || null,
+          adresse: document.getElementById('stAdresse').value || null,
+        }),
+      });
+      msg.innerHTML = `<span class="ok">${esc(d.raison_sociale)} créée</span>`;
+      document.getElementById('stRaison').value = '';
+      document.getElementById('stSiret').value = '';
+      document.getElementById('stAdresse').value = '';
+      await refreshEnt();
+      if (sel) sel.value = d.id;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnStConv').onclick = async () => {
+    const convMsg = document.getElementById('stConvMsg');
+    convMsg.textContent = '';
+    try {
+      const d = await api('/conventions-stage', {
+        method: 'POST',
+        body: JSON.stringify({
+          entreprise_id: sel.value,
+          eleve_id: document.getElementById('stEleve').value.trim(),
+          debut: document.getElementById('stDebut').value,
+          fin: document.getElementById('stFin').value || document.getElementById('stDebut').value,
+          tuteur_nom: document.getElementById('stTuteur').value,
+        }),
+      });
+      convMsg.innerHTML = `<span class="ok">Convention ${esc(d.entreprise_label || d.eleve_label || d.statut)}</span>`;
+      await loadConventionsEleve();
+    } catch (e) {
+      convMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnStConvLoad').onclick = loadConventionsEleve;
+  const stEleve = document.getElementById('stEleve');
+  if (stEleve) stEleve.onchange = loadConventionsEleve;
+  async function loadAllConventions() {
+    const box = document.getElementById('stConvList');
+    const stats = document.getElementById('stStats');
+    try {
+      const eleves = await api('/eleves/search?q=a');
+      const packs = await Promise.all(
+        (eleves || []).slice(0, 40).map(async e => {
+          const list = await api('/eleves/' + e.id + '/conventions-stage').catch(() => []);
+          return list.map(c => ({ ...c, eleve_label: (e.prenom + ' ' + e.nom) }));
+        }),
+      );
+      const all = packs.flat();
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${(await api('/entreprises').catch(() => [])).length}</strong><span>Entreprises</span></div>
+          <div class="stat-tile bento-span-4"><strong>${all.length}</strong><span>Conventions</span></div>
+          <div class="stat-tile bento-span-4"><strong>${new Set(all.map(c => c.eleve_id)).size}</strong><span>Élèves concernés</span></div>`;
+      }
+      if (!all.length) {
+        box.innerHTML = '<p class="empty">Aucune convention (échantillon 40 élèves).</p>';
+        return;
+      }
+      box.innerHTML = `<table><thead><tr><th>Élève</th><th>Entreprise</th><th>Début</th><th>Fin</th><th>Statut</th></tr></thead><tbody>${
+        all.map(c => `<tr>
+          <td>${esc(c.eleve_label || '—')}</td>
+          <td>${esc(c.entreprise_label || '—')}</td>
+          <td>${esc(c.debut)}</td><td>${esc(c.fin)}</td>
+          <td><span class="pill">${esc(c.statut)}</span></td>
+        </tr>`).join('')
+      }</tbody></table>`;
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btnAll = document.createElement('button');
+  btnAll.type = 'button';
+  btnAll.id = 'btnStConvAll';
+  btnAll.textContent = 'Toutes conventions';
+  const row = document.getElementById('btnStConvLoad')?.parentElement;
+  if (row) row.appendChild(btnAll);
+  btnAll.onclick = loadAllConventions;
+  await refreshEnt();
+  await loadAllConventions();
+}
+
+/* ---------- Établissement (vacances / params / salles) ---------- */
+function viewEtab() {
+  return shell('/app/etab', `
+    <div class="panel">
+      <h2>Vacances / fermetures</h2>
+      <div class="row">
+        <label>Libellé <input id="vacLib" value="Toussaint"/></label>
+        <label>Type <select id="vacKind"><option value="vacances">vacances</option><option value="ferie">férié</option><option value="fermeture">fermeture</option></select></label>
+        <label>Début <input id="vacDeb" type="date" value="${today()}"/></label>
+        <label>Fin <input id="vacFin" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnVacCreer">Créer</button>
+        <button type="button" id="btnVacList">Lister</button>
+      </div>
+      <div class="row">
+        <label>Jour fermé ? <input id="vacJour" type="date" value="${today()}"/></label>
+        <button type="button" id="btnVacFerme">Tester</button>
+        <span id="vacFermeMsg" class="muted"></span>
+      </div>
+      <div id="vacMsg" class="muted"></div>
+      <div id="vacOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Paramètres établissement</h2>
+      <div class="row">
+        <label>Clé <input id="parCle" value="seuil_absences" style="width:10rem"/></label>
+        <label>Valeur <input id="parVal" value="4" style="width:6rem"/></label>
+        <button type="button" id="btnParRead">Lire clé</button>
+        <button type="button" class="primary" id="btnParSave">Enregistrer</button>
+        <button type="button" id="btnParList">Lister</button>
+      </div>
+      <div id="parMsg" class="muted"></div>
+      <div id="parOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Salles</h2>
+      <div class="row">
+        <label>Code <input id="salCode" value="B12" style="width:5rem"/></label>
+        <label>Libellé <input id="salLib" value="Salle B12"/></label>
+        <label>Capacité <input id="salCap" type="number" value="30" style="width:4rem"/></label>
+        <label>Site <input id="salSite" placeholder="optionnel" style="width:6rem"/></label>
+        <button type="button" class="primary" id="btnSalCreer">Créer</button>
+        <button type="button" id="btnSalList">Lister</button>
+      </div>
+      <div id="salMsg" class="muted"></div>
+      <div id="salOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Motifs d’absence</h2>
+      <p class="muted">Référentiel global + motifs établissement (catalogue obligatoire pour déclarer).</p>
+      <div class="row">
+        <label>Code <input id="motCode" value="stage_pro" style="width:8rem"/></label>
+        <label>Libellé <input id="motLib" value="Stage professionnel" style="min-width:12rem"/></label>
+        <button type="button" class="primary" id="btnMotCreer">Créer motif étab</button>
+        <button type="button" id="btnMotList">Lister</button>
+      </div>
+      <div id="motMsg" class="muted"></div>
+      <div id="motOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Filières / vœux</h2>
+      <div class="row">
+        <label>Code <input id="filCode" value="STI2D" style="width:5rem"/></label>
+        <label>Libellé <input id="filLib" value="STI2D"/></label>
+        <label>MEF <input id="filMef" placeholder="optionnel" style="width:6rem"/></label>
+        <button type="button" class="primary" id="btnFilCreer">Créer filière</button>
+        <button type="button" id="btnFilList">Lister</button>
+      </div>
+      <div class="row">
+        ${elevePickerRow('voeEleve', 'voeEleveQ', 'btnVoeEleveSearch')}
+        <label>Filière <select id="voeFil" style="min-width:10rem"><option value="">—</option></select></label>
+        <label>Rang <input id="voeRang" type="number" value="1" style="width:3rem"/></label>
+        <label>Année <input id="voeAnnee" value="2026-2027" style="width:7rem"/></label>
+        <button type="button" id="btnVoePose">Poser vœu</button>
+        <button type="button" id="btnVoeList">Vœux élève</button>
+      </div>
+      <div id="filMsg" class="muted"></div>
+      <div id="filOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Infos complémentaires</h2>
+      <div class="row">
+        <label>Code <input id="icCode" value="LANGUE_MAISON" style="width:10rem"/></label>
+        <label>Libellé <input id="icLib" value="Langue parlée à la maison"/></label>
+        <label>Type <select id="icType"><option value="texte">texte</option><option value="nombre">nombre</option><option value="booleen">booléen</option><option value="date">date</option></select></label>
+        <label><input type="checkbox" id="icVisFam" checked/> Visible famille</label>
+        <button type="button" class="primary" id="btnIcChamp">Créer champ</button>
+        <button type="button" id="btnIcList">Lister champs</button>
+      </div>
+      <div class="row">
+        <label>Élève <select id="icEleve" style="min-width:12rem"></select></label>
+        <label>Champ <select id="icChampId" style="min-width:12rem"><option value="">—</option></select></label>
+        <label>Valeur <input id="icVal" value="Anglais"/></label>
+        <button type="button" id="btnIcVal">Enregistrer valeur</button>
+        <button type="button" id="btnIcEleve">Valeurs élève</button>
+      </div>
+      <div id="icMsg" class="muted"></div>
+      <div id="icOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Historique mails / SMS</h2>
+      <div class="row">
+        <button type="button" id="btnMails">Mails récents</button>
+        <button type="button" id="btnSms">SMS récents</button>
+      </div>
+      <div id="comOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Demandes d’accès documents</h2>
+      <p class="muted">Grants en attente (tiroir restreint) — décision admin sans ouvrir chaque dossier.</p>
+      <div class="row">
+        <button type="button" class="primary" id="btnGrantsPending">Actualiser</button>
+      </div>
+      <div id="etabGrantsOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Appareil push (labo)</h2>
+      <p class="muted">Enregistre un token device pour les notifs natives (SwiftUI / Kotlin) — même cerveau.</p>
+      <div class="row">
+        <label>Plateforme <select id="pushPlat"><option value="ios">ios</option><option value="android">android</option><option value="web">web</option></select></label>
+        <label>Token <input id="pushToken" value="labo-web-token-001" style="min-width:14rem"/></label>
+        <label>App <input id="pushApp" value="ent-labo" style="width:8rem"/></label>
+        <button type="button" class="primary" id="btnPushReg">Enregistrer</button>
+      </div>
+      <div id="pushMsg" class="muted"></div>
+    </div>
+    <div class="panel">
+      <h2>Inscriptions</h2>
+      <p class="muted">Suivi dossier → <a href="/app/inscriptions">board inscriptions</a>.</p>
+    </div>`);
+}
+
+async function bindEtab() {
+  const vacMsg = document.getElementById('vacMsg');
+  const vacOut = document.getElementById('vacOut');
+  async function loadVac() {
+    try {
+      const list = await api('/vacances');
+      vacOut.innerHTML = !list.length
+        ? '<p class="empty">Aucune période.</p>'
+        : `<table><thead><tr><th>Libellé</th><th>Type</th><th>Période</th><th></th></tr></thead>
+           <tbody>${list.map(v => `<tr>
+             <td>${esc(v.libelle)}</td><td><span class="pill">${esc(v.kind)}</span></td>
+             <td>${esc(v.debut)} → ${esc(v.fin)}</td>
+             <td><button type="button" class="btnVacDel" data-id="${esc(v.id)}">Supprimer</button></td>
+           </tr>`).join('')}</tbody></table>`;
+      vacOut.querySelectorAll('.btnVacDel').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/vacances/' + btn.dataset.id + '/supprimer', { method: 'POST', body: '{}' });
+            await loadVac();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      vacOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnVacCreer').onclick = async () => {
+    try {
+      const v = await api('/vacances', {
+        method: 'POST',
+        body: JSON.stringify({
+          libelle: document.getElementById('vacLib').value.trim(),
+          kind: document.getElementById('vacKind').value,
+          debut: document.getElementById('vacDeb').value || today(),
+          fin: document.getElementById('vacFin').value || today(),
+        }),
+      });
+      vacMsg.innerHTML = `<span class="ok">${esc(v.libelle)} créé</span>`;
+      await loadVac();
+    } catch (e) {
+      vacMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnVacList').onclick = loadVac;
+  async function checkVacFerme() {
+    const jour = document.getElementById('vacJour').value || today();
+    try {
+      const r = await api('/vacances/jour-ferme?jour=' + encodeURIComponent(jour));
+      document.getElementById('vacFermeMsg').innerHTML = r.ferme
+        ? `<span class="warn">${esc(jour)} fermé</span>`
+        : `<span class="ok">${esc(jour)} ouvert</span>`;
+    } catch (e) {
+      document.getElementById('vacFermeMsg').innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  document.getElementById('btnVacFerme').onclick = checkVacFerme;
+  document.getElementById('vacJour').onchange = checkVacFerme;
+
+  const parMsg = document.getElementById('parMsg');
+  const parOut = document.getElementById('parOut');
+  async function loadPar() {
+    try {
+      const list = await api('/etab/params');
+      parOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun paramètre.</p>'
+        : `<table><thead><tr><th>Clé</th><th>Valeur</th><th></th></tr></thead>
+           <tbody>${list.map(p => `<tr>
+             <td>${esc(p.cle)}</td><td>${esc(p.valeur)}</td>
+             <td><button type="button" class="btnParPick" data-cle="${esc(p.cle)}" data-val="${esc(p.valeur)}">Éditer</button></td>
+           </tr>`).join('')}</tbody></table>`;
+      parOut.querySelectorAll('.btnParPick').forEach(btn => {
+        btn.onclick = () => {
+          document.getElementById('parCle').value = btn.dataset.cle || '';
+          document.getElementById('parVal').value = btn.dataset.val || '';
+        };
+      });
+    } catch (e) {
+      parOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  async function readParCle() {
+    const cle = document.getElementById('parCle').value.trim();
+    if (!cle) { parMsg.innerHTML = '<span class="bad">Clé requise</span>'; return; }
+    try {
+      const p = await api('/etab/params/' + encodeURIComponent(cle));
+      if (p && p.valeur != null) {
+        document.getElementById('parVal').value = p.valeur;
+        parMsg.innerHTML = `<span class="ok">${esc(p.cle)} = ${esc(p.valeur)}</span>`;
+      } else {
+        parMsg.innerHTML = '<span class="muted">Clé absente</span>';
+      }
+    } catch (e) {
+      parMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  document.getElementById('btnParRead').onclick = readParCle;
+  document.getElementById('parCle').onchange = readParCle;
+  document.getElementById('btnParSave').onclick = async () => {
+    try {
+      const p = await api('/etab/params', {
+        method: 'POST',
+        body: JSON.stringify({
+          cle: document.getElementById('parCle').value.trim(),
+          valeur: document.getElementById('parVal').value.trim(),
+        }),
+      });
+      parMsg.innerHTML = `<span class="ok">${esc(p.cle)} = ${esc(p.valeur)}</span>`;
+      await loadPar();
+    } catch (e) {
+      parMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnParList').onclick = loadPar;
+
+  const salMsg = document.getElementById('salMsg');
+  const salOut = document.getElementById('salOut');
+  async function loadSal() {
+    try {
+      const list = await api('/salles');
+      salOut.innerHTML = !list.length
+        ? '<p class="empty">Aucune salle.</p>'
+        : `<table><thead><tr><th>Code</th><th>Libellé</th><th>Cap.</th><th>Site</th></tr></thead>
+           <tbody>${list.map(s => `<tr>
+             <td>${esc(s.code)}</td><td>${esc(s.libelle)}</td>
+             <td>${s.capacite ?? '—'}</td><td>${esc(s.site || '—')}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      salOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnSalCreer').onclick = async () => {
+    try {
+      const s = await api('/salles', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('salCode').value.trim(),
+          libelle: document.getElementById('salLib').value.trim(),
+          capacite: Number(document.getElementById('salCap').value) || null,
+          site: document.getElementById('salSite').value.trim() || null,
+        }),
+      });
+      salMsg.innerHTML = `<span class="ok">Salle ${esc(s.code)} créée</span>`;
+      await loadSal();
+    } catch (e) {
+      salMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnSalList').onclick = loadSal;
+
+  const motMsg = document.getElementById('motMsg');
+  const motOut = document.getElementById('motOut');
+  async function loadMot() {
+    try {
+      const list = await api('/motifs-absence');
+      motOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun motif.</p>'
+        : `<table><thead><tr><th>Code</th><th>Libellé</th><th>Portée</th></tr></thead>
+           <tbody>${list.map(m => `<tr>
+             <td>${esc(m.code)}</td><td>${esc(m.libelle)}</td>
+             <td>${m.etablissement_id ? '<span class="pill">étab</span>' : '<span class="pill">global</span>'}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      motOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnMotCreer').onclick = async () => {
+    try {
+      const m = await api('/motifs-absence', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('motCode').value.trim(),
+          libelle: document.getElementById('motLib').value.trim(),
+        }),
+      });
+      motMsg.innerHTML = `<span class="ok">Motif ${esc(m.code)} créé</span>`;
+      await loadMot();
+    } catch (e) {
+      motMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnMotList').onclick = loadMot;
+  await loadMot();
+
+  await bindElevePickers(['voeEleve', 'icEleve'], 'voeEleveQ', 'btnVoeEleveSearch');
+  const filMsg = document.getElementById('filMsg');
+  const filOut = document.getElementById('filOut');
+  const filiereById = {};
+  async function loadFil() {
+    const sel = document.getElementById('voeFil');
+    try {
+      const list = await api('/filieres');
+      Object.keys(filiereById).forEach(k => delete filiereById[k]);
+      (list || []).forEach(f => { filiereById[f.id] = f; });
+      const prev = sel ? sel.value : '';
+      if (sel) {
+        sel.innerHTML = '<option value="">—</option>' + (list || []).map(f =>
+          `<option value="${esc(f.id)}">${esc(f.code)} — ${esc(f.libelle)}</option>`
+        ).join('');
+        if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+      }
+      filOut.innerHTML = !list.length
+        ? '<p class="empty">Aucune filière.</p>'
+        : `<table><thead><tr><th>Code</th><th>Libellé</th><th>MEF</th><th></th></tr></thead>
+           <tbody>${list.map(f => `<tr>
+             <td>${esc(f.code)}</td><td>${esc(f.libelle)}</td><td>${esc(f.mef || '—')}</td>
+             <td><button type="button" data-fid="${esc(f.id)}">Choisir</button></td>
+           </tr>`).join('')}</tbody></table>`;
+      filOut.querySelectorAll('button[data-fid]').forEach(btn => {
+        btn.onclick = () => { if (sel) sel.value = btn.dataset.fid; };
+      });
+    } catch (e) {
+      filOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnFilCreer').onclick = async () => {
+    try {
+      const f = await api('/filieres', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('filCode').value.trim(),
+          libelle: document.getElementById('filLib').value.trim(),
+          mef: document.getElementById('filMef').value.trim() || null,
+        }),
+      });
+      filMsg.innerHTML = `<span class="ok">Filière ${esc(f.code)}</span>`;
+      await loadFil();
+      document.getElementById('voeFil').value = f.id;
+    } catch (e) {
+      filMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnFilList').onclick = loadFil;
+  document.getElementById('btnVoePose').onclick = async () => {
+    const eid = document.getElementById('voeEleve').value.trim();
+    const fid = document.getElementById('voeFil').value.trim();
+    if (!eid || !fid) { filMsg.innerHTML = '<span class="bad">Élève et filière requis</span>'; return; }
+    try {
+      const v = await api('/eleves/' + encodeURIComponent(eid) + '/voeux', {
+        method: 'POST',
+        body: JSON.stringify({
+          filiere_id: fid,
+          rang: Number(document.getElementById('voeRang').value) || 1,
+          annee_scolaire: document.getElementById('voeAnnee').value.trim(),
+        }),
+      });
+      filMsg.innerHTML = `<span class="ok">Vœu rang ${v.rang}</span>`;
+    } catch (e) {
+      filMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnVoeList').onclick = async () => {
+    const eid = document.getElementById('voeEleve').value.trim();
+    if (!eid) { filMsg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      if (!Object.keys(filiereById).length) await loadFil();
+      const annee = document.getElementById('voeAnnee').value.trim();
+      let url = '/eleves/' + encodeURIComponent(eid) + '/voeux';
+      if (annee) url += '?annee_scolaire=' + encodeURIComponent(annee);
+      const list = await api(url);
+      filOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun vœu.</p>'
+        : `<table><thead><tr><th>Rang</th><th>Filière</th><th>Année</th></tr></thead>
+           <tbody>${list.map(v => {
+             const f = filiereById[v.filiere_id];
+             const label = v.filiere_label || (f ? (f.code + ' — ' + f.libelle) : v.filiere_id.slice(0, 8));
+             return `<tr>
+             <td>${v.rang}</td><td>${esc(label)}</td>
+             <td>${esc(v.annee_scolaire)}</td>
+           </tr>`;
+           }).join('')}</tbody></table>`;
+    } catch (e) {
+      filOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  const voeEleveEl = document.getElementById('voeEleve');
+  const voeAnneeEl = document.getElementById('voeAnnee');
+  if (voeEleveEl) voeEleveEl.onchange = () => document.getElementById('btnVoeList').onclick();
+  if (voeAnneeEl) voeAnneeEl.onchange = () => document.getElementById('btnVoeList').onclick();
+
+  const icMsg = document.getElementById('icMsg');
+  const icOut = document.getElementById('icOut');
+  async function loadIc() {
+    const sel = document.getElementById('icChampId');
+    try {
+      const list = await api('/info-comp/champs');
+      const prev = sel ? sel.value : '';
+      if (sel) {
+        sel.innerHTML = '<option value="">—</option>' + (list || []).map(c =>
+          `<option value="${esc(c.id)}">${esc(c.code)} — ${esc(c.libelle)}</option>`
+        ).join('');
+        if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+      }
+      icOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun champ.</p>'
+        : `<table><thead><tr><th>Code</th><th>Libellé</th><th>Famille</th><th></th></tr></thead>
+           <tbody>${list.map(c => `<tr>
+             <td>${esc(c.code)}</td><td>${esc(c.libelle)}</td>
+             <td>${c.visible_famille ? 'oui' : 'non'}</td>
+             <td><button type="button" data-cid="${esc(c.id)}">Choisir</button></td>
+           </tr>`).join('')}</tbody></table>`;
+      icOut.querySelectorAll('button[data-cid]').forEach(btn => {
+        btn.onclick = () => { if (sel) sel.value = btn.dataset.cid; };
+      });
+    } catch (e) {
+      icOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnIcChamp').onclick = async () => {
+    try {
+      const c = await api('/info-comp/champs', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('icCode').value.trim(),
+          libelle: document.getElementById('icLib').value.trim(),
+          type_valeur: document.getElementById('icType').value,
+          obligatoire: false,
+          visible_famille: document.getElementById('icVisFam').checked,
+        }),
+      });
+      icMsg.innerHTML = `<span class="ok">Champ ${esc(c.code)}</span>`;
+      await loadIc();
+      document.getElementById('icChampId').value = c.id;
+    } catch (e) {
+      icMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnIcList').onclick = loadIc;
+  document.getElementById('btnIcVal').onclick = async () => {
+    const eid = document.getElementById('icEleve').value.trim();
+    const cid = document.getElementById('icChampId').value.trim();
+    if (!eid || !cid) { icMsg.innerHTML = '<span class="bad">Élève et champ requis</span>'; return; }
+    try {
+      await api('/eleves/' + encodeURIComponent(eid) + '/info-comp', {
+        method: 'PUT',
+        body: JSON.stringify({
+          champ_id: cid,
+          valeur: document.getElementById('icVal').value.trim(),
+        }),
+      });
+      icMsg.innerHTML = '<span class="ok">Valeur enregistrée</span>';
+    } catch (e) {
+      icMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnIcEleve').onclick = async () => {
+    const eid = document.getElementById('icEleve').value.trim();
+    if (!eid) { icMsg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      const pack = await api('/eleves/' + encodeURIComponent(eid) + '/info-comp');
+      const list = pack.valeurs || pack || [];
+      icOut.innerHTML = !list.length
+        ? '<p class="empty">Aucune valeur.</p>'
+        : `<table><thead><tr><th>Champ</th><th>Valeur</th></tr></thead>
+           <tbody>${list.map(v => `<tr>
+             <td>${esc(v.champ_label || (v.champ_id || '').slice(0, 8))}</td><td>${esc(v.valeur)}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      icOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  const icEleveEl = document.getElementById('icEleve');
+  if (icEleveEl) icEleveEl.onchange = () => document.getElementById('btnIcEleve').onclick();
+
+  const comOut = document.getElementById('comOut');
+  document.getElementById('btnMails').onclick = async () => {
+    try {
+      const list = await api('/mails?limit=30');
+      comOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun mail.</p>'
+        : `<table><thead><tr><th>Kind</th><th>À</th><th>Sujet</th><th>Statut</th></tr></thead>
+           <tbody>${list.map(m => `<tr>
+             <td><span class="pill">${esc(m.kind)}</span></td>
+             <td>${esc(m.to_email)}</td><td>${esc(m.subject)}</td>
+             <td>${esc(m.status)}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      comOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnSms').onclick = async () => {
+    try {
+      const list = await api('/sms?limit=30');
+      comOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun SMS.</p>'
+        : `<table><thead><tr><th>Kind</th><th>Tél.</th><th>Corps</th><th>Statut</th></tr></thead>
+           <tbody>${list.map(s => `<tr>
+             <td><span class="pill">${esc(s.kind)}</span></td>
+             <td>${esc(s.to_phone)}</td><td>${esc(s.body)}</td>
+             <td>${esc(s.status)}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      comOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+
+  const grantsOut = document.getElementById('etabGrantsOut');
+  async function loadEtabGrants() {
+    if (!grantsOut) return;
+    try {
+      const list = await api('/documents/grants/pending');
+      if (!list.length) {
+        grantsOut.innerHTML = '<p class="empty">Aucune demande en attente.</p>';
+        return;
+      }
+      grantsOut.innerHTML = `<table><thead><tr><th>Document</th><th>Demandeur</th><th>Durée</th><th>Motif</th><th></th></tr></thead>
+        <tbody>${list.map(g => `<tr>
+          <td>${esc(g.document_titre || (g.document_id || '').slice(0, 8))}</td>
+          <td>${esc(g.grantee_label || (g.grantee_user_id || '').slice(0, 8))}</td>
+          <td>${g.duration_days} j</td>
+          <td class="muted">${esc(g.note || '—')}</td>
+          <td>
+            <button type="button" class="primary btnEgOk" data-id="${esc(g.id)}">Accorder</button>
+            <button type="button" class="btnEgNo" data-id="${esc(g.id)}">Refuser</button>
+          </td>
+        </tr>`).join('')}</tbody></table>`;
+      grantsOut.querySelectorAll('.btnEgOk').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/documents/grants/' + btn.dataset.id + '/decider', {
+              method: 'POST', body: JSON.stringify({ accepter: true, note: 'accès accordé' }),
+            });
+            await loadEtabGrants();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      grantsOut.querySelectorAll('.btnEgNo').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/documents/grants/' + btn.dataset.id + '/decider', {
+              method: 'POST', body: JSON.stringify({ accepter: false, note: 'refusé' }),
+            });
+            await loadEtabGrants();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      grantsOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnGrantsPending').onclick = loadEtabGrants;
+  document.getElementById('btnPushReg').onclick = async () => {
+    const msg = document.getElementById('pushMsg');
+    try {
+      const d = await api('/devices/push', {
+        method: 'POST',
+        body: JSON.stringify({
+          platform: document.getElementById('pushPlat').value,
+          token: document.getElementById('pushToken').value.trim(),
+          app_id: document.getElementById('pushApp').value.trim() || null,
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Device ${esc(d.platform)} enregistré · ${esc((d.id || '').toString().slice(0, 8))}</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function loadSeuilAbs() {
+    const parMsg = document.getElementById('parMsg');
+    try {
+      const p = await api('/etab/params/seuil_absences');
+      if (p && p.valeur != null) {
+        document.getElementById('parCle').value = 'seuil_absences';
+        document.getElementById('parVal').value = p.valeur;
+        if (parMsg) parMsg.innerHTML = `<span class="ok">seuil_absences = ${esc(p.valeur)}</span>`;
+      }
+    } catch (_) { /* clé absente OK */ }
+  }
+  await loadVac();
+  await checkVacFerme();
+  await loadEtabGrants();
+  document.getElementById('btnMails').click();
+  await loadPar();
+  await loadSeuilAbs();
+  await loadSal();
+  await loadFil();
+  await loadIc();
+}
+
+/* ---------- Inscriptions (board staff) ---------- */
+function viewInscriptions() {
+  return shell('/app/inscriptions', `
+    <div class="bento" id="insStats"></div>
+    <div class="panel">
+      <h2>Suivi d’inscription</h2>
+      <p class="muted">Board par étape (dossier → pièces → entretien → décision → paiement → finalisé). Lien dossier élève.</p>
+      <div class="row">
+        ${elevePickerRow('insEleve', 'insEleveQ', 'btnInsEleveSearch')}
+        <label>Année <input id="insAnnee" value="2026-2027" style="width:7rem"/></label>
+        <label>Étape <select id="insEtape">
+          <option value="dossier">dossier</option>
+          <option value="pieces" selected>pièces</option>
+          <option value="entretien">entretien</option>
+          <option value="decision">décision</option>
+          <option value="paiement">paiement</option>
+          <option value="finalise">finalisé</option>
+        </select></label>
+        <label>Motif <input id="insMotif" placeholder="incomplet"/></label>
+        <button type="button" class="primary" id="btnInsSave">Enregistrer</button>
+        <button type="button" id="btnInsLoad">Charger élève</button>
+        <button type="button" id="btnInsFile">File par étape</button>
+      </div>
+      <div class="row">
+        <label style="flex:1">Commentaire <input id="insComment" style="width:100%" placeholder="Note interne (pièces manquantes, RDV…)"/></label>
+      </div>
+      <div id="insMsg" class="muted"></div>
+      <div id="insOut" class="muted" style="margin-top:.5rem">…</div>
+      <div id="insPeriodes" class="muted" style="margin-top:.5rem"></div>
+      <div id="insOrient" class="muted" style="margin-top:.5rem"></div>
+    </div>
+    <div class="panel">
+      <h2>File globale (toutes étapes)</h2>
+      <p class="muted">Aperçu rapide des files dossier / pièces / entretien / décision.</p>
+      <div class="row">
+        <button type="button" id="btnInsBoard">Charger le board</button>
+      </div>
+      <div id="insBoard" class="muted" style="margin-top:.5rem">…</div>
+    </div>`);
+}
+
+async function bindInscriptions() {
+  await bindElevePickers('insEleve', 'insEleveQ', 'btnInsEleveSearch');
+  const insMsg = document.getElementById('insMsg');
+  const insOut = document.getElementById('insOut');
+  const insBoard = document.getElementById('insBoard');
+  const etapes = ['dossier', 'pieces', 'entretien', 'decision', 'paiement', 'finalise'];
+  const nameOf = eleveNameOf;
+  const nameCache = ELEVE_NAME_CACHE;
+  function nextEtape(cur) {
+    const i = etapes.indexOf(cur);
+    return i >= 0 && i < etapes.length - 1 ? etapes[i + 1] : null;
+  }
+  async function advanceEleve(eid, fromEtape) {
+    const nxt = nextEtape(fromEtape);
+    if (!nxt) { insMsg.innerHTML = '<span class="bad">Déjà finalisé</span>'; return; }
+    try {
+      const s = await api('/eleves/' + encodeURIComponent(eid) + '/inscription-suivi', {
+        method: 'PUT',
+        body: JSON.stringify({
+          annee_scolaire: document.getElementById('insAnnee').value.trim(),
+          etape: nxt,
+          motif_code: document.getElementById('insMotif').value.trim() || null,
+          commentaire: document.getElementById('insComment').value.trim() || '',
+        }),
+      });
+      insMsg.innerHTML = `<span class="ok">${esc(fromEtape)} → ${esc(s.etape)}</span>`;
+      await loadBoard();
+    } catch (e) {
+      insMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+
+  document.getElementById('btnInsSave').onclick = async () => {
+    const eid = document.getElementById('insEleve').value.trim();
+    if (!eid) { insMsg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      const s = await api('/eleves/' + encodeURIComponent(eid) + '/inscription-suivi', {
+        method: 'PUT',
+        body: JSON.stringify({
+          annee_scolaire: document.getElementById('insAnnee').value.trim(),
+          etape: document.getElementById('insEtape').value,
+          motif_code: document.getElementById('insMotif').value.trim() || null,
+          commentaire: document.getElementById('insComment').value.trim() || '',
+        }),
+      });
+      insMsg.innerHTML = `<span class="ok">Étape ${esc(s.etape)}</span>`;
+      await loadBoard();
+    } catch (e) {
+      insMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnInsLoad').onclick = async () => {
+    const eid = document.getElementById('insEleve').value.trim();
+    const perBox = document.getElementById('insPeriodes');
+    const orientBox = document.getElementById('insOrient');
+    if (!eid) { insMsg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      const annee = document.getElementById('insAnnee').value.trim();
+      const anneeQ = annee ? '?annee_scolaire=' + encodeURIComponent(annee) : '';
+      const [s, periodes, voeux, infoComp] = await Promise.all([
+        api('/eleves/' + encodeURIComponent(eid) + '/inscription-suivi' + anneeQ),
+        api('/eleves/' + encodeURIComponent(eid) + '/periodes').catch(() => []),
+        api('/eleves/' + encodeURIComponent(eid) + '/voeux' + anneeQ).catch(() => []),
+        api('/eleves/' + encodeURIComponent(eid) + '/info-comp').catch(() => null),
+      ]);
+      if (s) {
+        document.getElementById('insEtape').value = s.etape;
+        document.getElementById('insMotif').value = s.motif_code || '';
+        document.getElementById('insComment').value = s.commentaire || '';
+        document.getElementById('insAnnee').value = s.annee_scolaire || document.getElementById('insAnnee').value;
+      }
+      insOut.innerHTML = s
+        ? `<p>${esc(s.annee_scolaire)} · <span class="pill">${esc(s.etape)}</span> · motif ${esc(s.motif_code || '—')}
+           · <a href="/app/eleves/${esc(s.eleve_id)}">Dossier</a></p>
+           ${s.commentaire ? `<p class="muted">Commentaire : ${esc(s.commentaire)}</p>` : ''}`
+        : '<p class="empty">Pas de suivi.</p>';
+      if (perBox) {
+        const actives = (periodes || []).filter(p => !p.date_fin);
+        perBox.innerHTML = actives.length
+          ? `<p><strong>Périodes actives</strong> : ${actives.map(p =>
+              `<span class="pill">${esc(p.kind)}=${esc(p.valeur)}</span>`
+            ).join(' ')}</p>`
+          : '<p class="empty">Aucune période active (classe / régime).</p>';
+      }
+      if (orientBox) {
+        const vRows = (voeux || []).length
+          ? `<table><thead><tr><th>Rang</th><th>Filière</th><th>Année</th></tr></thead>
+             <tbody>${voeux.map(v => `<tr>
+               <td>${v.rang ?? '—'}</td>
+               <td>${esc(v.filiere_label || v.filiere_id || '—')}</td>
+               <td>${esc(v.annee_scolaire || '—')}</td>
+             </tr>`).join('')}</tbody></table>`
+          : '<p class="empty">Aucun vœu.</p>';
+        const vals = (infoComp && infoComp.valeurs) || [];
+        const champs = (infoComp && infoComp.champs) || [];
+        const byChamp = Object.fromEntries(vals.map(v => [v.champ_id, v]));
+        const iRows = champs.length
+          ? champs.map(c => {
+              const cur = byChamp[c.id];
+              return `<div class="row" style="margin:.3rem 0">
+                <label style="flex:1">${esc(c.libelle || c.code)}
+                  <input class="insIcVal" data-cid="${esc(c.id)}" value="${esc((cur && cur.valeur) || '')}" style="width:100%"/>
+                </label>
+                <button type="button" class="btnInsIcSave" data-cid="${esc(c.id)}">OK</button>
+              </div>`;
+            }).join('') + '<div id="insIcMsg" class="muted"></div>'
+          : '<p class="empty">Pas d’info-comp.</p>';
+        orientBox.innerHTML = `<h3 style="margin:.75rem 0 .35rem">Orientation (vœux / info-comp)</h3>${vRows}${iRows}`;
+        orientBox.querySelectorAll('.btnInsIcSave').forEach(btn => {
+          btn.onclick = async () => {
+            const msg = document.getElementById('insIcMsg');
+            const inp = orientBox.querySelector('.insIcVal[data-cid="' + btn.dataset.cid + '"]');
+            try {
+              await api('/eleves/' + encodeURIComponent(eid) + '/info-comp', {
+                method: 'PUT',
+                body: JSON.stringify({
+                  champ_id: btn.dataset.cid,
+                  valeur: (inp && inp.value) || '',
+                }),
+              });
+              if (msg) msg.innerHTML = '<span class="ok">Enregistré</span>';
+            } catch (err) {
+              if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+            }
+          };
+        });
+      }
+    } catch (e) {
+      insOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnInsFile').onclick = async () => {
+    const etape = document.getElementById('insEtape').value;
+    const annee = document.getElementById('insAnnee').value.trim();
+    try {
+      let url = '/inscriptions/par-etape?etape=' + encodeURIComponent(etape);
+      if (annee) url += '&annee_scolaire=' + encodeURIComponent(annee);
+      const list = await api(url);
+      if (!list.length) {
+        insOut.innerHTML = '<p class="empty">Aucun dossier à cette étape.</p>';
+        return;
+      }
+      for (const s of list) {
+        if (s.eleve_label) seedEleveLabel(s.eleve_id, s.eleve_label);
+      }
+      const rows = list.map(s => {
+        const nxt = nextEtape(s.etape);
+        return `<tr>
+             <td>${eleveCell(s)}</td>
+             <td>${esc(s.annee_scolaire)}</td>
+             <td><span class="pill">${esc(s.etape)}</span></td>
+             <td>${esc(s.motif_code || '—')}</td>
+             <td class="muted">${esc(s.commentaire || '—')}</td>
+             <td><a href="/app/eleves/${esc(s.eleve_id)}">Dossier</a>
+               ${nxt ? `<button type="button" class="insNext" data-eid="${esc(s.eleve_id)}" data-etape="${esc(s.etape)}">→ ${esc(nxt)}</button>` : ''}
+             </td>
+           </tr>`;
+      });
+      insOut.innerHTML = `<table><thead><tr><th>Élève</th><th>Année</th><th>Étape</th><th>Motif</th><th>Commentaire</th><th></th></tr></thead>
+           <tbody>${rows.join('')}</tbody></table>`;
+      insOut.querySelectorAll('.insNext').forEach(btn => {
+        btn.onclick = () => advanceEleve(btn.dataset.eid, btn.dataset.etape);
+      });
+    } catch (e) {
+      insOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+
+  async function loadBoard() {
+    const annee = document.getElementById('insAnnee').value.trim();
+    const statsBox = document.getElementById('insStats');
+    try {
+      const blocks = [];
+      const counts = {};
+      for (const etape of etapes) {
+        let url = '/inscriptions/par-etape?etape=' + encodeURIComponent(etape);
+        if (annee) url += '&annee_scolaire=' + encodeURIComponent(annee);
+        const list = await api(url);
+        counts[etape] = list.length;
+        let body;
+        if (!list.length) {
+          body = '<p class="empty">—</p>';
+        } else {
+          for (const s of list) {
+            if (s.eleve_label) seedEleveLabel(s.eleve_id, s.eleve_label);
+          }
+          let docsByEleve = {};
+          if (etape === 'pieces') {
+            const pairs = await Promise.all(list.slice(0, 40).map(async s => {
+              try {
+                const docs = await api('/eleves/' + encodeURIComponent(s.eleve_id) + '/documents');
+                return [s.eleve_id, (docs || []).length];
+              } catch { return [s.eleve_id, null]; }
+            }));
+            docsByEleve = Object.fromEntries(pairs);
+          }
+          const rows = list.map(s => {
+            const nxt = nextEtape(etape);
+            const docsCell = etape === 'pieces'
+              ? `<td>${docsByEleve[s.eleve_id] != null
+                  ? `<span class="pill">${docsByEleve[s.eleve_id]} doc(s)</span>`
+                  : '—'}
+                 <button type="button" class="btnInsDepot" data-eid="${esc(s.eleve_id)}">Déposer pièce</button></td>`
+              : '';
+            return `<tr>
+                 <td>${eleveCell(s)}</td>
+                 <td>${esc(s.motif_code || '—')}</td>
+                 ${docsCell}
+                 <td><a href="/app/eleves/${esc(s.eleve_id)}">Dossier</a>
+                     <button type="button" data-eid="${esc(s.eleve_id)}" data-etape="${esc(etape)}" class="insPick">Sélectionner</button>
+                     ${nxt ? `<button type="button" class="insNext" data-eid="${esc(s.eleve_id)}" data-etape="${esc(etape)}">→ ${esc(nxt)}</button>` : ''}
+                 </td>
+               </tr>`;
+          });
+          body = etape === 'pieces'
+            ? `<table><thead><tr><th>Élève</th><th>Motif</th><th>Pièces</th><th></th></tr></thead>
+               <tbody>${rows.join('')}</tbody></table>
+               <div id="insDepotMsg" class="muted" style="margin-top:.35rem"></div>`
+            : `<table><thead><tr><th>Élève</th><th>Motif</th><th></th></tr></thead>
+               <tbody>${rows.join('')}</tbody></table>`;
+        }
+        blocks.push(`<h3>${esc(etape)} <span class="pill">${list.length}</span></h3>` + body);
+      }
+      if (statsBox) {
+        statsBox.innerHTML = etapes.map(et =>
+          `<button type="button" class="stat-tile bento-span-2 insStatTile" data-etape="${esc(et)}">
+            <strong>${counts[et] || 0}</strong><span>${esc(et)}</span></button>`
+        ).join('');
+        statsBox.querySelectorAll('.insStatTile').forEach(btn => {
+          btn.onclick = () => {
+            document.getElementById('insEtape').value = btn.dataset.etape;
+            document.getElementById('btnInsFile').click();
+          };
+        });
+      }
+      insBoard.innerHTML = blocks.join('');
+      insBoard.querySelectorAll('.insPick').forEach(btn => {
+        btn.onclick = async () => {
+          const eid = btn.getAttribute('data-eid');
+          const eleveSel = document.getElementById('insEleve');
+          if (eleveSel && eid && ![...eleveSel.options].some(o => o.value === eid)) {
+            const o = document.createElement('option');
+            o.value = eid;
+            o.textContent = ELEVE_NAME_CACHE[eid] || eid.slice(0, 8);
+            eleveSel.appendChild(o);
+          }
+          if (eleveSel) eleveSel.value = eid;
+          document.getElementById('insEtape').value = btn.getAttribute('data-etape');
+          insMsg.innerHTML = '<span class="ok">Élève sélectionné</span>';
+          const loadBtn = document.getElementById('btnInsLoad');
+          if (loadBtn && loadBtn.onclick) await loadBtn.onclick();
+        };
+      });
+      insBoard.querySelectorAll('.insNext').forEach(btn => {
+        btn.onclick = () => advanceEleve(btn.dataset.eid, btn.dataset.etape);
+      });
+      insBoard.querySelectorAll('.btnInsDepot').forEach(btn => {
+        btn.onclick = async () => {
+          const msg = document.getElementById('insDepotMsg') || document.getElementById('insMsg');
+          const eid = btn.dataset.eid;
+          const titre = prompt('Titre de la pièce', 'Pièce inscription');
+          if (!titre) return;
+          try {
+            const d = await api('/eleves/' + encodeURIComponent(eid) + '/documents', {
+              method: 'POST',
+              body: JSON.stringify({
+                titre: titre.trim(),
+                tiroir: 'administratif',
+                confidentialite: 'standard',
+                code: 'inscription',
+                mime_type: 'application/pdf',
+                storage_key: 'inscription/' + eid + '/' + Date.now() + '.pdf',
+              }),
+            });
+            if (msg) msg.innerHTML = `<span class="ok">Déposé — ${esc(d.titre)}</span>`;
+            await loadBoard();
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+            else alert(err.message);
+          }
+        };
+      });
+    } catch (e) {
+      insBoard.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnInsBoard').onclick = () => loadBoard();
+  document.getElementById('insEleve').onchange = () => document.getElementById('btnInsLoad').onclick();
+  document.getElementById('insEtape').onchange = () => document.getElementById('btnInsFile').onclick();
+  document.getElementById('insAnnee').onchange = async () => {
+    await loadBoard();
+    document.getElementById('btnInsFile').onclick();
+  };
+  if (routeState.insEtape) {
+    const et = routeState.insEtape;
+    delete routeState.insEtape;
+    const sel = document.getElementById('insEtape');
+    if (sel) {
+      sel.value = et;
+      document.getElementById('btnInsFile').onclick();
+    }
+  }
+  await loadBoard();
+}
+
+/* ---------- Cantine / badge ---------- */
+function viewComms() {
+  return shell('/app/comms', `
+    <div class="bento" id="commsStats"></div>
+    <div class="panel">
+      <h2>Notifications sortantes</h2>
+      <p class="muted">Journal mail / SMS (outbox) — dry-run labo. Même source que l’onglet Établissement.</p>
+      <div class="row">
+        <button type="button" class="primary" id="btnCommsMails">Mails</button>
+        <button type="button" id="btnCommsSms">SMS</button>
+        <label>Limite <input id="commsLimit" type="number" value="40" min="5" max="200" style="width:4rem"/></label>
+      </div>
+      <div id="commsOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindComms() {
+  const out = document.getElementById('commsOut');
+  const stats = document.getElementById('commsStats');
+  async function load(kind) {
+    const limit = Number((document.getElementById('commsLimit') || {}).value) || 40;
+    out.textContent = 'Chargement…';
+    try {
+      if (kind === 'sms') {
+        const list = await api('/sms?limit=' + encodeURIComponent(String(limit)));
+        if (stats) {
+          const nOk = (list || []).filter(s => s.status === 'sent' || s.status === 'ok').length;
+          stats.innerHTML = `
+            <div class="stat-tile bento-span-4"><strong>${(list || []).length}</strong><span>SMS</span></div>
+            <div class="stat-tile bento-span-4"><strong>${nOk}</strong><span>Envoyés / ok</span></div>
+            <a class="stat-tile bento-span-4" href="/app/messages"><strong>→</strong><span>Messagerie</span></a>`;
+        }
+        out.innerHTML = !(list || []).length
+          ? '<p class="empty">Aucun SMS.</p>'
+          : `<table><thead><tr><th>Kind</th><th>Tél.</th><th>Corps</th><th>Statut</th><th>Créé</th></tr></thead>
+             <tbody>${list.map(s => `<tr>
+               <td><span class="pill">${esc(s.kind)}</span></td>
+               <td>${esc(s.to_phone)}</td>
+               <td>${esc(s.body)}</td>
+               <td>${esc(s.status)}</td>
+               <td class="muted">${esc((s.created_at || '').toString().slice(0, 16))}</td>
+             </tr>`).join('')}</tbody></table>`;
+      } else {
+        const list = await api('/mails?limit=' + encodeURIComponent(String(limit)));
+        if (stats) {
+          const nOk = (list || []).filter(m => m.status === 'sent' || m.status === 'ok').length;
+          stats.innerHTML = `
+            <div class="stat-tile bento-span-4"><strong>${(list || []).length}</strong><span>Mails</span></div>
+            <div class="stat-tile bento-span-4"><strong>${nOk}</strong><span>Envoyés / ok</span></div>
+            <a class="stat-tile bento-span-4" href="/app/etab"><strong>→</strong><span>Établissement</span></a>`;
+        }
+        out.innerHTML = !(list || []).length
+          ? '<p class="empty">Aucun mail.</p>'
+          : `<table><thead><tr><th>Kind</th><th>À</th><th>Sujet</th><th>Statut</th><th>Créé</th></tr></thead>
+             <tbody>${list.map(m => `<tr>
+               <td><span class="pill">${esc(m.kind)}</span></td>
+               <td>${esc(m.to_email)}</td>
+               <td>${esc(m.subject)}</td>
+               <td>${esc(m.status)}</td>
+               <td class="muted">${esc((m.created_at || '').toString().slice(0, 16))}</td>
+             </tr>`).join('')}</tbody></table>`;
+      }
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnCommsMails').onclick = () => load('mails');
+  document.getElementById('btnCommsSms').onclick = () => load('sms');
+  await load('mails');
+}
+
+function viewBourses() {
+  return shell('/app/bourses', `
+    <div class="bento" id="bourseStats"></div>
+    <div class="bento">
+      <section class="panel bento-span-7">
+        <h2>File bourses</h2>
+        <p class="muted">Demandes à décider sans ouvrir tout le dossier élève. Recherche = scan des bourses liées.</p>
+        <div class="row">
+          <label>Recherche élève <input id="bourseQ" placeholder="nom, classe…" style="min-width:12rem"/></label>
+          <button type="button" class="primary" id="btnBourseScan">Scanner</button>
+          <label><input type="checkbox" id="bourseOnlyDem" checked/> Demandées seulement</label>
+        </div>
+        <div id="bourseFileOut" class="muted" style="margin-top:.75rem">Scanner pour charger…</div>
+      </section>
+      <section class="panel bento-span-5">
+        <h3>Affecter une bourse</h3>
+        ${elevePickerRow('bourseEleve', 'bourseEleveQ', 'btnBourseEleveSearch')}
+        <div class="row">
+          <label>Type <select id="boursePageType" style="min-width:12rem"></select></label>
+          <label>Échelon <input id="boursePageEch" value="1" style="width:4rem"/></label>
+        </div>
+        <div class="row">
+          <label>Début <input id="boursePageDebut" type="date" value="${today()}"/></label>
+          <label><input type="checkbox" id="boursePageProc"/> Procuration</label>
+          <button type="button" class="primary" id="btnBoursePageAff">Affecter</button>
+        </div>
+        <div id="boursePageMsg" class="muted"></div>
+        <h3 style="margin-top:1rem">Types</h3>
+        <div id="bourseTypesOut" class="muted">…</div>
+      </section>
+    </div>`);
+}
+
+async function bindBourses() {
+  const out = document.getElementById('bourseFileOut');
+  const stats = document.getElementById('bourseStats');
+  const typeSel = document.getElementById('boursePageType');
+  const typesOut = document.getElementById('bourseTypesOut');
+  await bindElevePickers('bourseEleve', 'bourseEleveQ', 'btnBourseEleveSearch');
+  let types = [];
+  try {
+    types = await api('/bourses/types');
+    if (typeSel) {
+      typeSel.innerHTML = (types || []).map(t =>
+        `<option value="${esc(t.id)}">${esc(t.libelle)} (${esc(t.code)})</option>`
+      ).join('') || '<option value="">—</option>';
+    }
+    if (typesOut) {
+      typesOut.innerHTML = (types || []).length
+        ? `<ul>${types.map(t =>
+            `<li><strong>${esc(t.libelle)}</strong> · ${esc(t.code)}${t.deductible_repas ? ' · déductible repas' : ''}</li>`
+          ).join('')}</ul>`
+        : '<p class="empty">Aucun type — créer dans Établissement.</p>';
+    }
+  } catch (e) {
+    if (typesOut) typesOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+  async function scan() {
+    const q = ((document.getElementById('bourseQ') || {}).value || '').trim() || 'a';
+    const onlyDem = !!(document.getElementById('bourseOnlyDem') || {}).checked;
+    out.textContent = 'Scan…';
+    try {
+      const eleves = await api('/eleves/search?q=' + encodeURIComponent(q));
+      const packs = await Promise.all((eleves || []).slice(0, 40).map(async e => {
+        try {
+          const d = await api('/eleves/' + e.id + '/dossier');
+          const bourses = (d && d.bourses) || [];
+          return { e, bourses };
+        } catch {
+          return { e, bourses: [] };
+        }
+      }));
+      const rows = [];
+      packs.forEach(({ e, bourses }) => {
+        (bourses || []).forEach(b => {
+          if (onlyDem && b.status !== 'demandee' && b.status !== 'demandée') return;
+          rows.push({ e, b });
+        });
+      });
+      const nDem = rows.filter(r => r.b.status === 'demandee' || r.b.status === 'demandée').length;
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${rows.length}</strong><span>Lignes affichées</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nDem}</strong><span>À décider</span></div>
+          <div class="stat-tile bento-span-4"><strong>${(types || []).length}</strong><span>Types</span></div>`;
+      }
+      if (!rows.length) {
+        out.innerHTML = '<p class="empty">Aucune bourse pour cette recherche.</p>';
+        return;
+      }
+      out.innerHTML = `<table><thead><tr><th>Élève</th><th>Type</th><th>Éch.</th><th>Début</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${rows.map(({ e, b }) => `<tr>
+          <td><a href="/app/eleves/${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}</a> <span class="muted">${esc(e.classe || '')}</span></td>
+          <td>${esc(b.bourse_type_label || '—')}</td>
+          <td>${esc(b.echelon || '—')}</td>
+          <td>${esc(b.date_debut || '—')}</td>
+          <td><span class="pill">${esc(b.status)}</span></td>
+          <td>${(b.status === 'demandee' || b.status === 'demandée')
+            ? `<button type="button" class="btnBourseFileAcc" data-id="${b.id}">Accepter</button>
+               <button type="button" class="btnBourseFileRef" data-id="${b.id}">Refuser</button>`
+            : `<a href="/app/eleves/${esc(e.id)}?section=bourses">Dossier</a>`}</td>
+        </tr>`).join('')}</tbody></table>`;
+      out.querySelectorAll('.btnBourseFileAcc').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/bourses/' + btn.dataset.id + '/decider', {
+              method: 'POST', body: JSON.stringify({ accepter: true }),
+            });
+            await scan();
+          } catch (err) { alert(err.message); }
+        };
+      });
+      out.querySelectorAll('.btnBourseFileRef').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/bourses/' + btn.dataset.id + '/decider', {
+              method: 'POST', body: JSON.stringify({ accepter: false }),
+            });
+            await scan();
+          } catch (err) { alert(err.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btnScan = document.getElementById('btnBourseScan');
+  if (btnScan) btnScan.onclick = scan;
+  const qEl = document.getElementById('bourseQ');
+  if (qEl) {
+    qEl.onkeydown = (ev) => { if (ev.key === 'Enter') scan(); };
+  }
+  const btnAff = document.getElementById('btnBoursePageAff');
+  if (btnAff) {
+    btnAff.onclick = async () => {
+      const msg = document.getElementById('boursePageMsg');
+      const eid = (document.getElementById('bourseEleve') || {}).value;
+      const tid = (typeSel || {}).value;
+      if (!eid || !tid) {
+        if (msg) msg.innerHTML = '<span class="bad">Élève et type requis</span>';
+        return;
+      }
+      try {
+        await api('/eleves/' + eid + '/bourses', {
+          method: 'POST',
+          body: JSON.stringify({
+            bourse_type_id: tid,
+            echelon: (document.getElementById('boursePageEch') || {}).value.trim() || '1',
+            avec_procuration: !!(document.getElementById('boursePageProc') || {}).checked,
+            date_debut: (document.getElementById('boursePageDebut') || {}).value || today(),
+          }),
+        });
+        if (msg) msg.innerHTML = '<span class="ok">Bourse affectée (demandée)</span>';
+        await scan();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  await scan();
+}
+
+function viewCantine() {
+  return shell('/app/cantine', `
+    <div class="panel">
+      <h2>Activités repas</h2>
+      <p class="muted">Référentiel midi / soir / étude… utilisé par les grilles élèves.</p>
+      <div class="row">
+        <label>Code <input id="actCode" placeholder="MIDI" style="width:5rem"/></label>
+        <label>Libellé <input id="actLib" placeholder="Repas midi"/></label>
+        <label>Kind <select id="actKind">
+          <option value="midi">midi</option>
+          <option value="soir">soir</option>
+          <option value="etude">etude</option>
+          <option value="garderie">garderie</option>
+          <option value="autre">autre</option>
+        </select></label>
+        <button type="button" class="primary" id="btnActSave">Créer</button>
+        <button type="button" id="btnActList">Lister</button>
+      </div>
+      <div id="actMsg" class="muted"></div>
+      <div id="actOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Grille élève</h2>
+      <p class="muted">Poser le masque lun→dim sur une activité (remplace / ouvre une grille).</p>
+      <div class="row">
+        <label>Élève <select id="grilleEleve"></select></label>
+        <label>Activité <select id="grilleActCant"></select></label>
+        <label>Début <input id="grilleDebutCant" type="date" value="${today()}"/></label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="gc_lun" checked/> lun</label>
+        <label><input type="checkbox" id="gc_mar" checked/> mar</label>
+        <label><input type="checkbox" id="gc_mer" checked/> mer</label>
+        <label><input type="checkbox" id="gc_jeu" checked/> jeu</label>
+        <label><input type="checkbox" id="gc_ven" checked/> ven</label>
+        <label><input type="checkbox" id="gc_sam"/> sam</label>
+        <label><input type="checkbox" id="gc_dim"/> dim</label>
+        <button type="button" class="primary" id="btnGrilleCant">Poser</button>
+      </div>
+      <div id="grilleCantMsg" class="muted"></div>
+      <div id="grilleCantOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Cantine — passage badge</h2>
+      <p class="muted">Scan badge → pointage midi (grille − prévenance). Doublon et dispense refusés.</p>
+      <div class="row">
+        <label>Badge <input id="scanBadge" placeholder="B…" autofocus style="min-width:10rem"/></label>
+        <label>Jour <input id="scanJour" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnScan">Enregistrer</button>
+      </div>
+      <div id="scanMsg" class="muted"></div>
+      <h3 style="margin-top:1rem">Passages du jour</h3>
+      <div id="passOut" class="muted">…</div>
+    </div>
+    <div class="panel">
+      <h2>Dispenses / prévenances du jour</h2>
+      <p class="muted">Pose une dispense repas (non facturée) — le scan badge refuse ensuite le passage.</p>
+      <div class="row">
+        ${elevePickerRow('cantDispEleve', 'cantDispEleveQ', 'btnCantDispEleveSearch')}
+        <label>Activité <select id="cantDispAct" style="min-width:10rem"></select></label>
+        <label>Jour <input id="cantDispJour" type="date" value="${today()}"/></label>
+        <label style="flex:1">Motif <input id="cantDispMotif" style="width:100%" value="prévenance"/></label>
+        <button type="button" class="primary" id="btnCantDisp">Dispenser</button>
+        <button type="button" id="btnCantDispLoad">Lister le jour</button>
+      </div>
+      <div id="cantDispMsg" class="muted"></div>
+      <div id="cantDispOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Historique élève</h2>
+      <p class="muted">Passages badge sur une période (staff cantine / CPE). Famille : même API sur l’enfant lié.</p>
+      <div class="row">
+        ${elevePickerRow('histEleve', 'histEleveQ', 'btnHistEleveSearch')}
+        <label>Début <input id="histDebut" type="date"/></label>
+        <label>Fin <input id="histFin" type="date" value="${today()}"/></label>
+        <button type="button" id="btnHistPass">Charger</button>
+      </div>
+      <div id="histPassOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Menus de la semaine</h2>
+      <p class="muted">Publication famille (seul le plat publié est visible). Brouillon = non publié.</p>
+      <div class="row">
+        <label>Jour <input id="menuJour" type="date" value="${today()}"/></label>
+        <label>Entrée <input id="menuEntree" placeholder="Entrée"/></label>
+        <label>Plat <input id="menuPlat" placeholder="Plat" style="min-width:10rem"/></label>
+        <label>Dessert <input id="menuDessert" placeholder="Dessert"/></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Notes <input id="menuNotes" style="width:100%"/></label>
+        <label><input type="checkbox" id="menuPublie" checked/> Publié</label>
+        <button type="button" class="primary" id="btnMenuSave">Enregistrer</button>
+        <button type="button" id="btnMenuLoad">Liste</button>
+      </div>
+      <div id="menuMsg" class="muted"></div>
+      <div id="menuOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Tarifs conso</h2>
+      <div class="row">
+        <label>Code <input id="tarifCode" value="MIDI" style="width:5rem"/></label>
+        <label>Libellé <input id="tarifLib" value="Repas midi"/></label>
+        <label>Montant c. <input id="tarifMontant" type="number" value="450" style="width:5rem"/></label>
+        <label>Début <input id="tarifDeb" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnTarifSave">Créer</button>
+        <button type="button" id="btnTarifList">Lister</button>
+      </div>
+      <div id="tarifMsg" class="muted"></div>
+      <div id="tarifOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Volumes cuisine</h2>
+      <p class="muted">Prévision repas (grilles − dispenses) · même source que l’export CSV facturation.</p>
+      <div class="row">
+        <label>Du <input id="cantVolDebut" type="date"/></label>
+        <label>Au <input id="cantVolFin" type="date" value="${today()}"/></label>
+        <label>Kind <select id="cantVolKind"><option value="midi">midi</option><option value="soir">soir</option></select></label>
+        <button type="button" class="primary" id="btnCantVol">Aperçu</button>
+        ${elevePickerRow('cantVolEleve', 'cantVolEleveQ', 'btnCantVolEleveSearch')}
+        <button type="button" id="btnCantVolEleve">Volume élève</button>
+      </div>
+      <div id="cantVolOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>`);
+}
+
+async function bindCantine() {
+  const msg = document.getElementById('scanMsg');
+  const out = document.getElementById('passOut');
+  const histOut = document.getElementById('histPassOut');
+  const histFin = document.getElementById('histFin');
+  const histDebut = document.getElementById('histDebut');
+  await bindElevePickers('histEleve', 'histEleveQ', 'btnHistEleveSearch');
+  if (histFin.value && !histDebut.value) {
+    const d = new Date(histFin.value + 'T12:00:00');
+    d.setDate(d.getDate() - 14);
+    histDebut.value = d.toISOString().slice(0, 10);
+  }
+
+  async function loadActivites() {
+    const box = document.getElementById('actOut');
+    const sel = document.getElementById('grilleActCant');
+    try {
+      const list = await api('/repas/activites');
+      box.innerHTML = list.length
+        ? `<table><thead><tr><th>Code</th><th>Libellé</th><th>Kind</th><th></th></tr></thead>
+           <tbody>${list.map(a => `<tr>
+             <td>${esc(a.code)}</td><td>${esc(a.libelle)}</td>
+             <td><span class="pill">${esc(a.kind)}</span></td>
+             <td>${a.actif ? 'actif' : 'off'}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucune activité.</p>';
+      if (sel) {
+        sel.innerHTML = list.map(a =>
+          `<option value="${esc(a.id)}">${esc(a.libelle)} (${esc(a.kind)})</option>`
+        ).join('') || '<option value="">—</option>';
+      }
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnActList').onclick = loadActivites;
+  document.getElementById('btnActSave').onclick = async () => {
+    const m = document.getElementById('actMsg');
+    try {
+      await api('/repas/activites', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('actCode').value.trim(),
+          libelle: document.getElementById('actLib').value.trim(),
+          kind: document.getElementById('actKind').value,
+        }),
+      });
+      m.innerHTML = '<span class="ok">Activité créée</span>';
+      await loadActivites();
+    } catch (e) {
+      m.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  try {
+    const eleves = await api('/eleves/search?q=a');
+    document.getElementById('grilleEleve').innerHTML = eleves.map(e =>
+      `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}</option>`
+    ).join('') || '<option value="">—</option>';
+  } catch {}
+  await loadActivites();
+  async function loadGrillesCant() {
+    const box = document.getElementById('grilleCantOut');
+    const eid = document.getElementById('grilleEleve').value;
+    if (!eid) { box.innerHTML = '<p class="empty">Choisir un élève</p>'; return; }
+    try {
+      const list = await api('/eleves/' + eid + '/repas/grilles');
+      box.innerHTML = list.length
+        ? `<table><thead><tr><th>Activité</th><th>Jours</th><th>Début</th><th>Fin</th></tr></thead>
+           <tbody>${list.map(g => `<tr>
+             <td class="muted">${esc(g.activite_id)}</td>
+             <td>${esc(joursLabel(g.jours))}</td>
+             <td>${esc(g.date_debut)}</td><td>${esc(g.date_fin || '—')}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Pas de grille.</p>';
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('grilleEleve').onchange = loadGrillesCant;
+  const grilleActEl = document.getElementById('grilleActCant');
+  const grilleDebutEl = document.getElementById('grilleDebutCant');
+  if (grilleActEl) grilleActEl.onchange = loadGrillesCant;
+  if (grilleDebutEl) grilleDebutEl.onchange = loadGrillesCant;
+  document.getElementById('btnGrilleCant').onclick = async () => {
+    const m = document.getElementById('grilleCantMsg');
+    const eid = document.getElementById('grilleEleve').value;
+    const aid = document.getElementById('grilleActCant').value;
+    if (!eid || !aid) { m.innerHTML = '<span class="bad">Élève et activité requis</span>'; return; }
+    try {
+      await api('/eleves/' + eid + '/repas/grilles', {
+        method: 'POST',
+        body: JSON.stringify({
+          activite_id: aid,
+          date_debut: document.getElementById('grilleDebutCant').value || today(),
+          jours: {
+            lun: document.getElementById('gc_lun').checked,
+            mar: document.getElementById('gc_mar').checked,
+            mer: document.getElementById('gc_mer').checked,
+            jeu: document.getElementById('gc_jeu').checked,
+            ven: document.getElementById('gc_ven').checked,
+            sam: document.getElementById('gc_sam').checked,
+            dim: document.getElementById('gc_dim').checked,
+          },
+        }),
+      });
+      m.innerHTML = '<span class="ok">Grille posée</span>';
+      await loadGrillesCant();
+    } catch (e) {
+      m.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  await loadGrillesCant();
+
+  async function loadPassages() {
+    const jour = document.getElementById('scanJour').value || today();
+    try {
+      const list = await api('/repas/passages?jour=' + encodeURIComponent(jour));
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucun passage.</p>';
+        return;
+      }
+      out.innerHTML = `<table><thead><tr><th>Badge</th><th>Élève</th><th>Source</th></tr></thead>
+        <tbody>${list.map(p => {
+          const nom = [p.eleve_prenom, p.eleve_nom].filter(Boolean).join(' ').trim();
+          return `<tr>
+          <td>${esc(p.badge_lu)}</td>
+          <td>${esc(nom || (p.eleve_id || '').slice(0, 8))}</td>
+          <td><span class="pill">${esc(p.source)}</span></td>
+        </tr>`;
+        }).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnScan').onclick = async () => {
+    const badge = document.getElementById('scanBadge').value.trim();
+    const jour = document.getElementById('scanJour').value || today();
+    if (!badge) { msg.innerHTML = '<span class="bad">Badge requis</span>'; return; }
+    try {
+      const p = await api('/repas/passages/scan', {
+        method: 'POST',
+        body: JSON.stringify({ badge, kind: 'midi', jour }),
+      });
+      msg.innerHTML = `<span class="ok">OK — ${esc(p.eleve_prenom || '')} ${esc(p.eleve_nom || '')} (${esc(p.badge_lu)})</span>`;
+      document.getElementById('scanBadge').value = '';
+      document.getElementById('scanBadge').focus();
+      await loadPassages();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('scanBadge').onkeydown = (ev) => {
+    if (ev.key === 'Enter') document.getElementById('btnScan').click();
+  };
+  document.getElementById('scanJour').onchange = loadPassages;
+  async function loadHistPass() {
+    const id = document.getElementById('histEleve').value.trim();
+    const debut = histDebut.value;
+    const fin = histFin.value || today();
+    if (!id) { histOut.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      let path = '/eleves/' + encodeURIComponent(id) + '/repas/passages?fin=' + encodeURIComponent(fin);
+      if (debut) path += '&debut=' + encodeURIComponent(debut);
+      const list = await api(path);
+      if (!list.length) {
+        histOut.innerHTML = '<p class="empty">Aucun passage sur la période.</p>';
+        return;
+      }
+      histOut.innerHTML = `<table><thead><tr><th>Jour</th><th>Badge</th><th>Source</th></tr></thead>
+        <tbody>${list.map(p => `<tr>
+          <td>${esc(p.jour)}</td>
+          <td>${esc(p.badge_lu)}</td>
+          <td><span class="pill">${esc(p.source)}</span></td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      histOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnHistPass').onclick = loadHistPass;
+  const histEleveEl = document.getElementById('histEleve');
+  if (histEleveEl) histEleveEl.onchange = loadHistPass;
+  if (histDebut) histDebut.onchange = loadHistPass;
+  if (histFin) histFin.onchange = loadHistPass;
+  const menuMsg = document.getElementById('menuMsg');
+  const menuOut = document.getElementById('menuOut');
+  async function loadMenus() {
+    const jour = document.getElementById('menuJour').value || today();
+    const d = new Date(jour + 'T12:00:00');
+    const debut = new Date(d); debut.setDate(d.getDate() - 3);
+    const fin = new Date(d); fin.setDate(d.getDate() + 7);
+    const fmt = (x) => x.toISOString().slice(0, 10);
+    try {
+      const list = await api('/menus-cantine?debut=' + fmt(debut) + '&fin=' + fmt(fin));
+      if (!list.length) {
+        menuOut.innerHTML = '<p class="empty">Aucun menu sur la période.</p>';
+        return;
+      }
+      menuOut.innerHTML = `<table><thead><tr><th>Jour</th><th>Plat</th><th>État</th></tr></thead>
+        <tbody>${list.map(m => `<tr>
+          <td>${esc(m.jour)}</td>
+          <td>${esc(m.plat)}${m.entree ? ' <span class="muted">(' + esc(m.entree) + ')</span>' : ''}</td>
+          <td><span class="pill">${m.publie ? 'publié' : 'brouillon'}</span></td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      menuOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnMenuSave').onclick = async () => {
+    const plat = document.getElementById('menuPlat').value.trim();
+    if (!plat) { menuMsg.innerHTML = '<span class="bad">Plat requis</span>'; return; }
+    try {
+      const m = await api('/menus-cantine', {
+        method: 'POST',
+        body: JSON.stringify({
+          jour: document.getElementById('menuJour').value || today(),
+          entree: document.getElementById('menuEntree').value.trim(),
+          plat,
+          dessert: document.getElementById('menuDessert').value.trim(),
+          notes: document.getElementById('menuNotes').value.trim(),
+          publie: document.getElementById('menuPublie').checked,
+        }),
+      });
+      menuMsg.innerHTML = `<span class="ok">Menu ${esc(m.jour)} — ${esc(m.plat)} (${m.publie ? 'publié' : 'brouillon'})</span>`;
+      await loadMenus();
+    } catch (e) {
+      menuMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnMenuLoad').onclick = loadMenus;
+  const menuJourEl = document.getElementById('menuJour');
+  if (menuJourEl) menuJourEl.onchange = loadMenus;
+  const tarifMsg = document.getElementById('tarifMsg');
+  const tarifOut = document.getElementById('tarifOut');
+  async function loadTarifs() {
+    try {
+      const list = await api('/tarifs-conso');
+      tarifOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun tarif.</p>'
+        : `<table><thead><tr><th>Code</th><th>Libellé</th><th>Montant</th><th>Début</th></tr></thead>
+           <tbody>${list.map(t => `<tr>
+             <td>${esc(t.code)}</td><td>${esc(t.libelle)}</td>
+             <td>${esc(euros(t.montant_centimes))}</td><td>${esc(t.debut)}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      tarifOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnTarifSave').onclick = async () => {
+    try {
+      const t = await api('/tarifs-conso', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('tarifCode').value.trim(),
+          libelle: document.getElementById('tarifLib').value.trim(),
+          montant_centimes: Number(document.getElementById('tarifMontant').value) || 0,
+          debut: document.getElementById('tarifDeb').value || today(),
+          fin: null,
+        }),
+      });
+      tarifMsg.innerHTML = `<span class="ok">${esc(t.code)} — ${esc(euros(t.montant_centimes))}</span>`;
+      await loadTarifs();
+    } catch (e) {
+      tarifMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnTarifList').onclick = loadTarifs;
+  const cantVolOut = document.getElementById('cantVolOut');
+  const cantVolFin = document.getElementById('cantVolFin');
+  const cantVolDebut = document.getElementById('cantVolDebut');
+  if (cantVolFin && cantVolDebut && cantVolFin.value && !cantVolDebut.value) {
+    const d = new Date(cantVolFin.value + 'T12:00:00');
+    d.setDate(1);
+    cantVolDebut.value = d.toISOString().slice(0, 10);
+  }
+  await bindElevePickers('cantVolEleve', 'cantVolEleveQ', 'btnCantVolEleveSearch');
+  document.getElementById('btnCantVol').onclick = async () => {
+    const debut = cantVolDebut.value;
+    const fin = cantVolFin.value;
+    const kind = document.getElementById('cantVolKind').value;
+    if (!debut || !fin) { cantVolOut.innerHTML = '<span class="bad">Période requise</span>'; return; }
+    try {
+      const d = await api('/repas/volumes?debut=' + encodeURIComponent(debut)
+        + '&fin=' + encodeURIComponent(fin) + '&kind=' + encodeURIComponent(kind));
+      const lignes = d.lignes || [];
+      const total = lignes.reduce((s, l) => s + (l.nb_prevus || 0), 0);
+      cantVolOut.innerHTML = !lignes.length
+        ? '<p class="empty">Aucun volume sur la période.</p>'
+        : `<p><strong>${lignes.length}</strong> jour(s) · <strong>${total}</strong> repas ${esc(kind)} prévus</p>
+           <table><thead><tr><th>Jour</th><th>Prévus</th></tr></thead>
+           <tbody>${lignes.map(l => `<tr><td>${esc(l.jour)}</td><td>${l.nb_prevus}</td></tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      cantVolOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnCantVolEleve').onclick = async () => {
+    const eid = document.getElementById('cantVolEleve').value;
+    const debut = cantVolDebut.value;
+    const fin = cantVolFin.value;
+    const kind = document.getElementById('cantVolKind').value;
+    if (!eid || !debut || !fin) { cantVolOut.innerHTML = '<span class="bad">Élève + période requis</span>'; return; }
+    try {
+      const vol = await api('/eleves/' + eid + '/repas/volume?debut=' + encodeURIComponent(debut)
+        + '&fin=' + encodeURIComponent(fin) + '&kind=' + encodeURIComponent(kind));
+      cantVolOut.innerHTML = `<p><span class="ok">${vol.jours_facturables}</span> jour(s) facturables
+        (${esc(vol.kind)}) du ${esc(vol.debut)} au ${esc(vol.fin)}</p>`;
+    } catch (e) {
+      cantVolOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  await bindElevePickers('cantDispEleve', 'cantDispEleveQ', 'btnCantDispEleveSearch');
+  const cantDispMsg = document.getElementById('cantDispMsg');
+  const cantDispOut = document.getElementById('cantDispOut');
+  async function fillCantDispActs() {
+    const sel = document.getElementById('cantDispAct');
+    if (!sel) return;
+    try {
+      const list = await api('/repas/activites');
+      sel.innerHTML = (list || []).filter(a => a.actif !== false).map(a =>
+        `<option value="${esc(a.id)}">${esc(a.libelle)} (${esc(a.kind)})</option>`
+      ).join('') || '<option value="">—</option>';
+    } catch (_) { /* hors droits */ }
+  }
+  async function loadCantDispJour() {
+    const jour = (document.getElementById('cantDispJour') || {}).value || today();
+    const eid = (document.getElementById('cantDispEleve') || {}).value || '';
+    cantDispOut.textContent = 'Chargement…';
+    try {
+      let eleves = [];
+      if (eid) {
+        eleves = [{ id: eid }];
+      } else {
+        eleves = await api('/eleves/search?q=a');
+      }
+      const rows = [];
+      await Promise.all((eleves || []).slice(0, eid ? 1 : 40).map(async e => {
+        try {
+          const list = await api('/eleves/' + encodeURIComponent(e.id) + '/repas/dispenses');
+          (list || []).filter(d => !d.annulee && d.jour === jour).forEach(d => rows.push(d));
+        } catch (_) { /* skip */ }
+      }));
+      if (!rows.length) {
+        cantDispOut.innerHTML = `<p class="empty">Aucune dispense active le ${esc(jour)}${eid ? ' pour cet élève' : ''}.</p>`;
+        return;
+      }
+      await hydrateEleveNames(rows.map(d => d.eleve_id));
+      cantDispOut.innerHTML = `<table><thead><tr><th>Élève</th><th>Activité</th><th>Motif</th><th>Source</th><th></th></tr></thead>
+        <tbody>${rows.map(d => `<tr>
+          <td>${eleveCell(d)}</td>
+          <td>${esc(d.activite_label || d.activite_id.slice(0, 8))}</td>
+          <td>${esc(d.motif)}</td>
+          <td><span class="pill">${esc(d.source)}</span></td>
+          <td><button type="button" class="btnCantAnnulDisp" data-eid="${esc(d.eleve_id)}" data-id="${esc(d.id)}">Annuler</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      cantDispOut.querySelectorAll('.btnCantAnnulDisp').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/eleves/' + encodeURIComponent(btn.dataset.eid) + '/repas/dispenses/' + btn.dataset.id + '/annuler', {
+              method: 'POST', body: '{}',
+            });
+            if (cantDispMsg) cantDispMsg.innerHTML = '<span class="ok">Dispense annulée</span>';
+            await loadCantDispJour();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      cantDispOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnCantDispLoad').onclick = loadCantDispJour;
+  document.getElementById('cantDispJour').onchange = loadCantDispJour;
+  document.getElementById('cantDispEleve').onchange = loadCantDispJour;
+  document.getElementById('btnCantDisp').onclick = async () => {
+    const eid = document.getElementById('cantDispEleve').value;
+    const aid = document.getElementById('cantDispAct').value;
+    const jour = document.getElementById('cantDispJour').value || today();
+    const motif = document.getElementById('cantDispMotif').value.trim() || 'prévenance';
+    if (!eid || !aid) {
+      cantDispMsg.innerHTML = '<span class="bad">Élève et activité requis</span>';
+      return;
+    }
+    try {
+      const d = await api('/eleves/' + encodeURIComponent(eid) + '/repas/dispenses', {
+        method: 'POST',
+        body: JSON.stringify({ activite_id: aid, jour, motif }),
+      });
+      cantDispMsg.innerHTML = `<span class="ok">Dispense ${esc(d.jour)} — ${esc(d.motif)}</span>`;
+      await loadCantDispJour();
+    } catch (e) {
+      cantDispMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  await fillCantDispActs();
+  await loadCantDispJour();
+  await loadPassages();
+  await loadMenus();
+  await loadTarifs();
+}
+
+/* ---------- Internat ---------- */
+function viewInternat() {
+  return shell('/app/internat', `
+    <div class="bento" id="intStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h2>Chambres</h2>
+        <p class="muted">Créer puis affecter les élèves.</p>
+        <div class="row">
+          <label>Bâtiment <input id="intBat" value="A" style="width:4rem"/></label>
+          <label>Étage <input id="intEtage" type="number" value="1" style="width:4rem"/></label>
+          <label>Code <input id="intCode" placeholder="A12" style="width:5rem"/></label>
+          <label>Capacité <input id="intCap" type="number" value="2" style="width:4rem"/></label>
+          <label>Genre <select id="intGenre"><option value="mixte">mixte</option><option value="filles">filles</option><option value="garcons">garçons</option></select></label>
+          <button type="button" class="primary" id="btnIntChambre">Créer</button>
+          <button type="button" id="btnIntChambres">Lister</button>
+        </div>
+        <div id="intChMsg" class="muted"></div>
+        <div id="intChOut" class="muted" style="margin-top:.5rem">…</div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>Affectation / présence / suivi</h2>
+        <div class="row">
+          ${elevePickerRow('intEleve', 'intEleveQ', 'btnIntEleveSearch')}
+          <label>Chambre <select id="intChambreId" style="min-width:10rem"><option value="">—</option></select></label>
+          <label>Lit <input id="intLit" style="width:4rem" value="1"/></label>
+          <label>Début <input id="intDebut" type="date" value="${today()}"/></label>
+          <button type="button" class="primary" id="btnIntAff">Affecter</button>
+        </div>
+        <div class="row">
+          <label>Jour <input id="intPresJour" type="date" value="${today()}"/></label>
+          <label>Statut <select id="intPresStat"><option value="present">présent</option><option value="absent">absent</option><option value="retard">retard</option><option value="permis_sortie">permis sortie</option></select></label>
+          <label style="flex:1">Note présence <input id="intPresNote" style="width:100%" placeholder="optionnel…"/></label>
+          <button type="button" id="btnIntPres">Pointer</button>
+          <button type="button" id="btnIntPresList">Présences</button>
+        </div>
+        <div class="row">
+          <label style="flex:1">Suivi <input id="intSuivi" style="width:100%" placeholder="Note éducateur…"/></label>
+          <label><input type="checkbox" id="intSuiviFam" checked/> Visible famille</label>
+          <button type="button" id="btnIntSuivi">Ajouter suivi</button>
+          <button type="button" id="btnIntRecap">Récap élève</button>
+        </div>
+        <div id="intMsg" class="muted"></div>
+        <div id="intOut" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+      <div class="panel bento-span-12">
+        <h2>Appel du soir</h2>
+        <p class="muted">Grille des affectations actives du jour — pointer rapidement chaque lit.</p>
+        <div class="row">
+          <button type="button" class="primary" id="btnIntAppel">Charger l’appel</button>
+          <button type="button" id="btnIntTousPresent">Tous présents</button>
+        </div>
+        <div id="intAppelOut" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+    </div>`);
+}
+
+async function bindInternat() {
+  const chMsg = document.getElementById('intChMsg');
+  const chOut = document.getElementById('intChOut');
+  const msg = document.getElementById('intMsg');
+  const out = document.getElementById('intOut');
+  const appelOut = document.getElementById('intAppelOut');
+  const stats = document.getElementById('intStats');
+  await bindElevePickers('intEleve', 'intEleveQ', 'btnIntEleveSearch');
+
+  async function pointerEleve(eleve_id, statut, note) {
+    return api('/vs/internat/presences', {
+      method: 'POST',
+      body: JSON.stringify({
+        eleve_id,
+        jour: document.getElementById('intPresJour').value || today(),
+        statut,
+        note: note || '',
+      }),
+    });
+  }
+
+  async function refreshIntStats(chambres, affs, pres) {
+    if (!stats) return;
+    const cap = (chambres || []).reduce((s, c) => s + (c.capacite || 0), 0);
+    const byEleve = {};
+    (pres || []).forEach(p => { byEleve[p.eleve_id] = p; });
+    const nAff = (affs || []).length;
+    const nPointes = (affs || []).filter(a => byEleve[a.eleve_id]).length;
+    const nNon = Math.max(0, nAff - nPointes);
+    const nPres = (pres || []).filter(p => p.statut === 'present').length;
+    const nAbs = (pres || []).filter(p => p.statut === 'absent').length;
+    stats.innerHTML = `
+      <div class="stat-tile bento-span-2"><strong>${(chambres || []).length}</strong><span>Chambres</span></div>
+      <div class="stat-tile bento-span-2"><strong>${nAff}</strong><span>Affectations</span></div>
+      <div class="stat-tile bento-span-2"><strong>${nPointes}</strong><span>Pointés</span></div>
+      <div class="stat-tile bento-span-2"><strong>${nNon}</strong><span>Non pointés</span></div>
+      <div class="stat-tile bento-span-2"><strong>${nPres}</strong><span>Présents</span></div>
+      <div class="stat-tile bento-span-2"><strong>${nAbs}</strong><span>Absents</span></div>
+      <p class="muted bento-span-12" style="margin:0">Capacité lit totale : ${cap}</p>`;
+  }
+
+  async function loadChambres() {
+    const sel = document.getElementById('intChambreId');
+    try {
+      const list = await api('/vs/internat/chambres');
+      const jour = document.getElementById('intPresJour')?.value || today();
+      const [affs, pres] = await Promise.all([
+        api('/vs/internat/affectations?jour=' + encodeURIComponent(jour)).catch(() => []),
+        api('/vs/internat/presences?jour=' + encodeURIComponent(jour)).catch(() => []),
+      ]);
+      await refreshIntStats(list, affs, pres);
+      const prev = sel ? sel.value : '';
+      if (sel) {
+        sel.innerHTML = '<option value="">—</option>' + (list || []).map(c =>
+          `<option value="${esc(c.id)}">${esc(c.code)} · bât. ${esc(c.batiment)} ét. ${c.etage} (${esc(c.genre)})</option>`
+        ).join('');
+        if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+      }
+      if (!list.length) {
+        chOut.innerHTML = '<p class="empty">Aucune chambre.</p>';
+        return;
+      }
+      chOut.innerHTML = `<table><thead><tr><th>Code</th><th>Bât.</th><th>Cap.</th><th>Genre</th><th></th></tr></thead>
+        <tbody>${list.map(c => `<tr>
+          <td><strong>${esc(c.code)}</strong></td>
+          <td>${esc(c.batiment)} · ét. ${c.etage}</td>
+          <td>${c.capacite}</td>
+          <td>${esc(c.genre)}</td>
+          <td><button type="button" data-cid="${esc(c.id)}">Choisir</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      chOut.querySelectorAll('button[data-cid]').forEach(btn => {
+        btn.onclick = () => { if (sel) sel.value = btn.dataset.cid; };
+      });
+    } catch (e) {
+      chOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function loadAppel() {
+    const jour = document.getElementById('intPresJour').value || today();
+    appelOut.textContent = 'Chargement…';
+    try {
+      const [chambres, affs, pres] = await Promise.all([
+        api('/vs/internat/chambres').catch(() => []),
+        api('/vs/internat/affectations?jour=' + encodeURIComponent(jour)),
+        api('/vs/internat/presences?jour=' + encodeURIComponent(jour)),
+      ]);
+      await refreshIntStats(chambres, affs, pres);
+      if (!affs.length) {
+        appelOut.innerHTML = '<p class="empty">Aucune affectation active ce jour.</p>';
+        return;
+      }
+      const byEleve = {};
+      (pres || []).forEach(p => { byEleve[p.eleve_id] = p; });
+      await hydrateEleveNames(affs.map(a => a.eleve_id));
+      const pointes = affs.filter(a => byEleve[a.eleve_id]).length;
+      appelOut.innerHTML = `<p class="muted" style="margin-bottom:.5rem">${pointes}/${affs.length} pointé(s) · ${affs.length - pointes} non pointé(s) le ${esc(jour)}</p>
+        <table><thead><tr><th>Élève</th><th>Chambre</th><th>Lit</th><th>Statut</th><th>Note</th><th></th></tr></thead>
+        <tbody>${affs.map(a => {
+          const p = byEleve[a.eleve_id];
+          const st = p ? p.statut : '';
+          return `<tr data-eid="${esc(a.eleve_id)}">
+            <td>${eleveCell(a)}</td>
+            <td>${esc(a.chambre_label || a.chambre_id.slice(0, 8))}</td>
+            <td>${esc(a.lit || '—')}</td>
+            <td>${p ? `<span class="pill">${esc(p.statut)}</span>` : '<span class="muted">—</span>'}</td>
+            <td><input class="appelNote" value="${esc(p && p.note ? p.note : '')}" style="width:100%;min-width:8rem" placeholder="note…"/></td>
+            <td class="row" style="gap:.25rem;flex-wrap:wrap">
+              <button type="button" class="btnAppelStat primary" data-st="present" ${st === 'present' ? 'disabled' : ''}>P</button>
+              <button type="button" class="btnAppelStat" data-st="absent" ${st === 'absent' ? 'disabled' : ''}>A</button>
+              <button type="button" class="btnAppelStat" data-st="retard" ${st === 'retard' ? 'disabled' : ''}>R</button>
+              <button type="button" class="btnAppelStat" data-st="permis_sortie" ${st === 'permis_sortie' ? 'disabled' : ''}>S</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+      appelOut.querySelectorAll('tr[data-eid]').forEach(tr => {
+        const eid = tr.dataset.eid;
+        tr.querySelectorAll('.btnAppelStat').forEach(btn => {
+          btn.onclick = async () => {
+            const note = (tr.querySelector('.appelNote') || {}).value || '';
+            try {
+              await pointerEleve(eid, btn.dataset.st, note.trim());
+              await loadAppel();
+            } catch (e) { alert(e.message); }
+          };
+        });
+      });
+    } catch (e) {
+      appelOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnIntChambre').onclick = async () => {
+    const code = document.getElementById('intCode').value.trim();
+    if (!code) { chMsg.innerHTML = '<span class="bad">Code requis</span>'; return; }
+    try {
+      const c = await api('/vs/internat/chambres', {
+        method: 'POST',
+        body: JSON.stringify({
+          batiment: document.getElementById('intBat').value.trim() || 'A',
+          etage: Number(document.getElementById('intEtage').value) || 0,
+          code,
+          capacite: Number(document.getElementById('intCap').value) || 1,
+          genre: document.getElementById('intGenre').value,
+        }),
+      });
+      chMsg.innerHTML = `<span class="ok">Chambre ${esc(c.code)} créée</span>`;
+      document.getElementById('intChambreId').value = c.id;
+      await loadChambres();
+    } catch (e) {
+      chMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnIntChambres').onclick = loadChambres;
+  document.getElementById('btnIntAff').onclick = async () => {
+    const eleve_id = document.getElementById('intEleve').value.trim();
+    const chambre_id = document.getElementById('intChambreId').value.trim();
+    if (!eleve_id || !chambre_id) { msg.innerHTML = '<span class="bad">Élève et chambre requis</span>'; return; }
+    try {
+      const a = await api('/vs/internat/affectations', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id,
+          chambre_id,
+          lit: document.getElementById('intLit').value.trim() || null,
+          debut: document.getElementById('intDebut').value || today(),
+        }),
+      });
+      if (a.eleve_label) seedEleveLabel(a.eleve_id, a.eleve_label);
+      const who = a.eleve_label || ELEVE_NAME_CACHE[a.eleve_id] || a.eleve_id.slice(0, 8);
+      const ch = a.chambre_label || 'chambre';
+      msg.innerHTML = `<span class="ok">${esc(who)} → ${esc(ch)}${a.lit ? ' · lit ' + esc(a.lit) : ''}</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnIntPres').onclick = async () => {
+    const eleve_id = document.getElementById('intEleve').value.trim();
+    if (!eleve_id) { msg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      const p = await pointerEleve(
+        eleve_id,
+        document.getElementById('intPresStat').value,
+        document.getElementById('intPresNote').value.trim(),
+      );
+      msg.innerHTML = `<span class="ok">Présence ${esc(p.statut)} le ${esc(p.jour)}</span>`;
+      if (appelOut && appelOut.querySelector('table')) await loadAppel();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnIntPresList').onclick = async () => {
+    const jour = document.getElementById('intPresJour').value || today();
+    try {
+      const list = await api('/vs/internat/presences?jour=' + encodeURIComponent(jour));
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucune présence.</p>';
+        return;
+      }
+      await hydrateEleveNames(list.map(p => p.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>Élève</th><th>Statut</th><th>Note</th></tr></thead>
+           <tbody>${list.map(p => `<tr>
+             <td>${eleveCell(p)}</td>
+             <td><span class="pill">${esc(p.statut)}</span></td>
+             <td>${esc(p.note || '—')}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnIntSuivi').onclick = async () => {
+    const id = document.getElementById('intEleve').value.trim();
+    const texte = document.getElementById('intSuivi').value.trim();
+    if (!id || !texte) { msg.innerHTML = '<span class="bad">Élève et texte requis</span>'; return; }
+    try {
+      await api('/eleves/' + encodeURIComponent(id) + '/internat/suivis', {
+        method: 'POST',
+        body: JSON.stringify({
+          jour: document.getElementById('intPresJour').value || today(),
+          texte,
+          visible_famille: document.getElementById('intSuiviFam').checked,
+        }),
+      });
+      msg.innerHTML = '<span class="ok">Suivi enregistré</span>';
+      document.getElementById('intSuivi').value = '';
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnIntRecap').onclick = async () => {
+    const id = document.getElementById('intEleve').value.trim();
+    if (!id) { msg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      const r = await api('/eleves/' + encodeURIComponent(id) + '/internat?jour=' + encodeURIComponent(document.getElementById('intPresJour').value || today()));
+      const ch = r.chambre ? `${esc(r.chambre.code)} (${esc(r.chambre.batiment)})` : '—';
+      const aff = r.affectation
+        ? `lit ${esc(r.affectation.lit || '—')} depuis ${esc(r.affectation.debut)}`
+        : 'pas d’affectation';
+      const pres = r.presence_du_jour ? esc(r.presence_du_jour.statut) : 'non pointé';
+      const suivis = (r.suivis || []).map(s => `<li>${esc(s.jour)} — ${esc(s.texte)}</li>`).join('') || '<li class="muted">aucun</li>';
+      const cloreBtn = r.affectation
+        ? `<button type="button" id="btnIntClore" data-aid="${esc(r.affectation.id)}">Clore l’affectation</button>`
+        : '';
+      out.innerHTML = `<p><strong>Chambre :</strong> ${ch} · ${aff}</p>
+        <p><strong>Présence :</strong> ${pres}</p>
+        <div class="row" style="margin:.5rem 0">${cloreBtn}</div>
+        <h4>Suivis famille</h4><ul>${suivis}</ul>`;
+      const btnClore = document.getElementById('btnIntClore');
+      if (btnClore) {
+        btnClore.onclick = async () => {
+          const fin = document.getElementById('intPresJour').value || today();
+          if (!confirm('Clore l’affectation au ' + fin + ' ?')) return;
+          try {
+            await api('/vs/internat/affectations/' + encodeURIComponent(btnClore.dataset.aid) + '/clore', {
+              method: 'POST',
+              body: JSON.stringify({ fin }),
+            });
+            msg.innerHTML = '<span class="ok">Affectation close</span>';
+            document.getElementById('btnIntRecap').click();
+          } catch (e) {
+            msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      }
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnIntAppel').onclick = loadAppel;
+  document.getElementById('btnIntTousPresent').onclick = async () => {
+    const jour = document.getElementById('intPresJour').value || today();
+    try {
+      const affs = await api('/vs/internat/affectations?jour=' + encodeURIComponent(jour));
+      if (!affs.length) { alert('Aucune affectation'); return; }
+      for (const a of affs) {
+        await pointerEleve(a.eleve_id, 'present', '');
+      }
+      msg.innerHTML = `<span class="ok">${affs.length} présent(s) pointé(s)</span>`;
+      await loadAppel();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  const jourEl = document.getElementById('intPresJour');
+  if (jourEl) {
+    jourEl.onchange = async () => {
+      await loadChambres();
+      await loadAppel();
+      const btnPres = document.getElementById('btnIntPresList');
+      if (btnPres && btnPres.onclick) await btnPres.onclick();
+    };
+  }
+  document.getElementById('intEleve').onchange = () => document.getElementById('btnIntRecap').onclick();
+  await loadChambres();
+  await loadAppel();
+}
+
+/* ---------- Infirmerie ---------- */
+function viewInfirmerie() {
+  return shell('/app/infirmerie', `
+    <div class="bento" id="infStats"></div>
+    <div class="panel">
+      <h2>Infirmerie — passages</h2>
+      <p class="muted">Note de soins confidentielle. Si « visible famille », le parent voit le motif sans la note.</p>
+      <div class="row">
+        ${elevePickerRow('infEleve', 'infEleveQ', 'btnInfEleveSearch')}
+        <label>Jour <input id="infJour" type="date" value="${today()}"/></label>
+        <label>Motif <select id="infMotif">
+          <option value="soins">Soins</option>
+          <option value="malaise">Malaise</option>
+          <option value="accident">Accident</option>
+          <option value="pai_suivi">Suivi PAI</option>
+          <option value="autre">Autre</option>
+        </select></label>
+        <label><input type="checkbox" id="infVisFam" checked/> Visible famille</label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Note <input id="infNote" style="width:100%;min-width:14rem" placeholder="Soins réalisés…"/></label>
+        <button type="button" class="primary" id="btnInfSave">Enregistrer</button>
+        <button type="button" id="btnInfLoad">Passages du jour</button>
+      </div>
+      <div id="infMsg" class="muted"></div>
+      <div id="infOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Fiche santé</h2>
+      <p class="muted">Une fiche par élève. La famille voit allergies / traitements / PAI — jamais la note confidentielle.</p>
+      <div class="row">
+        <label>Élève <select id="fsEleve" style="min-width:12rem"></select></label>
+        <label><input type="checkbox" id="fsPai"/> PAI actif</label>
+        <button type="button" id="btnFsLoad">Charger</button>
+        <button type="button" class="primary" id="btnFsSave">Enregistrer la fiche</button>
+        <button type="button" id="btnFsPdf">PDF résumé</button>
+      </div>
+      <div class="row">
+        <label style="flex:1">Allergies <input id="fsAllergies" style="width:100%"/></label>
+        <label style="flex:1">Traitements <input id="fsTraitements" style="width:100%"/></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Contre-indications <input id="fsContre" style="width:100%"/></label>
+        <label>Médecin <input id="fsMedecin"/></label>
+        <label>Urgence tél. <input id="fsUrgence"/></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Note confidentielle <input id="fsNote" style="width:100%" placeholder="staff only"/></label>
+      </div>
+      <div id="fsMsg" class="muted"></div>
+    </div>
+    <div class="panel">
+      <h2>PAI structuré</h2>
+      <p class="muted">Mesures d'accueil + protocole. La famille signe pour accuser lecture. Une maj staff remet la signature à zéro.</p>
+      <div class="row">
+        <label>Élève <select id="paiEleve" style="min-width:12rem"></select></label>
+        <label>Début <input id="paiDebut" type="date" value="${today()}"/></label>
+        <label>Fin <input id="paiFin" type="date"/></label>
+        <label><input type="checkbox" id="paiActif" checked/> Actif</label>
+        <button type="button" id="btnPaiLoad">Charger</button>
+        <button type="button" class="primary" id="btnPaiSave">Enregistrer</button>
+      </div>
+      <div class="row">
+        <label style="flex:1">Motif <input id="paiMotif" style="width:100%" placeholder="asthme, allergie…"/></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Mesures d'accueil <input id="paiMesures" style="width:100%" placeholder="Ventoline à l'infirmerie…"/></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Protocole urgence <input id="paiProto" style="width:100%"/></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">Note interne <input id="paiNote" style="width:100%" placeholder="staff only"/></label>
+      </div>
+      <div class="row">
+        <label>Ordonnance <input id="paiFile" type="file" accept=".pdf,image/jpeg,image/png"/></label>
+        <button type="button" id="btnPaiPiece">Joindre</button>
+      </div>
+      <div id="paiMsg" class="muted"></div>
+      <div id="paiOut" class="muted" style="margin-top:.5rem">…</div>
+      <div id="paiPieces" class="muted" style="margin-top:.5rem"></div>
+    </div>`);
+}
+
+async function bindInfirmerie() {
+  const msg = document.getElementById('infMsg');
+  const out = document.getElementById('infOut');
+  const fsMsg = document.getElementById('fsMsg');
+  const paiMsg = document.getElementById('paiMsg');
+  const paiOut = document.getElementById('paiOut');
+  await bindElevePickers(['infEleve', 'fsEleve', 'paiEleve'], 'infEleveQ', 'btnInfEleveSearch');
+
+  async function loadJour() {
+    const jour = document.getElementById('infJour').value || today();
+    const eid = (document.getElementById('infEleve') && document.getElementById('infEleve').value.trim()) || '';
+    out.textContent = 'Chargement…';
+    try {
+      let url = '/infirmerie/passages?jour=' + encodeURIComponent(jour);
+      if (eid) url += '&eleve_id=' + encodeURIComponent(eid);
+      const list = await api(url);
+      const stats = document.getElementById('infStats');
+      if (stats) {
+        const fam = list.filter(p => p.visible_famille).length;
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Passages le ${esc(jour)}</span></div>
+          <div class="stat-tile bento-span-4"><strong>${fam}</strong><span>Visibles famille</span></div>
+          <div class="stat-tile bento-span-4"><strong>${list.length - fam}</strong><span>Internes only</span></div>`;
+      }
+      if (!list.length) { out.innerHTML = '<p class="empty">Aucun passage.</p>'; return; }
+      await hydrateEleveNames(list.map(p => p.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>Élève</th><th>Motif</th><th>Note</th><th>Famille</th></tr></thead>
+        <tbody>${list.map(p => `<tr data-eid="${esc(p.eleve_id)}" style="cursor:pointer">
+          <td>${eleveCell(p)}</td>
+          <td><span class="pill">${esc(p.motif_libelle)}</span></td>
+          <td>${esc(p.note_soins)}</td>
+          <td>${p.visible_famille ? 'oui' : 'non'}</td>
+        </tr>`).join('')}</tbody></table>`;
+      out.querySelectorAll('tbody tr[data-eid]').forEach(tr => {
+        tr.onclick = async () => {
+          const eid = tr.dataset.eid;
+          const infEl = document.getElementById('infEleve');
+          const fsEl = document.getElementById('fsEleve');
+          const paiEl = document.getElementById('paiEleve');
+          if (infEl) {
+            if (![...infEl.options].some(o => o.value === eid)) {
+              const o = document.createElement('option');
+              o.value = eid;
+              o.textContent = ELEVE_NAME_CACHE[eid] || eid.slice(0, 8);
+              infEl.appendChild(o);
+            }
+            infEl.value = eid;
+          }
+          if (fsEl) {
+            if (![...fsEl.options].some(o => o.value === eid)) {
+              const o = document.createElement('option');
+              o.value = eid;
+              o.textContent = ELEVE_NAME_CACHE[eid] || eid.slice(0, 8);
+              fsEl.appendChild(o);
+            }
+            fsEl.value = eid;
+          }
+          if (paiEl) {
+            if (![...paiEl.options].some(o => o.value === eid)) {
+              const o = document.createElement('option');
+              o.value = eid;
+              o.textContent = ELEVE_NAME_CACHE[eid] || eid.slice(0, 8);
+              paiEl.appendChild(o);
+            }
+            paiEl.value = eid;
+          }
+          await loadJour();
+          await loadFiche();
+          if (typeof loadPai === 'function') await loadPai();
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function loadFiche() {
+    fsMsg.textContent = 'Chargement…';
+    const eid = document.getElementById('fsEleve').value.trim();
+    if (!eid) { fsMsg.innerHTML = '<span class="bad">élève requis</span>'; return; }
+    try {
+      const f = await api('/eleves/' + eid + '/fiche-sante');
+      if (!f) {
+        document.getElementById('fsAllergies').value = '';
+        document.getElementById('fsTraitements').value = '';
+        document.getElementById('fsContre').value = '';
+        document.getElementById('fsPai').checked = false;
+        document.getElementById('fsMedecin').value = '';
+        document.getElementById('fsUrgence').value = '';
+        document.getElementById('fsNote').value = '';
+        fsMsg.innerHTML = '<span class="muted">Aucune fiche — saisir puis enregistrer.</span>';
+        return;
+      }
+      document.getElementById('fsAllergies').value = f.allergies || '';
+      document.getElementById('fsTraitements').value = f.traitements || '';
+      document.getElementById('fsContre').value = f.contre_indications || '';
+      document.getElementById('fsPai').checked = !!f.pai_actif;
+      document.getElementById('fsMedecin').value = f.medecin_nom || '';
+      document.getElementById('fsUrgence').value = f.urgence_tel || '';
+      document.getElementById('fsNote').value = f.note_confidentielle || '';
+      fsMsg.innerHTML = `<span class="ok">Fiche chargée${f.pai_actif ? ' · PAI' : ''}</span>`;
+    } catch (e) {
+      fsMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+
+  document.getElementById('btnInfSave').onclick = async () => {
+    msg.textContent = '';
+    try {
+      const d = await api('/infirmerie/passages', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: document.getElementById('infEleve').value.trim(),
+          jour: document.getElementById('infJour').value || today(),
+          motif: document.getElementById('infMotif').value,
+          note_soins: document.getElementById('infNote').value,
+          visible_famille: document.getElementById('infVisFam').checked,
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Passage ${esc(d.motif_libelle)} enregistré</span>`;
+      document.getElementById('infNote').value = '';
+      await loadJour();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnInfLoad').onclick = loadJour;
+  async function loadPaiPieces(eid) {
+    const box = document.getElementById('paiPieces');
+    try {
+      const list = await api('/eleves/' + eid + '/pai/pieces');
+      if (!list.length) { box.innerHTML = '<p class="empty">Aucune ordonnance jointe.</p>'; return; }
+      box.innerHTML = `<table><thead><tr><th>Fichier</th><th>Type</th><th>Taille</th><th>Ajouté</th><th></th></tr></thead>
+        <tbody>${list.map(x => `<tr>
+          <td>${esc(x.nom)}</td><td>${esc(x.mime_type)}</td><td>${x.taille_octets} o</td>
+          <td class="muted">${esc(String(x.created_at || '').slice(0, 10) || '—')}</td>
+          <td><button type="button" data-pid="${x.id}" data-nom="${esc(x.nom)}">Télécharger</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      box.querySelectorAll('button[data-pid]').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await downloadFile('/pai/pieces/' + btn.dataset.pid, btn.dataset.nom || 'ordonnance.pdf');
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+    }
+  }
+
+  async function loadPai() {
+    const eid = document.getElementById('paiEleve').value.trim();
+    if (!eid) { paiOut.innerHTML = '<p class="empty">Élève requis.</p>'; return; }
+    paiOut.textContent = 'Chargement…';
+    try {
+      const p = await api('/eleves/' + eid + '/pai');
+      if (!p) {
+        paiOut.innerHTML = '<p class="empty">Aucun PAI — saisir puis enregistrer.</p>';
+        document.getElementById('paiPieces').innerHTML = '';
+        return;
+      }
+      document.getElementById('paiMotif').value = p.motif || '';
+      document.getElementById('paiMesures').value = p.mesures_accueil || '';
+      document.getElementById('paiProto').value = p.protocole_urgence || '';
+      document.getElementById('paiNote').value = p.note_interne || '';
+      document.getElementById('paiDebut').value = p.date_debut || today();
+      document.getElementById('paiFin').value = p.date_fin || '';
+      document.getElementById('paiActif').checked = !!p.actif;
+      paiOut.innerHTML = `<p>${p.actif ? 'Actif' : 'Inactif'}
+        · famille ${p.signe_famille ? ('a signé' + (p.signe_famille_at ? ' le ' + esc(String(p.signe_famille_at).slice(0, 10)) : '')) : 'en attente de signature'}
+        · maj ${esc(String(p.updated_at || '').slice(0, 16).replace('T', ' ') || '—')}</p>`;
+      await loadPaiPieces(eid);
+    } catch (e) {
+      paiOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnPaiLoad').onclick = loadPai;
+  document.getElementById('paiEleve').onchange = loadPai;
+  document.getElementById('btnPaiPiece').onclick = async () => {
+    paiMsg.textContent = '';
+    const eid = document.getElementById('paiEleve').value.trim();
+    const file = document.getElementById('paiFile').files[0];
+    if (!file) { paiMsg.innerHTML = '<span class="bad">fichier requis</span>'; return; }
+    try {
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      const b64 = btoa(bin);
+      const d = await api('/eleves/' + eid + '/pai/pieces', {
+        method: 'POST',
+        body: JSON.stringify({
+          nom: file.name,
+          mime_type: file.type || 'application/pdf',
+          contenu_base64: b64,
+        }),
+      });
+      paiMsg.innerHTML = `<span class="ok">Ordonnance ${esc(d.nom)} jointe (${d.taille_octets} o)</span>`;
+      document.getElementById('paiFile').value = '';
+      await loadPaiPieces(eid);
+    } catch (e) {
+      paiMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnPaiSave').onclick = async () => {
+    paiMsg.textContent = '';
+    const eid = document.getElementById('paiEleve').value.trim();
+    try {
+      const fin = document.getElementById('paiFin').value;
+      const d = await api('/eleves/' + eid + '/pai', {
+        method: 'PUT',
+        body: JSON.stringify({
+          motif: document.getElementById('paiMotif').value,
+          mesures_accueil: document.getElementById('paiMesures').value,
+          protocole_urgence: document.getElementById('paiProto').value,
+          note_interne: document.getElementById('paiNote').value,
+          date_debut: document.getElementById('paiDebut').value || today(),
+          date_fin: fin || null,
+          actif: document.getElementById('paiActif').checked,
+        }),
+      });
+      paiMsg.innerHTML = `<span class="ok">PAI ${esc(d.motif)} enregistré (signature famille réinitialisée)</span>`;
+      await loadPai();
+    } catch (e) {
+      paiMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  document.getElementById('btnFsLoad').onclick = loadFiche;
+  document.getElementById('fsEleve').onchange = loadFiche;
+  document.getElementById('btnFsPdf').onclick = async () => {
+    fsMsg.textContent = '';
+    const eid = document.getElementById('fsEleve').value.trim();
+    try {
+      await downloadPdf('/eleves/' + eid + '/fiche-sante.pdf', 'fiche-sante.pdf');
+      fsMsg.innerHTML = '<span class="ok">PDF résumé téléchargé</span>';
+    } catch (e) {
+      fsMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnFsSave').onclick = async () => {
+    fsMsg.textContent = '';
+    const eid = document.getElementById('fsEleve').value.trim();
+    try {
+      const d = await api('/eleves/' + eid + '/fiche-sante', {
+        method: 'PUT',
+        body: JSON.stringify({
+          allergies: document.getElementById('fsAllergies').value,
+          traitements: document.getElementById('fsTraitements').value,
+          contre_indications: document.getElementById('fsContre').value,
+          pai_actif: document.getElementById('fsPai').checked,
+          medecin_nom: document.getElementById('fsMedecin').value || null,
+          urgence_tel: document.getElementById('fsUrgence').value || null,
+          note_confidentielle: document.getElementById('fsNote').value,
+        }),
+      });
+      fsMsg.innerHTML = `<span class="ok">Fiche santé enregistrée${d.pai_actif ? ' · PAI actif' : ''}</span>`;
+    } catch (e) {
+      fsMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('infJour').onchange = loadJour;
+  const infEleveEl = document.getElementById('infEleve');
+  if (infEleveEl) infEleveEl.onchange = loadJour;
+  await loadJour();
+  await loadFiche();
+  await loadPai();
+}
+
+/* ---------- Psychologie scolaire ---------- */
+function viewPsy() {
+  return shell('/app/psy', `
+    <div class="bento" id="psyStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-12">
+        <h2>Dossier psy structuré</h2>
+        <p class="muted">Une fiche par élève. Si signalé famille : axes + suivi visibles — jamais note ni contacts externes.</p>
+        <div class="row">
+          ${elevePickerRow('dosEleve', 'dosEleveQ', 'btnDosEleveSearch')}
+          <label><input type="checkbox" id="dosSuivi" checked/> Suivi actif</label>
+          <label><input type="checkbox" id="dosSigFam" checked/> Signalé famille</label>
+          <button type="button" class="primary" id="btnDosSave">Enregistrer</button>
+          <button type="button" id="btnDosLoad">Charger</button>
+          <button type="button" id="btnDosPdf">Courrier PDF</button>
+          <button type="button" id="btnDosMail">Envoyer courrier (SMTP)</button>
+        </div>
+        <div class="row">
+          <label style="flex:1">Axes de suivi <input id="dosAxes" style="width:100%" placeholder="anxiété scolaire · orientation…"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Contacts externes <input id="dosContacts" style="width:100%" placeholder="CMP, partenaire…"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Note confidentielle <input id="dosNote" style="width:100%" placeholder="staff only"/></label>
+        </div>
+        <div id="dosMsg" class="muted"></div>
+        <div id="dosOut" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+      <div class="panel bento-span-6">
+        <h2>Entretiens</h2>
+        <p class="muted">Note confidentielle — famille voit type + jour si signalé.</p>
+        <div class="row">
+          <label>Élève <select id="psyEleve" style="min-width:10rem"></select></label>
+          <label>Jour <input id="psyJour" type="date" value="${today()}"/></label>
+        </div>
+        <div class="row">
+          <label>Type <select id="psyKind">
+            <option value="individuel">Individuel</option>
+            <option value="famille">Famille</option>
+            <option value="orientation">Orientation</option>
+            <option value="crise">Crise</option>
+          </select></label>
+          <label>Durée <input id="psyDuree" type="number" value="45" min="5" max="240" style="width:4rem"/></label>
+          <label><input type="checkbox" id="psySigFam" checked/> Signalé famille</label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Note <textarea id="psyNote" rows="2" style="width:100%" placeholder="Compte-rendu…"></textarea></label>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnPsySave">Enregistrer</button>
+          <button type="button" id="btnPsyLoad">Du jour</button>
+        </div>
+        <div id="psyMsg" class="muted"></div>
+        <div id="psyOut" class="muted" style="margin-top:.5rem">…</div>
+      </div>
+      <div class="panel bento-span-6">
+        <h2>Planning RDV</h2>
+        <p class="muted">Créneaux — honoré / annulé en un clic.</p>
+        <div class="row">
+          <label>Élève <select id="rdvEleve" style="min-width:10rem"></select></label>
+          <label>Jour <input id="rdvJour" type="date" value="${today()}"/></label>
+        </div>
+        <div class="row">
+          <label>Début <input id="rdvDebut" type="time" value="14:00"/></label>
+          <label>Fin <input id="rdvFin" type="time" value="14:45"/></label>
+          <label>Type <select id="rdvKind">
+            <option value="individuel">Individuel</option>
+            <option value="famille">Famille</option>
+            <option value="orientation">Orientation</option>
+            <option value="crise">Crise</option>
+          </select></label>
+          <label><input type="checkbox" id="rdvSigFam" checked/> Signalé famille</label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Motif <input id="rdvMotif" style="width:100%" placeholder="Point orientation…"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Note interne <input id="rdvNote" style="width:100%" placeholder="staff only"/></label>
+          <button type="button" class="primary" id="btnRdvSave">Planifier</button>
+          <button type="button" id="btnRdvLoad">Du jour</button>
+        </div>
+        <div id="rdvMsg" class="muted"></div>
+        <div id="rdvOut" class="muted" style="margin-top:.5rem">…</div>
+      </div>
+    </div>`);
+}
+
+async function bindPsy() {
+  const msg = document.getElementById('psyMsg');
+  const out = document.getElementById('psyOut');
+  const rdvMsg = document.getElementById('rdvMsg');
+  const rdvOut = document.getElementById('rdvOut');
+  const dosMsg = document.getElementById('dosMsg');
+  const dosOut = document.getElementById('dosOut');
+  await bindElevePickers(['dosEleve', 'psyEleve', 'rdvEleve'], 'dosEleveQ', 'btnDosEleveSearch');
+
+  async function loadDossier() {
+    const eid = document.getElementById('dosEleve').value.trim();
+    if (!eid) { dosOut.innerHTML = '<p class="empty">Élève requis.</p>'; return; }
+    dosOut.textContent = 'Chargement…';
+    try {
+      const d = await api('/eleves/' + eid + '/dossier-psy');
+      if (!d) { dosOut.innerHTML = '<p class="empty">Aucun dossier.</p>'; return; }
+      document.getElementById('dosAxes').value = d.axes_suivi || '';
+      document.getElementById('dosContacts').value = d.contacts_externes || '';
+      document.getElementById('dosNote').value = d.note_confidentielle || '';
+      document.getElementById('dosSuivi').checked = !!d.suivi_actif;
+      document.getElementById('dosSigFam').checked = !!d.signale_famille;
+      dosOut.innerHTML = `<p>Suivi ${d.suivi_actif ? 'actif' : 'inactif'} · famille ${d.signale_famille ? 'signalée' : 'non'} · maj ${esc(d.updated_at)}</p>
+        <p><strong>Axes</strong> ${esc(d.axes_suivi || '—')}</p>
+        <p class="muted"><strong>Contacts</strong> ${esc(d.contacts_externes || '—')}</p>
+        <p class="muted"><strong>Note</strong> ${esc(d.note_confidentielle || '—')}</p>`;
+    } catch (e) {
+      dosOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnDosSave').onclick = async () => {
+    dosMsg.textContent = '';
+    const eid = document.getElementById('dosEleve').value.trim();
+    try {
+      const d = await api('/eleves/' + eid + '/dossier-psy', {
+        method: 'PUT',
+        body: JSON.stringify({
+          axes_suivi: document.getElementById('dosAxes').value,
+          contacts_externes: document.getElementById('dosContacts').value,
+          note_confidentielle: document.getElementById('dosNote').value,
+          suivi_actif: document.getElementById('dosSuivi').checked,
+          signale_famille: document.getElementById('dosSigFam').checked,
+        }),
+      });
+      dosMsg.innerHTML = `<span class="ok">Dossier enregistré (${esc(d.id.slice(0,8))})</span>`;
+      await loadDossier();
+    } catch (e) {
+      dosMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnDosLoad').onclick = loadDossier;
+  document.getElementById('dosEleve').onchange = loadDossier;
+  document.getElementById('btnDosPdf').onclick = async () => {
+    dosMsg.textContent = '';
+    const eid = document.getElementById('dosEleve').value.trim();
+    try {
+      await downloadPdf('/eleves/' + eid + '/dossier-psy/courrier.pdf', 'courrier-orientation.pdf');
+      dosMsg.innerHTML = '<span class="ok">PDF courrier téléchargé</span>';
+    } catch (e) {
+      dosMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnDosMail').onclick = async () => {
+    dosMsg.textContent = '';
+    const eid = document.getElementById('dosEleve').value.trim();
+    try {
+      const r = await api('/eleves/' + eid + '/dossier-psy/courrier/envoyer', { method: 'POST', body: '{}' });
+      dosMsg.innerHTML = `<span class="ok">Courrier SMTP — ${r.mails || 0} destinataire(s)</span>`;
+    } catch (e) {
+      dosMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function refreshPsyStats(entretiens, rdvs) {
+    const stats = document.getElementById('psyStats');
+    if (!stats) return;
+    const plan = (rdvs || []).filter(r => r.statut === 'planifie').length;
+    stats.innerHTML = `
+      <div class="stat-tile bento-span-4"><strong>${(entretiens || []).length}</strong><span>Entretiens du jour</span></div>
+      <div class="stat-tile bento-span-4"><strong>${(rdvs || []).length}</strong><span>RDV du jour</span></div>
+      <div class="stat-tile bento-span-4"><strong>${plan}</strong><span>RDV encore planifiés</span></div>`;
+  }
+
+  async function loadJour() {
+    const jour = document.getElementById('psyJour').value || today();
+    const eid = (document.getElementById('psyEleve') && document.getElementById('psyEleve').value.trim()) || '';
+    out.textContent = 'Chargement…';
+    try {
+      let url = '/psy/entretiens?jour=' + encodeURIComponent(jour);
+      if (eid) url += '&eleve_id=' + encodeURIComponent(eid);
+      const list = await api(url);
+      let rdvs = [];
+      try {
+        let rurl = '/psy/rdvs?jour=' + encodeURIComponent(jour);
+        if (eid) rurl += '&eleve_id=' + encodeURIComponent(eid);
+        rdvs = await api(rurl);
+      } catch {}
+      await refreshPsyStats(list, rdvs);
+      if (!list.length) { out.innerHTML = '<p class="empty">Aucun entretien.</p>'; return; }
+      await hydrateEleveNames(list.map(e => e.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>Élève</th><th>Type</th><th>Durée</th><th>Note</th><th>Fam.</th></tr></thead>
+        <tbody>${list.map(e => `<tr>
+          <td>${eleveCell(e)}</td>
+          <td><span class="pill">${esc(e.kind_libelle)}</span></td>
+          <td>${e.duree_minutes} min</td>
+          <td>${esc(e.note_confidentielle)}</td>
+          <td>${e.signale_famille ? 'oui' : 'non'}</td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function loadRdvs() {
+    const jour = document.getElementById('rdvJour').value || today();
+    const eid = (document.getElementById('rdvEleve') && document.getElementById('rdvEleve').value.trim()) || '';
+    rdvOut.textContent = 'Chargement…';
+    try {
+      let url = '/psy/rdvs?jour=' + encodeURIComponent(jour);
+      if (eid) url += '&eleve_id=' + encodeURIComponent(eid);
+      const list = await api(url);
+      let ents = [];
+      try {
+        let eurl = '/psy/entretiens?jour=' + encodeURIComponent(jour);
+        if (eid) eurl += '&eleve_id=' + encodeURIComponent(eid);
+        ents = await api(eurl);
+      } catch {}
+      await refreshPsyStats(ents, list);
+      if (!list.length) { rdvOut.innerHTML = '<p class="empty">Aucun RDV.</p>'; return; }
+      await hydrateEleveNames(list.map(r => r.eleve_id));
+      rdvOut.innerHTML = `<table><thead><tr><th>Horaire</th><th>Élève</th><th>Type</th><th>Motif</th><th>Note</th><th>Famille</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${list.map(r => `<tr>
+          <td>${esc(r.heure_debut)}–${esc(r.heure_fin)}</td>
+          <td>${eleveCell(r)}</td>
+          <td><span class="pill">${esc(r.kind_libelle || r.kind)}</span></td>
+          <td>${esc(r.motif || '—')}</td>
+          <td class="muted">${esc(r.note_interne || '—')}</td>
+          <td>${r.signale_famille ? 'oui' : 'non'}</td>
+          <td><span class="pill">${esc(r.statut)}</span></td>
+          <td>${r.statut === 'planifie'
+            ? `<button type="button" data-honore="${r.id}">Honoré</button>
+               <button type="button" data-annule="${r.id}">Annuler</button>`
+            : ''}</td>
+        </tr>`).join('')}</tbody></table>`;
+      rdvOut.querySelectorAll('button[data-honore]').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/psy/rdvs/' + btn.dataset.honore + '/statut', {
+              method: 'POST', body: JSON.stringify({ statut: 'honore' }),
+            });
+            await loadRdvs();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      rdvOut.querySelectorAll('button[data-annule]').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/psy/rdvs/' + btn.dataset.annule + '/statut', {
+              method: 'POST', body: JSON.stringify({ statut: 'annule' }),
+            });
+            await loadRdvs();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      rdvOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnPsySave').onclick = async () => {
+    msg.textContent = '';
+    try {
+      const d = await api('/psy/entretiens', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: document.getElementById('psyEleve').value.trim(),
+          jour: document.getElementById('psyJour').value || today(),
+          kind: document.getElementById('psyKind').value,
+          duree_minutes: Number(document.getElementById('psyDuree').value) || 45,
+          note_confidentielle: document.getElementById('psyNote').value,
+          signale_famille: document.getElementById('psySigFam').checked,
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Entretien ${esc(d.kind_libelle)} enregistré</span>`;
+      document.getElementById('psyNote').value = '';
+      await loadJour();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnPsyLoad').onclick = loadJour;
+  document.getElementById('btnRdvSave').onclick = async () => {
+    rdvMsg.textContent = '';
+    try {
+      const d = await api('/psy/rdvs', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: document.getElementById('rdvEleve').value.trim(),
+          jour: document.getElementById('rdvJour').value || today(),
+          heure_debut: document.getElementById('rdvDebut').value,
+          heure_fin: document.getElementById('rdvFin').value,
+          kind: document.getElementById('rdvKind').value,
+          motif: document.getElementById('rdvMotif').value,
+          note_interne: document.getElementById('rdvNote').value,
+          signale_famille: document.getElementById('rdvSigFam').checked,
+        }),
+      });
+      rdvMsg.innerHTML = `<span class="ok">RDV ${esc(d.kind_libelle)} ${esc(d.heure_debut)}–${esc(d.heure_fin)}</span>`;
+      document.getElementById('rdvMotif').value = '';
+      document.getElementById('rdvNote').value = '';
+      await loadRdvs();
+    } catch (e) {
+      rdvMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnRdvLoad').onclick = loadRdvs;
+  document.getElementById('psyJour').onchange = loadJour;
+  document.getElementById('rdvJour').onchange = loadRdvs;
+  const psyEleveEl = document.getElementById('psyEleve');
+  const rdvEleveEl = document.getElementById('rdvEleve');
+  if (psyEleveEl) psyEleveEl.onchange = loadJour;
+  if (rdvEleveEl) rdvEleveEl.onchange = loadRdvs;
+  await loadDossier();
+  await loadJour();
+  await loadRdvs();
+}
+
+/* ---------- Absences ---------- */
+function viewRhAbsences() {
+  return shell('/app/rh', `
+    <div class="bento" id="rhStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h2>Déclarer</h2>
+        <p class="muted">Absence personnel — validation direction / admin.</p>
+        <div class="row">
+          <button type="button" class="primary" id="btnRhMe">Déclarer mon absence</button>
+        </div>
+        <div class="row">
+          ${staffPickerRow('rhUser', 'rhUserQ', 'btnRhUserSearch', 'Agent')}
+        </div>
+        <div class="row">
+          <label>Début <input id="rhDebut" type="date" value="${today()}"/></label>
+          <label>Fin <input id="rhFin" type="date" value="${today()}"/></label>
+          <label style="flex:1">Motif <input id="rhMotif" value="maladie" style="width:100%"/></label>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnRhDecl">Déclarer</button>
+        </div>
+        <div id="rhMsg" class="muted"></div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>File période</h2>
+        <div class="row">
+          <label>Début <input id="rhListDeb" type="date" value="${today()}"/></label>
+          <label>Fin <input id="rhListFin" type="date"/></label>
+          <label>Statut <select id="rhFlt">
+            <option value="">tous</option>
+            <option value="signalee" selected>à valider</option>
+            <option value="validee">validées</option>
+          </select></label>
+          <button type="button" class="primary" id="btnRhList">Actualiser</button>
+        </div>
+        <div id="rhOut" class="muted" style="margin-top:.5rem">…</div>
+      </div>
+    </div>`);
+}
+
+async function bindRhAbsences() {
+  const msg = document.getElementById('rhMsg');
+  const out = document.getElementById('rhOut');
+  const stats = document.getElementById('rhStats');
+  const staffLabel = {};
+  const staffList = await bindStaffPickers('rhUser', 'rhUserQ', 'btnRhUserSearch', '— moi-même');
+  (staffList || []).forEach(p => { staffLabel[p.user_id] = (p.label || p.email) + ' (' + p.role + ')'; });
+  async function load() {
+    const debut = document.getElementById('rhListDeb').value || today();
+    let fin = document.getElementById('rhListFin').value;
+    if (!fin) {
+      const d = new Date(debut);
+      d.setDate(d.getDate() + 30);
+      fin = d.toISOString().slice(0, 10);
+      document.getElementById('rhListFin').value = fin;
+    }
+    try {
+      const list = await api('/rh/absences?debut=' + debut + '&fin=' + fin);
+      const nSig = list.filter(a => a.statut === 'signalee').length;
+      const nVal = list.filter(a => a.statut === 'validee').length;
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Sur la période</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nSig}</strong><span>À valider</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nVal}</strong><span>Validées</span></div>`;
+      }
+      const flt = (document.getElementById('rhFlt') || {}).value || '';
+      const shown = flt ? list.filter(a => a.statut === flt) : list;
+      out.innerHTML = !shown.length
+        ? '<p class="empty">Aucune absence RH' + (flt ? ' pour ce filtre' : '') + '.</p>'
+        : `<table><thead><tr><th>Agent</th><th>Période</th><th>Motif</th><th>Statut</th><th></th></tr></thead><tbody>${
+            shown.map(a => `<tr>
+              <td>${esc(a.user_label || staffLabel[a.user_id] || a.user_id.slice(0, 8))}</td>
+              <td>${esc(a.debut)} → ${esc(a.fin)}</td>
+              <td>${esc(a.motif)}</td>
+              <td><span class="pill">${esc(a.statut)}</span></td>
+              <td>${a.statut === 'signalee'
+                ? `<button type="button" class="btnRhVal" data-id="${a.id}">Valider</button>`
+                : ''}</td>
+            </tr>`).join('')
+          }</tbody></table>`;
+      out.querySelectorAll('.btnRhVal').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/rh/absences/' + btn.dataset.id + '/valider', { method: 'POST', body: '{}' });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  async function declareRh(forceMe) {
+    msg.textContent = '';
+    try {
+      const body = {
+        debut: document.getElementById('rhDebut').value,
+        fin: document.getElementById('rhFin').value,
+        motif: document.getElementById('rhMotif').value,
+      };
+      if (forceMe && me && me.user_id) {
+        body.user_id = me.user_id;
+      } else {
+        const uid = document.getElementById('rhUser').value.trim();
+        if (uid) body.user_id = uid;
+      }
+      const d = await api('/rh/absences', { method: 'POST', body: JSON.stringify(body) });
+      msg.innerHTML = `<span class="ok">Déclarée · ${esc(d.statut)}${forceMe ? ' (moi)' : ''}</span>`;
+      await load();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  document.getElementById('btnRhDecl').onclick = () => declareRh(false);
+  const btnRhMe = document.getElementById('btnRhMe');
+  if (btnRhMe) {
+    btnRhMe.onclick = () => {
+      if (me && me.user_id) {
+        const sel = document.getElementById('rhUser');
+        if (sel) {
+          // préremplit le picker si l’option existe
+          sel.value = me.user_id;
+        }
+      }
+      declareRh(true);
+    };
+  }
+  document.getElementById('btnRhList').onclick = load;
+  const rhFlt = document.getElementById('rhFlt');
+  if (rhFlt) rhFlt.onchange = load;
+  document.getElementById('rhListDeb').onchange = load;
+  document.getElementById('rhListFin').onchange = load;
+  await load();
+}
+
+/* ---------- Vie scolaire — file du jour ---------- */
+function viewVsJour() {
+  return shell('/app/vs', `
+    <div class="dossier">
+      <header class="dossier-bandeau" style="grid-template-columns:1fr auto">
+        <div>
+          <h1 class="dossier-titre">Vie scolaire — aujourd’hui</h1>
+          <p class="dossier-meta">Une seule file pour ce qu’il faut traiter · le détail reste dans chaque module</p>
+          <div class="dossier-raccourcis">
+            <a href="/app/appel">Faire l’appel</a>
+            <a href="/app/absences">Absences &amp; commissions</a>
+            <a href="/app/sorties">Sorties</a>
+            <a href="/app/dispenses">Dispenses</a>
+            <a href="/app/alertes">Alertes CPE</a>
+          </div>
+        </div>
+        <div class="dossier-search">
+          <span class="label-fr">Jour</span>
+          <input id="vsJourDate" type="date" value="${today()}"/>
+          <label>Note file <input id="vsJourNote" style="width:14rem" placeholder="note CPE…"/></label>
+          <button type="button" class="primary" id="btnVsJourLoad">Actualiser</button>
+        </div>
+      </header>
+      <div id="vsJourStats" class="bento" style="margin-bottom:1rem"></div>
+      <div class="bento">
+        <section class="panel bento-span-8">
+          <h3>Absences à traiter</h3>
+          <p class="dossier-help">Justifs parents · accepter / refuser · corriger un pointage.</p>
+          <div id="vsJourAbs" class="muted">…</div>
+        </section>
+        <section class="panel bento-span-4">
+          <h3>Signaux seuil</h3>
+          <p class="dossier-help">Compteur d’absences → prise en charge CPE / clôture / commission.</p>
+          <div id="vsJourSig" class="muted">…</div>
+        </section>
+        <section class="panel bento-span-6">
+          <h3>Demandes de sortie</h3>
+          <p class="dossier-help">En attente d’acceptation ou de refus.</p>
+          <div id="vsJourDem" class="muted">…</div>
+        </section>
+        <section class="panel bento-span-6">
+          <h3>Dispenses du jour</h3>
+          <div id="vsJourDisp" class="muted">…</div>
+        </section>
+        <section class="panel bento-span-12">
+          <h3>Alertes CPE ouvertes</h3>
+          <div id="vsJourAl" class="muted">…</div>
+        </section>
+        <section class="panel bento-span-6">
+          <h3>Accès documents en attente</h3>
+          <div id="vsJourGrants" class="muted">…</div>
+        </section>
+        <section class="panel bento-span-6">
+          <h3>Inscriptions — pièces</h3>
+          <div id="vsJourIns" class="muted">…</div>
+        </section>
+        <section class="panel bento-span-6">
+          <h3>RH absences à valider</h3>
+          <p class="dossier-help">Signalements agents du jour · <a href="/app/rh">module RH</a></p>
+          <div id="vsJourRh" class="muted">…</div>
+        </section>
+        <section class="panel bento-span-6">
+          <h3>Docs à signer</h3>
+          <p class="dossier-help">File famille · <a href="/app/docs-signer">publier</a></p>
+          <div id="vsJourDocs" class="muted">…</div>
+        </section>
+      </div>
+    </div>`);
+}
+
+async function bindVsJour() {
+  const stats = document.getElementById('vsJourStats');
+  const absBox = document.getElementById('vsJourAbs');
+  const sigBox = document.getElementById('vsJourSig');
+  const demBox = document.getElementById('vsJourDem');
+  const dispBox = document.getElementById('vsJourDisp');
+  const alBox = document.getElementById('vsJourAl');
+  const grantsBox = document.getElementById('vsJourGrants');
+  const insBox = document.getElementById('vsJourIns');
+  const rhBox = document.getElementById('vsJourRh');
+  const docsBox = document.getElementById('vsJourDocs');
+  const INSC_ETAPES = ['dossier', 'pieces', 'entretien', 'decision', 'paiement', 'finalise'];
+  function nextInsEtape(cur) {
+    const i = INSC_ETAPES.indexOf(cur);
+    return i >= 0 && i < INSC_ETAPES.length - 1 ? INSC_ETAPES[i + 1] : null;
+  }
+  function noteVs(fallback) {
+    const v = (document.getElementById('vsJourNote') && document.getElementById('vsJourNote').value.trim()) || '';
+    return v || fallback || 'file du jour';
+  }
+  let motifJustifOpts = '<option value="maladie" selected>Maladie</option>';
+  try {
+    const motifs = await api('/motifs-absence');
+    motifJustifOpts = motifs.map(m =>
+      `<option value="${esc(m.code)}"${m.code === 'maladie' ? ' selected' : ''}>${esc(m.libelle)}</option>`
+    ).join('') || motifJustifOpts;
+  } catch { /* fallback maladie */ }
+
+  function pillStat(label, n, href, warn) {
+    const cls = n > 0 ? (warn ? 'warn' : 'ok') : 'muted';
+    return `<a class="stat-tile bento-span-3" href="${href}">
+      <strong class="${cls}">${n}</strong>
+      <span>${esc(label)}</span></a>`;
+  }
+
+  async function load() {
+    const jour = document.getElementById('vsJourDate').value || today();
+    absBox.textContent = 'Chargement…';
+    sigBox.textContent = '…';
+    demBox.textContent = '…';
+    dispBox.textContent = '…';
+    alBox.textContent = '…';
+    if (grantsBox) grantsBox.textContent = '…';
+    if (insBox) insBox.textContent = '…';
+    if (rhBox) rhBox.textContent = '…';
+    if (docsBox) docsBox.textContent = '…';
+
+    const [absRes, sigRes, demRes, dispRes, alRes, rhRes, docsRes, msgRes, grantsRes, insRes] = await Promise.allSettled([
+      api('/vs/absences?jour=' + encodeURIComponent(jour)),
+      api('/vs/signaux'),
+      api('/vs/sorties/demandes'),
+      api('/vs/dispenses?jour=' + encodeURIComponent(jour)),
+      api('/vs/alertes-cpe'),
+      api('/rh/absences?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour)),
+      api('/vs/docs-a-signer'),
+      api('/messages/fils'),
+      api('/documents/grants/pending'),
+      api('/inscriptions/par-etape?etape=pieces'),
+    ]);
+
+    const abs = absRes.status === 'fulfilled' ? (absRes.value || []) : [];
+    const sig = sigRes.status === 'fulfilled' ? (sigRes.value || []) : [];
+    const dem = demRes.status === 'fulfilled' ? (demRes.value || []) : [];
+    const disp = dispRes.status === 'fulfilled'
+      ? (dispRes.value || []).filter(d => d.statut === 'active' || !d.statut)
+      : [];
+    const al = alRes.status === 'fulfilled' ? (alRes.value || []) : [];
+    const rh = (rhRes.status === 'fulfilled' ? (rhRes.value || []) : [])
+      .filter(a => a.statut === 'signalee');
+    const docs = (docsRes.status === 'fulfilled' ? (docsRes.value || []) : [])
+      .filter(d => d.statut === 'a_signer' || d.statut === 'en_attente' || !d.statut);
+    const msgs = msgRes.status === 'fulfilled' ? (msgRes.value || []) : [];
+    const grants = grantsRes.status === 'fulfilled' ? (grantsRes.value || []) : [];
+    const insPieces = insRes.status === 'fulfilled' ? (insRes.value || []) : [];
+    const msgNonLus = msgs.reduce((n, f) => n + (f.nb_non_lus || 0), 0);
+
+    const absTodo = abs.filter(a => a.statut === 'a_traiter' || a.statut === 'signalee');
+    const sigTodo = sig.filter(s => s.statut === 'ouvert' || s.statut === 'en_cours');
+
+    stats.innerHTML = [
+      pillStat('absences', absTodo.length, '/app/absences', true),
+      pillStat('signaux', sigTodo.length, '/app/absences', true),
+      pillStat('sorties', dem.length, '/app/sorties', true),
+      pillStat('dispenses', disp.length, '/app/dispenses', false),
+      pillStat('alertes', al.length, '/app/alertes', true),
+      pillStat('RH à valider', rh.length, '/app/rh', true),
+      pillStat('docs à signer', docs.length, '/app/docs-signer', true),
+      pillStat('msgs non lus', msgNonLus, '/app/messages', true),
+      pillStat('grants docs', grants.length, '/app/etab', true),
+      pillStat('insc. pièces', insPieces.length, '/app/inscriptions', true),
+    ].join('');
+
+    // Absences
+    if (absRes.status === 'rejected') {
+      absBox.innerHTML = `<div class="errbox">${esc(absRes.reason.message || String(absRes.reason))}</div>`;
+    } else if (!absTodo.length) {
+      absBox.innerHTML = '<p class="empty">Rien à traiter · <a href="/app/appel">faire l’appel</a> si besoin.</p>';
+    } else {
+      await hydrateEleveNames(absTodo.map(a => a.eleve_id));
+      absBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Période</th><th>Statut</th><th>Justif</th><th></th></tr></thead>
+        <tbody>${absTodo.slice(0, 40).map(a => {
+          const hasJustif = !!(a.motif_justif && String(a.motif_justif).trim());
+          let actions = `<button type="button" class="btnVsAbsPresent" data-id="${esc(a.id)}">→ présent</button>`;
+          if (hasJustif) {
+            actions = `<button type="button" class="primary btnVsAbsOk" data-id="${esc(a.id)}">Accepter justif</button>
+              <button type="button" class="btnVsAbsNo" data-id="${esc(a.id)}">Refuser</button>
+              ${actions}`;
+          } else {
+            actions = `<select class="vsJustifMotif" data-for="${esc(a.id)}" style="width:8rem">${motifJustifOpts}</select>
+              <button type="button" class="btnVsAbsJustif" data-id="${esc(a.id)}">Saisir justif</button>
+              ${actions}`;
+          }
+          return `<tr>
+            <td>${eleveCell(a)}</td>
+            <td>${esc(a.debut)} → ${esc(a.fin)}</td>
+            <td><span class="pill">${esc(a.statut)}</span></td>
+            <td>${esc(a.motif_justif || '—')}</td>
+            <td>${actions}</td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+      absBox.querySelectorAll('.btnVsAbsJustif').forEach(btn => {
+        btn.onclick = async () => {
+          const sel = absBox.querySelector('.vsJustifMotif[data-for="' + btn.dataset.id + '"]');
+          const motif = (sel && sel.value.trim()) || 'maladie';
+          try {
+            await api('/absences/' + btn.dataset.id + '/justifier', {
+              method: 'POST',
+              body: JSON.stringify({ motif_justif: motif }),
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      absBox.querySelectorAll('.btnVsAbsOk').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/absences/' + btn.dataset.id + '/accepter-justificatif', {
+              method: 'POST',
+              body: JSON.stringify({ note: noteVs('ok (file du jour)') }),
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      absBox.querySelectorAll('.btnVsAbsNo').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/absences/' + btn.dataset.id + '/refuser-justificatif', {
+              method: 'POST',
+              body: JSON.stringify({ note: noteVs('refus (file du jour)') }),
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      absBox.querySelectorAll('.btnVsAbsPresent').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Corriger : marquer présent (erreur de pointage) ?')) return;
+          try {
+            await api('/absences/' + btn.dataset.id + '/annuler-present', {
+              method: 'POST',
+              body: JSON.stringify({ note: noteVs('présent (file du jour)') }),
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    }
+
+    // Signaux
+    if (sigRes.status === 'rejected') {
+      sigBox.innerHTML = `<div class="errbox">${esc(sigRes.reason.message || String(sigRes.reason))}</div>`;
+    } else if (!sigTodo.length) {
+      sigBox.innerHTML = '<p class="empty">Aucun signal ouvert.</p>';
+    } else {
+      await hydrateEleveNames(sigTodo.map(s => s.eleve_id));
+      sigBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Compteur</th><th>Note</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${sigTodo.slice(0, 30).map(s => {
+          let actions = '';
+          if (s.statut === 'ouvert' || s.statut === 'en_cours') {
+            if (s.statut === 'ouvert') {
+              actions += `<button type="button" class="primary btnVsSigPrendre" data-id="${esc(s.id)}">Prendre</button> `;
+            }
+            actions += `<input class="sigCloreNote" data-for="${esc(s.id)}" placeholder="note clôture" style="width:9rem" value="Entretien famille réalisé"/> `;
+            actions += `<button type="button" class="btnVsSigClore" data-id="${esc(s.id)}">Clore</button> `;
+            actions += `<button type="button" class="btnVsSigCom" data-id="${esc(s.id)}">Commission</button>`;
+          } else {
+            actions = `<a href="/app/absences">Suivre</a>`;
+          }
+          return `<tr>
+          <td>${eleveCell(s)}</td>
+          <td>${s.compteur} / ${s.seuil}</td>
+          <td class="muted">${esc(s.note_vs || '—')}</td>
+          <td><span class="pill">${esc(s.statut)}</span>
+            ${s.traite_par_label ? `<span class="muted">${esc(s.traite_par_label)}</span>` : ''}
+            ${s.fil_alerte_id ? ` · <button type="button" class="btnSigFil" data-fid="${esc(s.fil_alerte_id)}">fil</button>` : ''}
+            ${s.commission_dossier_id ? ' · com.' : ''}</td>
+          <td>${actions}</td>
+        </tr>`;
+        }).join('')}</tbody></table>`;
+      sigBox.querySelectorAll('.btnVsSigPrendre').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/vs/signaux/' + btn.dataset.id + '/prendre', { method: 'POST', body: '{}' });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      sigBox.querySelectorAll('.btnVsSigClore').forEach(btn => {
+        btn.onclick = async () => {
+          const inp = sigBox.querySelector('.sigCloreNote[data-for="' + btn.dataset.id + '"]');
+          const note = (inp && inp.value.trim()) || noteVs('Entretien famille réalisé');
+          try {
+            await api('/vs/signaux/' + btn.dataset.id + '/clore', {
+              method: 'POST', body: JSON.stringify({ note }),
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      sigBox.querySelectorAll('.btnVsSigCom').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            const d = await api('/vs/signaux/' + btn.dataset.id + '/commission', {
+              method: 'POST',
+              body: JSON.stringify({ jour: today(), heure: '14:00' }),
+            });
+            if (d.commission && d.commission.id) routeState.comId = d.commission.id;
+            if (d.dossier && d.dossier.id) routeState.comDosId = d.dossier.id;
+            if (d.signal && d.signal.eleve_id) routeState.comEleveId = d.signal.eleve_id;
+            go('/app/absences');
+          } catch (e) { alert(e.message); }
+        };
+      });
+      sigBox.querySelectorAll('.btnSigFil').forEach(btn => {
+        btn.onclick = () => {
+          routeState.pendingFilId = btn.dataset.fid;
+          go('/app/messages');
+        };
+      });
+    }
+
+    // Demandes sortie
+    if (demRes.status === 'rejected') {
+      demBox.innerHTML = `<div class="errbox">${esc(demRes.reason.message || String(demRes.reason))}</div>`;
+    } else if (!dem.length) {
+      demBox.innerHTML = '<p class="empty">Aucune demande en attente.</p>';
+    } else {
+      await hydrateEleveNames(dem.map(d => d.eleve_id));
+      demBox.innerHTML = `<table><thead><tr><th>Jour</th><th>Élève</th><th>Créneau</th><th>Motif</th><th></th></tr></thead>
+        <tbody>${dem.slice(0, 30).map(d => `<tr>
+          <td>${esc(d.jour)}</td>
+          <td>${eleveCell(d)}</td>
+          <td><span class="pill">${esc(d.creneau)}</span></td>
+          <td>${esc(d.motif)}</td>
+          <td>
+            <button type="button" class="primary btnVsDemOk" data-id="${esc(d.id)}">Accepter</button>
+            <button type="button" class="btnVsDemNo" data-id="${esc(d.id)}">Refuser</button>
+          </td>
+        </tr>`).join('')}</tbody></table>`;
+      demBox.querySelectorAll('.btnVsDemOk').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/vs/sorties/demandes/' + btn.dataset.id + '/decider', {
+              method: 'POST',
+              body: JSON.stringify({ accepter: true, decision_note: noteVs('OK (file du jour)') }),
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      demBox.querySelectorAll('.btnVsDemNo').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/vs/sorties/demandes/' + btn.dataset.id + '/decider', {
+              method: 'POST',
+              body: JSON.stringify({ accepter: false, decision_note: noteVs('Refus (file du jour)') }),
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    }
+
+    // Dispenses
+    if (dispRes.status === 'rejected') {
+      dispBox.innerHTML = `<div class="errbox">${esc(dispRes.reason.message || String(dispRes.reason))}</div>`;
+    } else if (!disp.length) {
+      dispBox.innerHTML = '<p class="empty">Aucune dispense active ce jour.</p>';
+    } else {
+      await hydrateEleveNames(disp.map(d => d.eleve_id));
+      dispBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Motif</th><th>Fin</th><th></th></tr></thead>
+        <tbody>${disp.slice(0, 30).map(d => `<tr>
+          <td>${eleveCell(d)}</td>
+          <td><span class="pill">${esc(d.motif)}</span></td>
+          <td>${esc(d.fin || '—')}</td>
+          <td>
+            <button type="button" class="btnVsDispClore" data-id="${esc(d.id)}">Clore</button>
+            <a href="/app/dispenses">Détail</a>
+          </td>
+        </tr>`).join('')}</tbody></table>`;
+      dispBox.querySelectorAll('.btnVsDispClore').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Clore cette dispense ?')) return;
+          try {
+            await api('/vs/dispenses/' + btn.dataset.id + '/clore', {
+              method: 'POST', body: '{}',
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    }
+
+    // Alertes
+    if (alRes.status === 'rejected') {
+      alBox.innerHTML = `<div class="errbox">${esc(alRes.reason.message || String(alRes.reason))}</div>`;
+    } else if (!al.length) {
+      alBox.innerHTML = '<p class="empty">Aucune alerte ouverte.</p>';
+    } else {
+      await hydrateEleveNames(al.map(a => a.eleve_id));
+      alBox.innerHTML = `<table><thead><tr><th>Jour</th><th>Élève</th><th>Titre</th><th>Sév.</th><th></th></tr></thead>
+        <tbody>${al.slice(0, 30).map(a => `<tr>
+          <td>${esc(a.jour)}</td>
+          <td>${eleveCell(a)}</td>
+          <td>${esc(a.titre)}</td>
+          <td><span class="pill">${esc(a.severite)}</span></td>
+          <td><button type="button" class="btnVsAlClore" data-id="${esc(a.id)}">Clôturer</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      alBox.querySelectorAll('.btnVsAlClore').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/vs/alertes-cpe/' + btn.dataset.id + '/clore', {
+              method: 'POST',
+              body: JSON.stringify({ note: noteVs('Traité (file du jour)') }),
+            });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    }
+
+    // Grants documents
+    if (grantsBox) {
+      if (grantsRes.status === 'rejected') {
+        grantsBox.innerHTML = `<div class="errbox">${esc(grantsRes.reason.message || String(grantsRes.reason))}</div>`;
+      } else if (!grants.length) {
+        grantsBox.innerHTML = '<p class="empty">Aucune demande · <a href="/app/etab">Établissement</a></p>';
+      } else {
+        grantsBox.innerHTML = `<table><thead><tr><th>Document</th><th>Demandeur</th><th>Durée</th><th></th></tr></thead>
+          <tbody>${grants.slice(0, 20).map(g => `<tr>
+            <td>${esc(g.document_titre || (g.document_id || '').slice(0, 8))}</td>
+            <td>${esc(g.grantee_label || (g.grantee_user_id || '').slice(0, 8))}</td>
+            <td>${g.duration_days} j</td>
+            <td>
+              <button type="button" class="primary btnVsGrantOk" data-id="${esc(g.id)}">Accorder</button>
+              <button type="button" class="btnVsGrantNo" data-id="${esc(g.id)}">Refuser</button>
+            </td>
+          </tr>`).join('')}</tbody></table>`;
+        grantsBox.querySelectorAll('.btnVsGrantOk').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/documents/grants/' + btn.dataset.id + '/decider', {
+                method: 'POST', body: JSON.stringify({ accepter: true, note: noteVs('accès accordé (file VS)') }),
+              });
+              await load();
+            } catch (e) { alert(e.message); }
+          };
+        });
+        grantsBox.querySelectorAll('.btnVsGrantNo').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/documents/grants/' + btn.dataset.id + '/decider', {
+                method: 'POST', body: JSON.stringify({ accepter: false, note: noteVs('refusé (file VS)') }),
+              });
+              await load();
+            } catch (e) { alert(e.message); }
+          };
+        });
+      }
+    }
+
+    // Inscriptions pièces
+    if (insBox) {
+      if (insRes.status === 'rejected') {
+        insBox.innerHTML = `<div class="errbox">${esc(insRes.reason.message || String(insRes.reason))}</div>`;
+      } else if (!insPieces.length) {
+        insBox.innerHTML = '<p class="empty">Aucune inscription en étape pièces · <a href="/app/inscriptions">Board</a></p>';
+      } else {
+        await hydrateEleveNames(insPieces.map(s => s.eleve_id));
+        insBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Motif</th><th></th></tr></thead>
+          <tbody>${insPieces.slice(0, 20).map(s => {
+            const nxt = nextInsEtape(s.etape || 'pieces');
+            return `<tr>
+            <td>${eleveCell(s)}</td>
+            <td>${esc(s.motif_code || '—')}</td>
+            <td>
+              <a href="/app/eleves/${esc(s.eleve_id)}">Dossier</a>
+              ${nxt
+                ? `<button type="button" class="btnVsInsNext" data-eid="${esc(s.eleve_id)}" data-etape="${esc(s.etape || 'pieces')}" data-next="${esc(nxt)}" data-annee="${esc(s.annee_scolaire || '')}">→ ${esc(nxt)}</button>`
+                : '<span class="muted">finalisé</span>'}
+            </td>
+          </tr>`;
+          }).join('')}</tbody></table>`;
+        insBox.querySelectorAll('.btnVsInsNext').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/eleves/' + encodeURIComponent(btn.dataset.eid) + '/inscription-suivi', {
+                method: 'PUT',
+                body: JSON.stringify({
+                  etape: btn.dataset.next,
+                  annee_scolaire: btn.dataset.annee || '2026-2027',
+                  motif_code: null,
+                  commentaire: noteVs('Avancé depuis file VS'),
+                }),
+              });
+              await load();
+            } catch (e) { alert(e.message); }
+          };
+        });
+      }
+    }
+
+    // RH absences
+    if (rhBox) {
+      if (rhRes.status === 'rejected') {
+        rhBox.innerHTML = `<div class="errbox">${esc(rhRes.reason.message || String(rhRes.reason))}</div>`;
+      } else if (!rh.length) {
+        rhBox.innerHTML = '<p class="empty">Rien à valider · <a href="/app/rh">RH</a></p>';
+      } else {
+        rhBox.innerHTML = `<table><thead><tr><th>Agent</th><th>Période</th><th>Motif</th><th></th></tr></thead>
+          <tbody>${rh.slice(0, 20).map(a => `<tr>
+            <td>${esc(a.user_label || (a.user_id || '').slice(0, 8))}</td>
+            <td>${esc(a.debut)} → ${esc(a.fin)}</td>
+            <td>${esc(a.motif)}</td>
+            <td><button type="button" class="primary btnVsRhVal" data-id="${esc(a.id)}">Valider</button></td>
+          </tr>`).join('')}</tbody></table>`;
+        rhBox.querySelectorAll('.btnVsRhVal').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/rh/absences/' + btn.dataset.id + '/valider', { method: 'POST', body: '{}' });
+              await load();
+            } catch (e) { alert(e.message); }
+          };
+        });
+      }
+    }
+
+    // Docs à signer
+    if (docsBox) {
+      if (docsRes.status === 'rejected') {
+        docsBox.innerHTML = `<div class="errbox">${esc(docsRes.reason.message || String(docsRes.reason))}</div>`;
+      } else if (!docs.length) {
+        docsBox.innerHTML = '<p class="empty">Aucun doc en attente · <a href="/app/docs-signer">Publier</a></p>';
+      } else {
+        await hydrateEleveNames(docs.map(d => d.eleve_id));
+        docsBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Titre</th><th>Code</th><th></th></tr></thead>
+          <tbody>${docs.slice(0, 20).map(d => `<tr>
+            <td>${eleveCell(d)}
+              <button type="button" class="btnVsDocAbs" data-eid="${esc(d.eleve_id)}" title="Déclarer absence">↗ abs</button>
+            </td>
+            <td>${esc(d.titre)}</td>
+            <td class="muted">${esc(d.code)}</td>
+            <td>
+              <button type="button" class="btnVsDocAnn" data-id="${esc(d.id)}">Annuler</button>
+            </td>
+          </tr>`).join('')}</tbody></table>
+          <p class="muted"><a href="/app/docs-signer">Ouvrir le module docs</a></p>`;
+        docsBox.querySelectorAll('.btnVsDocAnn').forEach(btn => {
+          btn.onclick = async () => {
+            if (!confirm('Annuler ce document ?')) return;
+            try {
+              await api('/docs-a-signer/' + btn.dataset.id + '/annuler', { method: 'POST', body: '{}' });
+              await load();
+            } catch (e) { alert(e.message); }
+          };
+        });
+        docsBox.querySelectorAll('.btnVsDocAbs').forEach(btn => {
+          btn.onclick = () => {
+            routeState.absEleveId = btn.dataset.eid;
+            go('/app/absences');
+          };
+        });
+      }
+    }
+  }
+
+  document.getElementById('btnVsJourLoad').onclick = load;
+  document.getElementById('vsJourDate').onchange = load;
+  await load();
+}
+
+function viewAbsences() {
+  return shell('/app/absences', `
+    <p class="muted" style="margin:0 0 .75rem"><a href="/app/vs">← File du jour VS</a> · détail absences, signaux, commissions, référentiels</p>
+    <div class="bento" id="absStats"></div>
+    <div class="panel">
+      <h2>Déclarer une absence</h2>
+      <div class="row">
+        ${elevePickerRow('absEleve', 'absEleveQ', 'btnAbsEleveSearch')}
+        <label>Du <input id="absDebut" type="date" value="${today()}"/></label>
+        <label>Au <input id="absFin" type="date" value="${today()}"/></label>
+        <label>Motif <select id="absMotif"></select></label>
+        <button type="button" id="btnAbsCheck">Déjà absent ?</button>
+        <button type="button" class="primary" id="btnAbsDecl">Déclarer</button>
+      </div>
+      <div id="absDeclMsg" class="muted"></div>
+    </div>
+    <div class="panel">
+      <h2>Absences — file VS</h2>
+      <p class="muted">Soumission parent (motif) ≠ décision CPE. Accepter / refuser le justif, ou annuler → présent (erreur de pointage).</p>
+      <div class="row">
+        <label>Jour <input id="jourVs" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnVs">Charger</button>
+      </div>
+      <div id="vsOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h2>Signaux seuil absences</h2>
+      <p class="muted">Ouverts / en cours — alerte famille via messagerie au seuil, puis prise en charge CPE / clôture.</p>
+      <div id="sigOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel">
+      <h2>Commission VS</h2>
+      <p class="muted">Planifier → convoquer → décider. Points retirés alimentent le permis à points (départ 20).</p>
+      <div class="row">
+        <label>Jour <input id="comJour" type="date" value="${today()}"/></label>
+        <label>Heure <input id="comHeure" type="time" value="14:00"/></label>
+        <label>Lieu <input id="comLieu" value="Bureau CPE"/></label>
+        <button type="button" class="primary" id="btnComSave">Créer</button>
+        <button type="button" id="btnComLoad">Lister</button>
+      </div>
+      <div class="row">
+        <label style="flex:1">Objet <input id="comObjet" style="width:100%" placeholder="Incidents répétés…"/></label>
+      </div>
+      <div id="comMsg" class="muted"></div>
+      <div id="comOut" class="muted" style="margin-top:.5rem">…</div>
+      <div id="comEleveHist" class="muted" style="margin-top:.5rem"></div>
+      <div class="row" style="margin-top:.75rem">
+        <input type="hidden" id="comId"/>
+        <span id="comIdLabel" class="muted">Commission : — (Lister / Ouvrir)</span>
+        ${elevePickerRow('comEleve', 'comEleveQ', 'btnComEleveSearch')}
+        <label><input type="checkbox" id="comSigFam" checked/> Signalé famille</label>
+        <button type="button" id="btnComConv">Convoquer</button>
+      </div>
+      <div class="row">
+        <label style="flex:1">Motifs <input id="comMotifs" style="width:100%"/></label>
+        <label style="flex:1">Note interne <input id="comNote" style="width:100%"/></label>
+      </div>
+      <div class="row">
+        <input type="hidden" id="comDosId"/>
+        <span id="comDosLabel" class="muted">Dossier : — (Sélectionner dans la liste)</span>
+        <label>Décision <select id="comDec">
+          <option value="avertissement">Avertissement</option>
+          <option value="exclusion_temporaire">Exclusion temporaire</option>
+          <option value="maintien">Maintien</option>
+          <option value="autre">Autre</option>
+        </select></label>
+        <label>Points <input id="comPts" type="number" value="5" min="0" max="20" style="width:4rem"/></label>
+        <button type="button" id="btnComDec">Décider</button>
+      </div>
+      <div id="comDosOut" class="muted"></div>
+    </div>
+    <div class="panel">
+      <h2>Référentiels VS</h2>
+      <p class="muted">CPE / admin — types d’incident, de sanction et motifs (catalogue obligatoire).</p>
+      <div class="row">
+        <label>Kind
+          <select id="refKind">
+            <option value="incident">Type incident</option>
+            <option value="sanction">Type sanction</option>
+            <option value="motif">Motif sanction</option>
+          </select>
+        </label>
+        <label>Code <input id="refCode" placeholder="retard" style="width:6rem"/></label>
+        <label>Libellé <input id="refLib" placeholder="Retard en cours" style="min-width:12rem"/></label>
+        <button type="button" class="primary" id="btnRefSave">Créer</button>
+      </div>
+      <div id="refMsg" class="muted"></div>
+      <div id="refCatalog" class="muted" style="margin-top:.5rem"></div>
+    </div>
+    <div class="panel">
+      <h2>Incidents &amp; sanctions</h2>
+      <p class="muted">Prof/CPE déclare un incident ; CPE prononce la sanction (retenue, avertissement…).</p>
+      <div class="row">
+        ${elevePickerRow('incEleve', 'incEleveQ', 'btnIncEleveSearch')}
+        <label>Type incident <select id="incType"></select></label>
+        <label>Jour <input id="incJour" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnIncSave">Déclarer</button>
+      </div>
+      <div class="row">
+        <label style="flex:1">Description <input id="incDesc" style="width:100%"/></label>
+      </div>
+      <div id="incMsg" class="muted"></div>
+      <div id="incHisto" class="muted" style="margin-top:.5rem"></div>
+      <div class="row" style="margin-top:.75rem">
+        <label>Type sanction <select id="sanType"></select></label>
+        <label>Motif <select id="sanMotif"><option value="">—</option></select></label>
+        <label>Incident lié <select id="sanInc"><option value="">— (aucun)</option></select></label>
+        <label>Durée min <input id="sanDuree" type="number" value="60" style="width:4rem"/></label>
+        <button type="button" class="primary" id="btnSanSave">Prononcer</button>
+      </div>
+      <div class="row">
+        <label style="flex:1">Note <input id="sanNote" style="width:100%"/></label>
+        <label>Jour <input id="sanJour" type="date" value="${today()}"/></label>
+      </div>
+      <div id="sanMsg" class="muted"></div>
+      <div id="sanHisto" class="muted" style="margin-top:.5rem"></div>
+      <div id="ptsOut" class="muted" style="margin-top:.5rem"></div>
+    </div>`);
+}
+
+async function bindAbsences() {
+  const out = document.getElementById('vsOut');
+  const nameOf = eleveNameOf;
+
+  await bindElevePickers('absEleve', 'absEleveQ', 'btnAbsEleveSearch');
+  let motifJustifOpts = '<option value="maladie" selected>Maladie</option>';
+  try {
+    const motifs = await api('/motifs-absence');
+    motifJustifOpts = motifs.map(m =>
+      `<option value="${esc(m.code)}"${m.code === 'maladie' ? ' selected' : ''}>${esc(m.libelle)}</option>`
+    ).join('') || motifJustifOpts;
+    document.getElementById('absMotif').innerHTML = motifJustifOpts;
+  } catch {
+    document.getElementById('absMotif').innerHTML = motifJustifOpts;
+  }
+  async function previewAbs() {
+    const msg = document.getElementById('absDeclMsg');
+    const eid = document.getElementById('absEleve').value;
+    const jour = document.getElementById('absDebut').value || today();
+    if (!eid) { msg.innerHTML = '<span class="bad">Choisir un élève</span>'; return; }
+    try {
+      const r = await api('/eleves/' + eid + '/absent?jour=' + encodeURIComponent(jour));
+      msg.innerHTML = r.absent
+        ? `<span class="warn">Déjà signalé absent VS le ${esc(r.jour)}</span>`
+        : `<span class="ok">Pas d’absence VS le ${esc(r.jour)}</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  document.getElementById('btnAbsCheck').onclick = previewAbs;
+  const absEleveEl = document.getElementById('absEleve');
+  const absDebutEl = document.getElementById('absDebut');
+  const absFinEl = document.getElementById('absFin');
+  if (absEleveEl) absEleveEl.onchange = previewAbs;
+  if (absDebutEl) absDebutEl.onchange = previewAbs;
+  if (absFinEl) absFinEl.onchange = previewAbs;
+  document.getElementById('btnAbsDecl').onclick = async () => {
+    const msg = document.getElementById('absDeclMsg');
+    const eid = document.getElementById('absEleve').value;
+    if (!eid) { msg.innerHTML = '<span class="bad">Choisir un élève</span>'; return; }
+    try {
+      const a = await api('/eleves/' + eid + '/absences', {
+        method: 'POST',
+        body: JSON.stringify({
+          debut: document.getElementById('absDebut').value,
+          fin: document.getElementById('absFin').value,
+          motif: document.getElementById('absMotif').value,
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Absence ${esc(a.motif)} déclarée</span>`;
+      await load();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function load() {
+    out.textContent = 'Chargement…';
+    const stats = document.getElementById('absStats');
+    try {
+      const jour = document.getElementById('jourVs').value;
+      const list = await api('/vs/absences?jour=' + jour);
+      const nJustif = list.filter(a => a.motif_justif && String(a.motif_justif).trim()).length;
+      const nTraiter = list.filter(a => a.statut === 'a_traiter' || a.statut === 'signalee').length;
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>File du jour</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nTraiter}</strong><span>À traiter</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nJustif}</strong><span>Avec justif</span></div>`;
+      }
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucune absence à traiter pour ce jour. Fais un appel et marque des absents, puis clôture.</p>';
+        return;
+      }
+      const rows = [];
+      for (const a of list) {
+        if (a.eleve_label) seedEleveLabel(a.eleve_id, a.eleve_label);
+        const nom = a.eleve_label || await nameOf(a.eleve_id);
+        const hasJustif = !!(a.motif_justif && String(a.motif_justif).trim());
+        let actions = '';
+        if (a.statut === 'a_traiter' || a.statut === 'signalee') {
+          if (hasJustif) {
+            actions += `<input class="vsNote" data-for="${esc(a.id)}" placeholder="note CPE" style="width:9rem" value="ok certificat"/> `;
+            actions += `<button type="button" class="primary btnAcceptJustif" data-id="${esc(a.id)}">Accepter</button> `;
+            actions += `<button type="button" class="btnRefuseJustif" data-id="${esc(a.id)}">Refuser</button> `;
+          } else {
+            actions += `<select class="vsJustifMotif" data-for="${esc(a.id)}" style="width:8rem">${motifJustifOpts}</select> `;
+            actions += `<button type="button" data-id="${esc(a.id)}" class="btnJustif">Saisir justif</button> `;
+          }
+          actions += `<input class="vsAnnulNote" data-for="${esc(a.id)}" placeholder="→ présent" style="width:8rem" value="erreur de pointage"/> `;
+          actions += `<button type="button" class="btnAnnulPresent" data-id="${esc(a.id)}">→ Présent</button>`;
+        }
+        rows.push(`<tr>
+          <td><a href="/app/eleves/${esc(a.eleve_id)}">${esc(nom)}</a></td>
+          <td>${esc(a.debut)} → ${esc(a.fin)}</td>
+          <td>${esc(a.motif)}</td>
+          <td><span class="pill">${esc(a.statut)}</span></td>
+          <td>${esc(a.motif_justif || '—')}</td>
+          <td class="muted">${esc(a.decision_note || '—')}</td>
+          <td>${actions}</td>
+        </tr>`);
+      }
+      out.innerHTML = `<table>
+        <thead><tr><th>Élève</th><th>Période</th><th>Motif</th><th>Statut</th><th>Justif parent</th><th>Note CPE</th><th>Actions CPE</th></tr></thead>
+        <tbody>${rows.join('')}</tbody></table>`;
+      function fieldValue(cls, id) {
+        const el = out.querySelector('.' + cls + '[data-for="' + id + '"]');
+        return el ? el.value.trim() : '';
+      }
+      out.querySelectorAll('.btnJustif').forEach(btn => {
+        btn.onclick = async () => {
+          const motif = fieldValue('vsJustifMotif', btn.dataset.id) || 'maladie';
+          try {
+            await api('/absences/' + btn.dataset.id + '/justifier', {
+              method: 'POST',
+              body: JSON.stringify({ motif_justif: motif }),
+            });
+            await load();
+          } catch (e) {
+            alert(e.message);
+          }
+        };
+      });
+      out.querySelectorAll('.btnAcceptJustif').forEach(btn => {
+        btn.onclick = async () => {
+          const note = fieldValue('vsNote', btn.dataset.id);
+          try {
+            await api('/absences/' + btn.dataset.id + '/accepter-justificatif', {
+              method: 'POST',
+              body: JSON.stringify({ note: note || null }),
+            });
+            await load();
+          } catch (e) {
+            alert(e.message);
+          }
+        };
+      });
+      out.querySelectorAll('.btnRefuseJustif').forEach(btn => {
+        btn.onclick = async () => {
+          const note = fieldValue('vsNote', btn.dataset.id) || 'pièce insuffisante';
+          try {
+            await api('/absences/' + btn.dataset.id + '/refuser-justificatif', {
+              method: 'POST',
+              body: JSON.stringify({ note: note || null }),
+            });
+            await load();
+          } catch (e) {
+            alert(e.message);
+          }
+        };
+      });
+      out.querySelectorAll('.btnAnnulPresent').forEach(btn => {
+        btn.onclick = async () => {
+          const note = fieldValue('vsAnnulNote', btn.dataset.id) || 'erreur de pointage';
+          try {
+            await api('/absences/' + btn.dataset.id + '/annuler-present', {
+              method: 'POST',
+              body: JSON.stringify({ note: note || null }),
+            });
+            await load();
+          } catch (e) {
+            alert(e.message);
+          }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function loadSignaux() {
+    const box = document.getElementById('sigOut');
+    if (!box) return;
+    try {
+      const list = await api('/vs/signaux');
+      if (!list.length) {
+        box.innerHTML = '<p class="empty">Aucun signal actif.</p>';
+        return;
+      }
+      for (const s of list) {
+        if (s.eleve_label) seedEleveLabel(s.eleve_id, s.eleve_label);
+      }
+      const rows = list.map(s => {
+        let actions = '';
+        if (s.statut === 'ouvert' || s.statut === 'en_cours') {
+          if (s.statut === 'ouvert') {
+            actions += `<button type="button" class="btnPrendreSig" data-id="${esc(s.id)}">Prendre en charge</button> `;
+          }
+          actions += `<input class="sigCloreNote" data-for="${esc(s.id)}" placeholder="note clôture" style="width:10rem" value="Entretien famille réalisé"/> `;
+          actions += `<button type="button" class="primary btnCloreSig" data-id="${esc(s.id)}">Clore</button> `;
+          actions += `<button type="button" class="btnComSig" data-id="${esc(s.id)}">Commission</button>`;
+        }
+        const alerte = s.fil_alerte_id
+          ? `<button type="button" class="btnSigFil" data-fid="${esc(s.fil_alerte_id)}">fil ${esc(String(s.fil_alerte_id).slice(0, 8))}</button>`
+          : '<span class="muted">—</span>';
+        const traite = s.traite_par_label
+          ? `<span class="muted">${esc(s.traite_par_label)}</span>`
+          : '';
+        const comDos = s.commission_dossier_id
+          ? `<span class="pill">dossier ${esc(String(s.commission_dossier_id).slice(0, 8))}</span>`
+          : '—';
+        return `<tr>
+          <td>${eleveCell(s)}</td>
+          <td>${s.compteur} / ${s.seuil}</td>
+          <td>${esc(s.annee_scolaire)}</td>
+          <td><span class="pill">${esc(s.statut)}</span> ${traite}</td>
+          <td class="muted">${esc(s.note_vs || '—')}</td>
+          <td>${alerte}</td>
+          <td>${comDos}</td>
+          <td>${actions}</td>
+        </tr>`;
+      });
+      box.innerHTML = `<table><thead><tr><th>Élève</th><th>Compteur</th><th>Année</th><th>Statut</th><th>Note VS</th><th>Alerte</th><th>Commission</th><th>Actions</th></tr></thead>
+        <tbody>${rows.join('')}</tbody></table>`;
+      box.querySelectorAll('.btnPrendreSig').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/vs/signaux/' + btn.dataset.id + '/prendre', { method: 'POST', body: '{}' });
+            await loadSignaux();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      box.querySelectorAll('.btnCloreSig').forEach(btn => {
+        btn.onclick = async () => {
+          const inp = box.querySelector('.sigCloreNote[data-for="' + btn.dataset.id + '"]');
+          const note = (inp && inp.value.trim()) || 'Entretien famille réalisé';
+          try {
+            await api('/vs/signaux/' + btn.dataset.id + '/clore', {
+              method: 'POST', body: JSON.stringify({ note }),
+            });
+            await loadSignaux();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      box.querySelectorAll('.btnComSig').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            const d = await api('/vs/signaux/' + btn.dataset.id + '/commission', {
+              method: 'POST',
+              body: JSON.stringify({
+                jour: document.getElementById('comJour')?.value || today(),
+                heure: document.getElementById('comHeure')?.value || '14:00',
+              }),
+            });
+            document.getElementById('comId').value = d.commission.id;
+            document.getElementById('comDosId').value = d.dossier.id;
+            const comLab = document.getElementById('comIdLabel');
+            if (comLab) comLab.textContent = 'Commission : ' + d.commission.id.slice(0, 8) + '…';
+            const dosLab = document.getElementById('comDosLabel');
+            if (dosLab) dosLab.textContent = 'Dossier : ' + d.dossier.id.slice(0, 8) + '…';
+            const eleveSel = document.getElementById('comEleve');
+            if (eleveSel && d.dossier.eleve_id) {
+              const nom = await nameOf(d.dossier.eleve_id);
+              if (![...eleveSel.options].some(o => o.value === d.dossier.eleve_id)) {
+                const o = document.createElement('option');
+                o.value = d.dossier.eleve_id;
+                o.textContent = nom;
+                eleveSel.appendChild(o);
+              }
+              eleveSel.value = d.dossier.eleve_id;
+            }
+            comMsg.innerHTML = '<span class="ok">Commission créée depuis le signal</span>';
+            await loadSignaux();
+            await loadCommissions();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      box.querySelectorAll('.btnSigFil').forEach(btn => {
+        btn.onclick = () => {
+          routeState.pendingFilId = btn.dataset.fid;
+          go('/app/messages');
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnVs').onclick = async () => { await load(); await loadSignaux(); };
+  document.getElementById('jourVs').onchange = async () => { await load(); await loadSignaux(); };
+
+  const comMsg = document.getElementById('comMsg');
+  const comOut = document.getElementById('comOut');
+  const comDosOut = document.getElementById('comDosOut');
+  await bindElevePickers('comEleve', 'comEleveQ', 'btnComEleveSearch');
+  async function loadComEleveHist() {
+    const hist = document.getElementById('comEleveHist');
+    const eid = (document.getElementById('comEleve') && document.getElementById('comEleve').value.trim()) || '';
+    if (!hist) return;
+    if (!eid) { hist.innerHTML = ''; return; }
+    try {
+      const list = await api('/eleves/' + encodeURIComponent(eid) + '/commissions');
+      hist.innerHTML = !list.length
+        ? '<p class="empty">Aucune commission pour cet élève.</p>'
+        : `<table><thead><tr><th>Motifs</th><th>Décision</th><th>Pts</th><th></th></tr></thead>
+           <tbody>${list.map(c => `<tr>
+             <td>${esc(c.motifs)}</td>
+             <td>${esc(c.decision_libelle || '—')}</td>
+             <td>${c.points_retires || 0}</td>
+             <td><button type="button" class="btnComHistPick" data-motifs="${esc(c.motifs || '')}" data-did="${esc(c.id || '')}" data-cid="${esc(c.commission_id || '')}">Préremplir</button></td>
+           </tr>`).join('')}</tbody></table>`;
+      hist.querySelectorAll('.btnComHistPick').forEach(btn => {
+        btn.onclick = () => {
+          document.getElementById('comMotifs').value = btn.dataset.motifs || '';
+          if (btn.dataset.cid) {
+            document.getElementById('comId').value = btn.dataset.cid;
+            const lab = document.getElementById('comIdLabel');
+            if (lab) lab.textContent = 'Commission : ' + btn.dataset.cid.slice(0, 8) + '…';
+          }
+          if (btn.dataset.did) {
+            document.getElementById('comDosId').value = btn.dataset.did;
+            const dosLab = document.getElementById('comDosLabel');
+            if (dosLab) dosLab.textContent = 'Dossier : ' + btn.dataset.did.slice(0, 8) + '…';
+          }
+        };
+      });
+    } catch (e) {
+      hist.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const comEleveEl = document.getElementById('comEleve');
+  if (comEleveEl) comEleveEl.onchange = loadComEleveHist;
+
+  async function loadCommissions() {
+    const jour = document.getElementById('comJour').value || today();
+    comOut.textContent = 'Chargement…';
+    try {
+      const list = await api('/vs/commissions?jour=' + encodeURIComponent(jour));
+      if (!list.length) { comOut.innerHTML = '<p class="empty">Aucune commission ce jour.</p>'; return; }
+      comOut.innerHTML = `<table><thead><tr><th>Heure</th><th>Objet</th><th>Lieu</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${list.map(c => `<tr>
+          <td>${esc(c.heure)}</td><td>${esc(c.objet)}</td><td>${esc(c.lieu || '—')}</td>
+          <td><span class="pill">${esc(c.statut_libelle || c.statut)}</span></td>
+          <td><button type="button" data-cid="${c.id}">Ouvrir</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      comOut.querySelectorAll('button[data-cid]').forEach(btn => {
+        btn.onclick = () => openCommission(btn.dataset.cid);
+      });
+    } catch (e) {
+      comOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  async function openCommission(cid) {
+    if (!cid) return;
+    document.getElementById('comId').value = cid;
+    const lab = document.getElementById('comIdLabel');
+    if (lab) lab.textContent = 'Commission : ' + cid.slice(0, 8) + '…';
+    document.getElementById('comDosId').value = '';
+    const dosLab = document.getElementById('comDosLabel');
+    if (dosLab) dosLab.textContent = 'Dossier : — (Sélectionner dans la liste)';
+    const dos = await api('/vs/commissions/' + cid + '/dossiers');
+    if (!dos.length) {
+      comDosOut.innerHTML = '<p class="empty">Aucun dossier.</p>';
+      return;
+    }
+    for (const d of dos) {
+      if (d.eleve_label) seedEleveLabel(d.eleve_id, d.eleve_label);
+    }
+    const rows = dos.map(d => {
+      const decided = !!(d.decision_libelle && d.decision_libelle !== '—');
+      return `<tr>
+        <td>${eleveCell(d)}</td>
+        <td>${esc(d.motifs)}</td>
+        <td class="muted">${esc(d.note_interne || '—')}</td>
+        <td>${d.signale_famille ? 'oui' : 'non'}</td>
+        <td>${esc(d.decision_libelle || '—')}</td>
+        <td class="muted">${esc(d.decision_texte || '—')}</td>
+        <td>${d.decided_at ? esc(String(d.decided_at).slice(0, 10)) : '—'}</td>
+        <td>${d.points_retires}</td>
+        <td>
+          <button type="button" data-did="${esc(d.id)}" data-eid="${esc(d.eleve_id)}" class="btnComSel">Sélectionner</button>
+          ${decided ? '' : `<button type="button" class="primary btnComDecInline" data-did="${esc(d.id)}">Décider</button>`}
+        </td>
+      </tr>`;
+    });
+    comDosOut.innerHTML = `<table><thead><tr><th>Élève</th><th>Motifs</th><th>Note interne</th><th>Famille</th><th>Décision</th><th>Texte</th><th>Le</th><th>Pts</th><th></th></tr></thead>
+      <tbody>${rows.join('')}</tbody></table>`;
+    comDosOut.querySelectorAll('.btnComSel').forEach(b => {
+      b.onclick = () => {
+        document.getElementById('comDosId').value = b.dataset.did;
+        if (dosLab) dosLab.textContent = 'Dossier : ' + b.dataset.did.slice(0, 8) + '…';
+        const eleveSel = document.getElementById('comEleve');
+        if (eleveSel && b.dataset.eid) {
+          if (![...eleveSel.options].some(o => o.value === b.dataset.eid)) {
+            const o = document.createElement('option');
+            o.value = b.dataset.eid;
+            o.textContent = ELEVE_NAME_CACHE[b.dataset.eid] || b.dataset.eid.slice(0, 8);
+            eleveSel.appendChild(o);
+          }
+          eleveSel.value = b.dataset.eid;
+        }
+      };
+    });
+    comDosOut.querySelectorAll('.btnComDecInline').forEach(b => {
+      b.onclick = async () => {
+        document.getElementById('comDosId').value = b.dataset.did;
+        if (dosLab) dosLab.textContent = 'Dossier : ' + b.dataset.did.slice(0, 8) + '…';
+        try {
+          const d = await api('/vs/commissions/dossiers/' + b.dataset.did + '/decider', {
+            method: 'POST',
+            body: JSON.stringify({
+              decision: document.getElementById('comDec').value,
+              decision_texte: document.getElementById('comDec').selectedOptions[0].text,
+              points_retires: Number(document.getElementById('comPts').value) || 0,
+            }),
+          });
+          comMsg.innerHTML = `<span class="ok">Décision ${esc(d.decision_libelle || '')} · −${d.points_retires} pts</span>`;
+          await loadCommissions();
+          await openCommission(document.getElementById('comId').value);
+        } catch (e) {
+          comMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    });
+  }
+  document.getElementById('btnComLoad').onclick = loadCommissions;
+  document.getElementById('comJour').onchange = loadCommissions;
+  document.getElementById('btnComSave').onclick = async () => {
+    comMsg.textContent = '';
+    try {
+      const d = await api('/vs/commissions', {
+        method: 'POST',
+        body: JSON.stringify({
+          jour: document.getElementById('comJour').value || today(),
+          heure: document.getElementById('comHeure').value || '14:00',
+          objet: document.getElementById('comObjet').value,
+          lieu: document.getElementById('comLieu').value,
+        }),
+      });
+      document.getElementById('comId').value = d.id;
+      const lab = document.getElementById('comIdLabel');
+      if (lab) lab.textContent = 'Commission : ' + d.id.slice(0, 8) + '… · ' + (d.objet || '');
+      comMsg.innerHTML = `<span class="ok">Commission créée ${esc(d.objet)}</span>`;
+      await loadCommissions();
+    } catch (e) {
+      comMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnComConv').onclick = async () => {
+    comMsg.textContent = '';
+    const cid = document.getElementById('comId').value.trim();
+    try {
+      const d = await api('/vs/commissions/' + cid + '/dossiers', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: document.getElementById('comEleve').value.trim(),
+          motifs: document.getElementById('comMotifs').value,
+          note_interne: document.getElementById('comNote').value,
+          signale_famille: document.getElementById('comSigFam').checked,
+        }),
+      });
+      document.getElementById('comDosId').value = d.id;
+      const dosLab = document.getElementById('comDosLabel');
+      if (dosLab) dosLab.textContent = 'Dossier : ' + d.id.slice(0, 8) + '…';
+      comMsg.innerHTML = `<span class="ok">Élève convoqué</span>`;
+    } catch (e) {
+      comMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnComDec').onclick = async () => {
+    comMsg.textContent = '';
+    const did = document.getElementById('comDosId').value.trim();
+    try {
+      const d = await api('/vs/commissions/dossiers/' + did + '/decider', {
+        method: 'POST',
+        body: JSON.stringify({
+          decision: document.getElementById('comDec').value,
+          decision_texte: document.getElementById('comDec').selectedOptions[0].text,
+          points_retires: Number(document.getElementById('comPts').value) || 0,
+        }),
+      });
+      comMsg.innerHTML = `<span class="ok">Décision ${esc(d.decision_libelle || '')} · −${d.points_retires} pts</span>`;
+      await loadCommissions();
+    } catch (e) {
+      comMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  const incEleve = document.getElementById('incEleve');
+  await bindElevePickers('incEleve', 'incEleveQ', 'btnIncEleveSearch');
+  async function loadIncidentsLies() {
+    const sel = document.getElementById('sanInc');
+    const id = incEleve.value;
+    if (!sel) return;
+    if (!id) {
+      sel.innerHTML = '<option value="">— (aucun)</option>';
+      return;
+    }
+    try {
+      const list = await api('/eleves/' + encodeURIComponent(id) + '/incidents');
+      sel.innerHTML = '<option value="">— (aucun)</option>' + (list || []).map(i =>
+        `<option value="${esc(i.id)}">${esc(i.jour)}${i.description ? ' — ' + esc(i.description).slice(0, 40) : ''} (${esc(i.id.slice(0, 8))})</option>`
+      ).join('');
+    } catch {
+      sel.innerHTML = '<option value="">— (aucun)</option>';
+    }
+  }
+  async function loadReferentiels() {
+    try {
+      const types = await api('/vs/incident-types');
+      document.getElementById('incType').innerHTML = types.map(t =>
+        `<option value="${esc(t.id)}">${esc(t.libelle)} (${esc(t.code)})</option>`
+      ).join('') || '<option value="">—</option>';
+    } catch (e) {
+      document.getElementById('incType').innerHTML = '<option value="">(indisponible)</option>';
+    }
+    try {
+      const st = await api('/vs/sanction-types');
+      document.getElementById('sanType').innerHTML = st.map(t =>
+        `<option value="${esc(t.id)}">${esc(t.libelle)} (${esc(t.code)})</option>`
+      ).join('') || '<option value="">—</option>';
+      const motifs = await api('/vs/sanction-motifs');
+      document.getElementById('sanMotif').innerHTML = '<option value="">—</option>' + motifs.map(t =>
+        `<option value="${esc(t.id)}">${esc(t.libelle)}</option>`
+      ).join('');
+    } catch (e) {
+      document.getElementById('sanType').innerHTML = '<option value="">(indisponible)</option>';
+    }
+  }
+  async function loadRefCatalog() {
+    const box = document.getElementById('refCatalog');
+    if (!box) return;
+    const kind = document.getElementById('refKind').value;
+    const path = kind === 'sanction'
+      ? '/vs/sanction-types'
+      : kind === 'motif'
+        ? '/vs/sanction-motifs'
+        : '/vs/incident-types';
+    box.textContent = 'Chargement…';
+    try {
+      const list = await api(path);
+      box.innerHTML = !list.length
+        ? '<p class="empty">Catalogue vide.</p>'
+        : `<table><thead><tr><th>Code</th><th>Libellé</th></tr></thead>
+           <tbody>${list.map(t => `<tr>
+             <td><code>${esc(t.code)}</code></td>
+             <td>${esc(t.libelle)}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('refKind').onchange = loadRefCatalog;
+  document.getElementById('btnRefSave').onclick = async () => {
+    const msg = document.getElementById('refMsg');
+    msg.textContent = '';
+    const kind = document.getElementById('refKind').value;
+    const path = kind === 'sanction'
+      ? '/vs/sanction-types'
+      : kind === 'motif'
+        ? '/vs/sanction-motifs'
+        : '/vs/incident-types';
+    try {
+      const t = await api(path, {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('refCode').value.trim(),
+          libelle: document.getElementById('refLib').value.trim(),
+        }),
+      });
+      msg.innerHTML = `<span class="ok">${esc(t.code)} — ${esc(t.libelle)}</span>`;
+      document.getElementById('refCode').value = '';
+      document.getElementById('refLib').value = '';
+      await loadReferentiels();
+      await loadRefCatalog();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  async function loadPoints() {
+    const id = incEleve.value;
+    const out = document.getElementById('ptsOut');
+    if (!id) { out.textContent = ''; return; }
+    try {
+      const p = await api('/eleves/' + id + '/points-vs');
+      out.innerHTML = `Permis à points : <strong>${p.solde}</strong> / ${p.depart}`;
+    } catch (e) {
+      out.textContent = '';
+    }
+  }
+  async function loadIncSanHisto() {
+    const id = incEleve.value;
+    const incBox = document.getElementById('incHisto');
+    const sanBox = document.getElementById('sanHisto');
+    if (!id) {
+      if (incBox) incBox.innerHTML = '';
+      if (sanBox) sanBox.innerHTML = '';
+      return;
+    }
+    if (incBox) {
+      try {
+        const list = await api('/eleves/' + id + '/incidents');
+        incBox.innerHTML = !list.length
+          ? '<p class="empty">Aucun incident.</p>'
+          : `<table><thead><tr><th>Jour</th><th>Type</th><th>Description</th></tr></thead>
+             <tbody>${list.map(i => `<tr>
+               <td>${esc(i.jour || '—')}</td>
+               <td>${esc(i.type_label || (i.type_id || '').slice(0, 8) || '—')}</td>
+               <td class="muted">${esc(i.description || '—')}</td>
+             </tr>`).join('')}</tbody></table>`;
+      } catch (e) {
+        incBox.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      }
+    }
+    if (sanBox) {
+      try {
+        const list = await api('/eleves/' + id + '/sanctions');
+        sanBox.innerHTML = !list.length
+          ? '<p class="empty">Aucune sanction.</p>'
+          : `<table><thead><tr><th>Jour</th><th>Type</th><th>Statut</th><th>Durée</th><th></th></tr></thead>
+             <tbody>${list.map(s => {
+               const canAnnul = s.statut && s.statut !== 'annulee' && s.statut !== 'annulée';
+               return `<tr>
+               <td>${esc(s.jour || '—')}</td>
+               <td>${esc(s.type_label || (s.type_id || '').slice(0, 8) || '—')}</td>
+               <td><span class="pill">${esc(s.statut || '—')}</span></td>
+               <td>${s.duree_minutes != null ? s.duree_minutes + ' min' : '—'}</td>
+               <td>${canAnnul
+                 ? `<button type="button" class="btnSanAnnul" data-id="${esc(s.id)}">Annuler</button>`
+                 : ''}</td>
+             </tr>`;
+             }).join('')}</tbody></table>`;
+        sanBox.querySelectorAll('.btnSanAnnul').forEach(btn => {
+          btn.onclick = async () => {
+            if (!confirm('Annuler cette sanction ?')) return;
+            try {
+              await api('/vs/sanctions/' + btn.dataset.id + '/annuler', {
+                method: 'POST', body: '{}',
+              });
+              await loadIncSanHisto();
+              await loadPoints();
+            } catch (e) { alert(e.message); }
+          };
+        });
+      } catch (e) {
+        sanBox.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      }
+    }
+  }
+  document.getElementById('btnIncSave').onclick = async () => {
+    const msg = document.getElementById('incMsg');
+    const id = incEleve.value;
+    const typeId = document.getElementById('incType').value;
+    if (!id || !typeId) { msg.innerHTML = '<span class="bad">Élève et type requis</span>'; return; }
+    try {
+      const d = await api('/eleves/' + id + '/incidents', {
+        method: 'POST',
+        body: JSON.stringify({
+          type_id: typeId,
+          jour: document.getElementById('incJour').value || today(),
+          description: document.getElementById('incDesc').value.trim() || null,
+        }),
+      });
+      await loadIncidentsLies();
+      await loadIncSanHisto();
+      const sanInc = document.getElementById('sanInc');
+      if (sanInc) sanInc.value = d.id;
+      msg.innerHTML = `<span class="ok">Incident déclaré ${esc(d.id.slice(0, 8))}</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnSanSave').onclick = async () => {
+    const msg = document.getElementById('sanMsg');
+    const id = incEleve.value;
+    const typeId = document.getElementById('sanType').value;
+    if (!id || !typeId) { msg.innerHTML = '<span class="bad">Élève et type sanction requis</span>'; return; }
+    try {
+      const body = {
+        type_id: typeId,
+        jour: document.getElementById('sanJour').value || today(),
+        duree_minutes: Number(document.getElementById('sanDuree').value) || null,
+        note: document.getElementById('sanNote').value.trim() || null,
+      };
+      const motif = document.getElementById('sanMotif').value;
+      const incId = (document.getElementById('sanInc').value || '').trim();
+      if (motif) body.motif_id = motif;
+      if (incId) body.incident_id = incId;
+      const d = await api('/eleves/' + id + '/sanctions', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      msg.innerHTML = `<span class="ok">Sanction ${esc(d.statut)} · ${d.duree_minutes || '—'} min</span>`;
+      await loadPoints();
+      await loadIncSanHisto();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  incEleve.onchange = async () => {
+    await loadPoints();
+    await loadIncidentsLies();
+    await loadIncSanHisto();
+  };
+
+  await load();
+  await loadSignaux();
+  await loadCommissions();
+  await loadReferentiels();
+  await loadRefCatalog();
+  await loadPoints();
+  await loadIncidentsLies();
+  await loadIncSanHisto();
+  if (routeState.comEleveId) {
+    const eid = routeState.comEleveId;
+    delete routeState.comEleveId;
+    const eleveSel = document.getElementById('comEleve');
+    if (eleveSel) {
+      if (![...eleveSel.options].some(o => o.value === eid)) {
+        const o = document.createElement('option');
+        o.value = eid;
+        o.textContent = ELEVE_NAME_CACHE[eid] || eid.slice(0, 8);
+        eleveSel.appendChild(o);
+      }
+      eleveSel.value = eid;
+      await loadComEleveHist();
+    }
+  }
+  if (routeState.comId) {
+    const cid = routeState.comId;
+    delete routeState.comId;
+    try { await openCommission(cid); } catch (e) { comMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  }
+  if (routeState.comDosId) {
+    document.getElementById('comDosId').value = routeState.comDosId;
+    const dosLab = document.getElementById('comDosLabel');
+    if (dosLab) dosLab.textContent = 'Dossier : ' + String(routeState.comDosId).slice(0, 8) + '…';
+    delete routeState.comDosId;
+  }
+  if (routeState.absEleveId) {
+    const eid = routeState.absEleveId;
+    delete routeState.absEleveId;
+    const absSel = document.getElementById('absEleve');
+    if (absSel) {
+      if (![...absSel.options].some(o => o.value === eid)) {
+        const o = document.createElement('option');
+        o.value = eid;
+        o.textContent = ELEVE_NAME_CACHE[eid] || eid.slice(0, 8);
+        absSel.appendChild(o);
+      }
+      absSel.value = eid;
+      try { await previewAbs(); } catch (_) { /* ignore */ }
+    }
+  }
+}
+
+/* ---------- Docs à signer (staff) ---------- */
+function viewDocsSigner() {
+  return shell('/app/docs-signer', `
+    <div class="bento" id="docStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h2>Publier</h2>
+        <p class="muted">Un élève, ou toute une classe (recherche → publier en lot).</p>
+        <div class="row">
+          ${elevePickerRow('docEleve', 'docEleveQ', 'btnDocEleveSearch')}
+          <label>Classe (lot) <input id="docClasse" placeholder="4B" style="width:4rem"/></label>
+          <button type="button" id="btnDocClasse">Publier à la classe</button>
+        </div>
+        <div class="row">
+          <label>Code <input id="docCode" value="REGLEMENT" style="width:8rem"/></label>
+          <label>Année <input id="docAnnee" value="2026-2027" style="width:7rem"/></label>
+          <label>Échéance <input id="docEcheance" type="date"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Titre <input id="docTitre" style="width:100%" value="Règlement intérieur"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Corps <textarea id="docCorps" rows="3" style="width:100%">Je m'engage à respecter le règlement.</textarea></label>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnDocPub">Publier à l’élève</button>
+        </div>
+        <div id="docMsg" class="muted"></div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>File établissement</h2>
+        <div class="row">
+          <label>Filtre <select id="docFlt">
+            <option value="">tous</option>
+            <option value="a_signer" selected>à signer</option>
+            <option value="signe">signés</option>
+            <option value="annule">annulés</option>
+          </select></label>
+          <button type="button" class="primary" id="btnDocLoad">Actualiser</button>
+        </div>
+        <div id="docOut" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+    </div>`);
+}
+
+async function bindDocsSigner() {
+  const msg = document.getElementById('docMsg');
+  const out = document.getElementById('docOut');
+  const stats = document.getElementById('docStats');
+  await bindElevePickers('docEleve', 'docEleveQ', 'btnDocEleveSearch');
+
+  function docBody() {
+    const body = {
+      code: document.getElementById('docCode').value.trim(),
+      titre: document.getElementById('docTitre').value.trim(),
+      corps: document.getElementById('docCorps').value.trim(),
+      annee_scolaire: document.getElementById('docAnnee').value.trim(),
+    };
+    const ech = document.getElementById('docEcheance').value;
+    if (ech) body.echeance = ech;
+    return body;
+  }
+
+  async function load() {
+    try {
+      const list = await api('/vs/docs-a-signer');
+      const nAtt = list.filter(d => d.statut === 'a_signer').length;
+      const nSigne = list.filter(d => d.statut === 'signe').length;
+      const nAnnule = list.filter(d => d.statut === 'annule').length;
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Documents</span></div>
+        <div class="stat-tile bento-span-4"><strong>${nAtt}</strong><span>À signer</span></div>
+        <div class="stat-tile bento-span-4"><strong>${nSigne}</strong><span>Signés · ${nAnnule} annulés</span></div>`;
+      const flt = (document.getElementById('docFlt') || {}).value || '';
+      const shown = !flt ? list : list.filter(d => d.statut === flt);
+      if (!shown.length) {
+        out.innerHTML = '<p class="empty">Aucun document' + (flt ? ' pour ce filtre' : '') + '.</p>';
+        return;
+      }
+      await hydrateEleveNames(shown.map(d => d.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>Élève</th><th>Code</th><th>Titre</th><th>Échéance</th><th>Statut</th><th>Signé</th><th></th></tr></thead>
+        <tbody>${shown.map(d => `<tr>
+          <td>${eleveCell(d)}</td>
+          <td>${esc(d.code)}</td>
+          <td title="${esc(d.corps || '')}">${esc(d.titre)}</td>
+          <td class="muted">${esc(d.echeance || '—')}</td>
+          <td><span class="pill">${esc(d.statut)}</span></td>
+          <td class="muted">${d.signe_at ? esc(String(d.signe_at).slice(0, 16).replace('T', ' ')) : '—'}</td>
+          <td>${d.statut === 'a_signer'
+            ? `<button type="button" class="btnDocAnn" data-id="${d.id}">Annuler</button>`
+            : ''}</td>
+        </tr>`).join('')}</tbody></table>`;
+      out.querySelectorAll('.btnDocAnn').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Annuler ce document ?')) return;
+          try {
+            await api('/docs-a-signer/' + btn.dataset.id + '/annuler', { method: 'POST', body: '{}' });
+            await load();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnDocPub').onclick = async () => {
+    const id = document.getElementById('docEleve').value.trim();
+    if (!id) { msg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      const d = await api('/eleves/' + encodeURIComponent(id) + '/docs-a-signer', {
+        method: 'POST',
+        body: JSON.stringify(docBody()),
+      });
+      msg.innerHTML = `<span class="ok">Publié — ${esc(d.titre)} (${esc(d.statut)})</span>`;
+      await load();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnDocClasse').onclick = async () => {
+    const classe = document.getElementById('docClasse').value.trim();
+    if (!classe) { msg.innerHTML = '<span class="bad">Classe requise</span>'; return; }
+    try {
+      const eleves = await api('/eleves/search?q=' + encodeURIComponent(classe));
+      const targets = (eleves || []).filter(e => String(e.classe || '').toUpperCase() === classe.toUpperCase());
+      if (!targets.length) { msg.innerHTML = '<span class="bad">Aucun élève en ' + esc(classe) + '</span>'; return; }
+      if (!confirm('Publier à ' + targets.length + ' élève(s) de ' + classe + ' ?')) return;
+      let ok = 0, ko = 0;
+      const body = docBody();
+      for (const e of targets) {
+        try {
+          await api('/eleves/' + encodeURIComponent(e.id) + '/docs-a-signer', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          ok++;
+        } catch { ko++; }
+      }
+      msg.innerHTML = `<span class="ok">${ok} publié(s)</span>${ko ? ` · <span class="bad">${ko} échec(s)</span>` : ''}`;
+      await load();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnDocLoad').onclick = load;
+  document.getElementById('docFlt').onchange = load;
+  const docEleveEl = document.getElementById('docEleve');
+  const docEleveOut = document.createElement('div');
+  docEleveOut.id = 'docEleveOut';
+  docEleveOut.className = 'muted';
+  docEleveOut.style.marginTop = '.5rem';
+  if (docEleveEl && docEleveEl.parentElement) {
+    docEleveEl.parentElement.appendChild(docEleveOut);
+  }
+  async function loadDocsEleve() {
+    const id = (docEleveEl && docEleveEl.value.trim()) || '';
+    if (!id) { docEleveOut.innerHTML = ''; return; }
+    try {
+      const list = await api('/eleves/' + encodeURIComponent(id) + '/docs-a-signer');
+      docEleveOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun doc pour cet élève.</p>'
+        : `<table><thead><tr><th>Code</th><th>Titre</th><th>Statut</th></tr></thead>
+           <tbody>${list.map(d => `<tr>
+             <td>${esc(d.code)}</td><td>${esc(d.titre)}</td>
+             <td><span class="pill">${esc(d.statut)}</span></td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      docEleveOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  if (docEleveEl) docEleveEl.onchange = loadDocsEleve;
+  await load();
+}
+
+/* ---------- Sorties VS ---------- */
+function viewSorties() {
+  return shell('/app/sorties', `
+    <div class="bento" id="sortStats"></div>
+    <div class="bento">
+    <div class="panel bento-span-6">
+      <h2>Demandes exceptionnelles</h2>
+      <p class="muted">File parent → CPE accepte ou refuse.</p>
+      <div class="row">
+        <label style="flex:1">Note de décision <input id="demNote" style="width:100%" placeholder="OK CPE / motif refus…"/></label>
+        <button type="button" class="primary" id="btnDemLoad">Rafraîchir</button>
+      </div>
+      <div class="row" style="margin-top:.5rem">
+        ${elevePickerRow('demStaffEleve', 'demStaffEleveQ', 'btnDemStaffSearch')}
+        <label>Jour <input id="demStaffJour" type="date" value="${today()}"/></label>
+        <label>Créneau <select id="demStaffCreneau">
+          <option value="matin">matin</option>
+          <option value="midi" selected>midi</option>
+          <option value="soir">soir</option>
+        </select></label>
+        <label>Motif <input id="demStaffMotif" placeholder="Demande accueil" style="min-width:10rem"/></label>
+        <button type="button" id="btnDemStaff">Saisir pour un parent</button>
+      </div>
+      <div id="demMsg" class="muted"></div>
+      <div id="demOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel bento-span-6">
+      <h2>Contrôle portail</h2>
+      <p class="muted">Verdict autorisé / refusé selon permanent, exception, règles niveau/régime, EDT site.</p>
+      <div class="row">
+        ${elevePickerRow('ctrlEleve', 'ctrlEleveQ', 'btnCtrlEleveSearch')}
+        <label>Jour <input id="ctrlJour" type="date" value="${today()}"/></label>
+        <label>Créneau <select id="ctrlCreneau">
+          <option value="matin">matin</option>
+          <option value="midi" selected>midi</option>
+          <option value="soir">soir</option>
+        </select></label>
+        <label>Site <input id="ctrlSite" placeholder="SiteA" style="width:6rem"/></label>
+        <label>Heure <input id="ctrlHeure" placeholder="12:05" style="width:5rem"/></label>
+        <button type="button" class="primary" id="btnCtrl">Contrôler</button>
+      </div>
+      <div id="ctrlMsg" class="muted"></div>
+      <h3 style="margin-top:1rem">Contrôles du jour</h3>
+      <div class="row">
+        <label>Jour <input id="histCtrlJour" type="date" value="${today()}"/></label>
+        <button type="button" id="btnHistCtrl">Charger</button>
+      </div>
+      <div id="histCtrlOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    </div>
+    <div class="panel">
+      <h2>Autorisation permanente (élève)</h2>
+      <div class="row">
+        ${elevePickerRow('autEleve', 'autEleveQ', 'btnAutEleveSearch')}
+        <label><input type="checkbox" id="autMatin"/> Matin</label>
+        <label><input type="checkbox" id="autMidi" checked/> Midi</label>
+        <label><input type="checkbox" id="autSoir"/> Soir</label>
+        <label><input type="checkbox" id="autForbid"/> Interdit établissement</label>
+        <button type="button" class="primary" id="btnAutSave">Enregistrer</button>
+        <button type="button" id="btnAutLoad">Lire</button>
+      </div>
+      <div id="autMsg" class="muted"></div>
+      <div id="autOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Paramètres & règles</h2>
+      <div class="row">
+        <label><input type="checkbox" id="parSite"/> Autoriser changement de site EDT</label>
+        <button type="button" class="primary" id="btnParSave">Sauver param</button>
+        <button type="button" id="btnParLoad">Lire</button>
+      </div>
+      <div id="parMsg" class="muted"></div>
+      <h3>Règle par niveau</h3>
+      <div class="row">
+        <label>Niveau <input id="regNiv" value="6e" style="width:4rem"/></label>
+        <label><input type="checkbox" id="regNivMatin"/> Matin</label>
+        <label><input type="checkbox" id="regNivMidi" checked/> Midi</label>
+        <label><input type="checkbox" id="regNivSoir"/> Soir</label>
+        <label><input type="checkbox" id="regNivForbid"/> Choix parent interdit</label>
+        <button type="button" class="primary" id="btnRegNiv">Upsert</button>
+        <button type="button" id="btnRegNivList">Lister</button>
+      </div>
+      <div id="regNivOut" class="muted" style="margin-top:.5rem">…</div>
+      <h3>Règle par régime</h3>
+      <div class="row">
+        <label>Régime <select id="regReg">
+          <option value="DP">DP</option>
+          <option value="EXT">EXT</option>
+          <option value="INT">INT</option>
+        </select></label>
+        <label><input type="checkbox" id="regRegMatin"/> Matin</label>
+        <label><input type="checkbox" id="regRegMidi" checked/> Midi</label>
+        <label><input type="checkbox" id="regRegSoir"/> Soir</label>
+        <label><input type="checkbox" id="regRegForbid"/> Choix parent interdit</label>
+        <button type="button" class="primary" id="btnRegReg">Upsert</button>
+        <button type="button" id="btnRegRegList">Lister</button>
+      </div>
+      <div id="regRegOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>`);
+}
+
+async function bindSorties() {
+  await bindElevePickers('ctrlEleve', 'ctrlEleveQ', 'btnCtrlEleveSearch');
+  await bindElevePickers('autEleve', 'autEleveQ', 'btnAutEleveSearch');
+
+  async function updateSortStats(demandes, controles) {
+    const box = document.getElementById('sortStats');
+    if (!box) return;
+    const ok = (controles || []).filter(c => String(c.verdict || '').startsWith('autoris')).length;
+    const ko = (controles || []).length - ok;
+    box.innerHTML = `
+      <div class="stat-tile bento-span-4"><strong>${(demandes || []).length}</strong><span>Demandes en file</span></div>
+      <div class="stat-tile bento-span-4"><strong>${ok}</strong><span>Contrôles autorisés</span></div>
+      <div class="stat-tile bento-span-4"><strong>${ko}</strong><span>Contrôles refusés</span></div>`;
+  }
+
+  async function loadDemandes() {
+    const out = document.getElementById('demOut');
+    try {
+      const list = await api('/vs/sorties/demandes');
+      let ctrls = [];
+      try {
+        const jour = document.getElementById('histCtrlJour')?.value || today();
+        ctrls = await api('/vs/sorties/controles?jour=' + encodeURIComponent(jour));
+      } catch {}
+      await updateSortStats(list, ctrls);
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucune demande en attente.</p>';
+        return;
+      }
+      await hydrateEleveNames(list.map(d => d.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>Jour</th><th>Élève</th><th>Créneau</th><th>Motif</th><th>Statut</th><th>Note</th><th></th></tr></thead>
+        <tbody>${list.map(d => `<tr>
+          <td>${esc(d.jour)}</td>
+          <td>${eleveCell(d)}</td>
+          <td><span class="pill">${esc(d.creneau)}</span></td>
+          <td>${esc(d.motif)}</td>
+          <td><span class="pill">${esc(d.statut || 'en_attente')}</span></td>
+          <td class="muted">${esc(d.decision_note || '—')}</td>
+          <td>
+            <button type="button" class="btnDemOk" data-id="${d.id}">Accepter</button>
+            <button type="button" class="btnDemNo" data-id="${d.id}">Refuser</button>
+          </td>
+        </tr>`).join('')}</tbody></table>`;
+      const noteDec = () => {
+        const v = (document.getElementById('demNote')?.value || '').trim();
+        return v || null;
+      };
+      out.querySelectorAll('.btnDemOk').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/vs/sorties/demandes/' + btn.dataset.id + '/decider', {
+              method: 'POST',
+              body: JSON.stringify({ accepter: true, decision_note: noteDec() || 'OK CPE' }),
+            });
+            await loadDemandes();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      out.querySelectorAll('.btnDemNo').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/vs/sorties/demandes/' + btn.dataset.id + '/decider', {
+              method: 'POST',
+              body: JSON.stringify({ accepter: false, decision_note: noteDec() || 'Refus CPE' }),
+            });
+            await loadDemandes();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnDemLoad').onclick = loadDemandes;
+  await bindElevePickers('demStaffEleve', 'demStaffEleveQ', 'btnDemStaffSearch');
+  document.getElementById('btnDemStaff').onclick = async () => {
+    const msg = document.getElementById('demMsg');
+    const eid = document.getElementById('demStaffEleve').value.trim();
+    if (!eid) { msg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      await api('/eleves/' + encodeURIComponent(eid) + '/sorties/demandes', {
+        method: 'POST',
+        body: JSON.stringify({
+          jour: document.getElementById('demStaffJour').value || today(),
+          creneau: document.getElementById('demStaffCreneau').value,
+          motif: document.getElementById('demStaffMotif').value.trim() || 'Demande accueil',
+        }),
+      });
+      msg.innerHTML = '<span class="ok">Demande saisie</span>';
+      await loadDemandes();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  document.getElementById('btnCtrl').onclick = async () => {
+    const msg = document.getElementById('ctrlMsg');
+    const eleve = document.getElementById('ctrlEleve').value;
+    if (!eleve) { msg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      const body = {
+        eleve_id: eleve,
+        jour: document.getElementById('ctrlJour').value || today(),
+        creneau: document.getElementById('ctrlCreneau').value,
+      };
+      const site = document.getElementById('ctrlSite').value.trim();
+      const heure = document.getElementById('ctrlHeure').value.trim();
+      if (site) body.site_portail = site;
+      if (heure) body.heure = heure;
+      const c = await api('/vs/sorties/controle', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      msg.innerHTML = `<span class="${c.verdict === 'autorise' || c.verdict === 'autorisee' ? 'ok' : 'bad'}">${esc(c.verdict)}</span>
+        · ${esc(c.source)} — ${esc(c.motif || '')}`;
+      await loadHistCtrl();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function loadHistCtrl() {
+    const out = document.getElementById('histCtrlOut');
+    const jour = document.getElementById('histCtrlJour').value || today();
+    try {
+      const list = await api('/vs/sorties/controles?jour=' + encodeURIComponent(jour));
+      let dem = [];
+      try { dem = await api('/vs/sorties/demandes'); } catch {}
+      await updateSortStats(dem, list);
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucun contrôle.</p>';
+        return;
+      }
+      await hydrateEleveNames(list.map(c => c.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>Élève</th><th>Créneau</th><th>Verdict</th><th>Source</th><th>Motif</th></tr></thead>
+        <tbody>${list.map(c => `<tr>
+          <td>${eleveCell(c)}</td>
+          <td>${esc(c.creneau)}</td>
+          <td><span class="pill">${esc(c.verdict)}</span></td>
+          <td>${esc(c.source)}</td>
+          <td>${esc(c.motif || '')}</td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnHistCtrl').onclick = loadHistCtrl;
+  document.getElementById('histCtrlJour').onchange = async () => {
+    await loadHistCtrl();
+    await loadDemandes();
+  };
+
+  async function loadAut() {
+    const id = document.getElementById('autEleve').value;
+    const out = document.getElementById('autOut');
+    const msg = document.getElementById('autMsg');
+    if (!id) {
+      if (out) out.innerHTML = '<p class="empty">Choisir un élève…</p>';
+      return;
+    }
+    try {
+      const r = await api('/eleves/' + encodeURIComponent(id) + '/sorties');
+      const a = r.autorisation;
+      if (r.eleve_label) seedEleveLabel(r.eleve_id, r.eleve_label);
+      if (a) {
+        document.getElementById('autMatin').checked = !!a.matin;
+        document.getElementById('autMidi').checked = !!a.midi;
+        document.getElementById('autSoir').checked = !!a.soir;
+        document.getElementById('autForbid').checked = !!a.interdit_etablissement;
+      } else {
+        document.getElementById('autMatin').checked = false;
+        document.getElementById('autMidi').checked = false;
+        document.getElementById('autSoir').checked = false;
+        document.getElementById('autForbid').checked = false;
+      }
+      const dems = r.demandes_ouvertes || [];
+      const dem = dems.length
+        ? `<table style="margin-top:.5rem"><thead><tr><th>Jour</th><th>Créneau</th><th>Motif</th><th>Statut</th></tr></thead>
+           <tbody>${dems.map(d => `<tr>
+             <td>${esc(d.jour)}</td><td>${esc(d.creneau)}</td>
+             <td>${esc(d.motif)}</td><td><span class="pill">${esc(d.statut)}</span></td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="muted">Aucune demande ouverte</p>';
+      const nom = r.eleve_label || ELEVE_NAME_CACHE[r.eleve_id] || id.slice(0, 8);
+      out.innerHTML = `<p><strong>${esc(nom)}</strong> — Permanent: M=${a ? (a.matin ? 'oui' : 'non') : '—'} Midi=${a ? (a.midi ? 'oui' : 'non') : '—'} S=${a ? (a.soir ? 'oui' : 'non') : '—'} forbid=${a ? (a.interdit_etablissement ? 'oui' : 'non') : '—'}</p>
+        <h4>Demandes ouvertes</h4>${dem}`;
+      msg.innerHTML = '<span class="ok">Lu</span>';
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  document.getElementById('btnAutLoad').onclick = loadAut;
+  document.getElementById('autEleve').onchange = loadAut;
+  document.getElementById('btnAutSave').onclick = async () => {
+    const id = document.getElementById('autEleve').value;
+    const msg = document.getElementById('autMsg');
+    if (!id) return;
+    try {
+      await api('/eleves/' + encodeURIComponent(id) + '/sorties', {
+        method: 'PUT',
+        body: JSON.stringify({
+          matin: document.getElementById('autMatin').checked,
+          midi: document.getElementById('autMidi').checked,
+          soir: document.getElementById('autSoir').checked,
+          interdit_etablissement: document.getElementById('autForbid').checked,
+        }),
+      });
+      msg.innerHTML = '<span class="ok">Autorisation enregistrée</span>';
+      await loadAut();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  document.getElementById('btnParLoad').onclick = async () => {
+    const msg = document.getElementById('parMsg');
+    try {
+      const p = await api('/vs/sorties/param');
+      document.getElementById('parSite').checked = !!p.autoriser_changement_site;
+      msg.innerHTML = '<span class="ok">Param lu</span>';
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnParSave').onclick = async () => {
+    const msg = document.getElementById('parMsg');
+    try {
+      await api('/vs/sorties/param', {
+        method: 'PUT',
+        body: JSON.stringify({
+          autoriser_changement_site: document.getElementById('parSite').checked,
+        }),
+      });
+      msg.innerHTML = '<span class="ok">Param sauvé</span>';
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function loadRegNiv() {
+    const out = document.getElementById('regNivOut');
+    try {
+      const list = await api('/vs/sorties/regles');
+      if (!list.length) { out.innerHTML = '<p class="empty">Aucune règle niveau.</p>'; return; }
+      out.innerHTML = `<table><thead><tr><th>Niveau</th><th>M</th><th>Midi</th><th>S</th><th>Forbid parent</th></tr></thead>
+        <tbody>${list.map(r => `<tr>
+          <td>${esc(r.niveau)}</td><td>${r.matin_autorise ? 'oui' : 'non'}</td>
+          <td>${r.midi_autorise ? 'oui' : 'non'}</td><td>${r.soir_autorise ? 'oui' : 'non'}</td>
+          <td>${r.choix_parent_interdit ? 'oui' : 'non'}</td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnRegNivList').onclick = loadRegNiv;
+  document.getElementById('btnRegNiv').onclick = async () => {
+    try {
+      await api('/vs/sorties/regles', {
+        method: 'POST',
+        body: JSON.stringify({
+          niveau: document.getElementById('regNiv').value.trim() || '6e',
+          matin_autorise: document.getElementById('regNivMatin').checked,
+          midi_autorise: document.getElementById('regNivMidi').checked,
+          soir_autorise: document.getElementById('regNivSoir').checked,
+          choix_parent_interdit: document.getElementById('regNivForbid').checked,
+        }),
+      });
+      await loadRegNiv();
+    } catch (e) { alert(e.message); }
+  };
+
+  async function loadRegReg() {
+    const out = document.getElementById('regRegOut');
+    try {
+      const list = await api('/vs/sorties/regles-regime');
+      if (!list.length) { out.innerHTML = '<p class="empty">Aucune règle régime.</p>'; return; }
+      out.innerHTML = `<table><thead><tr><th>Régime</th><th>M</th><th>Midi</th><th>S</th><th>Forbid parent</th></tr></thead>
+        <tbody>${list.map(r => `<tr>
+          <td>${esc(r.regime)}</td><td>${r.matin_autorise ? 'oui' : 'non'}</td>
+          <td>${r.midi_autorise ? 'oui' : 'non'}</td><td>${r.soir_autorise ? 'oui' : 'non'}</td>
+          <td>${r.choix_parent_interdit ? 'oui' : 'non'}</td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnRegRegList').onclick = loadRegReg;
+  document.getElementById('btnRegReg').onclick = async () => {
+    try {
+      await api('/vs/sorties/regles-regime', {
+        method: 'POST',
+        body: JSON.stringify({
+          regime: document.getElementById('regReg').value,
+          matin_autorise: document.getElementById('regRegMatin').checked,
+          midi_autorise: document.getElementById('regRegMidi').checked,
+          soir_autorise: document.getElementById('regRegSoir').checked,
+          choix_parent_interdit: document.getElementById('regRegForbid').checked,
+        }),
+      });
+      await loadRegReg();
+    } catch (e) { alert(e.message); }
+  };
+
+  await loadDemandes();
+  await loadHistCtrl();
+  await document.getElementById('btnParLoad').onclick();
+  await loadRegNiv();
+  await loadRegReg();
+  await loadAut();
+}
+
+/* ---------- Dispenses VS ---------- */
+function viewDispensesVs() {
+  return shell('/app/dispenses', `
+    <div class="bento" id="dvStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h2>Poser une dispense</h2>
+        <p class="muted">EPS / piscine / sport / médical — couvre appel et EDT.</p>
+        <div class="row">
+          ${elevePickerRow('dvEleve', 'dvEleveQ', 'btnDvEleveSearch')}
+        </div>
+        <div class="row">
+          <label>Motif <select id="dvMotif">
+            <option value="eps">eps</option>
+            <option value="piscine">piscine</option>
+            <option value="sport">sport</option>
+            <option value="medical">medical</option>
+            <option value="autre">autre</option>
+          </select></label>
+          <label>Début <input id="dvDebut" type="date" value="${today()}"/></label>
+          <label>Fin <input id="dvFin" type="date" value="${today()}"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Commentaire <input id="dvCom" style="width:100%"/></label>
+          <button type="button" class="primary" id="btnDvPose">Poser</button>
+          <button type="button" id="btnDvEleve">Historique élève</button>
+        </div>
+        <div id="dvMsg" class="muted"></div>
+        <div id="dvEleveOut" class="muted" style="margin-top:.5rem">…</div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>Actives ce jour</h2>
+        <div class="row">
+          <label>Jour <input id="dvJour" type="date" value="${today()}"/></label>
+          <button type="button" class="primary" id="btnDvJour">Actualiser</button>
+        </div>
+        <div id="dvJourOut" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+    </div>`);
+}
+
+async function bindDispensesVs() {
+  const sel = document.getElementById('dvEleve');
+  await bindElevePickers('dvEleve', 'dvEleveQ', 'btnDvEleveSearch');
+  const msg = document.getElementById('dvMsg');
+  const stats = document.getElementById('dvStats');
+
+  function bindClore(root, reload) {
+    root.querySelectorAll('[data-clore]').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await api('/vs/dispenses/' + btn.dataset.clore + '/clore', {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+          await reload();
+        } catch (e) { alert(e.message); }
+      };
+    });
+  }
+
+  async function loadEleve() {
+    const out = document.getElementById('dvEleveOut');
+    const id = sel.value;
+    if (!id) { out.innerHTML = '<p class="empty">Élève requis</p>'; return; }
+    try {
+      const list = await api('/eleves/' + encodeURIComponent(id) + '/dispenses-vs');
+      if (!list.length) { out.innerHTML = '<p class="empty">Aucune dispense.</p>'; return; }
+      out.innerHTML = `<table><thead><tr><th>Motif</th><th>Début</th><th>Fin</th><th>Commentaire</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${list.map(d => `<tr>
+          <td><span class="pill">${esc(d.motif)}</span></td>
+          <td>${esc(d.debut)}</td><td>${esc(d.fin)}</td>
+          <td class="muted">${esc(d.commentaire || '—')}</td>
+          <td>${esc(d.statut)}</td>
+          <td>${d.statut === 'active'
+            ? `<button type="button" data-clore="${d.id}">Clore</button>` : ''}</td>
+        </tr>`).join('')}</tbody></table>`;
+      bindClore(out, async () => { await loadEleve(); await loadJour(); });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function loadJour() {
+    const out = document.getElementById('dvJourOut');
+    const jour = document.getElementById('dvJour').value || today();
+    try {
+      const list = await api('/vs/dispenses?jour=' + encodeURIComponent(jour));
+      const actives = list.filter(d => d.statut === 'active');
+      const byMotif = {};
+      actives.forEach(d => { byMotif[d.motif] = (byMotif[d.motif] || 0) + 1; });
+      const motifBits = Object.keys(byMotif).map(k => `${k}: ${byMotif[k]}`).join(' · ') || '—';
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${actives.length}</strong><span>Actives le ${esc(jour)}</span></div>
+          <div class="stat-tile bento-span-8"><strong>${esc(motifBits)}</strong><span>Répartition motifs</span></div>`;
+      }
+      if (!list.length) { out.innerHTML = '<p class="empty">Aucune dispense ce jour.</p>'; return; }
+      await hydrateEleveNames(list.map(d => d.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>Élève</th><th>Motif</th><th>Début</th><th>Fin</th><th>Com.</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${list.map(d => `<tr class="dvJourRow" data-eid="${esc(d.eleve_id)}" style="cursor:pointer">
+          <td>${eleveCell(d)}</td>
+          <td><span class="pill">${esc(d.motif)}</span></td>
+          <td>${esc(d.debut)}</td><td>${esc(d.fin)}</td>
+          <td class="muted">${esc(d.commentaire || '—')}</td>
+          <td>${esc(d.statut)}</td>
+          <td>${d.statut === 'active'
+            ? `<button type="button" data-clore="${d.id}">Clore</button>` : ''}</td>
+        </tr>`).join('')}</tbody></table>`;
+      out.querySelectorAll('.dvJourRow').forEach(tr => {
+        tr.onclick = async (ev) => {
+          if (ev.target && ev.target.closest && ev.target.closest('button')) return;
+          const eid = tr.dataset.eid;
+          if (!eid) return;
+          if (![...sel.options].some(o => o.value === eid)) {
+            const opt = document.createElement('option');
+            opt.value = eid;
+            opt.textContent = ELEVE_NAME_CACHE[eid] || eid.slice(0, 8);
+            sel.appendChild(opt);
+          }
+          sel.value = eid;
+          await loadEleve();
+        };
+      });
+      bindClore(out, async () => { await loadJour(); await loadEleve(); });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnDvPose').onclick = async () => {
+    const id = sel.value;
+    if (!id) { msg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    try {
+      const d = await api('/eleves/' + encodeURIComponent(id) + '/dispenses-vs', {
+        method: 'POST',
+        body: JSON.stringify({
+          motif: document.getElementById('dvMotif').value,
+          debut: document.getElementById('dvDebut').value || today(),
+          fin: document.getElementById('dvFin').value || today(),
+          commentaire: document.getElementById('dvCom').value.trim(),
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Dispense ${esc(d.motif)} posée</span>`;
+      await loadEleve();
+      await loadJour();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnDvEleve').onclick = loadEleve;
+  document.getElementById('btnDvJour').onclick = loadJour;
+  sel.onchange = loadEleve;
+  document.getElementById('dvJour').onchange = loadJour;
+  await loadEleve();
+  await loadJour();
+}
+
+/* ---------- Alertes CPE ---------- */
+function viewAlertesCpe() {
+  return shell('/app/alertes', `
+    <div class="bento" id="alStats"></div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h2>Nouvelle alerte</h2>
+        <p class="muted">Si visible famille, le parent la lit dans son portail.</p>
+        <div class="row">
+          ${elevePickerRow('alEleve', 'alEleveQ', 'btnAlEleveSearch')}
+          <label>Jour <input id="alJour" type="date" value="${today()}"/></label>
+        </div>
+        <div class="row">
+          <label>Sévérité <select id="alSev">
+            <option value="info">info</option>
+            <option value="attention" selected>attention</option>
+            <option value="urgent">urgent</option>
+          </select></label>
+          <label><input type="checkbox" id="alVisFam" checked/> Visible famille</label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Titre <input id="alTitre" style="width:100%" placeholder="Retards répétés"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Détail <textarea id="alDetail" rows="3" style="width:100%"></textarea></label>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnAlSave">Créer</button>
+          <span id="alDossierLink" class="muted"></span>
+        </div>
+        <div id="alMsg" class="muted"></div>
+        <h3 style="margin-top:1rem">Historique élève</h3>
+        <div id="alHistoOut" class="muted">Choisir un élève…</div>
+      </div>
+      <div class="panel bento-span-7">
+        <h2>File ouverte</h2>
+        <div class="row">
+          <label>Sévérité <select id="alFlt">
+            <option value="">toutes</option>
+            <option value="info">info</option>
+            <option value="attention">attention</option>
+            <option value="urgent">urgent</option>
+          </select></label>
+          <button type="button" class="primary" id="btnAlLoad">Actualiser</button>
+        </div>
+        <div id="alOut" class="muted" style="margin-top:.75rem">…</div>
+      </div>
+    </div>`);
+}
+
+async function bindAlertesCpe() {
+  const msg = document.getElementById('alMsg');
+  const out = document.getElementById('alOut');
+  const stats = document.getElementById('alStats');
+  await bindElevePickers('alEleve', 'alEleveQ', 'btnAlEleveSearch');
+  async function load() {
+    try {
+      const list = await api('/vs/alertes-cpe');
+      const nU = list.filter(a => a.severite === 'urgent').length;
+      const nA = list.filter(a => a.severite === 'attention').length;
+      const nI = list.filter(a => a.severite === 'info').length;
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-3"><strong>${list.length}</strong><span>Ouvertes</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nU}</strong><span>Urgentes</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nA}</strong><span>Attention</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nI}</strong><span>Info</span></div>`;
+      const flt = (document.getElementById('alFlt') || {}).value || '';
+      const shown = flt ? list.filter(a => a.severite === flt) : list;
+      if (!shown.length) {
+        out.innerHTML = '<p class="empty">Aucune alerte ouverte.</p>';
+        return;
+      }
+      await hydrateEleveNames(shown.map(a => a.eleve_id));
+      out.innerHTML = `<table><thead><tr><th>Jour</th><th>Élève</th><th>Titre</th><th>Détail</th><th>Sév.</th><th>Fam.</th><th></th></tr></thead>
+        <tbody>${shown.map(a => `<tr>
+          <td>${esc(a.jour)}</td>
+          <td>${eleveCell(a)}</td>
+          <td><strong>${esc(a.titre)}</strong></td>
+          <td class="muted">${esc(a.detail || '—')}</td>
+          <td><span class="pill">${esc(a.severite)}</span></td>
+          <td>${a.visible_famille ? 'oui' : 'non'}</td>
+          <td><button type="button" class="btnAlClore" data-id="${a.id}">Clôturer</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      out.querySelectorAll('.btnAlClore').forEach(btn => {
+        btn.onclick = async () => {
+          const note = prompt('Note de clôture', 'Traité') || 'Traité';
+          try {
+            await api('/vs/alertes-cpe/' + btn.dataset.id + '/clore', {
+              method: 'POST',
+              body: JSON.stringify({ note }),
+            });
+            await load();
+            await loadHistoEleve();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnAlSave').onclick = async () => {
+    const id = document.getElementById('alEleve').value.trim();
+    const titre = document.getElementById('alTitre').value.trim();
+    if (!id || !titre) { msg.innerHTML = '<span class="bad">Élève et titre requis</span>'; return; }
+    try {
+      const a = await api('/eleves/' + encodeURIComponent(id) + '/alertes-cpe', {
+        method: 'POST',
+        body: JSON.stringify({
+          titre,
+          detail: document.getElementById('alDetail').value.trim(),
+          severite: document.getElementById('alSev').value,
+          visible_famille: document.getElementById('alVisFam').checked,
+          jour: document.getElementById('alJour').value || today(),
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Alerte créée — ${esc(a.titre)}</span>`;
+      document.getElementById('alTitre').value = '';
+      document.getElementById('alDetail').value = '';
+      await load();
+      await loadHistoEleve();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnAlLoad').onclick = load;
+  document.getElementById('alFlt').onchange = load;
+  const alHistoOut = document.getElementById('alHistoOut');
+  const alDossierLink = document.getElementById('alDossierLink');
+  async function loadHistoEleve() {
+    const id = document.getElementById('alEleve').value.trim();
+    if (alDossierLink) {
+      alDossierLink.innerHTML = id
+        ? `<a href="/app/eleves/${esc(id)}">Dossier élève</a>`
+        : '';
+    }
+    if (!id) {
+      if (alHistoOut) alHistoOut.innerHTML = '<p class="empty">Choisir un élève…</p>';
+      return;
+    }
+    if (alHistoOut) alHistoOut.textContent = 'Chargement…';
+    try {
+      const list = await api('/eleves/' + encodeURIComponent(id) + '/alertes-cpe');
+      if (!list.length) {
+        alHistoOut.innerHTML = '<p class="empty">Aucune alerte pour cet élève.</p>';
+        return;
+      }
+      alHistoOut.innerHTML = `<table><thead><tr><th>Jour</th><th>Titre</th><th>Sév.</th><th>Statut</th><th>Clôture</th></tr></thead>
+        <tbody>${list.map(a => `<tr>
+          <td>${esc(a.jour)}</td>
+          <td><strong>${esc(a.titre)}</strong><div class="muted">${esc(a.detail || '')}</div></td>
+          <td><span class="pill">${esc(a.severite)}</span></td>
+          <td>${esc(a.statut)}</td>
+          <td class="muted">${esc(a.cloture_note || '—')}</td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      alHistoOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('alEleve').onchange = loadHistoEleve;
+  await load();
+  await loadHistoEleve();
+}
+
+/* ---------- Conseils de classe ---------- */
+function viewConseils() {
+  return shell('/app/conseils', `
+    <div class="bento" id="ccStats"></div>
+    <div class="panel">
+      <h2>Conseil de classe</h2>
+      <p class="muted">Période = période de notes · planifier → effectif → moyennes sous la main → mentions → tenu.</p>
+      <div class="row">
+        <label>Classe <input id="ccClasse" value="4B" style="width:4rem"/></label>
+        <label>Période notes <select id="ccPeriode"><option value="">…</option></select></label>
+        <label>Jour <input id="ccJour" type="date" value="${today()}"/></label>
+        <label>Heure <input id="ccHeure" value="17:00" style="width:5rem"/></label>
+        <label>Lieu <input id="ccLieu" value="Salle des conseils"/></label>
+        <button type="button" class="primary" id="btnCcCreer">Créer</button>
+        <button type="button" id="btnCcList">Lister classe</button>
+      </div>
+      <div id="ccMsg" class="muted"></div>
+      <div id="ccOut" class="muted" style="margin-top:.5rem">…</div>
+      <h3 style="margin-top:1rem">Historique élève</h3>
+      <div id="ccHistoOut" class="muted">Choisir un élève dans le panneau dossiers…</div>
+    </div>
+    <div class="panel">
+      <h3>Dossiers / décisions</h3>
+      <input type="hidden" id="ccId"/>
+      <input type="hidden" id="ccPeriodeId"/>
+      <p id="ccActif" class="muted">Conseil actif : — (Créer ou Ouvrir)</p>
+      <div id="ccMoyBox" class="muted" style="margin:.5rem 0"></div>
+      <div class="row">
+        ${elevePickerRow('ccEleve', 'ccEleveQ', 'btnCcEleveSearch')}
+        <button type="button" id="btnCcAdd">Ajouter élève</button>
+        <button type="button" class="primary" id="btnCcImport">Importer effectif</button>
+        <button type="button" id="btnCcDos">Rafraîchir</button>
+        <button type="button" id="btnCcTenir">Marquer tenu</button>
+      </div>
+      <div class="row">
+        <label style="flex:1">Appréciation <input id="ccApp" style="width:100%" placeholder="Trimestre solide…"/></label>
+        <label style="flex:1">Décision libre <input id="ccDecText" style="width:100%" placeholder="Poursuite en 3e générale…"/></label>
+        <label>Mention <select id="ccMention">
+          <option value="encouragements">encouragements</option>
+          <option value="felicitations">félicitations</option>
+          <option value="complement">complément</option>
+          <option value="avertissement_travail">avertissement travail</option>
+          <option value="avertissement_conduite">avertissement conduite</option>
+          <option value="aucune">aucune</option>
+        </select></label>
+        <label><input type="checkbox" id="ccVisFam" checked/> Visible famille</label>
+        <button type="button" class="primary" id="btnCcDecide">Décider (sélection)</button>
+      </div>
+      <input type="hidden" id="ccDosId"/>
+      <div id="ccDosOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>`);
+}
+
+async function bindConseils() {
+  const msg = document.getElementById('ccMsg');
+  const out = document.getElementById('ccOut');
+  const dosOut = document.getElementById('ccDosOut');
+  const actif = document.getElementById('ccActif');
+  const moyBox = document.getElementById('ccMoyBox');
+  await bindElevePickers('ccEleve', 'ccEleveQ', 'btnCcEleveSearch');
+
+  let notePeriodes = [];
+  async function loadNotePeriodes() {
+    const sel = document.getElementById('ccPeriode');
+    try {
+      notePeriodes = await api('/note-periodes') || [];
+      if (!notePeriodes.length) {
+        sel.innerHTML = '<option value="T1">T1 (aucune période notes)</option><option value="T2">T2</option><option value="T3">T3</option>';
+        return;
+      }
+      sel.innerHTML = notePeriodes.map(p =>
+        `<option value="${esc(p.libelle)}" data-id="${esc(p.id)}">${esc(p.libelle)} · ${esc(p.statut)}</option>`
+      ).join('');
+      syncPeriodeId();
+    } catch (e) {
+      sel.innerHTML = '<option value="T1">T1</option>';
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  function syncPeriodeId() {
+    const sel = document.getElementById('ccPeriode');
+    const opt = sel.selectedOptions[0];
+    document.getElementById('ccPeriodeId').value = (opt && opt.dataset.id) || '';
+  }
+  document.getElementById('ccPeriode').onchange = async () => {
+    syncPeriodeId();
+    const eid = (document.getElementById('ccEleve') && document.getElementById('ccEleve').value.trim()) || '';
+    if (eid) await showMoyennesEleve(eid);
+  };
+
+  function setConseilActif(c) {
+    document.getElementById('ccId').value = c && c.id ? c.id : '';
+    moyBox.innerHTML = '';
+    if (!c || !c.id) {
+      actif.textContent = 'Conseil actif : — (Créer ou Ouvrir)';
+      return;
+    }
+    actif.innerHTML = `Conseil actif : <strong>${esc(c.classe || '')} ${esc(c.periode_libelle || '')}</strong>
+      · ${esc(c.jour || '')} ${esc(c.heure || '')} · <span class="pill">${esc(c.statut || '')}</span>`;
+    if (c.classe) document.getElementById('ccClasse').value = c.classe;
+    if (c.periode_libelle) {
+      const sel = document.getElementById('ccPeriode');
+      if (![...sel.options].some(o => o.value === c.periode_libelle)) {
+        const o = document.createElement('option');
+        o.value = c.periode_libelle;
+        o.textContent = c.periode_libelle;
+        sel.appendChild(o);
+      }
+      sel.value = c.periode_libelle;
+      syncPeriodeId();
+    }
+  }
+
+  const nameOf = eleveNameOf;
+
+  async function loadList() {
+    const classe = document.getElementById('ccClasse').value.trim();
+    const stats = document.getElementById('ccStats');
+    try {
+      const list = await api('/conseils-classe?classe=' + encodeURIComponent(classe));
+      const nTenu = (list || []).filter(c => c.statut === 'tenu').length;
+      const nPlan = (list || []).filter(c => c.statut !== 'tenu').length;
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Conseils ${esc(classe)}</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nPlan}</strong><span>À tenir / planifiés</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nTenu}</strong><span>Tenus</span></div>`;
+      }
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucun conseil pour cette classe.</p>';
+        return;
+      }
+      out.innerHTML = `<table><thead><tr><th>Jour</th><th>Période</th><th>Lieu</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${list.map(c => `<tr>
+          <td>${esc(c.jour)} ${esc(c.heure)}</td>
+          <td>${esc(c.periode_libelle)}</td>
+          <td>${esc(c.lieu || '—')}</td>
+          <td><span class="pill">${esc(c.statut)}</span></td>
+          <td><button type="button" class="btnCcOpen" data-id="${esc(c.id)}">Ouvrir</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      const byId = Object.fromEntries(list.map(c => [c.id, c]));
+      out.querySelectorAll('.btnCcOpen').forEach(btn => {
+        btn.onclick = async () => {
+          setConseilActif(byId[btn.dataset.id]);
+          await loadDos();
+        };
+      });
+      const aTenir = (list || []).find(c => c.statut !== 'tenu');
+      if (aTenir && !document.getElementById('ccId').value) {
+        setConseilActif(aTenir);
+        await loadDos();
+      }
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function loadHistoConseilEleve() {
+    const box = document.getElementById('ccHistoOut');
+    const eid = document.getElementById('ccEleve').value.trim();
+    if (!box) return;
+    if (!eid) { box.innerHTML = '<p class="empty">Choisir un élève…</p>'; return; }
+    box.textContent = 'Chargement…';
+    try {
+      const list = await api('/eleves/' + encodeURIComponent(eid) + '/conseils');
+      if (!list.length) {
+        box.innerHTML = '<p class="empty">Aucun dossier conseil pour cet élève.</p>';
+        return;
+      }
+      box.innerHTML = `<table><thead><tr><th>Mention</th><th>Appréciation</th><th>Décision</th><th>Fam.</th><th>Décidé</th><th></th></tr></thead>
+        <tbody>${list.map(c => `<tr>
+          <td><span class="pill">${esc(c.mention || '—')}</span></td>
+          <td>${esc(c.appreciation || '—')}</td>
+          <td class="muted">${esc(c.decision_texte || '—')}</td>
+          <td>${c.visible_famille ? 'oui' : 'non'}</td>
+          <td class="muted">${esc(c.decided_at ? String(c.decided_at).slice(0, 10) : '—')}</td>
+          <td><button type="button" class="btnCcHistoOpen" data-cid="${esc(c.conseil_id)}">Ouvrir</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      box.querySelectorAll('.btnCcHistoOpen').forEach(btn => {
+        btn.onclick = async () => {
+          document.getElementById('ccId').value = btn.dataset.cid;
+          setConseilActif({ id: btn.dataset.cid, classe: document.getElementById('ccClasse').value, periode_libelle: document.getElementById('ccPeriode').value, jour: '', heure: '', statut: '…' });
+          await loadDos();
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function showMoyennesEleve(eleveId) {
+    const pid = document.getElementById('ccPeriodeId').value.trim();
+    if (!eleveId || !pid) {
+      moyBox.innerHTML = pid
+        ? '<span class="muted">Sélectionnez un élève pour voir ses moyennes.</span>'
+        : '<span class="muted">Choisissez une période de notes pour afficher les moyennes.</span>';
+      return;
+    }
+    moyBox.textContent = 'Moyennes…';
+    try {
+      const moy = await api('/eleves/' + eleveId + '/moyennes?periode_id=' + encodeURIComponent(pid));
+      if (!moy.length) {
+        moyBox.innerHTML = `<p class="empty">Pas encore de moyennes pour ${esc(ELEVE_NAME_CACHE[eleveId] || 'cet élève')}.</p>`;
+        return;
+      }
+      moyBox.innerHTML = `<p class="dossier-help" style="margin:0 0 .35rem">Moyennes — ${esc(ELEVE_NAME_CACHE[eleveId] || '')}</p>
+        <div class="row" style="margin:0">${moy.map(m =>
+          `<span class="pill"><strong>${esc(m.matiere_libelle || 'Matière')}</strong> ${Number(m.moyenne_sur_20).toFixed(1)}</span>`
+        ).join('')}</div>`;
+    } catch (e) {
+      moyBox.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+
+  async function loadDos() {
+    const id = document.getElementById('ccId').value.trim();
+    if (!id) { dosOut.innerHTML = '<span class="bad">Conseil requis</span>'; return; }
+    try {
+      const list = await api('/conseils-classe/' + encodeURIComponent(id) + '/dossiers');
+      if (!list.length) {
+        dosOut.innerHTML = '<p class="empty">Aucun dossier — Importer effectif ou ajouter un élève.</p>';
+        return;
+      }
+      for (const d of list) {
+        if (d.eleve_label) seedEleveLabel(d.eleve_id, d.eleve_label);
+      }
+      const rows = list.map(d => `<tr>
+          <td>${eleveCell(d)} <a class="muted" href="/app/eleves/${esc(d.eleve_id)}">dossier</a></td>
+          <td class="muted">${esc(d.appreciation || '—')}</td>
+          <td>${esc(d.mention || '—')}</td>
+          <td class="muted">${esc(d.decision_texte || '—')}</td>
+          <td>${d.decided_at ? esc(String(d.decided_at).slice(0, 10)) : '—'}</td>
+          <td>${d.visible_famille ? 'oui' : 'non'}</td>
+          <td>
+            <button type="button" class="btnCcSel" data-id="${esc(d.id)}" data-eid="${esc(d.eleve_id)}">Sélectionner</button>
+            <button type="button" class="btnCcDecInline" data-id="${esc(d.id)}">Décider</button>
+          </td>
+        </tr>`);
+      dosOut.innerHTML = `<table><thead><tr><th>Élève</th><th>Appréciation</th><th>Mention</th><th>Décision</th><th>Décidé le</th><th>Famille</th><th></th></tr></thead>
+        <tbody>${rows.join('')}</tbody></table>`;
+      dosOut.querySelectorAll('.btnCcSel').forEach(btn => {
+        btn.onclick = async () => {
+          document.getElementById('ccDosId').value = btn.dataset.id;
+          const eleveSel = document.getElementById('ccEleve');
+          if (eleveSel && btn.dataset.eid) {
+            if (![...eleveSel.options].some(o => o.value === btn.dataset.eid)) {
+              const o = document.createElement('option');
+              o.value = btn.dataset.eid;
+              o.textContent = ELEVE_NAME_CACHE[btn.dataset.eid] || btn.dataset.eid.slice(0, 8);
+              eleveSel.appendChild(o);
+            }
+            eleveSel.value = btn.dataset.eid;
+          }
+          msg.innerHTML = `<span class="ok">Dossier sélectionné</span>`;
+          await showMoyennesEleve(btn.dataset.eid);
+        };
+      });
+      dosOut.querySelectorAll('.btnCcDecInline').forEach(btn => {
+        btn.onclick = async () => {
+          document.getElementById('ccDosId').value = btn.dataset.id;
+          await decideSelected();
+        };
+      });
+    } catch (e) {
+      dosOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function decideSelected() {
+    const dosId = document.getElementById('ccDosId').value.trim();
+    if (!dosId) { msg.innerHTML = '<span class="bad">Sélectionnez un dossier</span>'; return; }
+    try {
+      const d = await api('/conseils-classe/dossiers/' + encodeURIComponent(dosId) + '/decider', {
+        method: 'POST',
+        body: JSON.stringify({
+          appreciation: document.getElementById('ccApp').value.trim() || 'Décision conseil',
+          mention: document.getElementById('ccMention').value,
+          decision_texte: (document.getElementById('ccDecText') && document.getElementById('ccDecText').value.trim()) || null,
+          visible_famille: document.getElementById('ccVisFam').checked,
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Mention ${esc(d.mention || '—')}</span>`;
+      await loadDos();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+
+  document.getElementById('btnCcCreer').onclick = async () => {
+    try {
+      const c = await api('/conseils-classe', {
+        method: 'POST',
+        body: JSON.stringify({
+          classe: document.getElementById('ccClasse').value.trim(),
+          periode_libelle: document.getElementById('ccPeriode').value.trim(),
+          jour: document.getElementById('ccJour').value || today(),
+          heure: document.getElementById('ccHeure').value || '17:00',
+          lieu: document.getElementById('ccLieu').value.trim(),
+        }),
+      });
+      setConseilActif(c);
+      msg.innerHTML = `<span class="ok">Conseil ${esc(c.classe)} ${esc(c.periode_libelle)} créé</span>`;
+      await loadList();
+      await loadDos();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnCcList').onclick = loadList;
+  document.getElementById('btnCcAdd').onclick = async () => {
+    const id = document.getElementById('ccId').value.trim();
+    const eleve_id = document.getElementById('ccEleve').value.trim();
+    if (!id || !eleve_id) { msg.innerHTML = '<span class="bad">Conseil et élève requis</span>'; return; }
+    try {
+      const d = await api('/conseils-classe/' + encodeURIComponent(id) + '/dossiers', {
+        method: 'POST',
+        body: JSON.stringify({ eleve_id }),
+      });
+      document.getElementById('ccDosId').value = d.id;
+      msg.innerHTML = '<span class="ok">Dossier ajouté</span>';
+      await loadDos();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnCcImport').onclick = async () => {
+    const id = document.getElementById('ccId').value.trim();
+    const classe = document.getElementById('ccClasse').value.trim();
+    if (!id || !classe) { msg.innerHTML = '<span class="bad">Conseil et classe requis</span>'; return; }
+    msg.textContent = 'Import effectif…';
+    try {
+      const jour = document.getElementById('ccJour').value || today();
+      const eff = await api('/classes/' + encodeURIComponent(classe) + '/effectif?jour=' + encodeURIComponent(jour));
+      const eleves = eff.eleves || [];
+      if (!eleves.length) { msg.innerHTML = '<span class="bad">Effectif vide</span>'; return; }
+      const existing = await api('/conseils-classe/' + encodeURIComponent(id) + '/dossiers');
+      const have = new Set((existing || []).map(d => d.eleve_id));
+      let ok = 0;
+      let skip = 0;
+      let err = 0;
+      for (const e of eleves) {
+        ELEVE_NAME_CACHE[e.id] = e.prenom + ' ' + e.nom;
+        if (have.has(e.id)) { skip += 1; continue; }
+        try {
+          await api('/conseils-classe/' + encodeURIComponent(id) + '/dossiers', {
+            method: 'POST',
+            body: JSON.stringify({ eleve_id: e.id }),
+          });
+          ok += 1;
+        } catch (_) { err += 1; }
+      }
+      msg.innerHTML = `<span class="ok">${ok} ajouté(s)</span>${skip ? ' · ' + skip + ' déjà présents' : ''}${err ? ' · <span class="bad">' + err + ' échec(s)</span>' : ''}`;
+      await loadDos();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnCcDos').onclick = loadDos;
+  document.getElementById('btnCcDecide').onclick = decideSelected;
+  document.getElementById('btnCcTenir').onclick = async () => {
+    const id = document.getElementById('ccId').value.trim();
+    if (!id) { msg.innerHTML = '<span class="bad">Conseil requis</span>'; return; }
+    try {
+      const c = await api('/conseils-classe/' + encodeURIComponent(id) + '/tenir', {
+        method: 'POST',
+        body: '{}',
+      });
+      setConseilActif(c);
+      msg.innerHTML = `<span class="ok">Conseil ${esc(c.statut)}</span>`;
+      await loadList();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('ccEleve').onchange = async () => {
+    const eid = document.getElementById('ccEleve').value.trim();
+    await showMoyennesEleve(eid);
+    await loadHistoConseilEleve();
+  };
+  document.getElementById('ccClasse').onchange = loadList;
+  const ccJourEl = document.getElementById('ccJour');
+  if (ccJourEl) ccJourEl.onchange = loadList;
+  await loadNotePeriodes();
+  await loadList();
+  await loadHistoConseilEleve();
+}
+
+/* ---------- Notes ---------- */
+function viewNotes() {
+  return shell('/app/notes', `
+    <div class="bento" id="notesStats"></div>
+    <div class="panel">
+      <h2>Notes</h2>
+      <p class="muted">Périodes (verrou) → devoirs → saisie → moyennes → appréciations.</p>
+      <div class="row">
+        <button type="button" class="primary" id="btnLoadPeriodes">Charger périodes</button>
+        <button type="button" id="btnNewPeriode">Créer T1 (admin)</button>
+      </div>
+      <div id="periodesOut" class="muted">…</div>
+    </div>
+    <div class="panel">
+      <h3>Matières &amp; devoirs</h3>
+      <div class="row">
+        <label>Code <input id="matCode" value="MATH" style="width:5rem"/></label>
+        <label>Libellé <input id="matLib" value="Mathématiques" style="width:10rem"/></label>
+        <button type="button" id="btnMatCreer">Créer matière</button>
+        <button type="button" id="btnMatList">Lister</button>
+      </div>
+      <div class="row">
+        <label>Période <select id="devPeriode" style="min-width:12rem"></select></label>
+        <label>Matière <select id="devMatiere" style="min-width:10rem"></select></label>
+        <label>Classe <input id="devClasse" value="4B" style="width:4rem"/></label>
+        <label>Titre <input id="devTitre" value="DS1" style="width:8rem"/></label>
+        <label>Date <input id="devDate" type="date" value="${today()}"/></label>
+        <label>Coef <input id="devCoef" type="number" step="0.5" value="1" style="width:3rem"/></label>
+        <label>Sur <input id="devSur" type="number" value="20" style="width:3rem"/></label>
+        <button type="button" class="primary" id="btnDevCreer">Créer devoir</button>
+        <button type="button" id="btnDevList">Lister devoirs</button>
+      </div>
+      <div id="matMsg" class="muted"></div>
+      <div id="matOut" class="muted" style="margin-top:.5rem">…</div>
+      <div id="devOut" class="muted" style="margin-top:.5rem"></div>
+    </div>
+    <div class="panel">
+      <h3>Saisir une note</h3>
+      <div class="row">
+        <label>Recherche <input id="noteEleveQ" placeholder="nom…" style="width:8rem"/></label>
+        <button type="button" id="btnNoteEleveSearch">Chercher</button>
+        <label>Élève <select id="noteEleve" style="min-width:12rem"></select></label>
+        <label>Matière <select id="noteMatiereSel" style="min-width:10rem"></select></label>
+        <input type="hidden" id="noteMatiere"/>
+        <label>Période <select id="notePeriode" style="min-width:12rem"></select></label>
+        <label>Devoir <select id="noteDevoirSel" style="min-width:12rem"><option value="">— aucun —</option></select></label>
+        <input type="hidden" id="noteDevoir"/>
+        <label>Valeur <input id="noteValeur" type="number" step="0.5" value="14" style="width:5rem"/></label>
+        <label>Sur <input id="noteSur" type="number" step="1" value="20" style="width:4rem"/></label>
+        <label>Libellé <input id="noteLibelle" value="DS1"/></label>
+        <button type="button" class="primary" id="btnSaisirNote">Enregistrer</button>
+        <button type="button" id="btnNoteList">Lister notes</button>
+      </div>
+      <div id="noteMsg" class="muted"></div>
+      <div id="noteListOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h3>Grille classe (devoir)</h3>
+      <p class="muted">Ouvrir depuis la liste des devoirs — effectif du jour + notes déjà saisies.</p>
+      <div id="grilleMeta" class="muted">Choisir un devoir…</div>
+      <div id="grilleOut" class="muted" style="margin-top:.5rem">…</div>
+      <div class="row" style="margin-top:.5rem">
+        <button type="button" class="primary" id="btnGrilleSave" disabled>Enregistrer la grille</button>
+      </div>
+      <div id="grilleMsg" class="muted"></div>
+    </div>
+    <div class="panel">
+      <h3>Moyennes</h3>
+      <div class="row">
+        <label>Élève <select id="moyEleve" style="min-width:12rem"></select></label>
+        <label>Période <select id="moyPeriode" style="min-width:12rem"></select></label>
+        <button type="button" id="btnMoyennes">Calculer</button>
+      </div>
+      <div id="moyOut" class="muted"></div>
+    </div>
+    <div class="panel">
+      <h3>Appréciations</h3>
+      <div class="row">
+        <label>Élève <select id="appEleve" style="min-width:12rem"></select></label>
+        <label>Période <select id="appPeriode" style="min-width:12rem"></select></label>
+        <label>Matière <select id="appMatiereSel" style="min-width:10rem"><option value="">— générale —</option></select></label>
+        <input type="hidden" id="appMatiere"/>
+        <label>Texte <input id="appTexte" size="48" value="Travail sérieux et régulier."/></label>
+        <button type="button" class="primary" id="btnAppSaisir">Enregistrer</button>
+        <button type="button" id="btnAppList">Lister</button>
+      </div>
+      <div id="appOut" class="muted"></div>
+    </div>
+    <div class="panel">
+      <h3>Bulletin PDF</h3>
+      <p class="muted">Invariant : période <strong>fermée</strong> uniquement → PDF → dépôt documents famille (même cerveau).</p>
+      <div class="row">
+        <label>Élève <select id="bulEleve" style="min-width:12rem"></select></label>
+        <label>Période <select id="bulPeriode" style="min-width:12rem"></select></label>
+        <button type="button" class="primary" id="btnBulPublier">Publier bulletin</button>
+        <button type="button" id="btnBulDocs">Docs famille</button>
+      </div>
+      <div id="bulMsg" class="muted"></div>
+      <div id="bulDocsOut" class="muted" style="margin-top:.5rem"></div>
+    </div>
+    <div class="panel">
+      <h3>Exports EN (CSV local)</h3>
+      <div class="row">
+        <label>Classe <input id="expClasse" value="4B" style="width:5rem"/></label>
+        <label>Période <select id="expPeriode"></select></label>
+        <label>Année (Parcoursup) <input id="expAnnee" value="2026-2027" style="width:8rem"/></label>
+        <button type="button" id="btnExpLsl">LSL</button>
+        <button type="button" id="btnExpLsun">LSUN</button>
+        <button type="button" id="btnExpNotanet">Notanet</button>
+        <button type="button" id="btnExpParcoursup">Parcoursup</button>
+        <button type="button" id="btnExpOnde">ONDE</button>
+      </div>
+      <div id="expMsg" class="muted"></div>
+    </div>`);
+}
+
+async function bindNotes() {
+  async function fillElevesNotes(q) {
+    const eleves = await api('/eleves/search?q=' + encodeURIComponent(q || 'a'));
+    const opts = (eleves || []).map(e =>
+      `<option value="${esc(e.id)}" data-classe="${esc(e.classe || '')}">${esc(e.prenom)} ${esc(e.nom)} (${esc(e.classe || '')})</option>`
+    ).join('') || '<option value="">— aucun —</option>';
+    ['noteEleve', 'moyEleve', 'appEleve', 'bulEleve'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (sel) sel.innerHTML = opts;
+    });
+    const noteSel = document.getElementById('noteEleve');
+    if (noteSel) {
+      noteSel.onchange = async () => {
+        const opt = noteSel.selectedOptions[0];
+        if (opt && opt.dataset.classe) {
+          document.getElementById('devClasse').value = opt.dataset.classe;
+          document.getElementById('expClasse').value = opt.dataset.classe;
+        }
+        if (typeof loadNotesEleve === 'function') await loadNotesEleve();
+      };
+      if (noteSel.selectedOptions[0] && noteSel.selectedOptions[0].dataset.classe) {
+        document.getElementById('devClasse').value = noteSel.selectedOptions[0].dataset.classe;
+        document.getElementById('expClasse').value = noteSel.selectedOptions[0].dataset.classe;
+      }
+    }
+    return eleves || [];
+  }
+  document.getElementById('btnNoteEleveSearch').onclick = async () => {
+    try {
+      await fillElevesNotes(document.getElementById('noteEleveQ').value.trim());
+    } catch (e) { alert(e.message); }
+  };
+  try { await fillElevesNotes('a'); } catch (_) { /* hors droits search */ }
+
+  function syncPeriodeSelects(list, preferredId) {
+    const opts = (list || []).map(p =>
+      `<option value="${esc(p.id)}">${esc(p.code)} — ${esc(p.libelle)} (${esc(p.statut)})</option>`
+    ).join('') || '<option value="">—</option>';
+    ['devPeriode', 'notePeriode', 'moyPeriode', 'appPeriode', 'expPeriode', 'bulPeriode'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const prev = preferredId || sel.value;
+      sel.innerHTML = opts;
+      if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+      else if (list && list[0]) sel.value = list[0].id;
+    });
+  }
+
+  async function refreshNotesStats() {
+    const box = document.getElementById('notesStats');
+    if (!box) return;
+    try {
+      const [periodes, matieres] = await Promise.all([
+        api('/note-periodes').catch(() => []),
+        api('/matieres').catch(() => []),
+      ]);
+      const nOuv = (periodes || []).filter(p => p.statut === 'ouverte').length;
+      const nFerm = (periodes || []).filter(p => p.statut === 'fermee').length;
+      const nPart = (periodes || []).filter(p => p.statut === 'partielle_appreciations').length;
+      const pref = (periodes || []).find(p => p.statut === 'ouverte') || (periodes || [])[0];
+      let nDev = 0;
+      if (pref && pref.id) {
+        try {
+          const devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pref.id));
+          nDev = (devoirs || []).length;
+        } catch (_) { nDev = 0; }
+      }
+      box.innerHTML = `
+        <div class="stat-tile bento-span-3"><strong>${(periodes || []).length}</strong><span>Périodes · ${nPart} partielles</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nOuv}</strong><span>Ouvertes</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nFerm}</strong><span>Fermées</span></div>
+        <div class="stat-tile bento-span-3"><strong>${(matieres || []).length}</strong><span>Matières · ${nDev} devoirs</span></div>`;
+    } catch (_) { /* silencieux */ }
+  }
+
+  async function loadPeriodes() {
+    const out = document.getElementById('periodesOut');
+    try {
+      const list = await api('/note-periodes');
+      await refreshNotesStats();
+      if (!list.length) {
+        out.innerHTML = `<p class="empty">Aucune période — crée T1 (rôle admin / administratif).</p>`;
+        syncPeriodeSelects([]);
+        return;
+      }
+      out.innerHTML = `<table><thead><tr><th>Code</th><th>Libellé</th><th>Dates</th><th>Statut</th><th></th></tr></thead>
+        <tbody>${list.map(p => `<tr>
+          <td><code>${esc(p.id)}</code><br/><strong>${esc(p.code)}</strong></td>
+          <td>${esc(p.libelle)}</td>
+          <td>${esc(p.date_debut)} → ${esc(p.date_fin)}</td>
+          <td><span class="pill">${esc(p.statut)}</span></td>
+          <td>
+            ${p.statut === 'ouverte' ? `<button type="button" class="btnPartielle" data-id="${esc(p.id)}">Appréciations</button> <button type="button" class="btnFermer" data-id="${esc(p.id)}">Fermer</button>` : ''}
+            ${p.statut === 'partielle_appreciations' ? `<button type="button" class="btnFermer" data-id="${esc(p.id)}">Fermer</button> <button type="button" class="btnOuvrir" data-id="${esc(p.id)}">Rouvrir</button>` : ''}
+            ${p.statut === 'fermee' ? `<button type="button" class="btnOuvrir" data-id="${esc(p.id)}">Rouvrir</button>` : ''}
+          </td>
+        </tr>`).join('')}</tbody></table>`;
+      const ouverte = list.find(p => p.statut === 'ouverte') || list[0];
+      syncPeriodeSelects(list, ouverte && ouverte.id);
+      out.querySelectorAll('.btnFermer').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/note-periodes/' + btn.dataset.id + '/statut', {
+              method: 'POST', body: JSON.stringify({ statut: 'fermee' }),
+            });
+            await loadPeriodes();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      out.querySelectorAll('.btnPartielle').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/note-periodes/' + btn.dataset.id + '/statut', {
+              method: 'POST', body: JSON.stringify({ statut: 'partielle_appreciations' }),
+            });
+            await loadPeriodes();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      out.querySelectorAll('.btnOuvrir').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/note-periodes/' + btn.dataset.id + '/statut', {
+              method: 'POST', body: JSON.stringify({ statut: 'ouverte' }),
+            });
+            await loadPeriodes();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnLoadPeriodes').onclick = loadPeriodes;
+  document.getElementById('btnNewPeriode').onclick = async () => {
+    const y = new Date().getFullYear();
+    try {
+      const p = await api('/note-periodes', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: 'T1-' + Date.now().toString(36).slice(-4),
+          libelle: 'Trimestre 1',
+          date_debut: y + '-09-01',
+          date_fin: y + '-12-20',
+        }),
+      });
+      await loadPeriodes();
+      syncPeriodeSelects(await api('/note-periodes'), p.id);
+    } catch (e) { alert(e.message); }
+  };
+  async function loadNotesEleve() {
+    const box = document.getElementById('noteListOut');
+    const moyOut = document.getElementById('moyOut');
+    const eleveId = document.getElementById('noteEleve').value;
+    const pid = document.getElementById('notePeriode').value.trim();
+    if (!box) return;
+    if (!eleveId) { box.innerHTML = '<p class="empty">Choisir un élève…</p>'; return; }
+    box.textContent = 'Chargement…';
+    try {
+      let url = '/eleves/' + encodeURIComponent(eleveId) + '/notes';
+      if (pid) url += '?periode_id=' + encodeURIComponent(pid);
+      const list = await api(url);
+      box.innerHTML = list.length
+        ? `<table><thead><tr><th>Date</th><th>Libellé</th><th>Note</th><th>Matière</th></tr></thead>
+           <tbody>${list.map(n => `<tr>
+             <td>${esc(n.date_note || '—')}</td>
+             <td>${esc(n.libelle || '—')}</td>
+             <td><strong>${esc(String(n.valeur))}/${esc(String(n.sur))}</strong></td>
+             <td class="muted">${esc(n.matiere_libelle || (n.matiere_id || '').slice(0, 8))}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucune note sur cette période.</p>';
+      if (moyOut && pid) {
+        const moySel = document.getElementById('moyEleve');
+        const moyPid = document.getElementById('moyPeriode');
+        if (moySel) moySel.value = eleveId;
+        if (moyPid) moyPid.value = pid;
+        try {
+          const moy = await api('/eleves/' + encodeURIComponent(eleveId) + '/moyennes?periode_id=' + encodeURIComponent(pid));
+          moyOut.innerHTML = moy.length
+            ? `<table><thead><tr><th>Matière</th><th>Moyenne /20</th></tr></thead>
+               <tbody>${moy.map(m => `<tr>
+                 <td>${esc(m.matiere_libelle || m.matiere_id.slice(0, 8))}</td>
+                 <td><strong>${esc(String(m.moyenne_sur_20))}</strong></td>
+               </tr>`).join('')}</tbody></table>`
+            : '<p class="empty">Pas encore de moyennes.</p>';
+        } catch (_) { /* hors droits moyennes */ }
+      }
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnNoteList').onclick = loadNotesEleve;
+  document.getElementById('notePeriode').onchange = loadNotesEleve;
+  const noteEleveEl = document.getElementById('noteEleve');
+  if (noteEleveEl) noteEleveEl.onchange = loadNotesEleve;
+  document.getElementById('devPeriode').onchange = loadDevoirs;
+  document.getElementById('moyPeriode').onchange = () => document.getElementById('btnMoyennes').onclick();
+  document.getElementById('moyEleve').onchange = () => document.getElementById('btnMoyennes').onclick();
+  document.getElementById('appPeriode').onchange = () => document.getElementById('btnAppList').onclick();
+  document.getElementById('appEleve').onchange = () => document.getElementById('btnAppList').onclick();
+  document.getElementById('btnSaisirNote').onclick = async () => {
+    const msg = document.getElementById('noteMsg');
+    msg.textContent = '';
+    try {
+      const eleveId = document.getElementById('noteEleve').value;
+      const devoir = document.getElementById('noteDevoir').value.trim();
+      const body = {
+        matiere_id: document.getElementById('noteMatiere').value.trim(),
+        valeur: Number(document.getElementById('noteValeur').value),
+        sur: Number(document.getElementById('noteSur').value),
+        date_note: today(),
+        libelle: document.getElementById('noteLibelle').value.trim() || null,
+        periode_id: document.getElementById('notePeriode').value.trim() || null,
+        devoir_id: devoir || null,
+      };
+      const n = await api('/eleves/' + eleveId + '/notes', {
+        method: 'POST', body: JSON.stringify(body),
+      });
+      msg.innerHTML = `<span class="ok">OK</span> ${esc(String(n.valeur))}/${esc(String(n.sur))} enregistrée`;
+      await loadNotesEleve();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function fillMatieres() {
+    const mats = await api('/matieres');
+    const opts = (mats || []).map(m =>
+      `<option value="${esc(m.id)}">${esc(m.code)} — ${esc(m.libelle)}</option>`
+    ).join('') || '<option value="">—</option>';
+    const optsApp = '<option value="">— générale —</option>' + opts;
+    const selNote = document.getElementById('noteMatiereSel');
+    const selDev = document.getElementById('devMatiere');
+    const selApp = document.getElementById('appMatiereSel');
+    if (selNote) {
+      selNote.innerHTML = opts;
+      selNote.onchange = () => {
+        document.getElementById('noteMatiere').value = selNote.value;
+        if (typeof loadNotesEleve === 'function') loadNotesEleve();
+      };
+      if (mats && mats[0]) {
+        document.getElementById('noteMatiere').value = mats[0].id;
+      }
+    }
+    if (selDev) selDev.innerHTML = opts;
+    if (selApp) {
+      selApp.innerHTML = optsApp;
+      selApp.onchange = () => {
+        document.getElementById('appMatiere').value = selApp.value;
+        const btn = document.getElementById('btnAppList');
+        if (btn && btn.onclick) btn.onclick();
+      };
+      document.getElementById('appMatiere').value = '';
+    }
+    return mats || [];
+  }
+  document.getElementById('btnMatList').onclick = async () => {
+    const out = document.getElementById('matOut');
+    try {
+      const mats = await fillMatieres();
+      out.innerHTML = !mats.length
+        ? '<p class="empty">Aucune matière.</p>'
+        : `<table><thead><tr><th>Code</th><th>Libellé</th><th>Id</th></tr></thead>
+           <tbody>${mats.map(m => `<tr>
+             <td>${esc(m.code)}</td><td>${esc(m.libelle)}</td>
+             <td class="muted"><code>${esc(m.id)}</code></td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnMatCreer').onclick = async () => {
+    const msg = document.getElementById('matMsg');
+    try {
+      const m = await api('/matieres', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('matCode').value.trim(),
+          libelle: document.getElementById('matLib').value.trim(),
+          source_nomenclature: null,
+        }),
+      });
+      msg.innerHTML = `<span class="ok">Matière ${esc(m.code)}</span>`;
+      document.getElementById('noteMatiere').value = m.id;
+      await fillMatieres();
+      document.getElementById('btnMatList').onclick();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  let grilleCtx = null;
+  async function openGrille(devoir) {
+    grilleCtx = devoir;
+    const meta = document.getElementById('grilleMeta');
+    const box = document.getElementById('grilleOut');
+    const msg = document.getElementById('grilleMsg');
+    const btnSave = document.getElementById('btnGrilleSave');
+    msg.textContent = '';
+    meta.innerHTML = `<strong>${esc(devoir.titre)}</strong> · ${esc(devoir.classe)} · ${esc(devoir.date_devoir)} · /${esc(String(devoir.sur))} · coef ${esc(String(devoir.coef))}`;
+    box.textContent = 'Chargement effectif…';
+    btnSave.disabled = true;
+    document.getElementById('noteDevoir').value = devoir.id;
+    document.getElementById('noteDevoirSel').value = devoir.id;
+    document.getElementById('noteLibelle').value = devoir.titre || '';
+    document.getElementById('noteSur').value = devoir.sur;
+    document.getElementById('noteMatiere').value = devoir.matiere_id;
+    const matSel = document.getElementById('noteMatiereSel');
+    if (matSel) matSel.value = devoir.matiere_id;
+    const perSel = document.getElementById('notePeriode');
+    if (perSel && devoir.periode_id) perSel.value = devoir.periode_id;
+    document.getElementById('devClasse').value = devoir.classe;
+    try {
+      const jour = devoir.date_devoir || today();
+      const eff = await api('/classes/' + encodeURIComponent(devoir.classe)
+        + '/effectif?jour=' + encodeURIComponent(jour));
+      const eleves = eff.eleves || [];
+      if (!eleves.length) {
+        box.innerHTML = '<p class="empty">Aucun élève dans l’effectif.</p>';
+        return;
+      }
+      const notesByEleve = {};
+      await Promise.all(eleves.map(async (e) => {
+        try {
+          const notes = await api('/eleves/' + e.id + '/notes');
+          const n = (notes || []).find(x => x.devoir_id === devoir.id);
+          if (n) notesByEleve[e.id] = n;
+        } catch (_) { /* ignore */ }
+      }));
+      box.innerHTML = `<table><thead><tr><th>Élève</th><th>Note / ${esc(String(devoir.sur))}</th><th></th></tr></thead>
+        <tbody>${eleves.map(e => {
+          const existing = notesByEleve[e.id];
+          const val = existing && existing.valeur != null ? existing.valeur : '';
+          return `<tr>
+            <td>${esc(e.prenom)} ${esc(e.nom)}</td>
+            <td><input type="number" step="0.5" min="0" class="grilleNote" data-eid="${esc(e.id)}"
+              value="${esc(String(val))}" style="width:5rem" placeholder="—"/></td>
+            <td class="muted">${existing ? 'déjà saisie' : ''}</td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+      btnSave.disabled = false;
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnGrilleSave').onclick = async () => {
+    const msg = document.getElementById('grilleMsg');
+    if (!grilleCtx) { msg.innerHTML = '<span class="bad">Aucun devoir ouvert</span>'; return; }
+    const inputs = [...document.querySelectorAll('#grilleOut .grilleNote')];
+    const filled = inputs.filter(inp => inp.value !== '' && inp.value != null);
+    if (!filled.length) { msg.innerHTML = '<span class="bad">Aucune note à enregistrer</span>'; return; }
+    msg.textContent = 'Enregistrement…';
+    let ok = 0;
+    let err = 0;
+    for (const inp of filled) {
+      try {
+        await api('/eleves/' + inp.dataset.eid + '/notes', {
+          method: 'POST',
+          body: JSON.stringify({
+            matiere_id: grilleCtx.matiere_id,
+            valeur: Number(inp.value),
+            sur: Number(grilleCtx.sur) || 20,
+            date_note: grilleCtx.date_devoir || today(),
+            libelle: grilleCtx.titre || null,
+            periode_id: grilleCtx.periode_id || null,
+            devoir_id: grilleCtx.id,
+          }),
+        });
+        ok += 1;
+      } catch (_) { err += 1; }
+    }
+    const summary = err
+      ? `<span class="ok">${ok} ok</span> · <span class="bad">${err} échec(s)</span>`
+      : `<span class="ok">${ok} note(s) enregistrée(s)</span>`;
+    await openGrille(grilleCtx);
+    document.getElementById('grilleMsg').innerHTML = summary;
+  };
+
+  async function loadDevoirs() {
+    const out = document.getElementById('devOut');
+    const sel = document.getElementById('noteDevoirSel');
+    const pid = document.getElementById('devPeriode').value.trim()
+      || document.getElementById('notePeriode').value.trim();
+    if (!pid) {
+      if (out) out.innerHTML = '<p class="empty">Période requise pour lister les devoirs.</p>';
+      return [];
+    }
+    const classe = document.getElementById('devClasse').value.trim();
+    let url = '/devoirs?periode_id=' + encodeURIComponent(pid);
+    if (classe) url += '&classe=' + encodeURIComponent(classe);
+    try {
+      const list = await api(url);
+      if (out) {
+        out.innerHTML = !list.length
+          ? '<p class="empty">Aucun devoir sur cette période.</p>'
+          : `<table><thead><tr><th>Titre</th><th>Matière</th><th>Classe</th><th>Date</th><th>Coef</th><th>Sur</th><th></th></tr></thead>
+             <tbody>${list.map(d => `<tr>
+               <td><strong>${esc(d.titre)}</strong></td>
+               <td>${esc(d.matiere_libelle || '—')}</td>
+               <td>${esc(d.classe)}</td><td>${esc(d.date_devoir)}</td>
+               <td>${esc(String(d.coef))}</td><td>${esc(String(d.sur))}</td>
+               <td><button type="button" class="btnGrille" data-did="${esc(d.id)}">Saisir classe</button></td>
+             </tr>`).join('')}</tbody></table>`;
+        const byId = Object.fromEntries(list.map(d => [d.id, d]));
+        out.querySelectorAll('.btnGrille').forEach(btn => {
+          btn.onclick = () => openGrille(byId[btn.dataset.did]);
+        });
+      }
+      if (sel) {
+        sel.innerHTML = '<option value="">— aucun —</option>' + list.map(d =>
+          `<option value="${esc(d.id)}" data-titre="${esc(d.titre)}" data-sur="${esc(String(d.sur))}">${esc(d.titre)} · ${esc(d.classe)} (${esc(d.date_devoir)})</option>`
+        ).join('');
+        sel.onchange = () => {
+          document.getElementById('noteDevoir').value = sel.value;
+          const opt = sel.selectedOptions[0];
+          if (opt && opt.dataset.titre) {
+            document.getElementById('noteLibelle').value = opt.dataset.titre;
+          }
+          if (opt && opt.dataset.sur) {
+            document.getElementById('noteSur').value = opt.dataset.sur;
+          }
+        };
+      }
+      return list;
+    } catch (e) {
+      if (out) out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      return [];
+    }
+  }
+  document.getElementById('btnDevList').onclick = loadDevoirs;
+  const devClasseEl = document.getElementById('devClasse');
+  const devPeriodeEl = document.getElementById('devPeriode');
+  if (devClasseEl) devClasseEl.onchange = loadDevoirs;
+  if (devPeriodeEl) devPeriodeEl.onchange = loadDevoirs;
+  document.getElementById('btnDevCreer').onclick = async () => {
+    const msg = document.getElementById('matMsg');
+    try {
+      const d = await api('/devoirs', {
+        method: 'POST',
+        body: JSON.stringify({
+          periode_id: document.getElementById('devPeriode').value.trim()
+            || document.getElementById('notePeriode').value.trim(),
+          matiere_id: document.getElementById('devMatiere').value
+            || document.getElementById('noteMatiere').value.trim(),
+          classe: document.getElementById('devClasse').value.trim(),
+          titre: document.getElementById('devTitre').value.trim(),
+          date_devoir: document.getElementById('devDate').value || today(),
+          coef: Number(document.getElementById('devCoef').value) || 1,
+          sur: Number(document.getElementById('devSur').value) || 20,
+        }),
+      });
+      document.getElementById('noteDevoir').value = d.id;
+      document.getElementById('noteLibelle').value = d.titre || 'DS1';
+      msg.innerHTML = `<span class="ok">Devoir ${esc(d.titre || d.id.slice(0, 8))}</span>`;
+      await loadDevoirs();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  document.getElementById('btnMoyennes').onclick = async () => {
+    const out = document.getElementById('moyOut');
+    try {
+      const eleveId = document.getElementById('moyEleve').value;
+      const pid = document.getElementById('moyPeriode').value.trim();
+      const list = await api('/eleves/' + eleveId + '/moyennes?periode_id=' + encodeURIComponent(pid));
+      out.innerHTML = list.length
+        ? `<table><thead><tr><th>Matière</th><th>Moyenne /20</th></tr></thead>
+           <tbody>${list.map(m => `<tr>
+             <td>${esc(m.matiere_libelle || m.matiere_id.slice(0, 8))}</td>
+             <td><strong>${esc(String(m.moyenne_sur_20))}</strong></td>
+           </tr>`).join('')}</tbody></table>`
+        : `<p class="empty">Pas de moyenne (aucune note sur cette période).</p>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnAppSaisir').onclick = async () => {
+    const out = document.getElementById('appOut');
+    out.textContent = '';
+    try {
+      const eleveId = document.getElementById('appEleve').value;
+      const mat = document.getElementById('appMatiere').value.trim();
+      const a = await api('/eleves/' + eleveId + '/appreciations', {
+        method: 'POST',
+        body: JSON.stringify({
+          periode_id: document.getElementById('appPeriode').value.trim(),
+          matiere_id: mat || null,
+          texte: document.getElementById('appTexte').value,
+        }),
+      });
+      out.innerHTML = `<span class="ok">OK</span> ${esc(a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'))} — ${esc(a.texte.slice(0, 80))}`;
+    } catch (e) {
+      out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnAppList').onclick = async () => {
+    const out = document.getElementById('appOut');
+    try {
+      const eleveId = document.getElementById('appEleve').value;
+      const pid = document.getElementById('appPeriode').value.trim();
+      const q = pid ? ('?periode_id=' + encodeURIComponent(pid)) : '';
+      const list = await api('/eleves/' + eleveId + '/appreciations' + q);
+      out.innerHTML = list.length
+        ? `<table><thead><tr><th>Matière</th><th>Auteur</th><th>Texte</th></tr></thead>
+           <tbody>${list.map(a => `<tr>
+             <td><span class="pill">${esc(a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'))}</span></td>
+             <td class="muted">${esc(a.auteur_label || '—')}</td>
+             <td>${esc(a.texte)}</td>
+           </tr>`).join('')}</tbody></table>`
+        : `<p class="empty">Aucune appréciation.</p>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+
+  try {
+    await loadPeriodes();
+    await fillMatieres();
+    await loadDevoirs();
+    await loadNotesEleve();
+  } catch {}
+  async function downloadCsv(path, filename) {
+    const msg = document.getElementById('expMsg');
+    msg.textContent = 'Téléchargement…';
+    try {
+      const token = localStorage.getItem('ent_token') || '';
+      const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+      if (!r.ok) throw new Error(await r.text() || r.statusText);
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      msg.innerHTML = `<span class="ok">${esc(filename)}</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  document.getElementById('btnExpLsl').onclick = () => {
+    const c = document.getElementById('expClasse').value.trim();
+    const p = document.getElementById('expPeriode').value.trim();
+    downloadCsv('/exports/lsl?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsl.csv');
+  };
+  document.getElementById('btnExpLsun').onclick = () => {
+    const c = document.getElementById('expClasse').value.trim();
+    const p = document.getElementById('expPeriode').value.trim();
+    downloadCsv('/exports/lsun?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsun.csv');
+  };
+  document.getElementById('btnExpNotanet').onclick = () => {
+    const c = document.getElementById('expClasse').value.trim();
+    const p = document.getElementById('expPeriode').value.trim();
+    downloadCsv('/exports/notanet?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-notanet.csv');
+  };
+  document.getElementById('btnExpParcoursup').onclick = () => {
+    const c = document.getElementById('expClasse').value.trim();
+    const a = document.getElementById('expAnnee').value.trim();
+    downloadCsv('/exports/parcoursup?classe=' + encodeURIComponent(c) + '&annee_scolaire=' + encodeURIComponent(a), 'export-parcoursup.csv');
+  };
+  document.getElementById('btnExpOnde').onclick = () => {
+    const c = document.getElementById('expClasse').value.trim();
+    downloadCsv('/exports/onde?classe=' + encodeURIComponent(c), 'export-onde.csv');
+  };
+
+  async function loadBulDocs() {
+    const box = document.getElementById('bulDocsOut');
+    const eid = document.getElementById('bulEleve').value.trim();
+    if (!box) return;
+    if (!eid) { box.innerHTML = '<p class="empty">Choisir un élève.</p>'; return; }
+    try {
+      const docs = await api('/eleves/' + eid + '/documents');
+      const bullets = (docs || []).filter(d =>
+        /bulletin/i.test(d.titre || '') || /bulletin/i.test(d.code || '') || (d.tiroir || '') === 'famille'
+      );
+      const shown = bullets.length ? bullets : (docs || []).slice(0, 8);
+      box.innerHTML = !shown.length
+        ? '<p class="empty">Aucun document famille.</p>'
+        : `<table><thead><tr><th>Titre</th><th>Code</th><th>Tiroir</th><th>Conf.</th></tr></thead>
+           <tbody>${shown.map(d => `<tr>
+             <td>${esc(d.titre || d.id.slice(0, 8))}</td>
+             <td>${esc(d.code || '—')}</td>
+             <td>${esc(d.tiroir || '—')}</td>
+             <td class="muted">${esc(d.confidentialite || '—')}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnBulDocs').onclick = loadBulDocs;
+  document.getElementById('bulEleve').onchange = loadBulDocs;
+  document.getElementById('bulPeriode').onchange = loadBulDocs;
+  document.getElementById('btnBulPublier').onclick = async () => {
+    const msg = document.getElementById('bulMsg');
+    const eid = document.getElementById('bulEleve').value.trim();
+    const pid = document.getElementById('bulPeriode').value.trim();
+    if (!eid || !pid) {
+      msg.innerHTML = '<span class="bad">Élève et période requis</span>';
+      return;
+    }
+    try {
+      const d = await api('/eleves/' + eid + '/bulletins', {
+        method: 'POST',
+        body: JSON.stringify({ periode_id: pid }),
+      });
+      msg.innerHTML = `<span class="ok">Publié · ${esc(d.titre)}</span> — visible dossier / famille`;
+      await loadBulDocs();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  await loadPeriodes();
+  await loadBulDocs();
+}
+
+/* ---------- Exports EN (ponts) ---------- */
+function viewExportsEn() {
+  return shell('/app/exports', `
+    <div class="bento" id="expEnStats"></div>
+    <div class="panel">
+      <h2>Exports EN</h2>
+      <p class="muted">CSV locaux pour les ponts nationaux — paramétrer classe / période puis télécharger.</p>
+      <div class="row">
+        <label>Classe <input id="expEnClasse" value="4B" style="width:5rem"/></label>
+        <label>Période <select id="expEnPeriode"></select></label>
+        <label>Année (Parcoursup) <input id="expEnAnnee" value="2026-2027" style="width:8rem"/></label>
+        <button type="button" id="btnExpEnEffectif">Aperçu effectif</button>
+      </div>
+      <div id="expEnMsg" class="muted" style="margin-top:.75rem"></div>
+      <div id="expEnEffectif" class="muted" style="margin-top:.5rem"></div>
+    </div>
+    <div class="bento" style="margin-top:1rem">
+      <button type="button" class="stat-tile bento-span-4" id="btnExpEnLsl"><strong>LSL</strong><span>Livret scolaire lycée</span></button>
+      <button type="button" class="stat-tile bento-span-4" id="btnExpEnLsun"><strong>LSUN</strong><span>Livret unique numérique</span></button>
+      <button type="button" class="stat-tile bento-span-4" id="btnExpEnNotanet"><strong>Notanet</strong><span>Notes brevet</span></button>
+      <button type="button" class="stat-tile bento-span-6" id="btnExpEnParcoursup"><strong>Parcoursup</strong><span>Fichier orientation</span></button>
+      <button type="button" class="stat-tile bento-span-6" id="btnExpEnOnde"><strong>ONDE</strong><span>Base élèves 1er degré</span></button>
+    </div>`);
+}
+
+async function bindExportsEn() {
+  const msg = document.getElementById('expEnMsg');
+  const stats = document.getElementById('expEnStats');
+  try {
+    const list = await api('/note-periodes');
+    const sel = document.getElementById('expEnPeriode');
+    sel.innerHTML = (list || []).map(p =>
+      `<option value="${esc(p.id)}">${esc(p.code)} — ${esc(p.libelle)} (${esc(p.statut)})</option>`
+    ).join('') || '<option value="">—</option>';
+    if (stats) {
+      const fermees = (list || []).filter(p => p.statut === 'fermee').length;
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-4"><strong>${(list || []).length}</strong><span>Périodes notes</span></div>
+        <div class="stat-tile bento-span-4"><strong>${fermees}</strong><span>Fermées (bulletins OK)</span></div>
+        <div class="stat-tile bento-span-4"><strong>5</strong><span>Ponts EN</span></div>`;
+    }
+  } catch (e) {
+    msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+  }
+  async function previewEffectif() {
+    const box = document.getElementById('expEnEffectif');
+    const c = document.getElementById('expEnClasse').value.trim();
+    if (!c) { box.innerHTML = '<span class="bad">Classe requise</span>'; return 0; }
+    try {
+      const eff = await api('/classes/' + encodeURIComponent(c) + '/effectif?jour=' + encodeURIComponent(today()));
+      const eleves = eff.eleves || [];
+      const pid = (document.getElementById('expEnPeriode') || {}).value || '';
+      const perOpt = document.getElementById('expEnPeriode')?.selectedOptions?.[0];
+      const perLabel = perOpt ? perOpt.textContent : pid;
+      box.innerHTML = eleves.length
+        ? `<p><strong>${eleves.length}</strong> élève(s) en ${esc(c)}
+           ${pid ? ' · période ' + esc(perLabel) : ''}
+           — ${eleves.map(e => esc(e.prenom) + ' ' + esc(e.nom)).join(', ')}</p>`
+        : '<p class="empty">Effectif vide — export refusé.</p>';
+      return eleves.length;
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      return 0;
+    }
+  }
+  document.getElementById('btnExpEnEffectif').onclick = previewEffectif;
+  document.getElementById('expEnClasse').onchange = previewEffectif;
+  const expEnPeriodeEl = document.getElementById('expEnPeriode');
+  if (expEnPeriodeEl) expEnPeriodeEl.onchange = previewEffectif;
+  async function downloadCsv(path, filename) {
+    const n = await previewEffectif();
+    if (!n) {
+      msg.innerHTML = '<span class="bad">Effectif vide — pas d’export</span>';
+      return;
+    }
+    msg.textContent = 'Téléchargement…';
+    try {
+      const token = localStorage.getItem('ent_token') || '';
+      const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+      if (!r.ok) throw new Error(await r.text() || r.statusText);
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      msg.innerHTML = `<span class="ok">${esc(filename)}</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  document.getElementById('btnExpEnLsl').onclick = () => {
+    const c = document.getElementById('expEnClasse').value.trim();
+    const p = document.getElementById('expEnPeriode').value.trim();
+    downloadCsv('/exports/lsl?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsl.csv');
+  };
+  document.getElementById('btnExpEnLsun').onclick = () => {
+    const c = document.getElementById('expEnClasse').value.trim();
+    const p = document.getElementById('expEnPeriode').value.trim();
+    downloadCsv('/exports/lsun?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsun.csv');
+  };
+  document.getElementById('btnExpEnNotanet').onclick = () => {
+    const c = document.getElementById('expEnClasse').value.trim();
+    const p = document.getElementById('expEnPeriode').value.trim();
+    downloadCsv('/exports/notanet?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-notanet.csv');
+  };
+  document.getElementById('btnExpEnParcoursup').onclick = () => {
+    const c = document.getElementById('expEnClasse').value.trim();
+    const a = document.getElementById('expEnAnnee').value.trim();
+    downloadCsv('/exports/parcoursup?classe=' + encodeURIComponent(c) + '&annee_scolaire=' + encodeURIComponent(a), 'export-parcoursup.csv');
+  };
+  document.getElementById('btnExpEnOnde').onclick = () => {
+    const c = document.getElementById('expEnClasse').value.trim();
+    downloadCsv('/exports/onde?classe=' + encodeURIComponent(c), 'export-onde.csv');
+  };
+  await previewEffectif();
+}
+
+/* ---------- Réinscription ---------- */
+function viewReinscriptionStaff() {
+  return shell('/app/reinscription', `
+    <div class="bento" id="reinsCampStats"></div>
+    <div class="panel">
+      <h2>Réinscription — staff</h2>
+      <p class="muted">Ouvrir la campagne N+1, puis monter un élève ou tout un niveau (projection, pas juridique).</p>
+      <div class="row">
+        <button type="button" class="primary" id="btnCampagne">Ouvrir / réouvrir campagne N+1</button>
+        <span id="campStatus" class="muted"></span>
+      </div>
+      <div class="row">
+        ${elevePickerRow('monteeEleve', 'monteeEleveQ', 'btnMonteeEleveSearch')}
+        <button type="button" id="btnMontee">Montée rapide</button>
+      </div>
+      <div class="row">
+        <label>Niveau
+          <select id="lotNiveau">
+            <option value="6e">6e → 5e</option>
+            <option value="5e">5e → 4e</option>
+            <option value="4e" selected>4e → 3e</option>
+            <option value="3e">3e → 2nde</option>
+            <option value="2nde">2nde → 1re</option>
+            <option value="1re">1re → Tle</option>
+          </select>
+        </label>
+        <button type="button" id="btnLotApercu">Aperçu lot</button>
+        <button type="button" class="primary" id="btnLotMontee">Monter tout le niveau</button>
+      </div>
+      <div class="row">
+        <label>Code doc <input id="exCode" value="ASSURANCE_RC" size="16"/></label>
+        <label>Libellé <input id="exLib" value="Attestation assurance RC" size="28"/></label>
+        <button type="button" id="btnExigence">Exiger ce document N+1</button>
+        <button type="button" id="btnExigencesList">Lister exigences</button>
+      </div>
+      <div class="row">
+        <label>Acompte (centimes) <input id="acompteCts" type="number" value="5000" size="10"/></label>
+        <button type="button" id="btnAcompte">Configurer acompte N+1</button>
+      </div>
+      <div id="reinsExigences" class="muted" style="margin-top:.5rem"></div>
+      <div id="reinsStaffOut" class="muted"></div>
+    </div>`);
+}
+
+async function bindReinscriptionStaff() {
+  const out = document.getElementById('reinsStaffOut');
+  const status = document.getElementById('campStatus');
+  await bindElevePickers('monteeEleve', 'monteeEleveQ', 'btnMonteeEleveSearch');
+  async function refreshCamp() {
+    const campStats = document.getElementById('reinsCampStats');
+    try {
+      const c = await api('/reinscription/campagne');
+      status.innerHTML = c && c.ouverte
+        ? `<span class="ok">Campagne ${esc(c.annee_cible)} ouverte</span>`
+        : `<span class="warn">Aucune campagne ouverte pour N+1</span>`;
+      if (campStats) {
+        if (c) {
+          campStats.innerHTML = `
+            <div class="stat-tile bento-span-4"><strong>${esc(c.annee_cible)}</strong><span>Année cible</span></div>
+            <div class="stat-tile bento-span-4"><strong>${c.ouverte ? 'ouverte' : 'fermée'}</strong><span>Campagne</span></div>
+            <div class="stat-tile bento-span-4"><strong>${esc(euros(c.acompte_centimes || 0))}</strong><span>Acompte N+1</span></div>`;
+        } else {
+          campStats.innerHTML = `<div class="stat-tile bento-span-12"><strong>—</strong><span>Aucune campagne</span></div>`;
+        }
+      }
+    } catch (e) {
+      status.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+  document.getElementById('btnCampagne').onclick = async () => {
+    try {
+      // Même règle que le serveur (annee_scolaire_de) : avant sept. → année-1.
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth() + 1;
+      const nStart = m >= 9 ? y : y - 1;
+      const n1 = (nStart + 1) + '-' + (nStart + 2);
+      const opened = await api('/reinscription/campagne', {
+        method: 'POST',
+        body: JSON.stringify({ annee_cible: n1 }),
+      });
+      out.innerHTML = `<span class="ok">Campagne ${esc(opened.annee_cible)} ouverte</span>`;
+      await refreshCamp();
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnMontee').onclick = async () => {
+    try {
+      const s = await api('/reinscription/montee', {
+        method: 'POST',
+        body: JSON.stringify({ eleve_id: document.getElementById('monteeEleve').value.trim() }),
+      });
+      out.innerHTML = `<span class="ok">Projection ${esc(s.annee_scolaire)} niveau ${esc(s.niveau || '—')} (statut ${esc(s.statut)})</span>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnLotApercu').onclick = async () => {
+    try {
+      const niv = document.getElementById('lotNiveau').value;
+      const d = await api('/reinscription/montee/candidats?niveau=' + encodeURIComponent(niv));
+      const cands = d.candidats || [];
+      await hydrateEleveNames(cands.map(c => c.eleve_id));
+      const table = cands.length
+        ? `<table><thead><tr><th>Élève</th><th>Classe</th><th>MEF</th><th>Statut</th><th>Source</th></tr></thead>
+           <tbody>${cands.map(c => `<tr>
+             <td>${eleveCell(c)} <a class="muted" href="/app/eleves/${esc(c.eleve_id)}">dossier</a></td>
+             <td>${esc(c.classe || '—')}</td>
+             <td>${esc(c.mef || '—')}</td>
+             <td><span class="pill">${esc(c.statut)}</span></td>
+             <td>${esc(c.source || '—')}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucun candidat.</p>';
+      out.innerHTML = `<p><span class="ok">${d.count} candidat(s) ${esc(d.niveau_source)} → ${esc(d.niveau_cible)}</span>
+        · année ${esc(d.annee_courante)}</p>${table}`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  const lotNiveauEl = document.getElementById('lotNiveau');
+  if (lotNiveauEl) lotNiveauEl.onchange = () => document.getElementById('btnLotApercu').click();
+  document.getElementById('btnLotMontee').onclick = async () => {
+    try {
+      const niv = document.getElementById('lotNiveau').value;
+      const r = await api('/reinscription/montee/lot', {
+        method: 'POST',
+        body: JSON.stringify({ niveau_source: niv }),
+      });
+      const ignores = r.ignores || [];
+      await hydrateEleveNames(ignores.map(i => i.eleve_id).concat(r.montes || []));
+      const ignTable = ignores.length
+        ? `<h3 style="margin-top:.75rem">Ignorés</h3>
+           <table><thead><tr><th>Élève</th><th>Motif</th></tr></thead>
+           <tbody>${ignores.map(i => `<tr>
+             <td>${eleveCell(i)} <a class="muted" href="/app/eleves/${esc(i.eleve_id)}">dossier</a></td>
+             <td>${esc(i.motif)}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '';
+      out.innerHTML = `<p><span class="ok">Lot ${esc(r.niveau_source)} → ${esc(r.niveau_cible)} : ${r.montes_count} monté(s), ${r.ignores_count} ignoré(s)</span>
+        · cible ${esc(r.annee_cible)}</p>${ignTable}`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  function anneeN1() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const nStart = m >= 9 ? y : y - 1;
+    return (nStart + 1) + '-' + (nStart + 2);
+  }
+  const exBox = document.getElementById('reinsExigences');
+  async function loadExigences() {
+    if (!exBox) return;
+    try {
+      const list = await api('/reinscription/exigences?annee_cible=' + encodeURIComponent(anneeN1()));
+      if (!list.length) {
+        exBox.innerHTML = '<p class="empty">Aucune exigence document N+1.</p>';
+        return;
+      }
+      exBox.innerHTML = `<table><thead><tr><th>Code</th><th>Libellé</th><th>Tiroir</th><th>Oblig.</th></tr></thead>
+        <tbody>${list.map(x => `<tr>
+          <td><code>${esc(x.code)}</code></td>
+          <td>${esc(x.libelle)}</td>
+          <td>${esc(x.tiroir)}</td>
+          <td>${x.obligatoire ? '<span class="ok">oui</span>' : 'non'}</td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      exBox.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+    }
+  }
+  document.getElementById('btnExigence').onclick = async () => {
+    try {
+      const ex = await api('/reinscription/exigences', {
+        method: 'POST',
+        body: JSON.stringify({
+          annee_cible: anneeN1(),
+          code: document.getElementById('exCode').value.trim(),
+          libelle: document.getElementById('exLib').value.trim(),
+          tiroir: 'famille',
+          obligatoire: true,
+        }),
+      });
+      out.innerHTML = `<span class="ok">Exigence ${esc(ex.code)} posée pour ${esc(ex.annee_cible)} — confirmation parent bloquée tant que le doc manque</span>`;
+      await loadExigences();
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  document.getElementById('btnExigencesList').onclick = loadExigences;
+  document.getElementById('btnAcompte').onclick = async () => {
+    try {
+      const c = await api('/reinscription/campagne/acompte', {
+        method: 'POST',
+        body: JSON.stringify({
+          annee_cible: anneeN1(),
+          acompte_centimes: Number(document.getElementById('acompteCts').value) || 0,
+        }),
+      });
+      out.innerHTML = `<span class="ok">Acompte ${c.acompte_centimes} c requis pour ${esc(c.annee_cible)} (facture nature reinscription_acompte)</span>`;
+      await refreshCamp();
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+  await refreshCamp();
+  await loadExigences();
+}
+
+function viewReinscriptionFamille() {
+  return shell('/famille/reinscription', `
+    <div class="panel">
+      <h2>Réinscription</h2>
+      <p class="muted">Confirmer l’année suivante et retenir les options proposées (pas encore juridique).</p>
+      <div id="reinsFamOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindReinscriptionFamille() {
+  const out = document.getElementById('reinsFamOut');
+  async function load() {
+    out.textContent = 'Chargement…';
+    try {
+      const d = await api('/reinscription/famille');
+      let html = '';
+      if (!d.campagne || !d.campagne.ouverte) {
+        html += `<p class="empty">Campagne ${esc(d.annee_n1)} non ouverte — l’établissement n’a pas encore lancé la réinscription.</p>`;
+      } else {
+        html += `<p><span class="ok">Campagne ${esc(d.campagne.annee_cible)} ouverte</span> (année courante ${esc(d.annee_n)})</p>`;
+      }
+      for (const row of (d.enfants || [])) {
+        const e = row.enfant;
+        html += `<h3>${esc(e.prenom)} ${esc(e.nom)} <span class="pill">${esc(e.classe || '')}</span></h3>`;
+        if (!row.projection_n1) {
+          html += `<p class="empty">Pas encore de projection N+1 — l’admin doit faire la montée rapide.</p>`;
+          continue;
+        }
+        const p = row.projection_n1;
+        html += `<p>Projection <strong>${esc(p.annee_scolaire)}</strong> · niveau ${esc(p.niveau || '—')} ·
+          statut <span class="pill">${esc(p.statut)}</span>
+          ${row.confirmee ? ' <span class="ok">confirmée</span>' : ''}</p>`;
+        html += `<h4>Options N+1</h4>`;
+        const opts = row.options || [];
+        if (!opts.length) {
+          html += `<p class="empty">Aucune option proposée.</p>`;
+        } else {
+          html += `<table><thead><tr><th>Code</th><th>Libellé</th><th>Statut</th><th></th></tr></thead><tbody>`;
+          for (const o of opts) {
+            html += `<tr>
+              <td>${esc(o.code)}</td><td>${esc(o.libelle)}</td>
+              <td><span class="pill">${esc(o.statut)}</span></td>
+              <td>${o.statut !== 'retenue' && d.campagne && d.campagne.ouverte
+                ? `<button type="button" class="btnRetenir" data-eleve="${esc(e.id)}" data-code="${esc(o.code)}" data-libelle="${esc(o.libelle)}">Retenir</button>`
+                : ''}</td>
+            </tr>`;
+          }
+          html += `</tbody></table>`;
+        }
+        const manq = row.documents_manquants || [];
+        const exigs = row.exigences || [];
+        if (exigs.length) {
+          html += `<h4>Documents requis</h4><ul>`;
+          for (const x of exigs) {
+            const ok = !manq.includes(x.code);
+            html += `<li>${esc(x.libelle)} <span class="pill">${esc(x.code)}</span>
+              ${ok ? '<span class="ok">ok</span>' : '<span class="warn">manquant</span>'}
+              ${!ok && d.campagne && d.campagne.ouverte
+                ? ` <button type="button" class="btnDepDoc" data-eleve="${esc(e.id)}" data-code="${esc(x.code)}" data-libelle="${esc(x.libelle)}">Déposer</button>`
+                : ''}
+            </li>`;
+          }
+          html += `</ul>`;
+        }
+        if (row.acompte_requis_centimes > 0) {
+          html += `<p>Acompte : ${row.acompte_encaisse_centimes} / ${row.acompte_requis_centimes} c
+            ${row.acompte_ok ? '<span class="ok">ok</span>' : '<span class="warn">à régler en compta</span>'}</p>`;
+        }
+        if (!row.confirmee && d.campagne && d.campagne.ouverte) {
+          const blocked = manq.length > 0 || !row.acompte_ok;
+          html += `<div class="row"><button type="button" class="primary btnConfirmer" data-eleve="${esc(e.id)}" ${blocked ? 'disabled' : ''}>Confirmer la réinscription</button>
+            ${manq.length ? `<span class="warn">Documents manquants : ${esc(manq.join(', '))}</span>` : ''}
+            ${!row.acompte_ok ? `<span class="warn">Acompte insuffisant</span>` : ''}</div>`;
+        }
+      }
+      out.innerHTML = html;
+      out.querySelectorAll('.btnRetenir').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/reinscription/famille/' + btn.dataset.eleve + '/options', {
+              method: 'POST',
+              body: JSON.stringify({
+                code: btn.dataset.code,
+                libelle: btn.dataset.libelle,
+                nature: 'academique',
+                retenir: true,
+              }),
+            });
+            await load();
+          } catch (err) { alert(err.message); }
+        };
+      });
+      out.querySelectorAll('.btnDepDoc').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/reinscription/famille/' + btn.dataset.eleve + '/documents', {
+              method: 'POST',
+              body: JSON.stringify({ code: btn.dataset.code, titre: btn.dataset.libelle }),
+            });
+            await load();
+          } catch (err) { alert(err.message); }
+        };
+      });
+      out.querySelectorAll('.btnConfirmer').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/reinscription/famille/' + btn.dataset.eleve + '/confirmer', {
+              method: 'POST', body: '{}',
+            });
+            await load();
+          } catch (err) { alert(err.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  await load();
+}
+
+/* ---------- Facturation ---------- */
+function euros(centimes) {
+  return (Number(centimes || 0) / 100).toFixed(2).replace('.', ',') + ' €';
+}
+
+/* ---------- Adultes (Administratif — personnel) ---------- */
+function viewAdultes() {
+  return shell('/app/adultes', `
+    <div class="bento" id="adulteStats"></div>
+    <div class="bento">
+      <section class="panel bento-span-8">
+        <h2>Adultes</h2>
+        <p class="muted">Annuaire personnel établissement — enseignant, direction, admin, CPE, infirmerie…</p>
+        <div class="row">
+          <label>Recherche <input id="adulteQ" placeholder="nom, e-mail, rôle…" style="min-width:12rem"/></label>
+          <label>Rôle <select id="adulteRoleFlt">
+            <option value="">tous</option>
+            <option value="admin">admin</option>
+            <option value="direction">direction</option>
+            <option value="administratif">administratif</option>
+            <option value="prof">prof</option>
+            <option value="cpe">cpe</option>
+            <option value="compta">compta</option>
+            <option value="infirmerie">infirmerie</option>
+            <option value="psy">psy</option>
+          </select></label>
+          <button type="button" class="primary" id="btnAdulteSearch">Chercher</button>
+        </div>
+        <div id="adulteListOut" class="muted" style="margin-top:.75rem">…</div>
+      </section>
+      <section class="panel bento-span-4">
+        <h3>Créer un compte adulte</h3>
+        <p class="dossier-help">Provisionnement labo via <code>POST /auth/register</code> — mot de passe temporaire à communiquer.</p>
+        <label>E-mail <input id="adulteNewEmail" type="email" style="width:100%" placeholder="prenom.nom@etab.fr"/></label>
+        <label style="display:block;margin-top:.4rem">Nom affiché <input id="adulteNewName" style="width:100%" placeholder="Prénom Nom"/></label>
+        <div class="row" style="margin-top:.4rem">
+          <label>Rôle <select id="adulteNewRole">
+            <option value="prof">prof</option>
+            <option value="cpe">cpe</option>
+            <option value="administratif">administratif</option>
+            <option value="direction">direction</option>
+            <option value="compta">compta</option>
+            <option value="infirmerie">infirmerie</option>
+            <option value="psy">psy</option>
+            <option value="admin">admin</option>
+          </select></label>
+        </div>
+        <label style="display:block;margin-top:.4rem">Mot de passe temp. <input id="adulteNewPwd" value="DevLocalPass1!" style="width:100%"/></label>
+        <div class="row" style="margin-top:.65rem">
+          <button type="button" class="primary" id="btnAdulteCreate">Créer</button>
+          <span id="adulteCreateMsg" class="muted"></span>
+        </div>
+      </section>
+    </div>`);
+}
+
+function viewAdulteDetail(id) {
+  return shell('/app/adultes', `
+    <div class="dossier">
+      <p class="muted" style="margin:0 0 .5rem"><a href="/app/adultes">← Annuaire Adultes</a></p>
+      <div id="adulteDetailOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+function roleAdulteLabel(r) {
+  return ({
+    admin: 'Administrateur', administratif: 'Administratif', direction: 'Direction',
+    prof: 'Enseignant', cpe: 'CPE', compta: 'Comptabilité', infirmerie: 'Infirmerie',
+    psy: 'Psychologue',
+  })[r] || r;
+}
+
+async function bindAdultes() {
+  const out = document.getElementById('adulteListOut');
+  const stats = document.getElementById('adulteStats');
+  async function load() {
+    const q = (document.getElementById('adulteQ').value || '').trim();
+    const roleFlt = (document.getElementById('adulteRoleFlt')?.value || '').trim();
+    try {
+      let list = await api('/personnel/search?q=' + encodeURIComponent(q));
+      const byRole = {};
+      (list || []).forEach(p => { byRole[p.role] = (byRole[p.role] || 0) + 1; });
+      if (stats) {
+        const keys = Object.keys(byRole).sort();
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-3"><strong>${list.length}</strong><span>Adultes</span></div>
+          ${keys.slice(0, 5).map(r =>
+            `<div class="stat-tile bento-span-3"><strong>${byRole[r]}</strong><span>${esc(roleAdulteLabel(r))}</span></div>`
+          ).join('')}`;
+      }
+      if (roleFlt) list = list.filter(p => p.role === roleFlt);
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucun adulte.</p>';
+        return;
+      }
+      out.innerHTML = `<table><thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th></th></tr></thead>
+        <tbody>${list.map(p => `<tr>
+          <td>${esc(p.label)}</td>
+          <td>${esc(p.email)}</td>
+          <td><span class="pill">${esc(roleAdulteLabel(p.role))}</span></td>
+          <td><a href="/app/adultes/${esc(p.user_id)}">Fiche</a></td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnAdulteSearch').onclick = load;
+  const roleFltEl = document.getElementById('adulteRoleFlt');
+  if (roleFltEl) roleFltEl.onchange = load;
+  let adulteQTimer = null;
+  const adulteQEl = document.getElementById('adulteQ');
+  if (adulteQEl) {
+    adulteQEl.onkeydown = (ev) => { if (ev.key === 'Enter') load(); };
+    adulteQEl.oninput = () => {
+      clearTimeout(adulteQTimer);
+      adulteQTimer = setTimeout(load, 300);
+    };
+  }
+  const btnCreate = document.getElementById('btnAdulteCreate');
+  if (btnCreate) {
+    btnCreate.onclick = async () => {
+      const msg = document.getElementById('adulteCreateMsg');
+      const email = ((document.getElementById('adulteNewEmail') || {}).value || '').trim();
+      const password = ((document.getElementById('adulteNewPwd') || {}).value || '').trim();
+      const display_name = ((document.getElementById('adulteNewName') || {}).value || '').trim() || null;
+      const role = ((document.getElementById('adulteNewRole') || {}).value || 'prof').trim();
+      const etablissement_id = (me && me.etablissement_id) || STORE.etab;
+      if (!email || !password || !etablissement_id) {
+        if (msg) msg.innerHTML = '<span class="bad">E-mail, mot de passe et établissement requis</span>';
+        return;
+      }
+      try {
+        const u = await api('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ email, password, display_name, etablissement_id, role }),
+        });
+        if (msg) {
+          msg.innerHTML = `<span class="ok">Compte ${esc(u.email || email)} créé</span>
+            · <a href="/app/adultes/${esc(u.id)}">Fiche</a>`;
+        }
+        document.getElementById('adulteNewEmail').value = '';
+        await load();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  await load();
+}
+
+async function bindAdulteDetail(id) {
+  const out = document.getElementById('adulteDetailOut');
+  let adEdtJour = today();
+  async function render() {
+    try {
+      const p = await api('/personnel/' + id);
+      const debut = today();
+      const dFin = new Date();
+      dFin.setDate(dFin.getDate() + 90);
+      const fin = dFin.toISOString().slice(0, 10);
+      let abs = [];
+      try {
+        const all = await api('/rh/absences?debut=' + debut + '&fin=' + fin);
+        abs = (all || []).filter(a => a.user_id === id);
+      } catch {
+        abs = [];
+      }
+      let edt = [];
+      try {
+        const allEdt = await api('/edt/creneaux?jour=' + encodeURIComponent(adEdtJour));
+        edt = (allEdt || []).filter(c => c.prof_user_id === id);
+      } catch {
+        edt = [];
+      }
+      const nSig = abs.filter(a => a.statut === 'signalee').length;
+      out.innerHTML = `<header class="dossier-bandeau" style="grid-template-columns:1fr">
+          <div>
+            <h1 class="dossier-titre">${esc(p.label)}</h1>
+            <p class="dossier-meta"><strong>${esc(roleAdulteLabel(p.role))}</strong> · ${esc(p.email)}</p>
+            <div class="dossier-raccourcis">
+              <a href="/app/rh">Module RH</a>
+              <a href="/app/edt">Emploi du temps</a>
+              <a href="/app/appel">Appel</a>
+            </div>
+          </div>
+        </header>
+        <div class="bento" style="margin:.75rem 0">
+          <div class="stat-tile bento-span-4"><strong>${abs.length}</strong><span>Absences 90 j</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nSig}</strong><span>À valider</span></div>
+          <div class="stat-tile bento-span-4"><strong>${edt.length}</strong><span>Créneaux le ${esc(adEdtJour)}</span></div>
+        </div>
+        <section class="panel">
+          <h3>Identité</h3>
+          <dl class="kv">
+            <dt>Nom affiché</dt><dd>${esc(p.label)}</dd>
+            <dt>E-mail pro</dt><dd>${esc(p.email)}</dd>
+            <dt>Catégorie / rôle</dt><dd>${esc(roleAdulteLabel(p.role))}</dd>
+          </dl>
+          <div class="row" style="margin-top:.65rem">
+            <label>Téléphone pro <input id="adTel" value="${esc(p.telephone || '')}" style="width:10rem" placeholder="06…"/></label>
+            <button type="button" id="btnAdTel">Enregistrer</button>
+            <span id="adTelMsg" class="muted"></span>
+          </div>
+        </section>
+        <section class="panel">
+          <h3>Déclarer une absence RH</h3>
+          <div class="row">
+            <label>Début <input id="adRhDebut" type="date" value="${today()}"/></label>
+            <label>Fin <input id="adRhFin" type="date" value="${today()}"/></label>
+            <label>Motif <input id="adRhMotif" value="maladie"/></label>
+            <button type="button" class="primary" id="btnAdRhDecl">Déclarer</button>
+          </div>
+          <div id="adRhMsg" class="muted"></div>
+        </section>
+        <section class="panel">
+          <h3>Absences RH (90 jours)</h3>
+          ${abs.length
+            ? `<table><thead><tr><th>Période</th><th>Motif</th><th>Statut</th><th></th></tr></thead>
+               <tbody>${abs.map(a => `<tr>
+                 <td>${esc(a.debut)} → ${esc(a.fin)}</td>
+                 <td>${esc(a.motif)}</td>
+                 <td><span class="pill">${esc(a.statut)}</span></td>
+                 <td>${a.statut === 'signalee'
+                   ? `<button type="button" class="btnAdRhVal" data-id="${a.id}">Valider</button>`
+                   : ''}</td>
+               </tr>`).join('')}</tbody></table>`
+            : '<p class="empty">Aucune absence RH sur la période.</p>'}
+        </section>
+        <section class="panel">
+          <h3>EDT</h3>
+          <div class="row">
+            <label>Jour <input id="adEdtJour" type="date" value="${esc(adEdtJour)}"/></label>
+            <button type="button" id="btnAdEdtLoad">Recharger</button>
+          </div>
+          ${edt.length
+            ? `<table style="margin-top:.5rem"><thead><tr><th>Horaire</th><th>Classe</th><th>Matière</th><th>Salle</th></tr></thead>
+               <tbody>${edt.map(c => `<tr>
+                 <td>${esc(c.heure_debut)}–${esc(c.heure_fin)}</td>
+                 <td>${esc(c.classe)}</td>
+                 <td>${esc(c.matiere_libelle)}</td>
+                 <td>${esc(c.salle || '—')}</td>
+               </tr>`).join('')}</tbody></table>`
+            : `<p class="empty">Aucun créneau le ${esc(adEdtJour)} (ou droits EDT insuffisants).</p>`}
+        </section>`;
+      const adEdtEl = document.getElementById('adEdtJour');
+      const btnAdEdt = document.getElementById('btnAdEdtLoad');
+      if (adEdtEl) {
+        adEdtEl.onchange = async () => {
+          adEdtJour = adEdtEl.value || today();
+          await render();
+        };
+      }
+      if (btnAdEdt) {
+        btnAdEdt.onclick = async () => {
+          if (adEdtEl) adEdtJour = adEdtEl.value || today();
+          await render();
+        };
+      }
+      const btnTel = document.getElementById('btnAdTel');
+      if (btnTel) {
+        btnTel.onclick = async () => {
+          const msg = document.getElementById('adTelMsg');
+          try {
+            await api('/users/' + id + '/telephone', {
+              method: 'PUT',
+              body: JSON.stringify({ telephone: document.getElementById('adTel').value.trim() }),
+            });
+            if (msg) msg.innerHTML = '<span class="ok">Téléphone enregistré</span>';
+            await render();
+          } catch (e) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      }
+      const btnDecl = document.getElementById('btnAdRhDecl');
+      if (btnDecl) {
+        btnDecl.onclick = async () => {
+          const msg = document.getElementById('adRhMsg');
+          try {
+            const d = await api('/rh/absences', {
+              method: 'POST',
+              body: JSON.stringify({
+                user_id: id,
+                debut: document.getElementById('adRhDebut').value,
+                fin: document.getElementById('adRhFin').value,
+                motif: document.getElementById('adRhMotif').value.trim() || 'maladie',
+              }),
+            });
+            msg.innerHTML = `<span class="ok">Déclarée · ${esc(d.statut)}</span>`;
+            await render();
+          } catch (e) {
+            msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      }
+      out.querySelectorAll('.btnAdRhVal').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/rh/absences/' + btn.dataset.id + '/valider', { method: 'POST', body: '{}' });
+            await render();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  await render();
+}
+
+/* ---------- Foyers (Administratif) ---------- */
+function viewFoyers() {
+  return shell('/app/foyers', `
+    <div class="bento" id="foyerStats"></div>
+    <div class="bento">
+      <section class="panel bento-span-8">
+        <h2>Foyers / familles</h2>
+        <p class="muted">Annuaire · fiche = responsables, enfants, parts 100&nbsp;%, quotient, facturation.</p>
+        <div class="row">
+          <label>Recherche <input id="foyerQ" placeholder="nom famille, responsable, e-mail…" style="min-width:14rem"/></label>
+          <button type="button" class="primary" id="btnFoyerSearch">Chercher</button>
+        </div>
+        <div id="foyerListOut" class="muted" style="margin-top:.75rem">…</div>
+      </section>
+      <section class="panel bento-span-4">
+        <h3>Nouveau foyer</h3>
+        <p class="dossier-help">Puis rattacher un enfant + un responsable sur la fiche.</p>
+        <label><span class="label-fr">Libellé</span>
+          <input id="foyerNewLib" placeholder="Famille Dupont" style="width:100%"/>
+        </label>
+        <div class="row" style="margin-top:.65rem">
+          <button type="button" class="primary" id="btnFoyerCreate">Créer</button>
+          <span id="foyerCreateMsg" class="muted"></span>
+        </div>
+      </section>
+    </div>`);
+}
+
+function viewFoyerDetail(id) {
+  return shell('/app/foyers', `
+    <div class="dossier">
+      <p class="muted" style="margin:0 0 .5rem"><a href="/app/foyers">← Annuaire foyers</a></p>
+      <div id="foyerDetailOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindFoyers() {
+  const out = document.getElementById('foyerListOut');
+  async function load() {
+    const q = (document.getElementById('foyerQ').value || '').trim();
+    const stats = document.getElementById('foyerStats');
+    try {
+      const list = await api('/foyers' + (q ? ('?q=' + encodeURIComponent(q)) : ''));
+      const nEleves = (list || []).reduce((s, f) => s + (f.nb_eleves || 0), 0);
+      const nVides = (list || []).filter(f => !f.nb_eleves).length;
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Foyers</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nEleves}</strong><span>Élèves rattachés</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nVides}</strong><span>Sans élève</span></div>`;
+      }
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucun foyer.</p>';
+        return;
+      }
+      out.innerHTML = `<table><thead><tr><th>Libellé</th><th>Élèves</th><th></th></tr></thead>
+        <tbody>${list.map(f => `<tr>
+          <td>${esc(f.libelle || '—')}</td>
+          <td>${f.nb_eleves}</td>
+          <td><a href="/app/foyers/${esc(f.id)}">Ouvrir</a></td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnFoyerSearch').onclick = load;
+  let foyerQTimer = null;
+  const foyerQEl = document.getElementById('foyerQ');
+  if (foyerQEl) {
+    foyerQEl.onkeydown = (ev) => { if (ev.key === 'Enter') load(); };
+    foyerQEl.oninput = () => {
+      clearTimeout(foyerQTimer);
+      foyerQTimer = setTimeout(load, 300);
+    };
+  }
+  document.getElementById('btnFoyerCreate').onclick = async () => {
+    const msg = document.getElementById('foyerCreateMsg');
+    const libelle = (document.getElementById('foyerNewLib').value || '').trim();
+    try {
+      const created = await api('/foyers', {
+        method: 'POST',
+        body: JSON.stringify({ libelle: libelle || null }),
+      });
+      msg.innerHTML = '<span class="ok">Créé</span>';
+      go('/app/foyers/' + created.id);
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  await load();
+}
+
+async function bindFoyerDetail(id) {
+  const out = document.getElementById('foyerDetailOut');
+  async function load() {
+    try {
+      const d = await api('/foyers/' + id);
+      const liens = d.liens || [];
+      const byEleve = new Map();
+      const responsables = new Map();
+      liens.forEach(l => {
+        if (!byEleve.has(l.eleve_id)) {
+          byEleve.set(l.eleve_id, {
+            label: l.eleve_label,
+            classe: l.eleve_classe,
+            liens: [],
+          });
+        }
+        byEleve.get(l.eleve_id).liens.push(l);
+        if (!responsables.has(l.user_id)) {
+          responsables.set(l.user_id, {
+            user_id: l.user_id,
+            name: l.display_name || l.user_email || 'Responsable',
+            email: l.user_email,
+            telephone: l.telephone,
+          });
+        }
+      });
+      let html = `<header class="dossier-bandeau" style="grid-template-columns:1fr auto">
+        <div>
+          <h1 class="dossier-titre">${esc(d.libelle || 'Foyer')}</h1>
+          <p class="dossier-meta">${byEleve.size} enfant(s) · ${responsables.size} responsable(s)</p>
+          <div class="dossier-raccourcis">
+            <a href="/app/facturation">Facturation</a>
+            <a href="/app/eleves">Annuaire élèves</a>
+          </div>
+        </div>
+        <div class="dossier-search">
+          <span class="label-fr">Responsables du foyer</span>
+          ${[...responsables.values()].map(r =>
+            `<div style="font-size:.9rem;margin-top:.35rem" data-user-id="${esc(r.user_id)}">
+              <strong>${esc(r.name)}</strong>
+              <div class="muted">${esc(r.email || 'e-mail —')}</div>
+              <div class="row" style="margin:.25rem 0 0;gap:.35rem">
+                <input class="fyTel" value="${esc(r.telephone || '')}" placeholder="téléphone" style="width:8.5rem"/>
+                <button type="button" class="btnFyTelSave" data-user-id="${esc(r.user_id)}">Tél.</button>
+              </div>
+            </div>`
+          ).join('') || '<span class="muted">—</span>'}
+        </div>
+      </header>
+      <section class="panel">
+        <h3>Rattacher un responsable</h3>
+        <p class="dossier-help">Compte parent créé s’il n’existe pas (mdp labo <code>DevLocalPass1!</code>). Par défaut non payeur — ajuste les parts à 100&nbsp;% ensuite.</p>
+        <div class="row">
+          ${elevePickerRow('fyLinkEleve', 'fyLinkQ', 'fyLinkBtn')}
+        </div>
+        <div class="row">
+          <label><span class="label-fr">E-mail</span><input id="fyLinkEmail" type="email" style="min-width:12rem"/></label>
+          <label><span class="label-fr">Nom affiché</span><input id="fyLinkName" style="min-width:8rem"/></label>
+          <label><span class="label-fr">Téléphone</span><input id="fyLinkTel" style="width:8rem"/></label>
+          <label><span class="label-fr">Lien</span>
+            <select id="fyLinkType">
+              <option value="mère">mère</option>
+              <option value="père">père</option>
+              <option value="tuteur">tuteur</option>
+              <option value="autre">autre</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="fyLinkPayeur"/> Payeur</label>
+          <label><span class="label-fr">Part %</span><input id="fyLinkPart" type="number" min="0" max="100" style="width:3.5rem"/></label>
+          <button type="button" class="primary" id="btnFyLink">Rattacher</button>
+          <span id="fyLinkMsg" class="muted"></span>
+        </div>
+      </section>
+      <section class="panel">
+        <h3>Quotient familial</h3>
+        <p class="dossier-help">Alimente les tarifs cantine / scolarité — pas une « caution ».</p>
+        <div class="row">
+          <label><span class="label-fr">Année</span><input id="fyQuoAnnee" value="2026-2027" style="width:7rem"/></label>
+          <label><span class="label-fr">Quotient (centimes)</span><input id="fyQuoCents" type="number" style="width:8rem"/></label>
+          <label><span class="label-fr">Parts ×100</span><input id="fyQuoParts" type="number" value="200" style="width:5rem"/></label>
+          <button type="button" id="btnFyQuoLoad">Lire</button>
+          <button type="button" class="primary" id="btnFyQuoSave">Enregistrer</button>
+          <button type="button" id="btnFyIbanHisto">Histo IBAN</button>
+          <span id="fyQuoMsg" class="muted"></span>
+        </div>
+        <div id="fyIbanOut" class="muted" style="margin-top:.5rem"></div>
+      </section>`;
+      if (!byEleve.size) {
+        html += '<section class="panel"><p class="empty">Aucun enfant encore sur ce foyer — rattache un élève via le formulaire ci-dessus.</p></section>';
+      }
+      for (const [eleveId, g] of byEleve) {
+        const sum = g.liens.filter(l => l.est_payeur).reduce((a, l) => a + (l.part_paiement || 0), 0);
+        const sumOk = sum === 100 || g.liens.every(l => !l.est_payeur);
+        html += `<section class="panel">
+        <h3>
+          <a href="/app/eleves/${esc(eleveId)}">${esc(g.label)}</a>
+          <span class="muted"> · ${esc(g.classe || '—')}</span>
+          <span class="pill" style="margin-left:.5rem">${sumOk ? 'parts 100 %' : 'parts ' + sum + '% — incomplet'}</span>
+        </h3>
+        <p class="dossier-help">Droits parent ↔ élève · parts payeurs = exactement 100&nbsp;% pour cet enfant.</p>
+        <table class="foyerEleveLiens" data-eleve-id="${esc(eleveId)}"><thead><tr>
+          <th>Responsable</th><th>Contact</th><th>Lien</th><th>Payeur</th><th>%</th>
+          <th>Notes</th><th>VS</th><th>Justif.</th><th>Sorties</th><th></th>
+        </tr></thead><tbody>
+        ${g.liens.map(l => `<tr data-lien-id="${esc(l.lien_id)}">
+          <td><strong>${esc(l.display_name || l.user_email || 'Responsable')}</strong></td>
+          <td class="muted" style="font-size:.85rem;line-height:1.35">
+            <div>${esc(l.telephone || 'tél. —')}</div>
+            <div>${esc(l.user_email || 'e-mail —')}</div>
+          </td>
+          <td><input class="fyLien" value="${esc(l.lien)}" style="width:5rem"/></td>
+          <td><input type="checkbox" class="fyPayeur" ${l.est_payeur ? 'checked' : ''}/></td>
+          <td><input type="number" class="fyPart" min="0" max="100" value="${l.part_paiement != null ? l.part_paiement : ''}" style="width:3.5rem"/></td>
+          <td><input type="checkbox" class="fyNotes" ${l.peut_voir_notes ? 'checked' : ''}/></td>
+          <td><input type="checkbox" class="fyVs" ${l.peut_voir_vs ? 'checked' : ''}/></td>
+          <td><input type="checkbox" class="fyJustif" ${l.peut_justifier_absence ? 'checked' : ''}/></td>
+          <td><input type="checkbox" class="fySorties" ${l.peut_autoriser_sorties ? 'checked' : ''}/></td>
+          <td><button type="button" class="danger btnFyUnlink" data-eleve-id="${esc(eleveId)}" data-lien-id="${esc(l.lien_id)}">Retirer</button></td>
+        </tr>`).join('')}
+        </tbody></table>
+        <div class="row" style="margin:.4rem 0 0">
+          <button type="button" class="primary btnFoyerSaveEleve" data-eleve-id="${esc(eleveId)}">Enregistrer droits &amp; parts</button>
+          <span class="muted foyerSaveMsg" data-eleve-id="${esc(eleveId)}"></span>
+        </div>
+        </section>`;
+      }
+      html += `<section class="panel">
+        <h3>Factures du foyer</h3>
+        <p class="dossier-help">Liste filtrée · ouvrir dans Facturation pour émettre / encaisser.</p>
+        <div id="fyFacOut" class="muted">Chargement…</div>
+      </section>`;
+      out.innerHTML = html;
+
+      (async () => {
+        const box = document.getElementById('fyFacOut');
+        if (!box) return;
+        try {
+          const all = await api('/facturation/factures');
+          const list = (all || []).filter(f => f.foyer_id === id);
+          if (!list.length) {
+            box.innerHTML = '<p class="empty">Aucune facture · <a href="/app/facturation">Créer</a></p>';
+            return;
+          }
+          box.innerHTML = `<table><thead><tr><th>N°</th><th>Libellé</th><th>Nature</th><th>Statut</th><th>Total</th><th></th></tr></thead>
+            <tbody>${list.map(f => `<tr>
+              <td>${esc(f.numero)}</td>
+              <td>${esc(f.libelle)}</td>
+              <td>${esc(f.nature || '—')}</td>
+              <td><span class="pill">${esc(f.statut)}</span></td>
+              <td>${esc(euros(f.total_centimes))}</td>
+              <td><button type="button" class="btnFyOpenFac" data-id="${esc(f.id)}">Ouvrir</button></td>
+            </tr>`).join('')}</tbody></table>`;
+          box.querySelectorAll('.btnFyOpenFac').forEach(btn => {
+            btn.onclick = () => {
+              routeState.openFacId = btn.dataset.id;
+              go('/app/facturation');
+            };
+          });
+        } catch (e) {
+          box.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+        }
+      })();
+
+      await bindElevePickers('fyLinkEleve', 'fyLinkQ', 'fyLinkBtn');
+
+      out.querySelectorAll('.btnFyTelSave').forEach(btn => {
+        btn.onclick = async () => {
+          const uid = btn.dataset.userId;
+          const wrap = out.querySelector(`[data-user-id="${uid}"]`);
+          const tel = wrap ? wrap.querySelector('.fyTel').value : '';
+          try {
+            await api('/users/' + uid + '/telephone', {
+              method: 'PUT',
+              body: JSON.stringify({ telephone: tel }),
+            });
+            await load();
+          } catch (e) {
+            alert(e.message);
+          }
+        };
+      });
+
+      const btnLink = document.getElementById('btnFyLink');
+      if (btnLink) {
+        btnLink.onclick = async () => {
+          const msg = document.getElementById('fyLinkMsg');
+          const partRaw = document.getElementById('fyLinkPart').value;
+          const part = partRaw === '' ? null : Number(partRaw);
+          try {
+            await api('/foyers/' + id + '/liens', {
+              method: 'POST',
+              body: JSON.stringify({
+                eleve_id: document.getElementById('fyLinkEleve').value,
+                email: document.getElementById('fyLinkEmail').value.trim(),
+                display_name: document.getElementById('fyLinkName').value.trim() || null,
+                telephone: document.getElementById('fyLinkTel').value.trim() || null,
+                lien: document.getElementById('fyLinkType').value,
+                est_payeur: document.getElementById('fyLinkPayeur').checked,
+                part_paiement: Number.isFinite(part) ? part : null,
+              }),
+            });
+            msg.innerHTML = '<span class="ok">Rattaché</span>';
+            await load();
+          } catch (e) {
+            msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      }
+
+      out.querySelectorAll('.btnFyUnlink').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Retirer ce responsable de cet enfant ?')) return;
+          try {
+            await api('/eleves/' + btn.dataset.eleveId + '/liens/' + btn.dataset.lienId, {
+              method: 'DELETE',
+            });
+            await load();
+          } catch (e) {
+            alert(e.message);
+          }
+        };
+      });
+
+      const quoMsg = document.getElementById('fyQuoMsg');
+      const btnQuoLoad = document.getElementById('btnFyQuoLoad');
+      if (btnQuoLoad) {
+        btnQuoLoad.onclick = async () => {
+          try {
+            const annee = document.getElementById('fyQuoAnnee').value.trim();
+            const q = await api('/foyers/' + id + '/quotient?annee_scolaire=' + encodeURIComponent(annee));
+            if (q) {
+              document.getElementById('fyQuoCents').value = q.quotient_centimes ?? '';
+              document.getElementById('fyQuoParts').value = q.parts_x100 ?? '';
+              quoMsg.innerHTML = '<span class="ok">Quotient chargé</span>';
+            } else {
+              quoMsg.innerHTML = '<span class="muted">Aucun quotient pour cette année</span>';
+            }
+          } catch (e) {
+            quoMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+        document.getElementById('btnFyQuoSave').onclick = async () => {
+          try {
+            await api('/foyers/' + id + '/quotient', {
+              method: 'PUT',
+              body: JSON.stringify({
+                foyer_id: id,
+                annee_scolaire: document.getElementById('fyQuoAnnee').value.trim(),
+                quotient_centimes: Number(document.getElementById('fyQuoCents').value) || 0,
+                parts_x100: Number(document.getElementById('fyQuoParts').value) || 200,
+              }),
+            });
+            quoMsg.innerHTML = '<span class="ok">Quotient enregistré</span>';
+          } catch (e) {
+            quoMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+        const fyQuoAnnee = document.getElementById('fyQuoAnnee');
+        if (fyQuoAnnee) fyQuoAnnee.onchange = () => btnQuoLoad.click();
+        const btnFyIban = document.getElementById('btnFyIbanHisto');
+        const fyIbanOut = document.getElementById('fyIbanOut');
+        if (btnFyIban && fyIbanOut) {
+          btnFyIban.onclick = async () => {
+            fyIbanOut.textContent = 'Chargement…';
+            try {
+              const list = await api('/foyers/' + encodeURIComponent(id) + '/iban-histo?limit=20');
+              fyIbanOut.innerHTML = !list.length
+                ? '<p class="empty">Aucun historique IBAN.</p>'
+                : `<table><thead><tr><th>IBAN</th><th>BIC</th><th>Titulaire</th><th>Mandat</th><th>Créé</th></tr></thead>
+                   <tbody>${list.map(h => `<tr>
+                     <td>${esc(h.iban)}</td><td>${esc(h.bic || '—')}</td>
+                     <td>${esc(h.titulaire || '—')}</td>
+                     <td class="muted">${h.mandat_id ? esc(String(h.mandat_id).slice(0, 8)) : '—'}</td>
+                     <td class="muted">${h.created_at ? esc(String(h.created_at).slice(0, 16).replace('T', ' ')) : '—'}</td>
+                   </tr>`).join('')}</tbody></table>`;
+            } catch (e) {
+              fyIbanOut.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+            }
+          };
+        }
+        btnQuoLoad.click();
+      }
+
+      out.querySelectorAll('.btnFoyerSaveEleve').forEach(btn => {
+        btn.onclick = async () => {
+          const eid = btn.dataset.eleveId;
+          const table = out.querySelector(`table.foyerEleveLiens[data-eleve-id="${eid}"]`);
+          const msg = out.querySelector(`.foyerSaveMsg[data-eleve-id="${eid}"]`);
+          const rows = [...table.querySelectorAll('tbody tr')];
+          const payload = {
+            liens: rows.map(tr => {
+              const partRaw = tr.querySelector('.fyPart').value;
+              const part = partRaw === '' ? null : Number(partRaw);
+              return {
+                lien_id: tr.dataset.lienId,
+                lien: tr.querySelector('.fyLien').value.trim(),
+                peut_voir_notes: tr.querySelector('.fyNotes').checked,
+                peut_voir_vs: tr.querySelector('.fyVs').checked,
+                peut_justifier_absence: tr.querySelector('.fyJustif').checked,
+                peut_autoriser_sorties: tr.querySelector('.fySorties').checked,
+                est_payeur: tr.querySelector('.fyPayeur').checked,
+                part_paiement: Number.isFinite(part) ? part : null,
+              };
+            }),
+          };
+          try {
+            await api('/eleves/' + eid + '/liens', {
+              method: 'PUT',
+              body: JSON.stringify(payload),
+            });
+            msg.innerHTML = '<span class="ok">Enregistré</span>';
+            await load();
+          } catch (e) {
+            msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  await load();
+}
+
+function viewFacturationStaff() {
+  return shell('/app/facturation', `
+    <div class="panel">
+      <h2>Boucler le mois cantine</h2>
+      <p class="muted">Passages badge → brouillon → émission (visible parents). Un geste pour la période choisie.</p>
+      <div class="row">
+        ${elevePickerRow('moisEleve', 'moisEleveQ', 'btnMoisEleveSearch')}
+        <label>du <input id="moisDebut" type="date"/></label>
+        <label>au <input id="moisFin" type="date"/></label>
+        <label>Prix (c) <input id="moisPrix" type="number" value="450" style="width:5rem"/></label>
+        <button type="button" id="btnMoisApercu">Aperçu</button>
+        <button type="button" class="primary" id="btnMoisBoucler">Facturer &amp; émettre</button>
+        <span id="moisMsg" class="muted"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Types de bourse</h2>
+      <p class="muted">Référentiel établissement — affectation / décision sur le dossier élève.</p>
+      <div class="row">
+        <label>Code <input id="btCode" placeholder="NAT" style="width:5rem"/></label>
+        <label>Libellé <input id="btLib" placeholder="Bourse nationale"/></label>
+        <button type="button" class="primary" id="btnBtSave">Créer</button>
+        <button type="button" id="btnBtList">Lister</button>
+      </div>
+      <div id="btMsg" class="muted"></div>
+      <div id="btOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Facturation foyers</h2>
+      <p class="muted">Créer un brouillon (lignes en centimes), puis émettre pour le rendre visible aux parents.</p>
+      <div class="row">
+        <label>Foyer <select id="facFoyer"></select></label>
+        <label>N° <input id="facNumero" value="F-2026-001" size="12"/></label>
+        <label>Libellé <input id="facLibelle" value="Cantine octobre" style="min-width:10rem"/></label>
+      </div>
+      <div class="row">
+        <label>Ligne <input id="facLigneLib" value="Cantine" size="12"/></label>
+        <label>Qté <input id="facLigneQte" type="number" value="20" style="width:4rem"/></label>
+        <label>Unit. (c) <input id="facLigneMontant" type="number" value="450" style="width:6rem"/></label>
+        <label>Bourse (c) <input id="facBourse" type="number" value="-2000" style="width:6rem" title="montant négatif"/></label>
+        <button type="button" class="primary" id="btnCreerFac">Créer brouillon</button>
+      </div>
+      <div class="row" style="margin-top:.75rem">
+        <label>Export OGEC du <input id="ogecDebut" type="date"/></label>
+        <label>au <input id="ogecFin" type="date"/></label>
+        <button type="button" id="btnExportOgec">CSV recettes</button>
+      </div>
+      <div class="row" style="margin-top:.5rem">
+        <label>Volumes cuisine du <input id="volDebut" type="date"/></label>
+        <label>au <input id="volFin" type="date"/></label>
+        <button type="button" id="btnExportVolumes">CSV cuisine</button>
+        <span id="volResume" class="muted"></span>
+      </div>
+      <div class="row" style="margin-top:.5rem">
+        ${elevePickerRow('badgeEleve', 'badgeEleveQ', 'btnBadgeEleveSearch')}
+        <label>du <input id="badgeDebut" type="date"/></label>
+        <label>au <input id="badgeFin" type="date"/></label>
+        <label>Prix (c) <input id="badgePrix" type="number" value="450" style="width:5rem"/></label>
+        <button type="button" id="btnApercuBadge">Aperçu</button>
+        <button type="button" class="primary" id="btnFacBadge">Créer brouillon</button>
+        <span id="badgeResume" class="muted"></span>
+      </div>
+      <div class="row" style="margin-top:.75rem">
+        <label>SEPA RUM <input id="sepaRum" value="RUM-LAB-001" size="12"/></label>
+        <label>IBAN <input id="sepaIban" value="FR76 3000 6000 0112 3456 7890 189" style="min-width:16rem"/></label>
+        <label>BIC <input id="sepaBic" value="AGRIFRPP" size="10"/></label>
+        <label>Titulaire <input id="sepaTitulaire" value="Lily Potter" size="14"/></label>
+        <button type="button" id="btnCreerMandat">Créer mandat</button>
+      </div>
+      <div class="row" style="margin-top:.5rem">
+        <label>Export SEPA du <input id="sepaDebut" type="date"/></label>
+        <label>au <input id="sepaFin" type="date"/></label>
+        <button type="button" id="btnExportSepa">CSV</button>
+        <button type="button" id="btnExportPain008">pain.008</button>
+      </div>
+      <div class="row" style="margin-top:.35rem">
+        <label>Créancier <input id="cdtrNom" value="Établissement" size="14"/></label>
+        <label>IBAN créd. <input id="cdtrIban" value="FR76 1010 7001 0112 3456 7890 129" style="min-width:14rem"/></label>
+        <label>BIC <input id="cdtrBic" value="CCBPFRPPXXX" size="10"/></label>
+        <label>ICS <input id="cdtrIcs" value="FR72ZZZ123456" size="12"/></label>
+      </div>
+      <div id="sepaMandats" class="muted" style="margin-top:.5rem"></div>
+      <h3 style="margin-top:1rem">Quotient / TVA / IBAN</h3>
+      <div class="row">
+        <label>Année <input id="quoAnnee" value="2026-2027" style="width:7rem"/></label>
+        <label>Quotient (c) <input id="quoCents" type="number" value="120000" style="width:7rem"/></label>
+        <label>Parts ×100 <input id="quoParts" type="number" value="250" style="width:5rem"/></label>
+        <button type="button" id="btnQuoLoad">Lire quotient</button>
+        <button type="button" class="primary" id="btnQuoSave">Enregistrer</button>
+        <button type="button" id="btnIbanHisto">Histo IBAN</button>
+      </div>
+      <div class="row">
+        <label>Code TVA <input id="tvaCode" value="REDUIT" style="width:6rem"/></label>
+        <label>Libellé <input id="tvaLib" value="Taux réduit" style="width:8rem"/></label>
+        <label>bps <input id="tvaBps" type="number" value="550" style="width:5rem"/></label>
+        <button type="button" id="btnTvaCreer">Créer taux</button>
+        <button type="button" id="btnTvaList">Lister TVA</button>
+        <label>HT (c) <input id="ttcHt" type="number" value="10000" style="width:6rem"/></label>
+        <button type="button" id="btnTtc">Calcul TTC (bps)</button>
+      </div>
+      <div id="quoOut" class="muted" style="margin-top:.5rem">…</div>
+      <div class="row" style="margin-top:.75rem">
+        <button type="button" id="btnLancerRappels">Lancer rappels échéances</button>
+      </div>
+      <div id="facRappels" class="muted" style="margin-top:.5rem"></div>
+      <h3 style="margin-top:1rem">Rapprochement banque (CSV)</h3>
+      <p class="muted">Colle un extrait CSV (référence facture / montant). Dry-run local ; PSD2 live optionnel.</p>
+      <textarea id="bankCsv" rows="5" style="width:100%;font-family:monospace;font-size:.85rem" placeholder="end_to_end_id;montant_centimes;result;motif&#10;E2E-…;4500;settled;&#10;E2E-…;1200;rejected;AC01"></textarea>
+      <div class="row" style="margin-top:.5rem">
+        <button type="button" class="primary" id="btnBankRapproch">Rapprocher</button>
+        <span id="bankMsg" class="muted"></span>
+      </div>
+      <div id="facOut" class="muted">…</div>
+    </div>
+    <div class="panel" id="facDetail" style="display:none">
+      <h3 id="facDetailTitre">Facture</h3>
+      <div id="facDetailBody"></div>
+      <div class="row" style="margin-top:.75rem" id="facEmitRow">
+        <button type="button" class="primary" id="btnEmettreFac">Émettre</button>
+      </div>
+      <div class="row" style="margin-top:.75rem;display:none" id="facEncRow">
+        <label>Montant (c) <input id="encMontant" type="number" style="width:7rem"/></label>
+        <label>Moyen <select id="encMoyen">
+          <option value="especes">Espèces</option>
+          <option value="cheque">Chèque</option>
+          <option value="virement" selected>Virement</option>
+          <option value="cb">CB</option>
+          <option value="autre">Autre</option>
+        </select></label>
+        <label>Réf. <input id="encRef" size="10" placeholder="CHQ-…"/></label>
+        <button type="button" class="primary" id="btnEncaisser">Encaisser</button>
+      </div>
+      <div class="row" style="margin-top:.75rem;display:none" id="facEchRow">
+        <label>Dates (3) <input id="echDates" size="36" placeholder="2026-10-15,2026-11-15,2026-12-15"/></label>
+        <button type="button" id="btnEcheancier">Poser échéancier (parts égales)</button>
+      </div>
+      <div style="margin-top:.75rem;display:none" id="facEchManRow">
+        <h4 style="margin:0 0 .35rem">Échéancier manuel</h4>
+        <p class="muted" style="margin:0 0 .35rem">Une ligne = libellé ; montant (c) ; date (séparés par ;). Une échéance par ligne.</p>
+        <textarea id="echManuel" rows="3" style="width:100%;font-family:monospace;font-size:.85rem" placeholder="1re échéance;5000;2026-10-15&#10;2e échéance;5000;2026-11-15"></textarea>
+        <div class="row" style="margin-top:.35rem">
+          <button type="button" id="btnEcheancierMan">Poser échéancier manuel</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:.75rem;display:none" id="facSepaRow">
+        <label>Mandat <select id="sepaMandatSel"></select></label>
+        <label>Montant (c) <input id="sepaMontant" type="number" style="width:7rem"/></label>
+        <label>Exéc. <input id="sepaDateExec" type="date"/></label>
+        <button type="button" class="primary" id="btnPlanifierSepa">Planifier prélèvement</button>
+      </div>
+      <div id="facDetailErr" class="muted"></div>
+    </div>`);
+}
+
+async function bindFacturationStaff() {
+  const out = document.getElementById('facOut');
+  const detail = document.getElementById('facDetail');
+  let currentId = null;
+
+  async function loadBourseTypes() {
+    const box = document.getElementById('btOut');
+    if (!box) return;
+    try {
+      const list = await api('/bourses/types');
+      box.innerHTML = list.length
+        ? `<table><thead><tr><th>Code</th><th>Libellé</th><th></th></tr></thead>
+           <tbody>${list.map(t => `<tr>
+             <td>${esc(t.code)}</td><td>${esc(t.libelle)}</td>
+             <td>${t.actif ? 'actif' : 'off'}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucun type.</p>';
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btnBtList = document.getElementById('btnBtList');
+  if (btnBtList) btnBtList.onclick = loadBourseTypes;
+  const btnBtSave = document.getElementById('btnBtSave');
+  if (btnBtSave) {
+    btnBtSave.onclick = async () => {
+      const m = document.getElementById('btMsg');
+      try {
+        await api('/bourses/types', {
+          method: 'POST',
+          body: JSON.stringify({
+            code: document.getElementById('btCode').value.trim(),
+            libelle: document.getElementById('btLib').value.trim(),
+          }),
+        });
+        m.innerHTML = '<span class="ok">Type créé</span>';
+        await loadBourseTypes();
+      } catch (e) {
+        m.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  await loadBourseTypes();
+
+  const foyerSel = document.getElementById('facFoyer');
+  async function fillFoyersFromSearch(q) {
+    try {
+      const list = await api('/foyers' + (q ? ('?q=' + encodeURIComponent(q)) : '?limit=80'));
+      foyerSel.innerHTML = (list || []).map(f =>
+        `<option value="${esc(f.id)}">${esc(f.libelle || 'Foyer')} · ${f.nb_eleves} élève(s)</option>`
+      ).join('') || '<option value="">—</option>';
+    } catch {
+      try {
+        const eleves = await api('/eleves/search?q=' + encodeURIComponent((q || 'a').trim() || 'a'));
+        const seen = new Set();
+        foyerSel.innerHTML = (eleves || []).map(e => {
+          if (!e.foyer_id || seen.has(e.foyer_id)) return '';
+          seen.add(e.foyer_id);
+          return `<option value="${esc(e.foyer_id)}">${esc(e.prenom)} ${esc(e.nom)} · foyer</option>`;
+        }).filter(Boolean).join('') || '<option value="">—</option>';
+      } catch {
+        foyerSel.innerHTML = '<option value="">—</option>';
+      }
+    }
+  }
+  await fillFoyersFromSearch('');
+  const today = new Date();
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const debutMois = new Date(today.getFullYear(), today.getMonth(), 1);
+  document.getElementById('ogecDebut').value = iso(debutMois);
+  document.getElementById('ogecFin').value = iso(today);
+  document.getElementById('btnExportOgec').onclick = async () => {
+    const debut = document.getElementById('ogecDebut').value;
+    const fin = document.getElementById('ogecFin').value;
+    if (!debut || !fin) {
+      alert('Indiquez la période d’export.');
+      return;
+    }
+    try {
+      await downloadFile(
+        '/facturation/export/ogec?debut=' + encodeURIComponent(debut) + '&fin=' + encodeURIComponent(fin),
+        'ogec.csv'
+      );
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  document.getElementById('volDebut').value = iso(debutMois);
+  document.getElementById('volFin').value = iso(today);
+  const badgeEleve = document.getElementById('badgeEleve');
+  await bindElevePickers('badgeEleve', 'badgeEleveQ', 'btnBadgeEleveSearch');
+  document.getElementById('badgeDebut').value = iso(debutMois);
+  document.getElementById('badgeFin').value = iso(today);
+  await bindElevePickers('moisEleve', 'moisEleveQ', 'btnMoisEleveSearch');
+  document.getElementById('moisDebut').value = iso(debutMois);
+  document.getElementById('moisFin').value = iso(today);
+  document.getElementById('btnMoisApercu').onclick = async () => {
+    const eleve = document.getElementById('moisEleve').value;
+    const debut = document.getElementById('moisDebut').value;
+    const fin = document.getElementById('moisFin').value;
+    const prix = Number(document.getElementById('moisPrix').value) || 450;
+    const m = document.getElementById('moisMsg');
+    try {
+      const d = await api('/facturation/cantine/badge?eleve_id=' + encodeURIComponent(eleve)
+        + '&debut=' + encodeURIComponent(debut)
+        + '&fin=' + encodeURIComponent(fin)
+        + '&prix_unitaire_centimes=' + prix);
+      m.innerHTML = `<span class="ok">${d.nb_passages} passage(s) · ${esc(euros(d.total_centimes))}</span>`;
+    } catch (e) {
+      m.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnMoisBoucler').onclick = async () => {
+    const sel = document.getElementById('moisEleve');
+    const opt = sel.selectedOptions[0];
+    const eleve = sel.value;
+    const foyer = opt ? opt.dataset.foyer : '';
+    const debut = document.getElementById('moisDebut').value;
+    const fin = document.getElementById('moisFin').value;
+    const prix = Number(document.getElementById('moisPrix').value) || 450;
+    const m = document.getElementById('moisMsg');
+    if (!eleve || !foyer) {
+      m.innerHTML = '<span class="bad">Élève avec foyer requis</span>';
+      return;
+    }
+    m.textContent = 'Facturation…';
+    try {
+      const apercu = await api('/facturation/cantine/badge?eleve_id=' + encodeURIComponent(eleve)
+        + '&debut=' + encodeURIComponent(debut)
+        + '&fin=' + encodeURIComponent(fin)
+        + '&prix_unitaire_centimes=' + prix);
+      if (!apercu.nb_passages) {
+        m.innerHTML = '<span class="muted">Aucun passage sur la période — rien à facturer.</span>';
+        return;
+      }
+      const created = await api('/facturation/cantine/badge', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: eleve,
+          foyer_id: foyer,
+          debut,
+          fin,
+          prix_unitaire_centimes: prix,
+          numero: 'CM-' + debut.replace(/-/g, ''),
+          kind: 'midi',
+        }),
+      });
+      const facId = created.facture.id;
+      await api('/facturation/factures/' + facId + '/emettre', {
+        method: 'POST',
+        body: '{}',
+      });
+      currentId = facId;
+      m.innerHTML = `<span class="ok">Émise ${esc(created.facture.numero)} · ${esc(euros(created.facture.total_centimes))} · ${apercu.nb_passages} repas</span>`;
+      await loadList();
+      await openFac(facId);
+    } catch (e) {
+      m.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  async function apercuBadge(silent) {
+    const eleve = badgeEleve.value;
+    const debut = document.getElementById('badgeDebut').value;
+    const fin = document.getElementById('badgeFin').value;
+    const prix = Number(document.getElementById('badgePrix').value) || 450;
+    const resume = document.getElementById('badgeResume');
+    if (!eleve || !debut || !fin) {
+      if (!silent) alert('Élève et période requis.');
+      else if (resume) resume.textContent = '';
+      return;
+    }
+    try {
+      const [d, vol] = await Promise.all([
+        api('/facturation/cantine/badge?eleve_id=' + eleve
+          + '&debut=' + encodeURIComponent(debut)
+          + '&fin=' + encodeURIComponent(fin)
+          + '&prix_unitaire_centimes=' + prix),
+        api('/eleves/' + eleve + '/repas/volume?debut=' + encodeURIComponent(debut)
+          + '&fin=' + encodeURIComponent(fin) + '&kind=midi').catch(() => null),
+      ]);
+      const volTxt = vol ? ` · volume facturable ${vol.jours_facturables} j` : '';
+      resume.textContent = d.nb_passages + ' passage(s) · ' + euros(d.total_centimes) + volTxt;
+    } catch (e) {
+      resume.textContent = '';
+      if (!silent) alert(e.message);
+    }
+  }
+  document.getElementById('btnApercuBadge').onclick = () => apercuBadge(false);
+  let badgeTimer = null;
+  function scheduleApercuBadge() {
+    clearTimeout(badgeTimer);
+    badgeTimer = setTimeout(() => apercuBadge(true), 350);
+  }
+  if (badgeEleve) badgeEleve.onchange = scheduleApercuBadge;
+  ['badgeDebut', 'badgeFin', 'badgePrix'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.onchange = scheduleApercuBadge;
+  });
+  document.getElementById('btnFacBadge').onclick = async () => {
+    const opt = badgeEleve.selectedOptions[0];
+    const eleve = badgeEleve.value;
+    const foyer = opt ? opt.dataset.foyer : '';
+    const debut = document.getElementById('badgeDebut').value;
+    const fin = document.getElementById('badgeFin').value;
+    const prix = Number(document.getElementById('badgePrix').value) || 450;
+    const resume = document.getElementById('badgeResume');
+    if (!foyer) { alert('Foyer manquant'); return; }
+    try {
+      const d = await api('/facturation/cantine/badge', {
+        method: 'POST',
+        body: JSON.stringify({
+          eleve_id: eleve,
+          foyer_id: foyer,
+          debut, fin,
+          prix_unitaire_centimes: prix,
+          numero: 'CB-' + debut.replace(/-/g, ''),
+          kind: 'midi',
+        }),
+      });
+      resume.textContent = 'Brouillon ' + d.facture.numero + ' · ' + euros(d.facture.total_centimes);
+      currentId = d.facture.id;
+      await loadList();
+      await openFac(currentId);
+    } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btnExportVolumes').onclick = async () => {
+    const debut = document.getElementById('volDebut').value;
+    const fin = document.getElementById('volFin').value;
+    const resume = document.getElementById('volResume');
+    if (!debut || !fin) {
+      alert('Indiquez la période volumes cuisine.');
+      return;
+    }
+    try {
+      const d = await api('/repas/volumes?debut=' + encodeURIComponent(debut) + '&fin=' + encodeURIComponent(fin) + '&kind=midi');
+      const total = (d.lignes || []).reduce((s, l) => s + (l.nb_prevus || 0), 0);
+      resume.textContent = (d.lignes || []).length + ' jour(s) · ' + total + ' repas midi prévus';
+      await downloadFile(
+        '/repas/volumes/export?debut=' + encodeURIComponent(debut) + '&fin=' + encodeURIComponent(fin) + '&kind=midi',
+        'volumes-cuisine.csv'
+      );
+    } catch (e) {
+      resume.textContent = '';
+      alert(e.message);
+    }
+  };
+  document.getElementById('sepaDebut').value = iso(debutMois);
+  document.getElementById('sepaFin').value = iso(today);
+  document.getElementById('sepaDateExec').value = iso(today);
+  let mandatsCache = [];
+
+  async function loadMandats() {
+    const box = document.getElementById('sepaMandats');
+    try {
+      mandatsCache = await api('/facturation/sepa/mandats');
+      const actifs = (mandatsCache || []).filter(m => m.statut === 'actif');
+      const sel = document.getElementById('sepaMandatSel');
+      sel.innerHTML = actifs.map(m =>
+        `<option value="${esc(m.id)}">${esc(m.rum)} · ${esc(m.titulaire)}</option>`
+      ).join('') || '<option value="">— aucun mandat —</option>';
+      box.innerHTML = (mandatsCache || []).length
+        ? `<table><thead><tr><th>RUM</th><th>Titulaire</th><th>IBAN</th><th>BIC</th><th>Signé</th><th>Statut</th><th></th></tr></thead>
+           <tbody>${mandatsCache.map(m => `<tr>
+             <td>${esc(m.rum)}</td><td>${esc(m.titulaire)}</td>
+             <td class="muted">${esc(m.iban)}</td>
+             <td class="muted">${esc(m.bic || '—')}</td>
+             <td class="muted">${m.signe_at ? esc(String(m.signe_at).slice(0, 10)) : '—'}</td>
+             <td><span class="pill">${esc(m.statut)}</span></td>
+             <td>${m.statut === 'actif'
+               ? `<button type="button" class="btnRevokeMandat" data-id="${esc(m.id)}">Révoquer</button>`
+               : ''}</td>
+           </tr>`).join('')}</tbody></table>`
+        : `<p class="empty">Aucun mandat SEPA.</p>`;
+      box.querySelectorAll('.btnRevokeMandat').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/facturation/sepa/mandats/' + btn.dataset.id + '/revoquer', {
+              method: 'POST', body: '{}',
+            });
+            await loadMandats();
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('btnCreerMandat').onclick = async () => {
+    try {
+      await api('/facturation/sepa/mandats', {
+        method: 'POST',
+        body: JSON.stringify({
+          foyer_id: foyerSel.value,
+          rum: document.getElementById('sepaRum').value.trim(),
+          iban: document.getElementById('sepaIban').value.trim(),
+          bic: document.getElementById('sepaBic').value.trim() || null,
+          titulaire: document.getElementById('sepaTitulaire').value.trim(),
+        }),
+      });
+      await loadMandats();
+    } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btnExportSepa').onclick = async () => {
+    const debut = document.getElementById('sepaDebut').value;
+    const fin = document.getElementById('sepaFin').value;
+    if (!debut || !fin) {
+      alert('Indiquez la période SEPA.');
+      return;
+    }
+    try {
+      await downloadFile(
+        '/facturation/sepa/export?format=csv&debut=' + encodeURIComponent(debut) + '&fin=' + encodeURIComponent(fin),
+        'sepa.csv'
+      );
+    } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btnExportPain008').onclick = async () => {
+    const debut = document.getElementById('sepaDebut').value;
+    const fin = document.getElementById('sepaFin').value;
+    if (!debut || !fin) {
+      alert('Indiquez la période SEPA.');
+      return;
+    }
+    const q = new URLSearchParams({
+      format: 'pain008',
+      debut,
+      fin,
+      cdtr_nom: document.getElementById('cdtrNom').value.trim(),
+      cdtr_iban: document.getElementById('cdtrIban').value.trim(),
+      cdtr_bic: document.getElementById('cdtrBic').value.trim(),
+      cdtr_ics: document.getElementById('cdtrIcs').value.trim(),
+    });
+    try {
+      await downloadFile('/facturation/sepa/export?' + q.toString(), 'sepa-pain008.xml');
+    } catch (e) { alert(e.message); }
+  };
+  async function loadRappels() {
+    const box = document.getElementById('facRappels');
+    try {
+      const list = await api('/facturation/rappels');
+      if (!list.length) {
+        box.innerHTML = `<p class="empty">Aucun rappel envoyé.</p>`;
+        return;
+      }
+      box.innerHTML = `<table><thead><tr><th>Quand</th><th>Kind</th><th>Canal</th><th>Facture</th><th>Échéance</th><th>Fil</th><th>Message</th></tr></thead>
+        <tbody>${list.map(r => `<tr>
+          <td class="muted">${esc((r.envoye_at || '').slice(0, 16).replace('T',' '))}</td>
+          <td><span class="pill">${esc(r.kind)}</span></td>
+          <td>${esc(r.canal)}</td>
+          <td class="muted">${r.facture_id ? esc(String(r.facture_id).slice(0, 8)) : '—'}</td>
+          <td class="muted">${r.echeance_id ? esc(String(r.echeance_id).slice(0, 8)) : '—'}</td>
+          <td>${r.fil_id ? `<button type="button" class="btnFacFil" data-fid="${esc(r.fil_id)}">Ouvrir</button>` : '—'}</td>
+          <td>${esc(r.corps)}</td>
+        </tr>`).join('')}</tbody></table>`;
+      box.querySelectorAll('.btnFacFil').forEach(btn => {
+        btn.onclick = () => {
+          routeState.pendingFilId = btn.dataset.fid;
+          go('/app/messages');
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const quoOut = document.getElementById('quoOut');
+  document.getElementById('btnQuoLoad').onclick = async () => {
+    const fid = foyerSel.value;
+    if (!fid) { quoOut.innerHTML = '<span class="bad">Foyer requis</span>'; return; }
+    try {
+      const annee = document.getElementById('quoAnnee').value.trim();
+      const q = await api('/foyers/' + encodeURIComponent(fid) + '/quotient?annee_scolaire=' + encodeURIComponent(annee));
+      quoOut.innerHTML = q
+        ? `<span class="ok">${esc(q.annee_scolaire)} · ${euros(q.quotient_centimes)} · parts ${esc(String(q.parts_x100))}</span>`
+        : '<p class="empty">Pas de quotient.</p>';
+    } catch (e) {
+      quoOut.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnQuoSave').onclick = async () => {
+    const fid = foyerSel.value;
+    if (!fid) { quoOut.innerHTML = '<span class="bad">Foyer requis</span>'; return; }
+    try {
+      const q = await api('/foyers/' + encodeURIComponent(fid) + '/quotient', {
+        method: 'PUT',
+        body: JSON.stringify({
+          foyer_id: fid,
+          annee_scolaire: document.getElementById('quoAnnee').value.trim(),
+          quotient_centimes: Number(document.getElementById('quoCents').value) || 0,
+          parts_x100: Number(document.getElementById('quoParts').value) || 100,
+        }),
+      });
+      quoOut.innerHTML = `<span class="ok">Quotient ${euros(q.quotient_centimes)}</span>`;
+    } catch (e) {
+      quoOut.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnIbanHisto').onclick = async () => {
+    const fid = foyerSel.value;
+    if (!fid) { quoOut.innerHTML = '<span class="bad">Foyer requis</span>'; return; }
+    try {
+      const list = await api('/foyers/' + encodeURIComponent(fid) + '/iban-histo?limit=20');
+      quoOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun historique IBAN.</p>'
+        : `<table><thead><tr><th>IBAN</th><th>BIC</th><th>Titulaire</th><th>Mandat</th><th>Créé</th></tr></thead>
+           <tbody>${list.map(h => `<tr>
+             <td>${esc(h.iban)}</td><td>${esc(h.bic || '—')}</td>
+             <td>${esc(h.titulaire || '—')}</td>
+             <td class="muted">${h.mandat_id ? esc(String(h.mandat_id).slice(0, 8)) : '—'}</td>
+             <td class="muted">${h.created_at ? esc(String(h.created_at).slice(0, 16).replace('T', ' ')) : '—'}</td>
+           </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      quoOut.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnTvaList').onclick = async () => {
+    try {
+      const list = await api('/taux-tva');
+      quoOut.innerHTML = !list.length
+        ? '<p class="empty">Aucun taux TVA.</p>'
+        : `<table><thead><tr><th>Code</th><th>Libellé</th><th>bps</th><th>Id</th></tr></thead>
+           <tbody>${list.map(t => `<tr>
+             <td>${esc(t.code)}</td><td>${esc(t.libelle)}</td>
+             <td>${esc(String(t.taux_bps))}</td>
+             <td class="muted"><code>${esc(t.id)}</code></td>
+           </tr>`).join('')}</tbody></table>`;
+      if (list[0]) document.getElementById('tvaBps').value = list[0].taux_bps;
+    } catch (e) {
+      quoOut.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnTvaCreer').onclick = async () => {
+    try {
+      const t = await api('/taux-tva', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: document.getElementById('tvaCode').value.trim(),
+          libelle: document.getElementById('tvaLib').value.trim(),
+          taux_bps: Number(document.getElementById('tvaBps').value) || 0,
+        }),
+      });
+      document.getElementById('tvaBps').value = t.taux_bps;
+      quoOut.innerHTML = `<span class="ok">TVA ${esc(t.code)} · ${esc(String(t.taux_bps))} bps</span>`;
+    } catch (e) {
+      quoOut.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnTtc').onclick = async () => {
+    try {
+      const ht = Number(document.getElementById('ttcHt').value) || 0;
+      const bps = Number(document.getElementById('tvaBps').value) || 0;
+      const r = await api('/taux-tva/calcul-ttc?ht_centimes=' + ht + '&taux_bps=' + bps);
+      quoOut.innerHTML = `<span class="ok">HT ${euros(r.ht_centimes)} → TTC ${euros(r.ttc_centimes)} (${esc(String(r.taux_bps))} bps)</span>`;
+    } catch (e) {
+      quoOut.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  document.getElementById('btnLancerRappels').onclick = async () => {
+    try {
+      const n = await api('/facturation/rappels', { method: 'POST', body: '{}' });
+      await loadRappels();
+      alert((n && n.length ? n.length : 0) + ' rappel(s) créé(s)');
+    } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btnBankRapproch').onclick = async () => {
+    const msg = document.getElementById('bankMsg');
+    const csv = document.getElementById('bankCsv').value.trim();
+    if (!csv) { msg.innerHTML = '<span class="bad">CSV requis</span>'; return; }
+    try {
+      const s = await api('/facturation/banque/rapprocher', {
+        method: 'POST',
+        body: JSON.stringify({ csv }),
+      });
+      msg.innerHTML = `<span class="ok">${s.lines} ligne(s) · exec ${s.executed} · rej ${s.rejected} · unmatched ${s.unmatched} · err ${s.errors}</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  document.getElementById('btnPlanifierSepa').onclick = async () => {
+    if (!currentId) return;
+    try {
+      await api('/facturation/factures/' + currentId + '/sepa/prelever', {
+        method: 'POST',
+        body: JSON.stringify({
+          mandat_id: document.getElementById('sepaMandatSel').value,
+          montant_centimes: Number(document.getElementById('sepaMontant').value) || 0,
+          date_execution: document.getElementById('sepaDateExec').value,
+        }),
+      });
+      await openFac(currentId);
+    } catch (e) {
+      document.getElementById('facDetailErr').innerHTML =
+        `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  async function loadList() {
+    out.textContent = 'Chargement…';
+    try {
+      let list = await api('/facturation/factures');
+      const fid = foyerSel && foyerSel.value;
+      if (fid) list = list.filter(f => f.foyer_id === fid);
+      if (!list.length) {
+        out.innerHTML = `<p class="empty">Aucune facture${fid ? ' pour ce foyer' : ''}.</p>`;
+        return;
+      }
+      const nEmises = list.filter(f => f.statut === 'emise' || f.statut === 'partielle').length;
+      const nSoldees = list.filter(f => f.statut === 'soldee').length;
+      const total = list.reduce((s, f) => s + (f.total_centimes || 0), 0);
+      out.innerHTML = `
+        <div class="bento" style="margin-bottom:.75rem">
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Factures · ${esc(euros(total))}</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nEmises}</strong><span>Émises / partielles</span></div>
+          <div class="stat-tile bento-span-4"><strong>${nSoldees}</strong><span>Soldées</span></div>
+        </div>
+        <table><thead><tr><th>N°</th><th>Libellé</th><th>Nature</th><th>Année</th><th>Statut</th><th>Émise</th><th>Total</th><th></th></tr></thead>
+        <tbody>${list.map(f => `<tr>
+          <td>${esc(f.numero)}</td>
+          <td>${esc(f.libelle)}</td>
+          <td>${esc(f.nature || '—')}</td>
+          <td>${esc(f.annee_scolaire || '—')}</td>
+          <td><span class="pill">${esc(f.statut)}</span></td>
+          <td class="muted">${f.emise_at ? esc(String(f.emise_at).slice(0, 10)) : '—'}</td>
+          <td>${esc(euros(f.total_centimes))}</td>
+          <td><button type="button" class="btnOpenFac" data-id="${esc(f.id)}">Ouvrir</button></td>
+        </tr>`).join('')}</tbody></table>`;
+      out.querySelectorAll('.btnOpenFac').forEach(btn => {
+        btn.onclick = () => openFac(btn.dataset.id);
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  if (foyerSel) {
+    foyerSel.onchange = async () => {
+      await loadList();
+      await loadMandats();
+      const btnQuo = document.getElementById('btnQuoLoad');
+      if (btnQuo && btnQuo.onclick) await btnQuo.onclick();
+    };
+  }
+
+  async function openFac(id) {
+    currentId = id;
+    const err = document.getElementById('facDetailErr');
+    err.textContent = '';
+    try {
+      const d = await api('/facturation/factures/' + id);
+      detail.style.display = '';
+      document.getElementById('facDetailTitre').textContent =
+        d.facture.numero + ' — ' + d.facture.libelle + ' (' + d.facture.statut + ')';
+      const encHtml = (d.encaissements || []).length
+        ? `<table style="margin-top:.5rem"><thead><tr><th>Date</th><th>Moyen</th><th>Réf.</th><th>Montant</th></tr></thead>
+           <tbody>${d.encaissements.map(e => `<tr>
+             <td class="muted">${esc((e.encaisse_at || '').slice(0, 16).replace('T',' '))}</td>
+             <td>${esc(e.moyen)}</td>
+             <td>${esc(e.reference || '—')}</td>
+             <td>${esc(euros(e.montant_centimes))}</td>
+           </tr>`).join('')}</tbody></table>`
+        : `<p class="empty" style="margin-top:.5rem">Aucun encaissement.</p>`;
+      const echHtml = (d.echeances || []).length
+        ? `<table style="margin-top:.5rem"><thead><tr><th>#</th><th>Libellé</th><th>Date</th><th>Dû</th><th>Bourse</th><th>Brut</th><th>Couvert</th><th>État</th></tr></thead>
+           <tbody>${d.echeances.map(e => `<tr>
+             <td>${e.rang}</td>
+             <td>${esc(e.libelle)}</td>
+             <td>${esc(e.date_echeance)}</td>
+             <td>${esc(euros(e.montant_centimes))}</td>
+             <td>${esc(euros(e.bourse_centimes || 0))}</td>
+             <td>${esc(euros(e.montant_brut_centimes || e.montant_centimes))}</td>
+             <td>${esc(euros(e.couvert_centimes || 0))}</td>
+             <td><span class="pill">${esc(e.couverture)}</span></td>
+           </tr>`).join('')}</tbody></table>`
+        : `<p class="empty" style="margin-top:.5rem">Pas d'échéancier.</p>`;
+      document.getElementById('facDetailBody').innerHTML = `
+        <p><strong>Total :</strong> ${esc(euros(d.facture.total_centimes))}
+          · <strong>Encaissé :</strong> ${esc(euros(d.encaisse_centimes || 0))}
+          · <strong>Reste :</strong> ${esc(euros(d.reste_centimes || 0))}
+          · <button type="button" id="btnPdfFac">PDF</button></p>
+        <table><thead><tr><th>Libellé</th><th>Qté</th><th>Unit.</th><th>Total</th></tr></thead>
+        <tbody>${(d.lignes || []).map(l => `<tr>
+          <td>${esc(l.libelle)}</td>
+          <td>${l.quantite}</td>
+          <td>${esc(euros(l.montant_unitaire_centimes))}</td>
+          <td>${esc(euros(l.total_centimes))}</td>
+        </tr>`).join('')}</tbody></table>
+        <h4 style="margin:.75rem 0 .25rem">Échéancier</h4>${echHtml}
+        <h4 style="margin:.75rem 0 .25rem">Paiements</h4>${encHtml}
+        <h4 style="margin:.75rem 0 .25rem">Quittances</h4>${
+          (d.quittances || []).length
+            ? `<table style="margin-top:.5rem"><thead><tr><th>N°</th><th>Date</th><th>Moyen</th><th>Montant</th><th></th></tr></thead>
+               <tbody>${d.quittances.map(q => `<tr>
+                 <td>${esc(q.numero)}</td>
+                 <td class="muted">${esc((q.emise_at || '').slice(0, 16).replace('T',' '))}</td>
+                 <td>${esc(q.moyen)}</td>
+                 <td>${esc(euros(q.montant_centimes))}</td>
+                 <td>
+                   <button type="button" class="btnQuitDetailStaff" data-id="${esc(q.id)}">Détail</button>
+                   <button type="button" class="btnPdfQuit" data-id="${esc(q.id)}">PDF</button>
+                 </td>
+               </tr>`).join('')}</tbody></table>`
+            : `<p class="empty" style="margin-top:.5rem">Aucune quittance.</p>`
+        }
+        <h4 style="margin:.75rem 0 .25rem">Prélèvements SEPA</h4>${
+          (d.prelevements || []).length
+            ? `<table style="margin-top:.5rem"><thead><tr><th>Date</th><th>Montant</th><th>E2E</th><th>Statut</th><th></th></tr></thead>
+               <tbody>${d.prelevements.map(p => `<tr>
+                 <td>${esc(p.date_execution)}</td>
+                 <td>${esc(euros(p.montant_centimes))}</td>
+                 <td class="muted">${esc(p.end_to_end_id)}${p.motif_rejet ? ' · ' + esc(p.motif_rejet) : ''}</td>
+                 <td><span class="pill">${esc(p.statut)}</span></td>
+                 <td>${(p.statut === 'prevu' || p.statut === 'exporte')
+                   ? `<button type="button" class="btnExecSepa" data-id="${esc(p.id)}">Exécuter</button>
+                      <select class="sepaRejetMotif" data-for="${esc(p.id)}" style="width:5.5rem">
+                        <option value="AC04" selected>AC04</option>
+                        <option value="AC01">AC01</option>
+                        <option value="AC06">AC06</option>
+                        <option value="MD01">MD01</option>
+                        <option value="MS02">MS02</option>
+                        <option value="MS03">MS03</option>
+                      </select>
+                      <button type="button" class="btnRejetSepa" data-id="${esc(p.id)}">Rejeter</button>`
+                   : ''}</td>
+               </tr>`).join('')}</tbody></table>`
+            : `<p class="empty" style="margin-top:.5rem">Aucun prélèvement.</p>`
+        }`;
+      document.getElementById('btnPdfFac').onclick = async () => {
+        try {
+          await downloadPdf('/facturation/factures/' + id + '/pdf', 'facture.pdf');
+        } catch (e) { err.textContent = e.message; }
+      };
+      document.querySelectorAll('.btnQuitDetailStaff').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            const q = await api('/facturation/quittances/' + btn.dataset.id);
+            err.innerHTML = `<span class="ok">${esc(q.numero || '')} · ${esc(euros(q.montant_centimes))}
+              ${q.reference ? ' · réf. ' + esc(q.reference) : ''}
+              ${q.moyen ? ' · ' + esc(q.moyen) : ''}</span>`;
+          } catch (e) { err.textContent = e.message; }
+        };
+      });
+      document.querySelectorAll('.btnPdfQuit').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await downloadPdf('/facturation/quittances/' + btn.dataset.id + '/pdf', 'quittance.pdf');
+          } catch (e) { err.textContent = e.message; }
+        };
+      });
+      document.querySelectorAll('.btnExecSepa').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/facturation/sepa/prelevements/' + btn.dataset.id + '/executer', {
+              method: 'POST', body: '{}',
+            });
+            await loadList();
+            await openFac(id);
+          } catch (e) { err.textContent = e.message; }
+        };
+      });
+      document.querySelectorAll('.btnRejetSepa').forEach(btn => {
+        btn.onclick = async () => {
+          const sel = document.querySelector('.sepaRejetMotif[data-for="' + btn.dataset.id + '"]');
+          const motif = (sel && sel.value) || 'AC04';
+          try {
+            await api('/facturation/sepa/prelevements/' + btn.dataset.id + '/rejeter', {
+              method: 'POST',
+              body: JSON.stringify({ motif }),
+            });
+            await loadList();
+            await openFac(id);
+          } catch (e) { err.textContent = e.message; }
+        };
+      });
+      document.getElementById('facEmitRow').style.display =
+        d.facture.statut === 'brouillon' ? '' : 'none';
+      const canEnc = d.facture.statut === 'emise' && (d.reste_centimes || 0) > 0;
+      document.getElementById('facEncRow').style.display = canEnc ? '' : 'none';
+      if (canEnc) {
+        document.getElementById('encMontant').value = String(d.reste_centimes || 0);
+      }
+      const canEch = d.facture.statut !== 'brouillon' && !(d.echeances || []).length;
+      document.getElementById('facEchRow').style.display = canEch ? '' : 'none';
+      const manRow = document.getElementById('facEchManRow');
+      if (manRow) manRow.style.display = canEch ? '' : 'none';
+      if (canEch && !document.getElementById('echDates').value) {
+        const t = new Date();
+        const fmt = (d) => d.toISOString().slice(0, 10);
+        const d1 = new Date(t); d1.setDate(d1.getDate() + 7);
+        const d2 = new Date(t); d2.setDate(d2.getDate() + 37);
+        const d3 = new Date(t); d3.setDate(d3.getDate() + 67);
+        document.getElementById('echDates').value = [fmt(d1), fmt(d2), fmt(d3)].join(',');
+      }
+      const canSepa = canEnc && (mandatsCache || []).some(m => m.statut === 'actif' && m.foyer_id === d.facture.foyer_id);
+      document.getElementById('facSepaRow').style.display = canSepa ? '' : 'none';
+      if (canSepa) {
+        const sel = document.getElementById('sepaMandatSel');
+        const forFoyer = (mandatsCache || []).filter(m => m.statut === 'actif' && m.foyer_id === d.facture.foyer_id);
+        sel.innerHTML = forFoyer.map(m =>
+          `<option value="${esc(m.id)}">${esc(m.rum)} · ${esc(m.titulaire)}</option>`
+        ).join('');
+        document.getElementById('sepaMontant').value = String(d.reste_centimes || 0);
+        if (!document.getElementById('sepaDateExec').value) {
+          document.getElementById('sepaDateExec').value = iso(new Date());
+        }
+      }
+    } catch (e) {
+      err.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+
+  document.getElementById('btnCreerFac').onclick = async () => {
+    try {
+      const numeroBase = document.getElementById('facNumero').value.trim() || 'F';
+      const numero = numeroBase + '-' + Date.now().toString(36).slice(-4);
+      const lignes = [{
+        libelle: document.getElementById('facLigneLib').value.trim() || 'Cantine',
+        quantite: Number(document.getElementById('facLigneQte').value) || 1,
+        montant_unitaire_centimes: Number(document.getElementById('facLigneMontant').value) || 0,
+      }];
+      const bourse = Number(document.getElementById('facBourse').value) || 0;
+      if (bourse !== 0) {
+        lignes.push({ libelle: 'Bourse', quantite: 1, montant_unitaire_centimes: bourse });
+      }
+      const d = await api('/facturation/factures', {
+        method: 'POST',
+        body: JSON.stringify({
+          foyer_id: foyerSel.value,
+          numero,
+          libelle: document.getElementById('facLibelle').value.trim() || 'Facture',
+          lignes,
+        }),
+      });
+      await loadList();
+      await openFac(d.facture.id);
+    } catch (e) { alert(e.message); }
+  };
+  document.getElementById('btnEmettreFac').onclick = async () => {
+    if (!currentId) return;
+    try {
+      await api('/facturation/factures/' + currentId + '/emettre', {
+        method: 'POST',
+        body: '{}',
+      });
+      await loadList();
+      await openFac(currentId);
+    } catch (e) {
+      document.getElementById('facDetailErr').innerHTML =
+        `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnEncaisser').onclick = async () => {
+    if (!currentId) return;
+    try {
+      await api('/facturation/factures/' + currentId + '/encaisser', {
+        method: 'POST',
+        body: JSON.stringify({
+          montant_centimes: Number(document.getElementById('encMontant').value) || 0,
+          moyen: document.getElementById('encMoyen').value,
+          reference: document.getElementById('encRef').value.trim() || null,
+        }),
+      });
+      document.getElementById('encRef').value = '';
+      await loadList();
+      await openFac(currentId);
+    } catch (e) {
+      document.getElementById('facDetailErr').innerHTML =
+        `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnEcheancier').onclick = async () => {
+    if (!currentId) return;
+    try {
+      const dates = document.getElementById('echDates').value
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      await api('/facturation/factures/' + currentId + '/echeancier/parts', {
+        method: 'POST',
+        body: JSON.stringify({ dates }),
+      });
+      await loadList();
+      await openFac(currentId);
+    } catch (e) {
+      document.getElementById('facDetailErr').innerHTML =
+        `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  document.getElementById('btnEcheancierMan').onclick = async () => {
+    if (!currentId) return;
+    try {
+      const lines = (document.getElementById('echManuel').value || '')
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const echeances = lines.map((line, i) => {
+        const parts = line.split(';').map(s => s.trim());
+        return {
+          libelle: parts[0] || ('Échéance ' + (i + 1)),
+          montant_centimes: Number(parts[1]) || 0,
+          date_echeance: parts[2] || today(),
+        };
+      }).filter(e => e.montant_centimes > 0);
+      if (!echeances.length) throw new Error('Aucune ligne valide (libellé;montant;date)');
+      await api('/facturation/factures/' + currentId + '/echeancier', {
+        method: 'POST',
+        body: JSON.stringify({ echeances }),
+      });
+      await loadList();
+      await openFac(currentId);
+    } catch (e) {
+      document.getElementById('facDetailErr').innerHTML =
+        `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  await loadMandats();
+  await loadRappels();
+  await loadList();
+  if (routeState.openFacId) {
+    const facId = routeState.openFacId;
+    delete routeState.openFacId;
+    await openFac(facId);
+  }
+}
+
+function viewFamilleRepas() {
+  return shell('/famille/repas', `
+    <div class="bento" id="repasStats"></div>
+    <div class="panel">
+      <h2>Repas pointés</h2>
+      <p class="muted">Passages badge cantine de vos enfants — utile pour vérifier avant la facture du mois.</p>
+      <div class="row">
+        <label>Enfant <select id="repasEnfant" style="min-width:12rem"></select></label>
+        <label>Du <input id="repasDebut" type="date"/></label>
+        <label>Au <input id="repasFin" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnRepasLoad">Charger</button>
+        <button type="button" id="btnRepasVol">Volume facturable</button>
+      </div>
+      <div id="repasVolMsg" class="muted"></div>
+      <div id="repasOut" class="muted" style="margin-top:.75rem">…</div>
+    </div>
+    <div class="panel">
+      <h3>Prévenance cantine</h3>
+      <p class="muted">Dispense un jour (non facturé) — nécessite une grille repas active.</p>
+      <div class="row">
+        <label>Jour <input id="repasDispJour" type="date" value="${today()}"/></label>
+        <label>Activité <select id="repasDispAct" style="min-width:10rem"></select></label>
+        <label>Motif <input id="repasDispMotif" value="sortie scolaire"/></label>
+        <button type="button" class="primary" id="btnRepasDisp">Dispenser</button>
+      </div>
+      <div id="repasDispMsg" class="muted"></div>
+      <div id="repasDispOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+    <div class="panel">
+      <h3>Menus publiés</h3>
+      <p class="muted">Semaine autour de la période choisie (plats publiés uniquement).</p>
+      <div id="repasMenusOut" class="muted">…</div>
+    </div>`);
+}
+
+async function bindFamilleRepas() {
+  const sel = document.getElementById('repasEnfant');
+  const out = document.getElementById('repasOut');
+  const debut = document.getElementById('repasDebut');
+  const fin = document.getElementById('repasFin');
+  const stats = document.getElementById('repasStats');
+  const d0 = new Date();
+  d0.setDate(d0.getDate() - 30);
+  debut.value = d0.toISOString().slice(0, 10);
+  try {
+    const enfants = await api('/famille/enfants');
+    sel.innerHTML = (enfants || []).map(e =>
+      `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)} (${esc(e.classe || '')})</option>`
+    ).join('') || '<option value="">—</option>';
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  async function loadMenus() {
+    const box = document.getElementById('repasMenusOut');
+    if (!box) return;
+    try {
+      const list = await api('/menus-cantine?debut=' + encodeURIComponent(debut.value)
+        + '&fin=' + encodeURIComponent(fin.value));
+      const publies = (list || []).filter(m => m.publie);
+      box.innerHTML = publies.length
+        ? `<table><thead><tr><th>Jour</th><th>Entrée</th><th>Plat</th><th>Dessert</th></tr></thead>
+           <tbody>${publies.map(m => `<tr>
+             <td>${esc(m.jour)}</td>
+             <td>${esc(m.entree || '—')}</td>
+             <td><strong>${esc(m.plat || '—')}</strong></td>
+             <td>${esc(m.dessert || '—')}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucun menu publié sur la période.</p>';
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  async function load() {
+    const eid = sel.value;
+    if (!eid) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    out.textContent = 'Chargement…';
+    try {
+      const [list, vol] = await Promise.all([
+        api('/eleves/' + eid + '/repas/passages?debut='
+          + encodeURIComponent(debut.value) + '&fin=' + encodeURIComponent(fin.value)),
+        api('/eleves/' + eid + '/repas/volume?debut=' + encodeURIComponent(debut.value)
+          + '&fin=' + encodeURIComponent(fin.value) + '&kind=midi').catch(() => null),
+      ]);
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Passages badge</span></div>
+          <div class="stat-tile bento-span-4"><strong>${vol ? vol.jours_facturables : '—'}</strong><span>Jours facturables</span></div>
+          <div class="stat-tile bento-span-4"><strong>${esc(debut.value.slice(5))} → ${esc(fin.value.slice(5))}</strong><span>Période</span></div>`;
+      }
+      const volMsg = document.getElementById('repasVolMsg');
+      if (volMsg && vol) {
+        volMsg.innerHTML = `<span class="ok">${vol.jours_facturables} jour(s) facturables midi</span>`;
+      }
+      if (!list.length) {
+        out.innerHTML = '<p class="empty">Aucun passage sur la période.</p>';
+      } else {
+        out.innerHTML = `<table><thead><tr><th>Jour</th><th>Badge</th><th>Source</th></tr></thead>
+          <tbody>${list.map(p => `<tr>
+            <td>${esc(p.jour)}</td>
+            <td>${esc(p.badge_lu || '—')}</td>
+            <td><span class="pill">${esc(p.source || '—')}</span></td>
+          </tr>`).join('')}</tbody></table>
+          <p class="muted">${list.length} passage(s) · <a href="/famille/enfants/${esc(eid)}">Fiche enfant</a></p>`;
+      }
+      await loadMenus();
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  async function loadDispenses() {
+    const box = document.getElementById('repasDispOut');
+    const actSel = document.getElementById('repasDispAct');
+    const eid = sel.value;
+    if (!box || !eid) return;
+    try {
+      const dossier = await api('/eleves/' + eid + '/dossier');
+      const grille = (dossier && dossier.grille_repas) || [];
+      if (actSel) {
+        actSel.innerHTML = grille.length
+          ? grille.map(g =>
+              `<option value="${esc(g.activite_id)}">${esc(g.activite_label || g.activite_id.slice(0, 8))}</option>`
+            ).join('')
+          : '<option value="">— aucune grille —</option>';
+      }
+      const list = await api('/eleves/' + eid + '/repas/dispenses');
+      const actives = (list || []).filter(d => !d.annulee);
+      box.innerHTML = !actives.length
+        ? '<p class="empty">Aucune dispense active.</p>'
+        : `<table><thead><tr><th>Jour</th><th>Motif</th><th></th></tr></thead>
+           <tbody>${actives.map(d => `<tr>
+             <td>${esc(d.jour)}</td>
+             <td>${esc(d.motif || '—')}</td>
+             <td><button type="button" class="btnRepasAnnulDisp" data-id="${esc(d.id)}">Annuler</button></td>
+           </tr>`).join('')}</tbody></table>`;
+      box.querySelectorAll('.btnRepasAnnulDisp').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/eleves/' + eid + '/repas/dispenses/' + btn.dataset.id + '/annuler', {
+              method: 'POST', body: '{}',
+            });
+            await loadDispenses();
+          } catch (err) { alert(err.message); }
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('btnRepasLoad').onclick = load;
+  document.getElementById('btnRepasVol').onclick = async () => {
+    const msg = document.getElementById('repasVolMsg');
+    const eid = sel.value;
+    if (!eid) return;
+    try {
+      const vol = await api('/eleves/' + eid + '/repas/volume?debut=' + encodeURIComponent(debut.value)
+        + '&fin=' + encodeURIComponent(fin.value) + '&kind=midi');
+      msg.innerHTML = `<span class="ok">${vol.jours_facturables} jour(s) facturables midi</span>`;
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  const btnDisp = document.getElementById('btnRepasDisp');
+  if (btnDisp) {
+    btnDisp.onclick = async () => {
+      const msg = document.getElementById('repasDispMsg');
+      const eid = sel.value;
+      const aid = (document.getElementById('repasDispAct') || {}).value;
+      if (!eid || !aid) {
+        if (msg) msg.innerHTML = '<span class="bad">Enfant et activité (grille) requis</span>';
+        return;
+      }
+      try {
+        await api('/eleves/' + eid + '/repas/dispenses', {
+          method: 'POST',
+          body: JSON.stringify({
+            activite_id: aid,
+            jour: document.getElementById('repasDispJour').value || today(),
+            motif: document.getElementById('repasDispMotif').value.trim() || 'prévenance',
+          }),
+        });
+        if (msg) msg.innerHTML = '<span class="ok">Dispense enregistrée</span>';
+        await loadDispenses();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  sel.onchange = async () => { await load(); await loadDispenses(); };
+  debut.onchange = load;
+  fin.onchange = load;
+  await load();
+  await loadDispenses();
+}
+
+async function fillFamilleEnfantSelect(selId) {
+  const sel = document.getElementById(selId);
+  if (!sel) return [];
+  const enfants = await api('/famille/enfants');
+  sel.innerHTML = (enfants || []).map(e =>
+    `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}${e.classe ? ' — ' + esc(e.classe) : ''}</option>`
+  ).join('') || '<option value="">—</option>';
+  return enfants || [];
+}
+
+function viewFamilleVieScolaire() {
+  return shell('/famille/vie-scolaire', `
+    <div class="bento" id="famVsStats"></div>
+    <div class="panel">
+      <h2>Vie scolaire</h2>
+      <p class="muted">Sanctions, incidents, commissions, alertes et décisions de conseil — par enfant.</p>
+      <div class="row">
+        <label>Enfant <select id="famVsEnfant" style="min-width:14rem"></select></label>
+        <button type="button" class="primary" id="btnFamVsLoad">Actualiser</button>
+      </div>
+      <div id="famVsOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindFamilleVieScolaire() {
+  const sel = document.getElementById('famVsEnfant');
+  const out = document.getElementById('famVsOut');
+  const stats = document.getElementById('famVsStats');
+  try {
+    await fillFamilleEnfantSelect('famVsEnfant');
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  async function load() {
+    const id = sel.value;
+    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    out.textContent = 'Chargement…';
+    try {
+      const [sanctions, incidents, commissions, alertes, conseils, points] = await Promise.all([
+        api('/eleves/' + id + '/sanctions').catch(() => []),
+        api('/eleves/' + id + '/incidents').catch(() => []),
+        api('/eleves/' + id + '/commissions').catch(() => []),
+        api('/eleves/' + id + '/alertes-cpe').catch(() => []),
+        api('/eleves/' + id + '/conseils').catch(() => []),
+        api('/eleves/' + id + '/points-vs').catch(() => null),
+      ]);
+      const comVis = (commissions || []).filter(d => d.signale_famille);
+      const consVis = (conseils || []).filter(c => c.visible_famille !== false);
+      const pts = points && points.solde != null ? points.solde : '—';
+      if (stats) {
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-2"><strong>${(sanctions || []).length}</strong><span>Sanctions</span></div>
+          <div class="stat-tile bento-span-2"><strong>${(incidents || []).length}</strong><span>Incidents</span></div>
+          <div class="stat-tile bento-span-2"><strong>${comVis.length}</strong><span>Commissions</span></div>
+          <div class="stat-tile bento-span-2"><strong>${(alertes || []).length}</strong><span>Alertes</span></div>
+          <div class="stat-tile bento-span-2"><strong>${consVis.length}</strong><span>Conseils</span></div>
+          <div class="stat-tile bento-span-2"><strong>${esc(String(pts))}</strong><span>Points VS</span></div>`;
+      }
+      const sec = (title, body) => `<section style="margin-top:1rem"><h3>${esc(title)}</h3>${body}</section>`;
+      let html = '';
+      html += sec('Sanctions', !(sanctions || []).length
+        ? '<p class="empty">Aucune sanction.</p>'
+        : `<ul>${sanctions.map(s =>
+            `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}${s.note ? ' — ' + esc(s.note) : ''}</li>`
+          ).join('')}</ul>`);
+      html += sec('Incidents', !(incidents || []).length
+        ? '<p class="empty">Aucun incident.</p>'
+        : `<ul>${incidents.map(i =>
+            `<li>${esc(i.jour)}${i.type_label ? ' · ' + esc(i.type_label) : ''}${i.description ? ' — ' + esc(i.description) : ''}</li>`
+          ).join('')}</ul>`);
+      html += sec('Commissions', !comVis.length
+        ? '<p class="empty">Aucune commission signalée.</p>'
+        : `<ul>${comVis.map(d =>
+            `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.points_retires ? ' · −' + d.points_retires + ' pts' : ''}</li>`
+          ).join('')}</ul>`);
+      html += sec('Alertes CPE', !(alertes || []).length
+        ? '<p class="empty">Aucune alerte.</p>'
+        : `<ul>${alertes.map(a =>
+            `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}</li>`
+          ).join('')}</ul>`);
+      html += sec('Décisions de conseil', !consVis.length
+        ? '<p class="empty">Aucune décision visible.</p>'
+        : `<ul>${consVis.map(c =>
+            `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}</li>`
+          ).join('')}</ul>`);
+      html += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}?section=vs">Voir sur la fiche enfant</a></p>`;
+      out.innerHTML = html;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  sel.onchange = load;
+  const btn = document.getElementById('btnFamVsLoad');
+  if (btn) btn.onclick = load;
+  await load();
+}
+
+function viewFamilleSante() {
+  return shell('/famille/sante', `
+    <div class="panel">
+      <h2>Santé</h2>
+      <p class="muted">Fiche santé, PAI et passages infirmière — par enfant.</p>
+      <div class="row">
+        <label>Enfant <select id="famSanteEnfant" style="min-width:14rem"></select></label>
+        <button type="button" class="primary" id="btnFamSanteLoad">Actualiser</button>
+      </div>
+      <div id="famSanteOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindFamilleSante() {
+  const sel = document.getElementById('famSanteEnfant');
+  const out = document.getElementById('famSanteOut');
+  try {
+    await fillFamilleEnfantSelect('famSanteEnfant');
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  async function load() {
+    const id = sel.value;
+    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    out.textContent = 'Chargement…';
+    try {
+      const [f, pai, passages, dispenses] = await Promise.all([
+        api('/eleves/' + id + '/fiche-sante').catch(() => null),
+        api('/eleves/' + id + '/pai').catch(() => null),
+        api('/infirmerie/passages?eleve_id=' + encodeURIComponent(id)).catch(() => []),
+        api('/eleves/' + id + '/dispenses-vs').catch(() => []),
+      ]);
+      let html = `<h3>Fiche santé</h3>
+        <div class="row">
+          <label style="flex:1">Allergies <input id="pageSanteAll" style="width:100%" value="${esc((f && f.allergies) || '')}"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Traitements <input id="pageSanteTrait" style="width:100%" value="${esc((f && f.traitements) || '')}"/></label>
+        </div>
+        <div class="row">
+          <label style="flex:1">Contre-indications <input id="pageSanteContre" style="width:100%" value="${esc((f && f.contre_indications) || '')}"/></label>
+        </div>
+        <div class="row">
+          <label>Médecin <input id="pageSanteMed" value="${esc((f && f.medecin_nom) || '')}"/></label>
+          <label>Tél. urgence <input id="pageSanteUrg" value="${esc((f && f.urgence_tel) || '')}"/></label>
+          <button type="button" class="primary" id="btnPageSanteSave">Enregistrer</button>
+          <button type="button" id="btnPageSantePdf">PDF</button>
+        </div>
+        <p class="muted">PAI : ${f && f.pai_actif ? '<span class="warn">actif</span>' : 'non'}</p>
+        <div id="pageSanteMsg" class="muted"></div>`;
+      if (!pai) {
+        html += '<h3 style="margin-top:1rem">PAI</h3><p class="empty">Aucun PAI actif.</p>';
+      } else {
+        html += `<h3 style="margin-top:1rem">PAI</h3>
+          <p><strong>${esc(pai.motif)}</strong> · du ${esc(pai.date_debut)}${pai.date_fin ? ' au ' + esc(pai.date_fin) : ''}</p>
+          <p>${esc(pai.mesures_accueil || '')}</p>`;
+      }
+      html += `<h3 style="margin-top:1rem">Passages infirmière</h3>` + (!(passages || []).length
+        ? '<p class="empty">Aucun passage visible.</p>'
+        : `<ul>${passages.map(p =>
+            `<li>${esc(p.jour)} — ${esc(p.motif_libelle || p.motif)}${p.note_soins ? ' · ' + esc(p.note_soins) : ''}</li>`
+          ).join('')}</ul>`);
+      html += `<h3 style="margin-top:1rem">Dispenses EPS</h3>` + (!(dispenses || []).length
+        ? '<p class="empty">Aucune dispense.</p>'
+        : `<ul>${dispenses.map(d =>
+            `<li>${esc(d.debut || '—')} → ${esc(d.fin || '—')} · ${esc(d.commentaire || d.motif || '—')} · ${esc(d.statut || '—')}</li>`
+          ).join('')}</ul>`);
+      html += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}?section=sante">Voir sur la fiche enfant</a></p>`;
+      out.innerHTML = html;
+      const btnSave = document.getElementById('btnPageSanteSave');
+      if (btnSave) {
+        btnSave.onclick = async () => {
+          const msg = document.getElementById('pageSanteMsg');
+          try {
+            await api('/eleves/' + id + '/fiche-sante', {
+              method: 'PUT',
+              body: JSON.stringify({
+                allergies: document.getElementById('pageSanteAll').value,
+                traitements: document.getElementById('pageSanteTrait').value,
+                contre_indications: document.getElementById('pageSanteContre').value,
+                medecin_nom: document.getElementById('pageSanteMed').value || null,
+                urgence_tel: document.getElementById('pageSanteUrg').value || null,
+                pai_actif: !!(f && f.pai_actif),
+                note_confidentielle: '',
+              }),
+            });
+            if (msg) msg.innerHTML = '<span class="ok">Fiche santé enregistrée</span>';
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+      const btnPdf = document.getElementById('btnPageSantePdf');
+      if (btnPdf) {
+        btnPdf.onclick = async () => {
+          try { await downloadPdf('/eleves/' + id + '/fiche-sante.pdf', 'fiche-sante.pdf'); }
+          catch (err) { alert(err.message); }
+        };
+      }
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  sel.onchange = load;
+  const btn = document.getElementById('btnFamSanteLoad');
+  if (btn) btn.onclick = load;
+  await load();
+}
+
+function viewFamilleJournal() {
+  return shell('/famille/journal', `
+    <div class="bento" id="famJourStats"></div>
+    <div class="panel">
+      <h2>Journal</h2>
+      <p class="muted">Entrées visibles famille (même filtre que le portail élève).</p>
+      <div class="row">
+        <label>Enfant <select id="famJourEnfant" style="min-width:14rem"></select></label>
+        <button type="button" class="primary" id="btnFamJourLoad">Actualiser</button>
+      </div>
+      <div id="famJourOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindFamilleJournal() {
+  const sel = document.getElementById('famJourEnfant');
+  const out = document.getElementById('famJourOut');
+  const stats = document.getElementById('famJourStats');
+  try {
+    await fillFamilleEnfantSelect('famJourEnfant');
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  async function load() {
+    const id = sel.value;
+    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    out.textContent = 'Chargement…';
+    try {
+      const list = await api('/eleves/' + id + '/journal?limit=50');
+      const byDom = {};
+      (list || []).forEach(j => {
+        const d = j.domaine || 'autre';
+        byDom[d] = (byDom[d] || 0) + 1;
+      });
+      if (stats) {
+        const keys = Object.keys(byDom);
+        stats.innerHTML = `
+          <div class="stat-tile bento-span-3"><strong>${(list || []).length}</strong><span>Entrées</span></div>
+          ${keys.slice(0, 3).map(k =>
+            `<div class="stat-tile bento-span-3"><strong>${byDom[k]}</strong><span>${esc(k)}</span></div>`
+          ).join('')}`;
+      }
+      if (!(list || []).length) {
+        out.innerHTML = '<p class="empty">Aucune entrée visible.</p>';
+        return;
+      }
+      const groups = {};
+      list.forEach(j => {
+        const d = j.domaine || 'autre';
+        if (!groups[d]) groups[d] = [];
+        groups[d].push(j);
+      });
+      out.innerHTML = Object.keys(groups).sort().map(dom => `
+        <h3 style="margin:1rem 0 .4rem">${esc(dom)}</h3>
+        <ul>${groups[dom].map(j =>
+          `<li><strong>${esc(j.libelle)}</strong> <span class="muted">${esc((j.created_at || '').slice(0, 16))}</span></li>`
+        ).join('')}</ul>`).join('')
+        + `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}">Fiche enfant</a></p>`;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  sel.onchange = load;
+  const btn = document.getElementById('btnFamJourLoad');
+  if (btn) btn.onclick = load;
+  await load();
+}
+
+function viewFamilleAccompagnement() {
+  return shell('/famille/accompagnement', `
+    <div class="panel">
+      <h2>Accompagnement</h2>
+      <p class="muted">Suivi psy signalé à la famille, RDV visibles, et contact messagerie.</p>
+      <div class="row">
+        <label>Enfant <select id="famAccEnfant" style="min-width:14rem"></select></label>
+        <button type="button" class="primary" id="btnFamAccLoad">Actualiser</button>
+        <button type="button" id="btnFamAccMsg">Contacter le psy</button>
+      </div>
+      <div id="famAccMsg" class="muted"></div>
+      <div id="famAccOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindFamilleAccompagnement() {
+  const sel = document.getElementById('famAccEnfant');
+  const out = document.getElementById('famAccOut');
+  const msg = document.getElementById('famAccMsg');
+  try {
+    await fillFamilleEnfantSelect('famAccEnfant');
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  async function load() {
+    const id = sel.value;
+    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    out.textContent = 'Chargement…';
+    try {
+      let h = '';
+      try {
+        const d = await api('/eleves/' + id + '/dossier-psy');
+        if (d && d.signale_famille) {
+          h += `<p><strong>Suivi actif :</strong> ${d.suivi_actif ? 'oui' : 'non'}</p>`;
+          if (d.axes_suivi) h += `<p>${esc(d.axes_suivi)}</p>`;
+        } else {
+          h += '<p class="empty">Aucun dossier psy signalé à la famille.</p>';
+        }
+      } catch (_) {
+        h += '<p class="empty">Aucun dossier psy visible.</p>';
+      }
+      try {
+        const rdvs = await api('/psy/rdvs?eleve_id=' + encodeURIComponent(id));
+        const vis = (rdvs || []).filter(r => r.signale_famille);
+        h += '<h3 style="margin-top:1rem">RDV</h3>';
+        h += vis.length
+          ? `<ul>${vis.map(r =>
+              `<li>${esc(r.jour)} ${esc(r.heure_debut)}–${esc(r.heure_fin)} · ${esc(r.kind_libelle || r.kind)} · ${esc(r.statut)}</li>`
+            ).join('')}</ul>`
+          : '<p class="empty">Aucun RDV visible.</p>';
+      } catch (_) {
+        h += '<p class="empty">RDV indisponibles.</p>';
+      }
+      h += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}">Fiche enfant</a> · <a href="/famille/messages">Messages</a></p>`;
+      out.innerHTML = h;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btnMsg = document.getElementById('btnFamAccMsg');
+  if (btnMsg) {
+    btnMsg.onclick = async () => {
+      const id = sel.value;
+      if (!id) return;
+      try {
+        const f = await api('/messages/fils', {
+          method: 'POST',
+          body: JSON.stringify({
+            eleve_id: id,
+            sujet: 'Accompagnement / contact psy',
+            message: 'Bonjour, nous souhaitons échanger au sujet de l’accompagnement de notre enfant.',
+          }),
+        });
+        if (msg) msg.innerHTML = `<span class="ok">Fil ouvert</span>`;
+        const filId = (f && f.fil && f.fil.id) || (f && f.id);
+        if (filId) routeState.pendingFilId = filId;
+        go('/famille/messages');
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  sel.onchange = load;
+  const btn = document.getElementById('btnFamAccLoad');
+  if (btn) btn.onclick = load;
+  await load();
+}
+
+function viewFamilleInternat() {
+  return shell('/famille/internat', `
+    <div class="panel">
+      <h2>Internat</h2>
+      <p class="muted">Chambre, présence du jour et suivis visibles famille.</p>
+      <div class="row">
+        <label>Enfant <select id="famIntEnfant" style="min-width:14rem"></select></label>
+        <label>Jour <input id="famIntJour" type="date" value="${today()}"/></label>
+        <button type="button" class="primary" id="btnFamIntLoad">Charger</button>
+      </div>
+      <div id="famIntOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindFamilleInternat() {
+  const sel = document.getElementById('famIntEnfant');
+  const out = document.getElementById('famIntOut');
+  try {
+    await fillFamilleEnfantSelect('famIntEnfant');
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  async function load() {
+    const id = sel.value;
+    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    const jour = (document.getElementById('famIntJour') || {}).value || today();
+    out.textContent = 'Chargement…';
+    try {
+      const r = await api('/eleves/' + id + '/internat?jour=' + encodeURIComponent(jour));
+      if (!r.chambre && !(r.suivis || []).length && !r.presence_du_jour) {
+        out.innerHTML = '<p class="empty">Pas d’internat pour cet enfant.</p>';
+        return;
+      }
+      let h = '';
+      if (r.chambre) {
+        h += `<p><strong>Chambre ${esc(r.chambre.code)}</strong> — bât. ${esc(r.chambre.batiment)} · ét. ${esc(String(r.chambre.etage))}</p>`;
+      }
+      if (r.affectation) {
+        h += `<p class="muted">Affectation depuis ${esc(r.affectation.date_debut || '—')}</p>`;
+      }
+      if (r.presence_du_jour) {
+        h += `<p>Présence ${esc(r.presence_du_jour.jour)} : <span class="pill">${esc(r.presence_du_jour.statut)}</span></p>`;
+      } else {
+        h += `<p class="muted">Aucune présence pointée le ${esc(jour)}.</p>`;
+      }
+      if ((r.suivis || []).length) {
+        h += `<h3>Suivis</h3><ul>${r.suivis.map(s =>
+          `<li>${esc(s.jour)} — ${esc(s.texte)}</li>`
+        ).join('')}</ul>`;
+      }
+      h += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}?section=internat">Fiche enfant</a></p>`;
+      out.innerHTML = h;
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  sel.onchange = load;
+  const jour = document.getElementById('famIntJour');
+  if (jour) jour.onchange = load;
+  const btn = document.getElementById('btnFamIntLoad');
+  if (btn) btn.onclick = load;
+  await load();
+}
+
+function viewFamilleSorties() {
+  return shell('/famille/sorties', `
+    <div class="panel">
+      <h2>Sorties</h2>
+      <p class="muted">Autorisation permanente et demandes exceptionnelles par enfant.</p>
+      <div class="row">
+        <label>Enfant <select id="sortieEnfant" style="min-width:14rem"></select></label>
+      </div>
+      <div id="sortiePageOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindFamilleSorties() {
+  const sel = document.getElementById('sortieEnfant');
+  const out = document.getElementById('sortiePageOut');
+  try {
+    const enfants = await api('/famille/enfants');
+    sel.innerHTML = (enfants || []).map(e =>
+      `<option value="${esc(e.id)}" data-ok="${e.peut_autoriser_sorties ? '1' : '0'}">${esc(e.prenom)} ${esc(e.nom)}</option>`
+    ).join('') || '<option value="">—</option>';
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  async function load() {
+    const id = sel.value;
+    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    const can = sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].dataset.ok === '1';
+    out.textContent = 'Chargement…';
+    try {
+      const recap = await api('/eleves/' + id + '/sorties');
+      const a = recap.autorisation;
+      let sHtml = a
+        ? `<p>Permanent — matin ${a.matin ? 'oui' : 'non'} · midi ${a.midi ? 'oui' : 'non'} · soir ${a.soir ? 'oui' : 'non'}${a.interdit_etablissement ? ' · <span class="bad">interdit</span>' : ''}</p>`
+        : '<p class="empty">Pas d’autorisation permanente.</p>';
+      if (can && (!a || !a.interdit_etablissement)) {
+        sHtml += `<div class="row">
+          <label><input type="checkbox" id="pageSortieMidi" ${a && a.midi ? 'checked' : ''}/> Midi</label>
+          <label><input type="checkbox" id="pageSortieSoir" ${a && a.soir ? 'checked' : ''}/> Soir</label>
+          <button type="button" class="primary" id="btnPageSortieSave">Enregistrer</button>
+        </div>
+        <div class="row" style="margin-top:.5rem">
+          <label>Jour <input id="pageSortieJour" type="date" value="${today()}"/></label>
+          <label>Créneau <select id="pageSortieCreneau"><option value="matin">matin</option><option value="midi">midi</option><option value="soir">soir</option></select></label>
+          <label>Motif <input id="pageSortieMotif" value="RDV médical" style="min-width:10rem"/></label>
+          <button type="button" id="btnPageSortieDem">Demande exceptionnelle</button>
+        </div>
+        <div id="pageSortieMsg" class="muted"></div>`;
+      } else if (!can) {
+        sHtml += '<p class="muted">Ce lien n’autorise pas la modification des sorties.</p>';
+      }
+      const dem = recap.demandes_ouvertes || [];
+      if (dem.length) {
+        sHtml += `<h3 style="margin-top:1rem">Demandes ouvertes</h3>
+          <ul>${dem.map(d => `<li>${esc(d.jour)} ${esc(d.creneau)} — ${esc(d.statut)} · ${esc(d.motif)}</li>`).join('')}</ul>`;
+      }
+      sHtml += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}?section=sorties">Voir sur la fiche enfant</a></p>`;
+      out.innerHTML = sHtml;
+      const btnSave = document.getElementById('btnPageSortieSave');
+      if (btnSave) {
+        btnSave.onclick = async () => {
+          const msg = document.getElementById('pageSortieMsg');
+          try {
+            await api('/eleves/' + id + '/sorties', {
+              method: 'PUT',
+              body: JSON.stringify({
+                matin: false,
+                midi: document.getElementById('pageSortieMidi').checked,
+                soir: document.getElementById('pageSortieSoir').checked,
+                interdit_etablissement: false,
+              }),
+            });
+            if (msg) msg.innerHTML = '<span class="ok">Autorisation enregistrée</span>';
+            await load();
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+      const btnDem = document.getElementById('btnPageSortieDem');
+      if (btnDem) {
+        btnDem.onclick = async () => {
+          const msg = document.getElementById('pageSortieMsg');
+          try {
+            await api('/eleves/' + id + '/sorties/demandes', {
+              method: 'POST',
+              body: JSON.stringify({
+                jour: document.getElementById('pageSortieJour').value || today(),
+                creneau: document.getElementById('pageSortieCreneau').value || 'matin',
+                motif: document.getElementById('pageSortieMotif').value.trim() || 'RDV',
+              }),
+            });
+            if (msg) msg.innerHTML = '<span class="ok">Demande envoyée</span>';
+            await load();
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  sel.onchange = load;
+  await load();
+}
+
+function viewFamilleOrientation() {
+  return shell('/famille/orientation', `
+    <div class="panel">
+      <h2>Orientation</h2>
+      <p class="muted">Vœux et info-comp par enfant — même données que sur la fiche enfant.</p>
+      <div class="row">
+        <label>Enfant <select id="orientEnfant" style="min-width:14rem"></select></label>
+      </div>
+      <h3 style="margin-top:1rem">Vœux</h3>
+      <div class="row">
+        <label>Filière <select id="orientVoeFil" style="min-width:12rem"></select></label>
+        <label>Rang <input id="orientVoeRang" type="number" value="1" min="1" max="10" style="width:4rem"/></label>
+        <label>Année <input id="orientVoeAnnee" value="2026-2027" style="width:7rem"/></label>
+        <button type="button" class="primary" id="btnOrientVoe">Poser</button>
+      </div>
+      <div id="orientVoeMsg" class="muted"></div>
+      <div id="orientVoeuxOut" class="muted" style="margin-top:.5rem">…</div>
+      <h3 style="margin-top:1rem">Info-comp</h3>
+      <div id="orientIcOut" class="muted">…</div>
+    </div>`);
+}
+
+async function bindFamilleOrientation() {
+  const sel = document.getElementById('orientEnfant');
+  const voeuxOut = document.getElementById('orientVoeuxOut');
+  const icOut = document.getElementById('orientIcOut');
+  try {
+    const enfants = await api('/famille/enfants');
+    sel.innerHTML = (enfants || []).map(e =>
+      `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}</option>`
+    ).join('') || '<option value="">—</option>';
+  } catch (e) {
+    if (voeuxOut) voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    return;
+  }
+  try {
+    const fils = await api('/filieres');
+    const filSel = document.getElementById('orientVoeFil');
+    if (filSel) {
+      filSel.innerHTML = (fils || []).map(f =>
+        `<option value="${esc(f.id)}">${esc(f.code)} — ${esc(f.libelle)}</option>`
+      ).join('') || '<option value="">—</option>';
+    }
+  } catch {}
+  async function load() {
+    const id = sel.value;
+    if (!id) return;
+    try {
+      const annee = (document.getElementById('orientVoeAnnee') || {}).value.trim() || '';
+      let url = '/eleves/' + id + '/voeux';
+      if (annee) url += '?annee_scolaire=' + encodeURIComponent(annee);
+      const list = await api(url);
+      voeuxOut.innerHTML = list.length
+        ? `<table><thead><tr><th>Rang</th><th>Filière</th><th>Année</th></tr></thead>
+           <tbody>${list.map(v => `<tr>
+             <td>${v.rang ?? '—'}</td>
+             <td>${esc(v.filiere_label || v.filiere_id || '—')}</td>
+             <td>${esc(v.annee_scolaire || '—')}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Aucun vœu.</p>';
+    } catch (e) {
+      voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+    try {
+      const pack = await api('/eleves/' + id + '/info-comp');
+      const champs = (pack && pack.champs) || [];
+      const vals = (pack && pack.valeurs) || [];
+      const byChamp = Object.fromEntries(vals.map(v => [v.champ_id, v]));
+      if (!champs.length) {
+        icOut.innerHTML = '<p class="empty">Aucun champ visible famille.</p>';
+      } else {
+        icOut.innerHTML = champs.map(c => {
+          const cur = byChamp[c.id];
+          return `<div class="row" style="margin:.35rem 0">
+            <label style="flex:1">${esc(c.libelle || c.code)}
+              <input class="orientIcVal" data-cid="${esc(c.id)}" value="${esc((cur && cur.valeur) || '')}" style="width:100%"/>
+            </label>
+            <button type="button" class="btnOrientIc" data-cid="${esc(c.id)}">OK</button>
+          </div>`;
+        }).join('') + '<div id="orientIcMsg" class="muted"></div>';
+        icOut.querySelectorAll('.btnOrientIc').forEach(btn => {
+          btn.onclick = async () => {
+            const inp = icOut.querySelector('.orientIcVal[data-cid="' + btn.dataset.cid + '"]');
+            const msg = document.getElementById('orientIcMsg');
+            try {
+              await api('/eleves/' + id + '/info-comp', {
+                method: 'PUT',
+                body: JSON.stringify({ champ_id: btn.dataset.cid, valeur: (inp && inp.value) || '' }),
+              });
+              if (msg) msg.innerHTML = '<span class="ok">Enregistré</span>';
+            } catch (err) {
+              if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+            }
+          };
+        });
+      }
+    } catch (e) {
+      icOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btn = document.getElementById('btnOrientVoe');
+  if (btn) {
+    btn.onclick = async () => {
+      const msg = document.getElementById('orientVoeMsg');
+      const id = sel.value;
+      const fid = (document.getElementById('orientVoeFil') || {}).value;
+      if (!id || !fid) { msg.innerHTML = '<span class="bad">Enfant et filière requis</span>'; return; }
+      try {
+        const v = await api('/eleves/' + id + '/voeux', {
+          method: 'POST',
+          body: JSON.stringify({
+            filiere_id: fid,
+            rang: Number((document.getElementById('orientVoeRang') || {}).value) || 1,
+            annee_scolaire: (document.getElementById('orientVoeAnnee') || {}).value.trim() || '2026-2027',
+          }),
+        });
+        msg.innerHTML = `<span class="ok">Vœu rang ${v.rang}</span>`;
+        await load();
+      } catch (err) {
+        msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    };
+  }
+  sel.onchange = load;
+  await load();
+}
+
+function viewFacturesFamille() {
+  return shell('/famille/factures', `
+    <div class="bento" id="facFamStats"></div>
+    <div class="panel">
+      <h2>Quotient familial</h2>
+      <p class="muted">Lecture du quotient enregistré pour votre foyer (année scolaire).</p>
+      <div class="row">
+        <label>Année <input id="facQuoAnnee" value="2026-2027" style="width:7rem"/></label>
+        <button type="button" id="btnFacQuo">Voir mon quotient</button>
+      </div>
+      <div id="facQuoOut" class="muted" style="margin-top:.35rem">…</div>
+    </div>
+    <div class="panel">
+      <h2>Mandat SEPA</h2>
+      <p class="muted">Créer ou révoquer le prélèvement de votre foyer.</p>
+      <div class="row">
+        <label>RUM <input id="famSepaRum" value="RUM-FAM"/></label>
+        <label>IBAN <input id="famSepaIban" placeholder="FR76…" style="min-width:14rem"/></label>
+        <label>BIC <input id="famSepaBic" style="width:7rem"/></label>
+        <label>Titulaire <input id="famSepaTit" value="Responsable légal"/></label>
+        <button type="button" class="primary" id="btnFamSepaCreer">Créer mandat</button>
+      </div>
+      <div id="famSepaMsg" class="muted"></div>
+      <div id="famSepaOut" class="muted" style="margin-top:.5rem">…</div>
+      <h3 style="margin-top:.75rem">Historique IBAN</h3>
+      <div id="famIbanHisto" class="muted">…</div>
+    </div>
+    <div class="panel">
+      <h2>Mes factures</h2>
+      <p class="muted">Factures émises pour votre foyer (brouillons compta invisibles).</p>
+      <div id="facFamOut" class="muted">Chargement…</div>
+    </div>
+    <div class="panel" id="facFamDetail" style="display:none">
+      <h3 id="facFamTitre">Détail</h3>
+      <div id="facFamBody"></div>
+    </div>`);
+}
+
+function viewQuittancesFamille() {
+  return shell('/famille/quittances', `
+    <div class="bento" id="quitStats"></div>
+    <div class="panel">
+      <h2>Mes quittances</h2>
+      <p class="muted">Reçus émis automatiquement à chaque paiement enregistré par la compta.</p>
+      <div id="quitOut" class="muted">Chargement…</div>
+    </div>`);
+}
+
+async function bindQuittancesFamille() {
+  const out = document.getElementById('quitOut');
+  const stats = document.getElementById('quitStats');
+  try {
+    const list = await api('/facturation/famille/quittances');
+    const total = (list || []).reduce((s, q) => s + (q.montant_centimes || 0), 0);
+    if (stats) {
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-6"><strong>${list.length}</strong><span>Quittances</span></div>
+        <div class="stat-tile bento-span-6"><strong>${esc(euros(total))}</strong><span>Total encaissé</span></div>`;
+    }
+    if (!list.length) {
+      out.innerHTML = `<p class="empty">Aucune quittance pour le moment.</p>`;
+      return;
+    }
+    out.innerHTML = `<table><thead><tr><th>N°</th><th>Date</th><th>Moyen</th><th>Montant</th><th></th></tr></thead>
+      <tbody>${list.map(q => `<tr>
+        <td><strong>${esc(q.numero)}</strong></td>
+        <td class="muted">${esc((q.emise_at || '').slice(0, 16).replace('T',' '))}</td>
+        <td>${esc(q.moyen)}</td>
+        <td>${esc(euros(q.montant_centimes))}</td>
+        <td>
+          <button type="button" class="btnQuitDetail" data-id="${esc(q.id)}">Détail</button>
+          <button type="button" class="btnPdfQuitFam" data-id="${esc(q.id)}">PDF</button>
+        </td>
+      </tr>`).join('')}</tbody></table>`;
+    out.querySelectorAll('.btnQuitDetail').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          const d = await api('/facturation/quittances/' + btn.dataset.id);
+          alert((d.numero || '') + ' · ' + euros(d.montant_centimes)
+            + (d.facture_id ? ' · facture ' + String(d.facture_id).slice(0, 8) : '')
+            + (d.reference ? ' · réf. ' + d.reference : ''));
+        } catch (e) { alert(e.message); }
+      };
+    });
+    out.querySelectorAll('.btnPdfQuitFam').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await downloadPdf('/facturation/quittances/' + btn.dataset.id + '/pdf', 'quittance.pdf');
+        } catch (e) { alert(e.message); }
+      };
+    });
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+async function bindFacturesFamille() {
+  const out = document.getElementById('facFamOut');
+  const detail = document.getElementById('facFamDetail');
+  async function resolveFoyerId() {
+    const enfants = await api('/famille/enfants').catch(() => []);
+    for (const e of (enfants || [])) {
+      const d = await api('/eleves/' + e.id + '/dossier').catch(() => null);
+      const lien = ((d && d.liens) || []).find(l => l.foyer_id);
+      if (lien && lien.foyer_id) return lien.foyer_id;
+    }
+    const facs = await api('/facturation/famille').catch(() => []);
+    if (facs && facs[0] && facs[0].foyer_id) return facs[0].foyer_id;
+    return null;
+  }
+  const btnQuo = document.getElementById('btnFacQuo');
+  if (btnQuo) {
+    btnQuo.onclick = async () => {
+      const box = document.getElementById('facQuoOut');
+      try {
+        const fid = await resolveFoyerId();
+        if (!fid) { box.innerHTML = '<span class="bad">Aucun foyer lié</span>'; return; }
+        const annee = (document.getElementById('facQuoAnnee') || {}).value.trim() || '2026-2027';
+        const q = await api('/foyers/' + fid + '/quotient?annee_scolaire=' + encodeURIComponent(annee));
+        if (!q) {
+          box.innerHTML = `<span class="muted">Aucun quotient pour ${esc(annee)}</span>`;
+        } else {
+          const parts = (Number(q.parts_x100) / 100).toFixed(2).replace('.', ',');
+          box.innerHTML = `<span class="ok">Quotient ${esc(euros(q.quotient_centimes))} · ${esc(parts)} part(s) · ${esc(q.annee_scolaire || annee)}</span>`;
+        }
+      } catch (e) {
+        box.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  async function loadFamSepa() {
+    const box = document.getElementById('famSepaOut');
+    const histo = document.getElementById('famIbanHisto');
+    if (!box) return;
+    try {
+      const fid = await resolveFoyerId();
+      const list = await api('/facturation/sepa/mandats');
+      box.innerHTML = !(list || []).length
+        ? '<p class="empty">Aucun mandat.</p>'
+        : `<table><thead><tr><th>RUM</th><th>Titulaire</th><th>IBAN</th><th>Statut</th><th></th></tr></thead>
+           <tbody>${list.map(m => `<tr>
+             <td>${esc(m.rum)}</td>
+             <td>${esc(m.titulaire)}</td>
+             <td class="muted">${esc(m.iban)}</td>
+             <td><span class="pill">${esc(m.statut)}</span></td>
+             <td>${m.statut === 'actif'
+               ? `<button type="button" class="btnFamSepaRev" data-id="${esc(m.id)}">Révoquer</button>`
+               : ''}</td>
+           </tr>`).join('')}</tbody></table>`;
+      box.querySelectorAll('.btnFamSepaRev').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Révoquer ce mandat ?')) return;
+          try {
+            await api('/facturation/sepa/mandats/' + btn.dataset.id + '/revoquer', {
+              method: 'POST', body: '{}',
+            });
+            await loadFamSepa();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      if (histo && fid) {
+        const h = await api('/foyers/' + fid + '/iban-histo?limit=10').catch(() => []);
+        histo.innerHTML = !(h || []).length
+          ? '<p class="empty">Pas d’historique IBAN.</p>'
+          : `<ul>${h.map(x =>
+              `<li>${esc(x.iban)}${x.bic ? ' · ' + esc(x.bic) : ''} · ${esc((x.created_at || '').slice(0, 10))}</li>`
+            ).join('')}</ul>`;
+      }
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  const btnSepa = document.getElementById('btnFamSepaCreer');
+  if (btnSepa) {
+    btnSepa.onclick = async () => {
+      const msg = document.getElementById('famSepaMsg');
+      try {
+        const fid = await resolveFoyerId();
+        if (!fid) { msg.innerHTML = '<span class="bad">Aucun foyer</span>'; return; }
+        await api('/facturation/sepa/mandats', {
+          method: 'POST',
+          body: JSON.stringify({
+            foyer_id: fid,
+            rum: document.getElementById('famSepaRum').value.trim() || ('RUM-' + Date.now()),
+            iban: document.getElementById('famSepaIban').value.trim(),
+            bic: document.getElementById('famSepaBic').value.trim() || null,
+            titulaire: document.getElementById('famSepaTit').value.trim() || 'Responsable',
+          }),
+        });
+        msg.innerHTML = '<span class="ok">Mandat créé</span>';
+        await loadFamSepa();
+      } catch (e) {
+        msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  await loadFamSepa();
+  async function openFac(id) {
+    try {
+      const d = await api('/facturation/factures/' + id);
+      detail.style.display = '';
+      document.getElementById('facFamTitre').textContent =
+        d.facture.numero + ' — ' + d.facture.libelle;
+      const encHtml = (d.encaissements || []).length
+        ? `<table style="margin-top:.5rem"><thead><tr><th>Date</th><th>Moyen</th><th>Montant</th></tr></thead>
+           <tbody>${d.encaissements.map(e => `<tr>
+             <td class="muted">${esc((e.encaisse_at || '').slice(0, 16).replace('T',' '))}</td>
+             <td>${esc(e.moyen)}</td>
+             <td>${esc(euros(e.montant_centimes))}</td>
+           </tr>`).join('')}</tbody></table>`
+        : `<p class="empty" style="margin-top:.5rem">Aucun paiement enregistré.</p>`;
+      const echHtml = (d.echeances || []).length
+        ? `<table style="margin-top:.5rem"><thead><tr><th>#</th><th>Date</th><th>Dû</th><th>Bourse</th><th>État</th></tr></thead>
+           <tbody>${d.echeances.map(e => `<tr>
+             <td>${e.rang}</td>
+             <td>${esc(e.date_echeance)}</td>
+             <td>${esc(euros(e.montant_centimes))}</td>
+             <td>${esc(euros(e.bourse_centimes || 0))}</td>
+             <td><span class="pill">${esc(e.couverture)}</span></td>
+           </tr>`).join('')}</tbody></table>`
+        : `<p class="empty" style="margin-top:.5rem">Pas d'échéancier.</p>`;
+      document.getElementById('facFamBody').innerHTML = `
+        <p><strong>Total :</strong> ${esc(euros(d.facture.total_centimes))} · ${esc(d.facture.statut)}
+          · <strong>Reste :</strong> ${esc(euros(d.reste_centimes || 0))}
+          · <button type="button" id="btnPdfFacFam">PDF</button></p>
+        <table><thead><tr><th>Libellé</th><th>Qté</th><th>Total</th></tr></thead>
+        <tbody>${(d.lignes || []).map(l => `<tr>
+          <td>${esc(l.libelle)}</td><td>${l.quantite}</td><td>${esc(euros(l.total_centimes))}</td>
+        </tr>`).join('')}</tbody></table>
+        <h4 style="margin:.75rem 0 .25rem">Échéancier</h4>${echHtml}
+        <h4 style="margin:.75rem 0 .25rem">Paiements</h4>${encHtml}
+        <h4 style="margin:.75rem 0 .25rem">Quittances</h4>${
+          (d.quittances || []).length
+            ? `<table style="margin-top:.5rem"><thead><tr><th>N°</th><th>Date</th><th>Montant</th><th></th></tr></thead>
+               <tbody>${d.quittances.map(q => `<tr>
+                 <td>${esc(q.numero)}</td>
+                 <td class="muted">${esc((q.emise_at || '').slice(0, 16).replace('T',' '))}</td>
+                 <td>${esc(euros(q.montant_centimes))}</td>
+                 <td><button type="button" class="btnPdfQuitFamD" data-id="${esc(q.id)}">PDF</button></td>
+               </tr>`).join('')}</tbody></table>`
+            : `<p class="empty" style="margin-top:.5rem">Aucune quittance.</p>`
+        }`;
+      document.getElementById('btnPdfFacFam').onclick = async () => {
+        try {
+          await downloadPdf('/facturation/factures/' + id + '/pdf', 'facture.pdf');
+        } catch (e) { alert(e.message); }
+      };
+      document.querySelectorAll('.btnPdfQuitFamD').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await downloadPdf('/facturation/quittances/' + btn.dataset.id + '/pdf', 'quittance.pdf');
+          } catch (e) { alert(e.message); }
+        };
+      });
+    } catch (e) {
+      out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+  try {
+    const list = await api('/facturation/famille');
+    const stats = document.getElementById('facFamStats');
+    const total = (list || []).reduce((s, f) => s + (f.total_centimes || 0), 0);
+    const nOuvertes = (list || []).filter(f => f.statut !== 'soldee' && f.statut !== 'annulee').length;
+    const nSoldees = (list || []).filter(f => f.statut === 'soldee').length;
+    if (stats) {
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Factures</span></div>
+        <div class="stat-tile bento-span-4"><strong>${nOuvertes}</strong><span>Non soldées</span></div>
+        <div class="stat-tile bento-span-4"><strong>${nSoldees}</strong><span>Soldées · total ${esc(euros(total))}</span></div>`;
+    }
+    if (!list.length) {
+      out.innerHTML = `<p class="empty">Aucune facture émise pour le moment.</p>`;
+      return;
+    }
+    out.innerHTML = `<table><thead><tr><th>N°</th><th>Libellé</th><th>Statut</th><th>Total</th><th></th></tr></thead>
+      <tbody>${list.map(f => `<tr>
+        <td>${esc(f.numero)}</td>
+        <td>${esc(f.libelle)}</td>
+        <td><span class="pill">${esc(f.statut)}</span></td>
+        <td>${esc(euros(f.total_centimes))}</td>
+        <td><button type="button" class="btnOpenFacFam" data-id="${esc(f.id)}">Voir</button></td>
+      </tr>`).join('')}</tbody></table>`;
+    out.querySelectorAll('.btnOpenFacFam').forEach(btn => {
+      btn.onclick = () => openFac(btn.dataset.id);
+    });
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+/* ---------- Messagerie ---------- */
+function viewMessages(base) {
+  const active = base.startsWith('/famille') ? '/famille/messages'
+    : (base.startsWith('/eleve') ? '/eleve/messages' : '/app/messages');
+  const staff = base.startsWith('/app');
+  return shell(active, `
+    <div class="panel">
+      <h2>Messages</h2>
+      <p class="muted">Fils liés à un élève — badge orange = messages non lus. Ouvrir un fil marque la lecture.</p>
+      <div class="row">
+        <button type="button" class="primary" id="btnLoadFils">Actualiser</button>
+        ${staff ? `<label><input type="checkbox" id="chkArchives"/> Archives</label>
+        <label>Dossier <input id="fltDossier" size="10" placeholder="vs…"/></label>` : ''}
+        ${isParent()
+          ? `<label>Élève <select id="newFilEleve"></select></label>`
+          : (isEleve()
+            ? `<label>Élève <input id="newFilEleve" size="36" readonly/></label>`
+            : elevePickerRow('newFilEleve', 'newFilEleveQ', 'btnNewFilEleveSearch'))}
+        <label>Sujet <input id="newFilSujet" value="Information"/></label>
+        <label>Message <input id="newFilMsg" value="Bonjour," style="min-width:14rem"/></label>
+        <input type="file" id="newFilFile" accept=".pdf,.png,.jpg,.jpeg,.txt"/>
+        <button type="button" id="btnOuvrirFil">Nouveau fil</button>
+      </div>
+      ${staff ? `
+      <div class="row" style="margin-top:.5rem">
+        <label>Modèle <select id="selModele"><option value="">—</option></select></label>
+        <button type="button" id="btnOuvrirModele">Ouvrir depuis modèle</button>
+        <label>Titre <input id="newModeleTitre" placeholder="Convocation" size="14"/></label>
+        <label>Sujet modèle <input id="newModeleSujet" value="RDV — {prenom} {nom}" size="22"/></label>
+        <label>Corps <input id="newModeleCorps" value="Concernant {prenom} ({classe})." style="min-width:14rem"/></label>
+        <button type="button" id="btnCreerModele">Créer modèle</button>
+      </div>
+      <p class="muted" style="font-size:.8rem">Placeholders : {prenom}, {nom}, {classe}</p>
+      ` : ''}
+    </div>
+    <div class="bento">
+      <div class="panel bento-span-5">
+        <h3>Fils</h3>
+        <div id="filsOut" class="muted">…</div>
+      </div>
+      <div class="panel bento-span-7" id="filPanel" style="display:none">
+        <div class="row">
+          <h3 id="filTitre" style="flex:1;margin:0">Fil</h3>
+          ${staff ? `
+            <label>Priorité <select id="filPriorite"><option value="normale">normale</option><option value="haute">haute</option></select></label>
+            <label>Dossier <input id="filDossier" size="10" placeholder="vs"/></label>
+            <button type="button" id="btnClasserFil">Classer</button>
+            <button type="button" id="btnArchiverFil">Archiver</button>
+          ` : ''}
+        </div>
+        <div id="filMsgs"></div>
+        <div class="row" style="margin-top:.75rem">
+          <input id="reponse" style="flex:1;min-width:12rem" placeholder="Votre réponse…"/>
+          <input type="file" id="reponseFile" accept=".pdf,.png,.jpg,.jpeg,.txt"/>
+          <button type="button" class="primary" id="btnRepondre">Envoyer</button>
+        </div>
+        <div id="filMsgErr" class="muted"></div>
+      </div>
+    </div>`);
+}
+
+async function bindMessages(base) {
+  let currentFil = null;
+  const staff = !base.startsWith('/famille');
+  const filsOut = document.getElementById('filsOut');
+  const filPanel = document.getElementById('filPanel');
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result || '');
+        const i = s.indexOf(',');
+        resolve(i >= 0 ? s.slice(i + 1) : s);
+      };
+      r.onerror = () => reject(new Error('lecture fichier'));
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function attachPiece(messageId, file) {
+    const mime = file.type || 'application/octet-stream';
+    const contenu_base64 = await fileToBase64(file);
+    return api('/messages/' + messageId + '/pieces', {
+      method: 'POST',
+      body: JSON.stringify({ nom: file.name, mime_type: mime, contenu_base64 }),
+    });
+  }
+
+  async function downloadPiece(pieceId, nom) {
+    const headers = {};
+    if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
+    const res = await fetch('/messages/pieces/' + pieceId, { headers });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(t || ('HTTP ' + res.status));
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nom || 'piece';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function loadModeles() {
+    const sel = document.getElementById('selModele');
+    if (!sel) return;
+    try {
+      const list = await api('/messages/modeles');
+      sel.innerHTML = '<option value="">—</option>' + list.map(m =>
+        `<option value="${esc(m.id)}">${esc(m.titre)}</option>`
+      ).join('');
+    } catch {}
+  }
+
+  async function loadFils(quiet) {
+    if (!quiet) filsOut.textContent = 'Chargement…';
+    try {
+      const chk = document.getElementById('chkArchives');
+      const dos = document.getElementById('fltDossier');
+      const params = new URLSearchParams();
+      if (staff && chk && chk.checked) params.set('archives', 'true');
+      if (staff && dos && dos.value.trim()) params.set('dossier', dos.value.trim());
+      const qs = params.toString() ? ('?' + params.toString()) : '';
+      const list = await api('/messages/fils' + qs);
+      if (!list.length) {
+        filsOut.innerHTML = `<p class="empty">Aucun fil pour le moment.</p>`;
+        return;
+      }
+      await hydrateEleveNames(list.map(f => f.eleve_id));
+      const nonLusTotal = list.reduce((n, f) => n + (Number(f.nb_non_lus) || 0), 0);
+      filsOut.innerHTML = `${nonLusTotal ? `<p class="muted" style="margin-bottom:.5rem"><span class="pill-unread">${nonLusTotal}</span> non lu(s)</p>` : ''}
+        <table><thead><tr><th></th><th>Sujet</th><th>Élève</th><th>Créé</th><th>Modèle</th><th>Dernier</th><th></th></tr></thead>
+        <tbody>${list.map(f => {
+          const n = Number(f.nb_non_lus) || 0;
+          const badge = n > 0 ? `<span class="pill-unread">${n}</span>` : '';
+          const rowStyle = n > 0 ? 'font-weight:600' : '';
+          return `<tr style="${rowStyle}">
+          <td>${badge}</td>
+          <td>${esc(f.sujet)}${f.priorite === 'haute' ? ' <span class="pill">haute</span>' : ''}${f.archive ? ' <span class="muted">(archivé)</span>' : ''}${f.dossier ? ` <span class="muted">· ${esc(f.dossier)}</span>` : ''}</td>
+          <td>${eleveCell(f)}</td>
+          <td class="muted">${esc((f.created_at || '').slice(0, 16).replace('T',' ') || '—')}</td>
+          <td class="muted">${f.modele_id ? esc(String(f.modele_id).slice(0, 8)) : '—'}</td>
+          <td class="muted">${esc((f.last_message_at || '').slice(0, 16).replace('T',' '))}</td>
+          <td><button type="button" class="btnOpenFil" data-id="${esc(f.id)}">Ouvrir</button></td>
+        </tr>`;
+        }).join('')}</tbody></table>`;
+      filsOut.querySelectorAll('.btnOpenFil').forEach(btn => {
+        btn.onclick = () => openFil(btn.dataset.id);
+      });
+    } catch (e) {
+      filsOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function openFil(id) {
+    currentFil = id;
+    const err = document.getElementById('filMsgErr');
+    err.textContent = '';
+    try {
+      const d = await api('/messages/fils/' + id);
+      filPanel.style.display = '';
+      const titre = d.fil.sujet + (d.fil.archive ? ' (archivé)' : '');
+      document.getElementById('filTitre').textContent = titre;
+      const btnArch = document.getElementById('btnArchiverFil');
+      if (btnArch) btnArch.style.display = d.fil.archive ? 'none' : '';
+      const prio = document.getElementById('filPriorite');
+      if (prio) prio.value = d.fil.priorite || 'normale';
+      const dosInp = document.getElementById('filDossier');
+      if (dosInp) dosInp.value = d.fil.dossier || '';
+      document.getElementById('filMsgs').innerHTML = (d.messages || []).map(m => {
+        const acc = Number(m.nb_accuses || 0);
+        const lu = m.lu_par_moi
+          ? '<span class="ok">lu</span>'
+          : (acc > 0 ? `<span class="muted">${acc} accusé(s)</span>` : '<span class="muted">non lu</span>');
+        const pcs = (m.pieces || []).map(p =>
+          `<button type="button" class="btnDlPiece" data-id="${esc(p.id)}" data-nom="${esc(p.nom)}">${esc(p.nom)} (${p.taille_octets} o)</button>`
+        ).join(' ');
+        return `<div style="border-bottom:1px solid var(--line);padding:.45rem 0">
+          <div class="muted" style="font-size:.8rem">${esc((m.created_at || '').slice(0, 16).replace('T',' '))} · ${esc(m.auteur_label || m.auteur_user_id.slice(0, 8))} · ${lu}</div>
+          <div>${esc(m.corps)}</div>
+          ${pcs ? `<div class="row" style="margin-top:.35rem;gap:.35rem;flex-wrap:wrap">${pcs}</div>` : ''}
+          <div class="row" style="margin-top:.35rem">
+            <input type="file" class="msgFile" data-msgid="${esc(m.id)}" accept=".pdf,.png,.jpg,.jpeg,.txt"/>
+            <button type="button" class="btnAttach" data-msgid="${esc(m.id)}">Joindre</button>
+          </div>
+        </div>`;
+      }).join('') || `<p class="empty">Pas de message.</p>`;
+      document.querySelectorAll('.btnDlPiece').forEach(btn => {
+        btn.onclick = () => downloadPiece(btn.dataset.id, btn.dataset.nom);
+      });
+      document.querySelectorAll('.btnAttach').forEach(btn => {
+        btn.onclick = async () => {
+          const msgid = btn.dataset.msgid;
+          const inp = document.querySelector(`.msgFile[data-msgid="${msgid}"]`);
+          if (!inp || !inp.files || !inp.files[0]) { alert('Choisir un fichier'); return; }
+          try {
+            await attachPiece(msgid, inp.files[0]);
+            await openFil(id);
+          } catch (e) { alert(e.message); }
+        };
+      });
+      // Ouvrir accuse la lecture → rafraîchir les badges
+      await loadFils(true);
+    } catch (e) {
+      err.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
+
+  document.getElementById('btnLoadFils').onclick = loadFils;
+  const chkArch = document.getElementById('chkArchives');
+  if (chkArch) chkArch.onchange = loadFils;
+  const fltDos = document.getElementById('fltDossier');
+  let fltDosTimer = null;
+  if (fltDos) {
+    fltDos.onchange = loadFils;
+    fltDos.oninput = () => {
+      if (fltDosTimer) clearTimeout(fltDosTimer);
+      fltDosTimer = setTimeout(loadFils, 300);
+    };
+  }
+  const btnNew = document.getElementById('btnOuvrirFil');
+  if (btnNew) {
+    btnNew.onclick = async () => {
+      try {
+        const el = document.getElementById('newFilEleve');
+        const eleveId = (el.value || '').trim();
+        if (!eleveId) { alert('Choisir un élève'); return; }
+        const d = await api('/messages/fils', {
+          method: 'POST',
+          body: JSON.stringify({
+            eleve_id: eleveId,
+            sujet: document.getElementById('newFilSujet').value.trim() || 'Information',
+            message: document.getElementById('newFilMsg').value.trim() || 'Bonjour',
+          }),
+        });
+        const fileInp = document.getElementById('newFilFile');
+        const firstMsgId = (d.messages && d.messages[0] && d.messages[0].id) || null;
+        if (fileInp && fileInp.files && fileInp.files[0] && firstMsgId) {
+          await attachPiece(firstMsgId, fileInp.files[0]);
+          fileInp.value = '';
+        }
+        await loadFils();
+        await openFil(d.fil.id);
+      } catch (e) { alert(e.message); }
+    };
+  }
+  const btnModele = document.getElementById('btnOuvrirModele');
+  if (btnModele) {
+    btnModele.onclick = async () => {
+      try {
+        const modeleId = (document.getElementById('selModele').value || '').trim();
+        if (!modeleId) { alert('Choisir un modèle'); return; }
+        const el = document.getElementById('newFilEleve');
+        let eleveId = (el.value || '').trim();
+        if (!eleveId) { alert('Indiquer un élève'); return; }
+        const d = await api('/messages/fils/depuis-modele', {
+          method: 'POST',
+          body: JSON.stringify({ modele_id: modeleId, eleve_id: eleveId }),
+        });
+        await loadFils();
+        await openFil(d.fil.id);
+      } catch (e) { alert(e.message); }
+    };
+  }
+  const btnCreerModele = document.getElementById('btnCreerModele');
+  if (btnCreerModele) {
+    btnCreerModele.onclick = async () => {
+      try {
+        await api('/messages/modeles', {
+          method: 'POST',
+          body: JSON.stringify({
+            titre: document.getElementById('newModeleTitre').value.trim() || 'Modèle',
+            sujet: document.getElementById('newModeleSujet').value.trim() || 'Sujet',
+            corps: document.getElementById('newModeleCorps').value.trim() || 'Corps',
+          }),
+        });
+        await loadModeles();
+        alert('Modèle créé');
+      } catch (e) { alert(e.message); }
+    };
+  }
+  const btnArchiver = document.getElementById('btnArchiverFil');
+  if (btnArchiver) {
+    btnArchiver.onclick = async () => {
+      if (!currentFil) return;
+      try {
+        await api('/messages/fils/' + currentFil + '/archiver', { method: 'POST', body: '{}' });
+        await loadFils();
+        await openFil(currentFil);
+      } catch (e) { alert(e.message); }
+    };
+  }
+  async function saveFilMeta(silent) {
+    if (!currentFil) return;
+    try {
+      await api('/messages/fils/' + currentFil + '/classer', {
+        method: 'POST',
+        body: JSON.stringify({
+          priorite: document.getElementById('filPriorite').value || 'normale',
+          dossier: (document.getElementById('filDossier').value || '').trim() || null,
+        }),
+      });
+      await loadFils();
+      if (!silent) await openFil(currentFil);
+    } catch (e) {
+      if (!silent) alert(e.message);
+    }
+  }
+  const btnClasser = document.getElementById('btnClasserFil');
+  if (btnClasser) btnClasser.onclick = () => saveFilMeta(false);
+  let filMetaTimer = null;
+  function scheduleFilMeta() {
+    if (!staff || !currentFil) return;
+    clearTimeout(filMetaTimer);
+    filMetaTimer = setTimeout(() => saveFilMeta(true), 400);
+  }
+  const filPrioriteEl = document.getElementById('filPriorite');
+  const filDossierEl = document.getElementById('filDossier');
+  if (filPrioriteEl) filPrioriteEl.onchange = scheduleFilMeta;
+  if (filDossierEl) {
+    filDossierEl.onchange = scheduleFilMeta;
+    filDossierEl.onkeydown = (ev) => { if (ev.key === 'Enter') scheduleFilMeta(); };
+  }
+  // Préremplir élèves : parent → API enfants ; élève → me.eleve_id ; staff → search
+  (async () => {
+    const el = document.getElementById('newFilEleve');
+    if (!el) return;
+    if (isParent() && el.tagName === 'SELECT') {
+      try {
+        const enfants = await api('/famille/enfants');
+        el.innerHTML = enfants.map(e =>
+          `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}</option>`
+        ).join('') || '<option value="">—</option>';
+      } catch {}
+    } else if (isEleve() && me && me.eleve_id) {
+      el.value = me.eleve_id;
+    } else if (!isParent() && !isEleve()) {
+      await bindElevePickers('newFilEleve', 'newFilEleveQ', 'btnNewFilEleveSearch');
+    }
+  })();
+  document.getElementById('btnRepondre').onclick = async () => {
+    if (!currentFil) return;
+    const err = document.getElementById('filMsgErr');
+    try {
+      const msg = await api('/messages/fils/' + currentFil + '/repondre', {
+        method: 'POST',
+        body: JSON.stringify({ corps: document.getElementById('reponse').value }),
+      });
+      document.getElementById('reponse').value = '';
+      const fileInp = document.getElementById('reponseFile');
+      if (fileInp && fileInp.files && fileInp.files[0] && msg && msg.id) {
+        await attachPiece(msg.id, fileInp.files[0]);
+        fileInp.value = '';
+      }
+      await openFil(currentFil);
+      await loadFils();
+    } catch (e) {
+      err.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  if (staff) await loadModeles();
+  await loadFils();
+  if (routeState.pendingFilId) {
+    const pending = routeState.pendingFilId;
+    delete routeState.pendingFilId;
+    await openFil(pending);
+  }
+}
+
+/* ---------- Shell bind ---------- */
+function setSidebarOpen(open) {
+  document.documentElement.classList.toggle('sidebar-open', !!open);
+}
+
+function bindShell() {
+  const btn = document.getElementById('btnLogout');
+  if (btn) {
+    btn.onclick = async () => {
+      try { if (STORE.token) await api('/auth/logout', { method: 'POST', body: '{}' }); } catch {}
+      STORE.token = '';
+      me = null;
+      go('/login');
+    };
+  }
+  const open = document.getElementById('btnNavOpen');
+  const close = document.getElementById('btnNavClose');
+  const scrim = document.getElementById('btnNavScrim');
+  if (open) open.onclick = () => setSidebarOpen(true);
+  if (close) close.onclick = () => setSidebarOpen(false);
+  if (scrim) scrim.onclick = () => setSidebarOpen(false);
+  setSidebarOpen(false);
+  document.querySelectorAll('a[href^="/app"], a[href^="/famille"], a[href^="/eleve"]').forEach(a => {
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      setSidebarOpen(false);
+      go(a.getAttribute('href'));
+    });
+  });
+}
+
+async function render() {
+  const root = document.getElementById('root');
+  const p = path();
+  seedRouteFromQuery();
+
+  if (p === '/' || p === '/login') {
+    if (STORE.token && await ensureMe()) {
+      go(homeForRole());
+      return;
+    }
+    root.innerHTML = viewLogin();
+    await bindLogin();
+    return;
+  }
+
+  if (!STORE.token || !(await ensureMe())) {
+    go('/login');
+    return;
+  }
+
+  // Faces isolées : parent / élève / staff.
+  if (isParent() && (p.startsWith('/app') || p.startsWith('/eleve'))) {
+    go('/famille');
+    return;
+  }
+  if (isEleve() && (p.startsWith('/app') || p.startsWith('/famille'))) {
+    go('/eleve');
+    return;
+  }
+  if (!isParent() && !isEleve() && (p.startsWith('/famille') || p.startsWith('/eleve'))) {
+    go('/app');
+    return;
+  }
+
+  if (p === '/eleve' || p === '/eleve/') {
+    root.innerHTML = viewEleveHome();
+    bindShell();
+    await bindEleveHome();
+    return;
+  }
+  if (p === '/eleve/cahier') {
+    root.innerHTML = viewCahier('/eleve');
+    bindShell();
+    await bindCahier('/eleve');
+    return;
+  }
+  if (p === '/eleve/messages') {
+    root.innerHTML = viewMessages('/eleve');
+    bindShell();
+    await bindMessages('/eleve');
+    return;
+  }
+  if (p === '/eleve/notes') {
+    root.innerHTML = viewEleveNotes();
+    bindShell();
+    await bindEleveNotes();
+    return;
+  }
+  if (p === '/eleve/edt') {
+    root.innerHTML = viewEleveEdt();
+    bindShell();
+    await bindEleveEdt();
+    return;
+  }
+  if (p === '/eleve/absences') {
+    root.innerHTML = viewEleveAbsences();
+    bindShell();
+    await bindEleveAbsences();
+    return;
+  }
+  if (p === '/eleve/vie-scolaire') {
+    root.innerHTML = viewEleveVieScolaire();
+    bindShell();
+    await bindEleveVieScolaire();
+    return;
+  }
+  if (p === '/eleve/sorties') {
+    root.innerHTML = viewEleveSorties();
+    bindShell();
+    await bindEleveSorties();
+    return;
+  }
+  if (p === '/eleve/journal') {
+    root.innerHTML = viewEleveJournal();
+    bindShell();
+    await bindEleveJournal();
+    return;
+  }
+  if (p === '/eleve/docs') {
+    root.innerHTML = viewEleveDocs();
+    bindShell();
+    await bindEleveDocs();
+    return;
+  }
+  if (p === '/eleve/documents') {
+    root.innerHTML = viewEleveDocuments();
+    bindShell();
+    await bindEleveDocuments();
+    return;
+  }
+  if (p === '/eleve/orientation') {
+    root.innerHTML = viewEleveOrientation();
+    bindShell();
+    await bindEleveOrientation();
+    return;
+  }
+  if (p === '/eleve/internat') {
+    root.innerHTML = viewEleveInternat();
+    bindShell();
+    await bindEleveInternat();
+    return;
+  }
+  if (p === '/eleve/stages') {
+    root.innerHTML = viewEleveStages();
+    bindShell();
+    await bindEleveStages();
+    return;
+  }
+  if (p === '/eleve/sante') {
+    root.innerHTML = viewEleveSante();
+    bindShell();
+    await bindEleveSante();
+    return;
+  }
+  if (p === '/eleve/repas') {
+    root.innerHTML = viewEleveRepas();
+    bindShell();
+    await bindEleveRepas();
+    return;
+  }
+
+  const fm = p.match(/^\/famille\/enfants\/([0-9a-f-]{36})$/i);
+  if (fm) {
+    root.innerHTML = viewFamilleEnfant(fm[1]);
+    bindShell();
+    await bindFamilleEnfant(fm[1]);
+    return;
+  }
+  if (p === '/famille/cahier') {
+    root.innerHTML = viewCahier('/famille');
+    bindShell();
+    await bindCahier('/famille');
+    return;
+  }
+  if (p === '/famille/messages') {
+    root.innerHTML = viewMessages('/famille');
+    bindShell();
+    await bindMessages('/famille');
+    return;
+  }
+  if (p === '/famille/reinscription') {
+    root.innerHTML = viewReinscriptionFamille();
+    bindShell();
+    await bindReinscriptionFamille();
+    return;
+  }
+  if (p === '/famille/repas') {
+    root.innerHTML = viewFamilleRepas();
+    bindShell();
+    await bindFamilleRepas();
+    return;
+  }
+  if (p === '/famille/vie-scolaire') {
+    root.innerHTML = viewFamilleVieScolaire();
+    bindShell();
+    await bindFamilleVieScolaire();
+    return;
+  }
+  if (p === '/famille/sante') {
+    root.innerHTML = viewFamilleSante();
+    bindShell();
+    await bindFamilleSante();
+    return;
+  }
+  if (p === '/famille/journal') {
+    root.innerHTML = viewFamilleJournal();
+    bindShell();
+    await bindFamilleJournal();
+    return;
+  }
+  if (p === '/famille/internat') {
+    root.innerHTML = viewFamilleInternat();
+    bindShell();
+    await bindFamilleInternat();
+    return;
+  }
+  if (p === '/famille/accompagnement') {
+    root.innerHTML = viewFamilleAccompagnement();
+    bindShell();
+    await bindFamilleAccompagnement();
+    return;
+  }
+  if (p === '/famille/orientation') {
+    root.innerHTML = viewFamilleOrientation();
+    bindShell();
+    await bindFamilleOrientation();
+    return;
+  }
+  if (p === '/famille/sorties') {
+    root.innerHTML = viewFamilleSorties();
+    bindShell();
+    await bindFamilleSorties();
+    return;
+  }
+  if (p === '/famille/factures') {
+    root.innerHTML = viewFacturesFamille();
+    bindShell();
+    await bindFacturesFamille();
+    return;
+  }
+  if (p === '/famille/quittances') {
+    root.innerHTML = viewQuittancesFamille();
+    bindShell();
+    await bindQuittancesFamille();
+    return;
+  }
+  if (p === '/famille' || p === '/famille/') {
+    root.innerHTML = viewFamilleHome();
+    bindShell();
+    await bindFamilleHome();
+    return;
+  }
+
+  const m = p.match(/^\/app\/eleves\/([0-9a-f-]{36})$/i);
+  if (m) {
+    root.innerHTML = viewDossier(m[1]);
+    bindShell();
+    await bindDossier(m[1]);
+    return;
+  }
+  const mf = p.match(/^\/app\/foyers\/([0-9a-f-]{36})$/i);
+  if (mf) {
+    root.innerHTML = viewFoyerDetail(mf[1]);
+    bindShell();
+    await bindFoyerDetail(mf[1]);
+    return;
+  }
+  if (p === '/app/foyers') {
+    root.innerHTML = viewFoyers();
+    bindShell();
+    await bindFoyers();
+    return;
+  }
+  const ma = p.match(/^\/app\/adultes\/([0-9a-f-]{36})$/i);
+  if (ma) {
+    root.innerHTML = viewAdulteDetail(ma[1]);
+    bindShell();
+    await bindAdulteDetail(ma[1]);
+    return;
+  }
+  if (p === '/app/adultes') {
+    root.innerHTML = viewAdultes();
+    bindShell();
+    await bindAdultes();
+    return;
+  }
+  if (p === '/app/eleves') {
+    root.innerHTML = viewEleves();
+    bindShell();
+    await bindEleves();
+    return;
+  }
+  if (p === '/app/appel') {
+    root.innerHTML = viewAppel();
+    bindShell();
+    await bindAppel();
+    return;
+  }
+  if (p === '/app/mon-edt') {
+    root.innerHTML = viewMonEdt();
+    bindShell();
+    await bindMonEdt();
+    return;
+  }
+  if (p === '/app/edt') {
+    root.innerHTML = viewEdt();
+    bindShell();
+    await bindEdt();
+    return;
+  }
+  if (p === '/app/editions') {
+    root.innerHTML = viewEditionsVs();
+    bindShell();
+    await bindEditionsVs();
+    return;
+  }
+  if (p === '/app/stages') {
+    root.innerHTML = viewStages();
+    bindShell();
+    await bindStages();
+    return;
+  }
+  if (p === '/app/vs') {
+    root.innerHTML = viewVsJour();
+    bindShell();
+    await bindVsJour();
+    return;
+  }
+  if (p === '/app/absences') {
+    root.innerHTML = viewAbsences();
+    bindShell();
+    await bindAbsences();
+    return;
+  }
+  if (p === '/app/sorties') {
+    root.innerHTML = viewSorties();
+    bindShell();
+    await bindSorties();
+    return;
+  }
+  if (p === '/app/dispenses') {
+    root.innerHTML = viewDispensesVs();
+    bindShell();
+    await bindDispensesVs();
+    return;
+  }
+  if (p === '/app/docs-signer') {
+    root.innerHTML = viewDocsSigner();
+    bindShell();
+    await bindDocsSigner();
+    return;
+  }
+  if (p === '/app/alertes') {
+    root.innerHTML = viewAlertesCpe();
+    bindShell();
+    await bindAlertesCpe();
+    return;
+  }
+  if (p === '/app/rh') {
+    root.innerHTML = viewRhAbsences();
+    bindShell();
+    await bindRhAbsences();
+    return;
+  }
+  if (p === '/app/cahier') {
+    root.innerHTML = viewCahier('/app');
+    bindShell();
+    await bindCahier('/app');
+    return;
+  }
+  if (p === '/app/notes') {
+    root.innerHTML = viewNotes();
+    bindShell();
+    await bindNotes();
+    return;
+  }
+  if (p === '/app/exports') {
+    root.innerHTML = viewExportsEn();
+    bindShell();
+    await bindExportsEn();
+    return;
+  }
+  if (p === '/app/conseils') {
+    root.innerHTML = viewConseils();
+    bindShell();
+    await bindConseils();
+    return;
+  }
+  if (p === '/app/messages') {
+    root.innerHTML = viewMessages('/app');
+    bindShell();
+    await bindMessages('/app');
+    return;
+  }
+  if (p === '/app/reinscription') {
+    root.innerHTML = viewReinscriptionStaff();
+    bindShell();
+    await bindReinscriptionStaff();
+    return;
+  }
+  if (p === '/app/inscriptions') {
+    root.innerHTML = viewInscriptions();
+    bindShell();
+    await bindInscriptions();
+    return;
+  }
+  if (p === '/app/etab') {
+    root.innerHTML = viewEtab();
+    bindShell();
+    await bindEtab();
+    return;
+  }
+  if (p === '/app/comms') {
+    root.innerHTML = viewComms();
+    bindShell();
+    await bindComms();
+    return;
+  }
+  if (p === '/app/bourses') {
+    root.innerHTML = viewBourses();
+    bindShell();
+    await bindBourses();
+    return;
+  }
+  if (p === '/app/cantine') {
+    root.innerHTML = viewCantine();
+    bindShell();
+    await bindCantine();
+    return;
+  }
+  if (p === '/app/internat') {
+    root.innerHTML = viewInternat();
+    bindShell();
+    await bindInternat();
+    return;
+  }
+  if (p === '/app/infirmerie') {
+    root.innerHTML = viewInfirmerie();
+    bindShell();
+    await bindInfirmerie();
+    return;
+  }
+  if (p === '/app/psy') {
+    root.innerHTML = viewPsy();
+    bindShell();
+    await bindPsy();
+    return;
+  }
+  if (p === '/app/facturation') {
+    root.innerHTML = viewFacturationStaff();
+    bindShell();
+    await bindFacturationStaff();
+    return;
+  }
+  if (p === '/app' || p.startsWith('/app/')) {
+    root.innerHTML = viewHome();
+    bindShell();
+    await bindHome();
+    return;
+  }
+
+  go('/login');
+}
+
+window.addEventListener('popstate', () => render());
+render();
+</script>
+</body>
+</html>
+"##;

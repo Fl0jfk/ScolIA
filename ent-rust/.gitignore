@@ -1,0 +1,32 @@
+/target/
+Cargo.lock
+
+# Object store local / buckets labo
+.ent-objects/
+.ent-objects-lab-*/
+
+# Smoke / logs locaux (ne pas pousser)
+*.log
+*.err.log
+login-*.json
+body-*.json
+bootstrap-*.json
+reg-tmp.json
+spa.js
+spa-extract.js
+check-spa-js.mjs
+fix-home-tiles.mjs
+lab-out*.txt
+lab-err*.txt
+lab-check*.txt
+.cursor/
+
+# Tailwind (deps locales ; CSS compilé versionné pour cargo run sans npm)
+crates/ent-api/node_modules/
+
+# Michelangelus (Microsoft download — ne pas committer les binaires)
+crates/ent-api/static/fonts/*.ttf
+crates/ent-api/static/fonts/*.otf
+crates/ent-api/static/fonts/*.zip
+crates/ent-api/static/fonts/*.rtf
+scripts/michel-debug.html

@@ -1,0 +1,20 @@
+[package]
+name = "ent-mail"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Envoi SMTP famille / staff — config env alignée Next (MAILER_*/SMTP_*) + dry-run lab"
+
+[dependencies]
+lettre = { version = "0.11", default-features = false, features = [
+    "builder",
+    "smtp-transport",
+    "tokio1-rustls-tls",
+    "hostname",
+] }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
