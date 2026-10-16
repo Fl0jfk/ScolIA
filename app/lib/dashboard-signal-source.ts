@@ -4,7 +4,7 @@ import type { DashboardSignalSourceId } from "@/app/lib/dashboard-signals-parall
 const MODULE_SIGNAL_SOURCE: Partial<Record<string, DashboardSignalSourceId>> = {
   internat: "internat",
   rh: "rh",
-  absences: "rh",
+  absences: "absences",
   "mon-planning": "rh",
   "demandes-hse": "demandes",
   "requests-staff": "demandes",

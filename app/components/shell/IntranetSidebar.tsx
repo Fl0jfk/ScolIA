@@ -263,9 +263,10 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
               sourceStatus,
               { compact: true },
             );
-            const linkAria =
-              pillarBadge?.unavailable
-                ? `${p.title}, compteur indisponible`
+            const linkAria = pillarBadge?.unavailable
+              ? `${p.title}, compteur indisponible`
+              : pillarBadge?.partialUnavailable && pillarBadge.count
+                ? `${p.title}, ${pillarBadge.count} notification${pillarBadge.count > 1 ? "s" : ""}, certains compteurs indisponibles`
                 : pillarBadge?.count
                   ? `${p.title}, ${pillarBadge.count} notification${pillarBadge.count > 1 ? "s" : ""}`
                   : undefined;
@@ -288,6 +289,7 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
                   <NotificationCountBadge
                     count={pillarBadge.count}
                     unavailable={pillarBadge.unavailable}
+                    partialUnavailable={pillarBadge.partialUnavailable}
                     compact={pillarBadge.compact}
                     decorative
                   />

@@ -17,6 +17,8 @@ export type NotificationCountBadgeProps = {
   unavailable?: boolean;
   /** Pastille compacte « ! » (sidebar). */
   compact?: boolean;
+  /** Compteur connu mais d’autres signaux du groupe sont indisponibles. */
+  partialUnavailable?: boolean;
   className?: string;
   /** Masque le badge aux lecteurs d’écran si le nom est porté par le parent (lien). */
   decorative?: boolean;
@@ -26,6 +28,7 @@ export default function NotificationCountBadge({
   count,
   unavailable = false,
   compact = false,
+  partialUnavailable = false,
   className = "",
   decorative = false,
 }: NotificationCountBadgeProps) {
@@ -52,7 +55,9 @@ export default function NotificationCountBadge({
       className={`inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full px-[5px] text-[11px] font-semibold leading-none tracking-tight shadow-[0_1px_2px_rgba(0,0,0,0.18)] ${
         unavailable
           ? `${NOTIFICATION_COUNT_BADGE_UNAVAILABLE_CLASS} normal-case`
-          : NOTIFICATION_COUNT_BADGE_COUNT_CLASS
+          : `${NOTIFICATION_COUNT_BADGE_COUNT_CLASS}${
+              partialUnavailable ? " ring-2 ring-amber-300 ring-offset-1" : ""
+            }`
       } ${className}`}
     >
       {display}

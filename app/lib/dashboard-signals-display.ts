@@ -94,6 +94,11 @@ export function dashboardPillarBadgeProps(
       count += c;
     }
   }
+  if (unavailable && count > 0) {
+    return count > 99
+      ? { count: 99, partialUnavailable: true, compact: opts?.compact }
+      : { count, partialUnavailable: true, compact: opts?.compact };
+  }
   if (unavailable) {
     return { unavailable: true, compact: opts?.compact };
   }
