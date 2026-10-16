@@ -122,7 +122,7 @@ export default function ModuleTourTravelsPreview({ variant }: { variant: Variant
           </p>
         </PreviewCard>
         <PreviewCard title="Dans le dossier" subtitle="Onglet Transport">
-          <p className="text-[10px] text-slate-600">Devis reçus → choix direction → signature → compta.</p>
+          <p className="text-[10px] text-slate-600">Devis reçus → choix (créateur / admin / compta) → signature direction → compta.</p>
         </PreviewCard>
       </div>
     );

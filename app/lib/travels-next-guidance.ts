@@ -179,20 +179,22 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
         focusQuestion: "Il n’y a pas de bus. Comment passer aux finances ?",
       });
     }
+    const canSelectQuoteOnly =
+      !canSign && (isOwner || isAdministratif || isCompta || isGlobalAdmin);
     if (pendingAmended) {
       return finish({
         stepLabel,
-        who: "Transporteur, puis créateur ou direction",
+        who: "Transporteur, puis créateur / administratif / compta ou direction",
         headline: "Avenant envoyé : on attend un nouveau devis.",
-        what: "Un avenant a été demandé au transporteur. Quand le nouveau devis arrive, le créateur peut cliquer sur « Choisir », ou la direction sur « Choisir et signer ».",
+        what: "Un avenant a été demandé au transporteur. Quand le nouveau devis arrive, le créateur, l’administratif ou la compta peut cliquer sur « Choisir », ou la direction sur « Choisir et signer ».",
         steps: [
           "Suivez l’onglet Transport pour voir si le nouveau devis est arrivé.",
-          "Dès qu’il apparaît : créateur → « Choisir », ou direction → « Choisir et signer ».",
-          "Si seul le créateur a choisi, la direction devra encore signer ensuite.",
+          "Dès qu’il apparaît : créateur / administratif / compta → « Choisir », ou direction → « Choisir et signer ».",
+          "Si le devis est seulement choisi, la direction devra encore signer ensuite.",
         ],
-        youMustAct: isOwner || canSign,
+        youMustAct: canSelectQuoteOnly || canSign,
         whileWaiting:
-          isOwner || canSign
+          canSelectQuoteOnly || canSign
             ? undefined
             : "Rien à signer pour l’instant : patience côté transporteur.",
         ctaTab: "transport",
@@ -203,20 +205,20 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
     if (devisCount === 0) {
       return finish({
         stepLabel,
-        who: "Transporteurs d’abord, puis créateur ou direction",
+        who: "Transporteurs d’abord, puis créateur / administratif / compta ou direction",
         headline: "Aucun devis reçu pour l’instant.",
-        what: "Les transporteurs doivent renvoyer leurs devis. Dès qu’un devis apparaît dans Transport, le créateur peut le « Choisir », ou la direction peut « Choisir et signer » en une seule fois.",
+        what: "Les transporteurs doivent renvoyer leurs devis. Dès qu’un devis apparaît dans Transport, le créateur, l’administratif ou la compta peut le « Choisir », ou la direction peut « Choisir et signer » en une seule fois.",
         steps: [
           "Ouvrez l’onglet Transport pour vérifier l’état des demandes de devis.",
           "Si rien n’arrive : bouton « Relancer les demandes de devis » (renvoie PDF + programme aux transporteurs).",
-          "Dès qu’un devis apparaît : créateur → « Choisir », ou direction → « Choisir et signer ».",
+          "Dès qu’un devis apparaît : créateur / administratif / compta → « Choisir », ou direction → « Choisir et signer ».",
         ],
         youMustAct: false,
-        whileWaiting: isOwner
+        whileWaiting: canSelectQuoteOnly
           ? "Ce n’est pas encore le moment de choisir : il faut d’abord un devis dans la liste. Utilisez « Relancer les demandes de devis » dans l’onglet Transport si besoin."
           : canSign
             ? "Tant qu’aucun devis n’est listé, le bouton « Choisir et signer » n’est pas utilisable. Vous pouvez « Relancer les demandes de devis » dans Transport."
-            : "Créateur ou direction devront choisir un devis dès qu’il sera reçu.",
+            : "Créateur, administratif, compta ou direction devront choisir un devis dès qu’il sera reçu.",
         ctaTab: "transport",
         ctaLabel: "Ouvrir Transport",
         focusQuestion: "On est à l’étape choix du devis transport mais aucun devis n’est encore là. Que faut-il faire ?",
@@ -224,28 +226,28 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
     }
     return finish({
       stepLabel,
-      who: "Créateur ou direction",
+      who: "Créateur, administratif, compta ou direction",
       headline:
-        isOwner && !canSign
-          ? `À vous (créateur) : choisissez un devis (${devisCount} reçu${devisCount > 1 ? "s" : ""}).`
+        canSelectQuoteOnly
+          ? `À vous : choisissez un devis (${devisCount} reçu${devisCount > 1 ? "s" : ""}). La direction signera ensuite.`
           : canSign
             ? `À vous (direction) : vous pouvez choisir et signer un devis (${devisCount} reçu${devisCount > 1 ? "s" : ""}).`
             : `${devisCount} devis reçu${devisCount > 1 ? "s" : ""} — en attente d’un choix.`,
       what:
-        isOwner && !canSign
+        canSelectQuoteOnly
           ? "Ouvrez Transport et cliquez sur « Choisir » sur le devis retenu. Ensuite la direction devra encore signer la commande."
           : canSign
-            ? "Ouvrez Transport : le bouton « Choisir et signer » retient le devis et lance la signature / commande en une fois. (Le créateur peut aussi seulement « Choisir », auquel cas il vous restera la signature.)"
-            : "Soit le créateur clique sur « Choisir », soit la direction clique sur « Choisir et signer ».",
+            ? "Ouvrez Transport : le bouton « Choisir et signer » retient le devis et lance la signature / commande en une fois. (Le créateur, l’administratif ou la compta peut aussi seulement « Choisir », auquel cas il vous restera la signature.)"
+            : "Soit le créateur / administratif / compta clique sur « Choisir », soit la direction clique sur « Choisir et signer ».",
       steps: [
         ...(canSign
           ? [
               "Ouvrez l’onglet Transport.",
               "Comparez les devis reçus (prix, prestations).",
               "Cliquez sur « Choisir et signer » sur le devis retenu (choix + signature / commande).",
-              "Alternative : si le créateur a déjà cliqué « Choisir », signez ensuite à l’étape signature.",
+              "Alternative : si quelqu’un a déjà cliqué « Choisir », signez ensuite à l’étape signature.",
             ]
-          : isOwner
+          : canSelectQuoteOnly
             ? [
                 "Ouvrez l’onglet Transport.",
                 "Comparez les devis reçus (prix, prestations).",
@@ -253,21 +255,21 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
                 "La direction devra ensuite signer / commander (sauf si elle le fait elle-même via « Choisir et signer »).",
               ]
             : [
-                "Le créateur peut cliquer sur « Choisir » dans Transport.",
+                "Le créateur, l’administratif ou la compta peut cliquer sur « Choisir » dans Transport.",
                 "Ou la direction peut cliquer sur « Choisir et signer » (choix + signature d’un coup).",
-                "Sans l’un de ces deux gestes, le dossier reste bloqué en logistique.",
+                "Sans l’un de ces gestes, le dossier reste bloqué en logistique.",
               ]),
         ...audit.advice.slice(0, 2),
       ],
-      youMustAct: isOwner || canSign,
+      youMustAct: canSelectQuoteOnly || canSign,
       whileWaiting:
-        isOwner || canSign
+        canSelectQuoteOnly || canSign
           ? undefined
-          : "En attente du créateur (« Choisir ») ou de la direction (« Choisir et signer »).",
+          : "En attente d’un choix (« Choisir ») ou de la direction (« Choisir et signer »).",
       ctaTab: "transport",
-      ctaLabel: canSign ? "Choisir et signer" : isOwner ? "Choisir un devis" : "Voir les devis",
+      ctaLabel: canSign ? "Choisir et signer" : canSelectQuoteOnly ? "Choisir un devis" : "Voir les devis",
       focusQuestion:
-        "Des devis sont arrivés. Le créateur peut « Choisir », la direction peut « Choisir et signer ». Faut-il attendre d’autres devis ou choisir maintenant ?",
+        "Des devis sont arrivés. Créateur / administratif / compta peut « Choisir », la direction peut « Choisir et signer ». Faut-il attendre d’autres devis ou choisir maintenant ?",
     });
   }
 
@@ -279,8 +281,8 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
         ? "C’est à la direction de signer et commander le devis bus."
         : "Devis choisi — en attente de signature direction.",
       what: canSign
-        ? "Le créateur a fait sa part. Sans votre signature / commande, le dossier n’ira pas en finances."
-        : "Vous (créateur) n’avez plus rien à choisir : la direction doit ouvrir Transport et signer le devis retenu.",
+        ? "Le devis a été retenu. Sans votre signature / commande, le dossier n’ira pas en finances."
+        : "Le devis est déjà choisi : la direction doit ouvrir Transport et signer la commande.",
       steps: canSign
         ? [
             "Ouvrez l’onglet Transport (le devis choisi y est mis en avant).",
@@ -291,7 +293,7 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
         : [
             "La direction ouvre Transport.",
             "Elle signe / commande le devis sélectionné.",
-            "Le créateur attend simplement cette signature.",
+            "En attendant, rien d’autre à choisir côté créateur / administratif / compta.",
           ],
       youMustAct: canSign,
       whileWaiting: canSign

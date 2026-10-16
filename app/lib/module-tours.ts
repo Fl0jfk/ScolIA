@@ -267,7 +267,7 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
         bullets: [
           "À la création : e-mail automatique aux transporteurs pour demander des devis.",
           "Les devis reçus (e-mail ou saisie manuelle) apparaissent dans l'onglet Transport.",
-          "La direction choisit un devis, le signe numériquement, puis le dossier passe en validation finances.",
+          "Le créateur, l'administratif ou la compta peut choisir un devis ; seule la direction le signe numériquement, puis le dossier passe en validation finances.",
           "Si l'effectif ou les dates changent après coup : avenant bus envoyé au transporteur retenu.",
         ],
         travelsPreview: "complex-with-bus",
