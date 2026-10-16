@@ -102,6 +102,7 @@ async function snapshotOutboxPending() {
 }
 
 let entToastTimer = null;
+let exportsEnPeriodesMeta = { nPeriodes: 0, nFermees: 0 };
 function showEntToast(html, ms) {
   const duration = ms == null ? 9000 : ms;
   let el = document.getElementById('entToast');
@@ -655,6 +656,28 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel) {
   bindNotesHomeTipGo();
 }
 
+/** /app/notes — repère seed labo Harry Potter (4B · Potions). */
+function notesHarrySeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.harryId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '4B').trim());
+  const potions = o.potionsDevoir
+    ? `<span class="pill ok pill-dense">Potions</span> `
+    : '';
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Harry Potter</strong><span>Seed labo · ${classe} · ${potions}grille audit</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesHarrySeedNotesBtn" data-harry-id="${esc(String(o.harryId))}" style="cursor:pointer;text-align:left">
+      <strong>${nNotes}</strong><span>Note(s) enregistrée(s) · voir fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesHarrySeedGrilleBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>4B</strong><span>Ouvrir grille Potions (seed)</span>
+    </button>
+  </div>`;
+}
+
 async function devoirIdsWithNotesForClasse(classe, periodeId, jour) {
   const cl = String(classe || '').trim();
   if (!cl) return new Set();
@@ -710,8 +733,35 @@ function toastBulletinTelecharge(titre) {
   );
 }
 
-function toastQuittanceTelechargee(numero) {
-  const n = esc(String(numero || 'quittance').trim());
+function isFamilleQuittancesFlux() {
+  return path() === '/famille/quittances';
+}
+
+function toastQuittanceTelechargee(numero, opts) {
+  const o = opts || {};
+  const n = esc(String(numero || o.numero || 'quittance').trim());
+  const amtRaw = o.montant_centimes != null ? Number(o.montant_centimes) : NaN;
+  const amt = Number.isFinite(amtRaw) ? esc(euros(amtRaw)) : '—';
+  const moyen = o.moyen ? esc(String(o.moyen).trim()) : '—';
+  const dt = o.emise_at ? esc(String(o.emise_at).slice(0, 10)) : '—';
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/quittances">Mes quittances</a>`
+    + (isFamilleFacturesFlux() ? ` · <a href="/famille/factures">Factures</a>` : '')
+    + `</p>`;
+  if (isFamilleQuittancesFlux() || isFamilleFacturesFlux() || o.dense) {
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${n}</strong><span>PDF enregistré</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${amt}</strong><span>Montant · ${moyen}</span></div>
+      <div class="stat-tile bento-span-4"><strong>${dt}</strong><span>Date d’émission</span></div>`;
+    showEntToast(
+      `<strong>Quittance téléchargée</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + foot,
+      9500,
+    );
+    return;
+  }
   showEntToast(`<strong>Quittance téléchargée</strong> — ${n} (PDF).`, 8000);
 }
 
@@ -836,25 +886,37 @@ function eleveSanctionsActives(sanctions) {
   });
 }
 
-/** Accueil /eleve — sanctions + points VS (affiché seulement si l’API répond). */
-function eleveHomeSanctionsTipDenseHtml(sanctions, pointsVs) {
-  const active = eleveSanctionsActives(sanctions);
+/** Accueil /eleve — sanctions + permis à points VS (bento dense). */
+function eleveHomeSanctionsTipDenseHtml(sanctions, pointsVs, sanctionsApiOk) {
+  const sanctionsOk = sanctionsApiOk !== false;
+  const active = sanctionsOk ? eleveSanctionsActives(sanctions) : [];
+  const depart = pointsVs && pointsVs.depart != null ? Number(pointsVs.depart) : 20;
   const pts = pointsVs && pointsVs.solde != null ? Number(pointsVs.solde) : null;
+  const bas = isPtsVsSoldeBas(pointsVs);
   const sorted = active.slice().sort((a, b) => String(b.jour || '').localeCompare(String(a.jour || '')));
   const last = sorted[0] || null;
   const lastLbl = last
     ? `${esc(String(last.jour || '').slice(0, 10))} · ${esc(last.type_label || last.statut || 'Sanction')}`
     : '';
-  const sanctionTile = active.length
-    ? `<a class="stat-tile bento-span-4" href="/eleve/vie-scolaire" style="text-decoration:none;border-color:var(--warn,#b45309)">
-        <strong class="warn">${active.length}</strong><span>Sanction(s) au registre</span>
+  const sanctionTile = !sanctionsOk
+    ? `<a class="stat-tile bento-span-4" href="/eleve/vie-scolaire" style="text-decoration:none">
+        <strong class="muted">—</strong><span>Sanctions indisponibles</span>
+      </a>`
+    : (active.length
+      ? `<a class="stat-tile bento-span-4" href="/eleve/vie-scolaire" style="text-decoration:none;border-color:var(--warn,#b45309)">
+          <strong class="warn">${active.length}</strong><span>Sanction(s) au registre</span>
+        </a>`
+      : `<a class="stat-tile bento-span-4" href="/eleve/vie-scolaire" style="text-decoration:none">
+          <strong class="ok">OK</strong><span>Aucune sanction active</span>
+        </a>`);
+  const ptsBorder = bas ? 'border-color:var(--warn,#b45309)' : '';
+  const ptsTile = pts != null && Number.isFinite(pts)
+    ? `<a class="stat-tile bento-span-4" href="/eleve/vie-scolaire" style="text-decoration:none;${ptsBorder}">
+        <strong class="${bas ? 'warn' : ''}">${esc(String(pts))}</strong><span>Permis · ${esc(String(pts))} / ${esc(String(depart))}${bas ? ' · seuil bas' : ''}</span>
       </a>`
     : `<a class="stat-tile bento-span-4" href="/eleve/vie-scolaire" style="text-decoration:none">
-        <strong class="ok">OK</strong><span>Aucune sanction active</span>
+        <strong class="muted">VS</strong><span>Permis à points · vie scolaire</span>
       </a>`;
-  const ptsTile = pts != null && Number.isFinite(pts)
-    ? `<div class="stat-tile bento-span-4"><strong>${esc(String(pts))}</strong><span>Points vie scolaire</span></div>`
-    : `<div class="stat-tile bento-span-4"><strong class="muted">VS</strong><span>Détail · vie scolaire</span></div>`;
   const lastTile = last
     ? `<div class="stat-tile bento-span-4"><strong>${lastLbl}</strong><span>Dernière sanction</span></div>`
     : `<a class="stat-tile bento-span-4" href="/eleve/vie-scolaire" style="text-decoration:none">
@@ -866,11 +928,12 @@ function eleveHomeSanctionsTipDenseHtml(sanctions, pointsVs) {
 function refreshEleveHomeSanctionsTip(sanctions, pointsVs, apiOk) {
   const el = document.getElementById('eleveHomeSanctionsTip');
   if (!el) return;
-  if (!apiOk) {
+  const hasPts = pointsVs && pointsVs.solde != null;
+  if (!apiOk && !hasPts) {
     el.innerHTML = '';
     return;
   }
-  el.innerHTML = eleveHomeSanctionsTipDenseHtml(sanctions, pointsVs);
+  el.innerHTML = eleveHomeSanctionsTipDenseHtml(sanctions, pointsVs, apiOk);
 }
 
 function carnetEntryFromBtn(btn, carnet) {
@@ -1041,6 +1104,50 @@ function famHomeQuittancesRecentTipDenseHtml(quittances) {
     <div class="stat-tile bento-span-4"><strong>${amt}</strong><span>Montant encaissé</span></div>
     <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
       <strong>${n}</strong><span>Reçu(s) · ${esc(euros(total))} au total</span>
+    </a>
+  </div>`;
+}
+
+/** Accueil famille — réinscription N+1 (bento, si API répond). */
+function famHomeReinscTipDenseHtml(reinsc) {
+  const d = reinsc || {};
+  const camp = d.campagne || null;
+  const annee = esc(String((camp && camp.annee_cible) || d.annee_n1 || 'N+1').trim());
+  const ouverte = !!(camp && camp.ouverte);
+  const rows = d.enfants || [];
+  const nPending = ouverte
+    ? rows.filter(x => x && !x.confirmee && x.projection_n1).length
+    : 0;
+  const nSansProj = ouverte
+    ? rows.filter(x => x && !x.projection_n1).length
+    : 0;
+  let nDocsManq = 0;
+  rows.forEach(x => {
+    nDocsManq += ((x && x.documents_manquants) || []).length;
+  });
+  const href = '/famille/reinscription';
+  if (!ouverte) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">Fermée</strong><span>Campagne ${annee}</span></div>
+      <div class="stat-tile bento-span-4"><strong>${rows.length}</strong><span>Enfant(s) liés</span></div>
+      <a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none">
+        <strong>→</strong><span>Suivi réinscription</span>
+      </a>
+    </div>`;
+  }
+  const pendingTile = nPending
+    ? `<a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nPending}</strong><span>À finaliser · ${annee}</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">OK</strong><span>Campagne ${annee} · confirmée(s)</span>
+      </a>`;
+  const docsTile = nDocsManq
+    ? `<div class="stat-tile bento-span-4"><strong class="warn">${nDocsManq}</strong><span>Doc(s) manquant(s)</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong>${nSansProj || '—'}</strong><span>${nSansProj ? 'Projection en attente' : 'Dossiers N+1'}</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${pendingTile}${docsTile}
+    <a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none">
+      <strong>Ouverte</strong><span>Réinscription · options &amp; docs</span>
     </a>
   </div>`;
 }
@@ -1469,50 +1576,72 @@ function toastNotePeriodeCreee(p) {
   }
 }
 
-function toastExportLsl(filename, opts) {
+function toastExportEnDense(kind, filename, opts) {
   const o = opts || {};
-  const cl = o.classe ? ` · ${esc(String(o.classe).trim())}` : '';
-  const pl = o.periodeLabel ? ` · ${esc(String(o.periodeLabel).trim())}` : '';
+  const k = esc(String(kind || 'Export').trim());
+  const fname = esc(String(filename || 'export.csv').trim());
+  const cl = esc(String(o.classe || '').trim() || '—');
+  const pl = o.periodeLabel ? esc(String(o.periodeLabel).trim()) : '';
+  const perPart = pl ? ` · ${pl}` : '';
+  const n = Number(o.nEleves) || 0;
+  const nPart = n > 0 ? `${n} élève(s)` : 'Préflight effectif';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${k}</strong><span>${fname}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${cl}</strong><span>Classe${perPart}</span></div>
+    <div class="stat-tile bento-span-4"><strong>${n || '—'}</strong><span>${nPart}</span></div>`;
   showEntToast(
-    `<strong>Export LSL téléchargé</strong> — ${esc(String(filename || 'export-lsl.csv'))}${cl}${pl}`,
-    8500,
+    `<strong>Export EN téléchargé</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/app/exports">Exports EN</a> · `
+    + `CSV local · pont national</p>`,
+    9000,
   );
+}
+
+function toastExportLsl(filename, opts) {
+  toastExportEnDense('LSL', filename, opts);
 }
 
 function toastExportNotanet(filename, opts) {
-  const o = opts || {};
-  const cl = o.classe ? ` · ${esc(String(o.classe).trim())}` : '';
-  const pl = o.periodeLabel ? ` · ${esc(String(o.periodeLabel).trim())}` : '';
-  showEntToast(
-    `<strong>Export Notanet téléchargé</strong> — ${esc(String(filename || 'export-notanet.csv'))}${cl}${pl}`,
-    8500,
-  );
+  toastExportEnDense('Notanet', filename, opts);
 }
 
 function toastExportLsun(filename, opts) {
-  const o = opts || {};
-  const cl = o.classe ? ` · ${esc(String(o.classe).trim())}` : '';
-  const pl = o.periodeLabel ? ` · ${esc(String(o.periodeLabel).trim())}` : '';
-  const n = o.nEleves != null && Number(o.nEleves) > 0
-    ? ` · ${Number(o.nEleves)} élève(s)` : '';
-  showEntToast(
-    `<strong>LSUN exporté</strong> — ${esc(String(filename || 'export-lsun.csv'))}${cl}${pl}${n}`,
-    8500,
-  );
+  toastExportEnDense('LSUN', filename, opts);
 }
 
-/** /app/exports — rappel LSUN (classe · période · effectif). */
-function exportsEnLsunTipDenseHtml(classe, periodeLabel, nEleves) {
-  const cl = esc(String(classe || '').trim() || '—');
-  const pl = periodeLabel ? esc(String(periodeLabel).trim()) : 'Période';
-  const n = Number(nEleves) || 0;
+function toastExportParcoursup(filename, opts) {
+  toastExportEnDense('Parcoursup', filename, opts);
+}
+
+function toastExportOnde(filename, opts) {
+  toastExportEnDense('ONDE', filename, opts);
+}
+
+/** /app/exports — ponts EN (classe · période · effectif · périodes notes). */
+function exportsEnPontsTipDenseHtml(opts) {
+  const o = opts || {};
+  const cl = esc(String(o.classe || '').trim() || '—');
+  const pl = o.periodeLabel ? esc(String(o.periodeLabel).trim()) : 'Période notes';
+  const n = Number(o.nEleves) || 0;
+  const nPer = Number(o.nPeriodes) || 0;
+  const nFerm = Number(o.nFermees) || 0;
+  const perHint = nPer
+    ? `${nFerm}/${nPer} période(s) fermée(s)`
+    : 'Choisir période notes';
   return `<div class="bento" style="margin:.15rem 0 .55rem">
     <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
-      <strong>LSUN</strong><span>Livret unique · ${pl}</span>
+      <strong>LSL · LSUN</strong><span>${pl} · Notanet</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong>${cl}</strong><span>Classe · préflight effectif</span></div>
-    <div class="stat-tile bento-span-4"><strong>${n || '—'}</strong><span>Élève(s) · bouton LSUN ci-dessous</span></div>
+    <div class="stat-tile bento-span-4"><strong>${cl}</strong><span>${perHint} · préflight</span></div>
+    <div class="stat-tile bento-span-4"><strong>${n || '—'}</strong><span>Élève(s) · Parcoursup · ONDE</span></div>
   </div>`;
+}
+
+function exportsEnLsunTipDenseHtml(classe, periodeLabel, nEleves) {
+  return exportsEnPontsTipDenseHtml({ classe, periodeLabel, nEleves });
 }
 
 function refreshExportsEnLsunTip(nEleves) {
@@ -1522,7 +1651,13 @@ function refreshExportsEnLsunTip(nEleves) {
   const perSel = document.getElementById('expEnPeriode');
   const perLabel = perSel && perSel.selectedOptions && perSel.selectedOptions[0]
     ? perSel.selectedOptions[0].textContent.trim() : '';
-  el.innerHTML = exportsEnLsunTipDenseHtml(c, perLabel, nEleves);
+  el.innerHTML = exportsEnPontsTipDenseHtml({
+    classe: c,
+    periodeLabel: perLabel,
+    nEleves,
+    nPeriodes: exportsEnPeriodesMeta.nPeriodes,
+    nFermees: exportsEnPeriodesMeta.nFermees,
+  });
 }
 
 function entMessageLooksEdtConflit(msg) {
@@ -2492,6 +2627,10 @@ function isStaffFacturationFlux() {
   return path() === '/app/facturation';
 }
 
+function isStaffFoyersFlux() {
+  return path() === '/app/foyers';
+}
+
 function isStaffEdtFlux() {
   return path() === '/app/edt';
 }
@@ -2651,6 +2790,84 @@ function toastFactureEmise(fac, opts) {
       else document.getElementById('btnEncaisser')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
   }
+}
+
+function toastFactureEncaissée(detail, opts) {
+  const o = opts || {};
+  const d = detail || {};
+  const fac = d.facture || {};
+  const numero = esc(String(fac.numero || '—').trim() || '—');
+  const montant = esc(euros(o.montantCentimes != null ? o.montantCentimes : 0));
+  const moyen = esc(String(o.moyen || '—').trim());
+  const refRaw = String(o.reference || '').trim();
+  const refPart = refRaw ? ` · ${esc(refRaw)}` : '';
+  const encTotal = esc(euros(d.encaisse_centimes || 0));
+  const reste = Math.max(0, Number(d.reste_centimes) || 0);
+  const statut = String(fac.statut || '').trim();
+  const soldee = reste <= 0 || statut === 'soldee';
+  const quittances = d.quittances || [];
+  const lastQ = quittances.length ? quittances[quittances.length - 1] : null;
+  const quitNum = lastQ && lastQ.numero ? esc(String(lastQ.numero)) : '—';
+  const statusTile = soldee
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)"><strong class="ok">Soldée</strong><span>${esc(statut || 'soldee')}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="warn">${esc(euros(reste))}</strong><span>Reste · ${esc(statut || 'partielle')}</span></div>`;
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${montant}</strong><span>${moyen}${refPart}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${encTotal}</strong><span>Encaissé · ${numero}</span></div>
+    ${statusTile}`;
+  showEntToast(
+    `<strong>Encaissement enregistré</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `Quittance <strong>${quitNum}</strong> · `
+    + `<a href="/app/facturation">Facturation</a> · PDF dans le détail</p>`,
+    10000,
+  );
+}
+
+/** Foyers staff — annuaire (effectifs + file sans élève). */
+function foyersPageTipDenseHtml(stats) {
+  if (!isStaffFoyersFlux()) return '';
+  const s = stats || {};
+  const nF = Number(s.nFoyers) || 0;
+  const nE = Number(s.nEleves) || 0;
+  const nV = Number(s.nVides) || 0;
+  const fileTile = nV > 0
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nV}</strong><span>Foyers sans élève</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Fiche → parts 100 % → facturation</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong>${nF || '—'}</strong><span>Foyers · annuaire</span></div>
+    <div class="stat-tile bento-span-4"><strong>${nE}</strong><span>Élèves rattachés</span></div>
+    ${fileTile}
+  </div>`;
+}
+
+function toastFoyerLienParentRattache(opts) {
+  const o = opts || {};
+  const who = esc(String(o.displayName || o.email || 'Responsable').trim());
+  const email = esc(String(o.email || '—').trim());
+  const lien = esc(String(o.lien || 'autre').trim());
+  const eleve = esc(String(o.eleveLabel || 'Élève').trim());
+  const payeur = o.estPayeur ? 'Payeur' : 'Non payeur';
+  const partRaw = o.partPaiement;
+  const partLbl = partRaw != null && partRaw !== '' && Number.isFinite(Number(partRaw))
+    ? `${Number(partRaw)} %`
+    : '—';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${who}</strong><span>${lien} · ${email}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${eleve}</strong><span>Enfant rattaché</span></div>
+    <div class="stat-tile bento-span-4"><strong>${esc(partLbl)}</strong><span>${esc(payeur)} · portail famille</span></div>`;
+  showEntToast(
+    `<strong>Responsable rattaché</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `Ajuster droits notes / VS · parts payeurs = 100 % · `
+    + `<a href="/app/facturation">Facturation</a></p>`,
+    9500,
+  );
 }
 
 function toastSepaExportFlux(meta) {
@@ -3495,26 +3712,45 @@ function toastFilArchiver(sujet) {
 function toastFilOuvert(sujet, opts) {
   const o = opts || {};
   const s = esc(String(sujet || 'Fil').trim());
-  const arch = o.archive ? ' · archivé' : '';
+  const archived = !!o.archive;
   const n = Number(o.nbNonLus) || 0;
-  if (n > 0) {
-    const msgHref = o.messagesHref || (path().startsWith('/eleve') ? '/eleve/messages' : '/famille/messages');
-    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+  const msgHref = o.messagesHref || (path().startsWith('/eleve') ? '/eleve/messages' : '/famille/messages');
+  if (n > 0 || archived) {
+    const luTile = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
         <strong class="ok">Lu</strong><span>Lecture enregistrée sur ce fil</span>
-      </div>
-      <div class="stat-tile bento-span-4"><strong>${n}</strong><span>Message(s) marqué(s) lu(s)${arch}</span></div>
-      <a class="stat-tile bento-span-4" href="#filPanel" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-        <strong>${s}</strong><span>Sujet du fil</span>
+      </div>`;
+    const midTile = n > 0
+      ? `<div class="stat-tile bento-span-4"><strong>${n}</strong><span>Message(s) marqué(s) lu(s)${archived ? ' · archivé' : ''}</span></div>`
+      : (archived
+        ? `<div class="stat-tile bento-span-4" style="border-color:var(--muted,#64748b)">
+            <strong class="muted">Archive</strong><span>Fil archivé · consultable dans les archives</span>
+          </div>`
+        : `<div class="stat-tile bento-span-4"><strong class="ok">—</strong><span>Aucun message non lu</span></div>`);
+    const subjTile = `<a class="stat-tile bento-span-4" href="#filPanel" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${s}</strong><span>Sujet du fil${archived ? ' · archivé' : ''}</span>
       </a>`;
+    const archFoot = archived
+      ? ' · <label style="font-size:.85rem;cursor:pointer"><input type="checkbox" id="entToastFilArchivesChk" checked> Afficher les archives</label>'
+      : '';
     showEntToast(
       `<strong>Fil ouvert</strong>`
-      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
-      + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(msgHref)}">Messagerie</a></p>`,
-      7500,
+      + `<div class="bento" style="margin:.4rem 0 0">${luTile}${midTile}${subjTile}</div>`
+      + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(msgHref)}">Messagerie</a>${archFoot}</p>`,
+      archived ? 8000 : 7500,
     );
+    const archChk = document.getElementById('entToastFilArchivesChk');
+    if (archChk) {
+      archChk.onchange = () => {
+        const chk = document.getElementById('chkArchives');
+        if (chk) {
+          chk.checked = archChk.checked;
+          chk.dispatchEvent(new Event('change'));
+        }
+      };
+    }
     return;
   }
-  showEntToast(`<strong>Fil ouvert</strong> — ${s}${arch}. Lecture enregistrée.`, 6500);
+  showEntToast(`<strong>Fil ouvert</strong> — ${s}. Lecture enregistrée.`, 6500);
 }
 function toastFilCree(meta) {
   const o = typeof meta === 'string' ? { sujet: meta } : (meta || {});
@@ -3788,6 +4024,8 @@ function normalizeFamEnfantSection(sec) {
   if (s === 'sante' || s === 'infirmerie' || s === 'fiche-sante') return 'sante';
   if (s === 'cantine' || s === 'passages' || s === 'repas-midi' || s === 'repas') return 'repas';
   if (s === 'bourse' || s === 'bourses') return 'bourses';
+  if (s === 'internat' || s === 'int') return 'internat';
+  if (s === 'psy' || s === 'pap' || s === 'accompagnement') return 'accompagnement';
   return String(sec || '').trim();
 }
 function famApplyEnfantSectionDeepLink(forcedSec) {
@@ -5067,13 +5305,13 @@ async function bindEleveHome() {
     try {
       sanctionsList = await api('/eleves/' + eid + '/sanctions');
       sanctionsApiOk = true;
-      try {
-        pointsVs = await api('/eleves/' + eid + '/points-vs');
-      } catch {
-        pointsVs = null;
-      }
     } catch {
       sanctionsApiOk = false;
+    }
+    try {
+      pointsVs = await api('/eleves/' + eid + '/points-vs');
+    } catch {
+      pointsVs = null;
     }
     refreshEleveHomeSanctionsTip(sanctionsList, pointsVs, sanctionsApiOk);
     let vol = null;
@@ -7625,6 +7863,7 @@ function viewFamilleHome() {
     <div id="famHomeDevoirTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeSepaTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeQuittancesTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeReinscTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -7771,6 +8010,8 @@ async function bindFamilleHome() {
       if (sepaTip0) { sepaTip0.style.display = 'none'; sepaTip0.innerHTML = ''; }
       const quitTip0 = document.getElementById('famHomeQuittancesTip');
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
+      const reinscTip0 = document.getElementById('famHomeReinscTip');
+      if (reinscTip0) { reinscTip0.style.display = 'none'; reinscTip0.innerHTML = ''; }
       return;
     }
     const jourRepas = today();
@@ -8040,6 +8281,17 @@ async function bindFamilleHome() {
       } else {
         quitTip.style.display = 'none';
         quitTip.innerHTML = '';
+      }
+    }
+    const reinscTip = document.getElementById('famHomeReinscTip');
+    if (reinscTip) {
+      const reinscApiOk = reinsc !== null;
+      if (reinscApiOk) {
+        reinscTip.style.display = '';
+        reinscTip.innerHTML = famHomeReinscTipDenseHtml(reinsc);
+      } else {
+        reinscTip.style.display = 'none';
+        reinscTip.innerHTML = '';
       }
     }
     if (pulse) {
@@ -8350,9 +8602,12 @@ async function bindFamilleEnfant(id) {
     html += `<h3>Sanctions</h3><div id="sanFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Incidents</h3><div id="incFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Commissions VS</h3><div id="comFamOut" class="muted">Chargement…</div>`;
-    html += `<h3>Suivi psy</h3><div id="psyFamOut" class="muted">Chargement…</div>`;
+    html += `<div id="fam-sec-accompagnement" style="scroll-margin-top:4.5rem">
+      <h3>Suivi psy · accompagnement</h3><div id="psyFamOut" class="muted">Chargement…</div></div>`;
     html += `<h3>Alertes CPE</h3><div id="alerteFamOut" class="muted">Chargement…</div>`;
-    html += `<h3>Internat</h3><div id="intFamOut" class="muted">Chargement…</div>`;
+    html += `<div id="fam-sec-internat" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantInternatTip" style="display:none;margin:0 0 .55rem"></div>
+      <h3>Internat</h3><div id="intFamOut" class="muted">Chargement…</div></div>`;
     html += `<h3>Conseil de classe</h3><div id="conseilFamOut" class="muted">Chargement…</div>`;
     html += `<div id="fam-sec-sorties" style="scroll-margin-top:4.5rem">
       <h3>Sorties</h3><div id="sortieFamOut" class="muted">Chargement…</div>
@@ -9003,10 +9258,31 @@ async function bindFamilleEnfant(id) {
     }
 
     try {
-      const r = await api('/eleves/' + id + '/internat?jour=' + encodeURIComponent(today()));
+      const jourInt = today();
+      const r = await api('/eleves/' + id + '/internat?jour=' + encodeURIComponent(jourInt));
       const box = document.getElementById('intFamOut');
-      if (!r.chambre && !(r.suivis || []).length && !r.presence_du_jour) {
-        box.innerHTML = '<p class="empty">Pas d’internat pour cet enfant.</p>';
+      const intTip = document.getElementById('famEnfantInternatTip');
+      const intSection = enfantDeepSection === 'internat';
+      const hasData = !!(r.chambre || r.presence_du_jour || (r.suivis || []).length);
+      if (intSection && intTip) {
+        intTip.style.display = '';
+        if (hasData) {
+          intTip.innerHTML = famInternatDetailDenseHtml(r, id, jourInt);
+        } else {
+          intTip.innerHTML = await famInternatEmptyHtml(id, e.prenom);
+        }
+      } else if (intTip) {
+        intTip.style.display = 'none';
+        intTip.innerHTML = '';
+      }
+      if (intSection) {
+        if (box) {
+          box.innerHTML = hasData
+            ? `<p class="muted" style="margin:0">Détail internat ci-dessus · jour ${esc(jourInt)}.</p>`
+            : `<p class="muted" style="margin:0">Voir le bandeau internat ci-dessus.</p>`;
+        }
+      } else if (!hasData) {
+        if (box) box.innerHTML = '<p class="empty">Pas d’internat pour cet enfant.</p>';
       } else {
         let h = '';
         if (r.chambre) h += `<p>Chambre ${esc(r.chambre.code)} — bât. ${esc(r.chambre.batiment)} ét. ${r.chambre.etage}</p>`;
@@ -9014,11 +9290,13 @@ async function bindFamilleEnfant(id) {
         if ((r.suivis || []).length) {
           h += `<ul>${r.suivis.map(s => `<li>${esc(s.jour)} — ${esc(s.texte)}</li>`).join('')}</ul>`;
         }
-        box.innerHTML = h;
+        if (box) box.innerHTML = h;
       }
     } catch (err) {
       const box = document.getElementById('intFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+      const intTip = document.getElementById('famEnfantInternatTip');
+      if (intTip) { intTip.style.display = 'none'; intTip.innerHTML = ''; }
     }
 
     try {
@@ -9517,6 +9795,12 @@ async function bindFamilleEnfant(id) {
       }
       if (enfantDeepSection === 'bourses') {
         setTimeout(() => famApplyEnfantSectionDeepLink('bourses'), 900);
+      }
+      if (enfantDeepSection === 'accompagnement') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('accompagnement'), 900);
+      }
+      if (enfantDeepSection === 'internat') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('internat'), 900);
       }
     }
   } catch (e) {
@@ -19631,6 +19915,7 @@ function viewNotes() {
   return shell('/app/notes', `
     <div class="bento" id="notesStats"></div>
     <div id="notesHomeTip"></div>
+    <div id="notesHarrySeedTip"></div>
     <div class="panel" id="notesQuickLab" style="margin-bottom:.75rem">
       <div class="row" style="margin:0;align-items:flex-start">
         <p class="muted" style="margin:0;flex:1">Raccourci labo — ouvrir la grille de saisie <strong>4B · Potions</strong> (créneau du jour ou devoir seed).</p>
@@ -19944,6 +20229,7 @@ async function bindNotes() {
         ? (pref.code ? `${pref.code} — ${pref.libelle || ''}` : (pref.libelle || ''))
         : '';
       refreshNotesHomeTip(nDevSansNote, nDev, prefLabel);
+      await refreshNotesHarrySeedTip(devoirsPref);
       box.innerHTML = `
         <div class="stat-tile bento-span-3"><strong>${nPer}</strong><span>Périodes · ${nPart} partielles</span></div>
         <div class="stat-tile bento-span-3"><strong>${nOuv}</strong><span>Ouvertes</span></div>
@@ -20484,6 +20770,49 @@ async function bindNotes() {
     }
     focusNotesStep(4);
     await loadNotesEleve();
+  }
+  async function refreshNotesHarrySeedTip(devoirsPref) {
+    const el = document.getElementById('notesHarrySeedTip');
+    if (!el) return;
+    try {
+      const list = await api('/eleves/search?q=Harry');
+      const h = (list || []).find(e =>
+        /^harry$/i.test(String(e.prenom || '').trim())
+        && /potter/i.test(String(e.nom || '')));
+      if (!h || !h.id) {
+        el.innerHTML = '';
+        return;
+      }
+      let nNotes = 0;
+      try {
+        const notes = await api('/eleves/' + h.id + '/notes');
+        nNotes = (notes || []).length;
+      } catch {
+        nNotes = 0;
+      }
+      const devoirs = devoirsPref || [];
+      const potionsDevoir = devoirs.some(d =>
+        d.classe === '4B' && (/potions/i.test(d.titre || '') || /potions/i.test(d.matiere_libelle || '')));
+      el.innerHTML = notesHarrySeedTipDenseHtml({
+        harryId: h.id,
+        nNotes,
+        classe: h.classe || '4B',
+        potionsDevoir,
+      });
+      const btnNotes = document.getElementById('notesHarrySeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.harryId || h.id);
+      }
+      const btnGrille = document.getElementById('notesHarrySeedGrilleBtn');
+      if (btnGrille) {
+        btnGrille.onclick = () => {
+          const quick = document.getElementById('btnNotesGrille4b');
+          if (quick) quick.click();
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
   }
   document.getElementById('btnGrilleSave').onclick = async () => {
     const msg = document.getElementById('grilleMsg');
@@ -21113,10 +21442,12 @@ async function bindExportsEn() {
     ).join('') || '<option value="">—</option>';
     if (stats) {
       const fermees = (list || []).filter(p => p.statut === 'fermee').length;
+      exportsEnPeriodesMeta = { nPeriodes: (list || []).length, nFermees: fermees };
       stats.innerHTML = `
         <div class="stat-tile bento-span-4"><strong>${(list || []).length}</strong><span>Périodes notes</span></div>
         <div class="stat-tile bento-span-4"><strong>${fermees}</strong><span>Fermées (bulletins OK)</span></div>
         <div class="stat-tile bento-span-4"><strong>5</strong><span>Ponts EN</span></div>`;
+      refreshExportsEnLsunTip(0);
     }
   } catch (e) {
     msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -21165,22 +21496,26 @@ async function bindExportsEn() {
       a.click();
       URL.revokeObjectURL(a.href);
       msg.innerHTML = `<span class="ok">${esc(filename)}</span>`;
+      const expPerSel = document.getElementById('expEnPeriode');
+      const periodeLabel = expPerSel && expPerSel.selectedOptions && expPerSel.selectedOptions[0]
+        ? expPerSel.selectedOptions[0].textContent.trim() : '';
+      const exportOpts = {
+        classe: document.getElementById('expEnClasse').value.trim(),
+        periodeLabel,
+        nEleves: n,
+      };
       if (/export-lsl\.csv/i.test(filename)) {
-        const expPerSel = document.getElementById('expEnPeriode');
-        const periodeLabel = expPerSel && expPerSel.selectedOptions && expPerSel.selectedOptions[0]
-          ? expPerSel.selectedOptions[0].textContent.trim() : '';
-        toastExportLsl(filename, {
-          classe: document.getElementById('expEnClasse').value.trim(),
-          periodeLabel,
-        });
+        toastExportLsl(filename, exportOpts);
       } else if (/export-notanet\.csv/i.test(filename)) {
-        const expPerSel = document.getElementById('expEnPeriode');
-        const periodeLabel = expPerSel && expPerSel.selectedOptions && expPerSel.selectedOptions[0]
-          ? expPerSel.selectedOptions[0].textContent.trim() : '';
-        toastExportNotanet(filename, {
-          classe: document.getElementById('expEnClasse').value.trim(),
-          periodeLabel,
+        toastExportNotanet(filename, exportOpts);
+      } else if (/export-parcoursup\.csv/i.test(filename)) {
+        toastExportParcoursup(filename, {
+          classe: exportOpts.classe,
+          nEleves: n,
+          periodeLabel: document.getElementById('expEnAnnee')?.value.trim() || '',
         });
+      } else if (/export-onde\.csv/i.test(filename)) {
+        toastExportOnde(filename, exportOpts);
       }
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -21980,6 +22315,7 @@ async function bindAdulteDetail(id) {
 function viewFoyers() {
   return shell('/app/foyers', `
     <div class="bento" id="foyerStats"></div>
+    <div id="foyerPageTip"></div>
     <div class="bento">
       <section class="panel bento-span-8">
         <h2>Foyers / familles</h2>
@@ -22021,11 +22357,16 @@ async function bindFoyers() {
       const list = await api('/foyers' + (q ? ('?q=' + encodeURIComponent(q)) : ''));
       const nEleves = (list || []).reduce((s, f) => s + (f.nb_eleves || 0), 0);
       const nVides = (list || []).filter(f => !f.nb_eleves).length;
+      const foyerTipStats = { nFoyers: list.length, nEleves, nVides };
       if (stats) {
         stats.innerHTML = `
           <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Foyers</span></div>
           <div class="stat-tile bento-span-4"><strong>${nEleves}</strong><span>Élèves rattachés</span></div>
           <div class="stat-tile bento-span-4"><strong>${nVides}</strong><span>Sans élève</span></div>`;
+      }
+      const pageTip = document.getElementById('foyerPageTip');
+      if (pageTip) {
+        pageTip.innerHTML = foyersPageTipDenseHtml(foyerTipStats);
       }
       if (!list.length) {
         out.innerHTML = '<p class="empty">Aucun foyer.</p>';
@@ -22256,20 +22597,32 @@ async function bindFoyerDetail(id) {
           const msg = document.getElementById('fyLinkMsg');
           const partRaw = document.getElementById('fyLinkPart').value;
           const part = partRaw === '' ? null : Number(partRaw);
+          const eleveSel = document.getElementById('fyLinkEleve');
+          const eleveLabel = eleveSel && eleveSel.selectedOptions && eleveSel.selectedOptions[0]
+            ? eleveSel.selectedOptions[0].textContent.trim() : '';
+          const linkPayload = {
+            email: document.getElementById('fyLinkEmail').value.trim(),
+            displayName: document.getElementById('fyLinkName').value.trim() || null,
+            lien: document.getElementById('fyLinkType').value,
+            estPayeur: document.getElementById('fyLinkPayeur').checked,
+            partPaiement: Number.isFinite(part) ? part : null,
+            eleveLabel,
+          };
           try {
             await api('/foyers/' + id + '/liens', {
               method: 'POST',
               body: JSON.stringify({
-                eleve_id: document.getElementById('fyLinkEleve').value,
-                email: document.getElementById('fyLinkEmail').value.trim(),
-                display_name: document.getElementById('fyLinkName').value.trim() || null,
+                eleve_id: eleveSel.value,
+                email: linkPayload.email,
+                display_name: linkPayload.displayName,
                 telephone: document.getElementById('fyLinkTel').value.trim() || null,
-                lien: document.getElementById('fyLinkType').value,
-                est_payeur: document.getElementById('fyLinkPayeur').checked,
-                part_paiement: Number.isFinite(part) ? part : null,
+                lien: linkPayload.lien,
+                est_payeur: linkPayload.estPayeur,
+                part_paiement: linkPayload.partPaiement,
               }),
             });
             msg.innerHTML = '<span class="ok">Rattaché</span>';
+            toastFoyerLienParentRattache(linkPayload);
             await load();
           } catch (e) {
             msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -23343,19 +23696,23 @@ async function bindFacturationStaff() {
   };
   document.getElementById('btnEncaisser').onclick = async () => {
     if (!currentId) return;
+    const montantCentimes = Number(document.getElementById('encMontant').value) || 0;
+    const moyen = document.getElementById('encMoyen').value;
+    const reference = document.getElementById('encRef').value.trim() || null;
     try {
-      await api('/facturation/factures/' + currentId + '/encaisser', {
+      const detail = await api('/facturation/factures/' + currentId + '/encaisser', {
         method: 'POST',
         body: JSON.stringify({
-          montant_centimes: Number(document.getElementById('encMontant').value) || 0,
-          moyen: document.getElementById('encMoyen').value,
-          reference: document.getElementById('encRef').value.trim() || null,
+          montant_centimes: montantCentimes,
+          moyen,
+          reference,
         }),
       });
       document.getElementById('encRef').value = '';
       await loadList();
       await openFac(currentId);
       await refreshFacComptaEncJourTip();
+      toastFactureEncaissée(detail, { montantCentimes, moyen, reference });
     } catch (e) {
       document.getElementById('facDetailErr').innerHTML =
         `<span class="bad">${esc(e.message)}</span>`;
@@ -24783,7 +25140,9 @@ async function bindQuittancesFamille() {
         <td>${esc(euros(q.montant_centimes))}</td>
         <td>
           <button type="button" class="btnQuitDetail" data-id="${esc(q.id)}">Détail</button>
-          <button type="button" class="btnPdfQuitFam" data-id="${esc(q.id)}" data-numero="${esc(q.numero || '')}">PDF</button>
+          <button type="button" class="btnPdfQuitFam" data-id="${esc(q.id)}" data-numero="${esc(q.numero || '')}"
+            data-montant="${esc(String(q.montant_centimes ?? ''))}" data-moyen="${esc(q.moyen || '')}"
+            data-emise="${esc((q.emise_at || '').slice(0, 10))}">PDF</button>
         </td>
       </tr>`).join('')}</tbody></table>`;
     out.querySelectorAll('.btnQuitDetail').forEach(btn => {
@@ -24800,7 +25159,12 @@ async function bindQuittancesFamille() {
       btn.onclick = async () => {
         try {
           await downloadPdf('/facturation/quittances/' + btn.dataset.id + '/pdf', 'quittance.pdf');
-          toastQuittanceTelechargee(btn.dataset.numero);
+          const mc = btn.dataset.montant !== '' ? Number(btn.dataset.montant) : undefined;
+          toastQuittanceTelechargee(btn.dataset.numero, {
+            montant_centimes: mc,
+            moyen: btn.dataset.moyen,
+            emise_at: btn.dataset.emise,
+          });
         } catch (e) { alert(e.message); }
       };
     });
@@ -25110,7 +25474,9 @@ async function bindFacturesFamille() {
                  <td>${esc(q.numero)}</td>
                  <td class="muted">${esc((q.emise_at || '').slice(0, 16).replace('T',' '))}</td>
                  <td>${esc(euros(q.montant_centimes))}</td>
-                 <td><button type="button" class="btnPdfQuitFamD" data-id="${esc(q.id)}" data-numero="${esc(q.numero || '')}">PDF</button></td>
+                 <td><button type="button" class="btnPdfQuitFamD" data-id="${esc(q.id)}" data-numero="${esc(q.numero || '')}"
+                   data-montant="${esc(String(q.montant_centimes ?? ''))}" data-moyen="${esc(q.moyen || '')}"
+                   data-emise="${esc((q.emise_at || '').slice(0, 10))}">PDF</button></td>
                </tr>`).join('')}</tbody></table>`
             : `<p class="empty" style="margin-top:.5rem">Aucune quittance.</p>`
         }`;
@@ -25123,7 +25489,12 @@ async function bindFacturesFamille() {
         btn.onclick = async () => {
           try {
             await downloadPdf('/facturation/quittances/' + btn.dataset.id + '/pdf', 'quittance.pdf');
-            toastQuittanceTelechargee(btn.dataset.numero);
+            const mc = btn.dataset.montant !== '' ? Number(btn.dataset.montant) : undefined;
+            toastQuittanceTelechargee(btn.dataset.numero, {
+              montant_centimes: mc,
+              moyen: btn.dataset.moyen,
+              emise_at: btn.dataset.emise,
+            });
           } catch (e) { alert(e.message); }
         };
       });
