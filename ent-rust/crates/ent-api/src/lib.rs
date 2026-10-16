@@ -3,6 +3,7 @@
 
 mod auth;
 mod dto;
+mod ical;
 mod routes;
 mod ui;
 

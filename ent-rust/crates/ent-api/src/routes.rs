@@ -1,4 +1,5 @@
 use crate::auth::EntSession;
+use crate::ical::{render_edt_calendar, EdtOccurrence};
 use crate::dto::{
     AbsenceDto, AbsentDto, AppelDto, AppelLigneDto, CampagneDto, CarnetEntreeDto, ChangeClasseBody,
     ChangeMefBody, ChangeRegimeBody, ChangeSiteBody, ChoisirOptionBody, CreateEleveBody,
@@ -454,7 +455,9 @@ pub fn router() -> Router<AppState> {
             post(affecter_edt_creneau),
         )
         .route("/eleves/{id}/edt", get(list_edt_eleve))
+        .route("/eleves/{id}/edt.ics", get(export_edt_eleve_ics))
         .route("/edt/mes-creneaux", get(list_mes_creneaux))
+        .route("/edt/mes-creneaux.ics", get(export_mes_creneaux_ics))
         .route(
             "/edt/calendrier-ab",
             get(get_edt_calendrier_ab).put(configurer_edt_calendrier_ab),
@@ -5494,6 +5497,131 @@ async fn list_edt_eleve(
     Ok(Json(
         enrich_edt_creneaux(&state, list.iter().map(EdtCreneauDto::from).collect()).await?,
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct EdtIcalQuery {
+    debut: Option<NaiveDate>,
+    fin: Option<NaiveDate>,
+}
+
+const EDT_ICAL_MAX_DAYS: i64 = 62;
+
+fn resolve_edt_ical_range(
+    debut: Option<NaiveDate>,
+    fin: Option<NaiveDate>,
+) -> Result<(NaiveDate, NaiveDate), (StatusCode, String)> {
+    let today = today_utc();
+    let (debut, fin) = match (debut, fin) {
+        (None, None) => {
+            let lundi = domain_eleve::lundi_iso(today);
+            (lundi, lundi + chrono::Duration::days(6))
+        }
+        (Some(d), None) => (d, d + chrono::Duration::days(13)),
+        (None, Some(f)) => (f - chrono::Duration::days(13), f),
+        (Some(d), Some(f)) => (d, f),
+    };
+    if fin < debut {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "fin doit être ≥ debut".into(),
+        ));
+    }
+    let span = (fin - debut).num_days();
+    if span > EDT_ICAL_MAX_DAYS {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("période max {EDT_ICAL_MAX_DAYS} jours"),
+        ));
+    }
+    Ok((debut, fin))
+}
+
+async fn edt_eleve_occurrences_for_range(
+    state: &AppState,
+    session: &EntSession,
+    eleve_id: Uuid,
+    debut: NaiveDate,
+    fin: NaiveDate,
+) -> Result<Vec<EdtOccurrence>, (StatusCode, String)> {
+    let mut out = Vec::new();
+    let mut jour = debut;
+    while jour <= fin {
+        let list = state
+            .ent
+            .list_edt_eleve_jour_for_actor(
+                session.etablissement_id,
+                &session.role,
+                session.user_id,
+                eleve_id,
+                jour,
+            )
+            .await
+            .map_err(map_db)?;
+        for creneau in list {
+            out.push(EdtOccurrence { date: jour, creneau });
+        }
+        jour += chrono::Duration::days(1);
+    }
+    Ok(out)
+}
+
+async fn edt_mes_occurrences_for_range(
+    state: &AppState,
+    session: &EntSession,
+    debut: NaiveDate,
+    fin: NaiveDate,
+) -> Result<Vec<EdtOccurrence>, (StatusCode, String)> {
+    if session.role != "eleve" {
+        session.require_faire_appel()?;
+    }
+    let mut out = Vec::new();
+    let mut jour = debut;
+    while jour <= fin {
+        let list = state
+            .ent
+            .list_mes_creneaux(
+                session.etablissement_id,
+                session.user_id,
+                &session.role,
+                jour,
+            )
+            .await
+            .map_err(map_db)?;
+        for creneau in list {
+            out.push(EdtOccurrence { date: jour, creneau });
+        }
+        jour += chrono::Duration::days(1);
+    }
+    Ok(out)
+}
+
+async fn export_edt_eleve_ics(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<EdtIcalQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    let (debut, fin) = resolve_edt_ical_range(q.debut, q.fin)?;
+    let occurrences =
+        edt_eleve_occurrences_for_range(&state, &session, id, debut, fin).await?;
+    let cal_name = format!("EDT élève {debut} — {fin}");
+    let body = render_edt_calendar(&cal_name, &occurrences);
+    let filename = format!("edt-{id}-{debut}.ics");
+    attachment_response(body.into_bytes(), &filename, "text/calendar; charset=utf-8")
+}
+
+async fn export_mes_creneaux_ics(
+    State(state): State<AppState>,
+    session: EntSession,
+    Query(q): Query<EdtIcalQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    let (debut, fin) = resolve_edt_ical_range(q.debut, q.fin)?;
+    let occurrences = edt_mes_occurrences_for_range(&state, &session, debut, fin).await?;
+    let cal_name = format!("Mon EDT {debut} — {fin}");
+    let body = render_edt_calendar(&cal_name, &occurrences);
+    let filename = format!("mon-edt-{debut}.ics");
+    attachment_response(body.into_bytes(), &filename, "text/calendar; charset=utf-8")
 }
 
 async fn affecter_edt_creneau(

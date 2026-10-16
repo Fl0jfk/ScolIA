@@ -221,6 +221,30 @@ async function downloadPdf(path, fallbackName) {
   return downloadFile(path, fallbackName || 'document.pdf');
 }
 
+function hmSort(hm) {
+  if (!hm) return 10000;
+  const p = String(hm).split(':');
+  return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
+}
+
+function edtIcalPathEleve(eleveId, debut, fin) {
+  let u = '/eleves/' + encodeURIComponent(eleveId) + '/edt.ics';
+  const q = [];
+  if (debut) q.push('debut=' + encodeURIComponent(debut));
+  if (fin) q.push('fin=' + encodeURIComponent(fin));
+  if (q.length) u += '?' + q.join('&');
+  return u;
+}
+
+function edtIcalPathProf(debut, fin) {
+  let u = '/edt/mes-creneaux.ics';
+  const q = [];
+  if (debut) q.push('debut=' + encodeURIComponent(debut));
+  if (fin) q.push('fin=' + encodeURIComponent(fin));
+  if (q.length) u += '?' + q.join('&');
+  return u;
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -679,9 +703,12 @@ function viewEleveHome() {
           <li><a href="/eleve/messages">Messages</a></li>
         </ul>
       </div>
-      <div class="panel bento-span-4">
-        <h2>Aujourd’hui</h2>
-        <div id="eleveHomeEdt" class="muted">…</div>
+      <div class="panel bento-span-8">
+        <div class="row" style="align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.35rem">
+          <h2 style="margin:0">Aujourd’hui</h2>
+          <button type="button" id="btnEleveHomeIcal">Exporter iCal (semaine)</button>
+        </div>
+        <div id="eleveHomeTimeline" class="muted">…</div>
       </div>
       <div class="panel bento-span-4">
         <h2>Carnet &amp; messages</h2>
@@ -693,7 +720,7 @@ function viewEleveHome() {
 async function bindEleveHome() {
   const stats = document.getElementById('eleveHomeStats');
   const ident = document.getElementById('eleveHomeIdent');
-  const edtBox = document.getElementById('eleveHomeEdt');
+  const timelineBox = document.getElementById('eleveHomeTimeline');
   const carBox = document.getElementById('eleveHomeCarnet');
   const pushBanner = document.getElementById('elevePushBanner');
   if (pushBanner && localStorage.getItem('ent_eleve_push_hide') === '1') {
@@ -734,7 +761,7 @@ async function bindEleveHome() {
   const jour = today();
   const debutMois = jour.slice(0, 8) + '01';
   try {
-    const [notes, edt, fils, abs, carnet, periodes, docs] = await Promise.all([
+    const [notes, edt, fils, abs, carnet, periodes, docs, devoirs, dispenses, menus, cahier] = await Promise.all([
       api('/eleves/' + eid + '/notes').catch(() => []),
       api('/eleves/' + eid + '/edt?jour=' + encodeURIComponent(jour)).catch(() => []),
       api('/messages/fils').catch(() => []),
@@ -742,6 +769,10 @@ async function bindEleveHome() {
       api('/eleves/' + eid + '/carnet').catch(() => []),
       api('/eleves/' + eid + '/periodes').catch(() => []),
       api('/eleves/' + eid + '/docs-a-signer').catch(() => []),
+      api('/eleves/' + eid + '/devoirs').catch(() => []),
+      api('/eleves/' + eid + '/repas/dispenses').catch(() => []),
+      api('/menus-cantine?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour)).catch(() => []),
+      api('/cahier-texte?eleve_id=' + encodeURIComponent(eid) + '&from=' + encodeURIComponent(jour) + '&to=' + encodeURIComponent(jour)).catch(() => []),
     ]);
     let vol = null;
     try {
@@ -778,13 +809,94 @@ async function bindEleveHome() {
         <p class="muted" style="margin:.25rem 0">Classe ${esc((classe && classe.valeur) || '—')} · régime ${esc((regime && regime.valeur) || '—')}</p>
         ${vol ? `<p class="muted">Repas midi ce mois : <strong>${vol.jours_facturables}</strong> jour(s)</p>` : ''}`;
     }
-    if (edtBox) {
-      edtBox.innerHTML = !(edt || []).length
-        ? '<p class="empty">Aucun créneau aujourd’hui.</p>'
-        : `<ul style="margin:0;padding-left:1.1rem">${edt.map(c =>
-            `<li><strong>${esc(c.heure_debut)}–${esc(c.heure_fin)}</strong> ${esc(c.matiere_libelle)}
-             <span class="muted">${esc(c.salle || '')}</span></li>`
-          ).join('')}</ul>`;
+    const btnHomeIcal = document.getElementById('btnEleveHomeIcal');
+    if (btnHomeIcal) {
+      const lundi = mondayOf(jour);
+      const dimanche = addDaysIso(lundi, 6);
+      btnHomeIcal.onclick = async () => {
+        try {
+          await downloadFile(edtIcalPathEleve(eid, lundi, dimanche), 'edt-semaine.ics');
+        } catch (err) { alert(err.message); }
+      };
+    }
+    if (timelineBox) {
+      const timeline = [];
+      for (const c of (edt || [])) {
+        timeline.push({
+          sort: hmSort(c.heure_debut),
+          time: esc(c.heure_debut) + '–' + esc(c.heure_fin),
+          html: `<strong>Cours</strong> · ${esc(c.matiere_libelle)} <span class="muted">${esc(c.salle || '')}</span>`,
+        });
+      }
+      for (const d of docsPending) {
+        timeline.push({
+          sort: 10001,
+          time: '—',
+          html: `<strong>Doc à signer</strong> · <a href="/eleve/docs">${esc(d.titre || d.code || 'Document')}</a>`,
+        });
+      }
+      for (const c of (carnet || []).filter(x => !x.signe_at).slice(0, 6)) {
+        timeline.push({
+          sort: 10002,
+          time: '—',
+          html: `<strong>Carnet</strong> · ${esc(c.titre)} <button type="button" class="btnEleveCarSigne" data-id="${esc(c.id)}">Signer</button>`,
+        });
+      }
+      for (const dv of (devoirs || []).filter(x => String(x.date_devoir) === jour)) {
+        timeline.push({
+          sort: 10003,
+          time: 'Devoir',
+          html: `<strong>${esc(dv.titre)}</strong> <span class="muted">${esc(dv.matiere_libelle || '')}</span>`,
+        });
+      }
+      for (const n of (notes || []).filter(x => String(x.date_note) === jour).slice(0, 6)) {
+        timeline.push({
+          sort: 10004,
+          time: 'Note',
+          html: `<strong>${esc(n.matiere_libelle || 'Matière')}</strong> · ${esc(n.valeur)}/${esc(n.sur)} ${esc(n.libelle || '')}`,
+        });
+      }
+      const disToday = (dispenses || []).filter(x => String(x.jour) === jour && !x.annulee);
+      for (const d of disToday) {
+        timeline.push({
+          sort: hmSort('12:00'),
+          time: 'Cantine',
+          html: `<strong>Dispense repas</strong> · ${esc(d.motif || '')}`,
+        });
+      }
+      const menuToday = (menus || []).find(m => String(m.jour) === jour);
+      if (menuToday && !disToday.length) {
+        timeline.push({
+          sort: hmSort('12:15'),
+          time: 'Cantine',
+          html: `<strong>Repas midi</strong> · ${esc(menuToday.plat || menuToday.entree || 'menu')}`,
+        });
+      }
+      for (const ct of (cahier || []).filter(x => String(x.pour_le) === jour || String(x.cree_le) === jour).slice(0, 8)) {
+        timeline.push({
+          sort: hmSort('16:30'),
+          time: 'Cahier',
+          html: `<strong>À faire</strong> · ${esc(ct.titre)} <span class="muted">${esc(ct.matiere_libelle || '')}</span>`,
+        });
+      }
+      timeline.sort((a, b) => a.sort - b.sort || String(a.time).localeCompare(String(b.time)));
+      timelineBox.innerHTML = !timeline.length
+        ? '<p class="empty">Rien de particulier pour aujourd’hui.</p>'
+        : `<ul style="margin:0;padding:0;list-style:none">${timeline.map(it =>
+            `<li style="display:flex;gap:.65rem;padding:.4rem 0;border-bottom:1px solid var(--line)">
+              <span class="muted" style="min-width:5.5rem;flex-shrink:0">${it.time}</span>
+              <span style="flex:1">${it.html}</span>
+            </li>`
+          ).join('')}</ul>
+        <p class="muted" style="margin:.65rem 0 0"><a href="/eleve/edt">EDT complet</a> · <a href="/eleve/docs">Docs</a> · <a href="/eleve/repas">Repas</a></p>`;
+      timelineBox.querySelectorAll('.btnEleveCarSigne').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/carnet/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
+            await bindEleveHome();
+          } catch (err) { alert(err.message); }
+        };
+      });
     }
     if (carBox) {
       const recent = (carnet || []).slice(0, 5);
@@ -1975,6 +2087,7 @@ function viewEleveEdt() {
         <button type="button" id="btnEleveEdtPrev">←</button>
         <button type="button" id="btnEleveEdtNext">→</button>
         <button type="button" id="btnEleveEdtJour">Jour seul</button>
+        <button type="button" id="btnEleveEdtIcal">Exporter iCal</button>
       </div>
       <div id="eleveVacBanner" class="muted" style="margin-top:.35rem"></div>
       <div id="eleveEdtOut" class="muted" style="margin-top:.75rem">…</div>
@@ -2090,6 +2203,18 @@ async function bindEleveEdt() {
     load();
   };
   document.getElementById('eleveEdtJour').onchange = load;
+  const btnIcal = document.getElementById('btnEleveEdtIcal');
+  if (btnIcal && eid) {
+    btnIcal.onclick = async () => {
+      try {
+        const lundi = mondayOf(document.getElementById('eleveEdtJour').value || today());
+        await downloadFile(
+          edtIcalPathEleve(eid, lundi, addDaysIso(lundi, 6)),
+          'edt-semaine.ics',
+        );
+      } catch (err) { alert(err.message); }
+    };
+  }
   await loadVacList();
   await load();
 }
@@ -2154,6 +2279,12 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/reinscription"><strong>Réinscription</strong><span>Campagne N+1</span></a>
       <a class="stat-tile bento-span-4" href="/app/exports"><strong>Exports EN</strong><span>LSL · LSUN · Parcoursup</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils familles &amp; staff</span></a>`;
+    homeExtra = `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit direction</h3>
+      <p class="muted" style="margin-top:0">Indicateurs du jour — absentéisme, RH, campagne N+1, inscriptions.</p>
+      <div id="homeDirKpi" class="bento muted">Chargement…</div>
+    </div>`;
   } else if (role === 'administratif') {
     homeTitle = 'Exécution administrative';
     homeLead = 'Élèves, inscriptions, foyers, documents et réinscription — file opérationnelle.';
@@ -2214,15 +2345,20 @@ async function bindHome() {
   const wantDocs = isVs || isAdminish;
   const wantGrants = isAdminish;
   const INSC_HOME = ['dossier', 'pieces', 'entretien', 'decision', 'paiement'];
-  const [abs, sig, docs, fils, rh, alertes, sorties, grants, ...insByEtape] = await Promise.all([
+  const wantDirKpi = role === 'direction';
+  const [abs, sig, docs, fils, rh, alertes, sorties, grants, campN1, eff4b, ...insByEtape] = await Promise.all([
     settle(api('/vs/absences?jour=' + encodeURIComponent(jour)), []),
     settle(api('/vs/signaux'), []),
     wantDocs ? settle(api('/vs/docs-a-signer'), []) : Promise.resolve([]),
     settle(api('/messages/fils'), []),
-    settle(api('/rh/absences?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour)), []),
+    wantDirKpi
+      ? settle(api('/rh/absences?statut=a_valider'), [])
+      : settle(api('/rh/absences?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour)), []),
     wantAlert ? settle(api('/vs/alertes-cpe'), []) : Promise.resolve([]),
     wantSort ? settle(api('/vs/sorties/demandes'), []) : Promise.resolve([]),
     wantGrants ? settle(api('/documents/grants/pending'), []) : Promise.resolve([]),
+    wantDirKpi ? settle(api('/reinscription/campagne'), null) : Promise.resolve(null),
+    wantDirKpi ? settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(jour)), null) : Promise.resolve(null),
     ...(wantInsc
       ? INSC_HOME.map(et => settle(api('/inscriptions/par-etape?etape=' + encodeURIComponent(et)), []))
       : INSC_HOME.map(() => Promise.resolve([]))),
@@ -2232,6 +2368,9 @@ async function bindHome() {
   const nDocs = (docs || []).filter(d => d.statut === 'a_signer').length;
   const nMsg = (fils || []).reduce((s, f) => s + (f.nb_non_lus || 0), 0);
   const nRh = (rh || []).filter(a => a.statut === 'signalee' || a.statut === 'a_valider').length;
+  const nEff4b = (eff4b && Array.isArray(eff4b.eleves)) ? eff4b.eleves.length : (eff4b && eff4b.effectif) || 0;
+  const campOuverte = !!(campN1 && (campN1.ouverte === true || campN1.ouverte === 1));
+  const campLabel = campN1 && campN1.annee_cible ? String(campN1.annee_cible) : 'N+1';
   const nAlert = (alertes || []).length;
   const nSort = (sorties || []).filter(d => {
     const s = String(d.statut || '');
@@ -2271,11 +2410,11 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
         <a class="stat-tile bento-span-2" href="/app/inscriptions"><strong>${nIns}</strong><span>Inscrip. actives</span></a>
+        <a class="stat-tile bento-span-2" href="/app/reinscription"><strong>${campOuverte ? 'ON' : '—'}</strong><span>Campagne ${esc(campLabel)}</span></a>
         <a class="stat-tile bento-span-2" href="/app/etab"><strong>${nGrants}</strong><span>Grants docs</span></a>
         <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nSig}</strong><span>Signaux</span></a>
-        ${wantAlert ? `<a class="stat-tile bento-span-2" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>` : ''}
-        <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>`;
+        <a class="stat-tile bento-span-2" href="/app/vs"><strong>${nEff4b || '·'}</strong><span>Effectif 4B</span></a>`;
     } else if (role === 'administratif') {
       pulse.innerHTML = `
         <a class="stat-tile bento-span-2" href="/app/inscriptions"><strong>${nIns}</strong><span>Inscrip. actives</span></a>
@@ -2308,6 +2447,22 @@ async function bindHome() {
         <a class="stat-tile bento-span-4" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
         <a class="stat-tile bento-span-4" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>`
       : '<p class="ok" style="margin:0">Aucun signal précoce en file — continuer la veille VS.</p>';
+  }
+  const dirKpi = document.getElementById('homeDirKpi');
+  if (dirKpi && role === 'direction') {
+    const nAbsAll = (abs || []).length;
+    const tauxHint = nEff4b > 0
+      ? Math.round((nAbs / nEff4b) * 1000) / 10
+      : null;
+    dirKpi.innerHTML = `
+      <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nAbs}</strong><span>Abs. VS à traiter · ${nAbsAll} signalées</span></a>
+      <a class="stat-tile bento-span-3" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
+      <a class="stat-tile bento-span-3" href="/app/inscriptions"><strong>${nIns}</strong><span>Dossiers inscription</span></a>
+      <a class="stat-tile bento-span-3" href="/app/reinscription"><strong>${campOuverte ? 'Ouverte' : 'Fermée'}</strong><span>Réinscription ${esc(campLabel)}</span></a>
+      <a class="stat-tile bento-span-3" href="/app/vs"><strong>${nEff4b || '—'}</strong><span>Effectif 4B aujourd’hui</span></a>
+      <a class="stat-tile bento-span-3" href="/app/absences"><strong>${tauxHint != null ? tauxHint + '%' : '—'}</strong><span>Proxy absentéisme 4B</span></a>
+      <a class="stat-tile bento-span-3" href="/app/etab"><strong>${nGrants}</strong><span>Grants docs</span></a>
+      <a class="stat-tile bento-span-3" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>`;
   }
   if (todo) {
     const lines = [];
@@ -2349,6 +2504,7 @@ async function bindHome() {
       if (nGrants) lines.push(`<li><a href="/app/etab">${nGrants} demande(s) d’accès document</a></li>`);
       if (wantDocs && nDocs) lines.push(`<li><a href="/app/docs-signer">${nDocs} document(s) à signer</a></li>`);
       if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
+      lines.push('<li><a href="/app/reinscription">Suivre la campagne de réinscription</a></li>');
     } else {
       if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) à traiter</a></li>`);
       if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
@@ -2595,13 +2751,13 @@ async function bindFamilleEnfant(id) {
     } else if (!abs.length) {
       html += `<p class="empty">Rien à justifier pour le moment.</p>`;
     } else {
-      html += `<p class="muted">Choisissez un motif, précisez si besoin, puis justifiez. Un certificat peut être déposé ensuite dans Documents (tiroir famille).</p>
+      html += `<p class="muted">Motif + précision, pièce jointe (PDF/photo) déposée automatiquement dans Documents famille.</p>
         <table><thead><tr><th>Période</th><th>Motif école</th><th>Justificatif</th><th></th></tr></thead><tbody>
         ${abs.map(a => `<tr>
           <td>${esc(a.debut)} → ${esc(a.fin)}</td>
           <td>${esc(a.motif)}</td>
           <td>${e.peut_justifier_absence
-            ? `<div class="row" style="flex-wrap:wrap;gap:.35rem">
+            ? `<div class="row" style="flex-wrap:wrap;gap:.35rem;align-items:center">
                 <select class="famJustifMotif" data-for="${esc(a.id)}" style="min-width:8rem">
                   <option value="maladie">Maladie</option>
                   <option value="rdv_medical">RDV médical</option>
@@ -2609,6 +2765,7 @@ async function bindFamilleEnfant(id) {
                   <option value="autre">Autre</option>
                 </select>
                 <input class="famJustifNote" data-for="${esc(a.id)}" placeholder="Précision (optionnel)" style="min-width:10rem"/>
+                <input type="file" class="famJustifFile" data-for="${esc(a.id)}" accept=".pdf,image/jpeg,image/png,image/webp"/>
               </div>`
             : '—'}</td>
           <td>${e.peut_justifier_absence
@@ -2753,7 +2910,11 @@ async function bindFamilleEnfant(id) {
     html += `<h3>Passages infirmière</h3><div id="infFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Permis à points</h3><div id="ptsFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Menus cantine</h3><div id="menusFamOut" class="muted">Chargement…</div>`;
-    html += `<h3>EDT du jour</h3><div id="edtFamOut" class="muted">Chargement…</div>`;
+    html += `<h3 id="fam-sec-edt">EDT du jour</h3>
+      <div class="row" style="margin-bottom:.35rem">
+        <button type="button" class="primary" id="btnFamEdtIcal">Exporter iCal (semaine)</button>
+      </div>
+      <div id="edtFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Stages</h3><div id="stagesFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Vœux</h3>
       <div class="row">
@@ -2771,6 +2932,19 @@ async function bindFamilleEnfant(id) {
     }
 
     out.innerHTML = html;
+
+    const btnFamEdtIcal = document.getElementById('btnFamEdtIcal');
+    if (btnFamEdtIcal) {
+      btnFamEdtIcal.onclick = async () => {
+        try {
+          const lundi = mondayOf(today());
+          await downloadFile(
+            edtIcalPathEleve(id, lundi, addDaysIso(lundi, 6)),
+            'edt-semaine.ics',
+          );
+        } catch (err) { alert(err.message); }
+      };
+    }
 
     const repasDebut = document.getElementById('famRepasDebut');
     const repasFin = document.getElementById('famRepasFin');
@@ -2972,15 +3146,34 @@ async function bindFamilleEnfant(id) {
       btn.onclick = async () => {
         const sel = out.querySelector('.famJustifMotif[data-for="' + btn.dataset.id + '"]');
         const noteEl = out.querySelector('.famJustifNote[data-for="' + btn.dataset.id + '"]');
+        const fileEl = out.querySelector('.famJustifFile[data-for="' + btn.dataset.id + '"]');
         const motif = (sel && sel.value) || 'maladie';
         const note = (noteEl && noteEl.value || '').trim();
-        const motif_justif = note ? (motif + ' — ' + note) : motif;
+        const file = fileEl && fileEl.files && fileEl.files[0];
+        let motif_justif = note ? (motif + ' — ' + note) : motif;
+        if (file) motif_justif += ' · pièce jointe';
+        btn.disabled = true;
         try {
           await api('/absences/' + btn.dataset.id + '/justifier', {
             method: 'POST', body: JSON.stringify({ motif_justif }),
           });
+          if (file) {
+            const mime = file.type || 'application/octet-stream';
+            await api('/eleves/' + id + '/documents', {
+              method: 'POST',
+              body: JSON.stringify({
+                titre: 'Justificatif absence — ' + (file.name || motif),
+                tiroir: 'famille',
+                confidentialite: 'standard',
+                code: 'JUSTIF_ABSENCE',
+                mime_type: mime,
+                contenu_base64: await fileToBase64(file),
+              }),
+            });
+          }
           await bindFamilleEnfant(id);
         } catch (err) { alert(err.message); }
+        finally { btn.disabled = false; }
       };
     });
     out.querySelectorAll('.btnSigne').forEach(btn => {
@@ -5619,6 +5812,7 @@ function viewMonEdt() {
         <button type="button" id="btnMonEdtSemaine">Semaine</button>
         <button type="button" id="btnMonEdtPrev">←</button>
         <button type="button" id="btnMonEdtNext">→</button>
+        <button type="button" id="btnMonEdtIcal">Exporter iCal</button>
         <span id="monEdtMode" class="muted">jour</span>
       </div>
       <div id="monEdtOut" class="muted" style="margin-top:.75rem">Chargement…</div>
@@ -5748,6 +5942,17 @@ async function bindMonEdt() {
     };
   }
   if (jourEl) jourEl.onchange = load;
+  const btnIcal = document.getElementById('btnMonEdtIcal');
+  if (btnIcal) {
+    btnIcal.onclick = async () => {
+      try {
+        const base = (jourEl && jourEl.value) || today();
+        const debut = mode === 'semaine' ? mondayOf(base) : base;
+        const fin = mode === 'semaine' ? addDaysIso(debut, 6) : base;
+        await downloadFile(edtIcalPathProf(debut, fin), 'mon-edt.ics');
+      } catch (err) { alert(err.message); }
+    };
+  }
   await load();
 }
 
@@ -16619,6 +16824,11 @@ async function bindFamilleOrientation() {
 function viewFacturesFamille() {
   return shell('/famille/factures', `
     <div class="bento" id="facFamStats"></div>
+    <div class="panel" style="border-left:3px solid var(--accent,#c45c26)">
+      <h2 style="margin-top:0">Payer sans friction</h2>
+      <p class="muted" style="margin:0 0 .5rem">Le règlement carte en ligne arrive ensuite. Dès maintenant : <strong>mandat SEPA</strong> ci-dessous (prélèvement) — la compta enregistre les encaissements et vous recevez une <a href="/famille/quittances">quittance</a> automatique.</p>
+      <p class="muted" style="margin:0">Astuce : activez aussi les <a href="/famille">notifications push</a> pour les relances facture / absences.</p>
+    </div>
     <div class="panel">
       <h2>Quotient familial</h2>
       <p class="muted">Lecture du quotient enregistré pour votre foyer (année scolaire).</p>
