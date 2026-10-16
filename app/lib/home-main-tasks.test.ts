@@ -54,3 +54,45 @@ test("sans module absences accessible — pas de tuile", () => {
   });
   assert.ok(!tasks.some((t) => t.moduleId === "absences"));
 });
+
+test("professeur — Pour vous : salles, photocopies, HSE, sorties", () => {
+  const tasks = resolveHomeMainTasks({
+    roles: ["professeur"],
+    accessibleModuleIds: new Set([
+      "prof-room",
+      "photocopies-couleur",
+      "demandes-hse",
+      "rh",
+      "travels",
+      "mon-planning",
+    ]),
+  });
+  assert.equal(tasks[0]!.id, "task-prof-room");
+  assert.ok(tasks.some((t) => t.id === "task-photocopies"));
+  const hse = tasks.find((t) => t.id === "task-hse");
+  assert.ok(hse);
+  assert.match(hse!.href, /section=hse/);
+  assert.ok(tasks.some((t) => t.id === "task-travels-prof"));
+});
+
+test("professeur — HSE via hub RH si demandes-hse absent de la liste", () => {
+  const tasks = resolveHomeMainTasks({
+    roles: ["professeur"],
+    accessibleModuleIds: new Set(["prof-room", "rh", "travels"]),
+  });
+  const hse = tasks.find((t) => t.id === "task-hse");
+  assert.ok(hse, "HSE doit remonter dès que rh est accessible");
+  assert.match(hse!.href, /section=hse/);
+});
+
+test("professeur — pas de tuile si module non accessible", () => {
+  const tasks = resolveHomeMainTasks({
+    roles: ["professeur"],
+    accessibleModuleIds: new Set(["prof-room"]),
+  });
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0]!.id, "task-prof-room");
+  assert.ok(!tasks.some((t) => t.moduleId === "photocopies-couleur"));
+  assert.ok(!tasks.some((t) => t.moduleId === "demandes-hse"));
+  assert.ok(!tasks.some((t) => t.moduleId === "travels"));
+});
