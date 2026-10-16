@@ -1557,6 +1557,15 @@ impl From<&domain_eleve::Facture> for FactureDto {
     }
 }
 
+/// Facture foyer parent — inclut soldes pour badge « reste à payer » sans N appels détail.
+#[derive(Debug, Serialize)]
+pub struct FactureFamilleListItemDto {
+    #[serde(flatten)]
+    pub facture: FactureDto,
+    pub encaisse_centimes: i64,
+    pub reste_centimes: i64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct EncaissementDto {
     pub id: Uuid,

@@ -158,6 +158,73 @@
     @apply mt-1 block text-[0.85rem] leading-snug;
   }
 
+  .ent-toast {
+    position: fixed;
+    z-index: 220;
+    left: 50%;
+    bottom: 1.25rem;
+    max-width: min(92vw, 34rem);
+    padding: 0.75rem 1rem 0.8rem;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-bento-sm);
+    box-shadow: var(--shadow-bento-hover);
+    backdrop-filter: blur(12px);
+    transform: translate(-50%, 120%);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.28s ease, opacity 0.28s ease;
+  }
+  .ent-toast.ent-toast-visible {
+    transform: translate(-50%, 0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .ent-toast a {
+    font-weight: 600;
+  }
+
+  .eleve-hub-tile {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+    margin-bottom: 0;
+  }
+  .eleve-hub-tile:hover {
+    text-decoration: none;
+  }
+  .eleve-hub-title {
+    margin: 0 0 0.5rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .eleve-hub-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+  .eleve-hub-list li {
+    padding: 0.28rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .eleve-hub-list li:last-child {
+    border-bottom: none;
+  }
+  .eleve-hub-tile .empty-state {
+    padding: 0.65rem 0.75rem;
+    font-size: 0.85rem;
+    text-align: left;
+  }
+  .eleve-hub-tile .empty-state-hint {
+    font-size: 0.8rem;
+  }
+
   .login-wrap {
     @apply grid min-h-screen place-items-center p-6;
   }

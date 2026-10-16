@@ -8,6 +8,7 @@ use crate::dto::{
     EcheanceDto, EcheancierPartsBody, EdtCreneauDto, EdtExceptionDto, EffectifDto, EleveDto,
     EncaissementDto,
     EncaisserBody, EnfantFamilleDto, FamilleResumeDto, FactureDetailDto, FactureDto,
+    FactureFamilleListItemDto,
     DecisionAbsenceBody, FactureLigneDto, FilDetailDto, JustifierAbsenceBody, MarquerAppelLigneBody,
     MatiereDto,
     CandidatsMonteeLotDto, ConfigurerAcompteBody, CreerMandatSepaBody, DeposerDocReinscriptionBody,
@@ -7519,16 +7520,28 @@ async fn list_factures(
 async fn list_factures_famille(
     State(state): State<AppState>,
     session: EntSession,
-) -> Result<Json<Vec<FactureDto>>, (StatusCode, String)> {
+) -> Result<Json<Vec<FactureFamilleListItemDto>>, (StatusCode, String)> {
     if session.role != "parent" {
         return Err((StatusCode::FORBIDDEN, "réservé aux parents".into()));
     }
     let list = state
         .ent
-        .list_factures_for_actor(session.etablissement_id, session.user_id, &session.role)
+        .list_factures_famille_enriched(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+        )
         .await
         .map_err(map_db)?;
-    Ok(Json(list.iter().map(FactureDto::from).collect()))
+    Ok(Json(
+        list.into_iter()
+            .map(|(f, encaisse, reste)| FactureFamilleListItemDto {
+                facture: FactureDto::from(&f),
+                encaisse_centimes: encaisse,
+                reste_centimes: reste,
+            })
+            .collect(),
+    ))
 }
 
 async fn creer_facture(

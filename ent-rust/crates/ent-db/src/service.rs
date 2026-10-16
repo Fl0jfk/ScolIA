@@ -11922,6 +11922,27 @@ impl PgEnt {
         Err(EntDbError::Forbidden)
     }
 
+    pub async fn list_factures_famille_enriched(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+    ) -> Result<Vec<(Facture, i64, i64)>, EntDbError> {
+        let list = self
+            .list_factures_for_actor(etablissement_id, actor_user_id, role)
+            .await?;
+        let mut out = Vec::with_capacity(list.len());
+        for f in list {
+            let encaisse = self
+                .facturation
+                .sum_encaissements(etablissement_id, f.id)
+                .await?;
+            let reste = reste_a_payer(f.total_centimes, encaisse);
+            out.push((f, encaisse, reste));
+        }
+        Ok(out)
+    }
+
     pub async fn get_facture_for_actor(
         &self,
         etablissement_id: Uuid,

@@ -13,9 +13,10 @@ use domain_eleve::{
     annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
     CreerAlerteCpe, CreerCarnetEntree, CreerDevoir, CreerNotePeriode, CreerPassageInfirmerie,
     AbsenceStatut, AffecterEleveInternat, CarnetCategorie, ChangeRegime, ChoisirOptionN1,
-    ConvoquerCommission, CreerChambreInternat, CreerCommissionVs, CreerFacture, CreerInfoCompChamp,
-    CreerRdvPsy, CreerSuiviInternat, DeclarerIncident, DeclareAbsence, DemanderGrant,
-    DocConfidentialite, DocTiroir, EncaisserFacture, EntretienPsyKind, FactureStatut,
+    ConvoquerCommission, CreerCahierTexte, CreerChambreInternat, CreerCommissionVs, CreerFacture,
+    CreerInfoCompChamp, CreerRdvPsy, CreerSuiviInternat, DeclarerIncident, DeclareAbsence,
+    DemanderGrant, DocConfidentialite, DocTiroir, EncaisserFacture, EntretienPsyKind, FactureStatut,
+    AlerteCpeStatut, DispenseVsMotif, DispenseVsStatut, PoserDispenseVs, UpsertAutorisationSortie,
     LigneFactureCmd, MonteeRapide, MoyenPaiement, OptionAnneeStatut, OptionNature,
     OuvrirCampagneReinscription, OuvrirFil, PassageInfirmerieMotif, PointerPresenceInternat,
     PrononcerSanction, PublierDocASigner, RepasActiviteKind, SaisirAppreciation, UpsertDossierPsy,
@@ -80,6 +81,10 @@ pub struct LaboCast {
     pub creneau_rogue_4b: Uuid,
     /// Créneau McGonagall / 5A (jour courant).
     pub creneau_mcg_5a: Uuid,
+    /// Molly Weasley — parent commun Ron + Ginny (après seed audit).
+    pub parent_weasley: Option<LaboPersona>,
+    pub eleve_ron_id: Option<Uuid>,
+    pub eleve_ginny_id: Option<Uuid>,
 }
 
 /// Fiches élèves seed — cast Harry Potter (parlant en labo / UI).
@@ -557,8 +562,8 @@ impl PgEnt {
             });
         }
 
-        let lea = &eleves[0];
-        let tom = &eleves[1];
+        let lea = eleves[0].clone();
+        let tom = eleves[1].clone();
 
         // EDT du jour : Rogue → 4B Potions ; McGonagall → 5A Transfiguration.
         let jour = today_utc();
@@ -591,9 +596,9 @@ impl PgEnt {
 
         self.seed_labo_journee_audit(
             etab,
-            lea,
-            tom,
-            &eleves,
+            &lea,
+            &tom,
+            &mut eleves,
             &profs,
             &cpes,
             &infirmieres,
@@ -604,6 +609,10 @@ impl PgEnt {
             jour,
         )
         .await?;
+
+        let parent_weasley = labo_eleve_prenom(&eleves, "Ron").map(|r| r.parent.clone());
+        let eleve_ron_id = labo_eleve_prenom(&eleves, "Ron").map(|r| r.id);
+        let eleve_ginny_id = labo_eleve_prenom(&eleves, "Ginny").map(|r| r.id);
 
         Ok(LaboCast {
             etablissement_id: etab,
@@ -629,6 +638,9 @@ impl PgEnt {
             eleves,
             creneau_rogue_4b,
             creneau_mcg_5a,
+            parent_weasley,
+            eleve_ron_id,
+            eleve_ginny_id,
         })
     }
 
@@ -667,14 +679,15 @@ impl PgEnt {
 
     /// Matières, notes, réinscription, santé, VS — journée non vide pour bots post-bootstrap.
     ///
-    /// Lots audit W-A (idempotents) : parent multi-enfants Weasley, quotient/quittance Harry,
-    /// internat Neville (INT requis), psy Harry, fil CPE→parent ; docs/PAI/carnet laissés non signés.
+    /// Lots audit W-A (idempotents) : parent multi-enfants Weasley, factures Harry (reste à payer),
+    /// dispense EPS + sorties permanentes, alerte CPE ouverte, cahier Potions 4B, quotient Harry,
+    /// internat Neville (INT requis), psy Harry, fil CPE→parent ; docs/PAI/carnet non signés.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
         harry: &LaboEleve,
         draco: &LaboEleve,
-        eleves: &[LaboEleve],
+        eleves: &mut [LaboEleve],
         profs: &[LaboPersona],
         cpes: &[LaboPersona],
         infirmieres: &[LaboPersona],
@@ -744,6 +757,39 @@ impl PgEnt {
                 prof_rogue.user_id,
             )
             .await?;
+
+        const CAHIER_POTIONS_AUDIT_TITRE: &str = "Devoir maison Potions 4B (audit)";
+        let cahier_4b = self
+            .list_cahier_texte_for_actor(
+                etab,
+                prof_rogue.user_id,
+                Role::Prof.as_str(),
+                Some(harry.classe.clone()),
+                None,
+                None,
+                None,
+            )
+            .await?;
+        if !cahier_4b
+            .iter()
+            .any(|e| e.titre == CAHIER_POTIONS_AUDIT_TITRE && e.matiere_libelle == "Potions")
+        {
+            self.creer_cahier_texte_for_actor(
+                Role::Prof.as_str(),
+                CreerCahierTexte {
+                    etablissement_id: etab,
+                    classe: harry.classe.clone(),
+                    matiere_libelle: "Potions".into(),
+                    titre: CAHIER_POTIONS_AUDIT_TITRE.into(),
+                    consigne: "Préparer la potion de croissance (ch.4) — à rendre pour la prochaine séance."
+                        .into(),
+                    pour_le: jour + Duration::days(7),
+                    cree_le: jour,
+                    actor_user_id: prof_rogue.user_id,
+                },
+            )
+            .await?;
+        }
 
         if devoir_cree {
             self.saisir_note(SaisirNote {
@@ -1122,28 +1168,42 @@ impl PgEnt {
             .await?;
         }
 
-        self.creer_alerte_cpe_for_actor(
-            Role::Cpe.as_str(),
-            CreerAlerteCpe {
-                etablissement_id: etab,
-                eleve_id: harry.id,
-                titre: "Retard répété — suivi CPE".into(),
-                detail: "Seed labo : alerte visible famille pour audit personas.".into(),
-                severite: "urgent".into(),
-                visible_famille: true,
-                jour,
-                actor_user_id: cpe.user_id,
-            },
-        )
-        .await?;
+        const ALERTE_CPE_AUDIT_TITRE: &str = "Retard répété — suivi CPE";
+        let alertes_harry = self
+            .list_alertes_cpe_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+            )
+            .await?;
+        if !alertes_harry.iter().any(|a| {
+            a.titre == ALERTE_CPE_AUDIT_TITRE && a.statut == AlerteCpeStatut::Ouverte
+        }) {
+            self.creer_alerte_cpe_for_actor(
+                Role::Cpe.as_str(),
+                CreerAlerteCpe {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    titre: ALERTE_CPE_AUDIT_TITRE.into(),
+                    detail: "Seed labo : alerte visible famille pour audit personas.".into(),
+                    severite: "urgent".into(),
+                    visible_famille: true,
+                    jour,
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
 
         let etab_tag = etab.simple().to_string();
         let etab_short = &etab_tag[..8.min(etab_tag.len())];
         let role_compta = Role::Compta.as_str();
         let role_admini = Role::Administratif.as_str();
 
-        // --- Facture foyer Harry (+ encaissement partiel idempotent)
+        // --- Factures foyer Harry : 1 partiellement payée + 1 émise non soldée (reste à payer visible)
         let fac_numero = format!("LAB-HARRY-{etab_short}");
+        let fac2_numero = format!("LAB-HARRY-2-{etab_short}");
         let factures_compta = self
             .list_factures_for_actor(etab, compta.user_id, role_compta)
             .await?;
@@ -1184,14 +1244,15 @@ impl PgEnt {
             .get_facture_for_actor(etab, compta.user_id, role_compta, facture_harry.id)
             .await?;
         if deja_encaisse == 0 && facture_harry.total_centimes > 0 {
-            let montant = facture_harry.total_centimes.min(2250);
+            let montant_partiel = (facture_harry.total_centimes * 2) / 5;
+            let montant_partiel = montant_partiel.max(1);
             let _ = self
                 .encaisser_facture_for_actor(
                     role_compta,
                     EncaisserFacture {
                         etablissement_id: etab,
                         facture_id: facture_harry.id,
-                        montant_centimes: montant,
+                        montant_centimes: montant_partiel,
                         moyen: MoyenPaiement::Virement,
                         reference: Some("SEED-HARRY-AUDIT".into()),
                         actor_user_id: compta.user_id,
@@ -1199,26 +1260,38 @@ impl PgEnt {
                 )
                 .await?;
         }
-        let (_, _, _, encaisse_harry, _, quittances_facture, _) = self
-            .get_facture_for_actor(etab, compta.user_id, role_compta, facture_harry.id)
-            .await?;
-        if encaisse_harry > 0 && quittances_facture.is_empty() {
-            let reste = facture_harry.total_centimes.saturating_sub(encaisse_harry);
-            if reste > 0 {
-                let _ = self
-                    .encaisser_facture_for_actor(
-                        role_compta,
-                        EncaisserFacture {
-                            etablissement_id: etab,
-                            facture_id: facture_harry.id,
-                            montant_centimes: reste,
-                            moyen: MoyenPaiement::Virement,
-                            reference: Some("SEED-HARRY-AUDIT-Q".into()),
-                            actor_user_id: compta.user_id,
-                        },
-                    )
-                    .await?;
-            }
+        let (facture_harry_2_id, emit_harry_2) = if let Some(f) = factures_compta
+            .iter()
+            .find(|f| f.foyer_id == harry.foyer_id && f.numero == fac2_numero)
+        {
+            (f.id, f.statut == FactureStatut::Brouillon)
+        } else {
+            let (f, _lignes) = self
+                .creer_facture_for_actor(
+                    role_compta,
+                    CreerFacture {
+                        etablissement_id: etab,
+                        foyer_id: harry.foyer_id,
+                        numero: fac2_numero.clone(),
+                        libelle: "Activités extrascolaires — seed audit Lily/Harry".into(),
+                        nature: None,
+                        annee_scolaire: Some(annee_scolaire_de(jour)),
+                        lignes: vec![LigneFactureCmd {
+                            eleve_id: Some(harry.id),
+                            libelle: "Quidditch club (trimestre)".into(),
+                            quantite: 1,
+                            montant_unitaire_centimes: 3_500,
+                        }],
+                        actor_user_id: compta.user_id,
+                    },
+                )
+                .await?;
+            (f.id, f.statut == FactureStatut::Brouillon)
+        };
+        if emit_harry_2 {
+            let _ = self
+                .emettre_facture_for_actor(etab, facture_harry_2_id, compta.user_id, role_compta)
+                .await?;
         }
         let annee_quotient = annee_scolaire_de(jour);
         if self
@@ -1605,25 +1678,42 @@ impl PgEnt {
 
         // --- Parent multi-enfants : Ron + Ginny → même compte Molly (foyer Weasley)
         let role_admin = Role::Admin.as_str();
-        if let (Some(ron), Some(ginny)) = (
-            labo_eleve_prenom(eleves, "Ron"),
-            labo_eleve_prenom(eleves, "Ginny"),
-        ) {
-            let molly_user = ron.parent.user_id;
-            let molly_foyer = ron.foyer_id;
+        let weasley_seed = labo_eleve_prenom(eleves, "Ron").zip(labo_eleve_prenom(eleves, "Ginny"))
+            .map(|(ron, ginny)| {
+                (
+                    ron.parent.clone(),
+                    ron.foyer_id,
+                    ginny.id,
+                    ginny.parent.user_id,
+                    ginny.peut_voir_notes,
+                    ginny.peut_voir_vs,
+                    ginny.peut_justifier,
+                )
+            });
+        if let Some((
+            molly_persona,
+            molly_foyer,
+            ginny_id,
+            ginny_old_parent,
+            ginny_notes,
+            ginny_vs,
+            ginny_justif,
+        )) = weasley_seed
+        {
+            let molly_user = molly_persona.user_id;
             let deja = self
-                .lien_parent_eleve(etab, molly_user, ginny.id)
+                .lien_parent_eleve(etab, molly_user, ginny_id)
                 .await?;
             if deja.is_none() {
-                if ginny.parent.user_id != molly_user {
+                if ginny_old_parent != molly_user {
                     if let Some(old) = self
-                        .lien_parent_eleve(etab, ginny.parent.user_id, ginny.id)
+                        .lien_parent_eleve(etab, ginny_old_parent, ginny_id)
                         .await?
                     {
                         self.delete_lien_eleve_for_actor(
                             role_admin,
                             etab,
-                            Some(ginny.id),
+                            Some(ginny_id),
                             old.id,
                             admin.user_id,
                         )
@@ -1632,19 +1722,84 @@ impl PgEnt {
                 }
                 self.link_parent(CreateLien {
                     etablissement_id: etab,
-                    eleve_id: ginny.id,
+                    eleve_id: ginny_id,
                     user_id: molly_user,
                     foyer_id: Some(molly_foyer),
                     lien: "mère".into(),
-                    peut_voir_notes: ginny.peut_voir_notes,
-                    peut_voir_vs: ginny.peut_voir_vs,
-                    peut_justifier_absence: ginny.peut_justifier,
-                    peut_autoriser_sorties: ginny.peut_justifier,
+                    peut_voir_notes: ginny_notes,
+                    peut_voir_vs: ginny_vs,
+                    peut_justifier_absence: ginny_justif,
+                    peut_autoriser_sorties: ginny_justif,
                     est_payeur: true,
                     part_paiement: Some(100),
                 })
                 .await?;
             }
+            if let Some(ginny_idx) = eleves
+                .iter()
+                .position(|e| e.prenom.eq_ignore_ascii_case("Ginny"))
+            {
+                eleves[ginny_idx].parent = molly_persona;
+                eleves[ginny_idx].foyer_id = molly_foyer;
+            }
+        }
+
+        // --- Dispense EPS Harry + autorisation sortie permanente (Lily)
+        let fin_as = NaiveDate::from_ymd_opt(debut_as.year() + 1, 7, 5)
+            .unwrap_or_else(|| debut_as + Duration::days(300));
+        let dispenses_harry = self
+            .list_dispenses_vs_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+                true,
+            )
+            .await?;
+        if !dispenses_harry.iter().any(|d| {
+            d.motif == DispenseVsMotif::Eps && d.statut == DispenseVsStatut::Active
+        }) {
+            self.poser_dispense_vs_for_actor(
+                Role::Cpe.as_str(),
+                PoserDispenseVs {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    motif: "eps".into(),
+                    debut: debut_as,
+                    fin: fin_as,
+                    commentaire: "Seed audit — dispense EPS (asthme, certificat médical).".into(),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+        let recap_sortie = self
+            .get_recap_sortie_for_actor(
+                etab,
+                harry.parent.user_id,
+                Role::Parent.as_str(),
+                harry.id,
+            )
+            .await?;
+        let autorisation_incomplete = recap_sortie
+            .autorisation
+            .as_ref()
+            .map(|a| !a.matin || !a.midi || !a.soir || a.interdit_etablissement)
+            .unwrap_or(true);
+        if autorisation_incomplete {
+            self.upsert_autorisation_sortie_for_actor(
+                Role::Parent.as_str(),
+                UpsertAutorisationSortie {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    matin: true,
+                    midi: true,
+                    soir: true,
+                    interdit_etablissement: false,
+                    actor_user_id: harry.parent.user_id,
+                },
+            )
+            .await?;
         }
 
         // --- Internat Neville (seed DP → INT : affectation exige régime INT)
