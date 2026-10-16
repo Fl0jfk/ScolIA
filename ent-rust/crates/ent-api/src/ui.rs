@@ -104,6 +104,8 @@ async function snapshotOutboxPending() {
 let entToastTimer = null;
 /** Rempli dans bindNotes — repère Cedric sur tip « 0 devoir ». */
 let notesDevoirsEmptyCedricRefresh = null;
+/** Rempli dans bindNotes — repère Cedric devoir CB-A sur tip « 0 devoir » (audit CB-D). */
+let notesDevoirsEmptyCedricCbRefresh = null;
 /** Rempli dans bindNotes — repère Cho sur tip « 0 devoir ». */
 let notesDevoirsEmptyChoRefresh = null;
 /** Rempli dans bindNotes — repère Cho note BZ-A sur tip « 0 devoir » (audit BZ-D). */
@@ -886,6 +888,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
   if ((!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations')
     && Number.isFinite(nMatiere) && nMatiere > 0 && nTot <= 0) {
     if (typeof notesDevoirsEmptyCedricRefresh === 'function') void notesDevoirsEmptyCedricRefresh();
+    if (typeof notesDevoirsEmptyCedricCbRefresh === 'function') void notesDevoirsEmptyCedricCbRefresh();
     if (typeof notesDevoirsEmptyChoRefresh === 'function') void notesDevoirsEmptyChoRefresh();
     if (typeof notesDevoirsEmptyChoBzRefresh === 'function') void notesDevoirsEmptyChoBzRefresh();
     if (typeof notesDevoirsEmptyHermioneRefresh === 'function') void notesDevoirsEmptyHermioneRefresh();
@@ -942,9 +945,16 @@ function findDracoCaDevoir(devoirs) {
 }
 
 function findCedricBwDevoir(devoirs) {
+  return (devoirs || []).find(d => {
+    const t = String(d.titre || '');
+    if (!/cedric/i.test(t) || /CB-A/i.test(t)) return false;
+    return /BW-A/i.test(t) || /potions/i.test(String(d.matiere_libelle || d.matiere || ''));
+  });
+}
+
+function findCedricCbDevoir(devoirs) {
   return (devoirs || []).find(d =>
-    /cedric/i.test(String(d.titre || ''))
-    && (/BW-A/i.test(String(d.titre || '')) || /potions/i.test(String(d.matiere_libelle || d.matiere || ''))));
+    /cedric/i.test(String(d.titre || '')) && /CB-A/i.test(String(d.titre || '')));
 }
 
 function notesCedricDevoirGoActions() {
@@ -997,6 +1007,52 @@ function bindNotesCedricDevoirGoTipGo(opts) {
     };
   }
   const list = document.getElementById('notesCedricDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesCedricDevoirGoActions();
+  }
+}
+
+/** /app/notes — repère devoir Cedric CB-A (0 devoir global ou liste filtrée vide). */
+function notesCedricCbDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.cedricCbDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Cedric CB-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Cedric Diggory</strong><span>Seed labo · 3C · devoir audit CB-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesCedricCbDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CB-A · 3C'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesCedricCbDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 3C</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesCedricCbDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesCedricCbDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.cedricCbDevoir && o.cedricCbDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.cedricCbDevoir);
+        return;
+      }
+      notesCedricDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Cedric CB-A';
+      }
+      if (!o.cedricCbDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesCedricCbDevoirListBtn');
   if (list) {
     list.onclick = () => notesCedricDevoirGoActions();
   }
@@ -1845,6 +1901,30 @@ function notesNevilleSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesNevilleSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasBwNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBwNote ? 'Repère Neville · Mathématiques BW-A' : 'Filtre 3C · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Neville Londubat (3C · note CB-A · audit CB-D). */
+function notesNevilleCbSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.nevilleId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '3C').trim());
+  const hasCbNote = !!o.hasCbNote;
+  const noteLbl = o.cbNoteLabel
+    ? esc(String(o.cbNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CB-A');
+  const noteStrong = hasCbNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Neville Londubat</strong><span>Seed labo · ${classe} · audit notes CB-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesNevilleCbSeedNotesBtn" data-neville-id="${esc(String(o.nevilleId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesNevilleCbSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasCbNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCbNote ? 'Repère Neville · Mathématiques CB-A' : 'Filtre 3C · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -3741,6 +3821,147 @@ function bindHomeStaffCacTipActions(meta) {
       go('/app/messages');
     };
   }
+}
+
+function isStaffHomeCbcFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && role === 'psy';
+}
+
+/** Accueil psy — RDV · entretiens · dossier · messagerie (audit UI CB-C). */
+function homeStaffCbcTipDenseHtml(meta) {
+  if (!isStaffHomeCbcFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cbcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CB-C</span>';
+  const nPlan = Number(o.nRdvPlan) || 0;
+  const nEnt = Number(o.nEntretiens) || 0;
+  const nFam = Number(o.nRdvFam) || 0;
+  const nMsg = Number(o.nMsg) || 0;
+  const rdvNext = o.rdvNext ? esc(String(o.rdvNext).trim().slice(0, 14)) : '—';
+  const rdvTile = nPlan
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCbcRdvGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong class="warn">${nPlan}</strong><span>RDV planifié(s) · prochain ${rdvNext} · ${cbcLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCbcRdvGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">0</strong><span>Planning · planifier un créneau · ${cbcLbl}</span></button>`;
+  const entTile = nEnt
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCbcEntGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nEnt}</strong><span>Entretien(s) · ${jour}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCbcEntGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">0</strong><span>Entretien · saisir compte-rendu</span></button>`;
+  const famTile = nPlan || nEnt
+    ? `<div class="stat-tile bento-span-4"><strong class="${nFam ? 'ok' : 'muted'}">${nFam}</strong><span>Signalé(s) portail famille</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Type + jour si coché famille</span></div>`;
+  const dosTile = `<button type="button" class="stat-tile bento-span-4" id="homeCbcDosGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Dossier</strong><span>Axes · contacts · note confidentielle</span></button>`;
+  const msgTile = nMsg
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCbcMsgGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nMsg}</strong><span>Messagerie · non lu(s)</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCbcMsgGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Messagerie · à jour</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CB-C</strong><span>Psy staff · hors VS / com.</span></div>`;
+  return `<div class="bento" data-ui-audit="CB-C" style="margin:0 0 .55rem">
+    ${rdvTile}${entTile}${famTile}${dosTile}${msgTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffCbcTipActions(meta) {
+  const o = meta || {};
+  const rdv = document.getElementById('homeCbcRdvGo');
+  if (rdv) {
+    rdv.onclick = () => {
+      toastStaffCbcAction('rdv', o);
+      go('/app/psy#psyRdvPanel');
+    };
+  }
+  const ent = document.getElementById('homeCbcEntGo');
+  if (ent) {
+    ent.onclick = () => {
+      toastStaffCbcAction('entretiens', o);
+      go('/app/psy#psyEntretiensPanel');
+    };
+  }
+  const dos = document.getElementById('homeCbcDosGo');
+  if (dos) {
+    dos.onclick = () => {
+      toastStaffCbcAction('dossier', o);
+      go('/app/psy#psyDossierPanel');
+    };
+  }
+  const msg = document.getElementById('homeCbcMsgGo');
+  if (msg) {
+    msg.onclick = () => {
+      toastStaffCbcAction('messages', o);
+      go('/app/messages');
+    };
+  }
+}
+
+/** Toast bento — cockpit psy staff (routes existantes · audit CB-C). */
+function toastStaffCbcAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Cockpit psy staff';
+  let href = '/app/psy';
+  let tiles = '';
+  if (k === 'rdv') {
+    const nPlan = Number(o.nRdvPlan) || 0;
+    const rdvNext = o.rdvNext ? esc(String(o.rdvNext).trim().slice(0, 14)) : '—';
+    title = nPlan ? 'Planning RDV · jour' : 'Psy · planifier un créneau';
+    href = '/app/psy#psyRdvPanel';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nPlan ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${nPlan ? 'warn' : 'muted'}">${nPlan}</strong><span>Planifié(s) · prochain ${rdvNext}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Honoré</strong><span>Annulé · un clic sur la ligne</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CB-C</strong><span>GET /psy/rdvs · jour</span></div>`;
+  } else if (k === 'entretiens') {
+    const nEnt = Number(o.nEntretiens) || 0;
+    title = nEnt ? 'Entretiens · compte-rendu' : 'Entretien · enregistrer';
+    href = '/app/psy#psyEntretiensPanel';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nEnt ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${nEnt ? 'ok' : 'muted'}">${nEnt}</strong><span>Entretien(s) · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Note</strong><span>Staff only · jamais portail</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CB-C</strong><span>GET /psy/entretiens</span></div>`;
+  } else if (k === 'dossier') {
+    title = 'Dossier psy structuré';
+    href = '/app/psy#psyDossierPanel';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>Dossier</strong><span>Axes · suivi actif · famille</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">PDF</strong><span>Courrier orientation · SMTP</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CB-C</strong><span>PUT dossier-psy · staff</span></div>`;
+  } else if (k === 'messages') {
+    href = '/app/messages';
+    const nMsg = Number(o.nMsg) || 0;
+    title = nMsg ? 'Messagerie · non lus' : 'Messagerie · à jour';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nMsg ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nMsg ? 'warn' : 'ok'}">${nMsg}</strong><span>Fils familles / staff</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Psy</strong><span>Contact parents · RDV</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CB-C</strong><span>Hors commissions VS</span></div>`;
+  } else if (k === 'page-rdv') {
+    href = '/app/psy#psyRdvPanel';
+    title = 'Module psy · planning';
+    tiles = `<div class="stat-tile bento-span-4"><strong class="muted">Créneau</strong><span>Planifier · motif · note interne</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Famille</strong><span>Type + jour si signalé</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CB-C</strong><span>Page /app/psy</span></div>`;
+  } else if (k === 'page-ent') {
+    href = '/app/psy#psyEntretiensPanel';
+    title = 'Module psy · entretiens';
+    tiles = `<div class="stat-tile bento-span-4"><strong class="muted">CR</strong><span>Note confidentielle · durée</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Filtrer</strong><span>Par élève · par jour</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CB-C</strong><span>Audit psy staff</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CB-C</p>`,
+    6500,
+  );
 }
 
 /** Toast bento — cockpit santé staff / labo (routes existantes · audit CA-C). */
@@ -6665,7 +6886,7 @@ function famPortalJournalTipDenseHtml(list, opts) {
 
 /** Bannière push famille (lab) — tuiles denses. */
 function famPushBannerTipDenseHtml() {
-  return `<div class="bento" style="margin:0;align-items:stretch">
+  return `<div class="bento" data-ui-audit="CB-B" style="margin:0;align-items:stretch">
     <div class="stat-tile bento-span-4" style="border-color:var(--accent,#c45c26)">
       <strong>Notifications</strong><span>Carnet · absences · vie scolaire</span>
     </div>
@@ -6676,6 +6897,7 @@ function famPushBannerTipDenseHtml() {
         <button type="button" id="btnFamPushBannerDismiss">Plus tard</button>
       </div>
     </div>
+    <div class="stat-tile bento-span-4"><strong class="muted">CB-B</strong><span>#famPushPanel · compte</span></div>
   </div>`;
 }
 
@@ -7532,15 +7754,107 @@ function famEnfantMessagesTipDenseHtml(fils, enfantId) {
   return `<div class="bento" data-ui-audit="BV-B" style="margin:0 0 .55rem">${unreadTile}${filTile}${actTile}${auditTile}</div>`;
 }
 
-/** Page /famille/vie-scolaire — synthèse enfant sélectionné (bento). */
+function isFamilleVieScolaireFlux() {
+  return path() === '/famille/vie-scolaire';
+}
+
+function famCbBVsPageHref() {
+  return '/famille/vie-scolaire';
+}
+
+function famCbBVsHrefForEnfant(enfantId) {
+  const eid = enfantId ? String(enfantId).trim() : '';
+  return eid ? `/famille/enfants/${esc(eid)}?section=vs` : famCbBVsPageHref();
+}
+
+function famCbBPointsFromOpts(o) {
+  const raw = o || {};
+  if (raw.pointsVsObj && typeof raw.pointsVsObj === 'object') return raw.pointsVsObj;
+  if (raw.pointsVs != null && raw.pointsVs !== '') {
+    return { solde: raw.pointsVs, depart: raw.pointsVsDepart != null ? raw.pointsVsDepart : 20 };
+  }
+  return null;
+}
+
+function famHomeVsCbBCollectStats(list, pointsMap, comLists) {
+  const kids = list || [];
+  const ptsMap = pointsMap || {};
+  const coms = comLists || [];
+  let nCom = 0;
+  let nBas = 0;
+  let lead = null;
+  kids.forEach((e, i) => {
+    if (!e || e.peut_voir_vs === false) return;
+    const comPending = ((coms[i] || []).filter(c =>
+      c.signale_famille && !c.decision && !c.decided_at,
+    )).length;
+    nCom += comPending;
+    const p = ptsMap[e.id];
+    if (isPtsVsSoldeBas(p)) {
+      nBas += 1;
+      if (!lead || Number(p.solde) < Number(lead.pts.solde)) {
+        lead = { e, pts: p, nComPending: comPending };
+      }
+    }
+  });
+  if (!lead) {
+    const vsKids = kids.filter(e => e && e.peut_voir_vs !== false);
+    const pick = vsKids.length === 1 ? vsKids[0] : null;
+    if (pick) {
+      lead = { e: pick, pts: ptsMap[pick.id] || null, nComPending: 0 };
+    }
+  }
+  return { nCom, nBas, lead };
+}
+
+/** Accueil famille — permis à points & commissions (bento) — audit UI CB-B. */
+function famHomeVsCbBTipDenseHtml(list, pointsMap, comLists) {
+  const kids = (list || []).filter(e => e && e.peut_voir_vs !== false);
+  if (!kids.length) return '';
+  const st = famHomeVsCbBCollectStats(list, pointsMap, comLists);
+  const pageHref = famCbBVsPageHref();
+  const leadE = st.lead && st.lead.e ? st.lead.e : kids[0];
+  const eid = leadE && leadE.id ? String(leadE.id) : '';
+  const ficheHref = famCbBVsHrefForEnfant(eid);
+  const prenom = leadE && leadE.prenom ? esc(String(leadE.prenom).trim()) : 'Enfant';
+  const p = st.lead && st.lead.pts ? st.lead.pts : (eid ? (pointsMap || {})[eid] : null);
+  const depart = p && p.depart != null ? Number(p.depart) : 20;
+  const solde = p && p.solde != null ? Number(p.solde) : null;
+  const bas = isPtsVsSoldeBas(p);
+  const ptsTile = solde != null && Number.isFinite(solde)
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-cb-go="${esc(pageHref)}" style="cursor:pointer;text-align:left;${bas ? 'border-color:var(--warn,#b45309)' : ''}">
+        <strong class="${bas ? 'warn' : ''}">${esc(String(solde))}</strong><span>Permis · ${esc(String(solde))}/${esc(String(depart))}${bas ? ' · seuil bas' : ''} · ${prenom}</span>
+      </button>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-cb-go="${esc(pageHref)}" style="cursor:pointer;text-align:left">
+        <strong>VS</strong><span>Permis à points · ${kids.length} enfant(s)</span>
+      </button>`;
+  const comTile = st.nCom
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-cb-go="${esc(pageHref)}" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${st.nCom}</strong><span>Commission(s) en cours</span>
+      </button>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-cb-go="${esc(ficheHref)}" style="cursor:pointer;text-align:left">
+        <strong class="ok">0</strong><span>Commissions · dossier à jour</span>
+      </button>`;
+  const notifTile = `<button type="button" class="stat-tile bento-span-4" data-fam-cb-go="#famPushPanel" style="cursor:pointer;text-align:left">
+      <strong>Alertes</strong><span>Push lab · carnet &amp; VS</span>
+    </button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CB-B</strong><span>${pageHref} · points-vs</span></div>`;
+  return `<div class="bento" data-ui-audit="CB-B" style="margin:0 0 .55rem">${ptsTile}${comTile}${notifTile}${auditTile}</div>`;
+}
+
+/** Page /famille/vie-scolaire — synthèse enfant sélectionné (bento) — audit UI CB-B. */
 function famVsPageTipDenseHtml(opts) {
   const o = opts || {};
   const eid = o.enfantId ? esc(String(o.enfantId)) : '';
   const prenom = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
-  const ficheHref = eid ? `/famille/enfants/${eid}?section=vs` : '/famille/vie-scolaire';
+  const ficheHref = famCbBVsHrefForEnfant(o.enfantId);
+  const pageHref = famCbBVsPageHref();
   const nCom = Number(o.nComOpen) || 0;
   const nSan = Number(o.nSanctions) || 0;
-  const pts = o.pointsVs != null && o.pointsVs !== '' ? esc(String(o.pointsVs)) : '—';
+  const p = famCbBPointsFromOpts(o);
+  const depart = p && p.depart != null ? Number(p.depart) : 20;
+  const solde = p && p.solde != null ? Number(p.solde) : null;
+  const bas = isPtsVsSoldeBas(p);
   const nSign = (Number(o.nDocsPending) || 0) + (Number(o.nCarPending) || 0);
   const comTile = nCom
     ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
@@ -7548,7 +7862,14 @@ function famVsPageTipDenseHtml(opts) {
       </a>`
     : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Commissions</span></div>`;
   const sanTile = `<div class="stat-tile bento-span-4"><strong class="${nSan ? 'warn' : ''}">${nSan}</strong><span>Sanction(s)</span></div>`;
-  const ptsTile = `<div class="stat-tile bento-span-4"><strong>${pts}</strong><span>Points VS · ${prenom}</span></div>`;
+  const ptsLbl = solde != null && Number.isFinite(solde) ? esc(String(solde)) : '—';
+  const ptsTile = solde != null && Number.isFinite(solde)
+    ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;${bas ? 'border-color:var(--warn,#b45309)' : ''}">
+        <strong class="${bas ? 'warn' : ''}">${ptsLbl}</strong><span>Permis · ${ptsLbl}/${esc(String(depart))}${bas ? ' · seuil bas' : ''} · ${prenom}</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none">
+        <strong class="muted">—</strong><span>Points VS · ${prenom}</span>
+      </a>`;
   const signTile = nSign
     ? `<a class="stat-tile bento-span-4" href="${eid ? `/famille/enfants/${eid}?section=docs` : '/famille/docs-signer'}" style="text-decoration:none;border-color:var(--warn,#b45309)">
         <strong class="warn">${nSign}</strong><span>À signer (docs + carnet)</span>
@@ -7556,7 +7877,141 @@ function famVsPageTipDenseHtml(opts) {
     : `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none">
         <strong class="ok">OK</strong><span>Dossier VS à jour</span>
       </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${comTile}${sanTile}${ptsTile}${signTile}</div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CB-B</strong><span>Route ${pageHref}</span></div>`;
+  return `<div class="bento" data-ui-audit="CB-B" style="margin:0 0 .55rem">${comTile}${sanTile}${ptsTile}${signTile}${auditTile}</div>`;
+}
+
+/** Page /famille/vie-scolaire — registre calme (bento vide) — audit UI CB-B. */
+function famVsPageCalmeEmptyTipDenseHtml(opts) {
+  const o = opts || {};
+  const prenom = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const p = famCbBPointsFromOpts(o);
+  const solde = p && p.solde != null ? esc(String(p.solde)) : '—';
+  const depart = p && p.depart != null ? esc(String(p.depart)) : '20';
+  const ficheHref = famCbBVsHrefForEnfant(o.enfantId);
+  return `<div class="bento" data-ui-audit="CB-B" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${solde}</strong><span>Permis · ${solde} / ${depart} · ${prenom}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="ok">OK</strong><span>Pas de commission ouverte</span></div>
+    <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+      <strong>CPE</strong><span>Question discipline · messagerie</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong class="muted">CB-B</strong><span><a href="${ficheHref}">Fiche VS</a></span></div>
+  </div>`;
+}
+
+function famVsSectionEmptyHtml(title, extraBullets) {
+  const bullets = [
+    'Les entrées marquées « visible famille » sont publiées par la vie scolaire.',
+    'Audit UI <span class="muted empty-state-hint">CB-B</span> — <a href="/famille/vie-scolaire">Vie scolaire</a> · permis à points.',
+    '<a href="/famille/messages">Contacter le CPE</a> · <a href="/famille/enfants">Mes enfants</a>',
+  ];
+  (extraBullets || []).forEach(b => bullets.push(b));
+  return famEmptyDense(title, bullets, `<a href="${famCbBVsPageHref()}">Actualiser VS</a>`);
+}
+
+function bindFamHomeCbBTipGo() {
+  const rootIds = ['famHomeVsTip', 'famVsPageTip', 'famPushBanner'];
+  rootIds.forEach(rootId => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('[data-fam-cb-go]').forEach(btn => {
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-cb-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  });
+}
+
+const FAM_VS_HOME_TOAST_SS = 'ent_fam_vs_home_cb_b';
+
+/** Accueil famille — toast permis / VS (1× / session) — audit UI CB-B. */
+function maybeToastFamVsHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_VS_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const list = o.list || [];
+  const vsKids = list.filter(e => e && e.peut_voir_vs !== false);
+  if (!vsKids.length) return;
+  const tiles = famHomeVsCbBTipDenseHtml(list, o.pointsMap, o.comLists);
+  if (!tiles) return;
+  const st = famHomeVsCbBCollectStats(list, o.pointsMap, o.comLists);
+  const lead = st.lead && st.lead.e ? st.lead.e : vsKids[0];
+  const who = lead && lead.prenom ? esc(String(lead.prenom).trim()) : 'Enfant(s)';
+  const pageHref = famCbBVsPageHref();
+  showEntToast(
+    (st.nBas || st.nCom ? '<strong>Vie scolaire · suivi</strong>' : '<strong>Permis à points</strong>')
+    + ` — ${who}`
+    + `<div style="margin:.35rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Vie scolaire</a> · `
+    + `<a href="#famPushPanel">Notifications push</a> · `
+    + `<a href="#famContactPanel">Mon contact</a></p>`,
+    st.nBas || st.nCom ? 9000 : 7500,
+  );
+  try { sessionStorage.setItem(FAM_VS_HOME_TOAST_SS, '1'); } catch {}
+  bindFamHomeCbBTipGo();
+}
+
+/** Toast bento — page /famille/vie-scolaire ouverte — audit UI CB-B. */
+function toastFamVieScolaireOuverte(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const pageHref = famCbBVsPageHref();
+  const tipHtml = o.calme
+    ? famVsPageCalmeEmptyTipDenseHtml(o)
+    : famVsPageTipDenseHtml(o);
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Vie scolaire</a> · `
+    + `<a href="/famille/messages">Contacter le CPE</a> · `
+    + `<a href="#famPushPanel">Alertes push</a></p>`;
+  if (!isFamilleVieScolaireFlux() && !o.dense) {
+    showEntToast(`<strong>Vie scolaire</strong> — ${who}. <a href="${pageHref}">Permis &amp; commissions</a>`, 6500);
+    return;
+  }
+  showEntToast(
+    `<strong>Vie scolaire famille</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + foot,
+    o.nComOpen || o.nBas ? 8500 : 7500,
+  );
+  bindFamHomeCbBTipGo();
+}
+
+function maybeToastFamVieScolaireOuverte(opts) {
+  if (!isParent() || !isFamilleVieScolaireFlux()) return;
+  const ssKey = 'ent_fam_vie_scolaire_page_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const p = famCbBPointsFromOpts(o);
+  toastFamVieScolaireOuverte({
+    ...o,
+    dense: true,
+    nBas: isPtsVsSoldeBas(p),
+    calme: !o.nComOpen && !o.nSanctions && !(Number(o.nDocsPending) + Number(o.nCarPending)),
+  });
 }
 
 /** Liste /famille/enfants — tip bento par carte enfant (priorité dossiers). */
@@ -8226,6 +8681,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
     <div class="stat-tile bento-span-4"><strong>→</strong><span>Puis grille · saisie · moyennes</span></div>
   </div>
   <div id="notesDevoirsEmptyCedricSlot"></div>
+  <div id="notesDevoirsEmptyCedricCbSlot"></div>
   <div id="notesDevoirsEmptyChoSlot"></div>
   <div id="notesDevoirsEmptyChoBzSlot"></div>
   <div id="notesDevoirsEmptyHermioneSlot"></div>
@@ -11325,33 +11781,57 @@ function staffMonEdtTipDenseHtml(opts) {
   </div>`;
 }
 
-/** Psy staff — RDV du jour (page /app/psy). */
+/** Psy staff — synthèse page /app/psy (audit UI CB-C). */
 function psyRdvPageTipDenseHtml(entretiens, rdvs) {
   if (!isStaffPsyFlux()) return '';
   const rdvList = rdvs || [];
   const nEnt = (entretiens || []).length;
   const nPlan = rdvList.filter(r => String(r.statut || '') === 'planifie').length;
-  const nFam = rdvList.filter(r => r.signale_famille).length;
+  const nFam = rdvList.filter(r => r.signale_famille).length
+    + (entretiens || []).filter(e => e.signale_famille).length;
   const next = rdvList
     .filter(r => String(r.statut || '') === 'planifie')
     .sort((a, b) => String(a.heure_debut || '').localeCompare(String(b.heure_debut || '')))[0];
   const nextLbl = next
     ? esc(`${next.heure_debut || '—'}–${next.heure_fin || '—'}`)
     : '—';
-  if (!nEnt && !rdvList.length) {
-    return `<div class="bento" style="margin:0 0 .55rem">
-      <div class="stat-tile bento-span-4"><strong class="muted">Planning</strong><span>Planifier un RDV ou un entretien</span></div>
-      <div class="stat-tile bento-span-4"><strong class="muted">Famille</strong><span>« Signalé famille » = type + jour</span></div>
-      <div class="stat-tile bento-span-4"><strong class="muted">Note</strong><span>Entretien · jamais sur le portail</span></div>
-    </div>`;
-  }
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <div class="stat-tile bento-span-4" style="border-color:${nPlan ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
-      <strong>${nPlan}</strong><span>RDV planifié(s) · prochain ${nextLbl}</span>
-    </div>
-    <div class="stat-tile bento-span-4"><strong>${nEnt}</strong><span>Entretien(s) du jour</span></div>
-    <div class="stat-tile bento-span-4"><strong class="muted">${nFam}</strong><span>RDV signalés famille</span></div>
+  const cbcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CB-C</span>';
+  const rdvTile = `<button type="button" class="stat-tile bento-span-4" id="psyCbcPageRdvGo" style="cursor:pointer;text-align:left;border-color:${nPlan ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nPlan ? 'warn' : 'muted'}">${nPlan || '0'}</strong><span>RDV planifié(s) · ${nextLbl} · ${cbcLbl}</span></button>`;
+  const entTile = `<button type="button" class="stat-tile bento-span-4" id="psyCbcPageEntGo" style="cursor:pointer;text-align:left;border-color:${nEnt ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nEnt ? 'ok' : 'muted'}">${nEnt}</strong><span>Entretien(s) · compte-rendu</span></button>`;
+  const dosTile = `<button type="button" class="stat-tile bento-span-4" id="psyCbcPageDosGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Dossier</strong><span>Axes · suivi · note staff</span></button>`;
+  const famTile = `<div class="stat-tile bento-span-4"><strong class="${nFam ? 'ok' : 'muted'}">${nFam}</strong><span>Signalé(s) portail famille</span></div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CB-C</strong><span>Psy · hors VS / com.</span></div>`;
+  return `<div class="bento" data-ui-audit="CB-C" style="margin:0 0 .55rem">
+    ${rdvTile}${entTile}${famTile}${dosTile}${auditTile}
   </div>`;
+}
+
+function bindPsyPageTipActions(meta) {
+  const o = meta || {};
+  const rdv = document.getElementById('psyCbcPageRdvGo');
+  if (rdv) {
+    rdv.onclick = () => {
+      toastStaffCbcAction('page-rdv', o);
+      document.getElementById('psyRdvPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const ent = document.getElementById('psyCbcPageEntGo');
+  if (ent) {
+    ent.onclick = () => {
+      toastStaffCbcAction('page-ent', o);
+      document.getElementById('psyEntretiensPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const dos = document.getElementById('psyCbcPageDosGo');
+  if (dos) {
+    dos.onclick = () => {
+      toastStaffCbcAction('dossier', o);
+      document.getElementById('psyDossierPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
 }
 
 /** Psy staff — brouillon créneau RDV (formulaire planification). */
@@ -16330,15 +16810,25 @@ function toastWebPushEnregistre(r, appId, opts) {
   const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="${esc(footHref)}">${footLabel}</a>`
     + ` · lab device · carnet &amp; absences</p>`;
-  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+  const auditFam = isFamilleHomeFlux()
+    ? `<div class="stat-tile bento-span-4"><strong class="muted">CB-B</strong><span>Push · #famPushPanel</span></div>`
+    : '';
+  const tiles = `<div class="bento" ${isFamilleHomeFlux() ? 'data-ui-audit="CB-B"' : ''} style="margin:.4rem 0 0">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
       <strong class="ok">Push</strong><span>${appLbl} · ${plat}</span>
     </div>
     <div class="stat-tile bento-span-4"><strong class="${permClass}">${esc(permLbl)}</strong><span>Permission navigateur</span></div>
-    <div class="stat-tile bento-span-4"><strong>${devShort || '—'}</strong><span>Token device enregistré</span></div>`;
+    <div class="stat-tile bento-span-4"><strong>${devShort || '—'}</strong><span>Token device enregistré</span></div>
+    ${auditFam}</div>`;
+  const footFam = isFamilleHomeFlux()
+    ? `<p style="margin:.35rem 0 0;font-size:.85rem">`
+      + `<a href="/famille/vie-scolaire">Vie scolaire</a> · `
+      + `<a href="#famContactPanel">Mon contact</a></p>`
+    : foot;
   showEntToast(
     `<strong>Notifications activées</strong>`
-    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
-    + foot,
+    + tiles
+    + (isFamilleHomeFlux() ? footFam : foot),
     9000,
   );
 }
@@ -19127,6 +19617,12 @@ function viewHome() {
     tiles = `
       <a class="stat-tile bento-span-6" href="/app/psy"><strong>Psy</strong><span>RDV &amp; entretiens</span></a>
       <a class="stat-tile bento-span-6" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>`;
+    homeExtra = `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit psy</h3>
+      <p class="muted" style="margin-top:0">RDV · entretiens · dossier · messagerie — <span class="muted empty-state-hint" style="font-size:.72rem">CB-C</span>.</p>
+      <div id="homeStaffCbcTip" class="muted">Chargement…</div>
+    </div>`;
   } else if (role === 'direction') {
     homeTitle = 'Pilotage établissement';
     homeLead = 'RH à valider, effectifs vie scolaire, inscriptions et exports — priorités direction.';
@@ -19717,6 +20213,32 @@ async function bindHome() {
     staffCacBox.innerHTML = homeStaffCacTipDenseHtml(cacMeta);
     bindHomeStaffCacTipActions(cacMeta);
   }
+  const staffCbcBox = document.getElementById('homeStaffCbcTip');
+  if (staffCbcBox && role === 'psy') {
+    const [rdvsCbc, entCbc] = await Promise.all([
+      settle(api('/psy/rdvs?jour=' + encodeURIComponent(jour)), []),
+      settle(api('/psy/entretiens?jour=' + encodeURIComponent(jour)), []),
+    ]);
+    const rdvPlanCbc = (rdvsCbc || []).filter(r => String(r.statut || '') === 'planifie');
+    const rdvNextRow = rdvPlanCbc.sort((a, b) =>
+      String(a.heure_debut || '').localeCompare(String(b.heure_debut || '')),
+    )[0];
+    const rdvNext = rdvNextRow
+      ? `${rdvNextRow.heure_debut || '—'}–${rdvNextRow.heure_fin || '—'}`
+      : '';
+    const nRdvFam = (rdvsCbc || []).filter(r => r.signale_famille).length
+      + (entCbc || []).filter(e => e.signale_famille).length;
+    const cbcMeta = {
+      jour,
+      nRdvPlan: rdvPlanCbc.length,
+      nEntretiens: (entCbc || []).length,
+      nRdvFam,
+      rdvNext,
+      nMsg,
+    };
+    staffCbcBox.innerHTML = homeStaffCbcTipDenseHtml(cbcMeta);
+    bindHomeStaffCbcTipActions(cbcMeta);
+  }
   const staffCockpitBox = document.getElementById('homeStaffCockpitTip');
   if (staffCockpitBox && (role === 'prof' || role === 'administratif')) {
     const cockpitMeta = { role, jour };
@@ -20220,6 +20742,7 @@ function viewFamilleHome() {
     <div id="famHomeVoeuxTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeRepasTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeInternatTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeVsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -20266,9 +20789,9 @@ function viewFamilleHome() {
       </div>
       <div id="famTelMsg" class="muted"></div>
     </div>
-    <div class="panel" style="margin-top:.75rem">
+    <div class="panel" style="margin-top:.75rem" id="famPushPanel">
       <h3>Notifications push (lab)</h3>
-      <p class="muted">Enregistre un token device pour ce compte famille (dry-run).</p>
+      <p class="muted">Enregistre un token device pour ce compte famille (dry-run) — <span class="muted empty-state-hint">CB-B</span>.</p>
       <div class="row">
         <label>Plateforme <select id="famPushPlat"><option value="web">web</option><option value="ios">ios</option><option value="android">android</option></select></label>
         <label>Token <input id="famPushToken" value="lab-famille-token" style="min-width:12rem"/></label>
@@ -20404,6 +20927,8 @@ async function bindFamilleHome() {
       if (allergieTip0) { allergieTip0.style.display = 'none'; allergieTip0.innerHTML = ''; }
       const contactTip0 = document.getElementById('famHomeContactTip');
       if (contactTip0) { contactTip0.style.display = 'none'; contactTip0.innerHTML = ''; }
+      const vsTip0 = document.getElementById('famHomeVsTip');
+      if (vsTip0) { vsTip0.style.display = 'none'; vsTip0.innerHTML = ''; }
       const quitTip0 = document.getElementById('famHomeQuittancesTip');
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
       const reinscTip0 = document.getElementById('famHomeReinscTip');
@@ -20472,6 +20997,8 @@ async function bindFamilleHome() {
       ? String(menuTodayHome.plat)
       : (menuTodayHome && menuTodayHome.entree ? String(menuTodayHome.entree) : '');
     const intRowsHome = await famFetchInternatJourSnapshot(list, jourRepas);
+    const vsKidsPts = list.filter(e => e && e.peut_voir_vs !== false);
+    const pointsMapHome = await loadPointsVsByEleve(vsKidsPts.map(e => e.id));
     const impayees = (facs || []).filter(facFamImpayee)
       .sort((a, b) => facFamResteCentimes(b) - facFamResteCentimes(a));
     const nImpayees = impayees.length;
@@ -20685,6 +21212,18 @@ async function bindFamilleHome() {
       }
     }
     bindFamHomeCaBTipGo();
+    const vsTip = document.getElementById('famHomeVsTip');
+    if (vsTip) {
+      const denseVs = famHomeVsCbBTipDenseHtml(list, pointsMapHome, comLists);
+      if (denseVs) {
+        vsTip.style.display = '';
+        vsTip.innerHTML = denseVs;
+      } else {
+        vsTip.style.display = 'none';
+        vsTip.innerHTML = '';
+      }
+    }
+    bindFamHomeCbBTipGo();
     const devoirTip = document.getElementById('famHomeDevoirTip');
     const edtTip = document.getElementById('famHomeEdtTip');
     const devoirPicksHome = famCollectProchainDevoirs(list, devoirLists);
@@ -20925,6 +21464,11 @@ async function bindFamilleHome() {
       ficheList: ficheSanteList,
       paiList,
       dispenseLists: dispenseVsLists,
+    });
+    maybeToastFamVsHomeDense({
+      list,
+      pointsMap: pointsMapHome,
+      comLists,
     });
     const homeDeepMsg = normalizeFamEnfantSection(routeState.famSection);
     if (homeDeepMsg === 'messages') {
@@ -29955,7 +30499,7 @@ function viewPsy() {
     <div class="bento" id="psyStats"></div>
     <div id="psyPageTip"></div>
     <div class="bento">
-      <div class="panel bento-span-12">
+      <div class="panel bento-span-12" id="psyDossierPanel">
         <h2>Dossier psy structuré</h2>
         <p class="muted">Une fiche par élève. Si signalé famille : axes + suivi visibles — jamais note ni contacts externes.</p>
         <div class="row">
@@ -29979,7 +30523,7 @@ function viewPsy() {
         <div id="dosMsg" class="muted"></div>
         <div id="dosOut" class="muted" style="margin-top:.75rem">…</div>
       </div>
-      <div class="panel bento-span-6">
+      <div class="panel bento-span-6" id="psyEntretiensPanel">
         <h2>Entretiens</h2>
         <p class="muted">Note confidentielle — famille voit type + jour si signalé.</p>
         <div class="row">
@@ -30006,7 +30550,7 @@ function viewPsy() {
         <div id="psyMsg" class="muted"></div>
         <div id="psyOut" class="muted" style="margin-top:.5rem">…</div>
       </div>
-      <div class="panel bento-span-6">
+      <div class="panel bento-span-6" id="psyRdvPanel">
         <h2>Planning RDV</h2>
         <p class="muted">Créneaux — honoré / annulé en un clic.</p>
         <div id="psyRdvCreateTip"></div>
@@ -30216,6 +30760,21 @@ async function bindPsy() {
     const pageTip = document.getElementById('psyPageTip');
     if (pageTip) {
       pageTip.innerHTML = psyRdvPageTipDenseHtml(entretiens, rdvs);
+      const jourPsy = (document.getElementById('psyJour') || {}).value || today();
+      const rdvPlan = (rdvs || []).filter(r => String(r.statut || '') === 'planifie');
+      const rdvNextRow = rdvPlan.sort((a, b) =>
+        String(a.heure_debut || '').localeCompare(String(b.heure_debut || '')),
+      )[0];
+      bindPsyPageTipActions({
+        jour: jourPsy,
+        nRdvPlan: rdvPlan.length,
+        nEntretiens: (entretiens || []).length,
+        nRdvFam: (rdvs || []).filter(r => r.signale_famille).length
+          + (entretiens || []).filter(e => e.signale_famille).length,
+        rdvNext: rdvNextRow
+          ? `${rdvNextRow.heure_debut || '—'}–${rdvNextRow.heure_fin || '—'}`
+          : '',
+      });
     }
   }
 
@@ -30373,6 +30932,11 @@ async function bindPsy() {
   await loadDossier();
   await loadJour();
   await loadRdvs();
+  const psyHash = (location.hash || '').replace(/^#/, '');
+  if (psyHash) {
+    const anchor = document.getElementById(psyHash);
+    if (anchor) anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 /* ---------- Absences ---------- */
@@ -33982,6 +34546,7 @@ function viewNotes() {
     <div id="notesChoSeedTip"></div>
     <div id="notesChoBzSeedTip"></div>
     <div id="notesNevilleSeedTip"></div>
+    <div id="notesNevilleCbSeedTip"></div>
     <div class="panel" id="notesQuickLab" style="margin-bottom:.75rem">
       <div class="row" style="margin:0;align-items:flex-start">
         <p class="muted" style="margin:0;flex:1">Raccourci labo — ouvrir la grille de saisie <strong>4B · Potions</strong> (créneau du jour ou devoir seed).</p>
@@ -34309,6 +34874,7 @@ async function bindNotes() {
       await refreshNotesChoSeedTip(devoirsPref);
       await refreshNotesChoBzSeedTip(devoirsPref);
       await refreshNotesNevilleSeedTip(devoirsPref);
+      await refreshNotesNevilleCbSeedTip(devoirsPref);
       box.innerHTML = `
         <div class="stat-tile bento-span-3"><strong>${nPer}</strong><span>Périodes · ${nPart} partielles</span></div>
         <div class="stat-tile bento-span-3"><strong>${nOuv}</strong><span>Ouvertes</span></div>
@@ -34888,6 +35454,31 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyCedricRefresh = refreshNotesDevoirsEmptyCedricSlot;
+  async function refreshNotesDevoirsEmptyCedricCbSlot() {
+    const el = document.getElementById('notesDevoirsEmptyCedricCbSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const cedricCbDevoir = findCedricCbDevoir(devoirs);
+      el.innerHTML = notesCedricCbDevoirGoTipDenseHtml({ cedricCbDevoir: cedricCbDevoir || null });
+      bindNotesCedricCbDevoirGoTipGo({
+        cedricCbDevoir: cedricCbDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyCedricCbRefresh = refreshNotesDevoirsEmptyCedricCbSlot;
   async function refreshNotesDevoirsEmptyChoSlot() {
     const el = document.getElementById('notesDevoirsEmptyChoSlot');
     if (!el) return;
@@ -35500,9 +36091,12 @@ async function bindNotes() {
     try {
       const notes = await api('/eleves/' + nevilleId + '/notes');
       nNotes = (notes || []).length;
-      const bwNote = (notes || []).find(n =>
-        /BW-A/i.test(String(n.libelle || ''))
-        || (/neville/i.test(String(n.libelle || '')) && /math/i.test(String(n.matiere_libelle || n.matiere || ''))));
+      const bwNote = (notes || []).find(n => {
+        const lib = String(n.libelle || '');
+        if (/CB-A/i.test(lib)) return false;
+        return /BW-A/i.test(lib)
+          || (/neville/i.test(lib) && /math/i.test(String(n.matiere_libelle || n.matiere || '')));
+      });
       if (bwNote) {
         hasBwNote = /BW-A/i.test(String(bwNote.libelle || ''));
         if (bwNote.libelle) bwNoteLabel = String(bwNote.libelle);
@@ -35511,6 +36105,25 @@ async function bindNotes() {
       nNotes = 0;
     }
     return { nNotes, bwNoteLabel, hasBwNote };
+  }
+  async function nevilleCbNoteMetaFromApi(nevilleId) {
+    let nNotes = 0;
+    let cbNoteLabel = '';
+    let hasCbNote = false;
+    try {
+      const notes = await api('/eleves/' + nevilleId + '/notes');
+      nNotes = (notes || []).length;
+      const cbNote = (notes || []).find(n =>
+        /CB-A/i.test(String(n.libelle || ''))
+        || (/neville/i.test(String(n.libelle || '')) && /CB-A/i.test(String(n.libelle || ''))));
+      if (cbNote) {
+        hasCbNote = /CB-A/i.test(String(cbNote.libelle || ''));
+        if (cbNote.libelle) cbNoteLabel = String(cbNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, cbNoteLabel, hasCbNote };
   }
   async function lunaBsNoteMetaFromApi(lunaId) {
     let nNotes = 0;
@@ -35857,6 +36470,52 @@ async function bindNotes() {
         };
       }
       const btnCl = document.getElementById('notesNevilleSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip3C');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '3C';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesNevilleCbSeedTip(_devoirsPref) {
+    const el = document.getElementById('notesNevilleCbSeedTip');
+    if (!el) return;
+    try {
+      const nevilleId = await resolveNevilleLondubatEleveId();
+      if (!nevilleId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '3C';
+      try {
+        const eleve = await api('/eleves/' + nevilleId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 3C */ }
+      const meta = await nevilleCbNoteMetaFromApi(nevilleId);
+      el.innerHTML = notesNevilleCbSeedTipDenseHtml({
+        nevilleId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesNevilleCbSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.nevilleId || nevilleId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Neville');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesNevilleCbSeedClasseBtn');
       if (btnCl) {
         btnCl.onclick = () => {
           const chip = document.getElementById('notesChip3C');
@@ -39273,7 +39932,7 @@ function viewFamilleVieScolaire() {
     <div id="famVsPageTip" style="display:none;margin-bottom:.65rem"></div>
     <div class="panel">
       <h2>Vie scolaire</h2>
-      <p class="muted">Sanctions, incidents, commissions, alertes et décisions de conseil — par enfant.</p>
+      <p class="muted">Sanctions, incidents, commissions, permis à points et alertes CPE — par enfant · <span class="muted empty-state-hint">CB-B</span>.</p>
       <div class="row">
         <label>Enfant <select id="famVsEnfant" style="min-width:14rem"></select></label>
         <button type="button" class="primary" id="btnFamVsLoad">Actualiser</button>
@@ -39305,7 +39964,9 @@ async function bindFamilleVieScolaire() {
     const id = sel.value;
     if (!id) {
       if (pageTip) { pageTip.style.display = 'none'; pageTip.innerHTML = ''; }
-      out.innerHTML = '<p class="empty">Aucun enfant.</p>';
+      out.innerHTML = famVsSectionEmptyHtml('Aucun enfant lié', [
+        'Sélectionnez un enfant dans la liste lorsque le foyer est rattaché.',
+      ]);
       return;
     }
     out.textContent = 'Chargement…';
@@ -39344,12 +40005,31 @@ async function bindFamilleVieScolaire() {
       }
       if (pageTip) {
         pageTip.style.display = '';
-        pageTip.innerHTML = famVsPageTipDenseHtml({
+        const vsCalme = !comOpen.length && !(sanctions || []).length && !docsPending.length && !carPending.length;
+        pageTip.innerHTML = vsCalme
+          ? famVsPageCalmeEmptyTipDenseHtml({
+            enfantId: id,
+            prenom: prenomVs,
+            pointsVsObj: points,
+          })
+          : famVsPageTipDenseHtml({
+            enfantId: id,
+            prenom: prenomVs,
+            nComOpen: comOpen.length,
+            nSanctions: (sanctions || []).length,
+            pointsVsObj: points,
+            nDocsPending: docsPending.length,
+            nCarPending: carPending.length,
+          });
+        bindFamHomeCbBTipGo();
+      }
+      if (vsLoadCount === 0) {
+        maybeToastFamVieScolaireOuverte({
           enfantId: id,
           prenom: prenomVs,
           nComOpen: comOpen.length,
           nSanctions: (sanctions || []).length,
-          pointsVs: pts,
+          pointsVsObj: points,
           nDocsPending: docsPending.length,
           nCarPending: carPending.length,
         });
@@ -39394,31 +40074,41 @@ async function bindFamilleVieScolaire() {
             </ul>`
           : '<p class="ok">Rien à signer.</p>');
       html += sec('Sanctions', !(sanctions || []).length
-        ? '<p class="empty">Aucune sanction.</p>'
+        ? famVsSectionEmptyHtml('Aucune sanction visible', [
+          'Le permis à points reste consultable dans le bandeau CB-B ci-dessus.',
+        ])
         : `<ul>${sanctions.map(s =>
             `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}
              · <a href="/famille/enfants/${esc(id)}?section=vs">Fiche</a></li>`
           ).join('')}</ul>`);
       html += sec('Incidents', !(incidents || []).length
-        ? '<p class="empty">Aucun incident.</p>'
+        ? famVsSectionEmptyHtml('Aucun incident signalé', [
+          'Les faits disciplinaires visibles famille s’affichent ici.',
+        ])
         : `<ul>${incidents.map(i =>
             `<li>${esc(i.jour)}${i.type_label ? ' · ' + esc(i.type_label) : ''}${i.description ? ' — ' + esc(i.description) : ''}</li>`
           ).join('')}</ul>`);
       html += sec('Commissions', !comVis.length
-        ? '<p class="empty">Aucune commission signalée à la famille pour le moment.</p>'
+        ? famVsSectionEmptyHtml('Aucune commission ouverte', [
+          'Vous serez notifié si une commission est programmée et signalée au foyer.',
+        ])
         : `<ul>${comVis.map(d =>
             `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.commission_jour ? ' · ' + esc(d.commission_jour) : ''}${d.lieu ? ' · ' + esc(d.lieu) : ''}
              · <a href="/famille/enfants/${esc(id)}?section=vs">Détail dossier</a>
              · <a href="/famille/messages">Message CPE</a></li>`
           ).join('')}</ul>`);
       html += sec('Alertes CPE', !(alertes || []).length
-        ? '<p class="empty">Aucune alerte.</p>'
+        ? famVsSectionEmptyHtml('Aucune alerte CPE', [
+          'Les alertes urgentes ouvrent un fil messagerie en un clic.',
+        ])
         : `<ul>${alertes.map(a =>
             `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}
              <button type="button" class="btnFamVsMsg" data-sujet="${esc('Alerte : ' + (a.titre || ''))}">Contacter</button></li>`
           ).join('')}</ul>`);
       html += sec('Décisions de conseil', !consVis.length
-        ? '<p class="empty">Aucune décision visible.</p>'
+        ? famVsSectionEmptyHtml('Aucune décision de conseil', [
+          'Les appréciations visibles famille apparaissent après publication.',
+        ])
         : `<ul>${consVis.map(c =>
             `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}</li>`
           ).join('')}</ul>`);
