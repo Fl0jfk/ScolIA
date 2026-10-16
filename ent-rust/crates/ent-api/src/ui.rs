@@ -532,6 +532,16 @@ function toastExportLsl(filename, opts) {
   );
 }
 
+function toastExportNotanet(filename, opts) {
+  const o = opts || {};
+  const cl = o.classe ? ` · ${esc(String(o.classe).trim())}` : '';
+  const pl = o.periodeLabel ? ` · ${esc(String(o.periodeLabel).trim())}` : '';
+  showEntToast(
+    `<strong>Export Notanet téléchargé</strong> — ${esc(String(filename || 'export-notanet.csv'))}${cl}${pl}`,
+    8500,
+  );
+}
+
 function entMessageLooksEdtConflit(msg) {
   const m = String(msg || '').toLowerCase();
   return m.includes('conflit edt') || (m.includes('conflit') && m.includes('edt'));
@@ -568,6 +578,16 @@ function toastRepasScanOk(p) {
   showEntToast(
     `<strong>Passage cantine</strong> — ${esc(who)} · badge ${esc(p.badge_lu || '—')}`,
     6500,
+  );
+}
+
+function toastRepasScanFail(message, badge) {
+  const b = esc(String(badge || '').trim() || '—');
+  const m = esc(String(message || 'Passage refusé').trim());
+  showEntToast(
+    `<strong>Scan badge refusé</strong> — ${b} · ${m}. `
+    + 'Dispense, doublon du jour ou badge inconnu — vérifier la fiche élève.',
+    9500,
   );
 }
 
@@ -619,6 +639,27 @@ function toastEdtCreneauxCrees(r) {
   showEntToast(
     `<strong>${n} créneau(x) EDT posé(s)</strong> — grille actualisée. `
     + '<a href="/app/edt">Voir l’EDT</a>',
+    9000,
+  );
+}
+
+function toastEdtContrainteCreee(c) {
+  if (!c) return;
+  const kind = esc(String(c.kind || '').trim() || '—');
+  const cible = c.kind === 'salle_indispo'
+    ? esc(c.salle_code || '—')
+    : esc(c.prof_label || (c.prof_user_id ? String(c.prof_user_id).slice(0, 8) + '…' : '—'));
+  const plageParts = [];
+  if (c.jour_semaine != null && c.jour_semaine !== '') plageParts.push('J' + c.jour_semaine);
+  if (c.heure_debut) plageParts.push(String(c.heure_debut));
+  if (c.heure_fin) plageParts.push(String(c.heure_fin));
+  const plage = plageParts.length ? esc(plageParts.join('–')) : '';
+  const det = c.detail ? esc(String(c.detail).trim()) : '';
+  showEntToast(
+    `<strong>Contrainte EDT enregistrée</strong> — ${kind} · ${cible}`
+    + (plage ? ` · ${plage}` : '')
+    + (det ? ` · ${det}` : '')
+    + '. <a href="/app/edt">Contraintes EDT</a>',
     9000,
   );
 }
@@ -883,6 +924,7 @@ async function bindElevePickers(selectIds, queryId, btnId) {
             style="display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;width:100%;text-align:left;padding:.2rem 0;border:none;background:transparent;cursor:pointer;border-bottom:1px solid var(--border,#eee)">
             <strong>${esc(e.prenom)} ${esc(e.nom)}</strong>
             ${staffEleveClasseBadgeHtml(e.classe)}
+            ${staffEleveIneBadgeHtml(e.ine)}
             ${staffEleveStatusBadgeHtml(e.status)}
           </button>`
         ).join('');
@@ -903,7 +945,7 @@ async function bindElevePickers(selectIds, queryId, btnId) {
     if (emptyBox) {
       if (!list.length && trimmed) {
         emptyBox.innerHTML = staffEmptyDense('Aucun élève trouvé', [
-          'Essayez le nom, le prénom ou une partie de la classe.',
+          'Essayez le nom, le prénom, l’INE ou une partie de la classe.',
           'La recherche interroge GET /eleves/search?q=…',
         ], '');
       } else {
@@ -1246,10 +1288,31 @@ function staffEleveClasseBadgeHtml(classe) {
     ? `<span class="pill warn" style="font-weight:700;font-size:.78rem;vertical-align:middle">${esc(cl)}</span>`
     : '<span class="muted" style="font-size:.78rem">—</span>';
 }
+function staffEleveIneBadgeHtml(ine) {
+  const s = String(ine || '').trim();
+  return s
+    ? `<span class="muted" style="font-size:.72rem;font-weight:600;letter-spacing:.02em" title="INE">${esc(s)}</span>`
+    : '';
+}
 function staffEleveOptionLabel(e) {
   if (!e) return '—';
   const cl = String(e.classe || '').trim();
-  return `${e.prenom || ''} ${e.nom || ''}`.trim() + (cl ? ` · ${cl}` : '');
+  const ine = String(e.ine || '').trim();
+  let lbl = `${e.prenom || ''} ${e.nom || ''}`.trim();
+  if (cl) lbl += ` · ${cl}`;
+  if (ine) lbl += ` · ${ine}`;
+  return lbl;
+}
+function homeComTileSpan(nComDos, comSnap, eleveLabel) {
+  if (nComDos > 0) {
+    const extra = nComDos > 1 ? ` (+${nComDos - 1})` : '';
+    return eleveLabel
+      ? `Décider · ${eleveLabel}${extra}`
+      : `Dossiers ouverts · ${nComDos}`;
+  }
+  return comSnap && comSnap.coms
+    ? 'Com. sans dossier ouvert'
+    : 'Créer via signal VS';
 }
 function isHarryPotterAbsenceRow(a) {
   const lbl = String((a && a.eleve_label) || '');
@@ -1605,7 +1668,8 @@ function toastPaiSigneFamille(prenom, motif) {
   const m = motif ? ` · ${esc(String(motif).trim())}` : '';
   showEntToast(`<strong>PAI signé</strong> — ${who}${m}. Prise de connaissance enregistrée.`, 8000);
 }
-function toastFamSortieAutorisation(prenom, creneaux) {
+function toastFamSortieAutorisation(prenom, creneaux, opts) {
+  const o = opts || {};
   const who = esc(String(prenom || '').trim() || 'Enfant');
   const c = creneaux || {};
   const parts = [];
@@ -1613,10 +1677,14 @@ function toastFamSortieAutorisation(prenom, creneaux) {
   if (c.midi) parts.push('midi');
   if (c.soir) parts.push('soir');
   const detail = parts.length ? ` · ${esc(parts.join(', '))}` : '';
-  showEntToast(
-    `<strong>Autorisation enregistrée</strong> — ${who}${detail}. Sortie permanente mise à jour.`,
-    8000,
-  );
+  const fin = o.created
+    ? 'Sortie permanente créée.'
+    : 'Sortie permanente mise à jour.';
+  showEntToast(`<strong>Autorisation enregistrée</strong> — ${who}${detail}. ${fin}`, 8000);
+}
+function toastFilArchiver(sujet) {
+  const s = esc(String(sujet || 'Fil').trim());
+  showEntToast(`<strong>Fil archivé</strong> — ${s}. Il reste consultable dans les archives.`, 7000);
 }
 function toastFilOuvert(sujet, opts) {
   const o = opts || {};
@@ -4397,12 +4465,16 @@ async function bindEleveNotes() {
       const docs = await api('/eleves/' + eid + '/documents');
       const bulletins = (docs || []).filter(isBulletinMetierDoc);
       if (!bulletins.length) {
-        box.innerHTML = emptyState(
-          'Aucun bulletin publié',
-          periode && periode.statut !== 'fermee'
-            ? 'Les bulletins apparaissent après fermeture de la période (ex. BULLETIN_T0).'
-            : 'Demandez à l’établissement si un bulletin T0 devrait être disponible (code BULLETIN_T0).'
-        );
+        const bullets = periode && periode.statut !== 'fermee'
+          ? [
+              'Les bulletins PDF apparaissent après fermeture de la période par l’établissement.',
+              'Trimestre 0 : code document attendu <strong class="ok">BULLETIN_T0</strong> (publication après fermeture).',
+            ]
+          : [
+              'Aucun bulletin accessible pour l’instant — l’établissement publie le PDF après fermeture de période.',
+              'Trimestre 0 : vérifiez le code <strong class="ok">BULLETIN_T0</strong> ou contactez le secrétariat.',
+            ];
+        box.innerHTML = famEmptyDense('Aucun bulletin publié', bullets, '<a href="/eleve/docs">Docs &amp; bulletins</a>');
         return;
       }
       const sorted = bulletins.slice().sort((a, b) => {
@@ -4540,6 +4612,16 @@ async function bindEleveNotes() {
     }
   }
   }
+  function isNotePeriodeT0(p) {
+    if (!p) return false;
+    const code = String(p.code || '').trim().toUpperCase();
+    if (code === 'T0' || code === 'TRIM0') return true;
+    const lb = String(p.libelle || '').toLowerCase();
+    return /\btrim(estre)?\s*0\b/.test(lb) || /\bt0\b/.test(lb);
+  }
+  function eleveBulletinT0TipHtml() {
+    return '<span class="empty-state-hint">Trimestre 0 — bulletin PDF publié sous le code <strong>BULLETIN_T0</strong> après fermeture de période.</span>';
+  }
   function updateEleveBulletinHint(periode) {
     const hint = document.getElementById('eleveBulletinHint');
     const btn = document.getElementById('btnEleveBulletin');
@@ -4549,11 +4631,12 @@ async function bindEleveNotes() {
       if (btn) btn.disabled = false;
       return;
     }
+    const t0Tip = isNotePeriodeT0(periode) ? `<br/>${eleveBulletinT0TipHtml()}` : '';
     if (periode.statut === 'fermee') {
-      hint.innerHTML = '<span class="ok">Période fermée — le bulletin peut être téléchargé s’il a été publié.</span>';
+      hint.innerHTML = `<span class="ok">Période fermée — le bulletin peut être téléchargé s’il a été publié.</span>${t0Tip}`;
       if (btn) btn.disabled = false;
     } else {
-      hint.innerHTML = '<span class="warn">Bulletin disponible après fermeture de la période par l’établissement (période encore ouverte ou en cours).</span>';
+      hint.innerHTML = `<span class="warn">Bulletin disponible après fermeture de la période par l’établissement (période encore ouverte ou en cours).</span>${t0Tip}`;
       if (btn) btn.disabled = false;
     }
   }
@@ -4778,7 +4861,8 @@ function viewHome() {
       <a class="stat-tile bento-span-3" href="/app/vs"><strong>Vie scolaire</strong><span>File du jour</span></a>
       <a class="stat-tile bento-span-3" href="/app/eleves"><strong>Élèves</strong><span>Annuaire &amp; fiches</span></a>
       <a class="stat-tile bento-span-3" href="/app/appel"><strong>Appel</strong><span>Créneaux</span></a>
-      <a class="stat-tile bento-span-3" href="/app/absences"><strong>Absences</strong><span>Commissions &amp; incidents</span></a>
+      <a class="stat-tile bento-span-3" href="/app/absences"><strong>Absences</strong><span>Incidents &amp; justifs</span></a>
+      <a class="stat-tile bento-span-3" href="/app/absences" id="homeCpeComTile"><strong>·</strong><span>Commissions</span></a>
       <a class="stat-tile bento-span-3" href="/app/alertes"><strong>Alertes</strong><span>Suivi CPE</span></a>
       <a class="stat-tile bento-span-3" href="/app/sorties" id="homeCpeSortiesTile"><strong>·</strong><span>Sorties en attente</span></a>
       <a class="stat-tile bento-span-3" href="/app/editions"><strong>Éditions</strong><span>Convocs &amp; courriers</span></a>
@@ -4955,6 +5039,11 @@ async function bindHome() {
     if (comSnap.first && comSnap.first.eleveId) ptsIds.push(comSnap.first.eleveId);
     permisBas = await settle(snapshotPermisBasEleves(ptsIds), []);
   }
+  let comFirstLabel = '';
+  if (role === 'cpe' && comSnap.first && comSnap.first.eleveId) {
+    await hydrateEleveNames([comSnap.first.eleveId]);
+    comFirstLabel = ELEVE_NAME_CACHE[comSnap.first.eleveId] || '';
+  }
   const outboxSnap = role === 'cpe'
     ? await settle(snapshotOutboxPending(), { show: false, n: 0 })
     : { show: false, n: 0 };
@@ -4962,9 +5051,7 @@ async function bindHome() {
   const comDosHref = comSnap.first
     ? absencesComDeepLink({ comId: comSnap.first.comId, dosId: comSnap.first.dosId })
     : '/app/absences';
-  const comDosTileSpan = nComDos > 0
-    ? 'Dossiers commission'
-    : 'Aucune commission — créer depuis un signal VS';
+  const comDosTileSpan = homeComTileSpan(nComDos, comSnap, comFirstLabel);
   if (pulse) {
     if (role === 'prof') {
       pulse.innerHTML = `
@@ -5096,13 +5183,16 @@ async function bindHome() {
   if (homeCpeSortiesTile && role === 'cpe' && wantSort) {
     homeCpeSortiesTile.innerHTML = `<strong class="${nSort ? 'warn' : ''}">${nSort}</strong><span>Sorties en attente</span>`;
   }
+  const homeCpeComTile = document.getElementById('homeCpeComTile');
+  if (homeCpeComTile && role === 'cpe') {
+    homeCpeComTile.href = comDosHref;
+    homeCpeComTile.innerHTML = `<strong class="${nComDos ? 'warn' : ''}">${nComDos || '·'}</strong><span>${esc(comDosTileSpan)}</span>`;
+  }
   const signauxBox = document.getElementById('homeSignauxPrecoces');
   if (signauxBox && role === 'cpe') {
     const totalEarly = nAbs + nAlert + nSig + nJustifTrancher;
     const justifTile = `<a class="stat-tile bento-span-3" href="/app/absences?filtre=justifs-trancher"><strong class="${nJustifTrancher ? 'warn' : ''}">${nJustifTrancher}${justifPjCountBadgeHtml(nJustifPj)}</strong><span>Justifs à trancher${nHarryJustif ? ' · Harry ' + nHarryJustif : ''}</span></a>`;
-    const comEarly = nComDos > 0
-      ? `<a class="stat-tile bento-span-3" href="${esc(comDosHref)}"><strong class="warn">${nComDos}</strong><span>Dossiers commission · ouvrir</span></a>`
-      : `<a class="stat-tile bento-span-3" href="/app/absences"><strong>0</strong><span>Commissions — créer depuis un signal</span></a>`;
+    const comEarly = `<a class="stat-tile bento-span-3" href="${esc(comDosHref)}"><strong class="${nComDos ? 'warn' : ''}">${nComDos || '0'}</strong><span>${esc(comDosTileSpan)}</span></a>`;
     const sortEarly = wantSort
       ? `<a class="stat-tile bento-span-3" href="/app/sorties"><strong class="${nSort ? 'warn' : ''}">${nSort}</strong><span>Sorties en attente</span></a>`
       : '';
@@ -5451,7 +5541,7 @@ function viewFamilleHome() {
         <h2>Espace famille</h2>
         <p class="muted" style="margin:0">Absences, carnet, messages, factures — un enfant = une fiche.</p>
       </section>
-      <a class="stat-tile bento-span-2" href="/famille/vie-scolaire"><strong>Vie scolaire</strong><span>Sanctions, commissions…</span></a>
+      <a class="stat-tile bento-span-2" id="famHomeVsTile" href="/famille/vie-scolaire"><strong>Vie scolaire</strong><span>Sanctions, commissions…</span></a>
       <a class="stat-tile bento-span-2" href="/famille/sante"><strong>Santé</strong><span>Fiche, PAI, infirmerie</span></a>
       <a class="stat-tile bento-span-2" href="/famille/messages"><strong>Messages</strong><span>Fils école ↔ famille</span></a>
       <a class="stat-tile bento-span-2" href="/famille/docs-signer"><strong>Docs</strong><span>Charte &amp; règlement</span></a>
@@ -5690,7 +5780,7 @@ async function bindFamilleHome() {
         ${paiTile}
         <a class="stat-tile bento-span-2" href="${facPulseHref}"><strong class="${nImpayees ? 'warn' : ''}">${nImpayees}</strong><span>Facture(s) impayée(s)</span></a>
         <a class="stat-tile bento-span-2" href="/famille/messages"><strong class="${nMsg ? 'warn' : ''}">${nMsg}</strong><span>${nMsg ? 'Msg non lus' : 'Messages'}</span></a>
-        <a class="stat-tile bento-span-2" href="/famille/vie-scolaire"><strong>${nCom}</strong><span>Commissions</span></a>
+        <a class="stat-tile bento-span-2" href="/famille/vie-scolaire"><strong class="${nCom ? 'warn' : ''}">${nCom}</strong><span>${nCom ? 'Commission(s) en cours' : 'Commissions'}</span></a>
         ${nRepasJour
           ? `<a class="stat-tile bento-span-2" href="/famille/repas"><strong class="ok">${nRepasJour}</strong><span>Repas aujourd’hui</span></a>`
           : ''}
@@ -5709,6 +5799,12 @@ async function bindFamilleHome() {
       } else {
         reinsNav.style.display = 'none';
       }
+    }
+    const vsNav = document.getElementById('famHomeVsTile');
+    if (vsNav) {
+      vsNav.innerHTML = nCom
+        ? `<strong class="warn">${nCom}</strong><span>Commission(s) en cours</span>`
+        : '<strong>Vie scolaire</strong><span>Sanctions, commissions…</span>';
     }
     out.innerHTML = `${famHomeEnfantsHighlightHtml(list)}<table>
       <thead><tr><th>Enfant</th><th>Classe</th><th>Lien</th><th>À traiter</th><th></th></tr></thead>
@@ -5942,7 +6038,7 @@ async function bindFamilleEnfant(id) {
     html += `<h3>Devoirs</h3><div id="famDevOut" class="muted">…</div>`;
 
     // PAI (signature famille)
-    html += `<h3 id="fam-sec-pai">PAI</h3><div id="paiFamOut" class="muted">Chargement…</div>`;
+    html += `<h3 id="fam-sec-pai" style="scroll-margin-top:4.5rem">PAI</h3><div id="paiFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Fiche santé</h3><div id="santeFamOut" class="muted">Chargement…</div>`;
 
     html += `<div id="fam-sec-docs" style="scroll-margin-top:4.5rem"><h3>Documents à signer</h3><div id="docsFamOut" class="muted">Chargement…</div></div>`;
@@ -6656,7 +6752,7 @@ async function bindFamilleEnfant(id) {
               }),
             });
             msg.innerHTML = '<span class="ok">Autorisation enregistrée</span>';
-            toastFamSortieAutorisation(e && e.prenom, { midi, soir });
+            toastFamSortieAutorisation(e && e.prenom, { midi, soir }, { created: !a });
             await bindFamilleEnfant(id);
           } catch (err) {
             msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -7076,9 +7172,10 @@ async function bindFamilleEnfant(id) {
       contBox.innerHTML = h;
     }
 
-    famApplyEnfantSectionDeepLink();
-    if (enfantDeepSection === 'docs' || enfantDeepSection === 'carnet') {
+    famApplyEnfantSectionDeepLink(enfantDeepSection);
+    if (enfantDeepSection) {
       setTimeout(() => famApplyEnfantSectionDeepLink(enfantDeepSection), 160);
+      setTimeout(() => famApplyEnfantSectionDeepLink(enfantDeepSection), 450);
     }
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -7092,7 +7189,7 @@ function viewEleves() {
     <div class="panel">
       <h2>Élèves</h2>
       <div class="row">
-        <input id="q" placeholder="Nom, prénom, classe…" style="min-width:14rem"/>
+        <input id="q" placeholder="Nom, prénom, INE, classe…" style="min-width:14rem"/>
         <button type="button" class="primary" id="btnSearch">Chercher</button>
         <button type="button" id="btnAll">Tout lister</button>
         <button type="button" id="btnSansCompte">Sans compte</button>
@@ -8071,7 +8168,7 @@ async function bindDossier(id) {
         dossierSearchOut.innerHTML = list.slice(0, 8).map(e =>
           `<div class="row" style="justify-content:space-between;align-items:center;gap:.35rem;padding:.15rem 0;border-bottom:1px solid var(--border,#eee)">
             <a href="/app/eleves/${esc(e.id)}"><strong>${esc(e.prenom)} ${esc(e.nom)}</strong></a>
-            <span style="display:flex;align-items:center;gap:.35rem">${staffEleveClasseBadgeHtml(e.classe)}${staffEleveStatusBadgeHtml(e.status)}</span>
+            <span style="display:flex;align-items:center;gap:.35rem">${staffEleveClasseBadgeHtml(e.classe)}${staffEleveIneBadgeHtml(e.ine)}${staffEleveStatusBadgeHtml(e.status)}</span>
           </div>`
         ).join('');
       } catch (e) {
@@ -9904,7 +10001,7 @@ async function bindEdt() {
     const msg = document.getElementById('ctrMsg');
     msg.textContent = '';
     try {
-      await api('/edt/contraintes', {
+      const created = await api('/edt/contraintes', {
         method: 'POST',
         body: JSON.stringify({
           kind: document.getElementById('ctrKind').value,
@@ -9917,6 +10014,7 @@ async function bindEdt() {
         }),
       });
       msg.innerHTML = '<span class="ok">Contrainte enregistrée</span>';
+      toastEdtContrainteCreee(created);
       await loadContraintes();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -12196,7 +12294,7 @@ async function bindCantine() {
       await loadPassages();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
-      showEntToast(`<span class="bad">${esc(e.message)}</span>`, 9000);
+      toastRepasScanFail(e.message, badge);
     }
   };
   document.getElementById('scanBadge').onkeydown = (ev) => {
@@ -17706,7 +17804,8 @@ async function bindNotes() {
       }),
     });
   }
-  async function grilleNoteAdvanceFromInput(inp, inputs, idx) {
+  async function grilleNoteAdvanceFromInput(inp, inputs, idx, delta) {
+    const step = delta === -1 ? -1 : 1;
     const msg = document.getElementById('grilleMsg');
     try {
       const n = await saveGrilleNoteInput(inp);
@@ -17716,9 +17815,13 @@ async function bindNotes() {
         toastNoteSaisie(n, grilleEleveLabelFromInput(inp));
         writeNotesLastSaveAt();
         refreshNotesLastSaveTip();
-        if (msg) msg.innerHTML = '<span class="ok">Note enregistrée — ligne suivante</span>';
+        if (msg) {
+          msg.innerHTML = step < 0
+            ? '<span class="ok">Note enregistrée — ligne précédente</span>'
+            : '<span class="ok">Note enregistrée — ligne suivante</span>';
+        }
       }
-      const next = inputs[idx + 1];
+      const next = inputs[idx + step];
       if (next) {
         next.focus({ preventScroll: true });
         if (typeof next.select === 'function') next.select();
@@ -17740,7 +17843,8 @@ async function bindNotes() {
         }
         if (ev.key !== 'Enter' && ev.key !== 'Tab') return;
         ev.preventDefault();
-        await grilleNoteAdvanceFromInput(inp, inputs, idx);
+        const delta = ev.shiftKey ? -1 : 1;
+        await grilleNoteAdvanceFromInput(inp, inputs, idx, delta);
       };
     });
   }
@@ -18325,6 +18429,14 @@ async function bindNotes() {
           classe: document.getElementById('expClasse').value.trim(),
           periodeLabel,
         });
+      } else if (/export-notanet\.csv/i.test(filename)) {
+        const expPerSel = document.getElementById('expPeriode');
+        const periodeLabel = expPerSel && expPerSel.selectedOptions && expPerSel.selectedOptions[0]
+          ? expPerSel.selectedOptions[0].textContent.trim() : '';
+        toastExportNotanet(filename, {
+          classe: document.getElementById('expClasse').value.trim(),
+          periodeLabel,
+        });
       } else {
         showEntToast(`<strong>Export téléchargé</strong> · ${esc(filename)}`);
       }
@@ -18522,6 +18634,14 @@ async function bindExportsEn() {
         const periodeLabel = expPerSel && expPerSel.selectedOptions && expPerSel.selectedOptions[0]
           ? expPerSel.selectedOptions[0].textContent.trim() : '';
         toastExportLsl(filename, {
+          classe: document.getElementById('expEnClasse').value.trim(),
+          periodeLabel,
+        });
+      } else if (/export-notanet\.csv/i.test(filename)) {
+        const expPerSel = document.getElementById('expEnPeriode');
+        const periodeLabel = expPerSel && expPerSel.selectedOptions && expPerSel.selectedOptions[0]
+          ? expPerSel.selectedOptions[0].textContent.trim() : '';
+        toastExportNotanet(filename, {
           classe: document.getElementById('expEnClasse').value.trim(),
           periodeLabel,
         });
@@ -21635,7 +21755,7 @@ async function bindFamilleSorties() {
             const opt = sel.options[sel.selectedIndex];
             const prenom = opt ? String(opt.textContent || '').trim().split(/\s/)[0] : '';
             if (msg) msg.innerHTML = '<span class="ok">Autorisation enregistrée</span>';
-            toastFamSortieAutorisation(prenom, { midi, soir });
+            toastFamSortieAutorisation(prenom, { midi, soir }, { created: !a });
             await load();
           } catch (err) {
             if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -22673,8 +22793,11 @@ async function bindMessages(base) {
   if (btnArchiver) {
     btnArchiver.onclick = async () => {
       if (!currentFil) return;
+      const titreEl = document.getElementById('filTitre');
+      const sujetAvant = titreEl ? String(titreEl.textContent || '').replace(/\s*\(archivé\)\s*$/i, '').trim() : '';
       try {
         await api('/messages/fils/' + currentFil + '/archiver', { method: 'POST', body: '{}' });
+        toastFilArchiver(sujetAvant);
         await loadFils();
         await openFil(currentFil, { quiet: true });
       } catch (e) { alert(e.message); }

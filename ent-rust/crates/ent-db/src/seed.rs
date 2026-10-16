@@ -732,6 +732,8 @@ impl PgEnt {
     /// lot L (Bot AL-A) : note Luna (suppl.), absence NJ Seamus, photo trombi Luna, dossier commission Harry ouvert (decision null), Molly mes_enfants Ron+Ginny.
     /// lot M (Bot AM-A) : carnet Cedric (Diggory) si pas d’entrée récente famille, note Cho, photo trombi Cedric, PAI Harry non signé, facture LAB-DRACO.
     /// lot N (Bot AN-A) : note Seamus (Finnigan), absence NJ Luna (Lovegood), photo trombi Hermione, ré-ensure CHARTE_LAB + REGLEMENT_LAB Harry, Molly mes_enfants Ron+Ginny.
+    /// lot O (Bot AO-A) : note Neville, carnet Ginny (famille / visible_famille), photo trombi Seamus (Finnigan),
+    /// renfort justif Harry jour J + PJ, renfort menus lun–ven publiés.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -4489,6 +4491,221 @@ impl PgEnt {
             {
                 eleves[ginny_idx].parent = ron.parent.clone();
                 eleves[ginny_idx].foyer_id = molly_foyer;
+            }
+        }
+
+        // --- Bot AO-A lot O (zone exclusive AO-A) : note Neville, carnet Ginny (famille),
+        // photo trombi Seamus (Finnigan), renfort justif Harry jour J + PJ, menus lun–ven publiés.
+        if let Some(neville) = labo_eleve_prenom(eleves, "Neville") {
+            const NEVILLE_NOTE_AO_LIB: &str = "Interro Français lab (Neville AO-A)";
+            let notes_neville = self.notes_for_eleve(etab, neville.id).await?;
+            if !notes_neville
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(NEVILLE_NOTE_AO_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: neville.id,
+                    matiere_id: _fr.id,
+                    valeur: 11.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(NEVILLE_NOTE_AO_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(ginny) = labo_eleve_prenom(eleves, "Ginny") {
+            const GINNY_CARNET_AO_TITRE: &str = "AUDIT AO-A: Encouragements Ginny (famille)";
+            let carnet_ginny = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), ginny.id)
+                .await?;
+            if !carnet_ginny
+                .iter()
+                .any(|c| c.titre == GINNY_CARNET_AO_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: GINNY_CARNET_AO_TITRE.into(),
+                    corps: "Seed labo lot AO-A — entrée carnet visible_famille (Molly sans notes VS ; carnet portail OK)."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(seamus) = labo_eleve_prenom(eleves, "Seamus") {
+            if self
+                .get_eleve(etab, seamus.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        seamus.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        const JUSTIF_AUDIT_MOTIF_AO: &str = "maladie";
+        let absence_justif_jour_ao = jour;
+        if !self
+            .eleve_est_absent(etab, harry.id, absence_justif_jour_ao)
+            .await?
+        {
+            let motifs = self.list_motifs_absence(etab).await?;
+            let motif_code = motifs
+                .iter()
+                .find(|m| m.code.eq_ignore_ascii_case("maladie"))
+                .or_else(|| motifs.first())
+                .map(|m| m.code.clone())
+                .unwrap_or_else(|| "maladie".into());
+            self.declare_absence(DeclareAbsence {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                debut: absence_justif_jour_ao,
+                fin: absence_justif_jour_ao,
+                motif: motif_code,
+                actor_user_id: Some(cpe.user_id.to_string()),
+            })
+            .await?;
+        }
+        let absences_harry_ao = self.list_absences_eleve(etab, harry.id).await?;
+        if let Some(abs_justif_ao) = absences_harry_ao
+            .iter()
+            .find(|a| a.debut == absence_justif_jour_ao && a.fin == absence_justif_jour_ao)
+        {
+            if abs_justif_ao.statut == AbsenceStatut::ATraiter
+                && abs_justif_ao.motif_justif.as_deref() != Some(JUSTIF_AUDIT_MOTIF_AO)
+            {
+                self.justifier_absence_for_actor(
+                    etab,
+                    harry.parent.user_id,
+                    Role::Parent.as_str(),
+                    abs_justif_ao.id,
+                    JUSTIF_AUDIT_MOTIF_AO.into(),
+                )
+                .await?;
+            }
+            let code_justif_ao = format!("JUSTIF_ABSENCE_{}", abs_justif_ao.id);
+            let docs_harry_ao = self
+                .list_documents_meta_eleve_for_actor(
+                    etab,
+                    administratif.user_id,
+                    role_admini,
+                    harry.id,
+                )
+                .await?;
+            let doc_justif_ao = if let Some(found) = docs_harry_ao
+                .iter()
+                .find(|(d, _)| d.code.as_deref() == Some(code_justif_ao.as_str()))
+            {
+                found.0.clone()
+            } else {
+                self.deposer_document_with_contenu(
+                    domain_eleve::DeposerDocument {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        tiroir: DocTiroir::Famille,
+                        titre: format!("Justificatif absence {code_justif_ao}"),
+                        code: Some(code_justif_ao.clone()),
+                        mime_type: Some("application/pdf".into()),
+                        storage_key: None,
+                        confidentialite: DocConfidentialite::Standard,
+                        actor_user_id: harry.parent.user_id,
+                    },
+                    Some(PDF_JUSTIF_MINIMAL),
+                )
+                .await?
+            };
+            let pdf_ok_ao = self
+                .telecharger_document_bytes_for_actor(
+                    etab,
+                    administratif.user_id,
+                    role_admini,
+                    doc_justif_ao.id,
+                )
+                .await
+                .map(|(_, b)| !b.is_empty() && b.starts_with(b"%PDF"))
+                .unwrap_or(false);
+            if !pdf_ok_ao {
+                if let Some(key) = doc_justif_ao.storage_key.as_ref() {
+                    let _ = self.objects().put(key, PDF_JUSTIF_MINIMAL);
+                } else {
+                    let _ = self
+                        .deposer_document_with_contenu(
+                            domain_eleve::DeposerDocument {
+                                etablissement_id: etab,
+                                eleve_id: harry.id,
+                                tiroir: DocTiroir::Famille,
+                                titre: format!("Justificatif absence {code_justif_ao}"),
+                                code: Some(code_justif_ao),
+                                mime_type: Some("application/pdf".into()),
+                                storage_key: None,
+                                confidentialite: DocConfidentialite::Standard,
+                                actor_user_id: harry.parent.user_id,
+                            },
+                            Some(PDF_JUSTIF_MINIMAL),
+                        )
+                        .await;
+                }
+            }
+        }
+
+        const MENUS_AO_RENFORCE: [(&str, &str, &str); 5] = [
+            ("Velouté", "Gratin dauphinois", "Compote"),
+            ("Salade", "Poulet rôti", "Yaourt"),
+            ("Soupe", "Poisson pané", "Fruit"),
+            ("Taboulé", "Steak haché", "Gâteau"),
+            ("Carottes râpées", "Lasagnes", "Fromage"),
+        ];
+        for (i, menu) in MENUS_AO_RENFORCE.iter().enumerate() {
+            let j_menu = debut_sem + Duration::days(i as i64);
+            let menus_jour = self
+                .list_menus_cantine_for_actor(
+                    etab,
+                    administratif.user_id,
+                    role_admini,
+                    j_menu,
+                    j_menu,
+                )
+                .await?;
+            let manque_plat = !menus_jour.iter().any(|m| m.plat == menu.1);
+            let brouillon = menus_jour.iter().any(|m| !m.publie);
+            if manque_plat || brouillon {
+                self.upsert_menu_cantine_for_actor(
+                    role_admini,
+                    UpsertMenuCantine {
+                        etablissement_id: etab,
+                        jour: j_menu,
+                        entree: menu.0.into(),
+                        plat: menu.1.into(),
+                        dessert: menu.2.into(),
+                        notes: if manque_plat && harry.classe == "4B" {
+                            "Menu seed audit 4B".into()
+                        } else {
+                            String::new()
+                        },
+                        publie: true,
+                        actor_user_id: administratif.user_id,
+                    },
+                )
+                .await?;
             }
         }
 
