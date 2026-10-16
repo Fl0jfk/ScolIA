@@ -32,7 +32,7 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
   }, [shellActive]);
 
   if (!shellActive) {
-    return <>{children}</>;
+    return <DashboardSignalsProvider>{children}</DashboardSignalsProvider>;
   }
 
   return (
