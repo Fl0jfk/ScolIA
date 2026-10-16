@@ -118,6 +118,10 @@ let notesDevoirsEmptyHarryRefresh = null;
 let notesDevoirsEmptyRonBtRefresh = null;
 /** Rempli dans bindNotes — repère Seamus devoir BU-A sur tip « 0 devoir ». */
 let notesDevoirsEmptySeamusRefresh = null;
+/** Rempli dans bindNotes — repère Luna note BX-A sur tip « 0 devoir » (audit BX-D). */
+let notesDevoirsEmptyLunaBxRefresh = null;
+/** Rempli dans bindNotes — repère Ginny devoir BX-A sur tip « 0 devoir » (audit BX-D). */
+let notesDevoirsEmptyGinnyRefresh = null;
 /** Rempli dans bindNotes — repère Luna BS-D sur tip « éval sans note ». */
 let notesEvalSansNoteLunaRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
@@ -879,6 +883,8 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyHarryRefresh === 'function') void notesDevoirsEmptyHarryRefresh();
     if (typeof notesDevoirsEmptyRonBtRefresh === 'function') void notesDevoirsEmptyRonBtRefresh();
     if (typeof notesDevoirsEmptySeamusRefresh === 'function') void notesDevoirsEmptySeamusRefresh();
+    if (typeof notesDevoirsEmptyLunaBxRefresh === 'function') void notesDevoirsEmptyLunaBxRefresh();
+    if (typeof notesDevoirsEmptyGinnyRefresh === 'function') void notesDevoirsEmptyGinnyRefresh();
   } else if ((!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations')
     && Number.isFinite(nMatiere) && nMatiere > 0 && nTot > 0) {
     if (typeof notesEvalSansNoteLunaRefresh === 'function') void notesEvalSansNoteLunaRefresh();
@@ -1190,6 +1196,67 @@ function bindNotesHarryDevoirGoTipGo(opts) {
   }
 }
 
+function findGinnyBxDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /ginny/i.test(String(d.titre || ''))
+    && (/BX-A/i.test(String(d.titre || '')) || /potions/i.test(String(d.matiere_libelle || d.matiere || ''))));
+}
+
+function notesGinnyDevoirGoActions() {
+  const chip = document.getElementById('notesChip4B');
+  if (chip) chip.click();
+  const devCl = document.getElementById('devClasse');
+  if (devCl) devCl.value = '4B';
+  document.getElementById('btnDevList')?.click();
+  document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** /app/notes — repère devoir Ginny BX-A (0 devoir global ou liste filtrée vide). */
+function notesGinnyDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.ginnyBxDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'DS Potions lab (Ginny BX-A)';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Ginny Weasley</strong><span>Seed labo · 4B · devoir audit BX-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesGinnyDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir BX-A · 4B'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesGinnyDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 4B</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesGinnyDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesGinnyDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.ginnyBxDevoir && o.ginnyBxDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.ginnyBxDevoir);
+        return;
+      }
+      notesGinnyDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'DS Potions lab (Ginny BX-A)';
+      }
+      if (!o.ginnyBxDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesGinnyDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesGinnyDevoirGoActions();
+  }
+}
+
 /** /app/notes — repère seed labo Harry Potter (4B · note Potions BV-A · audit BV-D). */
 function notesHarrySeedTipDenseHtml(meta) {
   const o = meta || {};
@@ -1304,6 +1371,30 @@ function notesEvalSansNoteLunaTipDenseHtml(meta) {
       <strong class="${hasBsNote ? 'ok' : 'muted'}">${nNotes}</strong><span>Note(s) Luna · audit seed</span>
     </button>
     <div class="stat-tile bento-span-4"><strong class="${hasBsNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBsNote ? 'Potions BS-A OK' : '0 note BS-A · voir fiche'}</span></div>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Luna Lovegood (6A · note Français BX-A · audit BX-D). */
+function notesLunaBxSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.lunaId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '6A').trim());
+  const hasBxNote = !!o.hasBxNote;
+  const noteLbl = o.bxNoteLabel
+    ? esc(String(o.bxNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · BX-A');
+  const noteStrong = hasBxNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Luna Lovegood</strong><span>Seed labo · ${classe} · audit notes BX-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesLunaBxSeedNotesBtn" data-luna-id="${esc(String(o.lunaId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesLunaBxSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasBxNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBxNote ? 'Repère Luna · Français BX-A' : 'Filtre 6A · saisie / seed'}</span>
+    </button>
   </div>`;
 }
 
@@ -2870,6 +2961,180 @@ function toastStaffBvcAction(kind, meta) {
     + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit BV-C</p>`,
     6500,
   );
+}
+
+function staffHomeBxcPanelShell() {
+  return `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit services établissement</h3>
+      <p class="muted" style="margin-top:0">Cantine · menus · internat · orientation · éditions — <span class="muted empty-state-hint" style="font-size:.72rem">BX-C</span>.</p>
+      <div id="homeStaffBxcTip" class="muted">Chargement…</div>
+    </div>`;
+}
+
+function isStaffHomeBxcFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && ['compta', 'direction', 'admin'].includes(role);
+}
+
+/** Accueil compta / direction / admin — cantine · internat · orientation · éditions (audit UI BX-C). */
+function homeStaffBxcTipDenseHtml(meta) {
+  if (!isStaffHomeBxcFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const bxcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">BX-C</span>';
+  const nPass = Number(o.nPassages) || 0;
+  const plat = o.menuPlat ? esc(String(o.menuPlat).trim().slice(0, 22)) : '';
+  const menuSpan = plat
+    ? `${plat}${o.menuPublie ? '' : ' · brouillon'}`
+    : (Number(o.nMenusBro) ? `${Number(o.nMenusBro)} brouillon(s)` : `Menu · ${jour}`);
+  const cantTile = `<button type="button" class="stat-tile bento-span-4" id="homeBxcCantGo" style="cursor:pointer;text-align:left;border-color:${nPass ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${nPass ? 'ok' : ''}">${nPass || '→'}</strong><span>Passage(s) midi · ${menuSpan} · ${bxcLbl}</span></button>`;
+  const nAff = Number(o.nAffInt) || 0;
+  const nNon = Number(o.nNonInt) || 0;
+  const intTile = nAff
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeBxcInternatGo" style="cursor:pointer;text-align:left;border-color:${nNon ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nNon ? 'warn' : 'ok'}">${nAff}</strong><span>Internat · ${nNon ? nNon + ' non pointé(s)' : 'appel à jour'} · ${jour}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeBxcInternatGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">—</strong><span>Internat · chambres &amp; présences</span></button>`;
+  const nFil = Number(o.nFilieres) || 0;
+  const orientTile = `<button type="button" class="stat-tile bento-span-4" id="homeBxcOrientGo" style="cursor:pointer;text-align:left;border-color:${nFil ? 'var(--accent,#0071e3)' : 'var(--warn,#b45309)'}">
+      <strong class="${nFil ? '' : 'warn'}">${nFil || '0'}</strong><span>Orientation · filières référentiel</span></button>`;
+  const nEd = Number(o.nEditions) || 0;
+  const edTile = `<button type="button" class="stat-tile bento-span-4" id="homeBxcEdGo" style="cursor:pointer;text-align:left;border-color:${nEd ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+      <strong>${nEd || '→'}</strong><span>Éditions VS · convocs &amp; courriers</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Repas · internat · docs VS</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-C" style="margin:0 0 .55rem">${cantTile}${intTile}${orientTile}${edTile}${auditTile}</div>`;
+}
+
+function bindHomeStaffBxcTipActions(meta) {
+  const o = meta || {};
+  const cant = document.getElementById('homeBxcCantGo');
+  if (cant) {
+    cant.onclick = () => {
+      toastStaffBxcAction('cantine', o);
+      go('/app/cantine');
+    };
+  }
+  const internat = document.getElementById('homeBxcInternatGo');
+  if (internat) {
+    internat.onclick = () => {
+      toastStaffBxcAction('internat', o);
+      go('/app/internat');
+    };
+  }
+  const orient = document.getElementById('homeBxcOrientGo');
+  if (orient) {
+    orient.onclick = () => {
+      toastStaffBxcAction('orient', o);
+      go('/app/etab');
+    };
+  }
+  const ed = document.getElementById('homeBxcEdGo');
+  if (ed) {
+    ed.onclick = () => {
+      toastStaffBxcAction('editions', o);
+      go('/app/editions');
+    };
+  }
+}
+
+/** Toast bento — action cockpit services établissement (routes existantes · audit BX-C). */
+function toastStaffBxcAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Services établissement';
+  let href = '/app';
+  let tiles = '';
+  if (k === 'cantine') {
+    href = '/app/cantine';
+    const nPass = Number(o.nPassages) || 0;
+    const plat = o.menuPlat ? esc(String(o.menuPlat).trim().slice(0, 28)) : '—';
+    title = nPass ? 'Cantine · passages du jour' : 'Cantine · scan &amp; menus';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nPass ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+        <strong class="${nPass ? 'ok' : ''}">${nPass}</strong><span>Passage(s) badge · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${plat}</strong><span>Menu midi${o.menuPublie ? '' : ' · brouillon'}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Grille · dispenses · publication</span></div>`;
+  } else if (k === 'internat') {
+    href = '/app/internat';
+    const nAff = Number(o.nAffInt) || 0;
+    const nNon = Number(o.nNonInt) || 0;
+    title = nNon ? 'Internat · pointage en attente' : 'Internat · appel du soir';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nNon ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nNon ? 'warn' : 'ok'}">${nAff || '—'}</strong><span>Affectation(s) · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${nNon}</strong><span>Non pointé(s) ce jour</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Chambres · suivis famille</span></div>`;
+  } else if (k === 'orient') {
+    href = '/app/etab';
+    const nFil = Number(o.nFilieres) || 0;
+    title = nFil ? 'Orientation · référentiel filières' : 'Orientation · créer filières';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nFil ? 'var(--accent,#0071e3)' : 'var(--warn,#b45309)'}">
+        <strong class="${nFil ? '' : 'warn'}">${nFil}</strong><span>Filière(s) ONISEP / Parcoursup</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Vœux</strong><span>Exports · dossiers élèves</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Établissement · orientation staff</span></div>`;
+  } else if (k === 'editions') {
+    href = '/app/editions';
+    const nEd = Number(o.nEditions) || 0;
+    title = nEd ? 'Éditions VS · modèles actifs' : 'Éditions VS · créer CONVOC';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nEd || '0'}</strong><span>Modèle(s) enregistré(s)</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">{{nom}}</strong><span>Rendu · dépôt · signature</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Convocations · courriers VS</span></div>`;
+  } else if (k === 'docs') {
+    href = '/app/docs-signer';
+    const nDocs = Number(o.nDocs) || 0;
+    title = nDocs ? 'Docs à signer · file staff' : 'Docs à signer · à jour';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nDocs ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nDocs ? 'warn' : 'ok'}">${nDocs}</strong><span>Signature(s) en attente</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Publier</strong><span>Charte · règlement · VS</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Portail famille lié</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit BX-C</p>`,
+    6500,
+  );
+}
+
+/** /app/internat — synthèse jour (audit BX-C). */
+function internatPageTipDenseHtml(meta) {
+  if (path() !== '/app/internat') return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const nAff = Number(o.nAff) || 0;
+  const nNon = Number(o.nNon) || 0;
+  const nPres = Number(o.nPres) || 0;
+  const affTile = `<div class="stat-tile bento-span-4" style="border-color:${nAff ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+      <strong>${nAff || '—'}</strong><span>Affectation(s) · ${jour}</span></div>`;
+  const presTile = nNon
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nNon}</strong><span>Non pointé(s) · appel soir</span></div>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nPres}</strong><span>Présent(s) · ${jour}</span></div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Internat · chambres · suivis</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-C" style="margin:0 0 .55rem">${affTile}${presTile}${auditTile}</div>`;
+}
+
+/** /app/editions — synthèse modèles (audit BX-C). */
+function editionsVsPageTipDenseHtml(meta) {
+  if (path() !== '/app/editions') return '';
+  const o = meta || {};
+  const nEd = Number(o.nEditions) || 0;
+  const code = o.firstCode ? esc(String(o.firstCode).trim().slice(0, 12)) : 'CONVOC';
+  const edTile = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${nEd}</strong><span>Modèle(s) VS · bibliothèque</span></div>`;
+  const tplTile = `<div class="stat-tile bento-span-4"><strong>${code}</strong><span>Rendu · dépôt · publier signer</span></div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Convocs · courriers commission</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-C" style="margin:0 0 .55rem">${edTile}${tplTile}${auditTile}</div>`;
 }
 
 /** /app/docs-signer — synthèse dense file + publier (audit BT-C). */
@@ -4532,93 +4797,206 @@ function famHomeRepasTipDenseHtml(list, repasJourLists, repasApiOk, opts) {
   return famHomeRepasFamilleDenseHtml(list, repasJourLists, repasApiOk, opts);
 }
 
-function famHomePaiActifsTipDenseHtml(list, paiList) {
-  const kids = list || [];
-  const actifs = [];
-  kids.forEach((e, i) => {
-    const pai = paiList[i];
-    if (pai) actifs.push({ e, pai });
-  });
-  if (!actifs.length) return '';
-  const nPending = actifs.filter(x => !x.pai.signe_famille).length;
-  const nSigned = actifs.length - nPending;
-  const firstPending = actifs.find(x => !x.pai.signe_famille);
-  const first = firstPending || actifs[0];
-  const eid = esc(String(first.e.id));
-  const motif = esc(String((first.pai.motif || 'protocole').trim()).slice(0, 28));
-  const pendingTile = nPending
-    ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=pai" style="text-decoration:none;border-color:var(--warn,#b45309)">
-        <strong class="warn">${nPending}</strong><span>PAI à signer · ${motif}</span>
-      </a>`
-    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-        <strong class="ok">${nSigned}</strong><span>PAI actif(s) · signé(s)</span>
-      </div>`;
-  const signedTile = nSigned
-    ? `<div class="stat-tile bento-span-4"><strong class="ok">${nSigned}</strong><span>Prise de connaissance OK</span></div>`
-    : `<div class="stat-tile bento-span-4"><strong>${actifs.length}</strong><span>Enfant(s) avec PAI</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${pendingTile}${signedTile}</div>`;
+function famBxBSanteHrefForEnfant(enfantId) {
+  const eid = enfantId ? String(enfantId).trim() : '';
+  return eid ? `/famille/enfants/${esc(eid)}?section=sante` : '/famille/sante';
 }
 
-/** Accueil famille — allergies & fiches santé (bento, distinct du tip PAI). */
-function famHomeAllergiesTipDenseHtml(list, ficheList) {
+function famBxBPaiHrefForEnfant(enfantId) {
+  const eid = enfantId ? String(enfantId).trim() : '';
+  return eid ? `/famille/enfants/${esc(eid)}?section=pai` : '/famille/sante';
+}
+
+function famBxBActiveDispenses(list) {
+  const now = today();
+  return (list || []).filter(d => {
+    if (!d) return false;
+    const st = String(d.statut || '').toLowerCase();
+    if (st === 'cloturee' || st === 'cloturée' || st === 'annulee' || st === 'annulée' || st === 'refusee' || st === 'refusée') {
+      return false;
+    }
+    const fin = String(d.fin || d.debut || '').slice(0, 10);
+    return !fin || fin >= now;
+  });
+}
+
+function famBxBSanteCollectStats(list, ficheList, paiList, dispenseLists) {
   const kids = list || [];
-  if (!kids.length) return '';
-  let nManq = 0;
-  let firstManq = null;
-  let firstFill = null;
+  let nPaiPending = 0;
+  let nAllergieManq = 0;
+  let nDispActif = 0;
+  let leadPai = null;
+  let leadAl = null;
+  let leadDisp = null;
   kids.forEach((e, i) => {
+    const pai = (paiList || [])[i];
+    if (pai && !pai.signe_famille) {
+      nPaiPending += 1;
+      if (!leadPai) leadPai = { e, pai };
+    }
     const f = (ficheList || [])[i];
-    const al = famSanteAllergieResume(f && f.allergies, 999);
-    if (al.empty) {
-      nManq += 1;
-      if (!firstManq) firstManq = e;
-    } else if (!firstFill) {
-      firstFill = { e, al };
+    if (famSanteAllergieResume(f && f.allergies, 999).empty) {
+      nAllergieManq += 1;
+      if (!leadAl) leadAl = e;
+    }
+    const dis = famBxBActiveDispenses((dispenseLists || [])[i]);
+    if (dis.length) {
+      nDispActif += dis.length;
+      if (!leadDisp) leadDisp = { e, n: dis.length };
     }
   });
-  const pri = firstManq || (firstFill && firstFill.e) || kids[0];
-  const eid = pri && pri.id ? esc(String(pri.id)) : '';
-  const prenom = pri && pri.prenom ? esc(String(pri.prenom).trim()) : 'Enfant';
-  const ficheHref = eid ? `/famille/enfants/${eid}?section=sante` : '/famille/sante';
+  const hasAction = nPaiPending > 0 || nAllergieManq > 0 || nDispActif > 0;
+  const lead = (leadPai && leadPai.e) || leadAl || (leadDisp && leadDisp.e) || (kids[0] || null);
+  return {
+    nPaiPending,
+    nAllergieManq,
+    nDispActif,
+    hasAction,
+    leadPai,
+    leadAl,
+    leadDisp,
+    lead,
+  };
+}
+
+/** Accueil famille — santé / PAI / dispenses (bento actif) — audit UI BX-B. */
+function famHomeSanteBxBActifTipDenseHtml(list, ficheList, paiList, dispenseLists) {
+  const kids = list || [];
+  if (!kids.length) return '';
+  const st = famBxBSanteCollectStats(kids, ficheList, paiList, dispenseLists);
+  if (!st.hasAction) return '';
+  const leadId = st.lead && st.lead.id ? String(st.lead.id).trim() : '';
+  const paiHref = famBxBPaiHrefForEnfant(leadId);
+  const santeHref = famBxBSanteHrefForEnfant(leadId);
   const pageHref = '/famille/sante';
-  const manqTile = nManq
-    ? `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
-        <strong class="warn">${nManq}</strong><span>Allergie(s) non renseignée(s)</span>
-      </a>`
+  const motif = st.leadPai
+    ? esc(String((st.leadPai.pai.motif || 'protocole').trim()).slice(0, 22))
+    : '';
+  const paiTile = st.nPaiPending
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(paiHref)}" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${st.nPaiPending}</strong><span>PAI à signer${motif ? ' · ' + motif : ''}</span>
+      </button>`
     : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-        <strong class="ok">OK</strong><span>Fiches allergies à jour</span>
+        <strong class="ok">PAI</strong><span>Prise de connaissance OK</span>
       </div>`;
-  let detailTile;
-  if (firstFill && !firstManq) {
-    detailTile = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none">
-        <strong>${prenom}</strong><span>${firstFill.al.html} · fiche</span>
-      </a>`;
-  } else if (firstManq) {
-    detailTile = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
-        <strong>${prenom}</strong><span>Compléter allergies · fiche</span>
-      </a>`;
-  } else {
-    detailTile = `<div class="stat-tile bento-span-4"><strong>${kids.length}</strong><span>Enfant(s) · fiche santé</span></div>`;
-  }
-  const santeTile = `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>Santé</strong><span>PAI · passages infirmerie</span>
-    </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${manqTile}${detailTile}${santeTile}</div>`;
+  const alTile = st.nAllergieManq
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(santeHref)}" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${st.nAllergieManq}</strong><span>Allergie(s) à compléter</span>
+      </button>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">Allergies</strong><span>Fiches à jour</span>
+      </div>`;
+  const dispTile = st.nDispActif
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(pageHref)}" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${st.nDispActif}</strong><span>Dispense(s) EPS active(s)</span>
+      </button>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(pageHref)}" style="cursor:pointer;text-align:left">
+        <strong>EPS</strong><span>Demander une dispense sport</span>
+      </button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>/famille/sante · PAI</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-B" style="margin:0 0 .55rem">${paiTile}${alTile}${dispTile}${auditTile}</div>`;
+}
+
+/** Accueil famille — santé au calme (bento) — audit UI BX-B. */
+function famHomeSanteBxBCalmeTipDenseHtml(list) {
+  const kids = list || [];
+  if (!kids.length) return '';
+  const sole = kids.length === 1 && kids[0] && kids[0].id;
+  const santeHref = sole ? famBxBSanteHrefForEnfant(kids[0].id) : '/famille/sante';
+  const pageTile = `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(santeHref)}" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Santé</strong><span>Fiche · PAI · infirmerie</span>
+    </button>`;
+  const epsTile = `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="/famille/sante" style="cursor:pointer;text-align:left">
+      <strong class="ok">OK</strong><span>Pas de dispense EPS en cours</span>
+    </button>`;
+  const contactTile = `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="#famContactPanel" style="cursor:pointer;text-align:left">
+      <strong>Contact</strong><span>E-mail · tél. foyer</span>
+    </button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>?section=sante · pai</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-B" style="margin:0 0 .55rem">${pageTile}${epsTile}${contactTile}${auditTile}</div>`;
+}
+
+/** Accueil famille — synthèse santé / PAI / dispenses — audit UI BX-B. */
+function famHomeSanteFamilleDenseHtml(list, ficheList, paiList, dispenseLists) {
+  const kids = list || [];
+  if (!kids.length) return '';
+  const st = famBxBSanteCollectStats(kids, ficheList, paiList, dispenseLists);
+  if (st.hasAction) return famHomeSanteBxBActifTipDenseHtml(kids, ficheList, paiList, dispenseLists);
+  return famHomeSanteBxBCalmeTipDenseHtml(kids);
+}
+
+/** Accueil famille — foyer / contact (bento) — audit UI BX-B. */
+function famHomeFoyerContactBxBDenseHtml() {
+  return `<div class="bento" data-ui-audit="BX-B" style="margin:0 0 .55rem">
+    <button type="button" class="stat-tile bento-span-4" data-fam-bx-go="#famContactPanel" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Mon contact</strong><span>E-mail connexion · SMS</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" data-fam-bx-go="/famille/messages" style="cursor:pointer;text-align:left">
+      <strong>→</strong><span>Contacter l’école</span>
+    </button>
+    <div class="stat-tile bento-span-4"><strong class="muted">Foyer</strong><span>Compte parent · enfants liés</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>#famContactPanel</span></div>
+  </div>`;
+}
+
+function bindFamHomeBxBTipGo() {
+  const rootIds = [
+    'famHomePaiTip',
+    'famHomeAllergieTip',
+    'famHomeContactTip',
+    'famSantePageTip',
+    'famSantePassagesTip',
+    'famEnfantSanteTip',
+    'famEnfantPaiTip',
+  ];
+  rootIds.forEach(rootId => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('[data-fam-bx-go]').forEach(btn => {
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-bx-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  });
+}
+
+function famHomePaiActifsTipDenseHtml(list, paiList) {
+  return famHomeSanteFamilleDenseHtml(list, [], paiList, []);
+}
+
+/** @deprecated Accueil — allergies fusionnées dans famHomeSanteFamilleDenseHtml (BX-B). */
+function famHomeAllergiesTipDenseHtml(list, ficheList) {
+  return famHomeSanteFamilleDenseHtml(list, ficheList, [], []);
 }
 
 /** Fiche enfant — PAI actif (deep-link ?section=pai). */
 function famEnfantPaiTipDenseHtml(pai, prenom, enfantId) {
   const eid = enfantId ? esc(String(enfantId).trim()) : '';
   const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  const santeGo = famBxBSanteHrefForEnfant(enfantId);
+  const paiGo = famBxBPaiHrefForEnfant(enfantId);
   if (!pai) {
-    return `<div class="bento" style="margin:0 0 .55rem">
+    return `<div class="bento" data-ui-audit="BX-B" style="margin:0 0 .55rem">
       <div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de PAI actif · ${who}</span></div>
-      <a class="stat-tile bento-span-4" href="/famille/sante" style="text-decoration:none">
+      <button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(santeGo)}" style="cursor:pointer;text-align:left">
         <strong>Santé</strong><span>Fiche · infirmerie</span>
-      </a>
-      <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+      </button>
+      <button type="button" class="stat-tile bento-span-4" data-fam-bx-go="/famille/messages" style="cursor:pointer;text-align:left">
         <strong>→</strong><span>Contacter l’infirmerie</span>
-      </a>
+      </button>
+      <div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>?section=pai</span></div>
     </div>`;
   }
   const motif = esc(String(pai.motif || 'protocole').trim().slice(0, 28));
@@ -4636,11 +5014,11 @@ function famEnfantPaiTipDenseHtml(pai, prenom, enfantId) {
         <strong>Urgence</strong><span>${esc(String(pai.protocole_urgence).trim().slice(0, 32))}</span>
       </div>`
     : `<div class="stat-tile bento-span-4"><strong>${motif}</strong><span>Depuis ${debut}</span></div>`;
-  const santeHref = eid ? `/famille/enfants/${eid}?section=sante` : '/famille/sante';
-  return `<div class="bento" style="margin:0 0 .55rem">${statusTile}${protTile}
-    <a class="stat-tile bento-span-4" href="${santeHref}" style="text-decoration:none">
+  return `<div class="bento" data-ui-audit="BX-B" style="margin:0 0 .55rem">${statusTile}${protTile}
+    <button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(santeGo)}" style="cursor:pointer;text-align:left">
       <strong>Fiche</strong><span>Ordonnances · santé</span>
-    </a>
+    </button>
+    <div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>${esc(paiGo)}</span></div>
   </div>`;
 }
 
@@ -6694,7 +7072,9 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyRonSlot"></div>
   <div id="notesDevoirsEmptyHarrySlot"></div>
   <div id="notesDevoirsEmptyRonBtSlot"></div>
-  <div id="notesDevoirsEmptySeamusSlot"></div>`;
+  <div id="notesDevoirsEmptySeamusSlot"></div>
+  <div id="notesDevoirsEmptyLunaBxSlot"></div>
+  <div id="notesDevoirsEmptyGinnySlot"></div>`;
 }
 
 function bindNotesDevoirsEmptyTipGo() {
@@ -9910,12 +10290,13 @@ function cantinePageTipDenseHtml(stats) {
     ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
         <strong class="warn">${nDisp}</strong><span>Dispense(s) · ${jour}</span></div>`
     : `<div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Grille lun→dim · scan badge</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Cantine · menus · scan badge</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-C" style="margin:0 0 .55rem">
     <div class="stat-tile bento-span-4" style="border-color:${nPass ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
       <strong class="${nPass ? 'ok' : ''}">${nPass}</strong><span>Passage(s) badge · ${jour}</span>
     </div>
     ${dispTile}
-    <div class="stat-tile bento-span-4"><strong class="muted">Doublon</strong><span>Refusé · prévenance non facturée</span></div>
+    ${auditTile}
   </div>`;
 }
 
@@ -9978,10 +10359,12 @@ function cantineMenuTipDenseHtml(stats) {
     ? `<div class="stat-tile bento-span-4" style="border-color:${s.menuPublie ? 'var(--ok,#16a34a)' : 'var(--warn,#b45309)'}">
         <strong>${plat}</strong><span>Menu · ${jour}${s.menuPublie ? '' : ' · brouillon'}</span></div>`
     : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de menu · ${jour}</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-C</strong><span>Publication famille · plat du jour</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-C" style="margin:0 0 .55rem">
     ${platTile}
     <div class="stat-tile bento-span-4"><strong class="ok">${esc(pubLbl)}</strong><span>Publié(s) · fenêtre liste</span></div>
     <div class="stat-tile bento-span-4"><strong class="muted">${esc(broLbl)}</strong><span>Brouillon(s) · famille invisible</span></div>
+    ${auditTile}
   </div>`;
 }
 
@@ -12733,14 +13116,43 @@ function isFamilleSanteFlux() {
   return path() === '/famille/sante';
 }
 
+/** Page /famille/sante — empty-state passages — audit UI BX-B. */
+function famSantePageEmptyPassagesDenseHtml(enfantId, prenom) {
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  const ficheHref = famBxBSanteHrefForEnfant(enfantId);
+  return famEmptyDense(`Aucun passage infirmerie — ${who}`, [
+    'Les passages enregistrés par l’infirmerie s’affichent ici (BX-B).',
+    'Allergies et tél. urgence : complétez la fiche santé ci-dessous.',
+  ], `<a href="${ficheHref}">Fiche enfant</a> · <a href="/famille/messages">Infirmerie</a>`);
+}
+
+/** Page /famille/sante — empty-state dispenses EPS — audit UI BX-B. */
+function famSantePageEmptyDispensesDenseHtml(enfantId, prenom) {
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  return famEmptyDense(`Aucune dispense EPS — ${who}`, [
+    'Demandez une dispense sport (blessure, certificat…) via le formulaire ci-dessus (BX-B).',
+    'La dispense couvre l’appel et l’EDT sur la période validée par la vie scolaire.',
+  ], `<a href="/famille/sante">Actualiser</a> · <a href="${famBxBSanteHrefForEnfant(enfantId)}">Fiche santé</a>`);
+}
+
+/** Fiche enfant — dispenses VS vides — audit UI BX-B. */
+function famEnfantDispenseVsEmptyDenseHtml(prenom, enfantId) {
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  return famEmptyDense(`Aucune dispense VS — ${who}`, [
+    'Déclarez une dispense EPS depuis cette fiche ou la page Santé (BX-B).',
+    'Période + commentaire : la vie scolaire valide ou clôt la demande.',
+  ], `<a href="/famille/sante">Page Santé</a> · <a href="${famBxBSanteHrefForEnfant(enfantId)}">Section santé</a>`);
+}
+
 /** Page /famille/sante — synthèse enfant sélectionné (bento). */
-function famSantePageTipDenseHtml(f, pai, passages, enfantId, prenom) {
+function famSantePageTipDenseHtml(f, pai, passages, dispenses, enfantId, prenom) {
   if (!isFamilleSanteFlux()) return '';
   const eid = enfantId ? esc(String(enfantId).trim()) : '';
   const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
   const al = famSanteAllergieResume(f && f.allergies, 28);
-  const ficheHref = eid ? `/famille/enfants/${eid}?section=sante` : '/famille/sante';
-  const paiHref = eid ? `/famille/enfants/${eid}?section=pai` : '/famille/sante';
+  const ficheHref = famBxBSanteHrefForEnfant(enfantId);
+  const paiHref = famBxBPaiHrefForEnfant(enfantId);
+  const nDisp = famBxBActiveDispenses(dispenses).length;
   let paiTile;
   if (pai) {
     if (!pai.signe_famille) {
@@ -12760,12 +13172,18 @@ function famSantePageTipDenseHtml(f, pai, passages, enfantId, prenom) {
     paiTile = `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de PAI actif</span></div>`;
   }
   const alBorder = al.empty ? 'border-color:var(--warn,#b45309);' : '';
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+  const dispTile = nDisp
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)"><strong>${nDisp}</strong><span>Dispense(s) EPS active(s)</span></div>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(ficheHref)}" style="cursor:pointer;text-align:left">
+        <strong>EPS</strong><span>Pas de dispense en cours</span>
+      </button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>Route /famille/sante</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-B" style="margin:0 0 .55rem">
+    <button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(ficheHref)}" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong>${who}</strong><span>Fiche santé · deep-link</span>
-    </a>
+    </button>
     <div class="stat-tile bento-span-4" style="${alBorder}"><strong>${al.html}</strong><span>Allergies · fiche</span></div>
-    ${paiTile}
+    ${paiTile}${dispTile}${auditTile}
   </div>`;
 }
 
@@ -12791,10 +13209,11 @@ function famSantePassagesTipDenseHtml(passages, enfantId, prenom) {
   const lastTile = nPass
     ? `<div class="stat-tile bento-span-4"><strong>${lastLbl}</strong><span>Dernier passage</span></div>`
     : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Historique vide</span></div>`;
-  const linkTile = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none">
+  const linkTile = `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="${esc(ficheHref)}" style="cursor:pointer;text-align:left">
       <strong>→</strong><span>Fiche enfant · section santé</span>
-    </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${nTile}${lastTile}${linkTile}</div>`;
+    </button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>Passages infirmerie</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-B" style="margin:0 0 .55rem">${nTile}${lastTile}${linkTile}${auditTile}</div>`;
 }
 
 /** Fiche enfant — santé (deep-link ?section=sante). */
@@ -12821,13 +13240,14 @@ function famEnfantSanteTipDenseHtml(f, pai, passages, enfantId, prenom) {
       </a>`;
   }
   const passTile = nPass
-    ? `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-bx-go="/famille/sante" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
         <strong>${nPass}</strong><span>Passage(s) infirmerie</span>
-      </a>`
+      </button>`
     : `<div class="stat-tile bento-span-4"><strong>0</strong><span>Passage infirmerie</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>?section=sante</span></div>`;
+  return `<div class="bento" data-ui-audit="BX-B" style="margin:0 0 .55rem">
     <div class="stat-tile bento-span-4" style="${alBorder}"><strong>${al.html}</strong><span>Allergies · ${who}</span></div>
-    ${passTile}${paiTile}
+    ${passTile}${paiTile}${auditTile}
   </div>`;
 }
 
@@ -12864,9 +13284,10 @@ function toastFamSanteOuverte(f, pai, passages, enfantId, prenom, opts) {
   const alTile = `<div class="stat-tile bento-span-4" style="${al.empty ? 'border-color:var(--warn,#b45309);' : ''}">
       <strong>${al.html}</strong><span>Allergies · ${who}</span>
     </div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>/famille/sante</span></div>`;
   showEntToast(
     `<strong>Page Santé</strong> — ${who}`
-    + `<div class="bento" style="margin:.4rem 0 0">${alTile}${passTile}${paiTile}</div>`
+    + `<div class="bento" data-ui-audit="BX-B" style="margin:.4rem 0 0">${alTile}${passTile}${paiTile}${auditTile}</div>`
     + foot,
     (pai && !pai.signe_famille) || al.empty ? 9500 : 7500,
   );
@@ -13014,12 +13435,114 @@ function famSanteStatsBentoHtml(f, pai, passages) {
     paiSub = 'PAI (fiche)';
   }
   const nPass = (passages || []).length;
-  return `<div class="bento" style="margin-bottom:.55rem">
+  return `<div class="bento" data-ui-audit="BX-B" style="margin-bottom:.55rem">
     <div class="stat-tile bento-span-4"><strong>${al.html}</strong><span>Allergies</span></div>
     <div class="stat-tile bento-span-4"><strong class="${paiCls.trim()}">${esc(paiStrong)}</strong><span>${paiSub}</span></div>
     <div class="stat-tile bento-span-4"><strong>${nPass}</strong><span>Passage(s) infirmerie</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">BX-B</strong><span>Fiche · PAI · EPS</span></div>
   </div>`;
 }
+
+const FAM_SANTE_HOME_TOAST_SS = 'ent_fam_sante_home_bx_b';
+
+/** Accueil famille — toast santé / PAI / dispenses (1× / session) — audit UI BX-B. */
+function maybeToastFamSanteHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_SANTE_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const list = o.list || [];
+  if (!list.length) return;
+  const tiles = famHomeSanteFamilleDenseHtml(list, o.ficheList, o.paiList, o.dispenseLists);
+  if (!tiles) return;
+  const st = famBxBSanteCollectStats(list, o.ficheList, o.paiList, o.dispenseLists);
+  const leadId = st.lead && st.lead.id ? String(st.lead.id).trim() : '';
+  const santeHref = famBxBSanteHrefForEnfant(leadId);
+  const paiHref = st.nPaiPending ? famBxBPaiHrefForEnfant(leadId) : santeHref;
+  const lead = st.hasAction
+    ? '<strong>Santé · action requise</strong>'
+    : '<strong>Santé &amp; foyer</strong>';
+  showEntToast(
+    lead
+    + `<div style="margin:.35rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${santeHref}">Page Santé</a> · `
+    + `<a href="${paiHref}">PAI</a> · `
+    + `<a href="#famContactPanel">Mon contact</a></p>`,
+    st.hasAction ? 9000 : 7000,
+  );
+  try { sessionStorage.setItem(FAM_SANTE_HOME_TOAST_SS, '1'); } catch {}
+}
+
+/** Deep-link fiche ?section=sante — toast actionnable (BX-B). */
+function toastFamSanteSectionDeepDense(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const tipHtml = famEnfantSanteTipDenseHtml(o.fiche, o.pai, o.passages, o.enfantId, o.prenom);
+  const santeHref = famBxBSanteHrefForEnfant(o.enfantId);
+  showEntToast(
+    `<strong>Fiche santé</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${santeHref}">Section santé</a> · `
+    + `<a href="#fam-sec-sante">↓ Détail ci-dessous</a> · `
+    + `<a href="/famille/sante">Page Santé</a></p>`,
+    8500,
+  );
+}
+
+function maybeToastFamSanteSectionDeep(opts) {
+  if (!isParent() || !isFamilleEnfantFlux()) return;
+  const o = opts || {};
+  if (normalizeFamEnfantSection(o.deepSection) !== 'sante') return;
+  const id = o.enfantId ? String(o.enfantId).trim() : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_sante_sec_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamSanteSectionDeepDense(o);
+}
+
+/** Deep-link fiche ?section=pai — toast actionnable (BX-B). */
+function toastFamPaiSectionDeepDense(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const tipHtml = famEnfantPaiTipDenseHtml(o.pai, o.prenom, o.enfantId);
+  const paiHref = famBxBPaiHrefForEnfant(o.enfantId);
+  showEntToast(
+    `<strong>PAI infirmerie</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${paiHref}">Section PAI</a> · `
+    + `<a href="#fam-sec-pai">↓ Protocole ci-dessous</a> · `
+    + `<a href="/famille/sante">Page Santé</a></p>`,
+    (o.pai && !o.pai.signe_famille) ? 9500 : 7500,
+  );
+}
+
+function maybeToastFamPaiSectionDeep(opts) {
+  if (!isParent() || !isFamilleEnfantFlux()) return;
+  const o = opts || {};
+  if (normalizeFamEnfantSection(o.deepSection) !== 'pai') return;
+  const id = o.enfantId ? String(o.enfantId).trim() : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_pai_sec_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamPaiSectionDeepDense(o);
+}
+
 function toastReinscConfirmeeFamille(prenom, annee, opts) {
   const o = opts || {};
   const who = esc(String(prenom || '').trim() || 'Enfant');
@@ -17024,7 +17547,7 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; foyers</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>
       <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Absences agents</span></a>`;
-    homeExtra = staffHomeBvcPanelShell();
+    homeExtra = staffHomeBxcPanelShell() + staffHomeBvcPanelShell();
   } else if (role === 'infirmerie') {
     tiles = `
       <a class="stat-tile bento-span-6" href="/app/infirmerie"><strong>Infirmerie</strong><span>Passages, PAI, fiches</span></a>
@@ -17056,6 +17579,7 @@ function viewHome() {
       <p class="muted" style="margin-top:0">Campagne, acompte, montée 4e→3e et pièces exigées.</p>
       <div id="homeDirReinscDense" class="bento muted">Chargement…</div>
     </div>
+    ${staffHomeBxcPanelShell()}
     ${staffHomeBvcPanelShell()}`;
   } else if (role === 'administratif') {
     homeTitle = 'Exécution administrative';
@@ -17107,6 +17631,7 @@ function viewHome() {
       <p class="muted" style="margin-top:0">Cast en mémoire locale — comptes démo après « Créer l’école labo ».</p>
       <div id="homeAdminBootstrapTip" class="bento muted">Chargement…</div>
     </div>
+    ${staffHomeBxcPanelShell()}
     ${staffHomeBvcPanelShell()}`;
   } else if (isAdminish) {
     tiles = `
@@ -17647,6 +18172,39 @@ async function bindHome() {
     staffBvcBox.innerHTML = homeStaffBvcTipDenseHtml(bvcMeta);
     bindHomeStaffBvcTipActions(bvcMeta);
   }
+  const staffBxcBox = document.getElementById('homeStaffBxcTip');
+  if (staffBxcBox && isStaffHomeBxcFlux()) {
+    const [passagesBxc, menusBxc, affsBxc, presBxc, filieresBxc, edVsBxc] = await Promise.all([
+      settle(api('/repas/passages?jour=' + encodeURIComponent(jour)), []),
+      settle(api('/menus-cantine?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour)), []),
+      settle(api('/vs/internat/affectations?jour=' + encodeURIComponent(jour)), []),
+      settle(api('/vs/internat/presences?jour=' + encodeURIComponent(jour)), []),
+      settle(api('/filieres'), []),
+      settle(api('/editions-vs'), []),
+    ]);
+    const todayMenuBxc = (menusBxc || []).find(m => String(m.jour || '').slice(0, 10) === jour)
+      || (menusBxc || [])[0]
+      || null;
+    const byEleveBxc = {};
+    (presBxc || []).forEach(p => { byEleveBxc[p.eleve_id] = p; });
+    const nAffBxc = (affsBxc || []).length;
+    const nPointesBxc = (affsBxc || []).filter(a => byEleveBxc[a.eleve_id]).length;
+    const bxcMeta = {
+      jour,
+      role,
+      nPassages: (passagesBxc || []).length,
+      menuPlat: todayMenuBxc ? String(todayMenuBxc.plat || '').trim() : '',
+      menuPublie: todayMenuBxc ? !!todayMenuBxc.publie : false,
+      nMenusBro: (menusBxc || []).filter(m => !m.publie).length,
+      nAffInt: nAffBxc,
+      nNonInt: Math.max(0, nAffBxc - nPointesBxc),
+      nFilieres: (filieresBxc || []).length,
+      nEditions: (edVsBxc || []).length,
+      nDocs,
+    };
+    staffBxcBox.innerHTML = homeStaffBxcTipDenseHtml(bxcMeta);
+    bindHomeStaffBxcTipActions(bxcMeta);
+  }
   if (todo) {
     const lines = [];
     const pushInscEtapes = () => {
@@ -18014,9 +18572,10 @@ function viewFamilleHome() {
       <h3>À faire</h3>
       <div id="famTodo" class="muted">…</div>
     </div>
-    <div class="panel" style="margin-top:.75rem">
+    <div id="famHomeContactTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div class="panel" style="margin-top:.75rem" id="famContactPanel">
       <h3>Mon contact</h3>
-      <p class="muted">E-mail de connexion et téléphone pour SMS vie scolaire / RH (self-service).</p>
+      <p class="muted">E-mail de connexion et téléphone pour SMS vie scolaire / RH (self-service · foyer).</p>
       <div class="row" style="flex-wrap:wrap;gap:.5rem">
         <label>E-mail <input id="famEmail" type="email" placeholder="parent@…" style="min-width:14rem"/></label>
         <button type="button" class="primary" id="btnFamEmail">Enregistrer l’e-mail</button>
@@ -18164,6 +18723,8 @@ async function bindFamilleHome() {
       if (paiTip0) { paiTip0.style.display = 'none'; paiTip0.innerHTML = ''; }
       const allergieTip0 = document.getElementById('famHomeAllergieTip');
       if (allergieTip0) { allergieTip0.style.display = 'none'; allergieTip0.innerHTML = ''; }
+      const contactTip0 = document.getElementById('famHomeContactTip');
+      if (contactTip0) { contactTip0.style.display = 'none'; contactTip0.innerHTML = ''; }
       const quitTip0 = document.getElementById('famHomeQuittancesTip');
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
       const reinscTip0 = document.getElementById('famHomeReinscTip');
@@ -18178,7 +18739,7 @@ async function bindFamilleHome() {
     }
     const jourRepas = today();
     const orientAnneeHome = '2026-2027';
-    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, comLists, repasJourLists, menusJourHome, sepaMandats, rdvLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, dispenseVsLists, comLists, repasJourLists, menusJourHome, sepaMandats, rdvLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
@@ -18186,6 +18747,11 @@ async function bindFamilleHome() {
       api('/facturation/famille').catch(() => []),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/pai').catch(() => null))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/fiche-sante').catch(() => null))),
+      Promise.all(list.map(e => (
+        e.peut_voir_vs !== false
+          ? api('/eleves/' + e.id + '/dispenses-vs').catch(() => [])
+          : Promise.resolve([])
+      ))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/commissions').catch(() => []))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/repas/passages?debut='
         + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas))
@@ -18470,6 +19036,7 @@ async function bindFamilleHome() {
       }
     }
     bindFamHomeBwBTipGo();
+    bindFamHomeBxBTipGo();
     const comTip = document.getElementById('famHomeComTip');
     if (comTip) {
       const comPicks = famCollectProchainCommissions(list, comLists);
@@ -18494,10 +19061,10 @@ async function bindFamilleHome() {
     }
     const paiTip = document.getElementById('famHomePaiTip');
     if (paiTip) {
-      const densePai = famHomePaiActifsTipDenseHtml(list, paiList);
-      if (densePai) {
+      const denseSanteBxB = famHomeSanteFamilleDenseHtml(list, ficheSanteList, paiList, dispenseVsLists);
+      if (denseSanteBxB) {
         paiTip.style.display = '';
-        paiTip.innerHTML = densePai;
+        paiTip.innerHTML = denseSanteBxB;
       } else {
         paiTip.style.display = 'none';
         paiTip.innerHTML = '';
@@ -18505,14 +19072,14 @@ async function bindFamilleHome() {
     }
     const allergieTip = document.getElementById('famHomeAllergieTip');
     if (allergieTip) {
-      const denseAl = famHomeAllergiesTipDenseHtml(list, ficheSanteList);
-      if (denseAl) {
-        allergieTip.style.display = '';
-        allergieTip.innerHTML = denseAl;
-      } else {
-        allergieTip.style.display = 'none';
-        allergieTip.innerHTML = '';
-      }
+      allergieTip.style.display = 'none';
+      allergieTip.innerHTML = '';
+    }
+    const contactTip = document.getElementById('famHomeContactTip');
+    if (contactTip) {
+      const denseContact = famHomeFoyerContactBxBDenseHtml();
+      contactTip.style.display = '';
+      contactTip.innerHTML = denseContact;
     }
     const quitTip = document.getElementById('famHomeQuittancesTip');
     if (quitTip) {
@@ -18656,6 +19223,12 @@ async function bindFamilleHome() {
     });
     maybeToastFamMessagesHomeDense({ fils, nonLus: nMsg });
     maybeToastFamNotesCahierEdtHomeDense({ list, devoirLists, edtLists: edtJourLists });
+    maybeToastFamSanteHomeDense({
+      list,
+      ficheList: ficheSanteList,
+      paiList,
+      dispenseLists: dispenseVsLists,
+    });
     const homeDeepMsg = normalizeFamEnfantSection(routeState.famSection);
     if (homeDeepMsg === 'messages') {
       delete routeState.famSection;
@@ -19315,9 +19888,18 @@ async function bindFamilleEnfant(id) {
               if (denseSanteTip) {
                 santeTipEl.style.display = '';
                 santeTipEl.innerHTML = denseSanteTip;
+                bindFamHomeBxBTipGo();
                 if (deepSante) {
                   famApplyEnfantSectionDeepLink('sante');
                   setTimeout(() => famApplyEnfantSectionDeepLink('sante'), 200);
+                  maybeToastFamSanteSectionDeep({
+                    enfantId: id,
+                    prenom: e.prenom,
+                    fiche: f,
+                    pai: paiSante,
+                    passages: passagesSante,
+                    deepSection: enfantDeepSection,
+                  });
                 }
               } else {
                 santeTipEl.style.display = 'none';
@@ -19396,6 +19978,13 @@ async function bindFamilleEnfant(id) {
         if (densePaiTip) {
           paiTip.style.display = '';
           paiTip.innerHTML = densePaiTip;
+          bindFamHomeBxBTipGo();
+          maybeToastFamPaiSectionDeep({
+            enfantId: id,
+            prenom: e.prenom,
+            pai,
+            deepSection: enfantDeepSection,
+          });
         } else {
           paiTip.style.display = 'none';
           paiTip.innerHTML = '';
@@ -19405,7 +19994,10 @@ async function bindFamilleEnfant(id) {
         paiTip.innerHTML = '';
       }
       if (!pai) {
-        box.innerHTML = '<p class="empty">Aucun PAI actif.</p>';
+        box.innerHTML = famEmptyDense('Aucun PAI actif', [
+          'Protocole infirmerie publié ici lorsque nécessaire (BX-B).',
+          'Ordonnances et signature famille : section visible dès qu’un PAI est actif.',
+        ], `<a href="/famille/sante">Page Santé</a> · <a href="/famille/messages">Infirmerie</a>`);
       } else {
         let piecesHtml = '';
         try {
@@ -20030,7 +20622,7 @@ async function bindFamilleEnfant(id) {
           box.innerHTML = famVsSectionDeniedHtml();
         } else {
           box.innerHTML = !list.length
-            ? '<p class="empty">Aucune dispense VS.</p>'
+            ? famEnfantDispenseVsEmptyDenseHtml(e.prenom, id)
             : `<ul>${list.map(d =>
                 `<li><span class="pill">${esc(d.motif)}</span> ${esc(d.debut)} → ${esc(d.fin)} · ${esc(d.statut)}${d.commentaire ? ' — ' + esc(d.commentaire) : ''}</li>`
               ).join('')}</ul>`;
@@ -23991,9 +24583,11 @@ async function bindEditionsVs() {
       const items = await api('/editions-vs');
       lastItems = items || [];
       if (stats) {
-        stats.innerHTML = `
-          <div class="stat-tile bento-span-6"><strong>${lastItems.length}</strong><span>Modèles VS</span></div>
-          <div class="stat-tile bento-span-6"><strong>{{nom}} {{prenom}}…</strong><span>Placeholders actifs</span></div>`;
+        const firstCode = lastItems[0] && lastItems[0].code ? lastItems[0].code : '';
+        stats.innerHTML = editionsVsPageTipDenseHtml({
+          nEditions: lastItems.length,
+          firstCode,
+        });
       }
       list.innerHTML = !lastItems.length
         ? `<p class="empty">Aucun modèle enregistré.</p>
@@ -26641,6 +27235,7 @@ async function bindCantine() {
 /* ---------- Internat ---------- */
 function viewInternat() {
   return shell('/app/internat', `
+    <div id="intPageTip"></div>
     <div class="bento" id="intStats"></div>
     <div class="bento">
       <div class="panel bento-span-5">
@@ -26770,8 +27365,7 @@ async function bindInternat() {
   }
 
   async function refreshIntStats(chambres, affs, pres) {
-    if (!stats) return;
-    const cap = (chambres || []).reduce((s, c) => s + (c.capacite || 0), 0);
+    const jourInt = document.getElementById('intPresJour')?.value || today();
     const byEleve = {};
     (pres || []).forEach(p => { byEleve[p.eleve_id] = p; });
     const nAff = (affs || []).length;
@@ -26779,6 +27373,17 @@ async function bindInternat() {
     const nNon = Math.max(0, nAff - nPointes);
     const nPres = (pres || []).filter(p => p.statut === 'present').length;
     const nAbs = (pres || []).filter(p => p.statut === 'absent').length;
+    const intPageTip = document.getElementById('intPageTip');
+    if (intPageTip) {
+      intPageTip.innerHTML = internatPageTipDenseHtml({
+        jour: jourInt,
+        nAff,
+        nNon,
+        nPres,
+      });
+    }
+    if (!stats) return;
+    const cap = (chambres || []).reduce((s, c) => s + (c.capacite || 0), 0);
     const nevilleTile = intSeedNeville
       ? `<button type="button" class="stat-tile bento-span-3" id="intStatNeville" style="cursor:pointer;text-align:left">
           <strong>${esc(intSeedNeville.recap && intSeedNeville.recap.chambre ? intSeedNeville.recap.chambre.code : 'INT')}</strong>
@@ -32750,6 +33355,77 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptySeamusRefresh = refreshNotesDevoirsEmptySeamusSlot;
+  async function refreshNotesDevoirsEmptyLunaBxSlot() {
+    const el = document.getElementById('notesDevoirsEmptyLunaBxSlot');
+    if (!el) return;
+    try {
+      const lunaId = await resolveLunaLovegoodEleveId();
+      if (!lunaId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '6A';
+      try {
+        const eleve = await api('/eleves/' + lunaId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 6A */ }
+      const meta = await lunaBxNoteMetaFromApi(lunaId);
+      el.innerHTML = notesLunaBxSeedTipDenseHtml({
+        lunaId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesLunaBxSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.lunaId || lunaId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Luna');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesLunaBxSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip6A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '6A';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyLunaBxRefresh = refreshNotesDevoirsEmptyLunaBxSlot;
+  async function refreshNotesDevoirsEmptyGinnySlot() {
+    const el = document.getElementById('notesDevoirsEmptyGinnySlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const ginnyBxDevoir = findGinnyBxDevoir(devoirs);
+      el.innerHTML = notesGinnyDevoirGoTipDenseHtml({ ginnyBxDevoir: ginnyBxDevoir || null });
+      bindNotesGinnyDevoirGoTipGo({
+        ginnyBxDevoir: ginnyBxDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyGinnyRefresh = refreshNotesDevoirsEmptyGinnySlot;
   async function choBuNoteMetaFromApi(choId) {
     let nNotes = 0;
     let buNoteLabel = '';
@@ -32844,6 +33520,25 @@ async function bindNotes() {
       nNotes = 0;
     }
     return { nNotes, bsNoteLabel, hasBsNote };
+  }
+  async function lunaBxNoteMetaFromApi(lunaId) {
+    let nNotes = 0;
+    let bxNoteLabel = '';
+    let hasBxNote = false;
+    try {
+      const notes = await api('/eleves/' + lunaId + '/notes');
+      nNotes = (notes || []).length;
+      const bxNote = (notes || []).find(n =>
+        /BX-A/i.test(String(n.libelle || ''))
+        || (/luna/i.test(String(n.libelle || '')) && /fran/i.test(String(n.matiere_libelle || n.matiere || ''))));
+      if (bxNote) {
+        hasBxNote = /BX-A/i.test(String(bxNote.libelle || ''));
+        if (bxNote.libelle) bxNoteLabel = String(bxNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, bxNoteLabel, hasBxNote };
   }
   async function refreshNotesEvalSansNoteLunaSlot() {
     const el = document.getElementById('notesEvalSansNoteLunaSlot');
@@ -36697,7 +37392,7 @@ async function bindFamilleSante() {
         api('/eleves/' + id + '/dispenses-vs').catch(() => []),
       ]);
       if (pageTipEl) {
-        const densePage = famSantePageTipDenseHtml(f, pai, passages, id, prenomSel);
+        const densePage = famSantePageTipDenseHtml(f, pai, passages, dispenses, id, prenomSel);
         if (densePage) {
           pageTipEl.style.display = '';
           pageTipEl.innerHTML = densePage;
@@ -36743,9 +37438,9 @@ async function bindFamilleSante() {
       </div>`;
       if (!pai) {
         html += famEmptyDense('Aucun PAI actif', [
-          'L’infirmerie publie un PAI lorsque des mesures d’accueil sont nécessaires.',
-          'Mettez à jour les allergies ci-dessus pour faciliter l’accueil en attendant.',
-        ], `<a href="/famille/messages">Contacter l’infirmerie</a>`);
+          'L’infirmerie publie un PAI lorsque des mesures d’accueil sont nécessaires (BX-B).',
+          'Mettez à jour les allergies ci-dessus · dispenses EPS via le formulaire ci-dessous.',
+        ], `<a href="/famille/messages">Contacter l’infirmerie</a> · <a href="${famBxBPaiHrefForEnfant(id)}">Section PAI fiche</a>`);
       } else {
         let piecesHtml = '';
         try {
@@ -36777,7 +37472,7 @@ async function bindFamilleSante() {
         </div>`;
       }
       html += `<h3 style="margin-top:1rem">Passages infirmière</h3>` + (!(passages || []).length
-        ? '<p class="empty">Aucun passage visible.</p>'
+        ? famSantePageEmptyPassagesDenseHtml(id, prenomSel)
         : `<ul>${passages.map(p =>
             `<li>${esc(p.jour)} — ${esc(p.motif_libelle || p.motif)}${p.note_soins ? ' · ' + esc(p.note_soins) : ''}</li>`
           ).join('')}</ul>`);
@@ -36789,12 +37484,13 @@ async function bindFamilleSante() {
           <button type="button" class="primary" id="btnPageDvPose">Demander</button>
         </div>
         <div id="pageDvMsg" class="muted"></div>` + (!(dispenses || []).length
-        ? '<p class="empty">Aucune dispense.</p>'
+        ? famSantePageEmptyDispensesDenseHtml(id, prenomSel)
         : `<ul>${dispenses.map(d =>
             `<li>${esc(d.debut || '—')} → ${esc(d.fin || '—')} · ${esc(d.commentaire || d.motif || '—')} · ${esc(d.statut || '—')}</li>`
           ).join('')}</ul>`);
       html += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}?section=sante">Voir sur la fiche enfant</a></p>`;
       out.innerHTML = html;
+      bindFamHomeBxBTipGo();
       const btnSave = document.getElementById('btnPageSanteSave');
       if (btnSave) {
         btnSave.onclick = async () => {
