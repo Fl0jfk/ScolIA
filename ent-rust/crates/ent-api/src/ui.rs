@@ -391,6 +391,19 @@ function toastBulletinTelecharge(titre) {
   );
 }
 
+function toastQuittanceTelechargee(numero) {
+  const n = esc(String(numero || 'quittance').trim());
+  showEntToast(`<strong>Quittance téléchargée</strong> — ${n} (PDF).`, 8000);
+}
+
+function toastFamTelephoneEnregistre(telephone) {
+  const t = esc(String(telephone || '').trim());
+  showEntToast(
+    `<strong>Téléphone enregistré</strong>${t ? ` — ${t}` : ''}. Utilisé pour les SMS vie scolaire.`,
+    8000,
+  );
+}
+
 function eleveConseilEncouragementsVisibles(conseils) {
   return (conseils || []).filter(c =>
     c.visible_famille !== false
@@ -499,6 +512,16 @@ function toastNotePeriodePartielle(p) {
   );
 }
 
+function toastNotePeriodeCreee(p) {
+  const label = esc(notePeriodeFermeeLabel(p));
+  const statut = p && p.statut ? notePeriodeStatutBadge(p.statut) : notePeriodeStatutBadge('ouverte');
+  showEntToast(
+    `<strong>Période créée</strong> — ${label} ${statut}. `
+    + 'Disponible pour devoirs, saisie et exports.',
+    8500,
+  );
+}
+
 function entMessageLooksEdtConflit(msg) {
   const m = String(msg || '').toLowerCase();
   return m.includes('conflit edt') || (m.includes('conflit') && m.includes('edt'));
@@ -538,8 +561,27 @@ function toastRepasScanOk(p) {
   );
 }
 
+function toastDispenseRepasPosee(d, eleveLabel) {
+  const motif = esc((d && d.motif) || 'prévenance');
+  const jour = d && d.jour ? ` · ${esc(String(d.jour))}` : '';
+  const who = eleveLabel ? ` — ${esc(eleveLabel)}` : '';
+  showEntToast(
+    `<strong>Dispense repas posée</strong>${who}${jour} · ${motif}. Passage badge refusé ce jour.`,
+    8000,
+  );
+}
+
 function toastSanctionAnnulee() {
   showEntToast('<strong>Sanction annulée</strong> — registre discipline et points actualisés.');
+}
+
+function toastSanctionTypeCreee(t) {
+  const code = esc(String((t && t.code) || '').trim() || '—');
+  const lib = esc(String((t && t.libelle) || '').trim());
+  showEntToast(
+    `<strong>Type sanction créé</strong> — ${code}${lib ? ` · ${lib}` : ''}. Disponible pour prononcer une sanction.`,
+    8000,
+  );
 }
 
 function toastConseilCree(c) {
@@ -773,6 +815,7 @@ async function bindElevePickers(selectIds, queryId, btnId) {
   const ids = Array.isArray(selectIds) ? selectIds : [selectIds];
   const qEl = document.getElementById(queryId);
   let emptyBox = document.getElementById(queryId + 'Empty');
+  let hitsBox = document.getElementById(queryId + 'Hits');
   if (qEl && !emptyBox) {
     emptyBox = document.createElement('div');
     emptyBox.id = queryId + 'Empty';
@@ -781,10 +824,43 @@ async function bindElevePickers(selectIds, queryId, btnId) {
     if (row) row.appendChild(emptyBox);
     else qEl.parentElement?.appendChild(emptyBox);
   }
+  if (qEl && !hitsBox) {
+    hitsBox = document.createElement('div');
+    hitsBox.id = queryId + 'Hits';
+    hitsBox.style.flexBasis = '100%';
+    hitsBox.style.marginTop = '.25rem';
+    const row = qEl.closest('.row');
+    if (row) row.appendChild(hitsBox);
+    else qEl.parentElement?.appendChild(hitsBox);
+  }
   async function fill(q) {
     const trimmed = (q || '').trim();
     const eleves = await api('/eleves/search?q=' + encodeURIComponent(trimmed || 'a'));
     const list = eleves || [];
+    if (hitsBox) {
+      if (trimmed && list.length) {
+        hitsBox.innerHTML = list.slice(0, 8).map(e =>
+          `<button type="button" class="eleveSearchHit" data-id="${esc(e.id)}" data-foyer="${esc(e.foyer_id || '')}"
+            style="display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;width:100%;text-align:left;padding:.2rem 0;border:none;background:transparent;cursor:pointer;border-bottom:1px solid var(--border,#eee)">
+            <strong>${esc(e.prenom)} ${esc(e.nom)}</strong>
+            ${staffEleveClasseBadgeHtml(e.classe)}
+            ${staffEleveStatusBadgeHtml(e.status)}
+          </button>`
+        ).join('');
+        hitsBox.querySelectorAll('.eleveSearchHit').forEach(btn => {
+          btn.onclick = () => {
+            ids.forEach(id => {
+              const sel = document.getElementById(id);
+              if (!sel) return;
+              if ([...sel.options].some(o => o.value === btn.dataset.id)) sel.value = btn.dataset.id;
+            });
+            hitsBox.innerHTML = '';
+          };
+        });
+      } else {
+        hitsBox.innerHTML = '';
+      }
+    }
     if (emptyBox) {
       if (!list.length && trimmed) {
         emptyBox.innerHTML = staffEmptyDense('Aucun élève trouvé', [
@@ -1110,6 +1186,20 @@ function justifPjCountBadgeHtml(n) {
   const k = Number(n) || 0;
   if (k <= 0) return '';
   return `<span class="pill ok" title="Justificatifs avec pièce jointe déposée" style="font-size:.72rem;margin-left:.15rem;vertical-align:middle">${k} PJ</span>`;
+}
+function alertesUrgentCountBadgeHtml(n) {
+  const k = Number(n) || 0;
+  if (k <= 0) return '';
+  return `<span class="pill bad" title="Alertes CPE de sévérité urgente" style="font-size:.72rem;margin-left:.15rem;vertical-align:middle;font-weight:700">${k} urgent</span>`;
+}
+function staffEleveStatusBadgeHtml(status) {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return '<span class="muted" style="font-size:.72rem">—</span>';
+  let cls = 'pill';
+  if (s === 'actif' || s === 'inscrit') cls += ' ok';
+  else if (s === 'sorti') cls += ' bad';
+  else if (s === 'preinscrit') cls += ' warn';
+  return `<span class="${cls}" style="font-size:.72rem;font-weight:600;vertical-align:middle">${esc(s)}</span>`;
 }
 function staffEleveClasseBadgeHtml(classe) {
   const cl = String(classe || '').trim();
@@ -1627,6 +1717,7 @@ function famEnfantDenseCardHtml(e, stats) {
       <a href="/famille/enfants/${eid}?section=docs">Docs</a>
       <a href="/famille/enfants/${eid}?section=pai">PAI</a>
       <a href="/famille/enfants/${eid}?section=sorties">Sorties</a>
+      <a href="/famille/enfants/${eid}?section=repas">Repas</a>
       <a href="/famille/enfants/${eid}?section=orientation">Orientation</a>
     </p>
   </article>`;
@@ -2705,17 +2796,21 @@ function viewEleveHome() {
     <div class="bento" id="eleveHomeStats"></div>
     <div id="eleveHomeConseilSpot"></div>
     <div class="bento" id="eleveHomeHub" style="margin-bottom:.75rem">
-      <a class="panel bento-span-4 eleve-hub-tile" href="/eleve/edt">
+      <a class="panel bento-span-3 eleve-hub-tile" href="/eleve/edt">
         <h2 class="eleve-hub-title">EDT</h2>
         <div id="eleveHomeEdtBody" class="muted">…</div>
       </a>
-      <a class="panel bento-span-4 eleve-hub-tile" href="/eleve/cahier">
+      <a class="panel bento-span-3 eleve-hub-tile" href="/eleve/cahier">
         <h2 class="eleve-hub-title">Cahier de texte</h2>
         <div id="eleveHomeCahierBody" class="muted">…</div>
       </a>
-      <a class="panel bento-span-4 eleve-hub-tile" href="/eleve/messages" id="eleveHomeMsgTile">
+      <a class="panel bento-span-3 eleve-hub-tile" href="/eleve/messages" id="eleveHomeMsgTile">
         <h2 class="eleve-hub-title">Messages <span id="eleveHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h2>
         <div id="eleveHomeMsgBody" class="muted">…</div>
+      </a>
+      <a class="panel bento-span-3 eleve-hub-tile" href="/eleve/docs" id="eleveHomeDocsTile">
+        <h2 class="eleve-hub-title">Docs à signer <span id="eleveHomeDocsBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h2>
+        <div id="eleveHomeDocsBody" class="muted">…</div>
       </a>
     </div>
     <div id="elevePushBanner" class="panel" style="margin-bottom:.75rem">
@@ -2858,7 +2953,7 @@ async function bindEleveHome() {
         <div class="stat-tile bento-span-2"><strong>${(edt || []).length}</strong><span>Cours aujourd’hui</span></div>
         <div class="stat-tile bento-span-2"><strong>${(notes || []).length}</strong><span>Notes</span></div>
         <div class="stat-tile bento-span-2"><strong>${aTraiter}</strong><span>Absences à traiter</span></div>
-        <a class="stat-tile bento-span-2" href="/eleve/docs"><strong>${docsASigner}</strong><span>Docs à signer</span></a>
+        <a class="stat-tile bento-span-2" href="/eleve/docs"><strong class="${docsASigner ? 'warn' : ''}">${docsASigner}</strong><span>Docs à signer</span></a>
         <a class="stat-tile bento-span-2" href="/eleve/docs"><strong class="${carASigner ? 'warn' : ''}">${carASigner}</strong><span>Carnet à signer</span></a>
         <a class="stat-tile bento-span-2" href="/eleve/messages"><strong>${nonLus || 0}</strong><span>${nonLus ? 'Messages non lus' : 'Messages'}</span></a>
         ${eleveConseilEncouragementTile(conseils)}
@@ -2973,6 +3068,38 @@ async function bindEleveHome() {
         : `<ul class="eleve-hub-list">${ctList.slice(0, 5).map(ct =>
             `<li><strong>${esc(ct.titre)}</strong> <span class="muted">${esc(ct.matiere_libelle || '')}${ct.pour_le ? ' · pour le ' + esc(ct.pour_le) : ''}</span></li>`
           ).join('')}</ul>`;
+    }
+    const docsTileEl = document.getElementById('eleveHomeDocsTile');
+    const docsBadge = document.getElementById('eleveHomeDocsBadge');
+    const docsHub = document.getElementById('eleveHomeDocsBody');
+    const docsHubCount = docsASigner + carASigner;
+    if (docsTileEl) docsTileEl.classList.toggle('eleve-hub-tile-unread', docsHubCount > 0);
+    if (docsBadge) {
+      if (docsHubCount > 0) {
+        docsBadge.style.display = 'inline-block';
+        docsBadge.textContent = String(docsHubCount);
+      } else {
+        docsBadge.style.display = 'none';
+        docsBadge.textContent = '';
+      }
+    }
+    if (docsHub) {
+      const carPendingList = (carnet || []).filter(x => !x.signe_at);
+      if (!docsPending.length && !carPendingList.length) {
+        docsHub.innerHTML = emptyState('Rien à signer', 'Charte, autorisations et carnet à jour.');
+      } else {
+        const rows = [];
+        for (const d of docsPending.slice(0, 4)) {
+          rows.push(`<li class="eleve-hub-msg-row"><span class="pill-unread">doc</span> <strong>${esc(d.titre || d.code || 'Document')}</strong></li>`);
+        }
+        for (const c of carPendingList.slice(0, Math.max(0, 5 - rows.length))) {
+          rows.push(`<li class="eleve-hub-msg-row"><span class="muted">·</span> <strong>${esc(c.titre || 'Carnet')}</strong> <span class="muted">carnet</span></li>`);
+        }
+        const foot = docsHubCount
+          ? `<p class="muted eleve-hub-msg-foot">${docsASigner ? `${docsASigner} doc(s)` : ''}${docsASigner && carASigner ? ' · ' : ''}${carASigner ? `${carASigner} carnet` : ''} · <span class="pill-unread">à signer</span></p>`
+          : '';
+        docsHub.innerHTML = `<ul class="eleve-hub-list eleve-hub-list-dense">${rows.join('')}</ul>${foot}`;
+      }
     }
     const msgTile = document.getElementById('eleveHomeMsgTile');
     const msgBadge = document.getElementById('eleveHomeMsgBadge');
@@ -4782,7 +4909,7 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences?filtre=justifs-trancher"><strong class="${nJustifTrancher ? 'warn' : ''}">${nJustifTrancher}${justifPjCountBadgeHtml(nJustifPj)}</strong><span>Justifs à trancher</span></a>
         ${nHarryJustif ? `<a class="stat-tile bento-span-2" href="/app/absences?filtre=justifs-trancher"><strong class="warn">${nHarryJustif}${justifSnap.harryHasPj ? ' <span class="pill ok">PJ</span>' : ''}</strong><span>Justif Harry Potter</span></a>` : ''}
-        <a class="stat-tile bento-span-2" href="/app/alertes"><strong class="${nAlert ? 'warn' : ''}">${nAlert}</strong><span>Alertes ouvertes</span></a>
+        <a class="stat-tile bento-span-2" href="/app/alertes"><strong class="${nAlert ? 'warn' : ''}">${nAlert}${alertesUrgentCountBadgeHtml(nAlertUrgent)}</strong><span>Alertes ouvertes</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>
         <a class="stat-tile bento-span-2" href="${esc(comDosHref)}"><strong class="${nComDos ? 'warn' : ''}">${nComDos}</strong><span>${esc(comDosTileSpan)}</span></a>
         <a class="stat-tile bento-span-2" href="/app/eleves"><strong>·</strong><span>Annuaire élèves</span></a>
@@ -4883,7 +5010,7 @@ async function bindHome() {
       ? `
         ${justifTile}
         <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nAbs}</strong><span>Absences à traiter</span></a>
-        <a class="stat-tile bento-span-3" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
+        <a class="stat-tile bento-span-3" href="/app/alertes"><strong class="${nAlert ? 'warn' : ''}">${nAlert}${alertesUrgentCountBadgeHtml(nAlertUrgent)}</strong><span>Alertes CPE</span></a>
         <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>
         ${sortEarly}
         ${comEarly}`
@@ -4953,6 +5080,9 @@ async function bindHome() {
         lines.push(`<li><a href="/app/absences?filtre=justifs-trancher">${nJustifTrancher} justificatif(s) à trancher${pjLbl}${harryLbl}</a></li>`);
       }
       if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) à traiter</a></li>`);
+      if (nAlertUrgent) {
+        lines.push(`<li><a href="/app/alertes?sev=urgent" class="warn">${nAlertUrgent} alerte(s) CPE urgente(s)</a></li>`);
+      }
       if (nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE</a></li>`);
       if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
       if (nComDos) {
@@ -5331,7 +5461,7 @@ async function bindFamilleHome() {
       return;
     }
     const jourRepas = today();
-    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists, sepaMandats] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
@@ -5341,7 +5471,9 @@ async function bindFamilleHome() {
       Promise.all(list.map(e => api('/eleves/' + e.id + '/commissions').catch(() => []))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/repas/passages?debut='
         + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas)).catch(() => []))),
+      api('/facturation/sepa/mandats').catch(() => []),
     ]);
+    const sepaMandatActif = (sepaMandats || []).find(m => m.statut === 'actif') || null;
     const nRepasJour = (repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
     const impayees = (facs || []).filter(facFamImpayee)
       .sort((a, b) => facFamResteCentimes(b) - facFamResteCentimes(a));
@@ -5460,6 +5592,9 @@ async function bindFamilleHome() {
         ${nRepasJour
           ? `<a class="stat-tile bento-span-2" href="/famille/repas"><strong class="ok">${nRepasJour}</strong><span>Repas aujourd’hui</span></a>`
           : ''}
+        ${sepaMandatActif
+          ? `<a class="stat-tile bento-span-2" href="/famille/factures#famSepaOut"><strong class="ok">SEPA actif</strong><span>${esc(String(sepaMandatActif.rum || 'Mandat').slice(0, 28))}</span></a>`
+          : ''}
         ${campOuverte
           ? `<a class="stat-tile bento-span-2" href="/famille/reinscription"><strong class="${nReinsc ? 'warn' : 'ok'}">${nReinsc || 'Ouverte'}</strong><span>Réinscription ${esc((reinsc.campagne && reinsc.campagne.annee_cible) || 'N+1')}</span></a>`
           : ''}`;
@@ -5543,6 +5678,7 @@ async function bindFamilleHome() {
             body: JSON.stringify({ telephone: tel }),
           });
           if (msg) msg.innerHTML = '<span class="ok">Téléphone enregistré</span>';
+          toastFamTelephoneEnregistre(tel);
         } catch (err) {
           if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
         }
@@ -5656,7 +5792,7 @@ async function bindFamilleEnfant(id) {
       }
     }
 
-    html += `<h3>Repas pointés (badge)</h3>
+    html += `<h3 id="fam-sec-repas" style="scroll-margin-top:4.5rem">Repas pointés (badge)</h3>
       <div class="row">
         <label>Du <input id="famRepasDebut" type="date"/></label>
         <label>Au <input id="famRepasFin" type="date" value="${today()}"/></label>
@@ -6927,7 +7063,7 @@ async function bindEleves() {
         <td>${esc(e.regime || '—')}</td>
         <td>${esc(e.site || '—')}</td>
         <td>${esc(e.mef || '—')}</td>
-        <td><span class="pill">${esc(e.status || '—')}</span></td>
+        <td>${staffEleveStatusBadgeHtml(e.status)}</td>
         <td class="muted">${esc(e.ine || '—')}</td>
         <td>
           <a href="/app/eleves/${e.id}">Dossier</a>
@@ -7832,7 +7968,7 @@ async function bindDossier(id) {
         dossierSearchOut.innerHTML = list.slice(0, 8).map(e =>
           `<div class="row" style="justify-content:space-between;align-items:center;gap:.35rem;padding:.15rem 0;border-bottom:1px solid var(--border,#eee)">
             <a href="/app/eleves/${esc(e.id)}"><strong>${esc(e.prenom)} ${esc(e.nom)}</strong></a>
-            ${staffEleveClasseBadgeHtml(e.classe)}
+            <span style="display:flex;align-items:center;gap:.35rem">${staffEleveClasseBadgeHtml(e.classe)}${staffEleveStatusBadgeHtml(e.status)}</span>
           </div>`
         ).join('');
       } catch (e) {
@@ -12192,6 +12328,11 @@ async function bindCantine() {
         method: 'POST',
         body: JSON.stringify({ activite_id: aid, jour, motif }),
       });
+      const sel = document.getElementById('cantDispEleve');
+      const elLab = sel && sel.selectedOptions[0]
+        ? sel.selectedOptions[0].textContent.trim()
+        : '';
+      toastDispenseRepasPosee(d, elLab);
       cantDispMsg.innerHTML = `<span class="ok">Dispense ${esc(d.jour)} — ${esc(d.motif)}</span>`;
       await loadCantDispJour();
     } catch (e) {
@@ -15190,6 +15331,7 @@ async function bindAbsences() {
         }),
       });
       msg.innerHTML = `<span class="ok">${esc(t.code)} — ${esc(t.libelle)}</span>`;
+      if (kind === 'sanction') toastSanctionTypeCreee(t);
       document.getElementById('refCode').value = '';
       document.getElementById('refLib').value = '';
       await loadReferentiels();
@@ -17253,6 +17395,7 @@ async function bindNotes() {
       });
       await loadPeriodes();
       syncPeriodeSelects(await api('/note-periodes'), p.id);
+      toastNotePeriodeCreee(p);
     } catch (e) { alert(e.message); }
   };
   async function loadNotesEleve() {
@@ -17476,6 +17619,12 @@ async function bindNotes() {
     const inputs = [...box.querySelectorAll('.grilleNote')];
     inputs.forEach((inp, idx) => {
       inp.onkeydown = async (ev) => {
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          inp.value = '';
+          inp.blur();
+          return;
+        }
         if (ev.key !== 'Enter' && ev.key !== 'Tab') return;
         ev.preventDefault();
         await grilleNoteAdvanceFromInput(inp, inputs, idx);
@@ -21681,7 +21830,7 @@ async function bindQuittancesFamille() {
         <td>${esc(euros(q.montant_centimes))}</td>
         <td>
           <button type="button" class="btnQuitDetail" data-id="${esc(q.id)}">Détail</button>
-          <button type="button" class="btnPdfQuitFam" data-id="${esc(q.id)}">PDF</button>
+          <button type="button" class="btnPdfQuitFam" data-id="${esc(q.id)}" data-numero="${esc(q.numero || '')}">PDF</button>
         </td>
       </tr>`).join('')}</tbody></table>`;
     out.querySelectorAll('.btnQuitDetail').forEach(btn => {
@@ -21698,6 +21847,7 @@ async function bindQuittancesFamille() {
       btn.onclick = async () => {
         try {
           await downloadPdf('/facturation/quittances/' + btn.dataset.id + '/pdf', 'quittance.pdf');
+          toastQuittanceTelechargee(btn.dataset.numero);
         } catch (e) { alert(e.message); }
       };
     });
@@ -21980,7 +22130,7 @@ async function bindFacturesFamille() {
                  <td>${esc(q.numero)}</td>
                  <td class="muted">${esc((q.emise_at || '').slice(0, 16).replace('T',' '))}</td>
                  <td>${esc(euros(q.montant_centimes))}</td>
-                 <td><button type="button" class="btnPdfQuitFamD" data-id="${esc(q.id)}">PDF</button></td>
+                 <td><button type="button" class="btnPdfQuitFamD" data-id="${esc(q.id)}" data-numero="${esc(q.numero || '')}">PDF</button></td>
                </tr>`).join('')}</tbody></table>`
             : `<p class="empty" style="margin-top:.5rem">Aucune quittance.</p>`
         }`;
@@ -21993,6 +22143,7 @@ async function bindFacturesFamille() {
         btn.onclick = async () => {
           try {
             await downloadPdf('/facturation/quittances/' + btn.dataset.id + '/pdf', 'quittance.pdf');
+            toastQuittanceTelechargee(btn.dataset.numero);
           } catch (e) { alert(e.message); }
         };
       });

@@ -730,6 +730,7 @@ impl PgEnt {
     /// lot J (Bot AJ-A) : absence NJ Ginny (staff / Molly sans VS Ginny), note Ron (staff / Molly sans notes Ron), ré-ensure dispense EPS Harry, photo trombi Cedric, ré-ensure facture Draco ;
     /// lot K (Bot AK-A) : ré-ensure lot J Ginny/Ron, note Hermione (autre matière), photo trombi Cho, 2ᵉ message fil CPE Harry, ré-ensure facture LAB-HARRY-2 (reste > 0).
     /// lot L (Bot AL-A) : note Luna (suppl.), absence NJ Seamus, photo trombi Luna, dossier commission Harry ouvert (decision null), Molly mes_enfants Ron+Ginny.
+    /// lot M (Bot AM-A) : carnet Cedric (Diggory) si pas d’entrée récente famille, note Cho, photo trombi Cedric, PAI Harry non signé, facture LAB-DRACO.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -4162,6 +4163,168 @@ impl PgEnt {
                 eleves[ginny_idx].parent = ron.parent.clone();
                 eleves[ginny_idx].foyer_id = molly_foyer;
             }
+        }
+
+        // --- Bot AM-A lot M : carnet Cedric (Diggory) si pas d’entrée récente visible famille,
+        // note Cho, photo trombi Cedric, PAI Harry actif non signé, facture émise foyer Draco.
+        if let Some(cedric) = labo_eleve_prenom(eleves, "Cedric") {
+            const CEDRIC_CARNET_RECENT_JOURS: i64 = 60;
+            let seuil_carnet_recent = jour - Duration::days(CEDRIC_CARNET_RECENT_JOURS);
+            let carnet_cedric_am = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), cedric.id)
+                .await?;
+            let cedric_a_carnet_recent = carnet_cedric_am.iter().any(|c| {
+                c.visible_famille && c.date_entree >= seuil_carnet_recent
+            });
+            if !cedric_a_carnet_recent {
+                const CEDRIC_CARNET_AM_TITRE: &str = "AUDIT AM-A: Suivi positif Cedric (famille)";
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: cedric.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: CEDRIC_CARNET_AM_TITRE.into(),
+                    corps: "Seed labo lot AM-A — entrée carnet visible famille pour audit portail Cedric Diggory."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+
+            if self
+                .get_eleve(etab, cedric.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        cedric.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        if let Some(cho) = labo_eleve_prenom(eleves, "Cho") {
+            const CHO_NOTE_LIB: &str = "Interro Mathématiques lab (Cho)";
+            if !self
+                .notes_for_eleve(etab, cho.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(CHO_NOTE_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: cho.id,
+                    matiere_id: math.id,
+                    valeur: 14.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(CHO_NOTE_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        let fin_as_pai_am = NaiveDate::from_ymd_opt(debut_as.year() + 1, 7, 5)
+            .unwrap_or_else(|| debut_as + Duration::days(300));
+        match self
+            .get_pai_for_actor(
+                etab,
+                inf.user_id,
+                Role::Infirmerie.as_str(),
+                harry.id,
+            )
+            .await?
+        {
+            None => {
+                self.upsert_pai_for_actor(
+                    Role::Infirmerie.as_str(),
+                    UpsertPai {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        motif: "Asthme".into(),
+                        mesures_accueil: "Ventoline à l'infirmerie avant EPS".into(),
+                        protocole_urgence: "Appeler le SAMU en cas de crise sévère".into(),
+                        note_interne: "Antécédent hospitalisation 2024".into(),
+                        date_debut: debut_as,
+                        date_fin: Some(fin_as_pai_am),
+                        actif: true,
+                        actor_user_id: inf.user_id,
+                    },
+                )
+                .await?;
+            }
+            Some(pai) if pai.signe_famille_at.is_some() || !pai.actif => {
+                self.upsert_pai_for_actor(
+                    Role::Infirmerie.as_str(),
+                    UpsertPai {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        motif: pai.motif,
+                        mesures_accueil: pai.mesures_accueil,
+                        protocole_urgence: pai.protocole_urgence,
+                        note_interne: pai.note_interne,
+                        date_debut: pai.date_debut,
+                        date_fin: pai.date_fin,
+                        actif: true,
+                        actor_user_id: inf.user_id,
+                    },
+                )
+                .await?;
+            }
+            Some(_) => {}
+        }
+
+        let fac_draco_numero_am = format!("LAB-DRACO-{etab_short}");
+        let factures_draco_am = self
+            .list_factures_for_actor(etab, compta.user_id, role_compta)
+            .await?;
+        let facture_draco_am = if let Some(f) = factures_draco_am
+            .iter()
+            .find(|f| f.foyer_id == draco.foyer_id && f.numero == fac_draco_numero_am)
+        {
+            f.clone()
+        } else {
+            let (f, _lignes) = self
+                .creer_facture_for_actor(
+                    role_compta,
+                    CreerFacture {
+                        etablissement_id: etab,
+                        foyer_id: draco.foyer_id,
+                        numero: fac_draco_numero_am.clone(),
+                        libelle: "Fournitures — seed audit Draco".into(),
+                        nature: None,
+                        annee_scolaire: Some(annee_scolaire_de(jour)),
+                        lignes: vec![LigneFactureCmd {
+                            eleve_id: Some(draco.id),
+                            libelle: "Cahier de correspondance".into(),
+                            quantite: 1,
+                            montant_unitaire_centimes: 350,
+                        }],
+                        actor_user_id: compta.user_id,
+                    },
+                )
+                .await?;
+            f
+        };
+        if facture_draco_am.statut == FactureStatut::Brouillon {
+            let _ = self
+                .emettre_facture_for_actor(
+                    etab,
+                    facture_draco_am.id,
+                    compta.user_id,
+                    role_compta,
+                )
+                .await?;
         }
 
         Ok(())
