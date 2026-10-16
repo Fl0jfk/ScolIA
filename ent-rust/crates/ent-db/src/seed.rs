@@ -2763,6 +2763,152 @@ impl PgEnt {
             }
         }
 
+        // --- Bot AD-A lot D : carnet Luna (famille), passage infirmerie Hermione, sortie except. Harry (jour J),
+        // petite facture émise foyer Draco ; ré-ensure bulletin T0 publié.
+        if let Some(luna) = labo_eleve_prenom(eleves, "Luna") {
+            const LUNA_CARNET_AUDIT_TITRE: &str = "AUDIT: Encouragements Luna (famille)";
+            let carnet_luna = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), luna.id)
+                .await?;
+            if !carnet_luna
+                .iter()
+                .any(|c| c.titre == LUNA_CARNET_AUDIT_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: luna.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: LUNA_CARNET_AUDIT_TITRE.into(),
+                    corps: "Seed labo lot AD-A — entrée carnet visible famille pour audit portail Luna Lovegood."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            const HERMIONE_INFIRMERIE_AUDIT: &str =
+                "Seed labo lot AD-A — pansement doigt (coupure papier).";
+            let passages_hermione = self
+                .list_passages_infirmerie_for_actor(
+                    etab,
+                    inf.user_id,
+                    Role::Infirmerie.as_str(),
+                    Some(hermione.id),
+                    None,
+                )
+                .await?;
+            if !passages_hermione
+                .iter()
+                .any(|p| p.note_soins == HERMIONE_INFIRMERIE_AUDIT)
+            {
+                self.creer_passage_infirmerie_for_actor(
+                    Role::Infirmerie.as_str(),
+                    CreerPassageInfirmerie {
+                        etablissement_id: etab,
+                        eleve_id: hermione.id,
+                        jour,
+                        motif: PassageInfirmerieMotif::Soins,
+                        note_soins: HERMIONE_INFIRMERIE_AUDIT.into(),
+                        visible_famille: true,
+                        actor_user_id: inf.user_id,
+                    },
+                )
+                .await?;
+            }
+        }
+
+        const HARRY_SORTIE_EXCEPT_MOTIF: &str = "Seed labo lot AD-A — RDV médical jour J";
+        let recap_harry_sortie = self
+            .get_recap_sortie_for_actor(
+                etab,
+                harry.parent.user_id,
+                Role::Parent.as_str(),
+                harry.id,
+            )
+            .await?;
+        if !recap_harry_sortie.demandes_ouvertes.iter().any(|d| {
+            d.jour == jour && d.motif == HARRY_SORTIE_EXCEPT_MOTIF
+        }) {
+            let _ = self
+                .demander_sortie_exceptionnelle_for_actor(
+                    Role::Parent.as_str(),
+                    DemanderSortieExceptionnelle {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        jour,
+                        creneau: SortieCreneau::Midi,
+                        motif: HARRY_SORTIE_EXCEPT_MOTIF.into(),
+                        actor_user_id: harry.parent.user_id,
+                    },
+                )
+                .await;
+        }
+
+        let fac_draco_numero = format!("LAB-DRACO-{etab_short}");
+        let factures_draco = self
+            .list_factures_for_actor(etab, compta.user_id, role_compta)
+            .await?;
+        let facture_draco = if let Some(f) = factures_draco
+            .iter()
+            .find(|f| f.foyer_id == draco.foyer_id && f.numero == fac_draco_numero)
+        {
+            f.clone()
+        } else {
+            let (f, _lignes) = self
+                .creer_facture_for_actor(
+                    role_compta,
+                    CreerFacture {
+                        etablissement_id: etab,
+                        foyer_id: draco.foyer_id,
+                        numero: fac_draco_numero.clone(),
+                        libelle: "Fournitures — seed audit Draco".into(),
+                        nature: None,
+                        annee_scolaire: Some(annee_scolaire_de(jour)),
+                        lignes: vec![LigneFactureCmd {
+                            eleve_id: Some(draco.id),
+                            libelle: "Cahier de correspondance".into(),
+                            quantite: 1,
+                            montant_unitaire_centimes: 350,
+                        }],
+                        actor_user_id: compta.user_id,
+                    },
+                )
+                .await?;
+            f
+        };
+        if facture_draco.statut == FactureStatut::Brouillon {
+            let _ = self
+                .emettre_facture_for_actor(etab, facture_draco.id, compta.user_id, role_compta)
+                .await?;
+        }
+
+        let docs_harry_t0_ensure = self
+            .list_documents_meta_eleve_for_actor(
+                etab,
+                administratif.user_id,
+                role_admini,
+                harry.id,
+            )
+            .await?;
+        if !docs_harry_t0_ensure
+            .iter()
+            .any(|(d, _)| d.code.as_deref() == Some(bulletin_t0_code.as_str()))
+        {
+            let _ = self
+                .publier_bulletin_for_actor(
+                    Role::Direction.as_str(),
+                    etab,
+                    harry.id,
+                    periode_t0.id,
+                    admin.user_id,
+                )
+                .await;
+        }
+
         // --- Messagerie CPE → parent Harry (1 fil, 1 message) — sans signature docs
         const FIL_CPE_AUDIT_SUJET: &str = "AUDIT: Point conduite Harry";
         let role_cpe = Role::Cpe.as_str();

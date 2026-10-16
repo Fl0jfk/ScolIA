@@ -213,6 +213,83 @@ function toastNotePeriodeFermee(p) {
   }
 }
 
+function entMessageLooksEdtConflit(msg) {
+  const m = String(msg || '').toLowerCase();
+  return m.includes('conflit edt') || (m.includes('conflit') && m.includes('edt'));
+}
+
+function toastEdtConflit(detail) {
+  const d = detail ? esc(detail) : 'Prof, salle ou classe déjà occupé(e) sur ce créneau.';
+  showEntToast(`<strong>Conflit EDT</strong> — ${d}`, 10000);
+}
+
+function toastRepasScanOk(p) {
+  const who = [p.eleve_prenom, p.eleve_nom].filter(Boolean).join(' ').trim() || 'Élève';
+  showEntToast(
+    `<strong>Passage cantine</strong> — ${esc(who)} · badge ${esc(p.badge_lu || '—')}`,
+    6500,
+  );
+}
+
+function toastSanctionAnnulee() {
+  showEntToast('<strong>Sanction annulée</strong> — registre discipline et points actualisés.');
+}
+
+function eleveTimelineEmptyHtml() {
+  return famEmptyDense('Rien de particulier pour aujourd’hui', [
+    'Cours, devoirs, carnet, repas et notes du jour s’affichent ici au fil de la journée.',
+    'Un document ou une entrée carnet à signer apparaît en priorité dans cette frise.',
+  ], '<a href="/eleve/edt">EDT complet</a> · <a href="/eleve/docs">Docs & carnet</a> · <a href="/eleve/repas">Repas</a>');
+}
+
+function staffSortiesDemEmptyHtml() {
+  return staffEmptyDense('Aucune demande exceptionnelle en file', [
+    'Les parents déposent une demande depuis le portail famille ; vous acceptez ou refusez avec une note de décision.',
+    'Le formulaire « Saisir pour un parent » enregistre une demande au nom de la famille.',
+  ], '<button type="button" id="btnSortDemEmptyRefresh">Rafraîchir la file</button>');
+}
+
+function staffSortiesCtrlEmptyHtml(jour) {
+  return staffEmptyDense(`Aucun contrôle portail le ${esc(jour)}`, [
+    'Chaque contrôle (autorisé / refusé) est historisé ici pour le jour choisi.',
+    'Utilisez « Contrôler » pour simuler ou enregistrer un passage au portail.',
+  ], '');
+}
+
+/** Agrégat labo (classes seed) — pas d’endpoint effectif établissement dédié. */
+async function snapshotEffectifTotal(jour) {
+  const classes = ['3C', '4B', '5A', '6A'];
+  const seen = new Set();
+  await Promise.all(classes.map(async cl => {
+    const eff = await api('/classes/' + encodeURIComponent(cl) + '/effectif?jour=' + encodeURIComponent(jour)).catch(() => null);
+    for (const e of (eff && eff.eleves) || []) {
+      if (e.id) seen.add(String(e.id));
+    }
+  }));
+  return seen.size;
+}
+
+function staffMonEdtEmptyHtml(mode) {
+  const titre = mode === 'semaine' ? 'Aucun créneau cette semaine' : 'Aucun cours ce jour';
+  return staffEmptyDense(titre, [
+    'Les exceptions (annulation, remplacement, salle) apparaissent dans le bloc « Exceptions période ».',
+    'Jour férié ou vacances : libellé « fermé », sans créneau planifié.',
+  ], '<a href="/app/appel">Faire l’appel</a> <a href="/app/edt">EDT établissement</a>');
+}
+
+function staffDispensesJourEmptyHtml(jour) {
+  return staffEmptyDense(`Aucune dispense ce jour (${esc(jour)})`, [
+    'Posez une dispense EPS, piscine, sport ou médical via le panneau « Poser une dispense ».',
+    'Les dispenses actives couvrent l’appel et l’EDT sur la période indiquée.',
+  ], '<button type="button" id="btnDvEmptyFocus">Poser une dispense</button>');
+}
+
+function staffDispensesEleveEmptyHtml() {
+  return staffEmptyDense('Aucune dispense sur cette fiche', [
+    'Renseignez motif, début et fin puis « Poser », ou sélectionnez un autre élève.',
+  ], '');
+}
+
 function isGrille4bPotionsQuery(v) {
   if (v == null || v === '') return false;
   const n = String(v).trim().toLowerCase().replace(/_/g, '-');
@@ -1910,14 +1987,11 @@ async function bindEleveHome() {
       }
       timeline.sort((a, b) => a.sort - b.sort || String(a.time).localeCompare(String(b.time)));
       timelineBox.innerHTML = !timeline.length
-        ? emptyState('Rien de particulier pour aujourd’hui', 'Cours, devoirs et messages apparaîtront ici.')
-        : `<ul style="margin:0;padding:0;list-style:none">${timeline.map(it =>
-            `<li style="display:flex;gap:.65rem;padding:.4rem 0;border-bottom:1px solid var(--line)">
-              <span class="muted" style="min-width:5.5rem;flex-shrink:0">${it.time}</span>
-              <span style="flex:1">${it.html}</span>
-            </li>`
+        ? eleveTimelineEmptyHtml()
+        : `<ul class="eleve-hub-list">${timeline.map(it =>
+            `<li><span class="muted" style="display:inline-block;min-width:4.25rem;vertical-align:top">${it.time}</span> ${it.html}</li>`
           ).join('')}</ul>
-        <p class="muted" style="margin:.65rem 0 0"><a href="/eleve/edt">EDT complet</a> · <a href="/eleve/docs">Docs</a> · <a href="/eleve/repas">Repas</a></p>`;
+        <p class="muted" style="margin:.45rem 0 0;font-size:.85rem"><a href="/eleve/edt">EDT complet</a> · <a href="/eleve/docs">Docs</a> · <a href="/eleve/repas">Repas</a></p>`;
       timelineBox.querySelectorAll('.btnEleveCarSigne').forEach(btn => {
         btn.onclick = async () => {
           try {
@@ -2095,7 +2169,12 @@ async function bindEleveVieScolaire() {
   const out = document.getElementById('eleveVsOut');
   const stats = document.getElementById('eleveVsStats');
   const eid = me && me.eleve_id;
-  if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
+  if (!eid) {
+    out.innerHTML = famEmptyDense('Compte élève incomplet', [
+      'Impossible d’afficher la vie scolaire sans profil élève rattaché.',
+    ], '<a href="/eleve">Accueil élève</a>');
+    return;
+  }
   try {
     const [sanctions, incidents, commissions, alertes, conseils, points, docs, carnet] = await Promise.all([
       api('/eleves/' + eid + '/sanctions').catch(() => []),
@@ -2122,6 +2201,16 @@ async function bindEleveVieScolaire() {
         <div class="stat-tile bento-span-2"><strong>${esc(String(pts))}</strong><span>Points VS</span></div>`;
     }
     const sec = (title, body) => `<section style="margin-top:1rem"><h3>${esc(title)}</h3>${body}</section>`;
+    const vsTotalementVide = !docsPending.length && !carPending.length
+      && !(sanctions || []).length && !(incidents || []).length && !comVis.length
+      && !(alertes || []).length && !consVis.length;
+    if (vsTotalementVide) {
+      out.innerHTML = famEmptyDense('Vie scolaire au calme', [
+        'Aucune sanction, commission, alerte ou document en attente pour le moment.',
+        'Les décisions de conseil et le carnet apparaissent ici dès publication.',
+      ], '<a href="/eleve/messages">Contacter le CPE</a> · <a href="/eleve/docs">Docs & carnet</a>');
+      return;
+    }
     let html = '';
     html += sec('À traiter',
       (docsPending.length || carPending.length)
@@ -2129,9 +2218,9 @@ async function bindEleveVieScolaire() {
             ${docsPending.length ? `<li><a href="/eleve/docs">${docsPending.length} document(s) à signer</a></li>` : ''}
             ${carPending.length ? `<li><a href="/eleve/docs">${carPending.length} entrée(s) carnet à signer</a></li>` : ''}
           </ul>`
-        : '<p class="ok">Rien à signer.</p>');
+        : famEmptyDense('Rien à signer', ['Charte, carnet et autorisations à jour.'], '<a href="/eleve/docs">Voir les docs</a>'));
     html += sec('Sanctions', !(sanctions || []).length
-      ? '<p class="empty">Aucune sanction.</p>'
+      ? famEmptyDense('Aucune sanction', ['Aucune entrée au registre discipline sur votre dossier.'], '')
       : `<ul>${sanctions.map(s =>
           `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}
            · <a href="/eleve/docs">Voir carnet</a></li>`
@@ -2147,13 +2236,13 @@ async function bindEleveVieScolaire() {
           `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.commission_jour ? ' · ' + esc(d.commission_jour) : ''}${d.lieu ? ' · ' + esc(d.lieu) : ''}</li>`
         ).join('')}</ul>`);
     html += sec('Alertes CPE', !(alertes || []).length
-      ? '<p class="empty">Aucune alerte.</p>'
+      ? famEmptyDense('Aucune alerte', ['Le CPE vous prévient ici en cas de suivi particulier.'], '')
       : `<ul>${alertes.map(a =>
           `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}
            <button type="button" class="btnEleveVsMsg" data-sujet="${esc('Alerte : ' + (a.titre || ''))}">Contacter le CPE</button></li>`
         ).join('')}</ul>`);
     html += sec('Décisions de conseil', !consVis.length
-      ? '<p class="empty">Aucune décision visible.</p>'
+      ? famEmptyDense('Aucune décision visible', ['Les décisions publiées par le conseil de classe apparaissent ici.'], '')
       : `<ul>${consVis.map(c =>
           `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}${c.classe ? ' · ' + esc(c.classe) : ''}</li>`
         ).join('')}</ul>`);
@@ -3239,7 +3328,10 @@ async function bindEleveNotes() {
       ? `<ul>${apps.map(a =>
           `<li><span class="pill">${esc(a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'))}</span> ${esc(a.texte)}${a.auteur_label ? ' <span class="muted">· ' + esc(a.auteur_label) + '</span>' : ''}</li>`
         ).join('')}</ul>`
-      : emptyState('Aucune appréciation', 'Les appréciations sont publiées en fin de période.');
+      : famEmptyDense('Aucune appréciation', [
+          `Période ${esc(p.libelle || '')} — les appréciations des professeurs apparaissent après saisie ou fermeture.`,
+          'Consultez aussi les décisions de conseil ci-dessous.',
+        ], '<a href="/eleve/vie-scolaire">Vie scolaire</a>');
   } catch (e) {
     moyOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
@@ -3605,7 +3697,7 @@ async function bindHome() {
   const wantGrants = isAdminish;
   const INSC_HOME = ['dossier', 'pieces', 'entretien', 'decision', 'paiement'];
   const wantPilotageKpi = role === 'direction' || role === 'admin';
-  const [abs, sig, docs, fils, rh, alertes, sorties, grants, campN1, eff4b, nSanJour4b, notePeriodesDir, ...insByEtape] = await Promise.all([
+  const [abs, sig, docs, fils, rh, alertes, sorties, grants, campN1, eff4b, effTotal, nSanJour4b, notePeriodesDir, passagesInfJour, ...insByEtape] = await Promise.all([
     settle(api('/vs/absences?jour=' + encodeURIComponent(jour)), []),
     settle(api('/vs/signaux'), []),
     wantDocs ? settle(api('/vs/docs-a-signer'), []) : Promise.resolve([]),
@@ -3618,10 +3710,14 @@ async function bindHome() {
     wantGrants ? settle(api('/documents/grants/pending'), []) : Promise.resolve([]),
     wantPilotageKpi && role === 'direction' ? settle(api('/reinscription/campagne'), null) : Promise.resolve(null),
     wantPilotageKpi ? settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(jour)), null) : Promise.resolve(null),
+    wantPilotageKpi && role === 'admin' ? settle(snapshotEffectifTotal(jour), null) : Promise.resolve(null),
     wantPilotageKpi && role === 'direction'
       ? settle(countSanctionsClasseJour('4B', jour), null)
       : Promise.resolve(null),
     wantPilotageKpi ? settle(api('/note-periodes'), []) : Promise.resolve([]),
+    role === 'cpe'
+      ? settle(api('/infirmerie/passages?jour=' + encodeURIComponent(jour)), [])
+      : Promise.resolve([]),
     ...(wantInsc
       ? INSC_HOME.map(et => settle(api('/inscriptions/par-etape?etape=' + encodeURIComponent(et)), []))
       : INSC_HOME.map(() => Promise.resolve([]))),
@@ -3633,6 +3729,7 @@ async function bindHome() {
   const nMsg = (fils || []).reduce((s, f) => s + (f.nb_non_lus || 0), 0);
   const nRh = (rh || []).filter(a => a.statut === 'signalee' || a.statut === 'a_valider').length;
   const nEff4b = (eff4b && Array.isArray(eff4b.eleves)) ? eff4b.eleves.length : (eff4b && eff4b.effectif) || 0;
+  const nEffTotal = effTotal != null ? effTotal : null;
   const campOuverte = !!(campN1 && (campN1.ouverte === true || campN1.ouverte === 1));
   const campLabel = campN1 && campN1.annee_cible ? String(campN1.annee_cible) : 'N+1';
   const nAlert = (alertes || []).length;
@@ -3642,6 +3739,7 @@ async function bindHome() {
   }).length;
   const nIns = INSC_HOME.reduce((s, _, i) => s + ((insByEtape[i] || []).length), 0);
   const nGrants = (grants || []).length;
+  const nPassInfJour = role === 'cpe' ? (passagesInfJour || []).length : 0;
   let comSnap = { count: 0, coms: 0, first: null };
   let permisBas = [];
   if (role === 'cpe') {
@@ -3694,6 +3792,7 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/eleves"><strong>·</strong><span>Annuaire élèves</span></a>
         <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
         ${wantSort ? `<a class="stat-tile bento-span-2" href="/app/sorties"><strong>${nSort}</strong><span>Sorties</span></a>` : ''}
+        <a class="stat-tile bento-span-2" href="/app/infirmerie"><strong>${nPassInfJour}</strong><span>Passages infirmerie</span></a>
         <a class="stat-tile bento-span-2" href="/app/appel"><strong>·</strong><span>Faire l’appel</span></a>
         <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>
         ${outboxSnap.show ? `<a class="stat-tile bento-span-2" href="/app/comms"><strong class="${outboxSnap.n ? 'warn' : ''}">${outboxSnap.n}</strong><span>Mails / SMS outbox</span></a>` : ''}
@@ -3737,6 +3836,7 @@ async function bindHome() {
     } else if (role === 'admin') {
       pulse.innerHTML = `
         <a class="stat-tile bento-span-2" href="/app/etab"><strong class="${nGrants ? 'warn' : ''}">${nGrants}</strong><span>Grants en attente</span></a>
+        <a class="stat-tile bento-span-2" href="/app/eleves"><strong>${nEffTotal != null ? nEffTotal : '—'}</strong><span>Effectif total</span></a>
         <a class="stat-tile bento-span-2" href="/app/eleves?trombi=4B"><strong>4B</strong><span>Trombinoscope</span></a>
         <a class="stat-tile bento-span-2" href="/app/inscriptions"><strong>${nIns}</strong><span>File inscriptions</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
@@ -3798,6 +3898,9 @@ async function bindHome() {
       : `<a class="stat-tile bento-span-3" href="/app/inscriptions"><strong>${nIns}</strong><span>Inscriptions actives</span></a>`;
     dirKpi.innerHTML = `
       <a class="stat-tile bento-span-3" href="/app/etab"><strong class="${nGrants ? 'warn' : ''}">${nGrants}</strong><span>Grants en attente</span></a>
+      ${role === 'admin' && nEffTotal != null
+        ? `<a class="stat-tile bento-span-3" href="/app/eleves"><strong>${nEffTotal}</strong><span>Effectif total établ.</span></a>`
+        : ''}
       <a class="stat-tile bento-span-3" href="/app/eleves?trombi=4B"><strong>4B</strong><span>Trombinoscope</span></a>
       <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nAbs}</strong><span>Abs. VS à traiter · ${nAbsAll} signalées</span></a>
       <a class="stat-tile bento-span-3" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
@@ -4234,11 +4337,14 @@ async function bindFamilleHome() {
     } else if (campOuverte) {
       lines.push(`<li><a href="/famille/reinscription">Campagne réinscription ouverte</a></li>`);
     }
+    const facPulseHref = nImpayees === 1 && impayees[0]
+      ? '/famille/factures?fac=' + encodeURIComponent(impayees[0].id)
+      : '/famille/factures';
     if (nImpayees) {
-      lines.push(`<li><a href="/famille/factures">${nImpayees} facture(s) · reste ${esc(euros(resteFacturesTotal))}</a></li>`);
+      lines.push(`<li><a href="${facPulseHref}">${nImpayees} facture(s) · reste ${esc(euros(resteFacturesTotal))}</a></li>`);
       impayees.forEach(f => {
         const reste = facFamResteCentimes(f);
-        lines.push(`<li><a href="/famille/factures">${esc(f.numero || f.libelle || 'Facture')} — <span class="pill-unread">reste ${esc(euros(reste))}</span></a></li>`);
+        lines.push(`<li><a href="/famille/factures?fac=${encodeURIComponent(f.id)}">${esc(f.numero || f.libelle || 'Facture')} — <span class="pill-unread">reste ${esc(euros(reste))}</span></a></li>`);
       });
     }
     const { nTotal: nCharteReg } = famCharteReglementCounts(docsLists);
@@ -4258,7 +4364,7 @@ async function bindFamilleHome() {
     const paiTile = nPai
       ? `<a class="stat-tile bento-span-2" href="/famille/enfants/${esc(firstPaiEnfant.id)}?section=pai"><strong class="warn">${nPai}</strong><span>PAI à signer</span></a>`
       : `<div class="stat-tile bento-span-2"><strong>0</strong><span>PAI</span></div>`;
-    const resteTile = `<a class="stat-tile bento-span-3" href="/famille/factures"><strong class="${resteFacturesTotal ? 'warn' : ''}">${esc(euros(resteFacturesTotal))}</strong><span>Reste à payer</span></a>`;
+    const resteTile = `<a class="stat-tile bento-span-3" href="${facPulseHref}"><strong class="${resteFacturesTotal ? 'warn' : ''}">${esc(euros(resteFacturesTotal))}</strong><span>Reste à payer</span></a>`;
     const docsCta = document.getElementById('famDocsCta');
     if (docsCta) {
       const ctaHtml = famDocsSignCtaHtml(nDocs);
@@ -4279,7 +4385,7 @@ async function bindFamilleHome() {
         <div class="stat-tile bento-span-2"><strong>${nAbs}</strong><span>Abs. à justifier</span></div>
         <div class="stat-tile bento-span-2"><strong>${nCarnet}</strong><span>Carnet</span></div>
         ${paiTile}
-        <a class="stat-tile bento-span-2" href="/famille/factures"><strong class="${nImpayees ? 'warn' : ''}">${nImpayees}</strong><span>Facture(s) impayée(s)</span></a>
+        <a class="stat-tile bento-span-2" href="${facPulseHref}"><strong class="${nImpayees ? 'warn' : ''}">${nImpayees}</strong><span>Facture(s) impayée(s)</span></a>
         <a class="stat-tile bento-span-2" href="/famille/messages"><strong class="${nMsg ? 'warn' : ''}">${nMsg}</strong><span>${nMsg ? 'Msg non lus' : 'Messages'}</span></a>
         <a class="stat-tile bento-span-2" href="/famille/vie-scolaire"><strong>${nCom}</strong><span>Commissions</span></a>
         ${nRepasJour
@@ -4840,6 +4946,8 @@ async function bindFamilleEnfant(id) {
               }),
             });
           }
+          const pj = file ? ' · pièce jointe enregistrée' : '';
+          showEntToast(`<strong>Justificatif déposé</strong>${pj} — la vie scolaire traitera votre demande.`, 9000);
           await bindFamilleEnfant(id);
         } catch (err) { alert(err.message); }
         finally { btn.disabled = false; }
@@ -5380,7 +5488,9 @@ async function bindFamilleEnfant(id) {
                 ? `<p class="muted">${esc(p.libelle)}</p><ul>${apps.map(a =>
                     `<li><span class="pill">${esc(a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'))}</span> ${esc(a.texte)}</li>`
                   ).join('')}</ul>`
-                : `<p class="empty">Aucune appréciation (${esc(p.libelle)}).</p>`;
+                : famEmptyDense(`Aucune appréciation (${esc(p.libelle)})`, [
+                    'Les enseignants publient leurs appréciations en fin de période ou après fermeture partielle.',
+                  ], '<a href="/famille/messages">Contacter l’école</a>');
             } catch (ae) {
               appBox.innerHTML = `<p class="empty">${esc(ae.message)}</p>`;
             }
@@ -6967,6 +7077,7 @@ async function bindDossier(id) {
         if (!confirm('Annuler cette sanction ?')) return;
         try {
           await api('/vs/sanctions/' + btn.dataset.id + '/annuler', { method: 'POST', body: '{}' });
+          toastSanctionAnnulee();
           await bindDossier(id);
         } catch (e) { alert(e.message); }
       };
@@ -7465,7 +7576,7 @@ async function bindAppel() {
     try {
       const list = await api('/edt/mes-creneaux?jour=' + jour);
       if (!list.length) {
-        creneauxOut.innerHTML = '<p class="empty">Aucun créneau pour toi ce jour.</p>';
+        creneauxOut.innerHTML = staffMonEdtEmptyHtml('jour');
         return;
       }
       creneauxOut.innerHTML = `<table>
@@ -7875,7 +7986,7 @@ async function bindMonEdt() {
           <a class="stat-tile bento-span-3" href="/app/appel"><strong>→</strong><span>Page Appel</span></a>`;
       }
       if (!total && packs.every(p => !p.ferme)) {
-        out.innerHTML = '<p class="empty">Aucun créneau pour toi sur cette période.</p>';
+        out.innerHTML = staffMonEdtEmptyHtml(mode);
       } else {
         out.innerHTML = packs.map(p => {
           const exByC = Object.fromEntries((p.exs || []).map(e => [e.creneau_id, e]));
@@ -7884,7 +7995,7 @@ async function bindMonEdt() {
             return head + '<p class="warn" style="margin:0">Jour fermé (vacances / férié)</p>';
           }
           if (!p.list.length) {
-            return head + '<p class="empty">Aucun créneau.</p>';
+            return head + staffMonEdtEmptyHtml('jour');
           }
           return head + `<table><thead><tr><th>Horaire</th><th>Classe</th><th>Matière</th><th>Salle</th><th>Exception</th><th></th></tr></thead>
             <tbody>${p.list.map(c => {
@@ -7917,7 +8028,8 @@ async function bindMonEdt() {
               routeState.appel = appel;
               go('/app/appel');
             } catch (e) {
-              alert(e.message);
+              if (entMessageLooksEdtConflit(e.message)) toastEdtConflit(e.message);
+              else showEntToast(`<span class="bad">${esc(e.message)}</span>`, 9000);
             }
           };
         });
@@ -8371,6 +8483,7 @@ async function bindEdt() {
       await loadJour();
     } catch (e) {
       affMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      if (entMessageLooksEdtConflit(e.message)) toastEdtConflit(e.message);
     }
   };
 
@@ -10681,11 +10794,13 @@ async function bindCantine() {
         body: JSON.stringify({ badge, kind: 'midi', jour }),
       });
       msg.innerHTML = `<span class="ok">OK — ${esc(p.eleve_prenom || '')} ${esc(p.eleve_nom || '')} (${esc(p.badge_lu)})</span>`;
+      toastRepasScanOk(p);
       document.getElementById('scanBadge').value = '';
       document.getElementById('scanBadge').focus();
       await loadPassages();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      showEntToast(`<span class="bad">${esc(e.message)}</span>`, 9000);
     }
   };
   document.getElementById('scanBadge').onkeydown = (ev) => {
@@ -13921,6 +14036,7 @@ async function bindAbsences() {
               await api('/vs/sanctions/' + btn.dataset.id + '/annuler', {
                 method: 'POST', body: '{}',
               });
+              toastSanctionAnnulee();
               await loadIncSanHisto();
               await loadPoints();
             } catch (e) { alert(e.message); }
@@ -14758,10 +14874,18 @@ async function bindDispensesVs() {
   async function loadEleve() {
     const out = document.getElementById('dvEleveOut');
     const id = sel.value;
-    if (!id) { out.innerHTML = '<p class="empty">Élève requis</p>'; return; }
+    if (!id) {
+      out.innerHTML = staffEmptyDense('Choisir un élève', [
+        'Recherchez puis sélectionnez un élève pour voir l’historique des dispenses VS.',
+      ], '');
+      return;
+    }
     try {
       const list = await api('/eleves/' + encodeURIComponent(id) + '/dispenses-vs');
-      if (!list.length) { out.innerHTML = '<p class="empty">Aucune dispense.</p>'; return; }
+      if (!list.length) {
+        out.innerHTML = staffDispensesEleveEmptyHtml();
+        return;
+      }
       out.innerHTML = `<table><thead><tr><th>Motif</th><th>Début</th><th>Fin</th><th>Commentaire</th><th>Statut</th><th></th></tr></thead>
         <tbody>${list.map(d => `<tr>
           <td><span class="pill">${esc(d.motif)}</span></td>
@@ -14791,7 +14915,18 @@ async function bindDispensesVs() {
           <div class="stat-tile bento-span-4"><strong>${actives.length}</strong><span>Actives le ${esc(jour)}</span></div>
           <div class="stat-tile bento-span-8"><strong>${esc(motifBits)}</strong><span>Répartition motifs</span></div>`;
       }
-      if (!list.length) { out.innerHTML = '<p class="empty">Aucune dispense ce jour.</p>'; return; }
+      if (!list.length) {
+        out.innerHTML = staffDispensesJourEmptyHtml(jour);
+        const btnFocus = document.getElementById('btnDvEmptyFocus');
+        if (btnFocus) {
+          btnFocus.onclick = () => {
+            const com = document.getElementById('dvCom');
+            if (com) com.focus();
+            else document.getElementById('btnDvPose')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          };
+        }
+        return;
+      }
       await hydrateEleveNames(list.map(d => d.eleve_id));
       out.innerHTML = `<table><thead><tr><th>Élève</th><th>Motif</th><th>Début</th><th>Fin</th><th>Com.</th><th>Statut</th><th></th></tr></thead>
         <tbody>${list.map(d => `<tr class="dvJourRow" data-eid="${esc(d.eleve_id)}" style="cursor:pointer">
@@ -15936,6 +16071,9 @@ async function bindNotes() {
         method: 'POST', body: JSON.stringify(body),
       });
       msg.innerHTML = `<span class="ok">OK</span> ${esc(String(n.valeur))}/${esc(String(n.sur))} enregistrée`;
+      const selEl = document.getElementById('noteEleve');
+      const opt = selEl && selEl.selectedOptions && selEl.selectedOptions[0];
+      toastNoteSaisie(n, opt ? opt.textContent.trim() : '');
       await loadNotesEleve();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -16336,10 +16474,15 @@ async function bindNotes() {
              <td class="muted">${esc(a.auteur_label || '—')}</td>
              <td>${esc(a.texte)}</td>
            </tr>`).join('')}</tbody></table>`
-        : `<p class="empty">Aucune appréciation.</p>`;
+        : staffEmptyDense('Aucune appréciation', [
+            'Saisissez une appréciation ci-dessus ou passez la période en « Appréciations » avant fermeture.',
+            'Les familles les voient sur le portail notes une fois publiées.',
+          ], '<button type="button" id="btnAppEmptySaisir">Enregistrer une appréciation</button>');
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
+    const btnEmpty = document.getElementById('btnAppEmptySaisir');
+    if (btnEmpty) btnEmpty.onclick = () => document.getElementById('btnAppSaisir').click();
   };
 
   const NOTES_LAB = { classe: '4B', matiereCode: 'POTIONS', matiereLib: 'Potions' };
@@ -19768,25 +19911,58 @@ async function bindFamilleSorties() {
   await load();
 }
 
+function orientVoeuxTableHtml(list, emptyMsg) {
+  const sorted = [...(list || [])].sort((a, b) => (a.rang || 99) - (b.rang || 99));
+  if (!sorted.length) {
+    return famEmptyDense(emptyMsg || 'Aucun vœu', [
+      'Les vœux post-bac / Parcoursup saisis par la famille apparaissent ici par rang.',
+      'L’équipe éducative peut aussi compléter les champs info-comp ci-dessous.',
+    ], '<a href="https://www.parcoursup.fr/" target="_blank" rel="noopener">Parcoursup</a>');
+  }
+  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+    <thead><tr>
+      <th style="text-align:left;width:4rem">Rang</th>
+      <th style="text-align:left">Filière visée</th>
+      <th style="text-align:left;width:8rem">Année</th>
+    </tr></thead>
+    <tbody>${sorted.map(v => `<tr>
+      <td><span class="pill" title="Ordre de préférence">${esc(String(v.rang ?? '—'))}</span></td>
+      <td><strong>${esc(v.filiere_label || v.filiere_id || '—')}</strong></td>
+      <td class="muted">${esc(v.annee_scolaire || '—')}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
 function viewFamilleOrientation() {
   return shell('/famille/orientation', `
+    <div class="bento" id="famOrientStats"></div>
+    <div id="famOrientBar" style="margin-bottom:.65rem"></div>
+    <div class="bento">
+      <a class="stat-tile bento-span-4" href="https://www.onisep.fr/" target="_blank" rel="noopener"><strong>ONISEP</strong><span>Métiers &amp; formations</span></a>
+      <a class="stat-tile bento-span-4" href="https://www.parcoursup.fr/" target="_blank" rel="noopener"><strong>Parcoursup</strong><span>Post-bac &amp; vœux</span></a>
+      <a class="stat-tile bento-span-4" href="/famille/messages"><strong>Messages</strong><span>Contacter le CPE / Psy-EN</span></a>
+    </div>
     <div class="panel">
       <h2>Orientation</h2>
-      <p class="muted">Vœux et info-comp par enfant — même données que sur la fiche enfant.</p>
-      <div class="row">
+      <p class="muted">Vœux et info-comp par enfant — mêmes données que sur la fiche enfant et le portail élève.</p>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:.5rem">
         <label>Enfant <select id="orientEnfant" style="min-width:14rem"></select></label>
+        <label>Année scolaire
+          <input id="orientVoeAnnee" value="2026-2027" style="width:8rem"/>
+        </label>
+        <button type="button" id="btnOrientRefresh">Actualiser</button>
       </div>
-      <h3 style="margin-top:1rem">Vœux</h3>
-      <div class="row">
-        <label>Filière <select id="orientVoeFil" style="min-width:12rem"></select></label>
+      <h3 style="margin-top:1rem">Poser un vœu</h3>
+      <div class="row" style="flex-wrap:wrap;gap:.5rem">
+        <label>Filière <select id="orientVoeFil" style="min-width:14rem"></select></label>
         <label>Rang <input id="orientVoeRang" type="number" value="1" min="1" max="10" style="width:4rem"/></label>
-        <label>Année <input id="orientVoeAnnee" value="2026-2027" style="width:7rem"/></label>
-        <button type="button" class="primary" id="btnOrientVoe">Poser</button>
+        <button type="button" class="primary" id="btnOrientVoe">Enregistrer le vœu</button>
       </div>
       <div id="orientVoeMsg" class="muted"></div>
-      <div id="orientVoeuxOut" class="muted" style="margin-top:.5rem">…</div>
-      <h3 style="margin-top:1rem">Info-comp</h3>
-      <div id="orientIcOut" class="muted">…</div>
+      <h3 style="margin-top:1.25rem">Vœux enregistrés</h3>
+      <div id="orientVoeuxOut" class="muted" style="margin-top:.35rem">Chargement…</div>
+      <h3 style="margin-top:1.25rem">Info-comp</h3>
+      <p class="muted" style="margin:0 0 .35rem">Champs partagés avec l’établissement (orientation, projet…).</p>
+      <div id="orientIcOut" class="muted">Chargement…</div>
     </div>`);
 }
 
@@ -19794,11 +19970,28 @@ async function bindFamilleOrientation() {
   const sel = document.getElementById('orientEnfant');
   const voeuxOut = document.getElementById('orientVoeuxOut');
   const icOut = document.getElementById('orientIcOut');
+  const statsOut = document.getElementById('famOrientStats');
+  const bar = document.getElementById('famOrientBar');
+  let enfants = [];
   try {
-    const enfants = await api('/famille/enfants');
-    sel.innerHTML = (enfants || []).map(e =>
-      `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}</option>`
-    ).join('') || '<option value="">—</option>';
+    enfants = await fetchFamEnfants(true);
+    if (bar) {
+      bar.innerHTML = famEnfantsBarHtml(enfants, '/famille/orientation');
+      bar.style.display = bar.innerHTML ? '' : 'none';
+    }
+    if (!enfants.length) {
+      if (statsOut) statsOut.innerHTML = '';
+      if (voeuxOut) {
+        voeuxOut.innerHTML = famEmptyDense('Aucun enfant lié', [
+          'Connectez-vous avec un compte parent rattaché à un élève.',
+        ], '<a href="/famille">Accueil</a>');
+      }
+      if (icOut) icOut.innerHTML = '';
+      return;
+    }
+    sel.innerHTML = enfants.map(e =>
+      `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)}${e.classe ? ' — ' + esc(e.classe) : ''}</option>`
+    ).join('');
   } catch (e) {
     if (voeuxOut) voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     return;
@@ -19815,33 +20008,43 @@ async function bindFamilleOrientation() {
   async function load() {
     const id = sel.value;
     if (!id) return;
+    const annee = (document.getElementById('orientVoeAnnee') || {}).value.trim() || '';
+    if (voeuxOut) voeuxOut.textContent = 'Chargement…';
+    if (icOut) icOut.textContent = 'Chargement…';
+    let voeuxList = [];
     try {
-      const annee = (document.getElementById('orientVoeAnnee') || {}).value.trim() || '';
       let url = '/eleves/' + id + '/voeux';
       if (annee) url += '?annee_scolaire=' + encodeURIComponent(annee);
-      const list = await api(url);
-      voeuxOut.innerHTML = list.length
-        ? `<table><thead><tr><th>Rang</th><th>Filière</th><th>Année</th></tr></thead>
-           <tbody>${list.map(v => `<tr>
-             <td>${v.rang ?? '—'}</td>
-             <td>${esc(v.filiere_label || v.filiere_id || '—')}</td>
-             <td>${esc(v.annee_scolaire || '—')}</td>
-           </tr>`).join('')}</tbody></table>`
-        : '<p class="empty">Aucun vœu.</p>';
+      voeuxList = await api(url);
+      const sorted = [...(voeuxList || [])].sort((a, b) => (a.rang || 99) - (b.rang || 99));
+      if (voeuxOut) {
+        voeuxOut.innerHTML = orientVoeuxTableHtml(sorted, `Aucun vœu pour ${esc(annee || 'cette année')}`);
+      }
     } catch (e) {
-      voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      if (statsOut) statsOut.innerHTML = '';
+      if (voeuxOut) voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      voeuxList = [];
     }
+    let nIcRenseignes = 0;
+    let nIcTotal = 0;
     try {
       const pack = await api('/eleves/' + id + '/info-comp');
       const champs = (pack && pack.champs) || [];
       const vals = (pack && pack.valeurs) || [];
+      nIcTotal = champs.length;
+      nIcRenseignes = champs.filter(c => {
+        const v = vals.find(x => x.champ_id === c.id);
+        return v && String(v.valeur || '').trim();
+      }).length;
       const byChamp = Object.fromEntries(vals.map(v => [v.champ_id, v]));
       if (!champs.length) {
-        icOut.innerHTML = '<p class="empty">Aucun champ visible famille.</p>';
+        icOut.innerHTML = famEmptyDense('Aucun champ visible famille', [
+          'L’établissement n’a pas encore publié de champs info-comp pour les parents.',
+        ], '<a href="/famille/messages">Contacter l’école</a>');
       } else {
         icOut.innerHTML = champs.map(c => {
           const cur = byChamp[c.id];
-          return `<div class="row" style="margin:.35rem 0">
+          return `<div class="row" style="margin:.35rem 0;align-items:flex-end">
             <label style="flex:1">${esc(c.libelle || c.code)}
               <input class="orientIcVal" data-cid="${esc(c.id)}" value="${esc((cur && cur.valeur) || '')}" style="width:100%"/>
             </label>
@@ -19858,6 +20061,8 @@ async function bindFamilleOrientation() {
                 body: JSON.stringify({ champ_id: btn.dataset.cid, valeur: (inp && inp.value) || '' }),
               });
               if (msg) msg.innerHTML = '<span class="ok">Enregistré</span>';
+              showEntToast('<strong>Info-comp enregistrée</strong>', 5000);
+              await load();
             } catch (err) {
               if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
             }
@@ -19866,6 +20071,15 @@ async function bindFamilleOrientation() {
       }
     } catch (e) {
       icOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+    if (statsOut) {
+      const nVoeux = (voeuxList || []).length;
+      const opt = sel.options[sel.selectedIndex];
+      const enfantLbl = opt ? opt.textContent.trim() : 'Enfant';
+      statsOut.innerHTML = `
+        <div class="stat-tile bento-span-4"><strong>${nVoeux}</strong><span>Vœu${nVoeux > 1 ? 'x' : ''} · ${esc(annee || 'toutes années')}</span></div>
+        <div class="stat-tile bento-span-4"><strong>${nIcRenseignes}/${nIcTotal}</strong><span>Info-comp renseignés</span></div>
+        <div class="stat-tile bento-span-4"><strong>${esc(enfantLbl.split('—')[0].trim())}</strong><span>Enfant sélectionné</span></div>`;
     }
   }
   const btn = document.getElementById('btnOrientVoe');
@@ -19884,13 +20098,18 @@ async function bindFamilleOrientation() {
             annee_scolaire: (document.getElementById('orientVoeAnnee') || {}).value.trim() || '2026-2027',
           }),
         });
-        msg.innerHTML = `<span class="ok">Vœu rang ${v.rang}</span>`;
+        msg.innerHTML = `<span class="ok">Vœu enregistré — rang ${v.rang}</span>`;
+        showEntToast(`<strong>Vœu enregistré</strong> — rang ${esc(String(v.rang))}`, 6000);
         await load();
       } catch (err) {
         msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
       }
     };
   }
+  const anneeInp = document.getElementById('orientVoeAnnee');
+  if (anneeInp) anneeInp.onchange = () => { load(); };
+  const btnRef = document.getElementById('btnOrientRefresh');
+  if (btnRef) btnRef.onclick = () => { load(); };
   sel.onchange = load;
   await load();
 }
@@ -20264,6 +20483,17 @@ async function bindFacturesFamille() {
     }
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+  if (routeState.openFacId) {
+    const facId = routeState.openFacId;
+    delete routeState.openFacId;
+    try {
+      await openFac(facId);
+      const panel = document.getElementById('facFamDetail');
+      if (panel && panel.style.display !== 'none') {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    } catch (_) { /* facture absente ou accès refusé */ }
   }
 }
 
