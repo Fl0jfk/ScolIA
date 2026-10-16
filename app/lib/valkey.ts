@@ -623,6 +623,21 @@ export async function valkeySet(
   return ok === true;
 }
 
+/** SET … NX EX — verrou / single-flight inter-instances (best effort). */
+export async function valkeySetNx(
+  key: string,
+  value: string,
+  ttlSeconds: number,
+): Promise<boolean> {
+  if (!isValkeyConfigured()) return false;
+  const ttl = Math.max(1, Math.floor(ttlSeconds));
+  const ok = await runCommand(async (v) => {
+    const res = await v.set(key, value, "EX", ttl, "NX");
+    return res === "OK";
+  });
+  return ok === true;
+}
+
 export async function valkeyDel(...keys: string[]): Promise<void> {
   if (keys.length === 0) return;
   for (const key of keys) {

@@ -64,7 +64,11 @@ import {
   type DashboardSignalSourceId,
   type SignalSourceStatus,
 } from "@/app/lib/dashboard-signals-parallel";
-import { buildDashboardSourceStaleAdapters } from "@/app/lib/dashboard-signals-source-stale";
+import {
+  buildDashboardSourceStaleAdapters,
+  valkeyKeyDashboardSignalSourceBundle,
+} from "@/app/lib/dashboard-signals-source-stale";
+import { runDashboardSignalSourceFlightShared } from "@/app/lib/dashboard-signals-source-flight-server";
 import { valkeyCached } from "@/app/lib/valkey";
 import {
   VALKEY_TTL,
@@ -965,14 +969,19 @@ export async function loadDashboardSignalSources(ctx: DashboardSignalsLoadContex
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus>;
 }> {
   const stale = buildDashboardSourceStaleAdapters(ctx.signalsEtabId, ctx.user.id);
+  const flightKey = (sourceId: DashboardSignalSourceId) =>
+    valkeyKeyDashboardSignalSourceBundle(ctx.signalsEtabId, ctx.user.id, sourceId);
+  const withFlight = <T>(sourceId: DashboardSignalSourceId, loader: () => Promise<T>) => () =>
+    runDashboardSignalSourceFlightShared(flightKey(sourceId), loader);
+
   const { outcomes, stepsMs, sourceStatus } = await runParallelSignalSources<DashboardSignalSourcesBundle>({
-    internat: () => loadInternatSource(ctx),
-    rh: () => loadRhSource(ctx),
-    demandes: () => loadDemandesSource(ctx),
-    absences: () => loadAbsencesSource(ctx),
-    documents: () => loadDocumentsSource(ctx),
-    stages: () => loadStagesSource(ctx),
-    others: () => loadOthersSource(ctx),
+    internat: withFlight("internat", () => loadInternatSource(ctx)),
+    rh: withFlight("rh", () => loadRhSource(ctx)),
+    demandes: withFlight("demandes", () => loadDemandesSource(ctx)),
+    absences: withFlight("absences", () => loadAbsencesSource(ctx)),
+    documents: withFlight("documents", () => loadDocumentsSource(ctx)),
+    stages: withFlight("stages", () => loadStagesSource(ctx)),
+    others: withFlight("others", () => loadOthersSource(ctx)),
   }, { stale });
 
   const bundle: DashboardSignalSourcesBundle = {

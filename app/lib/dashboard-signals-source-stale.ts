@@ -7,6 +7,18 @@ import { VALKEY_TTL } from "@/app/lib/valkey-keys";
 
 const NS = "scola";
 
+const BUNDLE_TTL_MIN_SEC = 120;
+const BUNDLE_TTL_MAX_SEC = 180;
+
+export function resolveDashboardSignalsSourceBundleTtlSec(): number {
+  const raw = process.env.DASHBOARD_SIGNAL_SOURCE_BUNDLE_TTL_SEC?.trim();
+  const n = raw ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n >= BUNDLE_TTL_MIN_SEC && n <= BUNDLE_TTL_MAX_SEC) {
+    return Math.floor(n);
+  }
+  return VALKEY_TTL.dashboardSignalsSourceBundle;
+}
+
 export function valkeyKeyDashboardSignalSourceBundle(
   etablissementId: string,
   authUserId: string,
@@ -37,7 +49,7 @@ export function buildDashboardSourceStaleAdapters(
     adapters[sourceId] = {
       readStale: async () => valkeyGetJson<unknown>(key),
       writeFresh: async (value: unknown) => {
-        await valkeySetJson(key, value, VALKEY_TTL.dashboardSignals);
+        await valkeySetJson(key, value, resolveDashboardSignalsSourceBundleTtlSec());
       },
     };
   }

@@ -22,6 +22,8 @@ export const VALKEY_TTL = {
   dashboardLinks: 60,
   /** Signaux dashboard (agrégat lourd — aligné polling client 60 s) */
   dashboardSignals: 60,
+  /** Bundle par source (stale SWR — > intervalle poll 60 s) */
+  dashboardSignalsSourceBundle: 150,
   /** Compteurs VS (dashboard signals — par scope modules) */
   dashboardSignalsVsCounts: 18,
   /** Index absences RH brut (établissement) */
