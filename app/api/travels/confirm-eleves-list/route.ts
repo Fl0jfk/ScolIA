@@ -22,9 +22,9 @@ import {
   buildTravelsParentsTripIcs,
   calendarHasDepotAndRecuperation,
   parentHorairesRequiredForTrip,
-  computeParentCalendarNotifyHash,
   sanitizeParentCalendar,
 } from "@/app/lib/travels-parent-calendar";
+import { computeParentCalendarNotifyHash } from "@/app/lib/travels-parent-calendar-server";
 import type {
   TravelsPanierRepasAdulte,
   TravelsParentCalendar,
