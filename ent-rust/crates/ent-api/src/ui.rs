@@ -2197,6 +2197,64 @@ function famCollectProchainRdvPsy(list, rdvLists) {
   return picks;
 }
 
+/** Accueil famille — prochain / cours en cours aujourd’hui (EDT du jour). */
+function famCollectProchainCours(list, edtLists) {
+  const j = today();
+  const picks = [];
+  (list || []).forEach((e, i) => {
+    const edt = edtLists[i] || [];
+    if (!edt.length) return;
+    const { current, next } = eleveEdtPickCurrentAndNext([edt], [j]);
+    const slot = current || next;
+    if (!slot) return;
+    picks.push({
+      enfant: e,
+      slot,
+      isCurrent: !!current,
+      nCours: edt.length,
+    });
+  });
+  picks.sort((a, b) => {
+    if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+    const ka = String(a.slot.jour) + String(a.slot.heure_debut || '');
+    const kb = String(b.slot.jour) + String(b.slot.heure_debut || '');
+    return ka.localeCompare(kb) || String(a.enfant.prenom || '').localeCompare(String(b.enfant.prenom || ''));
+  });
+  return picks;
+}
+
+/** Accueil famille — prochain cours (bento). */
+function famHomeProchainCoursTipDenseHtml(picks) {
+  const sorted = picks || [];
+  if (!sorted.length) return '';
+  const first = sorted[0];
+  const e = first.enfant;
+  const s = first.slot;
+  const eid = e && e.id ? esc(String(e.id).trim()) : '';
+  const edtHref = eid ? `/famille/enfants/${eid}?section=edt` : '/famille';
+  const nowTag = first.isCurrent
+    ? ' <span class="pill warn pill-dense">en cours</span>'
+    : '';
+  const plage = `${esc(s.heure_debut)}–${esc(s.heure_fin)}`;
+  const mat = esc(s.matiere || 'Cours');
+  const salle = s.salle ? ` · ${esc(s.salle)}` : '';
+  const more = sorted.length - 1;
+  const extra = sorted.slice(1, 3).map(p => {
+    const tag = p.isCurrent ? ' · maintenant' : '';
+    return `${esc(p.enfant.prenom || 'Enfant')} · ${esc(p.slot.heure_debut || '')}${tag}`;
+  }).join(' · ');
+  const lead = first.isCurrent ? 'Maintenant' : 'Prochain';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <a class="stat-tile bento-span-4" href="${edtHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong class="${first.isCurrent ? 'warn' : ''}">${lead}</strong><span>${plage} · ${mat}${nowTag}${salle}</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong>${esc(String(e.prenom || 'Enfant'))}</strong><span>${first.nCours} cours aujourd’hui</span></div>
+    <a class="stat-tile bento-span-4" href="${edtHref}" style="text-decoration:none">
+      <strong>${more > 0 ? '+' + more : 'EDT'}</strong><span>${more > 0 && extra ? esc(extra) + ' · ' : ''}Emploi du temps</span>
+    </a>
+  </div>`;
+}
+
 /** Accueil famille — prochain RDV psy signalé (bento). */
 function famHomeProchainRdvPsyTipDenseHtml(picks) {
   const sorted = picks || [];
@@ -3277,8 +3335,54 @@ function eleveNotePeriodeFermeeTipDenseHtml(periode) {
       <strong class="ok">Fermée</strong><span>Période ${label} ${notePeriodeStatutBadge('fermee')}</span>
     </div>
     <div class="stat-tile bento-span-4"><strong>${dates}</strong><span>Notes figées · moyennes finalisées</span></div>
-    <div class="stat-tile bento-span-4"><strong>PDF</strong><span>Bulletin ci-dessous si publié par l’établissement</span></div>
+    <button type="button" class="stat-tile bento-span-4" id="eleveNotePeriodePrintTipBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Imprimer</strong><span>Bulletin PDF · télécharger puis dialogue d’impression</span>
+    </button>
   </div>`;
+}
+
+function bindEleveNotePeriodePrintTip() {
+  const btn = document.getElementById('eleveNotePeriodePrintTipBtn');
+  if (!btn) return;
+  btn.onclick = () => {
+    if (entOpenBulletinPrintDialog()) return;
+    document.getElementById('btnEleveBulletin')?.click();
+  };
+}
+
+function eleveNotesListEmptyTipDenseHtml(periode) {
+  if (!periode) return '';
+  const label = esc(notePeriodeFermeeLabel(periode));
+  const fermee = periode.statut === 'fermee';
+  const printTile = fermee
+    ? `<button type="button" class="stat-tile bento-span-4" id="eleveNotesEmptyPrintTipBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>Imprimer</strong><span>Bulletin · après téléchargement</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">Bulletin</strong><span>PDF après fermeture de période</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong class="warn">0</strong><span>Note publiée · ${label}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Prof</strong><span>Saisie au fil des cours et devoirs</span></div>
+    ${printTile}
+  </div>`;
+}
+
+function bindEleveNotesListEmptyPrintTip() {
+  const btn = document.getElementById('eleveNotesEmptyPrintTipBtn');
+  if (!btn) return;
+  btn.onclick = () => {
+    if (entOpenBulletinPrintDialog()) return;
+    document.getElementById('btnEleveBulletin')?.click();
+  };
+}
+
+function refreshEleveNotesListEmptyTip(periode, notes) {
+  const el = document.getElementById('eleveNotesEmptyTip');
+  if (!el) return;
+  if ((notes || []).length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = eleveNotesListEmptyTipDenseHtml(periode);
+  bindEleveNotesListEmptyPrintTip();
 }
 
 function refreshEleveNotePeriodeTip(periode) {
@@ -3286,6 +3390,7 @@ function refreshEleveNotePeriodeTip(periode) {
   if (!el) return;
   if (periode && periode.statut === 'fermee') {
     el.innerHTML = eleveNotePeriodeFermeeTipDenseHtml(periode);
+    bindEleveNotePeriodePrintTip();
     return;
   }
   el.innerHTML = eleveNotePeriodeOuverteTipDenseHtml(periode);
@@ -3376,6 +3481,10 @@ function eleveEdtPickCurrentAndNext(lists, jours) {
 function eleveEdtTipDenseHtml(opts) {
   const o = opts || {};
   const mode = o.mode === 'jour' ? 'jour' : 'semaine';
+  const famId = o.famEnfantId ? esc(String(o.famEnfantId).trim()) : '';
+  const sideHref = famId ? `/famille/enfants/${famId}?section=edt` : '/eleve/cahier';
+  const sideLabelShort = famId ? 'EDT · semaine' : 'Cahier de texte';
+  const sideLabelLong = famId ? 'EDT · iCal semaine' : 'Cahier · travail à faire';
   const fmtSlot = (slot) => {
     if (!slot) return '';
     const nowTag = slot.jour === today() && edtSlotIsCurrent(slot.jour, slot.heure_debut, slot.heure_fin)
@@ -3403,13 +3512,13 @@ function eleveEdtTipDenseHtml(opts) {
           <strong>Prochain</strong><span>${fmtSlot(nxt)}</span>
         </div>
         <div class="stat-tile bento-span-4"><strong>${n}</strong><span>Cours le ${j}</span></div>
-        <a class="stat-tile bento-span-4" href="/eleve/cahier"><strong>→</strong><span>Cahier de texte</span></a>
+        <a class="stat-tile bento-span-4" href="${sideHref}"><strong>→</strong><span>${sideLabelShort}</span></a>
       </div>`;
     }
     return `<div class="bento" style="margin:0 0 .55rem">
       <div class="stat-tile bento-span-4"><strong>${n}</strong><span>Cours le ${j}</span></div>
       <div class="stat-tile bento-span-4"><strong class="muted">${n ? '—' : '0'}</strong><span>${n ? 'Aucun créneau en cours' : 'Pas de cours ce jour'}</span></div>
-      <a class="stat-tile bento-span-4" href="/eleve/cahier"><strong>→</strong><span>Cahier · travail à faire</span></a>
+      <a class="stat-tile bento-span-4" href="${sideHref}"><strong>→</strong><span>${sideLabelLong}</span></a>
     </div>`;
   }
   const total = Number(o.total) || 0;
@@ -3435,10 +3544,13 @@ function eleveEdtTipDenseHtml(opts) {
       <div class="stat-tile bento-span-4"><strong>${nFerme}</strong><span>Fermeture(s) · ${lundi}</span></div>
     </div>`;
   }
+  const weekFoot = famId
+    ? `<div class="stat-tile bento-span-4"><strong class="muted">iCal</strong><span>Exporter la semaine ci-dessous</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">Jour seul</strong><span>← → ou « Jour seul » pour le détail</span></div>`;
   return `<div class="bento" style="margin:0 0 .55rem">
     <div class="stat-tile bento-span-4"><strong>${total}</strong><span>Cours · semaine du ${lundi}</span></div>
     <div class="stat-tile bento-span-4"><strong>${nFerme}</strong><span>Jour(s) fermé(s)</span></div>
-    <div class="stat-tile bento-span-4"><strong class="muted">Jour seul</strong><span>← → ou « Jour seul » pour le détail</span></div>
+    ${weekFoot}
   </div>`;
 }
 
@@ -4230,25 +4342,35 @@ function toastEdtImportOk(r) {
   const nConf = Number(r.conflicts) || 0;
   const nLines = Number(r.lines) || 0;
   const dry = !!r.dry_run;
-  if (dry || nOk <= 0) {
-    showEntToast(
-      `<strong>Import EDT</strong> — ${fmt} · ${nLines} ligne(s) · ${nOk} OK · ${nConf} conflit(s)`
-      + (dry ? ' · simulation (dry-run)' : ''),
-      dry ? 8000 : 10000,
-    );
-    return;
-  }
-  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-      <strong class="ok">${nOk}</strong><span>Créneau(x) posé(s) · ${fmt}</span>
+  const applied = !dry && nOk > 0;
+  const okBorder = applied ? 'var(--ok,#16a34a)' : (dry ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)');
+  const okLbl = applied ? String(nOk) : (dry ? 'Simul.' : String(nOk));
+  const okSpan = applied
+    ? `Créneau(x) posé(s) · ${fmt}`
+    : (dry ? `Dry-run · ${fmt}` : `OK · ${fmt} · rien appliqué`);
+  const confBorder = nConf ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)';
+  const confStrong = nConf ? String(nConf) : '0';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:${okBorder}">
+      <strong class="${applied ? 'ok' : (dry ? '' : 'muted')}">${okLbl}</strong><span>${okSpan}</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong class="warn">${nConf}</strong><span>Conflit(s) refusé(s)</span></div>
+    <div class="stat-tile bento-span-4" style="border-color:${confBorder}">
+      <strong class="${nConf ? 'warn' : ''}">${confStrong}</strong><span>Conflit(s) refusé(s)</span>
+    </div>
     <div class="stat-tile bento-span-4"><strong>${nLines}</strong><span>Ligne(s) CSV lues</span></div>`;
+  const title = applied
+    ? 'Import EDT — créneaux créés'
+    : (dry ? 'Import EDT — simulation' : 'Import EDT — rapport');
+  const foot = applied
+    ? `<p style="margin:.35rem 0 0;font-size:.85rem">`
+      + `<a href="/app/edt">Voir l’EDT</a> · affectation / exceptions ci-dessous</p>`
+    : (dry
+      ? `<p style="margin:.35rem 0 0;font-size:.85rem">Aucune écriture BDD · tip conflits ci-dessous · décocher Dry-run pour appliquer</p>`
+      : `<p style="margin:.35rem 0 0;font-size:.85rem">Conflits prof / salle / classe · corriger le CSV ou la grille</p>`);
   showEntToast(
-    `<strong>Import EDT — créneaux créés</strong>`
+    `<strong>${title}</strong>`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
-    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
-    + `<a href="/app/edt">Voir l’EDT</a> · affectation / exceptions ci-dessous</p>`,
-    10000,
+    + foot,
+    dry ? 9000 : 10000,
   );
 }
 
@@ -4274,8 +4396,9 @@ function toastEdtIcalTelecharge(filename, opts) {
     footHref = '/app/mon-edt';
     footLabel = 'Mon EDT';
   } else if (path().startsWith('/famille/enfants/')) {
-    footHref = path();
-    footLabel = 'Fiche enfant';
+    const famBase = path().split('?')[0];
+    footHref = `${famBase}?section=edt`;
+    footLabel = 'Section EDT';
   } else if (isEleveHomeFlux()) {
     footHref = '/eleve/edt';
     footLabel = 'Voir l’EDT';
@@ -4284,10 +4407,11 @@ function toastEdtIcalTelecharge(filename, opts) {
     + `<a href="${esc(footHref)}">${footLabel}</a>`
     + ` · fichier ${fname}</p>`;
   const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-      <strong class="ok">.ics</strong><span>Agenda · ${plage}</span>
+      <strong class="ok">.ics</strong><span>${fname} · ${plage}</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong>${fname}</strong><span>Import Google / Apple Calendar</span></div>
-    <div class="stat-tile bento-span-4"><strong>${coursLbl}</strong><span>${esc(String(o.mode || 'semaine'))}</span></div>`;
+    <div class="stat-tile bento-span-4"><strong>Google</strong><span>Agenda · Fichier › Importer</span></div>
+    <div class="stat-tile bento-span-4"><strong>Apple</strong><span>Calendrier · Fichier › Importer (iPhone / Mac)</span></div>
+    <div class="stat-tile bento-span-4"><strong>${coursLbl}</strong><span>Mode ${esc(String(o.mode || 'semaine'))} · ${plage}</span></div>`;
   showEntToast(
     `<strong>Emploi du temps exporté</strong>`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
@@ -4736,6 +4860,26 @@ function isIsoWeekend(iso) {
   const d = new Date((iso || today()) + 'T12:00:00');
   const day = d.getDay();
   return day === 0 || day === 6;
+}
+
+function eleveEdtSemaineEmptyTipDenseHtml(lundi, nFerme) {
+  const ld = esc(lundi || '');
+  const nf = Number(nFerme) || 0;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong class="warn">0</strong><span>Cours lun–ven · semaine du ${ld}</span></div>
+    <div class="stat-tile bento-span-4"><strong>${nf}</strong><span>Jour(s) fermé(s) · vacances / fériés</span></div>
+    <button type="button" class="stat-tile bento-span-4" id="eleveEdtSemaineTipIcal" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>iCal</strong><span>Exporter · Google Agenda ou Calendrier Apple</span>
+    </button>
+  </div>`;
+}
+
+function eleveEdtSemaineEmptyHtml(lundi) {
+  const ld = esc(lundi || '');
+  return famEmptyDense('Aucun cours cette semaine', [
+    `Semaine du ${ld} (lun–ven) — changez de semaine avec ← → ou consultez le détail jour par jour.`,
+    'Synchronisez quand même votre agenda avec « Exporter iCal (semaine) » (Google ou Calendrier Apple).',
+  ], '<button type="button" id="eleveEdtSemaineEmptyIcal">Exporter iCal</button> · <button type="button" id="eleveEdtSemaineEmptyJour">Jour seul</button>');
 }
 
 function eleveEdtWeekendEmptyHtml(jour) {
@@ -5755,6 +5899,161 @@ function edtContraintesTipDenseHtml(list) {
     </div>
     <div class="stat-tile bento-span-4"><strong>${nIndispo}</strong><span>Indispo prof · salle</span></div>
     <div class="stat-tile bento-span-4"><strong class="muted">${nPref}</strong><span>Préférences · greedy</span></div>
+  </div>`;
+}
+
+/** /app/edt — bandeau semaine (grille · fermetures · contraintes). */
+function edtPageTipDenseHtml(stats) {
+  if (!isStaffEdtFlux()) return '';
+  const s = stats || {};
+  const lundi = esc(String(s.lundi || '').slice(0, 10) || '—');
+  const total = Number(s.total) || 0;
+  const nFerm = Number(s.nFermes) || 0;
+  const nCtr = Number(s.nContraintes) || 0;
+  const filtre = String(s.filtre || '').trim();
+  const filTile = filtre
+    ? `<div class="stat-tile bento-span-3"><strong>${esc(filtre.toUpperCase())}</strong><span>Filtre classe · semaine</span></div>`
+    : `<a class="stat-tile bento-span-3" href="/app/mon-edt" style="text-decoration:none"><strong>Mon EDT</strong><span>Vue prof · appel</span></a>`;
+  const ctrTile = nCtr
+    ? `<a class="stat-tile bento-span-3" href="#edtContraintesTip" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${nCtr}</strong><span>Contrainte(s) soft</span></a>`
+    : `<div class="stat-tile bento-span-3"><strong class="muted">0</strong><span>Contraintes · greedy</span></div>`;
+  return `<div class="bento" style="margin:0 0 .65rem">
+    <div class="stat-tile bento-span-3" style="border-color:var(--accent,#0071e3)">
+      <strong>${total}</strong><span>Créneau(x) · semaine du ${lundi}</span>
+    </div>
+    <div class="stat-tile bento-span-3"><strong>${nFerm}</strong><span>Jour(s) fermé(s)</span></div>
+    ${filTile}
+    ${ctrTile}
+  </div>`;
+}
+
+/** /app/edt — import CSV : synthèse conflits après dry-run / apply. */
+function edtImportConflictsTipDenseHtml(r) {
+  if (!isStaffEdtFlux()) return '';
+  if (!r) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">Import</strong><span>Dry-run conseillé · prof / salle / classe</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Pronote</strong><span>E-mail enseignant · jours FR</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Conflits refusés · tip après import</span></div>
+    </div>`;
+  }
+  const fmt = esc(String(r.format || 'native'));
+  const nOk = Number(r.ok_count) || 0;
+  const nConf = Number(r.conflicts) || 0;
+  const nLines = Number(r.lines) || 0;
+  const dry = !!r.dry_run;
+  const phase = dry ? 'simulation' : (nOk > 0 ? 'appliqué' : 'sans créneau');
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:${nConf ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+      <strong class="${nConf ? 'warn' : 'ok'}">${nConf}</strong><span>Conflit(s) · ${phase}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${nOk}</strong><span>OK · ${fmt} · ${nLines} ligne(s)</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${dry ? 'Dry-run' : 'Grille'}</strong><span>${nConf ? 'Doublon prof / salle / classe' : 'Aucun refus sur ce lot'}</span></div>
+  </div>`;
+}
+
+/** /app/edt — solveur greedy : non placés après résolution. */
+function edtSolveUnplacedTipDenseHtml(r) {
+  if (!isStaffEdtFlux()) return '';
+  if (!r) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">Greedy</strong><span>JSON demandes · contraintes soft</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Dry-run</strong><span>Tester sans écrire la grille</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Non placés · tip après Résoudre</span></div>
+    </div>`;
+  }
+  const nPlaced = Number(r.placed) || 0;
+  const nUn = Number(r.unplaced) || 0;
+  const dry = !!r.dry_run;
+  const phase = dry ? 'simulation' : 'grille';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${nPlaced}</strong><span>Placé(s) · ${phase}</span>
+    </div>
+    <div class="stat-tile bento-span-4" style="border-color:${nUn ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nUn ? 'warn' : ''}">${nUn}</strong><span>Non placé(s) · créneau libre ?</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${dry ? 'Dry-run' : 'Apply'}</strong><span>${nUn ? 'Durée · prof · salle · indispos' : 'Toutes les demandes ont un slot'}</span></div>
+  </div>`;
+}
+
+/** /app/mon-edt — bento récap prof (cours en cours / prochain). */
+function staffMonEdtTipDenseHtml(opts) {
+  if (!isMonEdtFlux()) return '';
+  const o = opts || {};
+  const mode = o.mode === 'semaine' ? 'semaine' : 'jour';
+  const fmtSlot = (slot) => {
+    if (!slot) return '';
+    const nowTag = slot.jour === today() && edtSlotIsCurrent(slot.jour, slot.heure_debut, slot.heure_fin)
+      ? ' <span class="pill warn pill-dense">en cours</span>' : '';
+    const cls = slot.classe ? ` · ${esc(slot.classe)}` : '';
+    return `${esc(slot.heure_debut)}–${esc(slot.heure_fin)} · ${esc(slot.matiere || 'Cours')}${cls}${nowTag}`
+      + (slot.salle ? ` · ${esc(slot.salle)}` : '');
+  };
+  const nEx = Number(o.nEx) || 0;
+  const nFerme = Number(o.nFerme) || 0;
+  if (mode === 'jour') {
+    const j = esc(o.jour || today());
+    const n = Number(o.nCours) || 0;
+    const cur = o.current;
+    const nxt = o.next;
+    if (cur) {
+      return `<div class="bento" style="margin:0 0 .55rem">
+        <div class="stat-tile bento-span-3" style="border-color:var(--accent,#0071e3)">
+          <strong class="warn">Maintenant</strong><span>${fmtSlot(cur)}</span>
+        </div>
+        <div class="stat-tile bento-span-3"><strong>${n}</strong><span>Créneaux le ${j}</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nEx}</strong><span>Exception(s) · ${nFerme} fermé</span></div>
+        <a class="stat-tile bento-span-3" href="/app/appel" style="text-decoration:none"><strong>→</strong><span>Ouvrir appel</span></a>
+      </div>`;
+    }
+    if (nxt && String(nxt.jour) === String(o.jour || today())) {
+      return `<div class="bento" style="margin:0 0 .55rem">
+        <div class="stat-tile bento-span-3" style="border-color:var(--accent,#0071e3)">
+          <strong>Prochain</strong><span>${fmtSlot(nxt)}</span>
+        </div>
+        <div class="stat-tile bento-span-3"><strong>${n}</strong><span>Créneaux le ${j}</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nEx}</strong><span>Exception(s)</span></div>
+        <a class="stat-tile bento-span-3" href="/app/edt" style="text-decoration:none"><strong>Admin</strong><span>Grille · exceptions</span></a>
+      </div>`;
+    }
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-3"><strong>${n}</strong><span>Créneaux le ${j}</span></div>
+      <div class="stat-tile bento-span-3"><strong>${nEx}</strong><span>Exception(s) · ${nFerme} jour fermé</span></div>
+      <div class="stat-tile bento-span-3"><strong class="muted">${n ? '—' : '0'}</strong><span>${n ? 'Pas de cours en cours' : 'Pas de cours ce jour'}</span></div>
+      <a class="stat-tile bento-span-3" href="/app/appel" style="text-decoration:none"><strong>→</strong><span>Page Appel</span></a>
+    </div>`;
+  }
+  const total = Number(o.total) || 0;
+  const lundi = esc(o.lundi || '');
+  const cur = o.current;
+  const nxt = o.next;
+  if (cur) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-3" style="border-color:var(--accent,#0071e3)">
+        <strong class="warn">En cours</strong><span>${fmtSlot(cur)}</span>
+      </div>
+      <div class="stat-tile bento-span-3"><strong>${total}</strong><span>Créneaux · semaine ${lundi}</span></div>
+      <div class="stat-tile bento-span-3"><strong>${nEx}</strong><span>Exceptions · ${nFerme} fermé</span></div>
+      <a class="stat-tile bento-span-3" href="/app/appel" style="text-decoration:none"><strong>→</strong><span>Appel prof</span></a>
+    </div>`;
+  }
+  if (nxt) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-3" style="border-color:var(--accent,#0071e3)">
+        <strong>Prochain</strong><span>${fmtSlot(nxt)} · ${esc(String(nxt.jour))}</span>
+      </div>
+      <div class="stat-tile bento-span-3"><strong>${total}</strong><span>Créneaux cette semaine</span></div>
+      <div class="stat-tile bento-span-3"><strong>${nEx}</strong><span>Exceptions · ${nFerme} fermé</span></div>
+      <a class="stat-tile bento-span-3" href="/app/edt" style="text-decoration:none"><strong>Admin</strong><span>Grille semaine</span></a>
+    </div>`;
+  }
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-3"><strong>${total}</strong><span>Créneaux · semaine du ${lundi}</span></div>
+    <div class="stat-tile bento-span-3"><strong>${nEx}</strong><span>Exception(s) · ${nFerme} jour(s) fermé(s)</span></div>
+    <div class="stat-tile bento-span-3"><strong class="muted">Jour</strong><span>Bouton Jour pour le détail</span></div>
+    <a class="stat-tile bento-span-3" href="/app/appel" style="text-decoration:none"><strong>→</strong><span>Page Appel</span></a>
   </div>`;
 }
 
@@ -7890,6 +8189,7 @@ function normalizeFamEnfantSection(sec) {
   if (s === 'note' || s === 'notes' || s === 'bulletin' || s === 'bulletins' || s === 'moyenne' || s === 'moyennes') return 'notes';
   if (s === 'journal' || s === 'modifications' || s === 'journal-modif') return 'journal';
   if (s === 'messages' || s === 'message' || s === 'messagerie' || s === 'fil' || s === 'fils') return 'messages';
+  if (s === 'edt' || s === 'emploi-du-temps' || s === 'emploi_du_temps' || s === 'horaire' || s === 'horaires') return 'edt';
   return String(sec || '').trim();
 }
 function famApplyEnfantSectionDeepLink(forcedSec) {
@@ -10800,6 +11100,7 @@ function viewEleveNotes() {
       <p id="eleveBulletinHint" class="muted" style="margin:.35rem 0 0;font-size:.88rem"></p>
       <h3 style="margin-top:1rem">Bulletins téléchargeables</h3>
       <div id="eleveBulletinsList" class="muted">Chargement…</div>
+      <div id="eleveNotesEmptyTip"></div>
       <div id="eleveNotesOut" class="muted" style="margin-top:.5rem">Chargement…</div>
       <div id="eleveProchainDsTip"></div>
       <div id="eleveDevoirsSansNoteTip"></div>
@@ -10890,15 +11191,16 @@ async function bindEleveNotes() {
     }
   }
   async function loadNotesAll() {
+  let notesList = [];
   try {
     const pid = (document.getElementById('eleveNotePeriode') || {}).value || '';
     let notesUrl = '/eleves/' + eid + '/notes';
     if (pid) notesUrl += '?periode_id=' + encodeURIComponent(pid);
-    const notes = await api(notesUrl);
-    notesOut.innerHTML = !notes.length
-      ? emptyState('Aucune note pour cette période', 'Les notes apparaîtront après saisie par vos professeurs.')
+    notesList = await api(notesUrl);
+    notesOut.innerHTML = !notesList.length
+      ? '<p class="muted" style="margin:.25rem 0;font-size:.88rem">Aucune note publiée pour cette période — repère ci-dessus.</p>'
       : `<table><thead><tr><th>Date</th><th>Libellé</th><th>Note</th></tr></thead>
-         <tbody>${notes.map(n => `<tr>
+         <tbody>${notesList.map(n => `<tr>
            <td>${esc(n.date_note || '—')}</td>
            <td>${esc(n.libelle || '—')}</td>
            <td><strong>${esc(String(n.valeur))}/${esc(String(n.sur || 20))}</strong></td>
@@ -10928,6 +11230,7 @@ async function bindEleveNotes() {
     if (!p) {
       const noPer = emptyState('Aucune période de notes', 'L’établissement n’a pas encore ouvert de période.');
       refreshEleveNotePeriodeTip(null);
+      refreshEleveNotesListEmptyTip(null, notesList);
       refreshEleveDevoirsSansNoteTip([], [], '');
       const moyTip0 = document.getElementById('eleveMoyGlobaleTip');
       if (moyTip0) moyTip0.innerHTML = '';
@@ -10941,12 +11244,13 @@ async function bindEleveNotes() {
     }
     updateEleveBulletinHint(p);
     refreshEleveNotePeriodeTip(p);
+    refreshEleveNotesListEmptyTip(p, notesList);
     await renderEleveBulletinsList(p);
     if (devOut) {
       try {
         const devoirs = await api('/eleves/' + eid + '/devoirs?periode_id=' + encodeURIComponent(p.id));
         refreshEleveProchainDsTip('eleveProchainDsTip', devoirs, today());
-        refreshEleveDevoirsSansNoteTip(devoirs, notes, p.libelle);
+        refreshEleveDevoirsSansNoteTip(devoirs, notesList, p.libelle);
         devOut.innerHTML = !devoirs.length
           ? famEmptyDense('Aucun devoir planifié', [
               `Période ${esc(p.libelle || '')} — les DS et contrôles publiés par vos professeurs s’affichent ici.`,
@@ -11127,6 +11431,15 @@ async function bindEleveEdt() {
       box.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
     }
   }
+  function wireEleveEdtSemaineEmptyActions() {
+    const runIcal = () => document.getElementById('btnEleveEdtIcal')?.click();
+    const tipIcal = document.getElementById('eleveEdtSemaineTipIcal');
+    if (tipIcal) tipIcal.onclick = runIcal;
+    const emptyIcal = document.getElementById('eleveEdtSemaineEmptyIcal');
+    if (emptyIcal) emptyIcal.onclick = runIcal;
+    const emptyJour = document.getElementById('eleveEdtSemaineEmptyJour');
+    if (emptyJour) emptyJour.onclick = () => loadJourSeul();
+  }
   async function loadJourSeul() {
     if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
     const jour = document.getElementById('eleveEdtJour').value || today();
@@ -11198,10 +11511,9 @@ async function bindEleveEdt() {
       }
       const totalWeekday = lists.slice(0, 5).reduce((s, l) => s + (l || []).length, 0);
       if (!totalWeekday) {
-        out.innerHTML = emptyState(
-          'Aucun cours cette semaine',
-          `Semaine du ${esc(lundi)} (lun–ven). Utilisez « Exporter iCal (semaine) » pour synchroniser votre agenda personnel.`,
-        );
+        if (stats) stats.innerHTML = eleveEdtSemaineEmptyTipDenseHtml(lundi, nFerme);
+        out.innerHTML = eleveEdtSemaineEmptyHtml(lundi);
+        wireEleveEdtSemaineEmptyActions();
         return;
       }
       out.innerHTML = `<div class="edt-week edt-week-eleve">${jours.map((j, i) => {
@@ -11250,10 +11562,16 @@ async function bindEleveEdt() {
           edtIcalPathEleve(eid, lundi, dimanche),
           'edt-semaine.ics',
         );
+        const joursW = [0, 1, 2, 3, 4].map(i => addDaysIso(lundi, i));
+        const listsW = await Promise.all(joursW.map(j =>
+          api('/eleves/' + eid + '/edt?jour=' + encodeURIComponent(j)).catch(() => [])
+        ));
+        const nCours = listsW.reduce((s, l) => s + (l || []).length, 0);
         toastEdtIcalTelecharge('edt-semaine.ics', {
           debut: lundi,
           fin: dimanche,
           mode: 'semaine',
+          nCours,
         });
       } catch (err) { alert(err.message); }
     };
@@ -12057,6 +12375,7 @@ function viewFamilleHome() {
     <p id="famHomeAgendaTip" class="muted" style="display:none;margin:-.25rem 0 .65rem;font-size:.88rem"></p>
     <div id="famHomePsyTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeDevoirTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeEdtTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeComTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeSepaTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomePaiTip" style="display:none;margin:-.25rem 0 .65rem"></div>
@@ -12213,6 +12532,8 @@ async function bindFamilleHome() {
       if (psyTip0) { psyTip0.style.display = 'none'; psyTip0.innerHTML = ''; }
       const devoirTip0 = document.getElementById('famHomeDevoirTip');
       if (devoirTip0) { devoirTip0.style.display = 'none'; devoirTip0.innerHTML = ''; }
+      const edtTip0 = document.getElementById('famHomeEdtTip');
+      if (edtTip0) { edtTip0.style.display = 'none'; edtTip0.innerHTML = ''; }
       const comTip0 = document.getElementById('famHomeComTip');
       if (comTip0) { comTip0.style.display = 'none'; comTip0.innerHTML = ''; }
       const sepaTip0 = document.getElementById('famHomeSepaTip');
@@ -12233,7 +12554,7 @@ async function bindFamilleHome() {
     }
     const jourRepas = today();
     const orientAnneeHome = '2026-2027';
-    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists, sepaMandats, rdvLists, absLists, devoirLists, quittancesFam, voeuxLists] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists, sepaMandats, rdvLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
@@ -12255,6 +12576,8 @@ async function bindFamilleHome() {
           ? api('/eleves/' + e.id + '/devoirs').catch(() => [])
           : Promise.resolve([])
       ))),
+      Promise.all(list.map(e => api('/eleves/' + e.id + '/edt?jour='
+        + encodeURIComponent(jourRepas)).catch(() => []))),
       api('/facturation/famille/quittances').catch(() => []),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/voeux?annee_scolaire='
         + encodeURIComponent(orientAnneeHome)).catch(() => []))),
@@ -12466,6 +12789,18 @@ async function bindFamilleHome() {
       } else {
         devoirTip.style.display = 'none';
         devoirTip.innerHTML = '';
+      }
+    }
+    const edtTip = document.getElementById('famHomeEdtTip');
+    if (edtTip) {
+      const coursPicks = famCollectProchainCours(list, edtJourLists);
+      const denseEdt = famHomeProchainCoursTipDenseHtml(coursPicks);
+      if (denseEdt) {
+        edtTip.style.display = '';
+        edtTip.innerHTML = denseEdt;
+      } else {
+        edtTip.style.display = 'none';
+        edtTip.innerHTML = '';
       }
     }
     const comTip = document.getElementById('famHomeComTip');
@@ -12977,11 +13312,13 @@ async function bindFamilleEnfant(id) {
     html += `<h3>Passages infirmière</h3><div id="infFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Permis à points</h3><div id="ptsFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Menus cantine</h3><div id="menusFamOut" class="muted">Chargement…</div>`;
-    html += `<h3 id="fam-sec-edt">EDT du jour</h3>
+    html += `<div id="fam-sec-edt" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantEdtTip" style="display:none;margin:0 0 .55rem"></div>
+      <h3>EDT du jour</h3>
       <div class="row" style="margin-bottom:.35rem">
         <button type="button" class="primary" id="btnFamEdtIcal">Exporter iCal (semaine)</button>
       </div>
-      <div id="edtFamOut" class="muted">Chargement…</div>`;
+      <div id="edtFamOut" class="muted">Chargement…</div></div>`;
     html += `<h3>Stages</h3><div id="stagesFamOut" class="muted">Chargement…</div>`;
     html += `<div id="fam-sec-journal" style="scroll-margin-top:4.5rem">
       <div id="famEnfantJournalTip" style="display:none;margin:0 0 .55rem"></div>
@@ -13082,6 +13419,11 @@ async function bindFamilleEnfant(id) {
         try {
           const lundi = mondayOf(today());
           const dimanche = addDaysIso(lundi, 6);
+          const jours = [0, 1, 2, 3, 4, 5, 6].map(i => addDaysIso(lundi, i));
+          const lists = await Promise.all(jours.map(j =>
+            api('/eleves/' + id + '/edt?jour=' + encodeURIComponent(j)).catch(() => []),
+          ));
+          const nCours = lists.reduce((s, l) => s + (l || []).length, 0);
           await downloadFile(
             edtIcalPathEleve(id, lundi, dimanche),
             'edt-semaine.ics',
@@ -13090,6 +13432,8 @@ async function bindFamilleEnfant(id) {
             debut: lundi,
             fin: dimanche,
             mode: 'semaine',
+            nCours,
+            dense: true,
           });
         } catch (err) { alert(err.message); }
       };
@@ -14044,15 +14388,81 @@ async function bindFamilleEnfant(id) {
     }
 
     try {
-      const list = await api('/eleves/' + id + '/edt?jour=' + encodeURIComponent(today()));
+      const jour = today();
+      const edtSection = enfantDeepSection === 'edt';
+      const tipEl = document.getElementById('famEnfantEdtTip');
       const box = document.getElementById('edtFamOut');
-      box.innerHTML = list.length
-        ? `<ul>${list.map(c =>
-            `<li>${esc(c.heure_debut)}–${esc(c.heure_fin)} · ${esc(c.matiere_libelle)} · ${esc(c.salle || '—')}</li>`
-          ).join('')}</ul>`
-        : '<p class="empty">Aucun créneau aujourd’hui.</p>';
+      if (edtSection) {
+        const lundi = mondayOf(jour);
+        const jours = [0, 1, 2, 3, 4, 5, 6].map(i => addDaysIso(lundi, i));
+        const [lists, fermes, listJour] = await Promise.all([
+          Promise.all(jours.map(j =>
+            api('/eleves/' + id + '/edt?jour=' + encodeURIComponent(j)).catch(() => []),
+          )),
+          Promise.all(jours.map(j =>
+            api('/vacances/jour-ferme?jour=' + encodeURIComponent(j)).catch(() => ({ ferme: false })),
+          )),
+          api('/eleves/' + id + '/edt?jour=' + encodeURIComponent(jour)),
+        ]);
+        const total = lists.reduce((s, l) => s + (l || []).length, 0);
+        const nFerme = fermes.filter(f => f && f.ferme).length;
+        const scan = eleveEdtPickCurrentAndNext(lists, jours);
+        if (tipEl) {
+          tipEl.style.display = '';
+          tipEl.innerHTML = eleveEdtTipDenseHtml({
+            mode: 'semaine',
+            lundi,
+            total,
+            nFerme,
+            current: scan.current,
+            next: scan.next,
+            famEnfantId: id,
+          });
+        }
+        const list = listJour || [];
+        if (box) {
+          box.innerHTML = list.length
+            ? `<ul>${list.map(c =>
+                `<li class="edt-slot${edtSlotNowClass(jour, c.heure_debut, c.heure_fin)}">${esc(c.heure_debut)}–${esc(c.heure_fin)} · ${esc(c.matiere_libelle)} · ${esc(c.salle || '—')}</li>`
+              ).join('')}</ul>`
+            : (isIsoWeekend(jour)
+              ? eleveEdtWeekendEmptyHtml(jour)
+              : '<p class="empty">Aucun créneau aujourd’hui.</p>');
+        }
+      } else {
+        const list = await api('/eleves/' + id + '/edt?jour=' + encodeURIComponent(jour));
+        const scan = eleveEdtPickCurrentAndNext([list], [jour]);
+        if (tipEl) {
+          const tipHtml = list.length
+            ? eleveEdtTipDenseHtml({
+              mode: 'jour',
+              jour,
+              nCours: list.length,
+              current: scan.current,
+              next: scan.next,
+              famEnfantId: id,
+            })
+            : '';
+          if (tipHtml) {
+            tipEl.style.display = '';
+            tipEl.innerHTML = tipHtml;
+          } else {
+            tipEl.style.display = 'none';
+            tipEl.innerHTML = '';
+          }
+        }
+        if (box) {
+          box.innerHTML = list.length
+            ? `<ul>${list.map(c =>
+                `<li class="edt-slot${edtSlotNowClass(jour, c.heure_debut, c.heure_fin)}">${esc(c.heure_debut)}–${esc(c.heure_fin)} · ${esc(c.matiere_libelle)} · ${esc(c.salle || '—')}</li>`
+              ).join('')}</ul>`
+            : '<p class="empty">Aucun créneau aujourd’hui.</p>';
+        }
+      }
     } catch (err) {
       const box = document.getElementById('edtFamOut');
+      const tipEl = document.getElementById('famEnfantEdtTip');
+      if (tipEl) { tipEl.style.display = 'none'; tipEl.innerHTML = ''; }
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
     }
 
@@ -14346,6 +14756,10 @@ async function bindFamilleEnfant(id) {
       if (enfantDeepSection === 'messages') {
         setTimeout(() => famApplyEnfantSectionDeepLink('messages'), 900);
         setTimeout(() => famApplyEnfantSectionDeepLink('messages'), 1400);
+      }
+      if (enfantDeepSection === 'edt') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('edt'), 900);
+        setTimeout(() => famApplyEnfantSectionDeepLink('edt'), 1400);
       }
     }
   } catch (e) {
@@ -16676,7 +17090,7 @@ function addDaysIso(iso, n) {
 
 function viewMonEdt() {
   return shell('/app/mon-edt', `
-    <div class="bento" id="monEdtStats"></div>
+    <div id="monEdtStats"></div>
     <div class="panel">
       <h2>Mon emploi du temps</h2>
       <p class="muted">Créneaux du jour / semaine — exceptions visibles · pose admin : <a href="/app/edt">Emploi du temps</a>.</p>
@@ -16720,12 +17134,40 @@ async function bindMonEdt() {
       }));
       const total = packs.reduce((s, p) => s + p.list.length, 0);
       const nEx = packs.reduce((s, p) => s + p.exs.length, 0);
+      const nFerme = packs.filter(p => p.ferme).length;
+      const flatLists = packs.map(p => p.list);
+      const flatJours = packs.map(p => p.jour);
+      const slotPairs = [];
+      packs.forEach(p => {
+        (p.list || []).forEach(c => {
+          slotPairs.push({
+            jour: p.jour,
+            c,
+          });
+        });
+      });
+      const { current, next } = eleveEdtPickCurrentAndNext(flatLists, flatJours);
+      const curSlot = current
+        ? { ...current, classe: slotPairs.find(x => x.jour === current.jour && x.c.heure_debut === current.heure_debut)?.c?.classe }
+        : null;
+      const nxtSlot = next
+        ? {
+          ...next,
+          classe: slotPairs.find(x => x.jour === next.jour && x.c.heure_debut === next.heure_debut)?.c?.classe,
+        }
+        : null;
       if (stats) {
-        stats.innerHTML = `
-          <div class="stat-tile bento-span-3"><strong>${total}</strong><span>Créneaux</span></div>
-          <div class="stat-tile bento-span-3"><strong>${nEx}</strong><span>Exceptions</span></div>
-          <div class="stat-tile bento-span-3"><strong>${packs.filter(p => p.ferme).length}</strong><span>Jours fermés</span></div>
-          <a class="stat-tile bento-span-3" href="/app/appel"><strong>→</strong><span>Page Appel</span></a>`;
+        stats.innerHTML = staffMonEdtTipDenseHtml({
+          mode,
+          jour: base,
+          lundi: mode === 'semaine' ? mondayOf(base) : '',
+          total,
+          nCours: mode === 'jour' ? total : total,
+          nEx,
+          nFerme,
+          current: curSlot,
+          next: nxtSlot,
+        });
       }
       if (!total && packs.every(p => !p.ferme)) {
         out.innerHTML = staffMonEdtEmptyHtml(mode);
@@ -16839,6 +17281,7 @@ async function bindMonEdt() {
 
 function viewEdt() {
   return shell('/app/edt', `
+    <div id="edtPageTip"></div>
     <div class="panel">
       <h2>Emploi du temps — semaine</h2>
       <p class="muted">Vue métier par jour · filtre classe optionnel. Les outils (exceptions, import, solveur) sont en dessous.</p>
@@ -16931,6 +17374,7 @@ function viewEdt() {
     </div>
     <div class="panel" style="margin-top:1rem">
       <h2>Import CSV / Pronote</h2>
+      <div id="edtImportConflictsTip"></div>
       <p class="muted">Native : <code>classe;matiere;prof_user_id;jour_semaine;heure_debut;heure_fin;salle;semaine_ab</code>. Pronote : jours FR + e-mail enseignant.</p>
       <div class="row">
         <label>Format <select id="edtImpFmt"><option value="native">native</option><option value="pronote">pronote</option></select></label>
@@ -16942,6 +17386,7 @@ function viewEdt() {
     </div>
     <div class="panel" style="margin-top:1rem">
       <h2>Solveur greedy</h2>
+      <div id="edtSolveUnplacedTip"></div>
       <p class="muted">Demandes JSON (classe, matiere, prof_user_id, duree_minutes, salle?, semaine_ab?).</p>
       <div class="row">
         <label><input type="checkbox" id="edtSolDry" checked/> Dry-run</label>
@@ -16960,6 +17405,29 @@ async function bindEdt() {
   const staffLabel = {};
   const profIds = new Set();
   const joursLib = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+  const edtPageTipEl = document.getElementById('edtPageTip');
+  const edtImportConflictsTipEl = document.getElementById('edtImportConflictsTip');
+  const edtSolveUnplacedTipEl = document.getElementById('edtSolveUnplacedTip');
+  let edtPageTipState = { total: 0, nFermes: 0, lundi: mondayOf(today()), filtre: '', nContraintes: 0 };
+  let lastEdtImportReport = null;
+  let lastEdtSolveReport = null;
+
+  function refreshEdtPageTip() {
+    if (!edtPageTipEl) return;
+    edtPageTipEl.innerHTML = edtPageTipDenseHtml(edtPageTipState);
+  }
+
+  function refreshEdtImportConflictsTip(r) {
+    if (!edtImportConflictsTipEl) return;
+    const rep = r === undefined ? lastEdtImportReport : r;
+    edtImportConflictsTipEl.innerHTML = edtImportConflictsTipDenseHtml(rep);
+  }
+
+  function refreshEdtSolveUnplacedTip(r) {
+    if (!edtSolveUnplacedTipEl) return;
+    const rep = r === undefined ? lastEdtSolveReport : r;
+    edtSolveUnplacedTipEl.innerHTML = edtSolveUnplacedTipDenseHtml(rep);
+  }
 
   async function loadSemaine() {
     const box = document.getElementById('edtSemaineOut');
@@ -17002,6 +17470,14 @@ async function bindEdt() {
       box.innerHTML = `<div class="edt-week">${cols}</div>`;
       info.textContent = total + ' créneau(x) · semaine du ' + lundi
         + (nFermes ? ' · ' + nFermes + ' jour(s) fermé(s)' : '');
+      edtPageTipState = {
+        ...edtPageTipState,
+        total,
+        nFermes,
+        lundi,
+        filtre: (document.getElementById('edtClasseFiltre').value || '').trim(),
+      };
+      refreshEdtPageTip();
       box.querySelectorAll('.edt-day-head[data-jour]').forEach(h => {
         h.onclick = async () => {
           document.getElementById('edtJour').value = h.dataset.jour;
@@ -17288,6 +17764,8 @@ async function bindEdt() {
       if (tip) {
         tip.innerHTML = isStaffEdtFlux() ? edtContraintesTipDenseHtml(list) : '';
       }
+      edtPageTipState = { ...edtPageTipState, nContraintes: (list || []).length };
+      refreshEdtPageTip();
       box.innerHTML = !list.length
         ? '<p class="empty">Aucune contrainte.</p>'
         : `<table><thead><tr><th>Type</th><th>Cible</th><th>Créneau</th><th>Détail</th></tr></thead><tbody>${
@@ -17342,8 +17820,13 @@ async function bindEdt() {
         }),
       });
       box.innerHTML = `<span class="ok">${esc(r.format)} · lignes ${r.lines} · ok ${r.ok_count} · conflits ${r.conflicts}${r.dry_run ? ' (dry-run)' : ''}</span>`;
+      lastEdtImportReport = r;
+      refreshEdtImportConflictsTip(r);
       toastEdtImportOk(r);
-      if (!r.dry_run) await loadJour();
+      if (!r.dry_run) {
+        await loadJour();
+        await loadSemaine();
+      }
     } catch (e) {
       box.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
       if (entMessageLooksEdtConflit(e.message)) toastEdtConflit(e.message);
@@ -17368,8 +17851,13 @@ async function bindEdt() {
         }),
       });
       box.innerHTML = `<span class="ok">placés ${r.placed} · non placés ${r.unplaced}${r.dry_run ? ' (dry-run)' : ''}</span>`;
+      lastEdtSolveReport = r;
+      refreshEdtSolveUnplacedTip(r);
       toastEdtCreneauxCrees(r);
-      if (!r.dry_run) await loadJour();
+      if (!r.dry_run) {
+        await loadJour();
+        await loadSemaine();
+      }
     } catch (e) {
       box.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
@@ -17390,6 +17878,8 @@ async function bindEdt() {
     }
   }
 
+  refreshEdtImportConflictsTip(null);
+  refreshEdtSolveUnplacedTip(null);
   await loadCal();
   await loadJour();
   await loadContraintes();
