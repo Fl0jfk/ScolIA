@@ -360,6 +360,43 @@ function staffJournalModifDenseHtml(list) {
   return { stats, body };
 }
 
+function isStaffHomeDirectionFlux() {
+  return path() === '/app' && ((me && me.role) || '') === 'direction';
+}
+
+/** Accueil direction — priorités du jour (avant cockpit KPI). */
+function homeDirectionTipDenseHtml(stats) {
+  if (!isStaffHomeDirectionFlux()) return '';
+  const st = stats || {};
+  const nRh = Number(st.nRh) || 0;
+  const nGrants = Number(st.nGrants) || 0;
+  const nAbs = Number(st.nAbs) || 0;
+  const nAlertUrgent = Number(st.nAlertUrgent) || 0;
+  const nIns = Number(st.nIns) || 0;
+  const campOuverte = !!st.campOuverte;
+  const campLabel = st.campLabel ? esc(String(st.campLabel)) : 'N+1';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <a class="stat-tile bento-span-4" href="/app/rh" style="text-decoration:none;border-color:${nRh ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nRh ? 'warn' : ''}">${nRh}</strong><span>Absence(s) RH à valider</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/app/etab" style="text-decoration:none;border-color:${nGrants ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nGrants ? 'warn' : ''}">${nGrants}</strong><span>Grant(s) document</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/app/absences" style="text-decoration:none;border-color:${nAbs ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+      <strong>${nAbs}</strong><span>Absence(s) VS à traiter</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/app/reinscription" style="text-decoration:none">
+      <strong class="${campOuverte ? 'warn' : ''}">${campOuverte ? 'Ouverte' : 'Fermée'}</strong><span>Campagne ${campLabel}</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/app/inscriptions" style="text-decoration:none">
+      <strong>${nIns}</strong><span>Dossiers inscription</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/app/alertes?sev=urgent" style="text-decoration:none;border-color:${nAlertUrgent ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nAlertUrgent ? 'warn' : ''}">${nAlertUrgent}</strong><span>Alerte(s) CPE urgentes</span>
+    </a>
+  </div>`;
+}
+
 function homeDirReinscDenseHtml(camp, montee, exigences) {
   const cands = (montee && montee.candidats) || [];
   const nCand = montee && montee.count != null ? montee.count : cands.length;
@@ -752,17 +789,22 @@ function notesPeriodeFermeeTipDenseHtml(periode) {
   </div>`;
 }
 
-function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode) {
+function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
   const el = document.getElementById('notesHomeTip');
   if (!el) return;
   const p = prefPeriode || null;
+  const nMatiere = Number(nMat);
   let html = notesPeriodeFermeeTipDenseHtml(p);
+  if (Number.isFinite(nMatiere) && nMatiere <= 0) {
+    html += notesMatieresEmptyTipDenseHtml();
+  }
   if (!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations') {
     html += notesEvalSansNoteTipDenseHtml(nSans, nTotal, periodeLabel);
   }
   el.innerHTML = html;
   bindNotesHomeTipGo();
   bindNotesHomeTipBulGo();
+  bindNotesMatieresEmptyTipGo();
 }
 
 /** /app/notes — repère seed labo Harry Potter (4B · Potions). */
@@ -1453,6 +1495,67 @@ function refreshEleveHomeAbsencesTip(absences, absencesApiOk) {
   el.innerHTML = eleveHomeAbsencesTipDenseHtml(absences, absencesApiOk);
 }
 
+function isEleveHomeFlux() {
+  return path() === '/eleve';
+}
+
+function isEleveEdtFlux() {
+  return path() === '/eleve/edt';
+}
+
+function isMonEdtFlux() {
+  return path() === '/app/mon-edt';
+}
+
+/** Accueil /eleve — PAI actif (GET /eleves/:id/pai si autorisé). */
+function eleveHomePaiTipDenseHtml(pai, paiApiOk) {
+  if (!paiApiOk) return '';
+  const santeHref = '/eleve/sante';
+  if (!pai) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de PAI actif</span></div>
+      <a class="stat-tile bento-span-4" href="${santeHref}" style="text-decoration:none">
+        <strong>Santé</strong><span>Fiche · dispenses EPS</span>
+      </a>
+      <a class="stat-tile bento-span-4" href="/eleve/messages" style="text-decoration:none">
+        <strong>→</strong><span>Contacter l’infirmerie</span>
+      </a>
+    </div>`;
+  }
+  const motif = esc(String(pai.motif || 'protocole').trim().slice(0, 28));
+  const debut = pai.date_debut ? esc(String(pai.date_debut).slice(0, 10)) : '—';
+  const signe = !!pai.signe_famille;
+  const statusTile = signe
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">Signé</strong><span>Prise de connaissance famille</span>
+      </div>`
+    : `<a class="stat-tile bento-span-4" href="${santeHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">PAI</strong><span>Signature famille en attente</span>
+      </a>`;
+  const protTile = pai.protocole_urgence
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong>Urgence</strong><span>${esc(String(pai.protocole_urgence).trim().slice(0, 32))}</span>
+      </div>`
+    : `<a class="stat-tile bento-span-4" href="${santeHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${motif}</strong><span>Protocole · depuis ${debut}</span>
+      </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${statusTile}${protTile}
+    <a class="stat-tile bento-span-4" href="${santeHref}" style="text-decoration:none">
+      <strong>Ordonnances</strong><span>Télécharger · fiche PAI</span>
+    </a>
+  </div>`;
+}
+
+function refreshEleveHomePaiTip(pai, paiApiOk) {
+  const el = document.getElementById('eleveHomePaiTip');
+  if (!el) return;
+  if (!paiApiOk) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = eleveHomePaiTipDenseHtml(pai, paiApiOk);
+}
+
 function eleveCommissionEnAttente(d) {
   const lib = String((d && d.decision_libelle) || '').trim();
   return !lib || lib === '—' || lib.toLowerCase() === 'en attente';
@@ -2084,11 +2187,48 @@ function famHomeReinscTipDenseHtml(reinsc) {
         <strong class="ok">OK</strong><span>Campagne ${annee} · confirmée(s)</span>
       </a>`;
   const docsTile = nDocsManq
-    ? `<div class="stat-tile bento-span-4"><strong class="warn">${nDocsManq}</strong><span>Doc(s) manquant(s)</span></div>`
+    ? `<a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nDocsManq}</strong><span>Doc(s) manquant(s) · à déposer</span>
+      </a>`
     : `<div class="stat-tile bento-span-4"><strong>${nSansProj || '—'}</strong><span>${nSansProj ? 'Projection en attente' : 'Dossiers N+1'}</span></div>`;
   return `<div class="bento" style="margin:0 0 .55rem">${pendingTile}${docsTile}
     <a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none">
       <strong>Ouverte</strong><span>Réinscription · options &amp; docs</span>
+    </a>
+  </div>`;
+}
+
+/** Accueil famille — documents manquants réinscription N+1 (bento). */
+function famHomeReinscDocsManqTipDenseHtml(reinsc) {
+  const d = reinsc || {};
+  const camp = d.campagne || null;
+  if (!(camp && camp.ouverte)) return '';
+  const rows = d.enfants || [];
+  const picks = [];
+  let total = 0;
+  rows.forEach(x => {
+    const manq = (x && x.documents_manquants) || [];
+    if (manq.length && x.enfant) {
+      total += manq.length;
+      picks.push({
+        prenom: String(x.enfant.prenom || 'Enfant').trim(),
+        codes: manq,
+      });
+    }
+  });
+  if (!total) return '';
+  const href = '/famille/reinscription';
+  const annee = esc(String((camp && camp.annee_cible) || d.annee_n1 || 'N+1').trim());
+  const first = picks[0];
+  const codesLbl = (first.codes || []).slice(0, 3).map(c => esc(String(c))).join(' · ');
+  const extraKids = picks.length > 1 ? ` · +${picks.length - 1} enfant(s)` : '';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+      <strong class="warn">${total}</strong><span>Pièce(s) manquante(s) · ${annee}</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong>${esc(first.prenom)}</strong><span>${codesLbl || 'Docs réinscription'}${extraKids}</span></div>
+    <a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none">
+      <strong>→</strong><span>Déposer sur le dossier N+1</span>
     </a>
   </div>`;
 }
@@ -2256,6 +2396,32 @@ function toastFamSepaMandatCre(mandat, opts) {
     return;
   }
   showEntToast(`<strong>Mandat SEPA créé</strong> — ${rum}. Prélèvement activé pour votre foyer.`, 8000);
+}
+
+function toastFamSepaMandatRev(mandat, opts) {
+  const o = opts || {};
+  const m = mandat || {};
+  const rum = esc(String(m.rum || '—').trim().slice(0, 32));
+  const tit = esc(String(m.titulaire || 'Titulaire').trim().slice(0, 28));
+  const st = esc(String(m.statut || 'revoque').trim());
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/factures#famSepaOut">Mandat SEPA</a> · `
+    + `<a href="/famille/quittances">Quittances</a></p>`;
+  if (isFamilleFacturesFlux() || o.dense) {
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${st}</strong><span>Prélèvement désactivé</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${rum}</strong><span>RUM · ${tit}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Paiement</strong><span>Virement ou chèque si besoin</span></div>`;
+    showEntToast(
+      `<strong>Mandat SEPA révoqué</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + foot,
+      9500,
+    );
+    return;
+  }
+  showEntToast(`<strong>Mandat SEPA révoqué</strong> — ${rum}. Le prélèvement automatique est désactivé.`, 8000);
 }
 
 /** Élève /eleve/notes — période ouverte (saisie en cours, bulletin après fermeture). */
@@ -2594,6 +2760,29 @@ function grilleMoyenneLiveTipHtml(vals) {
 }
 
 /** /app/notes — aucune période configurée (bento). */
+/** /app/notes — référentiel matières vide (bento). */
+function notesMatieresEmptyTipDenseHtml() {
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">0</strong><span>Aucune matière · référentiel notes</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesMatieresEmptyCreerBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>MATH</strong><span>Créer matière · panneau ci-dessous</span>
+    </button>
+    <div class="stat-tile bento-span-4"><strong>→</strong><span>Puis devoir · grille · moyennes</span></div>
+  </div>`;
+}
+
+function bindNotesMatieresEmptyTipGo() {
+  const btn = document.getElementById('notesMatieresEmptyCreerBtn');
+  if (btn) {
+    btn.onclick = () => {
+      document.getElementById('matCode')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('btnMatCreer')?.click();
+    };
+  }
+}
+
 function notesPeriodesEmptyTipDenseHtml() {
   return `<div class="bento" style="margin:.15rem 0 .45rem">
     <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
@@ -2861,6 +3050,50 @@ function toastEdtImportOk(r) {
   );
 }
 
+function toastEdtIcalTelecharge(filename, opts) {
+  const o = opts || {};
+  const fname = esc(String(filename || 'edt-semaine.ics').trim());
+  const debut = o.debut ? esc(String(o.debut).slice(0, 10)) : '—';
+  const fin = o.fin ? esc(String(o.fin).slice(0, 10)) : debut;
+  const plage = debut === fin ? debut : `${debut} → ${fin}`;
+  const nCours = Number(o.nCours);
+  const coursLbl = Number.isFinite(nCours) && nCours >= 0
+    ? `${nCours} créneau(x)`
+    : 'Semaine';
+  const onFlux = isEleveHomeFlux() || isEleveEdtFlux() || isMonEdtFlux()
+    || path().startsWith('/famille/enfants/') || !!o.dense;
+  if (!onFlux) {
+    showEntToast(`<strong>Export iCal</strong> — ${fname} enregistré.`, 7000);
+    return;
+  }
+  let footHref = '/eleve/edt';
+  let footLabel = 'EDT élève';
+  if (isMonEdtFlux()) {
+    footHref = '/app/mon-edt';
+    footLabel = 'Mon EDT';
+  } else if (path().startsWith('/famille/enfants/')) {
+    footHref = path();
+    footLabel = 'Fiche enfant';
+  } else if (isEleveHomeFlux()) {
+    footHref = '/eleve/edt';
+    footLabel = 'Voir l’EDT';
+  }
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${esc(footHref)}">${footLabel}</a>`
+    + ` · fichier ${fname}</p>`;
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">.ics</strong><span>Agenda · ${plage}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${fname}</strong><span>Import Google / Apple Calendar</span></div>
+    <div class="stat-tile bento-span-4"><strong>${coursLbl}</strong><span>${esc(String(o.mode || 'semaine'))}</span></div>`;
+  showEntToast(
+    `<strong>Emploi du temps exporté</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + foot,
+    9000,
+  );
+}
+
 function toastEdtAffectationEnregistree(c, opts) {
   if (!isStaffEdtFlux()) return;
   const creneau = c || {};
@@ -2891,10 +3124,99 @@ function toastSalleCreee(s) {
   if (!s) return;
   const code = esc(String(s.code || '').trim() || '—');
   const lib = esc(String(s.libelle || '').trim());
+  const libPart = lib ? ` · ${lib}` : '';
+  const cap = s.capacite != null && Number(s.capacite) > 0
+    ? String(Number(s.capacite))
+    : '—';
+  const site = s.site ? esc(String(s.site).trim()) : '—';
+  const footEtab = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/app/edt">Grille EDT</a> · `
+    + `<a href="#" id="entToastSalList">Liste salles</a></p>`;
+  const footEdt = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `Listes affectation actualisées · `
+    + `<a href="/app/etab">Référentiel établ.</a></p>`;
+  if (isStaffEtabFlux()) {
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${code}</strong><span>${lib || 'Salle'} · référentiel</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${cap}</strong><span>Capacité · ${site}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">EDT</strong><span>Affectation · conflits</span></div>`;
+    showEntToast(
+      `<strong>Salle créée</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + footEtab,
+      9000,
+    );
+    const listLink = document.getElementById('entToastSalList');
+    if (listLink) {
+      listLink.onclick = (ev) => {
+        ev.preventDefault();
+        document.getElementById('btnSalList')?.click();
+        document.getElementById('salOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    }
+    return;
+  }
+  if (isStaffEdtFlux()) {
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${code}</strong><span>${lib || 'Salle'}${libPart}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${cap}</strong><span>Capacité · site ${site}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Selects</strong><span>Créneaux · contraintes</span></div>`;
+    showEntToast(
+      `<strong>Salle créée</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + footEdt,
+      9000,
+    );
+    return;
+  }
   showEntToast(
-    `<strong>Salle créée</strong> — ${code}${lib ? ` · ${lib}` : ''}. Disponible dans les listes EDT.`,
+    `<strong>Salle créée</strong> — ${code}${libPart}. Disponible dans les listes EDT.`,
     8000,
   );
+}
+
+function toastVacancesCreee(v) {
+  if (!v) return;
+  const lib = esc(String(v.libelle || '').trim() || '—');
+  const kind = esc(String(v.kind || 'vacances').trim());
+  const plage = v.debut && v.fin
+    ? `${esc(String(v.debut))} → ${esc(String(v.fin))}`
+    : '—';
+  const simple = () => showEntToast(
+    `<strong>Période enregistrée</strong> — ${lib} · ${kind} · ${plage}. EDT et jours fermés actualisés.`,
+    8000,
+  );
+  if (!isStaffEtabFlux()) {
+    simple();
+    return;
+  }
+  const kindWarn = kind === 'ferie' || kind === 'fermeture';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${lib}</strong><span>${kind} · calendrier</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${plage}</strong><span>Début → fin</span></div>
+    <div class="stat-tile bento-span-4"><strong class="${kindWarn ? 'warn' : 'muted'}">${kindWarn ? 'Fermé' : 'Vacances'}</strong><span>EDT · cantine · appel</span></div>`;
+  showEntToast(
+    `<strong>Période vacances / fermeture créée</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="#" id="entToastVacFermeTest">Tester jour fermé</a> · `
+    + `<a href="/app/edt">Grille EDT</a></p>`,
+    9000,
+  );
+  const testLink = document.getElementById('entToastVacFermeTest');
+  if (testLink) {
+    testLink.onclick = (ev) => {
+      ev.preventDefault();
+      const deb = v.debut ? String(v.debut).slice(0, 10) : today();
+      const vacJour = document.getElementById('vacJour');
+      if (vacJour) vacJour.value = deb;
+      document.getElementById('btnVacFerme')?.click();
+      document.getElementById('vacFermeMsg')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  }
 }
 
 function toastRepasScanOk(p) {
@@ -3260,6 +3582,8 @@ function seedRouteFromQuery() {
     const secRaw = String(qp.get('section') || '').trim().toLowerCase();
     if (secRaw === 'factures' || secRaw === 'facture') {
       routeState.famScrollFactures = true;
+    } else if (secRaw === 'quittances' || secRaw === 'quittance') {
+      routeState.famScrollQuittances = true;
     } else {
       routeState.famSection = normalizeFamEnfantSection(qp.get('section'));
     }
@@ -3950,6 +4274,34 @@ function infirmeriePageTipDenseHtml() {
     <div class="stat-tile bento-span-4"><strong class="muted">Motif</strong><span>Parent voit le motif si « visible famille »</span></div>
     <div class="stat-tile bento-span-4"><strong class="muted">Note soins</strong><span>Confidentielle — jamais sur le portail</span></div>
     <div class="stat-tile bento-span-4"><strong class="muted">PAI</strong><span>Fiche + protocole · signature famille</span></div>
+  </div>`;
+}
+
+function isStaffInfirmerieFlux() {
+  return path() === '/app/infirmerie';
+}
+
+/** Infirmerie — synthèse passages du jour (filtre élève optionnel). */
+function infirmeriePassagesTipDenseHtml(opts) {
+  if (!isStaffInfirmerieFlux()) return '';
+  const o = opts || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const list = o.list || [];
+  const filtered = !!o.filtered;
+  const isToday = o.isToday !== false && String(o.jour || today()).slice(0, 10) === today();
+  const n = list.length;
+  const nFam = list.filter(p => p.visible_famille).length;
+  const nInterne = Math.max(0, n - nFam);
+  const todayLbl = isToday ? ' · aujourd’hui' : '';
+  const filTile = filtered
+    ? `<div class="stat-tile bento-span-4"><strong class="muted">Filtre</strong><span>Élève sélectionné · tous pour la liste</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">${nInterne}</strong><span>Passage(s) internes only</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:${isToday && n ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${isToday && n ? 'ok' : ''}">${n}</strong><span>Passage(s) le ${jour}${todayLbl}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${nFam}</strong><span>Visibles famille</span></div>
+    ${filTile}
   </div>`;
 }
 
@@ -6208,6 +6560,36 @@ function famRepasPassagesEmptyHtml(prenom, debut, fin) {
     <p class="muted" style="margin:.4rem 0 0">Chaque scan à la cantine (badge) apparaît ici — utile avant la facture mensuelle.</p>
   </div>`;
 }
+
+function isFamilleRepasFlux() {
+  return path() === '/famille/repas';
+}
+
+/** Page /famille/repas — synthèse passages & cantine (bento). */
+function famRepasPageTipDenseHtml(opts) {
+  const o = opts || {};
+  const j = today();
+  const nJour = Number(o.nPassagesJour) || 0;
+  const nPeriode = Number(o.nPassagesPeriode) || 0;
+  const nDisp = Number(o.nDispensesActives) || 0;
+  const menuPlat = o.menuPlat ? esc(String(o.menuPlat).trim().slice(0, 36)) : '';
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant(s)';
+  const jourTile = nJour
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nJour}</strong><span>Repas aujourd’hui · ${who}</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong>0</strong><span>Aucun badge · ${j.slice(5)}</span></div>`;
+  const perTile = `<div class="stat-tile bento-span-4"><strong>${nPeriode}</strong><span>Passage(s) sur la période</span></div>`;
+  const dispTile = nDisp
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nDisp}</strong><span>Dispense(s) cantine active(s)</span>
+      </div>`
+    : (menuPlat
+      ? `<div class="stat-tile bento-span-4"><strong>${menuPlat}</strong><span>Menu du jour</span></div>`
+      : `<div class="stat-tile bento-span-4"><strong class="muted">Menus</strong><span>Publiés ci-dessous</span></div>`);
+  return `<div class="bento" style="margin:0 0 .55rem">${jourTile}${perTile}${dispTile}</div>`;
+}
+
 function famAccEmptyDenseHtml(prenom, opts) {
   const o = opts || {};
   const who = String(prenom || '').trim();
@@ -6993,6 +7375,7 @@ function viewEleveHome() {
     <div class="bento" id="eleveHomeStats"></div>
     <div id="eleveHomeConseilSpot"></div>
     <div id="eleveHomeAbsencesTip"></div>
+    <div id="eleveHomePaiTip"></div>
     <div id="eleveHomeSanctionsTip"></div>
     <div id="eleveHomeCommissionsTip"></div>
     <div id="eleveHomeProchainCoursTip"></div>
@@ -7146,6 +7529,16 @@ async function bindEleveHome() {
       pointsVs = null;
     }
     refreshEleveHomeAbsencesTip(abs, absencesApiOk);
+    let paiApiOk = false;
+    let paiActif = null;
+    try {
+      paiActif = await api('/eleves/' + eid + '/pai');
+      paiApiOk = true;
+    } catch {
+      paiActif = null;
+      paiApiOk = false;
+    }
+    refreshEleveHomePaiTip(paiActif, paiApiOk);
     refreshEleveHomeSanctionsTip(sanctionsList, pointsVs, sanctionsApiOk);
     let commissionsApiOk = false;
     let commissionsList = [];
@@ -7208,6 +7601,12 @@ async function bindEleveHome() {
       btnHomeIcal.onclick = async () => {
         try {
           await downloadFile(edtIcalPathEleve(eid, lundi, dimanche), 'edt-semaine.ics');
+          toastEdtIcalTelecharge('edt-semaine.ics', {
+            debut: lundi,
+            fin: dimanche,
+            nCours: (edt || []).length,
+            mode: 'semaine',
+          });
         } catch (err) { alert(err.message); }
       };
     }
@@ -8961,10 +9360,16 @@ async function bindEleveEdt() {
     btnIcal.onclick = async () => {
       try {
         const lundi = mondayOf(document.getElementById('eleveEdtJour').value || today());
+        const dimanche = addDaysIso(lundi, 6);
         await downloadFile(
-          edtIcalPathEleve(eid, lundi, addDaysIso(lundi, 6)),
+          edtIcalPathEleve(eid, lundi, dimanche),
           'edt-semaine.ics',
         );
+        toastEdtIcalTelecharge('edt-semaine.ics', {
+          debut: lundi,
+          fin: dimanche,
+          mode: 'semaine',
+        });
       } catch (err) { alert(err.message); }
     };
   }
@@ -9039,6 +9444,7 @@ function viewHome() {
     <div class="panel" style="margin-top:.75rem">
       <h3>Cockpit direction</h3>
       <p class="muted" style="margin-top:0">Indicateurs du jour — absentéisme, RH, campagne N+1, inscriptions.</p>
+      <div id="homeDirPageTip"></div>
       <div id="homeDirKpi" class="bento muted">Chargement…</div>
     </div>
     <div class="panel" style="margin-top:.75rem">
@@ -9378,6 +9784,18 @@ async function bindHome() {
         ${sortEarly}
         ${comEarly}`
       : `${justifTile}${sortEarly}${comEarly}`;
+  }
+  const dirPageTip = document.getElementById('homeDirPageTip');
+  if (dirPageTip && role === 'direction') {
+    dirPageTip.innerHTML = homeDirectionTipDenseHtml({
+      nRh,
+      nGrants,
+      nAbs,
+      nAlertUrgent,
+      nIns,
+      campOuverte,
+      campLabel,
+    });
   }
   const dirKpi = document.getElementById('homeDirKpi');
   if (dirKpi && wantPilotageKpi) {
@@ -9724,6 +10142,7 @@ function viewFamilleHome() {
     <div id="famHomePaiTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeQuittancesTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeReinscTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeReinscDocsManqTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeEnfantsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
@@ -9879,6 +10298,8 @@ async function bindFamilleHome() {
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
       const reinscTip0 = document.getElementById('famHomeReinscTip');
       if (reinscTip0) { reinscTip0.style.display = 'none'; reinscTip0.innerHTML = ''; }
+      const reinscDocsManqTip0 = document.getElementById('famHomeReinscDocsManqTip');
+      if (reinscDocsManqTip0) { reinscDocsManqTip0.style.display = 'none'; reinscDocsManqTip0.innerHTML = ''; }
       const enfantsTip0 = document.getElementById('famHomeEnfantsTip');
       if (enfantsTip0) { enfantsTip0.style.display = 'none'; enfantsTip0.innerHTML = ''; }
       return;
@@ -10165,6 +10586,17 @@ async function bindFamilleHome() {
       } else {
         reinscTip.style.display = 'none';
         reinscTip.innerHTML = '';
+      }
+    }
+    const reinscDocsManqTip = document.getElementById('famHomeReinscDocsManqTip');
+    if (reinscDocsManqTip) {
+      const denseDocsManq = reinsc !== null ? famHomeReinscDocsManqTipDenseHtml(reinsc) : '';
+      if (denseDocsManq) {
+        reinscDocsManqTip.style.display = '';
+        reinscDocsManqTip.innerHTML = denseDocsManq;
+      } else {
+        reinscDocsManqTip.style.display = 'none';
+        reinscDocsManqTip.innerHTML = '';
       }
     }
     const enfantsTip = document.getElementById('famHomeEnfantsTip');
@@ -10656,10 +11088,16 @@ async function bindFamilleEnfant(id) {
       btnFamEdtIcal.onclick = async () => {
         try {
           const lundi = mondayOf(today());
+          const dimanche = addDaysIso(lundi, 6);
           await downloadFile(
-            edtIcalPathEleve(id, lundi, addDaysIso(lundi, 6)),
+            edtIcalPathEleve(id, lundi, dimanche),
             'edt-semaine.ics',
           );
+          toastEdtIcalTelecharge('edt-semaine.ics', {
+            debut: lundi,
+            fin: dimanche,
+            mode: 'semaine',
+          });
         } catch (err) { alert(err.message); }
       };
     }
@@ -14347,6 +14785,11 @@ async function bindMonEdt() {
         const debut = mode === 'semaine' ? mondayOf(base) : base;
         const fin = mode === 'semaine' ? addDaysIso(debut, 6) : base;
         await downloadFile(edtIcalPathProf(debut, fin), 'mon-edt.ics');
+        toastEdtIcalTelecharge('mon-edt.ics', {
+          debut,
+          fin,
+          mode: mode === 'semaine' ? 'semaine' : 'jour',
+        });
       } catch (err) { alert(err.message); }
     };
   }
@@ -15692,7 +16135,9 @@ async function bindEtab() {
         }),
       });
       vacMsg.innerHTML = `<span class="ok">${esc(v.libelle)} créé</span>`;
+      toastVacancesCreee(v);
       await loadVac();
+      await refreshEtabPageTip();
     } catch (e) {
       vacMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
@@ -15799,6 +16244,7 @@ async function bindEtab() {
       toastSalleCreee(s);
       if (typeof window.__entReloadSallesEdt === 'function') await window.__entReloadSallesEdt();
       await loadSal();
+      await refreshEtabPageTip();
     } catch (e) {
       salMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
@@ -16155,6 +16601,7 @@ async function bindEtab() {
   }
   await loadVac();
   await checkVacFerme();
+  await refreshEtabPageTip();
   await loadEtabGrants();
   document.getElementById('btnMails').click();
   await loadPar();
@@ -18068,16 +18515,13 @@ async function bindInfirmerie() {
       if (eid) url += '&eleve_id=' + encodeURIComponent(eid);
       const list = await api(url);
       const stats = document.getElementById('infStats');
-      const todayTileStyle = isToday
-        ? ' style="border-left:3px solid var(--ok,#16a34a);background:color-mix(in srgb, var(--ok,#16a34a) 8%, white)"'
-        : '';
-      const todayLbl = isToday ? ' · aujourd’hui' : '';
       if (stats) {
-        const fam = list.filter(p => p.visible_famille).length;
-        stats.innerHTML = `
-          <div class="stat-tile bento-span-4"${todayTileStyle}><strong class="${isToday && list.length ? 'ok' : ''}">${list.length}</strong><span>Passages le ${esc(jour)}${todayLbl}</span></div>
-          <div class="stat-tile bento-span-4"><strong>${fam}</strong><span>Visibles famille</span></div>
-          <div class="stat-tile bento-span-4"><strong>${list.length - fam}</strong><span>Internes only</span></div>`;
+        stats.innerHTML = infirmeriePassagesTipDenseHtml({
+          jour: jourIso,
+          list,
+          filtered: !!eid,
+          isToday,
+        });
       }
       if (!list.length) {
         out.innerHTML = infirmeriePassagesEmptyHtml(jour, !!eid);
@@ -22562,7 +23006,7 @@ async function bindNotes() {
       const prefLabel = pref
         ? (pref.code ? `${pref.code} — ${pref.libelle || ''}` : (pref.libelle || ''))
         : '';
-      refreshNotesHomeTip(nDevSansNote, nDev, prefLabel, pref);
+      refreshNotesHomeTip(nDevSansNote, nDev, prefLabel, pref, nMat);
       await refreshNotesHarrySeedTip(devoirsPref);
       await refreshNotesGinnySeedTip(devoirsPref);
       box.innerHTML = `
@@ -26164,6 +26608,7 @@ async function bindFacturationStaff() {
 
 function viewFamilleRepas() {
   return shell('/famille/repas', `
+    <div id="famRepasPageTip" style="display:none;margin:0 0 .65rem"></div>
     <div class="bento" id="repasStats"></div>
     <div class="panel">
       <h2>Repas pointés</h2>
@@ -26285,6 +26730,30 @@ async function bindFamilleRepas() {
             regimeByEnfant[eid] = '';
           }
         }
+      }
+      const jRepas = today();
+      const nPassagesJour = list.filter(p => String(p.jour || '').slice(0, 10) === jRepas).length;
+      let nDispensesActives = 0;
+      let menuPlat = '';
+      const menuTodayReq = api('/menus-cantine?debut=' + encodeURIComponent(jRepas)
+        + '&fin=' + encodeURIComponent(jRepas)).catch(() => []);
+      const dispReq = (eid && eid !== '__all__')
+        ? api('/eleves/' + eid + '/repas/dispenses').catch(() => [])
+        : Promise.resolve([]);
+      const [menusJour, disps] = await Promise.all([menuTodayReq, dispReq]);
+      nDispensesActives = (disps || []).filter(d => !d.annulee).length;
+      const menuToday = (menusJour || []).find(m => m.publie && String(m.jour || '').slice(0, 10) === jRepas);
+      if (menuToday && menuToday.plat) menuPlat = String(menuToday.plat);
+      const pageTip = document.getElementById('famRepasPageTip');
+      if (pageTip) {
+        pageTip.style.display = '';
+        pageTip.innerHTML = famRepasPageTipDenseHtml({
+          nPassagesJour,
+          nPassagesPeriode: list.length,
+          nDispensesActives,
+          menuPlat,
+          prenom: eid === '__all__' ? 'Tous' : prenomLabel,
+        });
       }
       const regimeTile = (eid && eid !== '__all__' && regimeByEnfant[eid])
         ? `<div class="stat-tile bento-span-4"><strong>${esc(regimeLabel(regimeByEnfant[eid]))}</strong><span>Régime cantine</span></div>`
@@ -27844,9 +28313,10 @@ async function bindFacturesFamille() {
         btn.onclick = async () => {
           if (!confirm('Révoquer ce mandat ?')) return;
           try {
-            await api('/facturation/sepa/mandats/' + btn.dataset.id + '/revoquer', {
+            const revoked = await api('/facturation/sepa/mandats/' + btn.dataset.id + '/revoquer', {
               method: 'POST', body: '{}',
             });
+            toastFamSepaMandatRev(revoked);
             await loadFamSepa();
           } catch (e) { alert(e.message); }
         };
@@ -28577,6 +29047,11 @@ async function render() {
   if (routeState.famScrollFactures && (p === '/famille' || p === '/famille/')) {
     history.replaceState(null, '', '/famille/factures');
     p = '/famille/factures';
+  }
+  if (routeState.famScrollQuittances && (p === '/famille' || p === '/famille/' || p === '/famille/factures')) {
+    delete routeState.famScrollQuittances;
+    history.replaceState(null, '', '/famille/quittances');
+    p = '/famille/quittances';
   }
 
   if (p === '/' || p === '/login') {
