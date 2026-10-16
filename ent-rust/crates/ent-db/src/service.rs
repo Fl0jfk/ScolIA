@@ -802,6 +802,115 @@ impl PgEnt {
         Ok(n)
     }
 
+    /// Push aux membres staff (CPE / direction / admin) avec device enregistré. Best-effort.
+    async fn notify_staff_push(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Option<Uuid>,
+        kind: &str,
+        title: &str,
+        body: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+    ) -> Result<usize, EntDbError> {
+        if !self.push.is_ready() {
+            return Ok(0);
+        }
+        if self
+            .push_devices
+            .count_by_source_kind(etablissement_id, source_id, kind)
+            .await?
+            > 0
+        {
+            return Ok(0);
+        }
+        let user_ids = self
+            .auth
+            .list_user_ids_with_roles(
+                etablissement_id,
+                &["cpe", "direction", "admin", "administratif"],
+            )
+            .await?;
+        let devices = self
+            .push_devices
+            .list_active_for_users(etablissement_id, &user_ids)
+            .await?;
+        let mut n = 0usize;
+        for device in devices {
+            if actor_user_id == Some(device.user_id) {
+                continue;
+            }
+            let platform = PushPlatform::parse(&device.platform).unwrap_or(PushPlatform::Ios);
+            let data_json = match eleve_id {
+                Some(eid) => Some(format!(
+                    "{{\"kind\":\"{kind}\",\"eleve_id\":\"{eid}\"}}"
+                )),
+                None => Some(format!("{{\"kind\":\"{kind}\"}}")),
+            };
+            let receipt = match self
+                .push
+                .send(OutgoingPush {
+                    token: device.token.clone(),
+                    platform,
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    data_json,
+                })
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[ent-db] push staff send error ({kind}): {e}");
+                    continue;
+                }
+            };
+            let outbox_id = self
+                .push_devices
+                .insert_outbox(InsertPushOutbox {
+                    etablissement_id,
+                    eleve_id,
+                    user_id: Some(device.user_id),
+                    kind: kind.to_string(),
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    platform: Some(device.platform.clone()),
+                    token: Some(device.token.clone()),
+                    status: receipt.status,
+                    error: receipt.error.clone(),
+                    source_aggregate: Some(source_aggregate.to_string()),
+                    source_id: Some(source_id),
+                    message_id: receipt.message_id.clone(),
+                })
+                .await?;
+            let _ = self
+                .events
+                .publish(MetierEventDraft {
+                    etablissement_id,
+                    type_name: types::PUSH_ENVOYE.to_string(),
+                    aggregate: AggregateKind::Push,
+                    aggregate_id: outbox_id,
+                    eleve_id,
+                    payload: json!({
+                        "kind": kind,
+                        "status": match receipt.status {
+                            ent_push::PushSendStatus::DryRun => "dry_run",
+                            ent_push::PushSendStatus::Sent => "sent",
+                            ent_push::PushSendStatus::SkippedNoConfig => "skipped_no_config",
+                            ent_push::PushSendStatus::Failed => "failed",
+                        },
+                        "platform": device.platform,
+                        "source_id": source_id,
+                        "audience": "staff",
+                    }),
+                    actor_user_id: actor_user_id.map(|u| u.to_string()),
+                })
+                .await;
+            n += 1;
+        }
+        Ok(n)
+    }
+
     pub async fn count_push_kind(
         &self,
         etablissement_id: Uuid,
@@ -1407,12 +1516,42 @@ impl PgEnt {
             .get(cmd.etablissement_id, cmd.absence_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        let actor_user_id = cmd.actor_user_id;
         let planned = plan_justifier_absence(&current, cmd)?;
         self.absences.upsert(&planned.absence).await?;
         if let Some(event) = planned.event {
             self.events.publish(event).await?;
         }
-        Ok(planned.absence)
+        let absence = planned.absence;
+        let eleve = self
+            .eleves
+            .get(absence.etablissement_id, absence.eleve_id)
+            .await?;
+        let (prenom, nom) = eleve
+            .as_ref()
+            .map(|e| (e.prenom.as_str(), e.nom.as_str()))
+            .unwrap_or(("Élève", ""));
+        let sujet = format!("Justificatif d'absence — {prenom} {nom}");
+        let corps = format!(
+            "{prenom} {nom} : un justificatif d'absence a été déposé ({motif}). À traiter dans la file VS.",
+            motif = absence
+                .motif_justif
+                .as_deref()
+                .unwrap_or("motif")
+        );
+        let _ = self
+            .notify_staff_push(
+                absence.etablissement_id,
+                Some(absence.eleve_id),
+                "absence_justif_soumise",
+                &sujet,
+                &corps,
+                "absence",
+                absence.id,
+                Some(actor_user_id),
+            )
+            .await;
+        Ok(absence)
     }
 
     /// Authz + justif : charge l'absence, vérifie le droit sur l'élève, applique.

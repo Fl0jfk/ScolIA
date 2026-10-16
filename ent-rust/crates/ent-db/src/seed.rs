@@ -11,8 +11,9 @@ use crate::service::{EntDbError, PgEnt};
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime};
 use domain_eleve::{
     annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
-    CreerAlerteCpe, CreerDevoir, CreerNotePeriode, DeclareAbsence, OuvrirCampagneReinscription,
-    PublierDocASigner, UpsertFicheSante, UpsertPai,
+    CreerAlerteCpe, CreerDevoir, CreerNotePeriode, CreerPassageInfirmerie, DeclareAbsence,
+    OuvrirCampagneReinscription, PassageInfirmerieMotif, PrononcerSanction, PublierDocASigner,
+    SaisirAppreciation, UpsertFicheSante, UpsertPai,
 };
 use domain_eleve::Devoir;
 use ent_auth::{AuthError, Role};
@@ -754,6 +755,98 @@ impl PgEnt {
             .await?;
         }
 
+        let passages = self
+            .list_passages_infirmerie_for_actor(
+                etab,
+                inf.user_id,
+                Role::Infirmerie.as_str(),
+                Some(harry.id),
+                None,
+            )
+            .await?;
+        if !passages
+            .iter()
+            .any(|p| p.motif == PassageInfirmerieMotif::Malaise)
+        {
+            self.creer_passage_infirmerie_for_actor(
+                Role::Infirmerie.as_str(),
+                CreerPassageInfirmerie {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    jour,
+                    motif: PassageInfirmerieMotif::Malaise,
+                    note_soins: "Malaise léger en cours d'EPS — repos 20 min, hydratation, parent prévenu."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: inf.user_id,
+                },
+            )
+            .await?;
+        }
+
+        let sanction_types = self.list_sanction_types(etab).await?;
+        let sanction_motifs = self.list_sanction_motifs(etab).await?;
+        let sanctions_existantes = self
+            .list_sanctions_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+            )
+            .await?;
+        if sanctions_existantes.is_empty() {
+            if let Some(typ) = sanction_types
+                .iter()
+                .find(|t| t.code.eq_ignore_ascii_case("avertissement"))
+                .or(sanction_types.first())
+            {
+                let motif_id = sanction_motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("devoirs"))
+                    .map(|m| m.id);
+                self.prononcer_sanction(PrononcerSanction {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    type_id: typ.id,
+                    motif_id,
+                    incident_id: None,
+                    jour: jour - Duration::days(1),
+                    duree_minutes: None,
+                    note: Some("Seed labo — avertissement après perturbation en Potions.".into()),
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        let appreciations = self
+            .list_appreciations_for_actor(
+                etab,
+                prof_rogue.user_id,
+                Role::Prof.as_str(),
+                harry.id,
+                Some(periode.id),
+            )
+            .await?;
+        if !appreciations
+            .iter()
+            .any(|a| a.matiere_id == Some(potions.id))
+        {
+            self.saisir_appreciation_for_actor(
+                Role::Prof.as_str(),
+                SaisirAppreciation {
+                    etablissement_id: etab,
+                    periode_id: periode.id,
+                    eleve_id: harry.id,
+                    matiere_id: Some(potions.id),
+                    texte: "Harry progresse en Potions : rigueur et application notables au T1."
+                        .into(),
+                    actor_user_id: prof_rogue.user_id,
+                },
+            )
+            .await?;
+        }
+
         let (_, _, np1) = annees_continuum(jour);
         self.ouvrir_campagne_reinscription(OuvrirCampagneReinscription {
             etablissement_id: etab,
@@ -817,9 +910,6 @@ impl PgEnt {
             )
             .await?;
         }
-
-        let _types = self.list_sanction_types(etab).await?;
-        let _motifs = self.list_sanction_motifs(etab).await?;
 
         let absence_jour = jour - Duration::days(3);
         if !self.eleve_est_absent(etab, harry.id, absence_jour).await? {

@@ -11,6 +11,12 @@ const APP: &str = r##"<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#0071e3"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="ENT"/>
+<link rel="manifest" href="/static/manifest.webmanifest"/>
+<link rel="apple-touch-icon" href="/static/icon-192.png"/>
 <title>ENT — labo</title>
 <link rel="stylesheet" href="/static/css/app.css"/>
 </head>
@@ -219,6 +225,124 @@ async function downloadFile(path, fallbackName) {
 
 async function downloadPdf(path, fallbackName) {
   return downloadFile(path, fallbackName || 'document.pdf');
+}
+
+function pickNotePeriodeForExport(periodes) {
+  const list = Array.isArray(periodes) ? periodes : [];
+  if (!list.length) return null;
+  const t1 = list.find(p => /^T1/i.test(String(p.code || '').trim()));
+  if (t1) return t1;
+  const ouverte = list.find(p => p.statut === 'ouverte');
+  if (ouverte) return ouverte;
+  return list[0];
+}
+
+async function downloadLsun(classe, periodeId, opts) {
+  opts = opts || {};
+  const msgEl = opts.msgEl !== undefined ? opts.msgEl : document.getElementById('expMsg');
+  const c = String(classe || '').trim();
+  const p = String(periodeId || '').trim();
+  const say = (html, plain) => {
+    if (msgEl) msgEl.innerHTML = html;
+    else if (plain) window.alert(plain);
+  };
+  if (!p) {
+    say('<span class="bad">LSUN : période requise.</span>', 'LSUN : période requise.');
+    return false;
+  }
+  if (!c) {
+    say('<span class="bad">LSUN : indiquez la classe à exporter.</span>', 'LSUN : indiquez la classe à exporter.');
+    return false;
+  }
+  if (msgEl) msgEl.textContent = 'Préflight LSUN…';
+  try {
+    const token = localStorage.getItem('ent_token') || '';
+    const path = '/exports/lsun?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p);
+    const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+    if (!r.ok) throw new Error(await r.text() || r.statusText);
+    const text = await r.text();
+    const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+    const nData = Math.max(0, lines.length - 1);
+    if (!nData) {
+      say(
+        `<span class="warn">LSUN préflight : 0 ligne pour ${esc(c)} — export annulé</span>`,
+        `LSUN préflight : 0 ligne pour ${c} — export annulé`,
+      );
+      return false;
+    }
+    if (!confirm(`LSUN ${c} · ${nData} ligne(s). Télécharger le CSV ?`)) {
+      if (msgEl) msgEl.innerHTML = `<span class="muted">LSUN préflight OK (${nData}) — téléchargement annulé</span>`;
+      return false;
+    }
+    const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'export-lsun.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    say(`<span class="ok">export-lsun.csv · ${nData} ligne(s)</span>`, null);
+    return true;
+  } catch (e) {
+    say(`<span class="bad">${esc(e.message)}</span>`, e.message || 'Erreur LSUN');
+    return false;
+  }
+}
+
+function justifAbsenceDocCode(absenceId) {
+  return 'JUSTIF_ABSENCE_' + absenceId;
+}
+function matchJustifAbsenceDoc(doc, absenceId) {
+  if (!doc || !absenceId) return false;
+  const code = String(doc.code || '').trim();
+  const blob = (doc.titre || '') + ' ' + (doc.libelle || '');
+  if (code === justifAbsenceDocCode(absenceId)) return true;
+  if (code.startsWith('JUSTIF_ABSENCE') && blob.includes(absenceId)) return true;
+  return false;
+}
+function findJustifAbsenceDoc(docs, absenceId) {
+  return (docs || []).find(d => matchJustifAbsenceDoc(d, absenceId)) || null;
+}
+async function loadJustifDocsByEleve(eleveIds) {
+  const map = {};
+  const uniq = [...new Set((eleveIds || []).filter(Boolean))];
+  await Promise.all(uniq.map(async eid => {
+    try {
+      map[eid] = await api('/eleves/' + eid + '/documents');
+    } catch {
+      map[eid] = [];
+    }
+  }));
+  return map;
+}
+function voirPieceJustifHtml(doc) {
+  if (!doc || !doc.id) return '';
+  return `<button type="button" class="btnVoirJustifPiece" data-id="${esc(doc.id)}" data-titre="${esc(doc.titre || 'justificatif')}">Voir pièce</button>`;
+}
+function bindVoirJustifPieceButtons(root) {
+  (root || document).querySelectorAll('.btnVoirJustifPiece').forEach(btn => {
+    btn.onclick = async () => {
+      try {
+        await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'justificatif');
+      } catch (e) { alert(e.message); }
+    };
+  });
+}
+async function loadPointsVsByEleve(eleveIds) {
+  const map = {};
+  const uniq = [...new Set((eleveIds || []).filter(Boolean))];
+  await Promise.all(uniq.map(async eid => {
+    try {
+      map[eid] = await api('/eleves/' + eid + '/points-vs');
+    } catch {
+      map[eid] = null;
+    }
+  }));
+  return map;
+}
+function formatPtsVsCell(pts) {
+  if (!pts || pts.solde == null) return '—';
+  const dep = pts.depart != null ? ' / ' + pts.depart : '';
+  return esc(String(pts.solde)) + dep;
 }
 
 /** Enregistre un device push web : permission navigateur + token stable localStorage. */
@@ -1416,19 +1540,31 @@ async function bindEleveStages() {
 
 function viewEleveOrientation() {
   return shell('/eleve/orientation', `
+    <div class="bento" id="eleveOrientStats"></div>
+    <div class="bento">
+      <a class="stat-tile bento-span-4" href="https://www.onisep.fr/" target="_blank" rel="noopener"><strong>ONISEP</strong><span>Métiers &amp; formations</span></a>
+      <a class="stat-tile bento-span-4" href="https://www.parcoursup.fr/" target="_blank" rel="noopener"><strong>Parcoursup</strong><span>Post-bac &amp; vœux</span></a>
+      <a class="stat-tile bento-span-4" href="/eleve/notes"><strong>Bulletin</strong><span>Notes &amp; appréciations</span></a>
+    </div>
     <div class="panel">
       <h2>Orientation</h2>
-      <p class="muted">Vœux et informations complémentaires visibles pour votre compte.</p>
-      <h3>Vœux</h3>
-      <div class="row">
-        <label>Filière <select id="eleveVoeFil" style="min-width:12rem"></select></label>
+      <p class="muted">Vœux Parcoursup / post-bac et champs info-comp renseignés par l’établissement.</p>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:.5rem">
+        <label>Année scolaire
+          <input id="eleveVoeAnnee" value="2026-2027" style="width:8rem"/>
+        </label>
+        <button type="button" id="btnEleveVoeRefresh">Actualiser</button>
+      </div>
+      <h3 style="margin-top:1rem">Poser un vœu</h3>
+      <div class="row" style="flex-wrap:wrap;gap:.5rem">
+        <label>Filière <select id="eleveVoeFil" style="min-width:14rem"></select></label>
         <label>Rang <input id="eleveVoeRang" type="number" value="1" min="1" max="10" style="width:4rem"/></label>
-        <label>Année <input id="eleveVoeAnnee" value="2026-2027" style="width:7rem"/></label>
-        <button type="button" class="primary" id="btnEleveVoePose">Poser</button>
+        <button type="button" class="primary" id="btnEleveVoePose">Enregistrer le vœu</button>
       </div>
       <div id="eleveVoeMsg" class="muted"></div>
-      <div id="eleveVoeuxOut" class="muted" style="margin-top:.5rem">Chargement…</div>
-      <h3 style="margin-top:1rem">Info-comp</h3>
+      <h3 style="margin-top:1.25rem">Mes vœux</h3>
+      <div id="eleveVoeuxOut" class="muted">Chargement…</div>
+      <h3 style="margin-top:1.25rem">Info-comp</h3>
       <div id="eleveInfoCompOut" class="muted">Chargement…</div>
     </div>`);
 }
@@ -1436,9 +1572,11 @@ function viewEleveOrientation() {
 async function bindEleveOrientation() {
   const eid = me && me.eleve_id;
   const voeuxOut = document.getElementById('eleveVoeuxOut');
+  const statsOut = document.getElementById('eleveOrientStats');
   const icOut = document.getElementById('eleveInfoCompOut');
   if (!eid) {
     if (voeuxOut) voeuxOut.innerHTML = '<p class="empty">eleve_id manquant</p>';
+    if (statsOut) statsOut.innerHTML = '';
     return;
   }
   try {
@@ -1452,25 +1590,45 @@ async function bindEleveOrientation() {
   } catch (e) {
     if (voeuxOut) voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
+  function renderVoeuxTable(list) {
+    const sorted = [...(list || [])].sort((a, b) => (a.rang || 99) - (b.rang || 99));
+    if (!sorted.length) return '<p class="empty">Aucun vœu pour cette année. Utilisez le formulaire ci-dessus.</p>';
+    return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;width:4rem">Rang</th>
+        <th style="text-align:left">Filière visée</th>
+        <th style="text-align:left;width:8rem">Année</th>
+      </tr></thead>
+      <tbody>${sorted.map(v => `<tr>
+        <td><span class="pill" title="Ordre de préférence">${esc(String(v.rang ?? '—'))}</span></td>
+        <td><strong>${esc(v.filiere_label || v.filiere_id || '—')}</strong></td>
+        <td class="muted">${esc(v.annee_scolaire || '—')}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
   async function loadVoeux() {
     if (!voeuxOut) return;
+    const annee = (document.getElementById('eleveVoeAnnee') || {}).value.trim() || '';
     try {
-      const annee = (document.getElementById('eleveVoeAnnee') || {}).value.trim() || '';
       let url = '/eleves/' + eid + '/voeux';
       if (annee) url += '?annee_scolaire=' + encodeURIComponent(annee);
       const list = await api(url);
-      voeuxOut.innerHTML = list.length
-        ? `<table><thead><tr><th>Rang</th><th>Filière</th><th>Année</th></tr></thead>
-           <tbody>${list.map(v => `<tr>
-             <td>${v.rang ?? '—'}</td>
-             <td>${esc(v.filiere_label || v.filiere_id || '—')}</td>
-             <td>${esc(v.annee_scolaire || '—')}</td>
-           </tr>`).join('')}</tbody></table>`
-        : '<p class="empty">Aucun vœu.</p>';
+      const sorted = [...(list || [])].sort((a, b) => (a.rang || 99) - (b.rang || 99));
+      if (statsOut) {
+        statsOut.innerHTML = `
+          <div class="stat-tile bento-span-4"><strong>${sorted.length}</strong><span>Vœu${sorted.length > 1 ? 'x' : ''} · ${esc(annee || 'toutes années')}</span></div>
+          <div class="stat-tile bento-span-4"><strong>${esc(annee || '—')}</strong><span>Année filtrée</span></div>
+          <div class="stat-tile bento-span-4"><strong>${sorted.length ? esc(String(sorted[0].rang)) : '—'}</strong><span>1<sup>er</sup> vœu (rang)</span></div>`;
+      }
+      voeuxOut.innerHTML = renderVoeuxTable(sorted);
     } catch (e) {
+      if (statsOut) statsOut.innerHTML = '';
       voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   }
+  const anneeInp = document.getElementById('eleveVoeAnnee');
+  if (anneeInp) anneeInp.onchange = () => { loadVoeux(); };
+  const btnRef = document.getElementById('btnEleveVoeRefresh');
+  if (btnRef) btnRef.onclick = () => { loadVoeux(); };
   const btn = document.getElementById('btnEleveVoePose');
   if (btn) {
     btn.onclick = async () => {
@@ -1486,7 +1644,7 @@ async function bindEleveOrientation() {
             annee_scolaire: (document.getElementById('eleveVoeAnnee') || {}).value.trim() || '2026-2027',
           }),
         });
-        msg.innerHTML = `<span class="ok">Vœu rang ${v.rang}</span>`;
+        msg.innerHTML = `<span class="ok">Vœu enregistré — rang ${v.rang}</span>`;
         await loadVoeux();
       } catch (err) {
         msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -2372,7 +2530,7 @@ async function bindHome() {
   const wantGrants = isAdminish;
   const INSC_HOME = ['dossier', 'pieces', 'entretien', 'decision', 'paiement'];
   const wantDirKpi = role === 'direction';
-  const [abs, sig, docs, fils, rh, alertes, sorties, grants, campN1, eff4b, ...insByEtape] = await Promise.all([
+  const [abs, sig, docs, fils, rh, alertes, sorties, grants, campN1, eff4b, notePeriodesDir, ...insByEtape] = await Promise.all([
     settle(api('/vs/absences?jour=' + encodeURIComponent(jour)), []),
     settle(api('/vs/signaux'), []),
     wantDocs ? settle(api('/vs/docs-a-signer'), []) : Promise.resolve([]),
@@ -2385,6 +2543,7 @@ async function bindHome() {
     wantGrants ? settle(api('/documents/grants/pending'), []) : Promise.resolve([]),
     wantDirKpi ? settle(api('/reinscription/campagne'), null) : Promise.resolve(null),
     wantDirKpi ? settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(jour)), null) : Promise.resolve(null),
+    wantDirKpi ? settle(api('/note-periodes'), []) : Promise.resolve([]),
     ...(wantInsc
       ? INSC_HOME.map(et => settle(api('/inscriptions/par-etape?etape=' + encodeURIComponent(et)), []))
       : INSC_HOME.map(() => Promise.resolve([]))),
@@ -2480,6 +2639,8 @@ async function bindHome() {
     const tauxHint = nEff4b > 0
       ? Math.round((nAbs / nEff4b) * 1000) / 10
       : null;
+    const lsunPer = pickNotePeriodeForExport(notePeriodesDir);
+    const lsunPerCode = lsunPer ? esc(lsunPer.code || lsunPer.id.slice(0, 8)) : '';
     dirKpi.innerHTML = `
       <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nAbs}</strong><span>Abs. VS à traiter · ${nAbsAll} signalées</span></a>
       <a class="stat-tile bento-span-3" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
@@ -2488,7 +2649,14 @@ async function bindHome() {
       <a class="stat-tile bento-span-3" href="/app/vs"><strong>${nEff4b || '—'}</strong><span>Effectif 4B aujourd’hui</span></a>
       <a class="stat-tile bento-span-3" href="/app/absences"><strong>${tauxHint != null ? tauxHint + '%' : '—'}</strong><span>Proxy absentéisme 4B</span></a>
       <a class="stat-tile bento-span-3" href="/app/etab"><strong>${nGrants}</strong><span>Grants docs</span></a>
-      <a class="stat-tile bento-span-3" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>`;
+      <a class="stat-tile bento-span-3" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
+      ${lsunPer
+        ? `<button type="button" class="stat-tile bento-span-3" id="homeDirLsun4b"><strong>LSUN 4B</strong><span>Export · période ${lsunPerCode}</span></button>`
+        : `<div class="stat-tile bento-span-3" id="homeDirLsun4bNone" title="Créez ou ouvrez T1 dans Notes"><strong>LSUN 4B</strong><span class="bad">Aucune période notes — export impossible</span></div>`}`;
+    const homeDirLsun4b = document.getElementById('homeDirLsun4b');
+    if (homeDirLsun4b && lsunPer) {
+      homeDirLsun4b.onclick = () => downloadLsun('4B', lsunPer.id, { msgEl: null });
+    }
   }
   if (todo) {
     const lines = [];
@@ -2626,12 +2794,15 @@ async function bindFamilleHome() {
       if (todo) todo.innerHTML = '<p class="empty">Aucun enfant.</p>';
       return;
     }
-    const [resumes, docsLists, fils, reinsc] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
       api('/reinscription/famille').catch(() => null),
+      api('/facturation/famille').catch(() => []),
     ]);
+    const impayees = (facs || []).filter(f => f.statut !== 'soldee' && f.statut !== 'annulee');
+    const nImpayees = impayees.length;
     let nAbs = 0, nCarnet = 0, nDocs = 0;
     const lines = [];
     const rows = list.map((e, i) => {
@@ -2673,12 +2844,25 @@ async function bindFamilleHome() {
     } else if (campOuverte) {
       lines.push(`<li><a href="/famille/reinscription">Campagne réinscription ouverte</a></li>`);
     }
+    if (nImpayees) {
+      lines.push(`<li><a href="/famille/factures">${nImpayees} facture(s) à régler</a></li>`);
+      impayees.forEach(f => {
+        lines.push(`<li><a href="/famille/factures">${esc(f.numero || f.libelle || 'Facture')} — ${esc(euros(f.total_centimes || 0))}</a></li>`);
+      });
+    }
+    const firstDocEnfant = list.find((e, i) =>
+      (docsLists[i] || []).some(d => d.statut === 'a_signer')
+    );
+    const docsTile = nDocs
+      ? `<a class="stat-tile bento-span-2" href="/famille/enfants/${esc(firstDocEnfant.id)}?section=docs"><strong>${nDocs}</strong><span>Docs à signer</span></a>`
+      : `<div class="stat-tile bento-span-2"><strong>0</strong><span>Docs</span></div>`;
     if (pulse) {
       pulse.innerHTML = `
         <div class="stat-tile bento-span-2"><strong>${list.length}</strong><span>Enfant(s)</span></div>
         <div class="stat-tile bento-span-2"><strong>${nAbs}</strong><span>Abs. à justifier</span></div>
         <div class="stat-tile bento-span-2"><strong>${nCarnet}</strong><span>Carnet</span></div>
-        <div class="stat-tile bento-span-2"><strong>${nDocs}</strong><span>Docs</span></div>
+        ${docsTile}
+        <a class="stat-tile bento-span-2" href="/famille/factures"><strong>${nImpayees}</strong><span>Facture(s) impayée(s)</span></a>
         <div class="stat-tile bento-span-2"><strong>${nMsg}</strong><span>Msg non lus</span></div>
         <a class="stat-tile bento-span-2" href="/famille/reinscription"><strong>${nReinsc || (campOuverte ? '·' : '—')}</strong><span>Réinscription</span></a>`;
     }
@@ -3189,13 +3373,14 @@ async function bindFamilleEnfant(id) {
           });
           if (file) {
             const mime = file.type || 'application/octet-stream';
+            const aid = btn.dataset.id;
             await api('/eleves/' + id + '/documents', {
               method: 'POST',
               body: JSON.stringify({
-                titre: 'Justificatif absence — ' + (file.name || motif),
+                titre: 'Justificatif absence ' + aid + ' — ' + (file.name || motif),
                 tiroir: 'famille',
                 confidentialite: 'standard',
-                code: 'JUSTIF_ABSENCE',
+                code: justifAbsenceDocCode(aid),
                 mime_type: mime,
                 contenu_base64: await fileToBase64(file),
               }),
@@ -4329,7 +4514,10 @@ function renderDossier(d) {
   if (s.bourses) navItems.push(['bourses', 'Bourses']);
   if (s.continuum) navItems.push(['continuum', 'Années']);
   if (s.notes) navItems.push(['notes', 'Notes']);
-  if (s.vs) navItems.push(['vs', 'Vie scolaire']);
+  if (s.vs) {
+    navItems.push(['synthese', 'Synthèse CPE']);
+    navItems.push(['vs', 'Vie scolaire']);
+  }
 
   let html = `<header class="dossier-bandeau">
     <div class="dossier-photo" id="photoPreview">Photo</div>
@@ -4344,6 +4532,7 @@ function renderDossier(d) {
       </p>
       <div class="dossier-raccourcis">
         ${s.notes ? `<a href="#" data-dos-tab="notes">Notes</a>` : ''}
+        ${s.vs ? `<a href="#" data-dos-tab="synthese">Synthèse CPE</a>` : ''}
         ${s.vs ? `<a href="#" data-dos-tab="vs">Vie scolaire</a>` : ''}
         ${s.famille && foyerPrincipal ? `<a href="/app/foyers/${esc(foyerPrincipal.foyer_id)}">Foyer</a>` : ''}
         <a href="/app/notes">Saisie notes</a>
@@ -4670,6 +4859,11 @@ function renderDossier(d) {
   }
 
   if (s.vs) {
+    html += `<section class="panel dossier-section" id="dos-synthese">
+      <h3>Synthèse CPE</h3>
+      <p class="dossier-help">Vue consolidée : absences ouvertes, alertes, permis à points, moyennes si disponibles.</p>
+      <div id="dosSyntheseOut" class="muted">Chargement…</div>
+    </section>`;
     const sanctions = d.sanctions || [];
     const incidents = d.incidents || [];
     const carnet = d.carnet || [];
@@ -4779,6 +4973,84 @@ async function bindDossier(id) {
         showDossierTab(a.getAttribute('data-dos-tab'));
       };
     });
+
+    const synBox = document.getElementById('dosSyntheseOut');
+    if (synBox) {
+      synBox.textContent = 'Chargement…';
+      (async () => {
+        try {
+          const [absences, alertes, points, periodes] = await Promise.all([
+            api('/eleves/' + id + '/absences').catch(() => []),
+            api('/eleves/' + id + '/alertes-cpe').catch(() => []),
+            api('/eleves/' + id + '/points-vs').catch(() => null),
+            api('/periodes').catch(() => []),
+          ]);
+          const absOuvertes = (absences || []).filter(a =>
+            a.statut === 'a_traiter' || a.statut === 'signalee'
+          );
+          const alertesOuvertes = (alertes || []).filter(a =>
+            a.statut === 'ouverte' || a.statut === 'en_cours' || a.statut === 'ouvert'
+          );
+          const ptsTxt = points && points.solde != null
+            ? `<strong>${esc(String(points.solde))}</strong> / ${esc(String(points.depart != null ? points.depart : '—'))}`
+            : '—';
+          let moyBlock = '<p class="muted">Moyennes : période ou API indisponible.</p>';
+          const perList = periodes || [];
+          const perCourante = perList.find(p => p.est_courante || p.courante || p.active) || perList[0];
+          if (perCourante && perCourante.id) {
+            try {
+              const moy = await api('/eleves/' + id + '/moyennes?periode_id=' + encodeURIComponent(perCourante.id));
+              const rows = (moy || []).filter(m => m.moyenne != null || m.valeur != null);
+              if (rows.length) {
+                moyBlock = `<table><thead><tr><th>Matière</th><th>Moyenne</th></tr></thead>
+                  <tbody>${rows.map(m => `<tr>
+                    <td>${esc(m.matiere_libelle || m.libelle || m.matiere || '—')}</td>
+                    <td><strong>${esc(String(m.moyenne != null ? m.moyenne : m.valeur))}</strong></td>
+                  </tr>`).join('')}</tbody></table>
+                  <p class="muted">Période : ${esc(perCourante.libelle || perCourante.nom || String(perCourante.id).slice(0, 8))}</p>`;
+              } else if (Array.isArray(moy) && moy.length) {
+                moyBlock = `<p class="ok">${moy.length} ligne(s) moyennes — détail dans Notes.</p>`;
+              }
+            } catch {
+              moyBlock = '<p class="muted">Moyennes non accessibles pour votre rôle.</p>';
+            }
+          }
+          synBox.innerHTML = `
+            <div class="bento" style="margin-bottom:.75rem">
+              <div class="stat-tile bento-span-3"><strong>${absOuvertes.length}</strong><span>Absences ouvertes</span></div>
+              <div class="stat-tile bento-span-3"><strong>${alertesOuvertes.length}</strong><span>Alertes CPE</span></div>
+              <div class="stat-tile bento-span-3"><strong>${ptsTxt}</strong><span>Permis à points</span></div>
+            </div>
+            <h4>Absences à traiter</h4>
+            ${absOuvertes.length
+              ? `<table><thead><tr><th>Période</th><th>Motif</th><th>Statut</th><th>Justif</th></tr></thead>
+                 <tbody>${absOuvertes.slice(0, 15).map(a => `<tr>
+                   <td>${esc(a.debut)} → ${esc(a.fin)}</td>
+                   <td>${esc(a.motif || '—')}</td>
+                   <td><span class="pill">${esc(a.statut)}</span></td>
+                   <td>${esc(a.motif_justif || '—')}</td>
+                 </tr>`).join('')}</tbody></table>`
+              : '<p class="ok">Aucune absence ouverte.</p>'}
+            <h4 style="margin-top:1rem">Alertes CPE</h4>
+            ${alertesOuvertes.length
+              ? `<ul>${alertesOuvertes.map(a =>
+                  `<li><strong>${esc(a.titre || 'Alerte')}</strong> · ${esc(a.jour || '—')} · ${esc(a.severite || '—')}</li>`
+                ).join('')}</ul>`
+              : '<p class="empty">Aucune alerte ouverte.</p>'}
+            <h4 style="margin-top:1rem">Moyennes</h4>
+            ${moyBlock}
+            <p style="margin-top:.75rem"><a href="/app/absences">File absences VS</a> · <a href="#" data-dos-tab="vs">Vie scolaire détaillée</a></p>`;
+          synBox.querySelectorAll('[data-dos-tab]').forEach(a => {
+            a.onclick = (ev) => {
+              ev.preventDefault();
+              showDossierTab(a.getAttribute('data-dos-tab'));
+            };
+          });
+        } catch (e) {
+          synBox.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+        }
+      })();
+    }
 
     const btnDossierSearch = document.getElementById('btnDossierSearch');
     const dossierSearchQ = document.getElementById('dossierSearchQ');
@@ -10083,9 +10355,16 @@ async function bindVsJour() {
       absBox.innerHTML = '<p class="empty">Rien à traiter · <a href="/app/appel">faire l’appel</a> si besoin.</p>';
     } else {
       await hydrateEleveNames(absTodo.map(a => a.eleve_id));
-      absBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Période</th><th>Statut</th><th>Justif</th><th></th></tr></thead>
-        <tbody>${absTodo.slice(0, 40).map(a => {
+      const absSlice = absTodo.slice(0, 40);
+      const [ptsMap, justifDocsMap] = await Promise.all([
+        loadPointsVsByEleve(absSlice.map(a => a.eleve_id)),
+        loadJustifDocsByEleve(absSlice.filter(a => a.motif_justif && String(a.motif_justif).trim()).map(a => a.eleve_id)),
+      ]);
+      absBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Période</th><th>Statut</th><th>Pts</th><th>Justif</th><th></th></tr></thead>
+        <tbody>${absSlice.map(a => {
           const hasJustif = !!(a.motif_justif && String(a.motif_justif).trim());
+          const justifDoc = hasJustif ? findJustifAbsenceDoc(justifDocsMap[a.eleve_id], a.id) : null;
+          const pieceBtn = hasJustif ? voirPieceJustifHtml(justifDoc) : '';
           let actions = `<button type="button" class="btnVsAbsPresent" data-id="${esc(a.id)}">→ présent</button>`;
           if (hasJustif) {
             actions = `<button type="button" class="primary btnVsAbsOk" data-id="${esc(a.id)}">Accepter justif</button>
@@ -10100,10 +10379,12 @@ async function bindVsJour() {
             <td>${eleveCell(a)}</td>
             <td>${esc(a.debut)} → ${esc(a.fin)}</td>
             <td><span class="pill">${esc(a.statut)}</span></td>
-            <td>${esc(a.motif_justif || '—')}</td>
+            <td>${formatPtsVsCell(ptsMap[a.eleve_id])}</td>
+            <td>${esc(a.motif_justif || '—')}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
             <td>${actions}</td>
           </tr>`;
         }).join('')}</tbody></table>`;
+      bindVoirJustifPieceButtons(absBox);
       absBox.querySelectorAll('.btnVsAbsJustif').forEach(btn => {
         btn.onclick = async () => {
           const sel = absBox.querySelector('.vsJustifMotif[data-for="' + btn.dataset.id + '"]');
@@ -10650,6 +10931,7 @@ function viewAbsences() {
         <button type="button" class="primary" id="btnVs">Charger</button>
       </div>
       <div id="vsOut" class="muted">Chargement…</div>
+      <div id="absPermisTile" class="bento" style="margin-top:.75rem"></div>
     </div>
     <div class="panel">
       <h2>Signaux seuil absences</h2>
@@ -10750,6 +11032,23 @@ async function bindAbsences() {
   const out = document.getElementById('vsOut');
   const nameOf = eleveNameOf;
 
+  async function refreshAbsPermisTile() {
+    const tile = document.getElementById('absPermisTile');
+    const sel = document.getElementById('absEleve');
+    const eid = sel && sel.value ? sel.value.trim() : '';
+    if (!tile) return;
+    if (!eid) {
+      tile.innerHTML = '<div class="stat-tile bento-span-4"><strong>—</strong><span>Permis à points (choisir un élève ci-dessus)</span></div>';
+      return;
+    }
+    try {
+      const p = await api('/eleves/' + eid + '/points-vs');
+      tile.innerHTML = `<div class="stat-tile bento-span-4"><strong>${esc(String(p.solde))}</strong><span>Permis à points · solde / ${esc(String(p.depart))}</span></div>`;
+    } catch {
+      tile.innerHTML = '<div class="stat-tile bento-span-4"><strong>—</strong><span>Permis à points indisponible</span></div>';
+    }
+  }
+
   await bindElevePickers('absEleve', 'absEleveQ', 'btnAbsEleveSearch');
   let motifJustifOpts = '<option value="maladie" selected>Maladie</option>';
   try {
@@ -10779,7 +11078,12 @@ async function bindAbsences() {
   const absEleveEl = document.getElementById('absEleve');
   const absDebutEl = document.getElementById('absDebut');
   const absFinEl = document.getElementById('absFin');
-  if (absEleveEl) absEleveEl.onchange = previewAbs;
+  if (absEleveEl) {
+    absEleveEl.onchange = async () => {
+      await previewAbs();
+      await refreshAbsPermisTile();
+    };
+  }
   if (absDebutEl) absDebutEl.onchange = previewAbs;
   if (absFinEl) absFinEl.onchange = previewAbs;
   document.getElementById('btnAbsDecl').onclick = async () => {
@@ -10818,13 +11122,22 @@ async function bindAbsences() {
       }
       if (!list.length) {
         out.innerHTML = '<p class="empty">Aucune absence à traiter pour ce jour. Fais un appel et marque des absents, puis clôture.</p>';
+        const permTile = document.getElementById('absPermisTile');
+        if (permTile) permTile.innerHTML = '';
         return;
       }
+      const eleveIdsList = list.map(a => a.eleve_id);
+      const [ptsMap, justifDocsMap] = await Promise.all([
+        loadPointsVsByEleve(eleveIdsList),
+        loadJustifDocsByEleve(list.filter(a => a.motif_justif && String(a.motif_justif).trim()).map(a => a.eleve_id)),
+      ]);
       const rows = [];
       for (const a of list) {
         if (a.eleve_label) seedEleveLabel(a.eleve_id, a.eleve_label);
         const nom = a.eleve_label || await nameOf(a.eleve_id);
         const hasJustif = !!(a.motif_justif && String(a.motif_justif).trim());
+        const justifDoc = hasJustif ? findJustifAbsenceDoc(justifDocsMap[a.eleve_id], a.id) : null;
+        const pieceBtn = hasJustif ? voirPieceJustifHtml(justifDoc) : '';
         let actions = '';
         if (a.statut === 'a_traiter' || a.statut === 'signalee') {
           if (hasJustif) {
@@ -10843,14 +11156,17 @@ async function bindAbsences() {
           <td>${esc(a.debut)} → ${esc(a.fin)}</td>
           <td>${esc(a.motif)}</td>
           <td><span class="pill">${esc(a.statut)}</span></td>
-          <td>${esc(a.motif_justif || '—')}</td>
+          <td>${formatPtsVsCell(ptsMap[a.eleve_id])}</td>
+          <td>${esc(a.motif_justif || '—')}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
           <td class="muted">${esc(a.decision_note || '—')}</td>
           <td>${actions}</td>
         </tr>`);
       }
       out.innerHTML = `<table>
-        <thead><tr><th>Élève</th><th>Période</th><th>Motif</th><th>Statut</th><th>Justif parent</th><th>Note CPE</th><th>Actions CPE</th></tr></thead>
+        <thead><tr><th>Élève</th><th>Période</th><th>Motif</th><th>Statut</th><th>Pts VS</th><th>Justif parent</th><th>Note CPE</th><th>Actions CPE</th></tr></thead>
         <tbody>${rows.join('')}</tbody></table>`;
+      bindVoirJustifPieceButtons(out);
+      await refreshAbsPermisTile();
       function fieldValue(cls, id) {
         const el = out.querySelector('.' + cls + '[data-for="' + id + '"]');
         return el ? el.value.trim() : '';
@@ -11442,6 +11758,7 @@ async function bindAbsences() {
   };
 
   await load();
+  await refreshAbsPermisTile();
   await loadSignaux();
   await loadCommissions();
   await loadReferentiels();
@@ -12877,6 +13194,7 @@ function viewNotes() {
         <label>Matière <select id="noteMatiereSel" style="min-width:10rem"></select></label>
         <input type="hidden" id="noteMatiere"/>
         <label>Période <select id="notePeriode" style="min-width:12rem"></select></label>
+        <button type="button" id="btnNotePeriodeFermer" title="Verrouille la saisie des notes">Fermer période</button>
         <label>Devoir <select id="noteDevoirSel" style="min-width:12rem"><option value="">— aucun —</option></select></label>
         <input type="hidden" id="noteDevoir"/>
         <label>Valeur <input id="noteValeur" type="number" step="0.5" value="14" style="width:5rem"/></label>
@@ -13005,11 +13323,33 @@ async function bindNotes() {
   };
   try { await fillElevesNotes('a'); } catch (_) { /* hors droits search */ }
 
+  function updateBulPublierState() {
+    const btn = document.getElementById('btnBulPublier');
+    const sel = document.getElementById('bulPeriode');
+    if (!btn || !sel) return;
+    btn.disabled = !sel.value.trim();
+  }
+
+  async function updateNotePeriodeFermerBtn() {
+    const btn = document.getElementById('btnNotePeriodeFermer');
+    const sel = document.getElementById('notePeriode');
+    if (!btn || !sel) return;
+    const pid = sel.value.trim();
+    if (!pid) { btn.disabled = true; return; }
+    try {
+      const list = await api('/note-periodes');
+      const p = (list || []).find(x => x.id === pid);
+      btn.disabled = !p || p.statut === 'fermee';
+    } catch {
+      btn.disabled = true;
+    }
+  }
+
   function syncPeriodeSelects(list, preferredId) {
     const opts = (list || []).map(p =>
       `<option value="${esc(p.id)}">${esc(p.code)} — ${esc(p.libelle)} (${esc(p.statut)})</option>`
     ).join('') || '<option value="">—</option>';
-    ['devPeriode', 'notePeriode', 'moyPeriode', 'appPeriode', 'expPeriode', 'bulPeriode'].forEach(id => {
+    ['devPeriode', 'notePeriode', 'moyPeriode', 'appPeriode', 'expPeriode'].forEach(id => {
       const sel = document.getElementById(id);
       if (!sel) return;
       const prev = preferredId || sel.value;
@@ -13017,6 +13357,19 @@ async function bindNotes() {
       if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
       else if (list && list[0]) sel.value = list[0].id;
     });
+    const fermees = (list || []).filter(p => p.statut === 'fermee');
+    const bulOpts = fermees.map(p =>
+      `<option value="${esc(p.id)}">${esc(p.code)} — ${esc(p.libelle)}</option>`
+    ).join('') || '<option value="">— aucune période fermée —</option>';
+    const bulSel = document.getElementById('bulPeriode');
+    if (bulSel) {
+      const prevBul = bulSel.value;
+      bulSel.innerHTML = bulOpts;
+      if (prevBul && [...bulSel.options].some(o => o.value === prevBul)) bulSel.value = prevBul;
+      else if (fermees[0]) bulSel.value = fermees[0].id;
+    }
+    updateBulPublierState();
+    updateNotePeriodeFermerBtn();
   }
 
   async function refreshNotesStats() {
@@ -13201,7 +13554,37 @@ async function bindNotes() {
     }
   }
   document.getElementById('btnNoteList').onclick = loadNotesEleve;
-  document.getElementById('notePeriode').onchange = loadNotesEleve;
+  document.getElementById('notePeriode').onchange = async () => {
+    await loadNotesEleve();
+    await updateNotePeriodeFermerBtn();
+  };
+  const btnNotePeriodeFermer = document.getElementById('btnNotePeriodeFermer');
+  if (btnNotePeriodeFermer) {
+    btnNotePeriodeFermer.onclick = async () => {
+      const pid = document.getElementById('notePeriode').value.trim();
+      if (!pid) return;
+      let p;
+      try {
+        const list = await api('/note-periodes');
+        p = (list || []).find(x => x.id === pid);
+      } catch (e) {
+        alert(e.message);
+        return;
+      }
+      if (!p || p.statut === 'fermee') return;
+      const label = `${p.libelle || p.code} (${p.code})`;
+      if (!confirm(`Fermer la période « ${label} » ?\nLa saisie des notes sera verrouillée.`)) return;
+      try {
+        await api('/note-periodes/' + pid + '/statut', {
+          method: 'POST',
+          body: JSON.stringify({ statut: 'fermee' }),
+        });
+        await loadPeriodes();
+      } catch (e) {
+        alert(e.message);
+      }
+    };
+  }
   const noteEleveEl = document.getElementById('noteEleve');
   if (noteEleveEl) noteEleveEl.onchange = loadNotesEleve;
   document.getElementById('devPeriode').onchange = loadDevoirs;
@@ -13553,53 +13936,26 @@ async function bindNotes() {
     const p = document.getElementById('expPeriode').value.trim();
     downloadCsv('/exports/lsl?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p), 'export-lsl.csv');
   };
-  document.getElementById('btnExpLsun').onclick = async () => {
-    const msg = document.getElementById('expMsg');
-    const c = document.getElementById('expClasse').value.trim();
-    const expSel = document.getElementById('expPeriode');
-    const p = (expSel && expSel.value.trim()) || '';
-    if (!p) {
-      if (msg) {
-        msg.innerHTML = '<span class="bad">LSUN : sélectionnez une période dans la liste « Période » (section Exports). Aucun appel API tant qu’aucune période n’est choisie.</span>';
-      }
-      if (expSel) {
-        expSel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        expSel.focus({ preventScroll: true });
-      }
-      return;
-    }
-    if (!c) {
-      if (msg) msg.innerHTML = '<span class="bad">LSUN : indiquez la classe à exporter.</span>';
-      return;
-    }
-    if (msg) msg.innerHTML = 'Préflight LSUN…';
-    try {
-      const token = localStorage.getItem('ent_token') || '';
-      const path = '/exports/lsun?classe=' + encodeURIComponent(c) + '&periode_id=' + encodeURIComponent(p);
-      const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
-      if (!r.ok) throw new Error(await r.text() || r.statusText);
-      const text = await r.text();
-      const lines = text.split(/\r?\n/).filter(l => l.trim().length);
-      const nData = Math.max(0, lines.length - 1);
-      if (!nData) {
-        if (msg) msg.innerHTML = `<span class="warn">LSUN préflight : 0 ligne pour ${esc(c)} — export annulé</span>`;
+  const btnExpLsun = document.getElementById('btnExpLsun');
+  if (btnExpLsun) {
+    btnExpLsun.onclick = async () => {
+      const msg = document.getElementById('expMsg');
+      const c = document.getElementById('expClasse').value.trim();
+      const expSel = document.getElementById('expPeriode');
+      const p = (expSel && expSel.value.trim()) || '';
+      if (!p) {
+        if (msg) {
+          msg.innerHTML = '<span class="bad">LSUN : sélectionnez une période dans la liste « Période » (section Exports). Aucun appel API tant qu’aucune période n’est choisie.</span>';
+        }
+        if (expSel) {
+          expSel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          expSel.focus({ preventScroll: true });
+        }
         return;
       }
-      if (!confirm(`LSUN ${c} · ${nData} ligne(s). Télécharger le CSV ?`)) {
-        if (msg) msg.innerHTML = `<span class="muted">LSUN préflight OK (${nData}) — téléchargement annulé</span>`;
-        return;
-      }
-      const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'export-lsun.csv';
-      a.click();
-      URL.revokeObjectURL(a.href);
-      if (msg) msg.innerHTML = `<span class="ok">export-lsun.csv · ${nData} ligne(s)</span>`;
-    } catch (e) {
-      if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
-    }
-  };
+      await downloadLsun(c, p, { msgEl: msg });
+    };
+  }
   document.getElementById('btnExpNotanet').onclick = () => {
     const c = document.getElementById('expClasse').value.trim();
     const p = document.getElementById('expPeriode').value.trim();
@@ -13641,7 +13997,11 @@ async function bindNotes() {
   }
   document.getElementById('btnBulDocs').onclick = loadBulDocs;
   document.getElementById('bulEleve').onchange = loadBulDocs;
-  document.getElementById('bulPeriode').onchange = loadBulDocs;
+  document.getElementById('bulPeriode').onchange = () => {
+    updateBulPublierState();
+    loadBulDocs();
+  };
+  updateBulPublierState();
   document.getElementById('btnBulPublier').onclick = async () => {
     const msg = document.getElementById('bulMsg');
     const eid = document.getElementById('bulEleve').value.trim();

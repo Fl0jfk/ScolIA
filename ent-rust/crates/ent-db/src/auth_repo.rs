@@ -261,6 +261,29 @@ impl PgAuthRepo {
         Ok(row.map(|(id,)| id))
     }
 
+    /// Membres staff dont le rôle est dans la liste (sans doublon user_id).
+    pub async fn list_user_ids_with_roles(
+        &self,
+        etablissement_id: Uuid,
+        roles: &[&str],
+    ) -> Result<Vec<Uuid>, AuthError> {
+        if roles.is_empty() {
+            return Ok(vec![]);
+        }
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT user_id FROM ent_membership
+            WHERE etablissement_id = $1 AND role = ANY($2)
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(roles)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| AuthError::InvalidCredentials)?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     pub async fn is_member(
         &self,
         etablissement_id: Uuid,
