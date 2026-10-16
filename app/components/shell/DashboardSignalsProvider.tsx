@@ -45,7 +45,26 @@ type DashboardSignalsContextValue = {
   refresh: () => Promise<DashboardSignals | null>;
 };
 
-const DashboardSignalsContext = createContext<DashboardSignalsContextValue | null>(null);
+async function noopDashboardSignalsRefresh(): Promise<DashboardSignals | null> {
+  return null;
+}
+
+/** Valeur sûre hors session / avant montage du provider actif (ne pas throw). */
+export const DEFAULT_DASHBOARD_SIGNALS_CONTEXT: DashboardSignalsContextValue = {
+  shortcuts: EMPTY_SIGNALS.shortcuts,
+  todayNews: EMPTY_SIGNALS.todayNews,
+  notifications: EMPTY_SIGNALS.notifications,
+  hasCurrentWeek: false,
+  anneeScolaireLabel: null,
+  sourceStatus: undefined,
+  loading: true,
+  fetchGeneration: 0,
+  refresh: noopDashboardSignalsRefresh,
+};
+
+const DashboardSignalsContext = createContext<DashboardSignalsContextValue>(
+  DEFAULT_DASHBOARD_SIGNALS_CONTEXT,
+);
 
 type InnerProps = {
   authUserId: string;
@@ -198,7 +217,11 @@ export function DashboardSignalsProvider({ children }: { children: ReactNode }) 
   }, [authUserId]);
 
   if (!isLoaded || !authUserId) {
-    return <>{children}</>;
+    return (
+      <DashboardSignalsContext.Provider value={DEFAULT_DASHBOARD_SIGNALS_CONTEXT}>
+        {children}
+      </DashboardSignalsContext.Provider>
+    );
   }
 
   const sessionKey = `${authUserId}:${etablissementId}:${roles.join("|")}`;
@@ -216,9 +239,5 @@ export function DashboardSignalsProvider({ children }: { children: ReactNode }) 
 }
 
 export function useDashboardSignalsContext(): DashboardSignalsContextValue {
-  const ctx = useContext(DashboardSignalsContext);
-  if (!ctx) {
-    throw new Error("useDashboardSignalsContext requires DashboardSignalsProvider");
-  }
-  return ctx;
+  return useContext(DashboardSignalsContext);
 }
