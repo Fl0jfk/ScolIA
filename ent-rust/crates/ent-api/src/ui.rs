@@ -262,6 +262,81 @@ function pickLocalFile(accept) {
 
 const DEMO_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADedQkTAAAAFUlEQVQYV2NkYGD4z0ABYBw1cNQAAKn0A/0lG9aXAAAAAElFTkSuQmCC';
 
+/** Affiche le corps d’un doc à signer ; résout true si l’utilisateur confirme avoir lu. */
+function confirmLectureDocASigner(doc) {
+  const corps = String((doc && doc.corps) || '').trim() || '(aucun texte)';
+  const meta = [
+    doc && doc.titre ? doc.titre : 'Document',
+    doc && doc.code ? 'code ' + doc.code : '',
+    doc && doc.echeance ? 'échéance ' + doc.echeance : '',
+    doc && doc.annee_scolaire ? doc.annee_scolaire : '',
+  ].filter(Boolean).join(' · ');
+  const apercu = corps.length > 1200 ? corps.slice(0, 1200) + '…' : corps;
+  return confirm(
+    meta + '\n\n———\n' + apercu + '\n———\n\nConfirmez avoir lu ce document avant de signer.'
+  );
+}
+
+/** Rendu liste docs à signer avec lecture obligatoire + lien PDF tiroir si code connu. */
+async function renderDocsASignerTable(box, pending, onSigned, eleveId) {
+  if (!box) return;
+  let byCode = {};
+  if (eleveId) {
+    try {
+      const docs = await api('/eleves/' + eleveId + '/documents');
+      (docs || []).forEach(d => {
+        if (d.code && d.accessible) byCode[String(d.code).toUpperCase()] = d;
+      });
+    } catch { /* ignore */ }
+  }
+  box.innerHTML = !pending.length
+    ? '<p class="empty">Aucun document en attente.</p>'
+    : `<table><thead><tr><th>Titre</th><th>Code</th><th>Échéance</th><th></th></tr></thead>
+       <tbody>${pending.map(d => {
+         const linked = byCode[String(d.code || '').toUpperCase()];
+         return `<tr>
+           <td><strong>${esc(d.titre)}</strong>
+             <div class="muted" style="max-width:22rem;white-space:pre-wrap">${esc((d.corps || '').slice(0, 160))}${(d.corps || '').length > 160 ? '…' : ''}</div></td>
+           <td class="muted">${esc(d.code)}</td>
+           <td class="muted">${esc(d.echeance || '—')}</td>
+           <td>
+             <button type="button" class="btnDocLire" data-id="${esc(d.id)}">Lire</button>
+             ${linked ? `<button type="button" class="btnDocPdf" data-did="${esc(linked.id)}" data-nom="${esc(linked.titre || 'document.pdf')}">PDF</button>` : ''}
+             <button type="button" class="primary btnDocSign" data-id="${esc(d.id)}">Signer</button>
+           </td>
+         </tr>`;
+       }).join('')}</tbody></table>`;
+  const byId = Object.fromEntries(pending.map(d => [d.id, d]));
+  box.querySelectorAll('.btnDocLire').forEach(btn => {
+    btn.onclick = () => {
+      const d = byId[btn.dataset.id];
+      if (!d) return;
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=640,height=720');
+      if (!w) { alert((d.corps || '').slice(0, 500)); return; }
+      w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"/><title>${esc(d.titre)}</title>
+        <style>body{font:15px/1.45 system-ui,sans-serif;margin:1.5rem;white-space:pre-wrap}</style></head>
+        <body><h1>${esc(d.titre)}</h1><p class="muted">${esc(d.code || '')} · ${esc(d.echeance || '')}</p><hr/>${esc(d.corps || '')}</body></html>`);
+      w.document.close();
+    };
+  });
+  box.querySelectorAll('.btnDocPdf').forEach(btn => {
+    btn.onclick = async () => {
+      try { await downloadFile('/documents/' + btn.dataset.did + '/fichier', btn.dataset.nom || 'document.pdf'); }
+      catch (err) { alert(err.message); }
+    };
+  });
+  box.querySelectorAll('.btnDocSign').forEach(btn => {
+    btn.onclick = async () => {
+      const d = byId[btn.dataset.id];
+      if (!d || !confirmLectureDocASigner(d)) return;
+      try {
+        await api('/docs-a-signer/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
+        if (onSigned) await onSigned();
+      } catch (err) { alert(err.message); }
+    };
+  });
+}
+
 async function ensureMe() {
   if (!STORE.token) { me = null; return null; }
   try {
@@ -827,9 +902,13 @@ function viewEleveVieScolaire() {
     <div class="bento" id="eleveVsStats"></div>
     <div class="panel">
       <h2>Vie scolaire</h2>
-      <p class="muted">Sanctions, incidents, commissions signalées, alertes CPE et décisions de conseil (lecture).</p>
+      <p class="muted">Sanctions, alertes, commissions — avec actions (messages, docs, carnet).</p>
       <div id="eleveVsOut" class="muted">Chargement…</div>
-      <p class="muted" style="margin-top:.75rem"><a href="/eleve/absences">Absences</a> · <a href="/eleve/notes">Notes</a> · <a href="/eleve">Accueil</a></p>
+      <div id="eleveVsMsg" class="muted"></div>
+      <p class="muted" style="margin-top:.75rem">
+        <a href="/eleve/absences">Absences</a> · <a href="/eleve/docs">Docs à signer</a> ·
+        <a href="/eleve/messages">Messages</a> · <a href="/eleve">Accueil</a>
+      </p>
     </div>`);
 }
 
@@ -839,32 +918,44 @@ async function bindEleveVieScolaire() {
   const eid = me && me.eleve_id;
   if (!eid) { out.innerHTML = '<p class="empty">eleve_id manquant</p>'; return; }
   try {
-    const [sanctions, incidents, commissions, alertes, conseils, points] = await Promise.all([
+    const [sanctions, incidents, commissions, alertes, conseils, points, docs, carnet] = await Promise.all([
       api('/eleves/' + eid + '/sanctions').catch(() => []),
       api('/eleves/' + eid + '/incidents').catch(() => []),
       api('/eleves/' + eid + '/commissions').catch(() => []),
       api('/eleves/' + eid + '/alertes-cpe').catch(() => []),
       api('/eleves/' + eid + '/conseils').catch(() => []),
       api('/eleves/' + eid + '/points-vs').catch(() => null),
+      api('/eleves/' + eid + '/docs-a-signer').catch(() => []),
+      api('/eleves/' + eid + '/carnet').catch(() => []),
     ]);
     const comVis = (commissions || []).filter(d => d.signale_famille);
     const consVis = (conseils || []).filter(c => c.visible_famille !== false);
+    const docsPending = (docs || []).filter(d => !d.signe_at);
+    const carPending = (carnet || []).filter(c => !c.signe_at);
     const pts = points && points.solde != null ? points.solde : '—';
     if (stats) {
       stats.innerHTML = `
-        <div class="stat-tile bento-span-2"><strong>${(sanctions || []).length}</strong><span>Sanctions</span></div>
-        <div class="stat-tile bento-span-2"><strong>${(incidents || []).length}</strong><span>Incidents</span></div>
-        <div class="stat-tile bento-span-2"><strong>${comVis.length}</strong><span>Commissions</span></div>
+        <a class="stat-tile bento-span-2" href="/eleve/docs"><strong>${docsPending.length}</strong><span>Docs à signer</span></a>
+        <a class="stat-tile bento-span-2" href="/eleve/docs"><strong>${carPending.length}</strong><span>Carnet</span></a>
+        <a class="stat-tile bento-span-2" href="/eleve/absences"><strong>${(sanctions || []).length}</strong><span>Sanctions</span></a>
         <div class="stat-tile bento-span-2"><strong>${(alertes || []).length}</strong><span>Alertes</span></div>
-        <div class="stat-tile bento-span-2"><strong>${consVis.length}</strong><span>Conseils</span></div>
+        <div class="stat-tile bento-span-2"><strong>${comVis.length}</strong><span>Commissions</span></div>
         <div class="stat-tile bento-span-2"><strong>${esc(String(pts))}</strong><span>Points VS</span></div>`;
     }
     const sec = (title, body) => `<section style="margin-top:1rem"><h3>${esc(title)}</h3>${body}</section>`;
     let html = '';
+    html += sec('À traiter',
+      (docsPending.length || carPending.length)
+        ? `<ul>
+            ${docsPending.length ? `<li><a href="/eleve/docs">${docsPending.length} document(s) à signer</a></li>` : ''}
+            ${carPending.length ? `<li><a href="/eleve/docs">${carPending.length} entrée(s) carnet à signer</a></li>` : ''}
+          </ul>`
+        : '<p class="ok">Rien à signer.</p>');
     html += sec('Sanctions', !(sanctions || []).length
       ? '<p class="empty">Aucune sanction.</p>'
       : `<ul>${sanctions.map(s =>
-          `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}${s.note ? ' — ' + esc(s.note) : ''}</li>`
+          `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}
+           · <a href="/eleve/docs">Voir carnet</a></li>`
         ).join('')}</ul>`);
     html += sec('Incidents', !(incidents || []).length
       ? '<p class="empty">Aucun incident.</p>'
@@ -874,12 +965,13 @@ async function bindEleveVieScolaire() {
     html += sec('Commissions', !comVis.length
       ? '<p class="empty">Aucune commission signalée.</p>'
       : `<ul>${comVis.map(d =>
-          `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.points_retires ? ' · −' + d.points_retires + ' pts' : ''}${d.commission_jour ? ' · ' + esc(d.commission_jour) : ''}${d.lieu ? ' · ' + esc(d.lieu) : ''}</li>`
+          `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.commission_jour ? ' · ' + esc(d.commission_jour) : ''}${d.lieu ? ' · ' + esc(d.lieu) : ''}</li>`
         ).join('')}</ul>`);
     html += sec('Alertes CPE', !(alertes || []).length
       ? '<p class="empty">Aucune alerte.</p>'
       : `<ul>${alertes.map(a =>
-          `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}</li>`
+          `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}
+           <button type="button" class="btnEleveVsMsg" data-sujet="${esc('Alerte : ' + (a.titre || ''))}">Contacter le CPE</button></li>`
         ).join('')}</ul>`);
     html += sec('Décisions de conseil', !consVis.length
       ? '<p class="empty">Aucune décision visible.</p>'
@@ -887,6 +979,26 @@ async function bindEleveVieScolaire() {
           `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}${c.classe ? ' · ' + esc(c.classe) : ''}</li>`
         ).join('')}</ul>`);
     out.innerHTML = html;
+    out.querySelectorAll('.btnEleveVsMsg').forEach(btn => {
+      btn.onclick = async () => {
+        const msg = document.getElementById('eleveVsMsg');
+        try {
+          const f = await api('/messages/fils', {
+            method: 'POST',
+            body: JSON.stringify({
+              eleve_id: eid,
+              sujet: btn.dataset.sujet || 'Vie scolaire',
+              message: 'Bonjour, je souhaite échanger au sujet de cette alerte.',
+            }),
+          });
+          if (msg) msg.innerHTML = `<span class="ok">Fil ouvert — <a href="/eleve/messages">messagerie</a> · ${esc(f.sujet || '')}</span>`;
+          else go('/eleve/messages');
+        } catch (err) {
+          if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          else alert(err.message);
+        }
+      };
+    });
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
@@ -1513,21 +1625,7 @@ async function bindEleveDocs() {
         <div class="stat-tile bento-span-4"><strong>${pendingCar.length}</strong><span>Carnet à signer</span></div>
         <div class="stat-tile bento-span-4"><strong>${(docs || []).length}</strong><span>Docs total</span></div>`;
     }
-    out.innerHTML = !pendingDocs.length
-      ? '<p class="empty">Aucun document en attente.</p>'
-      : `<table><thead><tr><th>Titre</th><th>Code</th><th></th></tr></thead>
-         <tbody>${pendingDocs.map(d => `<tr>
-           <td>${esc(d.titre)}</td><td class="muted">${esc(d.code)}</td>
-           <td><button type="button" class="primary btnEleveDoc" data-id="${esc(d.id)}">Signer</button></td>
-         </tr>`).join('')}</tbody></table>`;
-    out.querySelectorAll('.btnEleveDoc').forEach(btn => {
-      btn.onclick = async () => {
-        try {
-          await api('/docs-a-signer/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
-          await bindEleveDocs();
-        } catch (err) { alert(err.message); }
-      };
-    });
+    await renderDocsASignerTable(out, pendingDocs, () => bindEleveDocs(), eid);
     if (carOut) {
       carOut.innerHTML = !(carnet || []).length
         ? '<p class="empty">Aucune entrée carnet.</p>'
@@ -2849,23 +2947,7 @@ async function bindFamilleEnfant(id) {
       const docs = await api('/eleves/' + id + '/docs-a-signer');
       const box = document.getElementById('docsFamOut');
       const pending = (docs || []).filter(d => !d.signe_at);
-      if (!pending.length) {
-        box.innerHTML = '<p class="empty">Aucun document en attente.</p>';
-      } else {
-        box.innerHTML = `<table><thead><tr><th>Titre</th><th>Code</th><th></th></tr></thead>
-          <tbody>${pending.map(d => `<tr>
-            <td>${esc(d.titre)}</td><td class="muted">${esc(d.code)}</td>
-            <td><button type="button" class="primary btnDocFam" data-id="${esc(d.id)}">Signer</button></td>
-          </tr>`).join('')}</tbody></table>`;
-        box.querySelectorAll('.btnDocFam').forEach(btn => {
-          btn.onclick = async () => {
-            try {
-              await api('/docs-a-signer/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
-              await bindFamilleEnfant(id);
-            } catch (err) { alert(err.message); }
-          };
-        });
-      }
+      await renderDocsASignerTable(box, pending, () => bindFamilleEnfant(id), id);
     } catch (err) {
       const box = document.getElementById('docsFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
@@ -5406,7 +5488,7 @@ function viewMonEdt() {
     <div class="bento" id="monEdtStats"></div>
     <div class="panel">
       <h2>Mon emploi du temps</h2>
-      <p class="muted">Créneaux du jour / semaine — ouvrir l’appel directement. Admin EDT : <a href="/app/edt">Emploi du temps</a>.</p>
+      <p class="muted">Créneaux du jour / semaine — exceptions visibles · pose admin : <a href="/app/edt">Emploi du temps</a>.</p>
       <div class="row">
         <label>Jour <input id="monEdtJour" type="date" value="${today()}"/></label>
         <button type="button" class="primary" id="btnMonEdtJour">Jour</button>
@@ -5416,6 +5498,7 @@ function viewMonEdt() {
         <span id="monEdtMode" class="muted">jour</span>
       </div>
       <div id="monEdtOut" class="muted" style="margin-top:.75rem">Chargement…</div>
+      <div id="monEdtExOut" class="muted" style="margin-top:.75rem"></div>
     </div>`);
 }
 
@@ -5432,56 +5515,90 @@ async function bindMonEdt() {
       : [base];
     if (modeEl) modeEl.textContent = mode === 'semaine' ? 'semaine' : 'jour';
     out.textContent = 'Chargement…';
+    const exOut = document.getElementById('monEdtExOut');
+    if (exOut) exOut.textContent = '';
     try {
       const packs = await Promise.all(jours.map(async j => {
         const ferme = await api('/vacances/jour-ferme?jour=' + encodeURIComponent(j)).catch(() => ({ ferme: false }));
-        const list = await api('/edt/mes-creneaux?jour=' + encodeURIComponent(j)).catch(e => {
-          throw e;
-        });
-        return { jour: j, ferme: !!(ferme && ferme.ferme), list: list || [] };
+        const [list, exs] = await Promise.all([
+          api('/edt/mes-creneaux?jour=' + encodeURIComponent(j)),
+          api('/edt/exceptions?jour=' + encodeURIComponent(j)).catch(() => []),
+        ]);
+        return { jour: j, ferme: !!(ferme && ferme.ferme), list: list || [], exs: exs || [] };
       }));
       const total = packs.reduce((s, p) => s + p.list.length, 0);
+      const nEx = packs.reduce((s, p) => s + p.exs.length, 0);
       if (stats) {
         stats.innerHTML = `
-          <div class="stat-tile bento-span-4"><strong>${total}</strong><span>Créneaux</span></div>
-          <div class="stat-tile bento-span-4"><strong>${packs.filter(p => p.ferme).length}</strong><span>Jours fermés</span></div>
-          <a class="stat-tile bento-span-4" href="/app/appel"><strong>→</strong><span>Page Appel</span></a>`;
+          <div class="stat-tile bento-span-3"><strong>${total}</strong><span>Créneaux</span></div>
+          <div class="stat-tile bento-span-3"><strong>${nEx}</strong><span>Exceptions</span></div>
+          <div class="stat-tile bento-span-3"><strong>${packs.filter(p => p.ferme).length}</strong><span>Jours fermés</span></div>
+          <a class="stat-tile bento-span-3" href="/app/appel"><strong>→</strong><span>Page Appel</span></a>`;
       }
       if (!total && packs.every(p => !p.ferme)) {
         out.innerHTML = '<p class="empty">Aucun créneau pour toi sur cette période.</p>';
-        return;
-      }
-      out.innerHTML = packs.map(p => {
-        const head = `<h3 style="margin:1rem 0 .4rem">${esc(p.jour)}${p.ferme ? ' <span class="warn">· fermé</span>' : ''}</h3>`;
-        if (p.ferme && !p.list.length) {
-          return head + '<p class="warn" style="margin:0">Jour fermé (vacances / férié)</p>';
-        }
-        if (!p.list.length) {
-          return head + '<p class="empty">Aucun créneau.</p>';
-        }
-        return head + `<table><thead><tr><th>Horaire</th><th>Classe</th><th>Matière</th><th>Salle</th><th></th></tr></thead>
-          <tbody>${p.list.map(c => `<tr>
-            <td>${esc(c.heure_debut)}–${esc(c.heure_fin)}</td>
-            <td>${esc(c.classe)}</td>
-            <td>${esc(c.matiere_libelle)}</td>
-            <td>${esc(c.salle || '—')}</td>
-            <td><button type="button" class="primary btnMonEdtAppel" data-id="${c.id}" data-jour="${esc(p.jour)}">Ouvrir appel</button></td>
-          </tr>`).join('')}</tbody></table>`;
-      }).join('');
-      out.querySelectorAll('.btnMonEdtAppel').forEach(btn => {
-        btn.onclick = async () => {
-          try {
-            const appel = await api('/appels', {
-              method: 'POST',
-              body: JSON.stringify({ creneau_id: btn.dataset.id, jour: btn.dataset.jour }),
-            });
-            routeState.appel = appel;
-            go('/app/appel');
-          } catch (e) {
-            alert(e.message);
+      } else {
+        out.innerHTML = packs.map(p => {
+          const exByC = Object.fromEntries((p.exs || []).map(e => [e.creneau_id, e]));
+          const head = `<h3 style="margin:1rem 0 .4rem">${esc(p.jour)}${p.ferme ? ' <span class="warn">· fermé</span>' : ''}${p.exs.length ? ' <span class="pill">' + p.exs.length + ' ex.</span>' : ''}</h3>`;
+          if (p.ferme && !p.list.length) {
+            return head + '<p class="warn" style="margin:0">Jour fermé (vacances / férié)</p>';
           }
-        };
-      });
+          if (!p.list.length) {
+            return head + '<p class="empty">Aucun créneau.</p>';
+          }
+          return head + `<table><thead><tr><th>Horaire</th><th>Classe</th><th>Matière</th><th>Salle</th><th>Exception</th><th></th></tr></thead>
+            <tbody>${p.list.map(c => {
+              const ex = exByC[c.id];
+              let badge = '—';
+              if (ex) {
+                if (ex.kind === 'annulation') badge = `<span class="warn">annulé</span>`;
+                else if (ex.kind === 'remplacement') badge = `<span class="pill">rempl. ${esc(ex.remplacant_label || '')}</span>`;
+                else if (ex.kind === 'changement_salle') badge = `<span class="pill">salle ${esc(ex.nouvelle_salle || '')}</span>`;
+                else badge = `<span class="pill">${esc(ex.kind)}</span>`;
+                if (ex.motif) badge += ` <span class="muted">${esc(ex.motif)}</span>`;
+              }
+              return `<tr>
+              <td>${esc(c.heure_debut)}–${esc(c.heure_fin)}</td>
+              <td>${esc(c.classe)}</td>
+              <td>${esc(c.matiere_libelle)}</td>
+              <td>${esc(c.salle || '—')}</td>
+              <td>${badge}</td>
+              <td><button type="button" class="primary btnMonEdtAppel" data-id="${c.id}" data-jour="${esc(p.jour)}">Ouvrir appel</button></td>
+            </tr>`;
+            }).join('')}</tbody></table>`;
+        }).join('');
+        out.querySelectorAll('.btnMonEdtAppel').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              const appel = await api('/appels', {
+                method: 'POST',
+                body: JSON.stringify({ creneau_id: btn.dataset.id, jour: btn.dataset.jour }),
+              });
+              routeState.appel = appel;
+              go('/app/appel');
+            } catch (e) {
+              alert(e.message);
+            }
+          };
+        });
+      }
+      if (exOut) {
+        const allEx = packs.flatMap(p => (p.exs || []).map(e => ({ ...e, jour: p.jour })));
+        exOut.innerHTML = !allEx.length
+          ? '<p class="muted">Aucune exception sur la période · <a href="/app/edt">Gérer l’EDT</a></p>'
+          : `<h3>Exceptions période</h3>
+             <table><thead><tr><th>Jour</th><th>Type</th><th>Motif</th><th>Détail</th></tr></thead>
+             <tbody>${allEx.map(e => `<tr>
+               <td>${esc(e.jour)}</td>
+               <td><span class="pill">${esc(e.kind)}</span></td>
+               <td>${esc(e.motif || '—')}</td>
+               <td>${e.kind === 'remplacement' ? esc(e.remplacant_label || '—')
+                 : e.kind === 'changement_salle' ? esc(e.nouvelle_salle || '—')
+                 : esc(e.creneau_label || (e.creneau_id || '').slice(0, 8))}</td>
+             </tr>`).join('')}</tbody></table>
+             <p class="muted"><a href="/app/edt">Poser / modifier une exception (admin EDT)</a></p>`;
+      }
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -6056,7 +6173,9 @@ La vie scolaire.</textarea>
           <button type="button" id="btnEdCopy">Copier</button>
           <button type="button" id="btnEdPrint" disabled>Imprimer</button>
           <button type="button" id="btnEdDl" disabled>Télécharger .txt</button>
-          <button type="button" id="btnEdDepot" disabled>Déposer au dossier</button>
+          <button type="button" id="btnEdDepot" disabled>Déposer texte</button>
+          <button type="button" id="btnEdDepotPdf" disabled>Déposer PDF…</button>
+          <button type="button" id="btnEdSigner" disabled>Publier à signer</button>
           <button type="button" id="btnEdFil" disabled>Ouvrir un fil</button>
         </div>
         <div id="edPostMsg" class="muted"></div>
@@ -6133,8 +6252,12 @@ async function bindEditionsVs() {
     document.getElementById('btnEdFil').disabled = !ok;
     const btnPrint = document.getElementById('btnEdPrint');
     const btnDl = document.getElementById('btnEdDl');
+    const btnPdf = document.getElementById('btnEdDepotPdf');
+    const btnSigner = document.getElementById('btnEdSigner');
     if (btnPrint) btnPrint.disabled = !ok;
     if (btnDl) btnDl.disabled = !ok;
+    if (btnPdf) btnPdf.disabled = !ok;
+    if (btnSigner) btnSigner.disabled = !ok;
   }
   async function doRender() {
     const id = sel.value;
@@ -6249,11 +6372,86 @@ async function bindEditionsVs() {
           contenu_base64: textToBase64(texte),
         }),
       });
-      post.innerHTML = `<span class="ok">Déposé — <a href="/app/eleves/${esc(eleve)}">dossier</a> · ${esc(d.titre || d.id)}${d.storage_key ? ' · contenu' : ''}</span>`;
+      const dl = d.id ? ` · <a href="#" class="edDocDl" data-id="${esc(d.id)}">ouvrir</a>` : '';
+      post.innerHTML = `<span class="ok">Déposé texte — <a href="/app/eleves/${esc(eleve)}">dossier</a> · ${esc(d.titre || d.id)}</span>${dl}`;
+      post.querySelectorAll('.edDocDl').forEach(a => {
+        a.onclick = async (ev) => {
+          ev.preventDefault();
+          try { await downloadFile('/documents/' + a.dataset.id + '/fichier', (code || 'edition') + '.txt'); }
+          catch (err) { alert(err.message); }
+        };
+      });
     } catch (e) {
       post.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
   };
+  const btnEdDepotPdf = document.getElementById('btnEdDepotPdf');
+  if (btnEdDepotPdf) {
+    btnEdDepotPdf.onclick = async () => {
+      const post = document.getElementById('edPostMsg');
+      const eleve = document.getElementById('edEleve').value.trim();
+      const code = document.getElementById('edRenderCode').value.trim() || 'EDITION';
+      if (!eleve) { if (post) post.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+      const file = await pickLocalFile('.pdf,application/pdf');
+      if (!file) {
+        if (post) post.innerHTML = '<span class="muted">Dépôt PDF annulé</span>';
+        return;
+      }
+      try {
+        const d = await api('/eleves/' + encodeURIComponent(eleve) + '/documents', {
+          method: 'POST',
+          body: JSON.stringify({
+            titre: 'Édition VS ' + code + ' · ' + file.name,
+            tiroir: 'scolaire',
+            confidentialite: 'restreint',
+            code,
+            mime_type: file.type || 'application/pdf',
+            contenu_base64: await fileToBase64(file),
+          }),
+        });
+        post.innerHTML = `<span class="ok">PDF déposé — <a href="/app/eleves/${esc(eleve)}">dossier</a> · ${esc(d.titre || file.name)}</span>
+          · <a href="#" class="edDocDl" data-id="${esc(d.id)}">ouvrir</a>`;
+        post.querySelectorAll('.edDocDl').forEach(a => {
+          a.onclick = async (ev) => {
+            ev.preventDefault();
+            try { await downloadFile('/documents/' + a.dataset.id + '/fichier', file.name || 'edition.pdf'); }
+            catch (err) { alert(err.message); }
+          };
+        });
+      } catch (e) {
+        post.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  const btnEdSigner = document.getElementById('btnEdSigner');
+  if (btnEdSigner) {
+    btnEdSigner.onclick = async () => {
+      const post = document.getElementById('edPostMsg');
+      const eleve = document.getElementById('edEleve').value.trim();
+      const texte = document.getElementById('edRendu').textContent || '';
+      const code = document.getElementById('edRenderCode').value.trim() || 'EDITION';
+      if (!eleve || !texte) return;
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth() + 1;
+      const nStart = m >= 9 ? y : y - 1;
+      const annee = nStart + '-' + (nStart + 1);
+      try {
+        const d = await api('/eleves/' + encodeURIComponent(eleve) + '/docs-a-signer', {
+          method: 'POST',
+          body: JSON.stringify({
+            code,
+            titre: 'Édition VS ' + code,
+            corps: texte,
+            annee_scolaire: annee,
+          }),
+        });
+        post.innerHTML = `<span class="ok">Publié à signer — ${esc(d.titre)} · <a href="/app/docs-signer">file</a></span>`;
+      } catch (e) {
+        post.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
   document.getElementById('btnEdFil').onclick = async () => {
     const post = document.getElementById('edPostMsg');
     const eleve = document.getElementById('edEleve').value.trim();
@@ -10960,7 +11158,11 @@ function viewDocsSigner() {
           <label style="flex:1">Corps <textarea id="docCorps" rows="3" style="width:100%">Je m'engage à respecter le règlement.</textarea></label>
         </div>
         <div class="row">
+          <label>PDF (optionnel) <input id="docPdfFile" type="file" accept=".pdf,application/pdf"/></label>
+        </div>
+        <div class="row">
           <button type="button" class="primary" id="btnDocPub">Publier à l’élève</button>
+          <button type="button" id="btnDocPrev">Prévisualiser</button>
         </div>
         <div id="docMsg" class="muted"></div>
       </div>
@@ -11023,10 +11225,21 @@ async function bindDocsSigner() {
           <td class="muted">${esc(d.echeance || '—')}</td>
           <td><span class="pill">${esc(d.statut)}</span></td>
           <td class="muted">${d.signe_at ? esc(String(d.signe_at).slice(0, 16).replace('T', ' ')) : '—'}</td>
-          <td>${d.statut === 'a_signer'
-            ? `<button type="button" class="btnDocAnn" data-id="${d.id}">Annuler</button>`
-            : ''}</td>
+          <td>
+            <button type="button" class="btnDocVoir" data-id="${esc(d.id)}">Voir corps</button>
+            ${d.statut === 'a_signer'
+              ? `<button type="button" class="btnDocAnn" data-id="${d.id}">Annuler</button>`
+              : ''}
+          </td>
         </tr>`).join('')}</tbody></table>`;
+      const byId = Object.fromEntries(shown.map(d => [d.id, d]));
+      out.querySelectorAll('.btnDocVoir').forEach(btn => {
+        btn.onclick = () => {
+          const d = byId[btn.dataset.id];
+          if (!d) return;
+          alert((d.titre || '') + '\n\n' + (d.corps || '(vide)'));
+        };
+      });
       out.querySelectorAll('.btnDocAnn').forEach(btn => {
         btn.onclick = async () => {
           if (!confirm('Annuler ce document ?')) return;
@@ -11040,15 +11253,41 @@ async function bindDocsSigner() {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   }
+  const btnDocPrev = document.getElementById('btnDocPrev');
+  if (btnDocPrev) {
+    btnDocPrev.onclick = () => {
+      const b = docBody();
+      alert((b.titre || '') + '\n' + (b.code || '') + ' · ' + (b.annee_scolaire || '') + '\n\n' + (b.corps || ''));
+    };
+  }
   document.getElementById('btnDocPub').onclick = async () => {
     const id = document.getElementById('docEleve').value.trim();
     if (!id) { msg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
     try {
+      const body = docBody();
+      const file = (document.getElementById('docPdfFile') || {}).files
+        && document.getElementById('docPdfFile').files[0];
+      let pdfNote = '';
+      if (file) {
+        await api('/eleves/' + encodeURIComponent(id) + '/documents', {
+          method: 'POST',
+          body: JSON.stringify({
+            titre: body.titre || file.name,
+            tiroir: 'administratif',
+            confidentialite: 'standard',
+            code: body.code || null,
+            mime_type: file.type || 'application/pdf',
+            contenu_base64: await fileToBase64(file),
+          }),
+        });
+        pdfNote = ' · PDF dossier';
+        if (document.getElementById('docPdfFile')) document.getElementById('docPdfFile').value = '';
+      }
       const d = await api('/eleves/' + encodeURIComponent(id) + '/docs-a-signer', {
         method: 'POST',
-        body: JSON.stringify(docBody()),
+        body: JSON.stringify(body),
       });
-      msg.innerHTML = `<span class="ok">Publié — ${esc(d.titre)} (${esc(d.statut)})</span>`;
+      msg.innerHTML = `<span class="ok">Publié — ${esc(d.titre)} (${esc(d.statut)})${pdfNote}</span>`;
       await load();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -15427,32 +15666,50 @@ async function bindFamilleVieScolaire() {
     if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
     out.textContent = 'Chargement…';
     try {
-      const [sanctions, incidents, commissions, alertes, conseils, points] = await Promise.all([
+      const [sanctions, incidents, commissions, alertes, conseils, points, docs, carnet] = await Promise.all([
         api('/eleves/' + id + '/sanctions').catch(() => []),
         api('/eleves/' + id + '/incidents').catch(() => []),
         api('/eleves/' + id + '/commissions').catch(() => []),
         api('/eleves/' + id + '/alertes-cpe').catch(() => []),
         api('/eleves/' + id + '/conseils').catch(() => []),
         api('/eleves/' + id + '/points-vs').catch(() => null),
+        api('/eleves/' + id + '/docs-a-signer').catch(() => []),
+        api('/eleves/' + id + '/carnet').catch(() => []),
       ]);
       const comVis = (commissions || []).filter(d => d.signale_famille);
       const consVis = (conseils || []).filter(c => c.visible_famille !== false);
+      const docsPending = (docs || []).filter(d => !d.signe_at);
+      const carPending = (carnet || []).filter(c => !c.signe_at && c.visible_famille !== false);
       const pts = points && points.solde != null ? points.solde : '—';
       if (stats) {
         stats.innerHTML = `
-          <div class="stat-tile bento-span-2"><strong>${(sanctions || []).length}</strong><span>Sanctions</span></div>
-          <div class="stat-tile bento-span-2"><strong>${(incidents || []).length}</strong><span>Incidents</span></div>
-          <div class="stat-tile bento-span-2"><strong>${comVis.length}</strong><span>Commissions</span></div>
+          <a class="stat-tile bento-span-2" href="/famille/enfants/${esc(id)}?section=docs"><strong>${docsPending.length}</strong><span>Docs</span></a>
+          <a class="stat-tile bento-span-2" href="/famille/enfants/${esc(id)}?section=vs"><strong>${carPending.length}</strong><span>Carnet</span></a>
+          <a class="stat-tile bento-span-2" href="/famille/enfants/${esc(id)}?section=absences"><strong>${(sanctions || []).length}</strong><span>Sanctions</span></a>
           <div class="stat-tile bento-span-2"><strong>${(alertes || []).length}</strong><span>Alertes</span></div>
-          <div class="stat-tile bento-span-2"><strong>${consVis.length}</strong><span>Conseils</span></div>
+          <div class="stat-tile bento-span-2"><strong>${comVis.length}</strong><span>Commissions</span></div>
           <div class="stat-tile bento-span-2"><strong>${esc(String(pts))}</strong><span>Points VS</span></div>`;
       }
       const sec = (title, body) => `<section style="margin-top:1rem"><h3>${esc(title)}</h3>${body}</section>`;
       let html = '';
+      html += sec('Raccourcis', `<p class="row" style="gap:.75rem;flex-wrap:wrap">
+        <a href="/famille/enfants/${esc(id)}?section=vs">Fiche VS</a>
+        <a href="/famille/enfants/${esc(id)}?section=absences">Absences</a>
+        <a href="/famille/enfants/${esc(id)}?section=docs">Documents</a>
+        <a href="/famille/messages">Messages</a>
+      </p>`);
+      html += sec('À traiter',
+        (docsPending.length || carPending.length)
+          ? `<ul>
+              ${docsPending.length ? `<li><a href="/famille/enfants/${esc(id)}?section=docs">${docsPending.length} document(s) à signer</a></li>` : ''}
+              ${carPending.length ? `<li><a href="/famille/enfants/${esc(id)}?section=vs">${carPending.length} carnet à signer</a></li>` : ''}
+            </ul>`
+          : '<p class="ok">Rien à signer.</p>');
       html += sec('Sanctions', !(sanctions || []).length
         ? '<p class="empty">Aucune sanction.</p>'
         : `<ul>${sanctions.map(s =>
-            `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}${s.note ? ' — ' + esc(s.note) : ''}</li>`
+            `<li>${esc(s.jour)} · ${esc(s.type_label || s.statut)}${s.motif_label ? ' · ' + esc(s.motif_label) : ''}
+             · <a href="/famille/enfants/${esc(id)}?section=vs">Fiche</a></li>`
           ).join('')}</ul>`);
       html += sec('Incidents', !(incidents || []).length
         ? '<p class="empty">Aucun incident.</p>'
@@ -15462,20 +15719,41 @@ async function bindFamilleVieScolaire() {
       html += sec('Commissions', !comVis.length
         ? '<p class="empty">Aucune commission signalée.</p>'
         : `<ul>${comVis.map(d =>
-            `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.points_retires ? ' · −' + d.points_retires + ' pts' : ''}</li>`
+            `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.commission_jour ? ' · ' + esc(d.commission_jour) : ''}${d.lieu ? ' · ' + esc(d.lieu) : ''}
+             · <a href="/famille/enfants/${esc(id)}?section=vs">Détail</a></li>`
           ).join('')}</ul>`);
       html += sec('Alertes CPE', !(alertes || []).length
         ? '<p class="empty">Aucune alerte.</p>'
         : `<ul>${alertes.map(a =>
-            `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}</li>`
+            `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}
+             <button type="button" class="btnFamVsMsg" data-sujet="${esc('Alerte : ' + (a.titre || ''))}">Contacter</button></li>`
           ).join('')}</ul>`);
       html += sec('Décisions de conseil', !consVis.length
         ? '<p class="empty">Aucune décision visible.</p>'
         : `<ul>${consVis.map(c =>
             `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}</li>`
           ).join('')}</ul>`);
-      html += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}?section=vs">Voir sur la fiche enfant</a></p>`;
+      html += `<div id="famVsMsg" class="muted"></div>`;
       out.innerHTML = html;
+      out.querySelectorAll('.btnFamVsMsg').forEach(btn => {
+        btn.onclick = async () => {
+          const msg = document.getElementById('famVsMsg');
+          try {
+            const f = await api('/messages/fils', {
+              method: 'POST',
+              body: JSON.stringify({
+                eleve_id: id,
+                sujet: btn.dataset.sujet || 'Vie scolaire',
+                message: 'Bonjour, je souhaite échanger au sujet de cette alerte.',
+              }),
+            });
+            if (msg) msg.innerHTML = `<span class="ok">Fil ouvert — <a href="/famille/messages">messagerie</a> · ${esc(f.sujet || '')}</span>`;
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+            else alert(err.message);
+          }
+        };
+      });
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
