@@ -17,6 +17,8 @@ import type {
   DashboardShortcutSlide,
 } from "@/app/lib/dashboard-signals";
 import { notificationCountForShortcut } from "@/app/lib/dashboard-signals";
+import { dashboardNotificationBadgeProps } from "@/app/lib/dashboard-signals-display";
+import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
 import GlassLayer from "@/app/components/GlassLayer";
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
@@ -26,6 +28,7 @@ type Props = {
   categories: DashboardCategory[];
   shortcuts: DashboardShortcut[];
   notifications?: DashboardNotification[];
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   pulseKey?: string;
   roles?: string[];
   orgAdmin?: boolean;
@@ -69,6 +72,8 @@ function ShortcutSlidesCarousel({
   emoji = "🚪",
   fallbackColor = "#475569",
   notifCount = 0,
+  badgeItem,
+  sourceStatus,
   alertTone = false,
 }: {
   slides: DashboardShortcutSlide[];
@@ -79,6 +84,8 @@ function ShortcutSlidesCarousel({
   emoji?: string;
   fallbackColor?: string;
   notifCount?: number;
+  badgeItem?: Pick<DashboardNotification, "id" | "moduleId">;
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   /** Fond alerte (absences / photocopies multi-signaux). */
   alertTone?: boolean;
 }) {
@@ -105,6 +112,11 @@ function ShortcutSlidesCarousel({
       : slides.some((s) => typeof s.count === "number" && (s.count || 0) > 0)
         ? 0
         : notifCount;
+  const badgeProps = badgeItem
+    ? dashboardNotificationBadgeProps(slideCount, badgeItem, sourceStatus)
+    : slideCount > 0
+      ? { count: slideCount }
+      : null;
   const bg = slide.colorHex || (alertTone ? "#f43f5e" : fallbackColor);
   const fg = slideTextColor(bg);
   const linkHref = slide.href || href;
@@ -152,7 +164,10 @@ function ShortcutSlidesCarousel({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1">
                   <p className="truncate text-[11px] font-semibold tracking-tight">{title}</p>
-                  <NotificationCountBadge count={slideCount} />
+                  <NotificationCountBadge
+                    count={badgeProps?.count}
+                    unavailable={badgeProps?.unavailable}
+                  />
                 </div>
                 <p className="mt-0.5 truncate text-[9px] font-semibold leading-snug opacity-90">
                   {[slide.label, slide.detail].filter(Boolean).join(" · ")}
@@ -208,12 +223,15 @@ function SignalShortcutTile({
   item,
   highlight,
   notifCount = 0,
+  sourceStatus,
 }: {
   item: DashboardShortcut;
   highlight?: boolean;
   notifCount?: number;
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
 }) {
   const displayCount = badgeCountFallback(item, notifCount);
+  const badgeProps = dashboardNotificationBadgeProps(displayCount, item, sourceStatus);
   const actionable = isActionableSignal(item, notifCount);
   const emoji = item.emoji || MODULE_EMOJI[item.moduleId] || "›";
   const staticDetail = !actionable ? item.detail?.trim() || null : null;
@@ -319,7 +337,10 @@ function SignalShortcutTile({
                 </p>
               )}
             </div>
-            <NotificationCountBadge count={displayCount} />
+            <NotificationCountBadge
+              count={badgeProps?.count}
+              unavailable={badgeProps?.unavailable}
+            />
           </div>
           {actionable && item.detail?.trim() && face.kind === "label" ? (
             <p className="mt-0.5 truncate text-[9px] font-medium leading-snug text-[var(--dash-mid)]" title={item.detail}>
@@ -344,10 +365,12 @@ function ShortcutTile({
   item,
   highlight,
   notifCount = 0,
+  sourceStatus,
 }: {
   item: DashboardShortcut;
   highlight?: boolean;
   notifCount?: number;
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
 }) {
   if (item.slides && item.slides.length > 0) {
     const isTravels = item.moduleId === "travels";
@@ -357,7 +380,14 @@ function ShortcutTile({
     );
     // Pas de carrousel « décoratif » : seulement salles/sorties, ou vrais signaux chiffrés.
     if (!isTravels && !isRooms && !hasSlideSignals && item.tone !== "warn" && item.tone !== "action") {
-      return <SignalShortcutTile item={{ ...item, slides: undefined }} highlight={highlight} notifCount={notifCount} />;
+      return (
+        <SignalShortcutTile
+          item={{ ...item, slides: undefined }}
+          highlight={highlight}
+          notifCount={notifCount}
+          sourceStatus={sourceStatus}
+        />
+      );
     }
     const alertTone = item.tone === "warn" || item.tone === "action";
     return (
@@ -370,24 +400,35 @@ function ShortcutTile({
         emoji={item.emoji || MODULE_EMOJI[item.moduleId] || (isTravels ? "🚌" : "🚪")}
         fallbackColor={isTravels ? "#0284c7" : isRooms ? "#475569" : alertTone ? "#f43f5e" : "#475569"}
         notifCount={badgeCountFallback(item, notifCount)}
+        badgeItem={item}
+        sourceStatus={sourceStatus}
         alertTone={alertTone && !isTravels && !isRooms}
       />
     );
   }
 
-  return <SignalShortcutTile item={item} highlight={highlight} notifCount={notifCount} />;
+  return (
+    <SignalShortcutTile
+      item={item}
+      highlight={highlight}
+      notifCount={notifCount}
+      sourceStatus={sourceStatus}
+    />
+  );
 }
 
 function PillarCard({
   pillar,
   shortcuts,
   notifications,
+  sourceStatus,
   index,
   pulseKey,
 }: {
   pillar: DashboardPillarDef;
   shortcuts: DashboardShortcut[];
   notifications: DashboardNotification[];
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   index: number;
   pulseKey?: string;
 }) {
@@ -469,6 +510,7 @@ function PillarCard({
                     rich: Boolean(s.rich && s.tone !== "neutral"),
                   }}
                   notifCount={notificationCountForShortcut(s, notifications)}
+                  sourceStatus={sourceStatus}
                   highlight={Boolean(
                     pulseKey && s.rich && s.tone !== "neutral" && pulseKey.includes(s.id),
                   )}
@@ -486,6 +528,7 @@ export default function DashboardPillars({
   categories,
   shortcuts,
   notifications = [],
+  sourceStatus,
   pulseKey,
   roles = [],
   orgAdmin = false,
@@ -558,6 +601,7 @@ export default function DashboardPillars({
           pillar={pillar}
           shortcuts={pruned(pillar.id)}
           notifications={notifications}
+          sourceStatus={sourceStatus}
           index={i}
           pulseKey={pulseKey}
         />

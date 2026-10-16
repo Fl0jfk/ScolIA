@@ -21,12 +21,8 @@ import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGl
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
 import { useMessagingConversations, useMessagingStream } from "@/app/components/messaging/useMessagingData";
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
-import {
-  DASHBOARD_PILLARS,
-  pillarHasVisibleModules,
-  type DashboardPillarId,
-} from "@/app/lib/dashboard-pillars";
-import { notificationCountForPillar } from "@/app/lib/dashboard-signals";
+import { DASHBOARD_PILLARS, pillarHasVisibleModules } from "@/app/lib/dashboard-pillars";
+import { dashboardPillarBadgeProps } from "@/app/lib/dashboard-signals-display";
 import { toDashboardQuickLinks } from "@/app/lib/dashboard-quick-links";
 import {
   hasGlobalAdminRole,
@@ -133,17 +129,11 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
     todayNews,
     hasCurrentWeek,
     notifications,
+    shortcuts: dashShortcuts,
+    sourceStatus,
     loading: newsLoading,
     refresh: refreshNews,
   } = useDashboardSignals();
-
-  const pillarNotifCounts = useMemo(() => {
-    const counts = {} as Record<DashboardPillarId, number>;
-    for (const p of DASHBOARD_PILLARS) {
-      counts[p.id] = notificationCountForPillar(p.id, notifications);
-    }
-    return counts;
-  }, [notifications]);
 
   function navActive(href: string) {
     if (href === "/dashboard") {
@@ -266,22 +256,43 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
           </Link>
           {visiblePillars.map((p) => {
             const active = navActive(p.href);
-            const notifCount = pillarNotifCounts[p.id] ?? 0;
+            const pillarBadge = dashboardPillarBadgeProps(
+              p.id,
+              notifications,
+              dashShortcuts,
+              sourceStatus,
+              { compact: true },
+            );
+            const linkAria = pillarBadge?.unavailable
+              ? `${p.title}, compteur indisponible`
+              : pillarBadge?.partialUnavailable && pillarBadge.count
+                ? `${p.title}, ${pillarBadge.count} notification${pillarBadge.count > 1 ? "s" : ""}, certains compteurs indisponibles`
+                : pillarBadge?.count
+                  ? `${p.title}, ${pillarBadge.count} notification${pillarBadge.count > 1 ? "s" : ""}`
+                  : undefined;
+
             return (
               <Link
                 key={p.id}
                 href={p.href}
                 onClick={onCloseMobile}
-                className={`flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold transition ${
+                aria-label={linkAria}
+                className={`flex items-start gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold transition ${
                   active
                     ? "bg-[var(--dash-ink)] text-white shadow-sm"
                     : "text-[var(--dash-ink)] hover:bg-white/70"
                 }`}
               >
-                <span aria-hidden>{PILLAR_ICONS[p.id] || "•"}</span>
-                <span className="min-w-0 flex-1 truncate">{p.title}</span>
-                {notifCount > 0 ? (
-                  <NotificationCountBadge count={notifCount} />
+                <span className="mt-0.5 shrink-0" aria-hidden>{PILLAR_ICONS[p.id] || "•"}</span>
+                <span className="min-w-0 flex-1 leading-snug">{p.title}</span>
+                {pillarBadge ? (
+                  <NotificationCountBadge
+                    count={pillarBadge.count}
+                    unavailable={pillarBadge.unavailable}
+                    partialUnavailable={pillarBadge.partialUnavailable}
+                    compact={pillarBadge.compact}
+                    decorative
+                  />
                 ) : active ? (
                   <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--dash-lime)]" aria-hidden />
                 ) : null}
@@ -395,7 +406,11 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
               </div>
             </button>
             <div className="absolute right-2 top-1/2 z-10 -translate-y-1/2">
-              <DashboardGlobalNotifications items={notifications} panelPlacement="top" />
+              <DashboardGlobalNotifications
+                items={notifications}
+                sourceStatus={sourceStatus}
+                panelPlacement="top"
+              />
             </div>
 
             {profileOpen ? (

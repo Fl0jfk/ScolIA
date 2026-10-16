@@ -1,11 +1,16 @@
 import type { DashboardSignals } from "@/app/lib/dashboard-signals";
+import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 
-const STORAGE_KEY_PREFIX = "scola.dashboard-signals:v5:";
+const STORAGE_KEY_PREFIX = "scola.dashboard-signals:v6:";
 /** Au-delà : le cache n'est plus affiché (données trop vieilles). */
 const MAX_AGE_MS = 10 * 60 * 1000;
 
+export type DashboardSignalsCachePayload = DashboardSignals & {
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
+};
+
 type DashboardSignalsCache = {
-  payload: DashboardSignals;
+  payload: DashboardSignalsCachePayload;
   savedAt: number;
 };
 
@@ -14,7 +19,7 @@ function storageKey(userId: string): string | null {
   return `${STORAGE_KEY_PREFIX}${window.location.hostname}:${userId.trim()}`;
 }
 
-export function readDashboardSignalsCache(userId: string): DashboardSignals | null {
+export function readDashboardSignalsCache(userId: string): DashboardSignalsCachePayload | null {
   const key = storageKey(userId);
   if (!key) return null;
   try {
@@ -27,18 +32,28 @@ export function readDashboardSignalsCache(userId: string): DashboardSignals | nu
     }
     const p = parsed.payload;
     if (!p || typeof p !== "object") return null;
+    const sourceStatus =
+      p.sourceStatus && typeof p.sourceStatus === "object"
+        ? (p.sourceStatus as Record<DashboardSignalSourceId, SignalSourceStatus>)
+        : undefined;
     return {
       shortcuts: Array.isArray(p.shortcuts) ? p.shortcuts : [],
       todayNews: Array.isArray(p.todayNews) ? p.todayNews : [],
       hasCurrentWeek: Boolean(p.hasCurrentWeek),
       notifications: Array.isArray(p.notifications) ? p.notifications : [],
+      anneeScolaireLabel:
+        typeof p.anneeScolaireLabel === "string" ? p.anneeScolaireLabel : null,
+      sourceStatus,
     };
   } catch {
     return null;
   }
 }
 
-export function writeDashboardSignalsCache(userId: string, payload: DashboardSignals): void {
+export function writeDashboardSignalsCache(
+  userId: string,
+  payload: DashboardSignalsCachePayload,
+): void {
   const key = storageKey(userId);
   if (!key) return;
   try {

@@ -200,7 +200,9 @@ jobs:
         run: npm ci
 
       - name: Tests unitaires (node:test)
-        run: npm run test:unit
+        run: |
+          npm run test:unit
+          npm run test:dashboard-signals
 
   unit-tests-eleve-actif:
     runs-on: ubuntu-latest

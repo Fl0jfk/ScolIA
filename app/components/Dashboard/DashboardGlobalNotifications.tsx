@@ -2,22 +2,49 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
+import NotificationCountBadge, {
+  DASHBOARD_COUNTER_UNAVAILABLE_TITLE,
+  NOTIFICATION_COUNT_BADGE_UNAVAILABLE_CLASS,
+  NOTIFICATION_COUNT_BADGE_COUNT_CLASS,
+} from "@/app/components/Dashboard/NotificationCountBadge";
 import type { DashboardNotification } from "@/app/lib/dashboard-signals";
+import {
+  dashboardNotificationBadgeProps,
+  hasAnyDashboardSourceFailure,
+  isDashboardNotificationUnavailable,
+  sumAvailableNotificationCounts,
+} from "@/app/lib/dashboard-signals-display";
+import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 
 type Props = {
   items: DashboardNotification[];
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   /** Ouverture du panneau (bas = sous le badge, haut = au-dessus — sidebar profil). */
   panelPlacement?: "bottom" | "top";
 };
+
+function globalBadgeAriaLabel(total: number, hasUnavailable: boolean): string {
+  if (total <= 0 && hasUnavailable) {
+    return "Notifications indisponibles";
+  }
+  if (hasUnavailable) {
+    return `${total} notification${total > 1 ? "s" : ""}, certains compteurs indisponibles`;
+  }
+  return `${total} notification${total > 1 ? "s" : ""}`;
+}
 
 /**
  * Badge global type Apple (compteur rouge + panneau glass) — police héritée du dashboard.
  */
 export default function DashboardGlobalNotifications({
   items,
+  sourceStatus,
   panelPlacement = "bottom",
 }: Props) {
-  const total = items.reduce((sum, item) => sum + item.count, 0);
+  const total = sumAvailableNotificationCounts(items, sourceStatus);
+  const hasUnavailable =
+    hasAnyDashboardSourceFailure(sourceStatus) ||
+    items.some((item) => isDashboardNotificationUnavailable(item, sourceStatus));
   const panelId = useId();
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -28,9 +55,14 @@ export default function DashboardGlobalNotifications({
     };
   }, []);
 
-  if (total <= 0) return null;
+  if (total <= 0 && !hasUnavailable) return null;
 
-  const label = total > 99 ? "99+" : String(total);
+  const allUnavailable = total <= 0 && hasUnavailable;
+  const label = allUnavailable
+    ? "!"
+    : total > 99
+      ? "99+"
+      : String(total);
 
   const openNow = () => {
     if (closeTimer.current) {
@@ -53,6 +85,12 @@ export default function DashboardGlobalNotifications({
     setOpen(false);
   };
 
+  const buttonClass = allUnavailable
+    ? `inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-[5px] text-[11px] font-semibold leading-none tracking-tight shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-[transform,filter] duration-150 hover:brightness-[1.05] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 focus-visible:ring-offset-1 ${NOTIFICATION_COUNT_BADGE_UNAVAILABLE_CLASS} normal-case`
+    : `inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-[5px] text-[11px] font-semibold tabular-nums leading-none tracking-tight text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-[transform,filter] duration-150 hover:brightness-[1.05] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3B30]/35 focus-visible:ring-offset-1 ${NOTIFICATION_COUNT_BADGE_COUNT_CLASS} ${
+        hasUnavailable ? "ring-2 ring-amber-300 ring-offset-1" : ""
+      }`;
+
   return (
     <span
       className="relative inline-flex align-middle"
@@ -65,14 +103,15 @@ export default function DashboardGlobalNotifications({
     >
       <button
         type="button"
-        aria-label={`${total} notification${total > 1 ? "s" : ""}`}
+        aria-label={globalBadgeAriaLabel(total, hasUnavailable)}
+        title={allUnavailable ? DASHBOARD_COUNTER_UNAVAILABLE_TITLE : undefined}
         aria-expanded={open}
         aria-controls={panelId}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-[#FF3B30] px-[5px] text-[11px] font-semibold tabular-nums leading-none tracking-tight text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-[transform,filter] duration-150 hover:brightness-[1.05] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3B30]/35 focus-visible:ring-offset-1"
+        className={buttonClass}
       >
         {label}
       </button>
@@ -99,37 +138,52 @@ export default function DashboardGlobalNotifications({
               Notifications
             </p>
             <p className="mt-0.5 text-[12px] font-medium text-black/45">
-              {total} élément{total > 1 ? "s" : ""} à traiter
+              {hasUnavailable
+                ? `${total} élément${total > 1 ? "s" : ""} connus — certains compteurs indisponibles`
+                : `${total} élément${total > 1 ? "s" : ""} à traiter`}
             </p>
           </div>
           <ul className="max-h-64 overflow-y-auto py-1">
-            {items.map((item) => (
-              <li key={item.id}>
-                <Link
-                  href={item.href}
-                  className="flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-black/[0.04] active:bg-black/[0.06]"
-                  onClick={closeNow}
-                >
-                  <span className="inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full bg-[#FF3B30] px-[5px] text-[11px] font-semibold tabular-nums leading-none text-white">
-                    {item.count > 99 ? "99+" : item.count}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold tracking-tight text-[var(--dash-ink,#1d1d1f)]">
-                      {item.label}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[12px] font-medium leading-snug text-black/45">
-                      {item.detail}
-                    </span>
-                  </span>
-                  <span
-                    className="shrink-0 text-[15px] font-medium leading-none text-black/25"
-                    aria-hidden
+            {items.map((item) => {
+              const badge = dashboardNotificationBadgeProps(item.count, item, sourceStatus);
+              return (
+                <li key={item.id}>
+                  <Link
+                    href={item.href}
+                    className="flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-black/[0.04] active:bg-black/[0.06]"
+                    onClick={closeNow}
                   >
-                    ›
-                  </span>
-                </Link>
-              </li>
-            ))}
+                    {badge ? (
+                      <NotificationCountBadge
+                        count={badge.count}
+                        unavailable={badge.unavailable}
+                        decorative
+                      />
+                    ) : (
+                      <span className="inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full bg-[#FF3B30] px-[5px] text-[11px] font-semibold tabular-nums leading-none text-white">
+                        {item.count > 99 ? "99+" : item.count}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold tracking-tight text-[var(--dash-ink,#1d1d1f)]">
+                        {item.label}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[12px] font-medium leading-snug text-black/45">
+                        {badge?.unavailable
+                          ? "Compteur momentanément indisponible"
+                          : item.detail}
+                      </span>
+                    </span>
+                    <span
+                      className="shrink-0 text-[15px] font-medium leading-none text-black/25"
+                      aria-hidden
+                    >
+                      ›
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>

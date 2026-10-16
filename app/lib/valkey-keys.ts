@@ -20,8 +20,20 @@ export const VALKEY_TTL = {
   moduleAccessUser: 45,
   /** Liens dashboard */
   dashboardLinks: 60,
-  /** Signaux dashboard (agrégat lourd) */
-  dashboardSignals: 25,
+  /** Signaux dashboard (agrégat lourd — aligné polling client 60 s) */
+  dashboardSignals: 60,
+  /** Compteurs VS (dashboard signals — par scope modules) */
+  dashboardSignalsVsCounts: 18,
+  /** Index absences RH brut (établissement) */
+  dashboardSignalsAbsenceIndex: 15,
+  /** Planning RH « maintenant » (utilisateur) */
+  dashboardSignalsRhPlanningNow: 20,
+  /** Signatures stage en attente (utilisateur) */
+  dashboardSignalsStagesPending: 20,
+  /** File demandes staff (utilisateur) */
+  dashboardSignalsRequestsBoard: 45,
+  /** Créneaux vides impact-engine (établissement + jour, inclut vide) */
+  dashboardCreneauxVides: 25,
   /** Config app / module-access store */
   appConfig: 45,
   moduleAccessConfig: 30,
@@ -126,6 +138,55 @@ export function valkeyKeyDashboardSignals(
   userId: string,
 ): string {
   return `${NS}:dash:sig:${etablissementId}:${userId}`;
+}
+
+/** Compteurs vie scolaire agrégés (clé inclut hash des modules VS actifs pour l’utilisateur). */
+export function valkeyKeyDashboardSignalsVsCounts(
+  etablissementId: string,
+  vsModulesScopeHash: string,
+): string {
+  return `${NS}:dash:sig-src:vs:${etablissementId}:${vsModulesScopeHash}`;
+}
+
+export function valkeyKeyDashboardSignalsAbsenceIndex(etablissementId: string): string {
+  return `${NS}:dash:sig-src:abs-index:${etablissementId}`;
+}
+
+export function valkeyKeyDashboardSignalsRhPlanningNow(
+  etablissementId: string,
+  authUserId: string,
+): string {
+  return `${NS}:dash:sig-src:rh-now:${etablissementId}:${authUserId}`;
+}
+
+export function valkeyKeyDashboardSignalsStagesPending(
+  etablissementId: string,
+  authUserId: string,
+): string {
+  return `${NS}:dash:sig-src:stages-pend:${etablissementId}:${authUserId}`;
+}
+
+export function valkeyKeyDashboardSignalsRequestsBoard(
+  etablissementId: string,
+  authUserId: string,
+): string {
+  return `${NS}:dash:sig-src:req-board:${etablissementId}:${authUserId}`;
+}
+
+export function valkeyKeyDashboardCreneauxVides(
+  etablissementId: string,
+  parisDateKey: string,
+): string {
+  return `${NS}:dash:creneaux:${etablissementId}:${parisDateKey}`;
+}
+
+/** Agrégat par utilisateur : `scola:dash:sig:{etab}:{userId}` */
+export function valkeyPrefixDashboardSignalsEtab(etablissementId: string): string {
+  return `${NS}:dash:sig:${etablissementId}:`;
+}
+
+export function valkeyPrefixDashboardSignalsCreneaux(etablissementId: string): string {
+  return `${NS}:dash:creneaux:${etablissementId}:`;
 }
 
 export function valkeyKeyAppConfig(tenantSlug: string): string {

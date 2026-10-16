@@ -13,10 +13,11 @@ const SCOPED_KEY_A = valkeyKeyStagesConventionsIndex("etab-a");
 const SCOPED_KEY_B = valkeyKeyStagesConventionsIndex("etab-b");
 const UNSCOPED_KEY = "scola:travels:index:v2:etab-a";
 
-test("isScopedMemoryCacheKey — index, roster, élèves uniquement", () => {
+test("isScopedMemoryCacheKey — index, roster, élèves, dash sig-src", () => {
   assert.equal(isScopedMemoryCacheKey(SCOPED_KEY_A), true);
   assert.equal(isScopedMemoryCacheKey("scola:stages:roster:e1:2025-2026:1a"), true);
   assert.equal(isScopedMemoryCacheKey("scola:eleves:reg:e1:inscrit"), true);
+  assert.equal(isScopedMemoryCacheKey("scola:dash:sig-src:abs-index:e1"), true);
   assert.equal(isScopedMemoryCacheKey(UNSCOPED_KEY), false);
   assert.equal(isScopedMemoryCacheKey("scola:stages:conv:e1:c1"), false);
 });

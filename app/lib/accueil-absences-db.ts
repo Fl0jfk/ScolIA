@@ -680,7 +680,15 @@ export async function cancelAccueilAbsence(
   noteCpe = "Annulée par l’accueil",
 ): Promise<boolean> {
   const eleveOk = await cancelAccueilEleveAbsence(etablissementId, id, noteCpe);
-  if (eleveOk) return true;
+  if (eleveOk) {
+    const { invalidateDashboardSignalsForEstablishment } = await import(
+      "@/app/lib/dashboard-signals-invalidate"
+    );
+    await invalidateDashboardSignalsForEstablishment(etablissementId).catch((err) => {
+      console.warn("[accueil-absences] invalidate dashboard signals cache", err);
+    });
+    return true;
+  }
 
   const db = getDb();
   const [row] = await db
@@ -714,5 +722,11 @@ export async function cancelAccueilAbsence(
     ],
   };
   await saveAbsenceRecord(updated);
+  const { invalidateDashboardSignalsForEstablishment } = await import(
+    "@/app/lib/dashboard-signals-invalidate"
+  );
+  await invalidateDashboardSignalsForEstablishment(etablissementId).catch((err) => {
+    console.warn("[accueil-absences] invalidate dashboard signals cache", err);
+  });
   return true;
 }
