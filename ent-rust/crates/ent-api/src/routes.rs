@@ -685,6 +685,11 @@ async fn labo_bootstrap(
             role: cast.admin.role.as_str().into(),
         },
         LaboPersonaDto {
+            label: "Direction - Albus Dumbledore".into(),
+            email: cast.direction.email.clone(),
+            role: cast.direction.role.as_str().into(),
+        },
+        LaboPersonaDto {
             label: "Administratif - Argus Rusard".into(),
             email: cast.administratif.email.clone(),
             role: cast.administratif.role.as_str().into(),
@@ -715,6 +720,20 @@ async fn labo_bootstrap(
             role: cast.parent_tom.role.as_str().into(),
         },
     ];
+    if let Some(inf) = cast.infirmieres.first() {
+        personas.push(LaboPersonaDto {
+            label: "Infirmerie - Poppy Pomfresh".into(),
+            email: inf.email.clone(),
+            role: inf.role.as_str().into(),
+        });
+    }
+    if let Some(psy) = cast.psys.first() {
+        personas.push(LaboPersonaDto {
+            label: "Psy - Sybille Trelawney".into(),
+            email: psy.email.clone(),
+            role: psy.role.as_str().into(),
+        });
+    }
     if let Some(c) = cast.eleves[0].compte.as_ref() {
         personas.push(LaboPersonaDto {
             label: "Eleve - Harry Potter".into(),
@@ -5573,7 +5592,10 @@ async fn list_mes_creneaux(
     session: EntSession,
     Query(q): Query<VsAbsencesQuery>,
 ) -> Result<Json<Vec<EdtCreneauDto>>, (StatusCode, String)> {
-    session.require_faire_appel()?;
+    // Staff appel + élève (son EDT) — le service tranche le RBAC.
+    if session.role != "eleve" {
+        session.require_faire_appel()?;
+    }
     let jour = q.jour.unwrap_or_else(today_utc);
     let list = state
         .ent

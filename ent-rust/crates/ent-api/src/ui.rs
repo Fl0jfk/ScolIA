@@ -467,6 +467,11 @@ function navHtml(active) {
       vsItems.push(['/app/absences', 'Absences & commissions']);
       vsItems.push(['/app/cahier', 'Cahier de texte']);
     }
+    if (role === 'cpe' || isProf) {
+      if (!vsItems.some(([h]) => h === '/app/eleves')) {
+        vsItems.unshift(['/app/eleves', 'Élèves']);
+      }
+    }
     if (isVs) {
       vsItems.push(
         ['/app/sorties', 'Sorties'],
@@ -2094,6 +2099,9 @@ function viewHome() {
   const role = (me && me.role) || '';
   const isAdminish = ['admin', 'direction', 'administratif'].includes(role);
   let tiles = '';
+  let homeTitle = 'ENT';
+  let homeLead = `Espace métier — vue adaptée au rôle <strong>${esc(role || 'staff')}</strong>.`;
+  let homeExtra = '';
   if (role === 'prof') {
     tiles = `
       <a class="stat-tile bento-span-4" href="/app/appel"><strong>Appel</strong><span>Mes créneaux du jour</span></a>
@@ -2103,13 +2111,23 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils familles</span></a>
       <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Déclarer une absence</span></a>`;
   } else if (role === 'cpe') {
+    homeTitle = 'Vie scolaire &amp; accompagnement';
+    homeLead = 'File du jour, signaux précoces et annuaire élèves — même cerveau que la direction.';
     tiles = `
-      <a class="stat-tile bento-span-4" href="/app/vs"><strong>Vie scolaire</strong><span>File du jour</span></a>
-      <a class="stat-tile bento-span-4" href="/app/appel"><strong>Appel</strong><span>Créneaux</span></a>
-      <a class="stat-tile bento-span-4" href="/app/absences"><strong>Absences</strong><span>Commissions &amp; incidents</span></a>
-      <a class="stat-tile bento-span-4" href="/app/alertes"><strong>Alertes</strong><span>Suivi CPE</span></a>
-      <a class="stat-tile bento-span-4" href="/app/editions"><strong>Éditions</strong><span>Convocs &amp; courriers</span></a>
-      <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils familles</span></a>`;
+      <a class="stat-tile bento-span-3" href="/app/vs"><strong>Vie scolaire</strong><span>File du jour</span></a>
+      <a class="stat-tile bento-span-3" href="/app/eleves"><strong>Élèves</strong><span>Annuaire &amp; fiches</span></a>
+      <a class="stat-tile bento-span-3" href="/app/appel"><strong>Appel</strong><span>Créneaux</span></a>
+      <a class="stat-tile bento-span-3" href="/app/absences"><strong>Absences</strong><span>Commissions &amp; incidents</span></a>
+      <a class="stat-tile bento-span-3" href="/app/alertes"><strong>Alertes</strong><span>Suivi CPE</span></a>
+      <a class="stat-tile bento-span-3" href="/app/editions"><strong>Éditions</strong><span>Convocs &amp; courriers</span></a>
+      <a class="stat-tile bento-span-3" href="/app/messages"><strong>Messages</strong><span>Fils familles</span></a>
+      <a class="stat-tile bento-span-3" href="/app/psy"><strong>Psy</strong><span>RDV &amp; entretiens</span></a>`;
+    homeExtra = `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Signaux précoces</h3>
+      <p class="muted" style="margin-top:0">Croisement absences à traiter, alertes CPE et signaux ouverts.</p>
+      <div id="homeSignauxPrecoces" class="bento muted">Chargement…</div>
+    </div>`;
   } else if (role === 'compta') {
     tiles = `
       <a class="stat-tile bento-span-4" href="/app/facturation"><strong>Facturation</strong><span>Factures &amp; SEPA</span></a>
@@ -2124,29 +2142,58 @@ function viewHome() {
       <a class="stat-tile bento-span-6" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>`;
   } else if (role === 'psy') {
     tiles = `
-      <a class="stat-tile bento-span-6" href="/app/psy"><strong>Psy</strong><span>Dossiers &amp; RDV</span></a>
+      <a class="stat-tile bento-span-6" href="/app/psy"><strong>Psy</strong><span>RDV &amp; entretiens</span></a>
       <a class="stat-tile bento-span-6" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>`;
-  } else {
-    const lastHref = isAdminish ? '/app/inscriptions' : '/app/messages';
-    const lastTitle = isAdminish ? 'Inscriptions' : 'Messages';
-    const lastSub = isAdminish ? 'Arrivée + réinscription' : 'Fils familles';
+  } else if (role === 'direction') {
+    homeTitle = 'Pilotage établissement';
+    homeLead = 'RH à valider, effectifs vie scolaire, inscriptions et exports — priorités direction.';
     tiles = `
-      <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Admin</strong><span>Élèves, foyers, adultes</span></a>
+      <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Absences à valider</span></a>
+      <a class="stat-tile bento-span-4" href="/app/vs"><strong>Effectifs / VS</strong><span>File · appel · absences</span></a>
+      <a class="stat-tile bento-span-4" href="/app/inscriptions"><strong>Inscriptions</strong><span>Arrivées &amp; dossiers</span></a>
+      <a class="stat-tile bento-span-4" href="/app/reinscription"><strong>Réinscription</strong><span>Campagne N+1</span></a>
+      <a class="stat-tile bento-span-4" href="/app/exports"><strong>Exports EN</strong><span>LSL · LSUN · Parcoursup</span></a>
+      <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils familles &amp; staff</span></a>`;
+  } else if (role === 'administratif') {
+    homeTitle = 'Exécution administrative';
+    homeLead = 'Élèves, inscriptions, foyers, documents et réinscription — file opérationnelle.';
+    tiles = `
+      <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; classes</span></a>
+      <a class="stat-tile bento-span-4" href="/app/inscriptions"><strong>Inscriptions</strong><span>Par étape</span></a>
+      <a class="stat-tile bento-span-4" href="/app/foyers"><strong>Foyers</strong><span>Familles &amp; contacts</span></a>
+      <a class="stat-tile bento-span-4" href="/app/etab"><strong>Docs / grants</strong><span>Accès documents</span></a>
+      <a class="stat-tile bento-span-4" href="/app/docs-signer"><strong>Docs à signer</strong><span>Signatures en attente</span></a>
+      <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>
+      <a class="stat-tile bento-span-4" href="/app/reinscription"><strong>Réinscription</strong><span>Suivi campagne</span></a>`;
+  } else if (role === 'admin') {
+    homeTitle = 'Administration globale';
+    homeLead = 'Vue transversale établissement — tous modules (droits admin).';
+    tiles = `
+      <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves &amp; foyers</strong><span>Annuaire complet</span></a>
       <a class="stat-tile bento-span-4" href="/app/vs"><strong>Vie scolaire</strong><span>File · appel · absences</span></a>
       <a class="stat-tile bento-span-4" href="/app/notes"><strong>Pédagogie</strong><span>Notes, EDT, conseils</span></a>
-      <a class="stat-tile bento-span-4" href="/app/facturation"><strong>Famille</strong><span>Factu, cantine, internat</span></a>
+      <a class="stat-tile bento-span-4" href="/app/facturation"><strong>Famille &amp; compta</strong><span>Factu, cantine, internat</span></a>
       <a class="stat-tile bento-span-4" href="/app/infirmerie"><strong>Santé</strong><span>Infirmerie / psy</span></a>
-      <a class="stat-tile bento-span-4" href="${lastHref}"><strong>${lastTitle}</strong><span>${lastSub}</span></a>`;
+      <a class="stat-tile bento-span-4" href="/app/inscriptions"><strong>Inscriptions</strong><span>Arrivée + réinscription</span></a>`;
+  } else if (isAdminish) {
+    tiles = `
+      <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; foyers</span></a>
+      <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>`;
+  } else {
+    tiles = `
+      <a class="stat-tile bento-span-6" href="/app/rh"><strong>RH</strong><span>Mon espace</span></a>
+      <a class="stat-tile bento-span-6" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>`;
   }
   return shell('/app', `
     <div class="bento" id="homePulse"></div>
     <div class="bento">
       <section class="panel bento-span-12">
-        <h2>ENT</h2>
-        <p class="muted" style="margin:0">Espace métier — vue adaptée au rôle <strong>${esc(role || 'staff')}</strong>.</p>
+        <h2>${homeTitle}</h2>
+        <p class="muted" style="margin:0">${homeLead}</p>
       </section>
       ${tiles}
     </div>
+    ${homeExtra}
     <div class="panel" style="margin-top:.75rem">
       <h3>À traiter aujourd’hui</h3>
       <div id="homeTodo" class="muted">Chargement…</div>
@@ -2184,7 +2231,7 @@ async function bindHome() {
   const nSig = (sig || []).filter(s => s.statut === 'ouvert' || s.statut === 'en_cours').length;
   const nDocs = (docs || []).filter(d => d.statut === 'a_signer').length;
   const nMsg = (fils || []).reduce((s, f) => s + (f.nb_non_lus || 0), 0);
-  const nRh = (rh || []).filter(a => a.statut === 'signalee').length;
+  const nRh = (rh || []).filter(a => a.statut === 'signalee' || a.statut === 'a_valider').length;
   const nAlert = (alertes || []).length;
   const nSort = (sorties || []).filter(d => {
     const s = String(d.statut || '');
@@ -2209,6 +2256,34 @@ async function bindHome() {
       pulse.innerHTML = `
         <a class="stat-tile bento-span-6" href="${role === 'psy' ? '/app/psy' : '/app/infirmerie'}"><strong>·</strong><span>${role === 'psy' ? 'Psy' : 'Infirmerie'}</span></a>
         <a class="stat-tile bento-span-6" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>`;
+    } else if (role === 'cpe') {
+      pulse.innerHTML = `
+        <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
+        <a class="stat-tile bento-span-2" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
+        <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>
+        <a class="stat-tile bento-span-2" href="/app/eleves"><strong>·</strong><span>Annuaire élèves</span></a>
+        <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
+        ${wantSort ? `<a class="stat-tile bento-span-2" href="/app/sorties"><strong>${nSort}</strong><span>Sorties</span></a>` : ''}
+        <a class="stat-tile bento-span-2" href="/app/appel"><strong>·</strong><span>Faire l’appel</span></a>
+        <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>`;
+    } else if (role === 'direction') {
+      pulse.innerHTML = `
+        <a class="stat-tile bento-span-2" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
+        <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
+        <a class="stat-tile bento-span-2" href="/app/inscriptions"><strong>${nIns}</strong><span>Inscrip. actives</span></a>
+        <a class="stat-tile bento-span-2" href="/app/etab"><strong>${nGrants}</strong><span>Grants docs</span></a>
+        <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
+        <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nSig}</strong><span>Signaux</span></a>
+        ${wantAlert ? `<a class="stat-tile bento-span-2" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>` : ''}
+        <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>`;
+    } else if (role === 'administratif') {
+      pulse.innerHTML = `
+        <a class="stat-tile bento-span-2" href="/app/inscriptions"><strong>${nIns}</strong><span>Inscrip. actives</span></a>
+        <a class="stat-tile bento-span-2" href="/app/etab"><strong>${nGrants}</strong><span>Grants docs</span></a>
+        ${wantDocs ? `<a class="stat-tile bento-span-2" href="/app/docs-signer"><strong>${nDocs}</strong><span>Docs à signer</span></a>` : ''}
+        <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
+        <a class="stat-tile bento-span-2" href="/app/reinscription"><strong>·</strong><span>Réinscription</span></a>
+        <a class="stat-tile bento-span-2" href="/app/eleves"><strong>·</strong><span>Élèves</span></a>`;
     } else {
       pulse.innerHTML = `
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
@@ -2224,29 +2299,66 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>`;
     }
   }
+  const signauxBox = document.getElementById('homeSignauxPrecoces');
+  if (signauxBox && role === 'cpe') {
+    const totalEarly = nAbs + nAlert + nSig;
+    signauxBox.innerHTML = totalEarly
+      ? `
+        <a class="stat-tile bento-span-4" href="/app/absences"><strong>${nAbs}</strong><span>Absences à traiter</span></a>
+        <a class="stat-tile bento-span-4" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
+        <a class="stat-tile bento-span-4" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>`
+      : '<p class="ok" style="margin:0">Aucun signal précoce en file — continuer la veille VS.</p>';
+  }
   if (todo) {
     const lines = [];
-    if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) à traiter</a></li>`);
-    if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
-    if (wantDocs && nDocs) lines.push(`<li><a href="/app/docs-signer">${nDocs} document(s) à signer</a></li>`);
-    if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
-    if (wantSort && nSort) lines.push(`<li><a href="/app/sorties">${nSort} demande(s) de sortie</a></li>`);
-    if (wantInsc) {
+    const pushInscEtapes = () => {
       INSC_HOME.forEach((et, i) => {
         const n = (insByEtape[i] || []).length;
         if (n) {
           lines.push(`<li><a href="/app/inscriptions?etape=${encodeURIComponent(et)}">${n} inscription(s) · ${esc(et)}</a></li>`);
         }
       });
-    }
-    if (nRh) lines.push(`<li><a href="/app/rh">${nRh} absence(s) RH à valider</a></li>`);
-    if (wantAlert && nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE</a></li>`);
-    if (wantGrants && nGrants) lines.push(`<li><a href="/app/etab">${nGrants} demande(s) d’accès document</a></li>`);
+    };
     if (role === 'prof') {
-      lines.length = 0;
       if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
       lines.push('<li><a href="/app/appel">Faire l’appel du jour</a></li>');
       lines.push('<li><a href="/app/mon-edt">Voir mon EDT</a></li>');
+    } else if (role === 'cpe') {
+      if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) à traiter</a></li>`);
+      if (nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE</a></li>`);
+      if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
+      if (wantSort && nSort) lines.push(`<li><a href="/app/sorties">${nSort} demande(s) de sortie</a></li>`);
+      if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
+      lines.push('<li><a href="/app/eleves">Consulter l’annuaire élèves</a></li>');
+    } else if (role === 'direction') {
+      if (nRh) lines.push(`<li><a href="/app/rh">${nRh} absence(s) RH à valider</a></li>`);
+      if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) VS à traiter</a></li>`);
+      pushInscEtapes();
+      if (!lines.some(l => l.includes('inscription')) && nIns) {
+        lines.push(`<li><a href="/app/inscriptions">${nIns} inscription(s) actives</a></li>`);
+      }
+      if (nGrants) lines.push(`<li><a href="/app/etab">${nGrants} demande(s) d’accès document</a></li>`);
+      if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
+      if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
+      if (wantAlert && nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE</a></li>`);
+    } else if (role === 'administratif') {
+      pushInscEtapes();
+      if (!lines.some(l => l.includes('inscription')) && nIns) {
+        lines.push(`<li><a href="/app/inscriptions">${nIns} inscription(s) actives</a></li>`);
+      }
+      if (nGrants) lines.push(`<li><a href="/app/etab">${nGrants} demande(s) d’accès document</a></li>`);
+      if (wantDocs && nDocs) lines.push(`<li><a href="/app/docs-signer">${nDocs} document(s) à signer</a></li>`);
+      if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
+    } else {
+      if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) à traiter</a></li>`);
+      if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
+      if (wantDocs && nDocs) lines.push(`<li><a href="/app/docs-signer">${nDocs} document(s) à signer</a></li>`);
+      if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
+      if (wantSort && nSort) lines.push(`<li><a href="/app/sorties">${nSort} demande(s) de sortie</a></li>`);
+      if (wantInsc) pushInscEtapes();
+      if (nRh) lines.push(`<li><a href="/app/rh">${nRh} absence(s) RH à valider</a></li>`);
+      if (wantAlert && nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE</a></li>`);
+      if (wantGrants && nGrants) lines.push(`<li><a href="/app/etab">${nGrants} demande(s) d’accès document</a></li>`);
     }
     todo.innerHTML = lines.length
       ? `<ul style="margin:0;padding-left:1.1rem">${lines.join('')}</ul>`
@@ -2483,12 +2595,21 @@ async function bindFamilleEnfant(id) {
     } else if (!abs.length) {
       html += `<p class="empty">Rien à justifier pour le moment.</p>`;
     } else {
-      html += `<table><thead><tr><th>Période</th><th>Motif école</th><th>Justificatif</th><th></th></tr></thead><tbody>
+      html += `<p class="muted">Choisissez un motif, précisez si besoin, puis justifiez. Un certificat peut être déposé ensuite dans Documents (tiroir famille).</p>
+        <table><thead><tr><th>Période</th><th>Motif école</th><th>Justificatif</th><th></th></tr></thead><tbody>
         ${abs.map(a => `<tr>
           <td>${esc(a.debut)} → ${esc(a.fin)}</td>
           <td>${esc(a.motif)}</td>
           <td>${e.peut_justifier_absence
-            ? `<select class="famJustifMotif" data-for="${esc(a.id)}" style="min-width:8rem"><option value="maladie">Maladie</option></select>`
+            ? `<div class="row" style="flex-wrap:wrap;gap:.35rem">
+                <select class="famJustifMotif" data-for="${esc(a.id)}" style="min-width:8rem">
+                  <option value="maladie">Maladie</option>
+                  <option value="rdv_medical">RDV médical</option>
+                  <option value="familial">Raison familiale</option>
+                  <option value="autre">Autre</option>
+                </select>
+                <input class="famJustifNote" data-for="${esc(a.id)}" placeholder="Précision (optionnel)" style="min-width:10rem"/>
+              </div>`
             : '—'}</td>
           <td>${e.peut_justifier_absence
             ? `<button type="button" class="primary btnJustifFam" data-id="${esc(a.id)}">Justifier</button>`
@@ -2850,10 +2971,13 @@ async function bindFamilleEnfant(id) {
     out.querySelectorAll('.btnJustifFam').forEach(btn => {
       btn.onclick = async () => {
         const sel = out.querySelector('.famJustifMotif[data-for="' + btn.dataset.id + '"]');
+        const noteEl = out.querySelector('.famJustifNote[data-for="' + btn.dataset.id + '"]');
         const motif = (sel && sel.value) || 'maladie';
+        const note = (noteEl && noteEl.value || '').trim();
+        const motif_justif = note ? (motif + ' — ' + note) : motif;
         try {
           await api('/absences/' + btn.dataset.id + '/justifier', {
-            method: 'POST', body: JSON.stringify({ motif_justif: motif }),
+            method: 'POST', body: JSON.stringify({ motif_justif }),
           });
           await bindFamilleEnfant(id);
         } catch (err) { alert(err.message); }
@@ -12476,6 +12600,7 @@ async function bindConseils() {
 function viewNotes() {
   return shell('/app/notes', `
     <div class="bento" id="notesStats"></div>
+    <div id="notesGuideBanner" class="panel" style="display:none;margin-bottom:.75rem"></div>
     <div class="panel">
       <h2>Notes</h2>
       <p class="muted">Périodes (verrou) → devoirs → saisie → moyennes → appréciations.</p>
@@ -12589,6 +12714,29 @@ function viewNotes() {
 }
 
 async function bindNotes() {
+  function focusNotesStep(step) {
+    const targets = {
+      1: 'btnNewPeriode',
+      2: 'btnMatCreer',
+      3: 'btnDevCreer',
+      4: 'btnSaisirNote',
+    };
+    const id = targets[step];
+    const el = id ? document.getElementById(id) : null;
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.focus({ preventScroll: true });
+    }
+  }
+  function bindNotesGuideClicks(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-notes-step]').forEach(btn => {
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        focusNotesStep(Number(btn.getAttribute('data-notes-step')));
+      };
+    });
+  }
   async function fillElevesNotes(q) {
     const eleves = await api('/eleves/search?q=' + encodeURIComponent(q || 'a'));
     const opts = (eleves || []).map(e =>
@@ -12638,12 +12786,15 @@ async function bindNotes() {
 
   async function refreshNotesStats() {
     const box = document.getElementById('notesStats');
+    const banner = document.getElementById('notesGuideBanner');
     if (!box) return;
     try {
       const [periodes, matieres] = await Promise.all([
         api('/note-periodes').catch(() => []),
         api('/matieres').catch(() => []),
       ]);
+      const nPer = (periodes || []).length;
+      const nMat = (matieres || []).length;
       const nOuv = (periodes || []).filter(p => p.statut === 'ouverte').length;
       const nFerm = (periodes || []).filter(p => p.statut === 'fermee').length;
       const nPart = (periodes || []).filter(p => p.statut === 'partielle_appreciations').length;
@@ -12656,10 +12807,42 @@ async function bindNotes() {
         } catch (_) { nDev = 0; }
       }
       box.innerHTML = `
-        <div class="stat-tile bento-span-3"><strong>${(periodes || []).length}</strong><span>Périodes · ${nPart} partielles</span></div>
+        <div class="stat-tile bento-span-3"><strong>${nPer}</strong><span>Périodes · ${nPart} partielles</span></div>
         <div class="stat-tile bento-span-3"><strong>${nOuv}</strong><span>Ouvertes</span></div>
         <div class="stat-tile bento-span-3"><strong>${nFerm}</strong><span>Fermées</span></div>
-        <div class="stat-tile bento-span-3"><strong>${(matieres || []).length}</strong><span>Matières · ${nDev} devoirs</span></div>`;
+        <div class="stat-tile bento-span-3"><strong>${nMat}</strong><span>Matières · ${nDev} devoirs</span></div>`;
+      if (banner) {
+        const stepBtn = (n, label, active) =>
+          `<button type="button" class="${active ? 'primary' : ''}" data-notes-step="${n}">${n}. ${label}</button>`;
+        if (!nPer || !nMat) {
+          const cur = !nPer ? 1 : 2;
+          banner.style.display = '';
+          banner.style.borderLeft = '3px solid var(--accent,#c45c26)';
+          banner.innerHTML = `
+            <p style="margin:0 0 .5rem"><strong>Configurer les notes</strong> — suivez les étapes dans l’ordre.</p>
+            <div class="row" style="flex-wrap:wrap;gap:.35rem">
+              ${stepBtn(1, 'Créer période T1', cur === 1)}
+              ${stepBtn(2, 'Créer matières', cur === 2)}
+              ${stepBtn(3, 'Créer devoir', cur === 3)}
+              ${stepBtn(4, 'Saisir note', cur === 4)}
+            </div>`;
+          bindNotesGuideClicks(banner);
+        } else if (!nDev) {
+          banner.style.display = '';
+          banner.style.borderLeft = '3px solid var(--accent,#c45c26)';
+          banner.innerHTML = `
+            <p style="margin:0 0 .5rem"><strong>Périodes et matières OK</strong> — créez un devoir puis saisissez.</p>
+            <div class="row" style="flex-wrap:wrap;gap:.35rem">
+              ${stepBtn(3, 'Créer devoir', true)}
+              ${stepBtn(4, 'Saisir note', false)}
+            </div>`;
+          bindNotesGuideClicks(banner);
+        } else {
+          banner.style.display = '';
+          banner.style.borderLeft = '3px solid transparent';
+          banner.innerHTML = '<p class="ok" style="margin:0">Prêt — périodes, matières et devoirs configurés. Vous pouvez saisir les notes.</p>';
+        }
+      }
     } catch (_) { /* silencieux */ }
   }
 
@@ -12687,6 +12870,8 @@ async function bindNotes() {
         </tr>`).join('')}</tbody></table>`;
       const ouverte = list.find(p => p.statut === 'ouverte') || list[0];
       syncPeriodeSelects(list, ouverte && ouverte.id);
+      const expSel = document.getElementById('expPeriode');
+      if (expSel && ouverte && ouverte.id && !expSel.value) expSel.value = ouverte.id;
       out.querySelectorAll('.btnFermer').forEach(btn => {
         btn.onclick = async () => {
           try {
@@ -13136,9 +13321,20 @@ async function bindNotes() {
   document.getElementById('btnExpLsun').onclick = async () => {
     const msg = document.getElementById('expMsg');
     const c = document.getElementById('expClasse').value.trim();
-    const p = document.getElementById('expPeriode').value.trim();
-    if (!c || !p) {
-      if (msg) msg.innerHTML = '<span class="bad">LSUN : classe et période requis</span>';
+    const expSel = document.getElementById('expPeriode');
+    const p = (expSel && expSel.value.trim()) || '';
+    if (!p) {
+      if (msg) {
+        msg.innerHTML = '<span class="bad">LSUN : sélectionnez une période dans la liste « Période » (section Exports). Aucun appel API tant qu’aucune période n’est choisie.</span>';
+      }
+      if (expSel) {
+        expSel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        expSel.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (!c) {
+      if (msg) msg.innerHTML = '<span class="bad">LSUN : indiquez la classe à exporter.</span>';
       return;
     }
     if (msg) msg.innerHTML = 'Préflight LSUN…';

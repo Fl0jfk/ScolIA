@@ -5,9 +5,16 @@
 //! classes mixtes. Le runner `ent-lab` fait jouer ces vies et signale les trous.
 
 use crate::foyer_repo::CreateLien;
+use crate::matiere_repo::CreateMatiere;
+use crate::note_repo::SaisirNote;
 use crate::service::{EntDbError, PgEnt};
-use chrono::{NaiveDate, NaiveTime};
-use domain_eleve::{today_utc, CreateEleve};
+use chrono::{Datelike, Duration, NaiveDate, NaiveTime};
+use domain_eleve::{
+    annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
+    CreerAlerteCpe, CreerDevoir, CreerNotePeriode, DeclareAbsence, OuvrirCampagneReinscription,
+    PublierDocASigner, UpsertFicheSante, UpsertPai,
+};
+use domain_eleve::Devoir;
 use ent_auth::{AuthError, Role};
 use uuid::Uuid;
 
@@ -575,6 +582,17 @@ impl PgEnt {
             .await?
             .id;
 
+        self.seed_labo_journee_audit(
+            etab,
+            lea,
+            &profs,
+            &cpes,
+            &infirmieres,
+            &admin,
+            jour,
+        )
+        .await?;
+
         Ok(LaboCast {
             etablissement_id: etab,
             admin,
@@ -633,5 +651,339 @@ impl PgEnt {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Matières, notes, réinscription, santé, VS — journée non vide pour bots post-bootstrap.
+    async fn seed_labo_journee_audit(
+        &self,
+        etab: Uuid,
+        harry: &LaboEleve,
+        profs: &[LaboPersona],
+        cpes: &[LaboPersona],
+        infirmieres: &[LaboPersona],
+        admin: &LaboPersona,
+        jour: NaiveDate,
+    ) -> Result<(), EntDbError> {
+        let actor_admin = admin.user_id.to_string();
+        let prof_rogue = &profs[0];
+        let cpe = &cpes[0];
+        let inf = &infirmieres[0];
+
+        let potions = self
+            .ensure_matiere_lab(
+                etab,
+                "POTIONS",
+                "Potions",
+                Some("LAB:Potions".into()),
+                &actor_admin,
+            )
+            .await?;
+        let _math = self
+            .ensure_matiere_lab(
+                etab,
+                "MATH",
+                "Mathématiques",
+                Some("SIECLE:MATH".into()),
+                &actor_admin,
+            )
+            .await?;
+        let _fr = self
+            .ensure_matiere_lab(
+                etab,
+                "FR",
+                "Français",
+                Some("SIECLE:FR".into()),
+                &actor_admin,
+            )
+            .await?;
+        let _hg = self
+            .ensure_matiere_lab(
+                etab,
+                "HG",
+                "Histoire-Géographie",
+                Some("SIECLE:HG".into()),
+                &actor_admin,
+            )
+            .await?;
+
+        let debut_as = debut_annee_scolaire(jour);
+        let fin_t1 = NaiveDate::from_ymd_opt(debut_as.year(), 12, 20)
+            .unwrap_or_else(|| debut_as + Duration::days(110));
+        let periode = self
+            .ensure_note_periode_t1(etab, debut_as, fin_t1, &actor_admin)
+            .await?;
+
+        let (devoir, devoir_cree) = self
+            .ensure_devoir_potions_lab(
+                etab,
+                periode.id,
+                potions.id,
+                &harry.classe,
+                jour,
+                prof_rogue.user_id,
+            )
+            .await?;
+
+        if devoir_cree {
+            self.saisir_note(SaisirNote {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                matiere_id: potions.id,
+                valeur: 14.5,
+                sur: 20.0,
+                date_note: jour,
+                auteur_user_id: prof_rogue.user_id,
+                libelle: Some("DS Potions".into()),
+                devoir_id: Some(devoir.id),
+                periode_id: Some(periode.id),
+            })
+            .await?;
+
+            self.saisir_note(SaisirNote {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                matiere_id: potions.id,
+                valeur: 16.0,
+                sur: 20.0,
+                date_note: jour - Duration::days(7),
+                auteur_user_id: prof_rogue.user_id,
+                libelle: Some("Interro chapitre 2".into()),
+                devoir_id: None,
+                periode_id: Some(periode.id),
+            })
+            .await?;
+        }
+
+        let (_, _, np1) = annees_continuum(jour);
+        self.ouvrir_campagne_reinscription(OuvrirCampagneReinscription {
+            etablissement_id: etab,
+            annee_cible: np1,
+            actor_user_id: Some(actor_admin.clone()),
+        })
+        .await?;
+
+        if self
+            .get_fiche_sante_for_actor(
+                etab,
+                inf.user_id,
+                Role::Infirmerie.as_str(),
+                harry.id,
+            )
+            .await?
+            .is_none()
+        {
+            self.upsert_fiche_sante_for_actor(
+                Role::Infirmerie.as_str(),
+                UpsertFicheSante {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    allergies: "Arachides".into(),
+                    traitements: "Ventoline si besoin".into(),
+                    contre_indications: "Aspirine".into(),
+                    pai_actif: true,
+                    medecin_nom: Some("Dr Pomfresh".into()),
+                    urgence_tel: Some("0601020304".into()),
+                    note_confidentielle: "Asthma — usage interne infirmerie".into(),
+                    actor_user_id: inf.user_id,
+                },
+            )
+            .await?;
+        }
+
+        if self
+            .get_pai_for_actor(
+                etab,
+                inf.user_id,
+                Role::Infirmerie.as_str(),
+                harry.id,
+            )
+            .await?
+            .is_none()
+        {
+            self.upsert_pai_for_actor(
+                Role::Infirmerie.as_str(),
+                UpsertPai {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    motif: "Asthme".into(),
+                    mesures_accueil: "Ventoline à l'infirmerie avant EPS".into(),
+                    protocole_urgence: "Appeler le SAMU en cas de crise sévère".into(),
+                    note_interne: "Antécédent hospitalisation 2024".into(),
+                    date_debut: debut_as,
+                    date_fin: NaiveDate::from_ymd_opt(debut_as.year() + 1, 7, 5),
+                    actif: true,
+                    actor_user_id: inf.user_id,
+                },
+            )
+            .await?;
+        }
+
+        let _types = self.list_sanction_types(etab).await?;
+        let _motifs = self.list_sanction_motifs(etab).await?;
+
+        let absence_jour = jour - Duration::days(3);
+        if !self.eleve_est_absent(etab, harry.id, absence_jour).await? {
+            // Motif = code référentiel (global ou etab), pas un libellé libre.
+            let motifs = self.list_motifs_absence(etab).await?;
+            let motif_code = motifs
+                .iter()
+                .find(|m| m.code.eq_ignore_ascii_case("maladie"))
+                .or_else(|| motifs.first())
+                .map(|m| m.code.clone());
+            let motif_code = match motif_code {
+                Some(c) => c,
+                None => {
+                    self.create_motif_absence_etab(
+                        etab,
+                        "maladie",
+                        "Maladie",
+                        Some(actor_admin.clone()),
+                    )
+                    .await?
+                    .code
+                }
+            };
+            self.declare_absence(DeclareAbsence {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                debut: absence_jour,
+                fin: absence_jour,
+                motif: motif_code,
+                actor_user_id: Some(cpe.user_id.to_string()),
+            })
+            .await?;
+        }
+
+        let annee = annee_scolaire_de(jour);
+        let docs = self
+            .list_docs_a_signer_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+                false,
+            )
+            .await?;
+        if !docs.iter().any(|d| d.code == "REGLEMENT_LAB") {
+            self.publier_doc_a_signer_for_actor(
+                Role::Cpe.as_str(),
+                PublierDocASigner {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    code: "REGLEMENT_LAB".into(),
+                    titre: "Règlement intérieur — signature requise".into(),
+                    corps: "Merci de prendre connaissance du règlement et de le signer en ligne.".into(),
+                    annee_scolaire: annee.clone(),
+                    echeance: Some(jour + Duration::days(30)),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+
+        self.creer_alerte_cpe_for_actor(
+            Role::Cpe.as_str(),
+            CreerAlerteCpe {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                titre: "Retard répété — suivi CPE".into(),
+                detail: "Seed labo : alerte visible famille pour audit personas.".into(),
+                severite: "urgent".into(),
+                visible_famille: true,
+                jour,
+                actor_user_id: cpe.user_id,
+            },
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn ensure_matiere_lab(
+        &self,
+        etab: Uuid,
+        code: &str,
+        libelle: &str,
+        source: Option<String>,
+        actor_user_id: &str,
+    ) -> Result<crate::matiere_repo::Matiere, EntDbError> {
+        if let Some(m) = self
+            .list_matieres(etab)
+            .await?
+            .into_iter()
+            .find(|m| m.code.eq_ignore_ascii_case(code))
+        {
+            return Ok(m);
+        }
+        self.create_matiere(
+            CreateMatiere {
+                etablissement_id: etab,
+                code: code.into(),
+                libelle: libelle.into(),
+                source_nomenclature: source,
+            },
+            Some(actor_user_id.to_string()),
+        )
+        .await
+    }
+
+    async fn ensure_note_periode_t1(
+        &self,
+        etab: Uuid,
+        date_debut: NaiveDate,
+        date_fin: NaiveDate,
+        actor_user_id: &str,
+    ) -> Result<domain_eleve::NotePeriode, EntDbError> {
+        if let Some(p) = self
+            .list_note_periodes(etab)
+            .await?
+            .into_iter()
+            .find(|p| p.code.eq_ignore_ascii_case("T1"))
+        {
+            return Ok(p);
+        }
+        self.creer_note_periode(CreerNotePeriode {
+            etablissement_id: etab,
+            code: "T1".into(),
+            libelle: "Trimestre 1".into(),
+            date_debut,
+            date_fin,
+            actor_user_id: Some(actor_user_id.to_string()),
+        })
+        .await
+    }
+
+    async fn ensure_devoir_potions_lab(
+        &self,
+        etab: Uuid,
+        periode_id: Uuid,
+        matiere_id: Uuid,
+        classe: &str,
+        jour: NaiveDate,
+        prof_user_id: Uuid,
+    ) -> Result<(Devoir, bool), EntDbError> {
+        const TITRE: &str = "DS Potions T1";
+        if let Some(d) = self
+            .list_devoirs_for_actor(etab, Role::Prof.as_str(), periode_id, Some(classe))
+            .await?
+            .into_iter()
+            .find(|d| d.titre == TITRE)
+        {
+            return Ok((d, false));
+        }
+        let d = self
+            .creer_devoir(CreerDevoir {
+                etablissement_id: etab,
+                periode_id,
+                matiere_id,
+                classe: classe.into(),
+                titre: TITRE.into(),
+                date_devoir: jour,
+                coef: 2.0,
+                sur: 20.0,
+                actor_user_id: prof_user_id,
+            })
+            .await?;
+        Ok((d, true))
     }
 }

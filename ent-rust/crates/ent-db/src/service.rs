@@ -3060,6 +3060,21 @@ impl PgEnt {
         role: &str,
         jour: NaiveDate,
     ) -> Result<Vec<EdtCreneau>, EntDbError> {
+        // Élève : même surface « mon EDT du jour » que /eleves/{id}/edt (pas l’appel).
+        if Role::parse(role) == Some(Role::Eleve) {
+            let Some(eleve_id) = self.eleve_id_for_compte(etablissement_id, user_id).await? else {
+                return Err(EntDbError::Forbidden);
+            };
+            return self
+                .list_edt_eleve_jour_for_actor(
+                    etablissement_id,
+                    role,
+                    user_id,
+                    eleve_id,
+                    jour,
+                )
+                .await;
+        }
         if !Self::role_can_faire_appel(role) {
             return Err(EntDbError::Forbidden);
         }
