@@ -15,12 +15,14 @@ use domain_eleve::{
     AbsenceStatut, AffecterEleveInternat, CarnetCategorie, ChangeRegime, ChoisirOptionN1,
     ConvoquerCommission, CreerCahierTexte, CreerChambreInternat, CreerCommissionVs, CreerFacture,
     CreerInfoCompChamp, CreerMandatSepa, CreerRdvPsy, CreerSuiviInternat, DeclarerIncident,
-    DeclareAbsence, DemanderGrant, DocConfidentialite, DocTiroir, EncaisserFacture,
+    DeclareAbsence, DemanderGrant, DemanderSortieExceptionnelle, DocConfidentialite, DocTiroir,
+    EcheanceCmd, EncaisserFacture,
     EntretienPsyKind, FactureStatut, MandatSepaStatut,
     AlerteCpeStatut, DispenseVsMotif, DispenseVsStatut, PoserDispenseVs, UpsertAutorisationSortie,
     LigneFactureCmd, MonteeRapide, MoyenPaiement, OptionAnneeStatut, OptionNature,
     NotePeriodeStatut, OuvrirCampagneReinscription, OuvrirFil, PassageInfirmerieMotif,
-    PointerPresenceInternat,
+    SortieCreneau,
+    PointerPresenceInternat, PoserEcheancier,
     PrononcerSanction, PublierDocASigner, RepasActiviteKind, SaisirAppreciation, UpsertDossierPsy,
     UpsertFicheSante, UpsertInfoCompValeur, UpsertMenuCantine, UpsertPai, UpsertQuotientFoyer,
     UpsertInscriptionSuivi, DeciderCommissionDossier, DecisionCommission, POINTS_VS_DEPART,
@@ -714,7 +716,9 @@ impl PgEnt {
     /// internat Neville (INT requis), psy Harry, fil CPE→parent ; docs/PAI/carnet non signés ;
     /// file inscription « pièces », outbox mail/SMS, diversité cast Hermione (note / absence / VS) ;
     /// lot A (Bot AA-A) : Luna, Cho, Seamus, mandat SEPA Harry, Molly mes_enfants Ron+Ginny ;
-    /// lot B (Bot AB-A) : note Neville, absence Cedric J-1 à traiter, CHARTE_LAB, permis points Harry, dispense repas Harry.
+    /// lot B (Bot AB-A) : note Neville, absence Cedric J-1 à traiter, CHARTE_LAB, permis points Harry, dispense repas Harry ;
+    /// lot C (Bot AC-A) : note Seamus, carnet Cedric, rappel facture Harry, cahier 5A, photo trombi Neville ;
+    /// lot D (Bot AD-A) : carnet Luna, passage infirmerie Hermione, sortie except. Harry jour J, facture Draco.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -2615,6 +2619,147 @@ impl PgEnt {
             {
                 eleves[ginny_idx].parent = ron.parent.clone();
                 eleves[ginny_idx].foyer_id = molly_foyer;
+            }
+        }
+
+        // --- Bot AC-A lot C : note Seamus, carnet Cedric, rappel facture Harry, cahier 5A, photo Neville.
+        if let Some(seamus) = labo_eleve_prenom(eleves, "Seamus") {
+            const SEAMUS_NOTE_LIB: &str = "Interro Potions lab (Seamus)";
+            if !self
+                .notes_for_eleve(etab, seamus.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(SEAMUS_NOTE_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: seamus.id,
+                    matiere_id: potions.id,
+                    valeur: 10.5,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_rogue.user_id,
+                    libelle: Some(SEAMUS_NOTE_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(cedric) = labo_eleve_prenom(eleves, "Cedric") {
+            const CEDRIC_CARNET_AUDIT_TITRE: &str = "AUDIT: Encouragements Cedric (famille)";
+            let carnet_cedric = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), cedric.id)
+                .await?;
+            if !carnet_cedric
+                .iter()
+                .any(|c| c.titre == CEDRIC_CARNET_AUDIT_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: cedric.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: CEDRIC_CARNET_AUDIT_TITRE.into(),
+                    corps: "Seed labo lot C — entrée carnet visible famille pour audit portail Cedric Diggory."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        const CAHIER_5A_AUDIT_TITRE: &str = "Devoir maison Transfiguration 5A (audit lot C)";
+        let cahier_5a = self
+            .list_cahier_texte_for_actor(
+                etab,
+                prof_mcg.user_id,
+                Role::Prof.as_str(),
+                Some("5A".into()),
+                None,
+                None,
+                None,
+            )
+            .await?;
+        if !cahier_5a
+            .iter()
+            .any(|e| e.titre == CAHIER_5A_AUDIT_TITRE && e.matiere_libelle == "Transfiguration")
+        {
+            self.creer_cahier_texte_for_actor(
+                Role::Prof.as_str(),
+                CreerCahierTexte {
+                    etablissement_id: etab,
+                    classe: "5A".into(),
+                    matiere_libelle: "Transfiguration".into(),
+                    titre: CAHIER_5A_AUDIT_TITRE.into(),
+                    consigne: "Exercices ch.3 — transformer une allumette en aiguille (schéma + 5 lignes de protocole)."
+                        .into(),
+                    pour_le: jour + Duration::days(5),
+                    cree_le: jour,
+                    actor_user_id: prof_mcg.user_id,
+                },
+            )
+            .await?;
+        }
+
+        let rappels_foyer_harry = self
+            .list_rappels_for_actor(etab, role_compta)
+            .await?
+            .into_iter()
+            .filter(|r| r.foyer_id == harry.foyer_id)
+            .collect::<Vec<_>>();
+        if rappels_foyer_harry.is_empty() {
+            let (facture_h2, _, _, encaisse_h2, echeances_h2, _, _) = self
+                .get_facture_for_actor(etab, compta.user_id, role_compta, facture_harry_2_id)
+                .await?;
+            if echeances_h2.is_empty() {
+                let montant_rappel = facture_h2
+                    .total_centimes
+                    .saturating_sub(encaisse_h2)
+                    .max(1);
+                let _ = self
+                    .poser_echeancier_for_actor(
+                        role_compta,
+                        PoserEcheancier {
+                            etablissement_id: etab,
+                            facture_id: facture_harry_2_id,
+                            echeances: vec![EcheanceCmd {
+                                libelle: "Seed audit lot C — échéance en retard".into(),
+                                montant_centimes: montant_rappel,
+                                date_echeance: jour - Duration::days(5),
+                            }],
+                        },
+                    )
+                    .await;
+            }
+            let _ = self
+                .lancer_rappels_echeances_for_actor(
+                    etab,
+                    role_compta,
+                    compta.user_id,
+                    jour,
+                )
+                .await;
+        }
+
+        if let Some(neville) = labo_eleve_prenom(eleves, "Neville") {
+            if self
+                .get_eleve(etab, neville.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        neville.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
             }
         }
 
