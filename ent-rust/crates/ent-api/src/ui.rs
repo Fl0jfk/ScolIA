@@ -36,6 +36,7 @@ const STORE = {
 
 let me = null;
 let routeState = {};
+let famEnfantsCache = null;
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -51,6 +52,30 @@ function emptyState(message, hint) {
     ? `<span class="muted empty-state-hint">${hint}</span>`
     : '';
   return `<p class="empty empty-state">${esc(message)}${hintHtml ? '<br/>' + hintHtml : ''}</p>`;
+}
+
+function countOutboxPending(list) {
+  return (list || []).filter(x => {
+    const s = String(x.status || '').toLowerCase();
+    return s !== 'sent' && s !== 'ok';
+  }).length;
+}
+
+async function snapshotOutboxPending() {
+  let mailOk = false;
+  let smsOk = false;
+  let n = 0;
+  try {
+    const mails = await api('/mails?limit=40');
+    mailOk = true;
+    n += countOutboxPending(mails);
+  } catch {}
+  try {
+    const sms = await api('/sms?limit=40');
+    smsOk = true;
+    n += countOutboxPending(sms);
+  } catch {}
+  return { show: mailOk || smsOk, n };
 }
 
 let entToastTimer = null;
@@ -683,16 +708,64 @@ function facFamResteCentimes(f) {
   if (f.statut === 'soldee' || f.statut === 'annulee') return 0;
   return Math.max(0, Number(f.total_centimes) || 0);
 }
-function famEnfantsBarHtml(list) {
+function facFamEncaisseCentimes(f) {
+  if (!f) return 0;
+  const enc = Number(f.encaisse_centimes);
+  if (Number.isFinite(enc)) return Math.max(0, enc);
+  const total = Number(f.total_centimes) || 0;
+  return Math.max(0, total - facFamResteCentimes(f));
+}
+function facFamProgressPanelHtml(encaisseCent, totalCent, resteCent) {
+  const total = Math.max(0, Number(totalCent) || 0);
+  const enc = Math.max(0, Math.min(total, Number(encaisseCent) || 0));
+  const reste = Number.isFinite(Number(resteCent))
+    ? Math.max(0, Number(resteCent))
+    : Math.max(0, total - enc);
+  const pct = total ? Math.min(100, Math.round((enc / total) * 100)) : 0;
+  return `<div class="panel bento-span-12" style="margin:0;padding:.65rem .85rem;border-left:3px solid var(--accent,#0071e3)">
+    <div class="row" style="justify-content:space-between;align-items:baseline;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem">
+      <strong>Paiements</strong>
+      <span>${esc(euros(enc))} encaissé · ${esc(euros(total))} facturé · <strong class="${reste ? 'warn' : 'ok'}">reste ${esc(euros(reste))}</strong></span>
+    </div>
+    <div style="height:.55rem;border-radius:999px;background:var(--line,#e5e5ea);overflow:hidden" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
+      <div style="height:100%;width:${pct}%;background:var(--accent,#0071e3);border-radius:999px"></div>
+    </div>
+    <p class="muted" style="margin:.35rem 0 0;font-size:.88rem">${pct}% encaissé sur le total des factures visibles</p>
+  </div>`;
+}
+/** Personas labo — inclut Molly (parent_weasley) si absent de personas (cast localStorage ancien). */
+function labCastPersonas(cast) {
+  if (!cast) return [];
+  const personas = Array.isArray(cast.personas) ? cast.personas.slice() : [];
+  const molly = cast.parent_weasley;
+  if (molly && molly.email && !personas.some(p => p && p.email === molly.email)) {
+    personas.push({
+      label: molly.label || 'Parent - Molly Weasley (Ron + Ginny)',
+      email: molly.email,
+      role: molly.role || 'parent',
+    });
+  }
+  return personas;
+}
+async function fetchFamEnfants(force) {
+  if (!force && famEnfantsCache) return famEnfantsCache;
+  const list = await api('/famille/enfants');
+  famEnfantsCache = list || [];
+  return famEnfantsCache;
+}
+function famEnfantsBarHtml(list, activePath) {
   if (!list || list.length < 2) return '';
+  const m = activePath && String(activePath).match(/^\/famille\/enfants\/([0-9a-f-]{36})/i);
+  const activeId = m ? m[1].toLowerCase() : '';
   return `<div class="row" style="gap:.45rem;flex-wrap:wrap;align-items:center">
     <span style="font-weight:600;margin-right:.15rem">Vos enfants</span>
-    ${list.map(e =>
-      `<a href="/famille/enfants/${esc(e.id)}" class="pill" style="font-size:.95rem;padding:.35rem .7rem;text-decoration:none"
+    ${list.map(e => {
+      const on = activeId && String(e.id).toLowerCase() === activeId;
+      return `<a href="/famille/enfants/${esc(e.id)}" class="pill${on ? ' warn' : ''}" style="font-size:.95rem;padding:.35rem .7rem;text-decoration:none${on ? ';font-weight:600' : ''}"
          title="${esc(e.prenom + ' ' + e.nom + ' · ' + (e.classe || ''))}">
         <strong>${esc(e.prenom)}</strong>${e.classe ? ` <span class="muted">${esc(e.classe)}</span>` : ''}
-      </a>`
-    ).join('')}
+      </a>`;
+    }).join('')}
   </div>`;
 }
 function famDocsSignCtaHtml(nDocs, firstEnfantId) {
@@ -1036,6 +1109,7 @@ async function renderDocsASignerTable(box, pending, onSigned, eleveId) {
       if (!d || !confirmLectureDocASigner(d)) return;
       try {
         await api('/docs-a-signer/' + btn.dataset.id + '/signer', { method: 'POST', body: '{}' });
+        showEntToast(`<strong>Document signé</strong> — ${esc(d.titre || 'enregistrement pris en compte')}`);
         if (onSigned) await onSigned();
       } catch (err) { alert(err.message); }
     };
@@ -1237,6 +1311,9 @@ function shell(active, body) {
   const email = me ? esc(me.email) : '';
   const role = me ? esc(me.role) : '';
   const home = homeForRole();
+  const famShellBar = isParent()
+    ? `<div id="famShellEnfantsBar" class="panel" style="display:none;margin-bottom:.75rem;padding:.55rem .85rem;border-left:3px solid var(--accent,#0071e3)"></div>`
+    : '';
   return `<div class="shell">
     <button type="button" class="nav-scrim" id="btnNavScrim" aria-label="Fermer le menu"></button>
     <aside class="sidebar" id="sidebar">
@@ -1265,7 +1342,7 @@ function shell(active, body) {
         </button>
         <span class="brand">ENT</span>
       </div>
-      <main class="content">${body}</main>
+      <main class="content">${famShellBar}${body}</main>
     </div>
   </div>`;
 }
@@ -1273,7 +1350,7 @@ function shell(active, body) {
 /* ---------- Login ---------- */
 function viewLogin() {
   const cast = STORE.cast;
-  const personas = (cast && cast.personas) ? cast.personas : [];
+  const personas = labCastPersonas(cast);
   const etab = STORE.etab || (cast && cast.etablissement_id) || '';
   const opts = personas.map(p =>
     `<option value="${esc(p.email)}">${esc(p.label)}</option>`
@@ -1339,6 +1416,10 @@ async function bindLogin() {
       STORE.token = sess.token;
       STORE.etab = sess.etablissement_id;
       await ensureMe();
+      famEnfantsCache = null;
+      if (isParent()) {
+        try { await fetchFamEnfants(true); } catch { famEnfantsCache = null; }
+      }
       go(homeForRole());
     } catch (e) {
       box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -2701,6 +2782,8 @@ function viewEleveNotes() {
       </div>
       <div id="eleveBulletinMsg" class="muted"></div>
       <p id="eleveBulletinHint" class="muted" style="margin:.35rem 0 0;font-size:.88rem"></p>
+      <h3 style="margin-top:1rem">Bulletins téléchargeables</h3>
+      <div id="eleveBulletinsList" class="muted">Chargement…</div>
       <div id="eleveNotesOut" class="muted" style="margin-top:.5rem">Chargement…</div>
       <h3 style="margin-top:1rem">Devoirs (classe)</h3>
       <div id="eleveDevOut" class="muted">…</div>
@@ -2722,7 +2805,64 @@ async function bindEleveNotes() {
   const conseilOut = document.getElementById('eleveConseilOut');
   if (!eid) {
     notesOut.innerHTML = emptyState('Compte élève incomplet', 'Impossible d’afficher les notes.');
+    const bulList = document.getElementById('eleveBulletinsList');
+    if (bulList) bulList.innerHTML = '';
     return;
+  }
+  function bulletinDocCode(d) {
+    return String(d.code || '').trim().toUpperCase();
+  }
+  function isBulletinMetierDoc(d) {
+    if (!d || !d.accessible) return false;
+    const code = bulletinDocCode(d);
+    if (code.startsWith('BULLETIN_')) return true;
+    return /bulletin/i.test(d.titre || '') || /bulletin/i.test(d.code || '');
+  }
+  async function renderEleveBulletinsList(periode) {
+    const box = document.getElementById('eleveBulletinsList');
+    if (!box) return;
+    try {
+      const docs = await api('/eleves/' + eid + '/documents');
+      const bulletins = (docs || []).filter(isBulletinMetierDoc);
+      if (!bulletins.length) {
+        box.innerHTML = emptyState(
+          'Aucun bulletin publié',
+          periode && periode.statut !== 'fermee'
+            ? 'Les bulletins apparaissent après fermeture de la période (ex. BULLETIN_T0).'
+            : 'Demandez à l’établissement si un bulletin T0 devrait être disponible (code BULLETIN_T0).'
+        );
+        return;
+      }
+      const sorted = bulletins.slice().sort((a, b) => {
+        const ca = bulletinDocCode(a);
+        const cb = bulletinDocCode(b);
+        if (ca === 'BULLETIN_T0') return -1;
+        if (cb === 'BULLETIN_T0') return 1;
+        return (b.titre || '').localeCompare(a.titre || '', 'fr');
+      });
+      box.innerHTML = `<ul style="margin:.35rem 0 0;padding-left:1.1rem">${sorted.map(d => {
+        const code = bulletinDocCode(d);
+        const t0 = code === 'BULLETIN_T0';
+        return `<li style="margin:.35rem 0">
+          <strong>${esc(d.titre || code || 'Bulletin')}</strong>
+          ${code ? `<span class="pill${t0 ? ' ok' : ''}">${esc(code)}</span>` : ''}
+          <button type="button" class="btnEleveBulDl" data-id="${esc(d.id)}" data-titre="${esc(d.titre || code || 'bulletin.pdf')}">Télécharger</button>
+        </li>`;
+      }).join('')}</ul>`;
+      box.querySelectorAll('.btnEleveBulDl').forEach(btn => {
+        btn.onclick = async () => {
+          const msg = document.getElementById('eleveBulletinMsg');
+          try {
+            await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'bulletin.pdf');
+            if (msg) msg.innerHTML = `<span class="ok">${esc(btn.dataset.titre || 'Bulletin')}</span>`;
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
   }
   async function loadNotesAll() {
   try {
@@ -2763,6 +2903,7 @@ async function bindEleveNotes() {
       return;
     }
     updateEleveBulletinHint(p);
+    await renderEleveBulletinsList(p);
     if (devOut) {
       try {
         const devoirs = await api('/eleves/' + eid + '/devoirs?periode_id=' + encodeURIComponent(p.id));
@@ -2843,17 +2984,20 @@ async function bindEleveNotes() {
           return;
         }
         const docs = await api('/eleves/' + eid + '/documents');
-        const bulletins = (docs || []).filter(d =>
-          d.accessible && (/bulletin/i.test(d.titre || '') || /bulletin/i.test(d.code || ''))
-        );
+        const bulletins = (docs || []).filter(isBulletinMetierDoc);
         if (!bulletins.length) {
-          if (msg) msg.innerHTML = '<span class="bad">Aucun bulletin accessible</span>';
+          if (msg) msg.innerHTML = '<span class="bad">Aucun bulletin accessible (attendu ex. BULLETIN_T0)</span>';
           return;
         }
         const sel = document.getElementById('eleveNotePeriode');
         const plabel = sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
+        const pcode = (periode && periode.code) ? String(periode.code).trim().toUpperCase() : '';
         let doc = bulletins[0];
-        if (plabel) {
+        if (pcode) {
+          const byCode = bulletins.find(d => bulletinDocCode(d) === 'BULLETIN_' + pcode);
+          if (byCode) doc = byCode;
+        }
+        if (plabel && doc === bulletins[0]) {
           const hit = bulletins.find(d => (d.titre || '').includes(plabel.split('—')[0].trim())
             || (d.titre || '').toLowerCase().includes((plabel || '').toLowerCase().slice(0, 8)));
           if (hit) doc = hit;
@@ -3195,6 +3339,9 @@ async function bindHome() {
   if (role === 'cpe') {
     comSnap = await settle(snapshotComDossiersOuverts(jour), comSnap);
   }
+  const outboxSnap = role === 'cpe'
+    ? await settle(snapshotOutboxPending(), { show: false, n: 0 })
+    : { show: false, n: 0 };
   const nComDos = comSnap.count || 0;
   const comDosHref = comSnap.first
     ? absencesComDeepLink({ comId: comSnap.first.comId, dosId: comSnap.first.dosId })
@@ -3233,7 +3380,8 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
         ${wantSort ? `<a class="stat-tile bento-span-2" href="/app/sorties"><strong>${nSort}</strong><span>Sorties</span></a>` : ''}
         <a class="stat-tile bento-span-2" href="/app/appel"><strong>·</strong><span>Faire l’appel</span></a>
-        <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>`;
+        <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>
+        ${outboxSnap.show ? `<a class="stat-tile bento-span-2" href="/app/comms"><strong class="${outboxSnap.n ? 'warn' : ''}">${outboxSnap.n}</strong><span>Mails / SMS outbox</span></a>` : ''}`;
     } else if (role === 'direction') {
       const sanLbl = nSanJour4b != null ? String(nSanJour4b) : '·';
       pulse.innerHTML = `
@@ -3354,6 +3502,9 @@ async function bindHome() {
         lines.push('<li class="muted">Aucune commission — créer depuis un signal VS</li>');
       }
       if (wantSort && nSort) lines.push(`<li><a href="/app/sorties">${nSort} demande(s) de sortie</a></li>`);
+      if (outboxSnap.show && outboxSnap.n) {
+        lines.push(`<li><a href="/app/comms">${outboxSnap.n} notification(s) outbox en attente (mail / SMS)</a></li>`);
+      }
       if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
       lines.push('<li><a href="/app/eleves">Consulter l’annuaire élèves</a></li>');
     } else if (role === 'direction' || role === 'admin') {
@@ -3421,7 +3572,6 @@ function viewFamilleHome() {
       </div>
     </div>
     <div id="famDocsCta" style="display:none"></div>
-    <div id="famEnfantsBar" class="panel" style="display:none;margin-bottom:.75rem;padding:.55rem .85rem;border-left:3px solid var(--accent,#0071e3)"></div>
     <div class="bento" id="famPulse"></div>
     <div class="bento">
       <section class="panel bento-span-12">
@@ -3483,15 +3633,13 @@ async function bindFamilleHome() {
   const pulse = document.getElementById('famPulse');
   const todo = document.getElementById('famTodo');
   try {
-    const list = await api('/famille/enfants');
+    const list = await fetchFamEnfants(true);
     if (!list.length) {
       out.innerHTML = `<p class="empty">Aucun enfant lié à ce compte.</p>`;
       if (pulse) pulse.innerHTML = '';
       if (todo) todo.innerHTML = '<p class="empty">Aucun enfant.</p>';
       const docsCta0 = document.getElementById('famDocsCta');
       if (docsCta0) { docsCta0.innerHTML = ''; docsCta0.style.display = 'none'; }
-      const enfBar0 = document.getElementById('famEnfantsBar');
-      if (enfBar0) { enfBar0.innerHTML = ''; enfBar0.style.display = 'none'; }
       return;
     }
     const [resumes, docsLists, fils, reinsc, facs, paiList, comLists] = await Promise.all([
@@ -3595,17 +3743,6 @@ async function bindFamilleHome() {
       } else {
         docsCta.innerHTML = '';
         docsCta.style.display = 'none';
-      }
-    }
-    const enfBar = document.getElementById('famEnfantsBar');
-    if (enfBar) {
-      const barHtml = famEnfantsBarHtml(list);
-      if (barHtml) {
-        enfBar.innerHTML = barHtml;
-        enfBar.style.display = '';
-      } else {
-        enfBar.innerHTML = '';
-        enfBar.style.display = 'none';
       }
     }
     if (pulse) {
@@ -5182,16 +5319,30 @@ async function bindEleves() {
     try {
       const list = await api('/classes/' + encodeURIComponent(classe) + '/trombi');
       if (!list.length) {
-        trombiOut.innerHTML = '<p class="empty">Aucun élève dans cette classe.</p>';
+        trombiOut.innerHTML = emptyState('Aucun élève dans cette classe', 'Vérifiez le libellé de classe ou la période scolaire.');
         return;
       }
-      const avecPhoto = list.filter(t => t.photo_key).length;
-      trombiOut.innerHTML = `<p class="muted" style="margin:0 0 .5rem">${list.length} élève(s) · ${avecPhoto} photo(s)</p>
-        <div id="trombiGrid" style="display:flex;flex-wrap:wrap;gap:.75rem">${list.map(t => `
-        <a href="/app/eleves/${esc(t.eleve_id)}" style="text-align:center;width:88px">
-          <div data-photo="${t.photo_key ? esc(t.eleve_id) : ''}" style="width:72px;height:72px;border:1px solid var(--line);background:#eee;display:grid;place-items:center;font-size:.7rem;color:var(--muted);overflow:hidden">${t.photo_key ? '…' : 'sans photo'}</div>
-          <div style="font-size:.8rem;margin-top:.25rem">${esc(t.prenom)} ${esc(t.nom)}</div>
-        </a>`).join('')}</div>`;
+      const sansPhoto = list.filter(t => !t.photo_key).length;
+      const avecPhoto = list.length - sansPhoto;
+      const highlightMissing = classe.toUpperCase() === '4B';
+      const ordered = highlightMissing
+        ? [...list].sort((a, b) => (a.photo_key ? 1 : 0) - (b.photo_key ? 1 : 0))
+        : list;
+      const missHint = sansPhoto && highlightMissing
+        ? ` · <span class="warn">${sansPhoto} sans photo</span>`
+        : (sansPhoto ? ` · ${sansPhoto} sans photo` : '');
+      trombiOut.innerHTML = `<p class="muted" style="margin:0 0 .5rem">${list.length} élève(s) · ${avecPhoto} photo(s)${missHint}</p>
+        <div id="trombiGrid" style="display:flex;flex-wrap:wrap;gap:.75rem">${ordered.map(t => {
+        const missing = !t.photo_key;
+        const boxStyle = missing
+          ? 'width:72px;height:72px;border:2px solid var(--warn,#b25000);background:#fff8eb;display:grid;place-items:center;font-size:.7rem;color:var(--warn,#b25000);overflow:hidden;box-shadow:0 0 0 1px rgba(178,80,0,.15)'
+          : 'width:72px;height:72px;border:1px solid var(--line);background:#eee;display:grid;place-items:center;font-size:.7rem;color:var(--muted);overflow:hidden';
+        const nameCls = missing && highlightMissing ? 'warn' : '';
+        return `<a href="/app/eleves/${esc(t.eleve_id)}" style="text-align:center;width:88px" title="${missing ? 'Photo manquante — ouvrir la fiche' : ''}">
+          <div data-photo="${t.photo_key ? esc(t.eleve_id) : ''}" style="${boxStyle}">${t.photo_key ? '…' : 'sans photo'}</div>
+          <div class="${nameCls}" style="font-size:.8rem;margin-top:.25rem">${esc(t.prenom)} ${esc(t.nom)}</div>
+        </a>`;
+      }).join('')}</div>`;
       const headers = {};
       if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
       for (const box of trombiOut.querySelectorAll('[data-photo]')) {
@@ -9026,7 +9177,10 @@ async function bindInscriptions() {
       if (annee) url += '&annee_scolaire=' + encodeURIComponent(annee);
       const list = await api(url);
       if (!list.length) {
-        insOut.innerHTML = '<p class="empty">Aucun dossier à cette étape.</p>';
+        insOut.innerHTML = emptyState(
+          'Aucun dossier à cette étape',
+          'Changez l’étape, l’année scolaire, ou consultez les compteurs du board global ci-dessus.',
+        );
         return;
       }
       for (const s of list) {
@@ -9068,7 +9222,7 @@ async function bindInscriptions() {
         counts[etape] = list.length;
         let body;
         if (!list.length) {
-          body = '<p class="empty">—</p>';
+          body = emptyState('File vide', `Aucune inscription en « ${etape} » pour cette année.`);
         } else {
           for (const s of list) {
             if (s.eleve_label) seedEleveLabel(s.eleve_id, s.eleve_label);
@@ -9110,6 +9264,7 @@ async function bindInscriptions() {
         }
         blocks.push(`<h3>${esc(etape)} <span class="pill">${list.length}</span></h3>` + body);
       }
+      const nInsTotal = etapes.reduce((s, et) => s + (counts[et] || 0), 0);
       if (statsBox) {
         statsBox.innerHTML = etapes.map(et =>
           `<button type="button" class="stat-tile bento-span-2 insStatTile" data-etape="${esc(et)}">
@@ -9122,7 +9277,12 @@ async function bindInscriptions() {
           };
         });
       }
-      insBoard.innerHTML = blocks.join('');
+      insBoard.innerHTML = nInsTotal === 0
+        ? emptyState(
+            'Aucun dossier en file d’inscription',
+            'Les compteurs par étape ci-dessus reflètent l’API — enregistrez un suivi élève ou chargez une file.',
+          )
+        : blocks.join('');
       insBoard.querySelectorAll('.insPick').forEach(btn => {
         btn.onclick = async () => {
           const eid = btn.getAttribute('data-eid');
@@ -11845,6 +12005,10 @@ async function bindVsJour() {
             body: JSON.stringify(body),
           });
           if (msg) msg.innerHTML = `<span class="ok">Sanction ${esc(d.statut)} · ${d.duree_minutes || '—'} min</span>`;
+          showEntToast(
+            `<strong>Sanction enregistrée</strong> · ${esc(d.statut)} — `
+            + `<a href="/app/eleves/${esc(id)}">Fiche élève</a>`,
+          );
         } catch (e) {
           if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
         }
@@ -12781,6 +12945,10 @@ async function bindAbsences() {
         body: JSON.stringify(body),
       });
       msg.innerHTML = `<span class="ok">Sanction ${esc(d.statut)} · ${d.duree_minutes || '—'} min</span>`;
+      showEntToast(
+        `<strong>Sanction enregistrée</strong> · ${esc(d.statut)} — `
+        + `<a href="/app/eleves/${esc(id)}">Fiche élève</a>`,
+      );
       await loadPoints();
       await loadIncSanHisto();
     } catch (e) {
@@ -14246,6 +14414,11 @@ function viewNotes() {
     </div>
     <div class="panel">
       <h3>Matières &amp; devoirs</h3>
+      <div class="row notes-classe-chips" style="margin:.25rem 0 .65rem;flex-wrap:wrap;gap:.35rem;align-items:center">
+        <span class="muted">Filtre classe</span>
+        <button type="button" class="pill notes-classe-chip primary" data-classe="4B" id="notesChip4B">4B</button>
+        <button type="button" class="pill notes-classe-chip" data-classe="" id="notesChipAll">Toutes</button>
+      </div>
       <div class="row">
         <label>Code <input id="matCode" value="MATH" style="width:5rem"/></label>
         <label>Libellé <input id="matLib" value="Mathématiques" style="width:10rem"/></label>
@@ -15017,6 +15190,42 @@ async function bindNotes() {
   const devPeriodeEl = document.getElementById('devPeriode');
   if (devClasseEl) devClasseEl.onchange = loadDevoirs;
   if (devPeriodeEl) devPeriodeEl.onchange = loadDevoirs;
+  function syncNotesClasseChips(classe) {
+    const cur = classe != null ? String(classe) : (document.getElementById('devClasse')?.value || '').trim();
+    document.querySelectorAll('.notes-classe-chip').forEach(chip => {
+      const want = chip.dataset.classe || '';
+      chip.classList.toggle('primary', want === cur);
+    });
+  }
+  function applyNotesClasseFilter(classe) {
+    const cl = (classe || '').trim();
+    const dc = document.getElementById('devClasse');
+    if (dc) dc.value = cl;
+    if (cl) {
+      ['expClasse', 'expEnClasse', 'ccClasse'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = cl;
+      });
+    }
+    syncNotesClasseChips(cl);
+  }
+  document.querySelectorAll('.notes-classe-chip').forEach(chip => {
+    chip.onclick = async () => {
+      applyNotesClasseFilter(chip.dataset.classe || '');
+      await loadDevoirs();
+      const msg = document.getElementById('notesQuickMsg');
+      const cl = (chip.dataset.classe || '').trim();
+      if (msg) {
+        msg.innerHTML = cl
+          ? `<span class="ok">Filtre <strong>${esc(cl)}</strong> — devoirs et champs classe.</span>`
+          : '<span class="muted">Toutes les classes (filtre devoirs levé).</span>';
+      }
+    };
+  });
+  if (devClasseEl) {
+    devClasseEl.addEventListener('change', () => syncNotesClasseChips());
+    syncNotesClasseChips(devClasseEl.value.trim() || '4B');
+  }
   document.getElementById('btnDevCreer').onclick = async () => {
     const msg = document.getElementById('matMsg');
     try {
@@ -18597,6 +18806,7 @@ async function bindFamilleOrientation() {
 function viewFacturesFamille() {
   return shell('/famille/factures', `
     <div class="bento" id="facFamStats"></div>
+    <div class="bento" id="facFamProgress" style="margin-bottom:.75rem"></div>
     <div class="panel" style="border-left:3px solid var(--accent,#c45c26)">
       <h2 style="margin-top:0">Payer sans friction</h2>
       <p class="muted" style="margin:0 0 .5rem">Le règlement carte en ligne arrive ensuite. Dès maintenant : <strong>mandat SEPA</strong> ci-dessous (prélèvement) — la compta enregistre les encaissements et vous recevez une <a href="/famille/quittances">quittance</a> automatique.</p>
@@ -18867,9 +19077,11 @@ async function bindFacturesFamille() {
       loadFacQuotient(),
     ]);
     const stats = document.getElementById('facFamStats');
+    const progress = document.getElementById('facFamProgress');
     const total = (list || []).reduce((s, f) => s + (f.total_centimes || 0), 0);
     const impayees = (list || []).filter(facFamImpayee);
     const resteTotal = (list || []).reduce((s, f) => s + facFamResteCentimes(f), 0);
+    const encaisseTotal = (list || []).reduce((s, f) => s + facFamEncaisseCentimes(f), 0);
     const nSoldees = (list || []).filter(f => f.statut === 'soldee').length;
     if (stats) {
       stats.innerHTML = `
@@ -18877,6 +19089,11 @@ async function bindFacturesFamille() {
         <div class="stat-tile bento-span-3"><strong class="${impayees.length ? 'warn' : ''}">${impayees.length}</strong><span>À régler</span></div>
         <div class="stat-tile bento-span-3"><strong class="${resteTotal ? 'warn' : ''}">${esc(euros(resteTotal))}</strong><span>Reste à payer</span></div>
         <a class="stat-tile bento-span-3" href="/famille/quittances"><strong>${nSoldees}</strong><span>Quittances · ${esc(euros(total))} facturé</span></a>`;
+    }
+    if (progress) {
+      progress.innerHTML = list.length
+        ? facFamProgressPanelHtml(encaisseTotal, total, resteTotal)
+        : '';
     }
     if (!list.length) {
       out.innerHTML = `<p class="empty">Aucune facture émise pour le moment.</p>`;
@@ -18912,7 +19129,7 @@ function viewMessages(base) {
     : (base.startsWith('/eleve') ? '/eleve/messages' : '/app/messages');
   const staff = base.startsWith('/app');
   return shell(active, `
-    ${!staff ? '<div id="famMsgPaiBanner"></div>' : ''}
+    ${base.startsWith('/famille') ? '<div id="famMsgPaiBanner"></div>' : ''}
     <div class="panel">
       <h2>Messages</h2>
       <p class="muted">Fils liés à un élève — badge orange = messages non lus. Ouvrir un fil marque la lecture.</p>
@@ -18970,7 +19187,9 @@ function viewMessages(base) {
 
 async function bindMessages(base) {
   let currentFil = null;
-  const staff = !base.startsWith('/famille');
+  const portalEleve = base.startsWith('/eleve');
+  const portalFam = base.startsWith('/famille');
+  const staff = !portalEleve && !portalFam;
   const filsOut = document.getElementById('filsOut');
   const filPanel = document.getElementById('filPanel');
 
@@ -19035,23 +19254,44 @@ async function bindMessages(base) {
       const qs = params.toString() ? ('?' + params.toString()) : '';
       const list = await api('/messages/fils' + qs);
       if (!list.length) {
-        filsOut.innerHTML = staff
-          ? `<p class="empty">Aucun fil pour le moment.</p>`
-          : `<p class="empty">Aucun échange pour le moment.</p>
+        if (portalEleve) {
+          filsOut.innerHTML = emptyState(
+            'Aucun message pour le moment',
+            'Écrivez au CPE ou à l’équipe éducative (cours, vie scolaire, orientation…).'
+          ) + `<button type="button" class="primary" id="btnEleveMsgEmptyCta" style="margin-top:.65rem">Écrire à l’établissement</button>`;
+          const ctaEleve = document.getElementById('btnEleveMsgEmptyCta');
+          if (ctaEleve) {
+            ctaEleve.onclick = () => {
+              const btn = document.getElementById('btnOuvrirFil');
+              if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              const sujet = document.getElementById('newFilSujet');
+              if (sujet && !sujet.value.trim()) sujet.value = 'Question élève';
+              const msg = document.getElementById('newFilMsg');
+              if (msg && msg.value === 'Bonjour,') {
+                msg.value = 'Bonjour, j’aimerais échanger avec l’établissement.';
+              }
+              if (btn) btn.focus({ preventScroll: true });
+            };
+          }
+        } else if (portalFam) {
+          filsOut.innerHTML = `<p class="empty">Aucun échange pour le moment.</p>
             <p class="muted" style="margin-top:.5rem">Utilisez le formulaire ci-dessus ou le bouton ci-dessous pour contacter l’établissement (vie scolaire, santé, scolarité…).</p>
             <button type="button" class="primary" id="btnFamMsgEmptyCta" style="margin-top:.5rem">Ouvrir un fil avec l’école</button>`;
-        const cta = document.getElementById('btnFamMsgEmptyCta');
-        if (cta) {
-          cta.onclick = () => {
-            const btn = document.getElementById('btnOuvrirFil');
-            if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            const sujet = document.getElementById('newFilSujet');
-            if (sujet && !sujet.value.trim()) sujet.value = 'Question famille';
-            const msg = document.getElementById('newFilMsg');
-            if (msg && msg.value === 'Bonjour,') {
-              msg.value = 'Bonjour, nous souhaitons échanger avec l’établissement.';
-            }
-          };
+          const cta = document.getElementById('btnFamMsgEmptyCta');
+          if (cta) {
+            cta.onclick = () => {
+              const btn = document.getElementById('btnOuvrirFil');
+              if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              const sujet = document.getElementById('newFilSujet');
+              if (sujet && !sujet.value.trim()) sujet.value = 'Question famille';
+              const msg = document.getElementById('newFilMsg');
+              if (msg && msg.value === 'Bonjour,') {
+                msg.value = 'Bonjour, nous souhaitons échanger avec l’établissement.';
+              }
+            };
+          }
+        } else {
+          filsOut.innerHTML = `<p class="empty">Aucun fil pour le moment.</p>`;
         }
         return;
       }
@@ -19288,7 +19528,7 @@ async function bindMessages(base) {
     }
   };
   if (staff) await loadModeles();
-  if (!staff) {
+  if (portalFam) {
     (async () => {
       const box = document.getElementById('famMsgPaiBanner');
       if (!box) return;
@@ -19321,6 +19561,7 @@ function bindShell() {
       try { if (STORE.token) await api('/auth/logout', { method: 'POST', body: '{}' }); } catch {}
       STORE.token = '';
       me = null;
+      famEnfantsCache = null;
       go('/login');
     };
   }
@@ -19338,6 +19579,26 @@ function bindShell() {
       go(a.getAttribute('href'));
     });
   });
+  if (isParent()) {
+    (async () => {
+      const bar = document.getElementById('famShellEnfantsBar');
+      if (!bar) return;
+      try {
+        const list = await fetchFamEnfants(false);
+        const html = famEnfantsBarHtml(list, path());
+        if (html) {
+          bar.innerHTML = html;
+          bar.style.display = '';
+        } else {
+          bar.innerHTML = '';
+          bar.style.display = 'none';
+        }
+      } catch {
+        bar.innerHTML = '';
+        bar.style.display = 'none';
+      }
+    })();
+  }
 }
 
 async function render() {

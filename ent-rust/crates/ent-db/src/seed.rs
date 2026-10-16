@@ -22,6 +22,7 @@ use domain_eleve::{
     PointerPresenceInternat,
     PrononcerSanction, PublierDocASigner, RepasActiviteKind, SaisirAppreciation, UpsertDossierPsy,
     UpsertFicheSante, UpsertInfoCompValeur, UpsertMenuCantine, UpsertPai, UpsertQuotientFoyer,
+    UpsertInscriptionSuivi,
 };
 use domain_eleve::Devoir;
 use ent_auth::{AuthError, Role};
@@ -706,9 +707,10 @@ impl PgEnt {
 
     /// Matières, notes, réinscription, santé, VS — journée non vide pour bots post-bootstrap.
     ///
-    /// Lots audit W-A (idempotents) : parent multi-enfants Weasley, factures Harry (reste à payer),
+    /// Lots audit W–Z (idempotents) : parent multi-enfants Weasley, factures Harry (reste à payer),
     /// dispense EPS + sorties permanentes, alerte CPE ouverte, cahier Potions 4B, quotient Harry,
-    /// internat Neville (INT requis), psy Harry, fil CPE→parent ; docs/PAI/carnet non signés.
+    /// internat Neville (INT requis), psy Harry, fil CPE→parent ; docs/PAI/carnet non signés ;
+    /// file inscription « pièces », outbox mail/SMS, diversité cast Hermione (note / absence / VS).
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -1787,6 +1789,49 @@ impl PgEnt {
                 eleves[ginny_idx].parent = molly_persona;
                 eleves[ginny_idx].foyer_id = molly_foyer;
             }
+
+            let enfants_molly = self
+                .mes_enfants_for_parent(etab, molly_user, Role::Parent.as_str())
+                .await?;
+            let ron_id = labo_eleve_prenom(eleves, "Ron").map(|r| r.id);
+            let mut ids_molly: Vec<Uuid> = enfants_molly.iter().map(|e| e.eleve.id).collect();
+            if let Some(rid) = ron_id {
+                if !ids_molly.iter().any(|id| *id == rid) {
+                    if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
+                        self.link_parent(CreateLien {
+                            etablissement_id: etab,
+                            eleve_id: rid,
+                            user_id: molly_user,
+                            foyer_id: Some(molly_foyer),
+                            lien: "mère".into(),
+                            peut_voir_notes: ron.peut_voir_notes,
+                            peut_voir_vs: ron.peut_voir_vs,
+                            peut_justifier_absence: ron.peut_justifier,
+                            peut_autoriser_sorties: ron.peut_justifier,
+                            est_payeur: true,
+                            part_paiement: Some(100),
+                        })
+                        .await?;
+                        ids_molly.push(rid);
+                    }
+                }
+                if !ids_molly.iter().any(|id| *id == ginny_id) {
+                    self.link_parent(CreateLien {
+                        etablissement_id: etab,
+                        eleve_id: ginny_id,
+                        user_id: molly_user,
+                        foyer_id: Some(molly_foyer),
+                        lien: "mère".into(),
+                        peut_voir_notes: ginny_notes,
+                        peut_voir_vs: ginny_vs,
+                        peut_justifier_absence: ginny_justif,
+                        peut_autoriser_sorties: ginny_justif,
+                        est_payeur: true,
+                        part_paiement: Some(100),
+                    })
+                    .await?;
+                }
+            }
         }
 
         // --- Dispense EPS Harry + autorisation sortie permanente (Lily)
@@ -2035,6 +2080,135 @@ impl PgEnt {
                 actor_user_id: cpe.user_id,
             })
             .await?;
+        }
+        if self.count_mails_kind(etab, "carnet").await? == 0 {
+            if let Some(psy) = psys.first() {
+                let _ = self
+                    .envoyer_courrier_orientation_psy_for_actor(
+                        etab,
+                        psy.user_id,
+                        Role::Psy.as_str(),
+                        harry.id,
+                    )
+                    .await;
+            }
+        }
+
+        // --- File admin inscriptions : 1 dossier à l'étape « pièces » (Cedric, sans toucher Harry)
+        const INSCRIPTION_FILE_ELEVE: &str = "Cedric";
+        const INSCRIPTION_FILE_COMMENT: &str = "Seed audit — dossier en attente de pièces (démo /inscriptions).";
+        if let Some(cedric) = labo_eleve_prenom(eleves, INSCRIPTION_FILE_ELEVE) {
+            let annee_insc = annee_scolaire_de(jour);
+            let deja = self
+                .get_inscription_suivi_for_actor(
+                    etab,
+                    administratif.user_id,
+                    role_admini,
+                    cedric.id,
+                    &annee_insc,
+                )
+                .await?;
+            if deja.is_none() {
+                self.upsert_inscription_suivi_for_actor(
+                    role_admini,
+                    UpsertInscriptionSuivi {
+                        etablissement_id: etab,
+                        eleve_id: cedric.id,
+                        annee_scolaire: annee_insc,
+                        etape: "pieces".into(),
+                        motif_code: Some("incomplet".into()),
+                        commentaire: INSCRIPTION_FILE_COMMENT.into(),
+                        actor_user_id: administratif.user_id,
+                    },
+                )
+                .await?;
+            }
+        }
+
+        // --- Cast Hermione : note T1, absence J-2 non justifiée, avertissement VS
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            const HERMIONE_NOTE_LIB: &str = "Interro Mathématiques lab (Hermione)";
+            if !self
+                .notes_for_eleve(etab, hermione.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(HERMIONE_NOTE_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: hermione.id,
+                    matiere_id: math.id,
+                    valeur: 18.5,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(HERMIONE_NOTE_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+
+            let absence_hermione = jour - Duration::days(2);
+            if !self
+                .eleve_est_absent(etab, hermione.id, absence_hermione)
+                .await?
+            {
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: hermione.id,
+                    debut: absence_hermione,
+                    fin: absence_hermione,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+
+            let sanctions_hermione = self
+                .list_sanctions_eleve_for_actor(
+                    etab,
+                    cpe.user_id,
+                    Role::Cpe.as_str(),
+                    hermione.id,
+                )
+                .await?;
+            const HERMIONE_SANCTION_NOTE: &str =
+                "Seed labo — avertissement Hermione (diversité cast VS).";
+            if !sanctions_hermione.iter().any(|s| {
+                sanction_types
+                    .iter()
+                    .any(|t| t.id == s.type_id && t.code.eq_ignore_ascii_case("avertissement"))
+            }) {
+                if let Some(typ) = sanction_types
+                    .iter()
+                    .find(|t| t.code.eq_ignore_ascii_case("avertissement"))
+                {
+                    let motif_id = sanction_motifs
+                        .iter()
+                        .find(|m| m.code.eq_ignore_ascii_case("devoirs"))
+                        .map(|m| m.id);
+                    self.prononcer_sanction(PrononcerSanction {
+                        etablissement_id: etab,
+                        eleve_id: hermione.id,
+                        type_id: typ.id,
+                        motif_id,
+                        incident_id: None,
+                        jour: jour - Duration::days(2),
+                        duree_minutes: None,
+                        note: Some(HERMIONE_SANCTION_NOTE.into()),
+                        actor_user_id: cpe.user_id,
+                    })
+                    .await?;
+                }
+            }
         }
 
         // --- Bulletin démo : période T0 fermée (T1 reste ouverte pour la saisie)
