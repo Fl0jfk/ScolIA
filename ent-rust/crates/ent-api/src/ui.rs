@@ -221,6 +221,35 @@ async function downloadPdf(path, fallbackName) {
   return downloadFile(path, fallbackName || 'document.pdf');
 }
 
+/** Enregistre un device push web : permission navigateur + token stable localStorage. */
+async function enableWebPush(appId, opts) {
+  opts = opts || {};
+  const platform = opts.platform || 'web';
+  let permission = 'default';
+  if (typeof Notification !== 'undefined' && Notification.requestPermission) {
+    permission = await Notification.requestPermission();
+  }
+  let token = '';
+  try { token = localStorage.getItem('ent_web_push_token') || ''; } catch {}
+  if (!token) {
+    token = 'web-' + ((me && me.user_id) || 'anon').toString().slice(0, 8) + '-' + Date.now().toString(36);
+    try { localStorage.setItem('ent_web_push_token', token); } catch {}
+  }
+  const d = await api('/devices/push', {
+    method: 'POST',
+    body: JSON.stringify({ platform, token, app_id: appId || 'ent-web' }),
+  });
+  if (permission === 'granted' && typeof Notification !== 'undefined') {
+    try {
+      new Notification('ENT — notifications actives', {
+        body: 'Vous serez alerté(e) pour absences, docs et factures (lab).',
+        tag: 'ent-push-ok',
+      });
+    } catch (_) { /* silencieux */ }
+  }
+  return { device: d, permission };
+}
+
 function hmSort(hm) {
   if (!hm) return 10000;
   const p = String(hm).split(':');
@@ -738,14 +767,11 @@ async function bindEleveHome() {
     btnPush.onclick = async () => {
       const msg = document.getElementById('eleveHomePushMsg');
       try {
-        const d = await api('/devices/push', {
-          method: 'POST',
-          body: JSON.stringify({
-            platform: (document.getElementById('eleveHomePushPlat') || {}).value || 'web',
-            token: 'lab-eleve-home-' + ((me && me.user_id) || 'x').toString().slice(0, 8),
-          }),
+        const r = await enableWebPush('ent-eleve', {
+          platform: (document.getElementById('eleveHomePushPlat') || {}).value || 'web',
         });
-        if (msg) msg.innerHTML = `<span class="ok">Notifications activées · ${esc(d.platform)}</span>`;
+        const okPerm = r.permission === 'granted' ? ' · permission OK' : (r.permission === 'denied' ? ' · permission refusée (device quand même enregistré)' : '');
+        if (msg) msg.innerHTML = `<span class="ok">Notifications activées · ${esc(r.device.platform)}${okPerm}</span>`;
         localStorage.setItem('ent_eleve_push_hide', '1');
         if (pushBanner) setTimeout(() => { pushBanner.style.display = 'none'; }, 1200);
       } catch (err) {
@@ -2667,19 +2693,23 @@ async function bindFamilleHome() {
     async function registerFamPush() {
       const msg = document.getElementById('famPushMsg');
       try {
-        const d = await api('/devices/push', {
-          method: 'POST',
-          body: JSON.stringify({
-            platform: (document.getElementById('famPushPlat') || {}).value || 'web',
-            token: ((document.getElementById('famPushToken') || {}).value || '').trim() || 'lab-famille-token',
-            app_id: 'ent-famille-lab',
-          }),
+        const manual = ((document.getElementById('famPushToken') || {}).value || '').trim();
+        if (manual && manual !== 'lab-famille-token') {
+          try { localStorage.setItem('ent_web_push_token', manual); } catch {}
+        }
+        const r = await enableWebPush('ent-famille', {
+          platform: (document.getElementById('famPushPlat') || {}).value || 'web',
         });
         try { localStorage.setItem('ent_fam_push_ok', '1'); } catch {}
         const banner = document.getElementById('famPushBanner');
         if (banner) banner.style.display = 'none';
-        if (msg) msg.innerHTML = `<span class="ok">Device ${esc(d.platform)} · ${esc(String(d.id || '').slice(0, 8))}</span>`;
-        return d;
+        const tokEl = document.getElementById('famPushToken');
+        if (tokEl) {
+          try { tokEl.value = localStorage.getItem('ent_web_push_token') || tokEl.value; } catch {}
+        }
+        const okPerm = r.permission === 'granted' ? ' · navigateur OK' : (r.permission === 'denied' ? ' · permission refusée' : '');
+        if (msg) msg.innerHTML = `<span class="ok">Device ${esc(r.device.platform)} · ${esc(String(r.device.id || '').slice(0, 8))}${okPerm}</span>`;
+        return r.device;
       } catch (err) {
         if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
         throw err;
