@@ -106,6 +106,8 @@ let entToastTimer = null;
 let notesDevoirsEmptyCedricRefresh = null;
 /** Rempli dans bindNotes — repère Cedric devoir CB-A sur tip « 0 devoir » (audit CB-D). */
 let notesDevoirsEmptyCedricCbRefresh = null;
+/** Rempli dans bindNotes — repère Cedric devoir CF-A sur tip « 0 devoir » (audit CF-D). */
+let notesDevoirsEmptyCedricCfRefresh = null;
 /** Rempli dans bindNotes — repère Cho sur tip « 0 devoir ». */
 let notesDevoirsEmptyChoRefresh = null;
 /** Rempli dans bindNotes — repère Cho note BZ-A sur tip « 0 devoir » (audit BZ-D). */
@@ -138,6 +140,8 @@ let notesDevoirsEmptySeamusRefresh = null;
 let notesDevoirsEmptySeamusBzRefresh = null;
 /** Rempli dans bindNotes — repère Seamus devoir CE-A sur tip « 0 devoir » (audit CE-D). */
 let notesDevoirsEmptySeamusCeRefresh = null;
+/** Rempli dans bindNotes — repère Neville note CF-A sur tip « 0 devoir » (audit CF-D). */
+let notesDevoirsEmptyNevilleCfRefresh = null;
 /** Rempli dans bindNotes — repère Luna note BX-A sur tip « 0 devoir » (audit BX-D). */
 let notesDevoirsEmptyLunaBxRefresh = null;
 /** Rempli dans bindNotes — repère Ginny devoir BX-A sur tip « 0 devoir » (audit BX-D). */
@@ -901,6 +905,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     && Number.isFinite(nMatiere) && nMatiere > 0 && nTot <= 0) {
     if (typeof notesDevoirsEmptyCedricRefresh === 'function') void notesDevoirsEmptyCedricRefresh();
     if (typeof notesDevoirsEmptyCedricCbRefresh === 'function') void notesDevoirsEmptyCedricCbRefresh();
+    if (typeof notesDevoirsEmptyCedricCfRefresh === 'function') void notesDevoirsEmptyCedricCfRefresh();
     if (typeof notesDevoirsEmptyChoRefresh === 'function') void notesDevoirsEmptyChoRefresh();
     if (typeof notesDevoirsEmptyChoBzRefresh === 'function') void notesDevoirsEmptyChoBzRefresh();
     if (typeof notesDevoirsEmptyChoCeRefresh === 'function') void notesDevoirsEmptyChoCeRefresh();
@@ -917,6 +922,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptySeamusRefresh === 'function') void notesDevoirsEmptySeamusRefresh();
     if (typeof notesDevoirsEmptySeamusBzRefresh === 'function') void notesDevoirsEmptySeamusBzRefresh();
     if (typeof notesDevoirsEmptySeamusCeRefresh === 'function') void notesDevoirsEmptySeamusCeRefresh();
+    if (typeof notesDevoirsEmptyNevilleCfRefresh === 'function') void notesDevoirsEmptyNevilleCfRefresh();
     if (typeof notesDevoirsEmptyLunaBxRefresh === 'function') void notesDevoirsEmptyLunaBxRefresh();
     if (typeof notesDevoirsEmptyGinnyRefresh === 'function') void notesDevoirsEmptyGinnyRefresh();
     if (typeof notesDevoirsEmptyLunaCcRefresh === 'function') void notesDevoirsEmptyLunaCcRefresh();
@@ -979,6 +985,11 @@ function findCedricBwDevoir(devoirs) {
 function findCedricCbDevoir(devoirs) {
   return (devoirs || []).find(d =>
     /cedric/i.test(String(d.titre || '')) && /CB-A/i.test(String(d.titre || '')));
+}
+
+function findCedricCfDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /cedric/i.test(String(d.titre || '')) && /CF-A/i.test(String(d.titre || '')));
 }
 
 function notesCedricDevoirGoActions() {
@@ -1077,6 +1088,52 @@ function bindNotesCedricCbDevoirGoTipGo(opts) {
     };
   }
   const list = document.getElementById('notesCedricCbDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesCedricDevoirGoActions();
+  }
+}
+
+/** /app/notes — repère devoir Cedric CF-A (0 devoir global ou liste filtrée vide). */
+function notesCedricCfDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.cedricCfDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Cedric CF-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Cedric Diggory</strong><span>Seed labo · 3C · devoir audit CF-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesCedricCfDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CF-A · 3C'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesCedricCfDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 3C</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesCedricCfDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesCedricCfDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.cedricCfDevoir && o.cedricCfDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.cedricCfDevoir);
+        return;
+      }
+      notesCedricDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Cedric CF-A';
+      }
+      if (!o.cedricCfDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesCedricCfDevoirListBtn');
   if (list) {
     list.onclick = () => notesCedricDevoirGoActions();
   }
@@ -2171,6 +2228,30 @@ function notesNevilleCbSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesNevilleCbSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasCbNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCbNote ? 'Repère Neville · Mathématiques CB-A' : 'Filtre 3C · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Neville Londubat (3C · note Histoire-Géo CF-A · audit CF-D). */
+function notesNevilleCfSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.nevilleId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '3C').trim());
+  const hasCfNote = !!o.hasCfNote;
+  const noteLbl = o.cfNoteLabel
+    ? esc(String(o.cfNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CF-A');
+  const noteStrong = hasCfNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Neville Londubat</strong><span>Seed labo · ${classe} · audit notes CF-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesNevilleCfSeedNotesBtn" data-neville-id="${esc(String(o.nevilleId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesNevilleCfSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasCfNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCfNote ? 'Repère Neville · Histoire-Géo CF-A' : 'Filtre 3C · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -4829,6 +4910,325 @@ function toastStaffCbcAction(kind, meta) {
     + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CB-C</p>`,
     6500,
   );
+}
+
+function isStaffHomeCfcFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && ['administratif', 'compta'].includes(role);
+}
+
+function staffHomeCfcPanelShell() {
+  return `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit communication &amp; personnel</h3>
+      <p class="muted" style="margin-top:0">Messagerie · outbox · annuaire adultes · RH — <span class="muted empty-state-hint" style="font-size:.72rem">CF-C</span>.</p>
+      <div id="homeStaffCfcTip" class="muted">Chargement…</div>
+    </div>`;
+}
+
+/** Accueil administratif / compta — messagerie · outbox · personnel · RH (audit UI CF-C). */
+function homeStaffCfcTipDenseHtml(meta) {
+  if (!isStaffHomeCfcFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cfcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CF-C</span>';
+  const filsList = o.fils || [];
+  const nMsg = Number(o.nMsg) || 0;
+  const { nActifs, nFilUnread, nHauteUnread } = msgStaffFilsStats(filsList);
+  const outN = Number(o.outboxN) || 0;
+  const nAdultes = Number(o.nAdultes) || 0;
+  const nRhVal = Number(o.nRhVal) || 0;
+  const msgTile = nMsg
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCfcMsgGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nMsg}</strong><span>Non lu(s) · ${nFilUnread} fil(s) · ${nActifs} actif(s) · ${cfcLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCfcMsgGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Boîte messagerie · à jour · ${jour}</span></button>`;
+  const prioTile = nHauteUnread
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCfcPrioGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nHauteUnread}</strong><span>Priorité haute · fils familles</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCfcPrioGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">—</strong><span>Aucune priorité haute · modèles OK</span></button>`;
+  const commsTile = outN
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCfcCommsGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${outN}</strong><span>Outbox mail / SMS · pending</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCfcCommsGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Notifications · outbox à jour</span></button>`;
+  const persTile = nAdultes
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCfcAdultesGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${nAdultes}</strong><span>Annuaire adultes · comptes staff</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCfcAdultesGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">→</strong><span>Personnel · provisionner compte</span></button>`;
+  const rhTile = nRhVal
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCfcRhGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nRhVal}</strong><span>Absence(s) RH · à valider</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCfcRhGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>RH agents · file à jour</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Comms staff · hors notes / VS</span></div>`;
+  return `<div class="bento" data-ui-audit="CF-C" style="margin:0 0 .55rem">
+    ${msgTile}${prioTile}${commsTile}${persTile}${rhTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffCfcTipActions(meta) {
+  const o = meta || {};
+  const msg = document.getElementById('homeCfcMsgGo');
+  if (msg) {
+    msg.onclick = () => {
+      toastStaffCfcAction('messages', o);
+      go('/app/messages');
+    };
+  }
+  const prio = document.getElementById('homeCfcPrioGo');
+  if (prio) {
+    prio.onclick = () => {
+      toastStaffCfcAction('prio', o);
+      go('/app/messages');
+    };
+  }
+  const comms = document.getElementById('homeCfcCommsGo');
+  if (comms) {
+    comms.onclick = () => {
+      toastStaffCfcAction('comms', o);
+      go('/app/comms');
+    };
+  }
+  const adultes = document.getElementById('homeCfcAdultesGo');
+  if (adultes) {
+    adultes.onclick = () => {
+      toastStaffCfcAction('adultes', o);
+      go('/app/adultes');
+    };
+  }
+  const rh = document.getElementById('homeCfcRhGo');
+  if (rh) {
+    rh.onclick = () => {
+      toastStaffCfcAction('rh', o);
+      go('/app/rh');
+    };
+  }
+}
+
+/** Toast bento — communication & personnel staff (routes existantes · audit CF-C). */
+function toastStaffCfcAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Communication & personnel';
+  let href = '/app/messages';
+  let tiles = '';
+  const nMsg = Number(o.nMsg) || 0;
+  const outN = Number(o.outboxN) || 0;
+  const nAdultes = Number(o.nAdultes) || 0;
+  const nRhVal = Number(o.nRhVal) || 0;
+  if (k === 'messages') {
+    href = '/app/messages';
+    title = nMsg ? 'Messagerie · non lus' : 'Messagerie · à jour';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nMsg ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nMsg ? 'warn' : 'ok'}">${nMsg}</strong><span>Fils familles / staff · marquer lu</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Modèles</strong><span>Convocations · placeholders élève</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Route /app/messages</span></div>`;
+  } else if (k === 'prio') {
+    href = '/app/messages';
+    const nHauteUnread = Number(o.nHauteUnread) || 0;
+    title = nHauteUnread ? 'Priorité haute · à traiter' : 'Priorité haute · lue(s)';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nHauteUnread ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${nHauteUnread ? 'warn' : 'muted'}">${nHauteUnread || '—'}</strong><span>Fil(s) marqué(s) urgent</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Archives</strong><span>Cocher pour historique complet</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Hors cockpit BY-C accueil</span></div>`;
+  } else if (k === 'comms') {
+    href = '/app/comms';
+    title = outN ? 'Outbox · envois pending' : 'Outbox · à jour';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${outN ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${outN ? 'warn' : 'ok'}">${outN}</strong><span>Mail + SMS · dry-run labo</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Établ.</strong><span>Même journal que onglet établissement</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Route /app/comms</span></div>`;
+  } else if (k === 'adultes') {
+    href = '/app/adultes';
+    title = nAdultes ? 'Annuaire adultes · comptes' : 'Personnel · provisionner';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nAdultes || '→'}</strong><span>GET /personnel/search · rôles</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Register</strong><span>POST /auth/register · labo</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Hors grants CA-C</span></div>`;
+  } else if (k === 'rh') {
+    href = '/app/rh';
+    title = nRhVal ? 'RH · absences à valider' : 'RH · circuit agents';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nRhVal ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nRhVal ? 'warn' : 'ok'}">${nRhVal}</strong><span>Validation direction / admin</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">VS</strong><span>Signalements · file séparée</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Route /app/rh</span></div>`;
+  } else if (k === 'page-messages') {
+    href = '/app/messages';
+    title = 'Module messagerie staff';
+    tiles = `<div class="stat-tile bento-span-4"><strong class="muted">Fil</strong><span>Ouvrir = marquer lu · pièces jointes</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Dossier</strong><span>Filtre élève / inscription</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Page /app/messages</span></div>`;
+  } else if (k === 'page-comms') {
+    href = '/app/comms';
+    title = 'Journal outbox staff';
+    tiles = `<div class="stat-tile bento-span-4"><strong class="muted">Pending</strong><span>Mail · SMS · statut sent</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Dry-run</strong><span>Aucun envoi réel labo</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Page /app/comms</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CF-C</p>`,
+    6500,
+  );
+}
+
+/** /app/messages staff — synthèse boîte interactive (audit UI CF-C). */
+function messagesStaffPageCfcTipDenseHtml(fils, opts) {
+  if (!isStaffMessagesFlux()) return '';
+  const o = opts || {};
+  const cfcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CF-C</span>';
+  const { nonLus, nFilUnread, nHaute, nHauteUnread, nArch, nActifs } = msgStaffFilsStats(fils);
+  const showArchives = !!o.showArchives;
+  const dossierRaw = o.dossierFilter ? String(o.dossierFilter).trim() : '';
+  const unreadTile = nonLus
+    ? `<button type="button" class="stat-tile bento-span-4" id="msgCfcUnreadGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nonLus}</strong><span>Non lu(s) · ${nFilUnread} fil(s) · ${cfcLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="msgCfcUnreadGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Boîte à jour · ${nActifs} fil(s) actif(s)</span></button>`;
+  const prioTile = nHaute
+    ? `<button type="button" class="stat-tile bento-span-4" id="msgCfcPrioGo" style="cursor:pointer;text-align:left;border-color:${nHauteUnread ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${nHauteUnread ? 'warn' : 'muted'}">${nHaute}</strong><span>Priorité haute · ${nHauteUnread ? nHauteUnread + ' non lu(s)' : 'lue(s)'}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="msgCfcPrioGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">—</strong><span>Aucune priorité haute</span></button>`;
+  const archTile = showArchives
+    ? `<button type="button" class="stat-tile bento-span-4" id="msgCfcArchGo" style="cursor:pointer;text-align:left;border-color:var(--muted,#64748b)">
+        <strong>${nArch}</strong><span>Archivé(s) affiché(s)${dossierRaw ? ' · filtre actif' : ''}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="msgCfcArchGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">${nArch || '0'}</strong><span>Archives masquées · cocher pour voir</span></button>`;
+  const commsTile = `<button type="button" class="stat-tile bento-span-4" id="msgCfcCommsGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Outbox</strong><span>Mail / SMS · /app/comms</span></button>`;
+  const persTile = `<button type="button" class="stat-tile bento-span-4" id="msgCfcAdultesGo" style="cursor:pointer;text-align:left">
+      <strong>Staff</strong><span>Annuaire adultes · comptes</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Messagerie · hors BY-C accueil</span></div>`;
+  return `<div class="bento" data-ui-audit="CF-C" style="margin:0 0 .55rem">
+    ${unreadTile}${prioTile}${archTile}${commsTile}${persTile}${auditTile}
+  </div>`;
+}
+
+function bindMessagesStaffPageCfcTipActions(fils, opts) {
+  const o = opts || {};
+  const stats = msgStaffFilsStats(fils);
+  const meta = {
+    jour: today(),
+    nMsg: stats.nonLus,
+    nHauteUnread: stats.nHauteUnread,
+    nActifs: stats.nActifs,
+    showArchives: !!o.showArchives,
+  };
+  const unread = document.getElementById('msgCfcUnreadGo');
+  if (unread) {
+    unread.onclick = () => {
+      toastStaffCfcAction('messages', meta);
+      const filsOut = document.getElementById('filsOut');
+      if (filsOut) filsOut.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const prio = document.getElementById('msgCfcPrioGo');
+  if (prio) {
+    prio.onclick = () => {
+      toastStaffCfcAction('prio', meta);
+      const filsOut = document.getElementById('filsOut');
+      if (filsOut) filsOut.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const arch = document.getElementById('msgCfcArchGo');
+  if (arch) {
+    arch.onclick = () => {
+      toastStaffCfcAction('page-messages', meta);
+      const chk = document.getElementById('chkArchives');
+      if (chk && !chk.checked) {
+        chk.checked = true;
+        chk.dispatchEvent(new Event('change', { bubbles: true }));
+      } else if (chk) {
+        chk.focus();
+      }
+    };
+  }
+  const comms = document.getElementById('msgCfcCommsGo');
+  if (comms) {
+    comms.onclick = () => {
+      toastStaffCfcAction('comms', meta);
+      go('/app/comms');
+    };
+  }
+  const adultes = document.getElementById('msgCfcAdultesGo');
+  if (adultes) {
+    adultes.onclick = () => {
+      toastStaffCfcAction('adultes', meta);
+      go('/app/adultes');
+    };
+  }
+}
+
+/** /app/comms staff — outbox interactive (audit UI CF-C). */
+function commsStaffPageCfcTipDenseHtml(mails, sms) {
+  if (!isStaffCommsFlux()) return '';
+  const cfcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CF-C</span>';
+  const nPending = countOutboxPending(mails) + countOutboxPending(sms);
+  const nDry = countOutboxDryRun(mails) + countOutboxDryRun(sms);
+  const nMail = (mails || []).length;
+  const nSms = (sms || []).length;
+  const pendingTile = `<button type="button" class="stat-tile bento-span-4" id="commsCfcPendingGo" style="cursor:pointer;text-align:left;border-color:${nPending ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nPending ? 'warn' : ''}">${nPending}</strong><span>Outbox pending · mail + SMS · ${cfcLbl}</span></button>`;
+  const mailTile = `<button type="button" class="stat-tile bento-span-4" id="commsCfcMailGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${nMail}</strong><span>Mails récents · GET /mails</span></button>`;
+  const smsTile = `<button type="button" class="stat-tile bento-span-4" id="commsCfcSmsGo" style="cursor:pointer;text-align:left">
+      <strong>${nSms}</strong><span>SMS · GET /sms</span></button>`;
+  const msgTile = `<button type="button" class="stat-tile bento-span-4" id="commsCfcMsgGo" style="cursor:pointer;text-align:left">
+      <strong>Fil</strong><span>Messagerie familles · /app/messages</span></button>`;
+  const dryTile = `<div class="stat-tile bento-span-4"><strong class="warn">${nDry}</strong><span><span class="pill warn">dry-run</span> labo</span></div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Notifications · hors exports CE-C</span></div>`;
+  return `<div class="bento" data-ui-audit="CF-C" style="margin:0 0 .55rem">
+    ${pendingTile}${mailTile}${smsTile}${msgTile}${dryTile}${auditTile}
+  </div>`;
+}
+
+function bindCommsStaffPageCfcTipActions(mails, sms) {
+  const nPending = countOutboxPending(mails) + countOutboxPending(sms);
+  const meta = { jour: today(), outboxN: nPending };
+  const pending = document.getElementById('commsCfcPendingGo');
+  if (pending) {
+    pending.onclick = () => {
+      toastStaffCfcAction('comms', meta);
+      const out = document.getElementById('commsOut');
+      if (out) out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const mailBtn = document.getElementById('commsCfcMailGo');
+  if (mailBtn) {
+    mailBtn.onclick = () => {
+      toastStaffCfcAction('page-comms', meta);
+      const btn = document.getElementById('btnCommsMails');
+      if (btn) btn.click();
+    };
+  }
+  const smsBtn = document.getElementById('commsCfcSmsGo');
+  if (smsBtn) {
+    smsBtn.onclick = () => {
+      toastStaffCfcAction('page-comms', meta);
+      const btn = document.getElementById('btnCommsSms');
+      if (btn) btn.click();
+    };
+  }
+  const msg = document.getElementById('commsCfcMsgGo');
+  if (msg) {
+    msg.onclick = () => {
+      toastStaffCfcAction('messages', meta);
+      go('/app/messages');
+    };
+  }
 }
 
 function isStaffHomeCccFlux() {
@@ -10185,12 +10585,14 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   </div>
   <div id="notesDevoirsEmptyCedricSlot"></div>
   <div id="notesDevoirsEmptyCedricCbSlot"></div>
+  <div id="notesDevoirsEmptyCedricCfSlot"></div>
   <div id="notesDevoirsEmptyChoSlot"></div>
   <div id="notesDevoirsEmptyChoBzSlot"></div>
   <div id="notesDevoirsEmptyChoCeSlot"></div>
   <div id="notesDevoirsEmptyHermioneSlot"></div>
   <div id="notesDevoirsEmptyHermioneBySlot"></div>
   <div id="notesDevoirsEmptyHermioneCdSlot"></div>
+  <div id="notesDevoirsEmptyNevilleCfSlot"></div>
   <div id="notesDevoirsEmptyDracoSlot"></div>
   <div id="notesDevoirsEmptyDracoCaSlot"></div>
   <div id="notesDevoirsEmptyRonSlot"></div>
@@ -14534,40 +14936,217 @@ function toastFamEnfantsSectionDeepDense(list, resumes, docsLists, paiList, absL
     nTodo ? 8500 : 7000,
   );
 }
-/** Page /famille/docs-signer — synthèse file à signer (bento). */
-function famDocsSignPageTipDenseHtml(opts) {
-  if (!isFamilleDocsSignerFlux()) return '';
+function famCfBDocsSignerPageHref() {
+  return '/famille/docs-signer';
+}
+
+function famDocsSignCollectCountsFromLists(docsLists) {
+  let nPending = 0;
+  let nCharte = 0;
+  let nReg = 0;
+  (docsLists || []).forEach(docs => {
+    (docs || []).forEach(d => {
+      if (!isFamDocPending(d)) return;
+      nPending += 1;
+      const k = famDocCodeKind(d.code);
+      if (k === 'charte') nCharte += 1;
+      else if (k === 'reglement') nReg += 1;
+    });
+  });
+  return { nPending, nCharte, nReg };
+}
+
+function bindFamHomeCfBTipGo() {
+  ['famDocsSignStats', 'famDocsSignPageTip', 'famHomeDocsSignCfBTip', 'entToast'].forEach(rootId => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('[data-fam-cf-go]').forEach(btn => {
+      if (btn.dataset.famCfBound === '1') return;
+      btn.dataset.famCfBound = '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-cf-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  });
+}
+
+/** Accueil famille — file docs à signer (bento) — audit UI CF-B. */
+function famHomeDocsSignCfBTipDenseHtml(list, docsLists) {
+  const pageHref = famCfBDocsSignerPageHref();
+  const kids = list || [];
+  if (!kids.length) return '';
+  const { nPending, nCharte, nReg } = famDocsSignCollectCountsFromLists(docsLists);
+  let firstEid = '';
+  let firstWho = 'Enfant';
+  kids.forEach((e, i) => {
+    if (firstEid) return;
+    const n = ((docsLists || [])[i] || []).filter(isFamDocPending).length;
+    if (n) {
+      firstEid = String(e.id);
+      firstWho = String(e.prenom || 'Enfant').trim();
+    }
+  });
+  const ficheHref = firstEid
+    ? `/famille/enfants/${esc(firstEid)}?section=docs`
+    : pageHref;
+  const pendingTile = nPending
+    ? `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-cf-go="${pageHref}">
+        <strong class="warn">${nPending}</strong><span>À signer · charte ${nCharte} · règl. ${nReg}</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)" data-fam-cf-go="${pageHref}">
+        <strong class="ok">OK</strong><span>File à signer à jour</span>
+      </a>`;
+  const ficheTile = firstEid
+    ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none" data-fam-cf-go="${ficheHref}">
+        <strong>${esc(firstWho)}</strong><span>Fiche · section docs</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="/famille/enfants" style="text-decoration:none" data-fam-cf-go="/famille/enfants">
+        <strong>${kids.length}</strong><span>Enfant(s) · dossiers</span>
+      </a>`;
+  const carnetTile = `<a class="stat-tile bento-span-4" href="/famille/enfants" style="text-decoration:none" data-fam-cf-go="/famille/enfants">
+      <strong>Carnet</strong><span>Prise de connaissance VS</span>
+    </a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CF-B</strong><span>Route ${pageHref}</span></div>`;
+  return `<div class="bento" data-ui-audit="CF-B" style="margin:0 0 .55rem">${pendingTile}${ficheTile}${carnetTile}${auditTile}</div>`;
+}
+
+/** Page /famille/docs-signer — bandeau stats (bento) — audit UI CF-B. */
+function famDocsSignStatsCfBDenseHtml(opts) {
   const o = opts || {};
   const nPending = Number(o.nPending) || 0;
-  if (!nPending) return '';
   const nCharte = Number(o.nCharte) || 0;
   const nReg = Number(o.nReg) || 0;
+  const nBul = Number(o.nBul) || 0;
+  const pageHref = famCfBDocsSignerPageHref();
+  const pendingTile = `<div class="stat-tile bento-span-3" style="border-color:${nPending ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+      <strong class="${nPending ? 'warn' : 'ok'}">${nPending}</strong><span>À signer</span>
+    </div>`;
+  const regTile = `<div class="stat-tile bento-span-3"><strong class="${nReg ? 'warn' : ''}">${nReg}</strong><span>Règlement</span></div>`;
+  const charteTile = `<div class="stat-tile bento-span-3"><strong class="${nCharte ? 'warn' : ''}">${nCharte}</strong><span>Charte</span></div>`;
+  const bulTile = `<a class="stat-tile bento-span-3" href="#famDocsSignBulOut" style="text-decoration:none" data-fam-cf-go="#famDocsSignBulOut">
+      <strong>${nBul}</strong><span>Bulletin(s)</span>
+    </a>`;
+  const auditTile = `<div class="stat-tile bento-span-3"><strong class="muted">CF-B</strong><span>${pageHref}</span></div>`;
+  return `${pendingTile}${regTile}${charteTile}${bulTile}${auditTile}`;
+}
+
+/** Page /famille/docs-signer — synthèse file à signer (bento) — audit UI CF-B. */
+function famDocsSignPageTipDenseHtml(opts) {
+  if (!isFamilleDocsSignerFlux() && !(opts && opts.forceShow)) return '';
+  const o = opts || {};
+  const nPending = Number(o.nPending) || 0;
+  if (!nPending && !o.forceShow) return '';
+  const nCharte = Number(o.nCharte) || 0;
+  const nReg = Number(o.nReg) || 0;
+  const nBul = Number(o.nBul) || 0;
   const filterId = o.filterId ? String(o.filterId).trim() : '';
   const firstPack = (o.packs || []).find(p => (p.docs || []).some(isFamDocPending));
   const enfant = firstPack && firstPack.enfant;
   const eid = enfant && enfant.id ? esc(String(enfant.id)) : '';
   const who = enfant && enfant.prenom ? esc(String(enfant.prenom).trim()) : 'Enfant';
-  const ficheHref = eid ? `/famille/enfants/${eid}?section=docs` : '/famille/docs-signer';
-  const scopeLbl = filterId && enfant
-    ? who
-    : 'Tous les enfants';
+  const pageHref = famCfBDocsSignerPageHref();
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=docs` : pageHref;
+  const scopeLbl = filterId && enfant ? who : 'Tous les enfants';
+  const pendingTile = nPending
+    ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-cf-go="${ficheHref}">
+        <strong class="warn">${nPending}</strong><span>À signer · ${scopeLbl}</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Rien en attente · ${scopeLbl}</span>
+      </div>`;
   const charteTile = nCharte
-    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+    ? `<a class="stat-tile bento-span-4" href="#famDocsSignOut" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-cf-go="#famDocsSignOut">
         <strong class="warn">${nCharte}</strong><span>Charte numérique</span>
-      </div>`
+      </a>`
     : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Charte</span></div>`;
   const regTile = nReg
-    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+    ? `<a class="stat-tile bento-span-4" href="#famDocsSignOut" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-cf-go="#famDocsSignOut">
         <strong class="warn">${nReg}</strong><span>Règlement intérieur</span>
-      </div>`
+      </a>`
     : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Règlement</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
-      <strong class="warn">${nPending}</strong><span>À signer · ${scopeLbl}</span>
-    </a>
-    ${charteTile}
-    ${regTile}
-  </div>`;
+  const bulTile = `<a class="stat-tile bento-span-4" href="#famDocsSignBulOut" style="text-decoration:none" data-fam-cf-go="#famDocsSignBulOut">
+      <strong>${nBul}</strong><span>Bulletin(s) publiés</span>
+    </a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CF-B</strong><span>GET …/docs-a-signer</span></div>`;
+  return `<div class="bento" data-ui-audit="CF-B" style="margin:0 0 .55rem">${pendingTile}${charteTile}${regTile}${bulTile}${auditTile}</div>`;
+}
+
+/** Page /famille/docs-signer — empty-state (famEmptyDense + tip) — audit UI CF-B. */
+function famDocsSignPageEmptyDenseHtml(opts) {
+  const o = opts || {};
+  const tip = famDocsSignPageTipDenseHtml({
+    nPending: 0,
+    nCharte: 0,
+    nReg: 0,
+    nBul: Number(o.nBul) || 0,
+    filterId: o.filterId || '',
+    packs: o.packs || [],
+    forceShow: true,
+  });
+  return `${tip}${famEmptyDense('Rien à signer', [
+    'Charte numérique, règlement intérieur et autres pièces VS apparaissent ici dès publication.',
+    'Le carnet de vie scolaire se signe sur la fiche enfant (section Carnet), pas dans cette file.',
+    'Audit UI CF-B — route /famille/docs-signer · GET /eleves/…/docs-a-signer.',
+  ], '<a href="/famille/enfants">Mes enfants</a> · <a href="/famille">Accueil</a>')}`;
+}
+
+/** Toast bento — page /famille/docs-signer ouverte — audit UI CF-B. */
+function toastFamDocsSignOuverte(opts) {
+  const o = opts || {};
+  const pageHref = famCfBDocsSignerPageHref();
+  const nPending = Number(o.nPending) || 0;
+  const tipHtml = famDocsSignPageTipDenseHtml({
+    nPending,
+    nCharte: Number(o.nCharte) || 0,
+    nReg: Number(o.nReg) || 0,
+    nBul: Number(o.nBul) || 0,
+    filterId: o.filterId || '',
+    packs: o.packs || [],
+    forceShow: true,
+  });
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Docs à signer</a> · `
+    + `<a href="#famDocsSignOut">File</a> · `
+    + `<a href="/famille/enfants">Mes enfants</a></p>`;
+  if (!isFamilleDocsSignerFlux() && !o.dense) {
+    showEntToast(
+      `<strong>Docs à signer</strong> — ${nPending ? nPending + ' en attente' : 'à jour'}. `
+      + `<a href="${pageHref}">Ouvrir la file</a>`,
+      6500,
+    );
+    return;
+  }
+  showEntToast(
+    `<strong>Docs à signer</strong> — ${nPending ? nPending + ' pièce(s) en attente' : 'file à jour'}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + foot,
+    nPending ? 9000 : 7500,
+  );
+  bindFamHomeCfBTipGo();
+}
+
+function maybeToastFamDocsSignOuverte(opts) {
+  if (!isParent() || !isFamilleDocsSignerFlux()) return;
+  const ssKey = 'ent_fam_docs_sign_page_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamDocsSignOuverte({ ...(opts || {}), dense: true });
 }
 /** /famille/docs-signer — toast bento après filtre enfant (select). */
 function toastFamDocsSignFilterUiDense(filterId, enfants, packs, opts) {
@@ -14602,19 +15181,25 @@ function toastFamDocsSignFilterUiDense(filterId, enfants, packs, opts) {
   nReg = Number(nReg) || 0;
   nBul = Number(nBul) || 0;
   const ficheHref = `/famille/enfants/${esc(fid)}?section=docs`;
-  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+  const tiles = `<div class="bento" data-ui-audit="CF-B" style="margin:0">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
       <strong>${who}</strong><span>${cls} · filtre actif</span>
     </div>
     <div class="stat-tile bento-span-4"><strong class="${nPending ? 'warn' : 'ok'}">${nPending}</strong><span>À signer · charte ${nCharte} · règl. ${nReg}</span></div>
-    <div class="stat-tile bento-span-4"><strong>${nBul}</strong><span>Bulletin(s) publiés</span></div>`;
+    <a class="stat-tile bento-span-4" href="#famDocsSignBulOut" style="text-decoration:none" data-fam-cf-go="#famDocsSignBulOut">
+      <strong>${nBul}</strong><span>Bulletin(s) publiés</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong class="muted">CF-B</strong><span>Filtre · docs à signer</span></div>
+  </div>`;
   showEntToast(
     `<strong>Filtre enfant</strong>`
-    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<div style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="${ficheHref}">Fiche · docs</a> · `
     + `<a href="#famDocsSignOut">File ci-dessous</a></p>`,
     nPending ? 7500 : 6000,
   );
+  bindFamHomeCfBTipGo();
 }
 function maybeToastFamDocsSignFilterFromUi(prevId, nextId, enfants, packs, opts) {
   if (prevId === nextId) return;
@@ -15450,22 +16035,25 @@ function toastFamDocSigne(titre, opts) {
   const charteFlux = isFamilleDocsSignerFlux();
   if (charteFlux && (kind === 'charte' || kind === 'reglement')) {
     const kindLbl = kind === 'charte' ? 'Charte' : 'Règlement';
+    const pageHref = famCfBDocsSignerPageHref();
     const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
         <strong class="ok">Signé</strong><span>${esc(kindLbl)} · prise en compte</span>
       </div>
       <div class="stat-tile bento-span-4"><strong>${t}</strong><span>Document${who}</span></div>
-      <a class="stat-tile bento-span-4" href="/famille/docs-signer" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-cf-go="${pageHref}">
         <strong>File</strong><span>Autres pièces à signer</span>
-      </a>`;
+      </a>
+      <div class="stat-tile bento-span-4"><strong class="muted">CF-B</strong><span>Signature · docs à signer</span></div>`;
     showEntToast(
       `<strong>${esc(kindLbl)} signée</strong>`
-      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + `<div class="bento" data-ui-audit="CF-B" style="margin:.4rem 0 0">${tiles}</div>`
       + `<p style="margin:.35rem 0 0;font-size:.85rem">`
-      + `<a href="/famille/docs-signer">Docs à signer</a>`
+      + `<a href="${pageHref}">Docs à signer</a>`
       + (eid ? ` · <a href="${docsHref}">Fiche enfant</a>` : '')
       + `<span class="muted"> — distinct du tiroir bulletins / pièces déposées.</span></p>`,
       9500,
     );
+    bindFamHomeCfBTipGo();
     return;
   }
   showEntToast(
@@ -21140,7 +21728,7 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; foyers</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>
       <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Absences agents</span></a>`;
-    homeExtra = staffHomeBxcPanelShell() + staffHomeBvcPanelShell();
+    homeExtra = staffHomeCfcPanelShell() + staffHomeBxcPanelShell() + staffHomeBvcPanelShell();
   } else if (role === 'infirmerie') {
     tiles = `
       <a class="stat-tile bento-span-4" href="/app/infirmerie"><strong>Infirmerie</strong><span>Passages, PAI, fiches</span></a>
@@ -21205,6 +21793,7 @@ function viewHome() {
       <p class="muted" style="margin-top:0">Docs à signer · annuaire · orientation · inscriptions — <span class="muted empty-state-hint" style="font-size:.72rem">BT-C</span>.</p>
       <div id="homeStaffCockpitTip" class="muted">Chargement…</div>
     </div>
+    ${staffHomeCfcPanelShell()}
     ${staffHomeBvcPanelShell()}`;
   } else if (role === 'admin') {
     homeTitle = 'Administration globale';
@@ -21844,6 +22433,26 @@ async function bindHome() {
     staffCecBox.innerHTML = homeStaffCecTipDenseHtml(cecMeta);
     bindHomeStaffCecTipActions(cecMeta);
   }
+  const staffCfcBox = document.getElementById('homeStaffCfcTip');
+  if (staffCfcBox && (role === 'administratif' || role === 'compta')) {
+    const { nHauteUnread: nHauteUnreadCfc } = msgStaffFilsStats(fils || []);
+    const [personnelCfc, outboxCfc] = await Promise.all([
+      settle(api('/personnel/search?q='), []),
+      settle(snapshotOutboxPending(), { show: false, n: 0 }),
+    ]);
+    const cfcMeta = {
+      jour,
+      role,
+      fils,
+      nMsg,
+      nHauteUnread: nHauteUnreadCfc,
+      outboxN: outboxCfc.n || 0,
+      nAdultes: (personnelCfc || []).length,
+      nRhVal: nRh,
+    };
+    staffCfcBox.innerHTML = homeStaffCfcTipDenseHtml(cfcMeta);
+    bindHomeStaffCfcTipActions(cfcMeta);
+  }
   const staffBvcBox = document.getElementById('homeStaffBvcTip');
   if (staffBvcBox && isStaffHomeBvcFlux()) {
     const [facList, vacList, jourFermeSnap] = await Promise.all([
@@ -22077,7 +22686,7 @@ async function bindHome() {
 /* ---------- Portail famille ---------- */
 function viewFamilleDocsSigner() {
   return shell('/famille/docs-signer', `
-    <div class="bento" id="famDocsSignStats"></div>
+    <div class="bento" id="famDocsSignStats" data-ui-audit="CF-B"></div>
     <div id="famDocsSignPageTip" style="display:none;margin:0 0 .65rem"></div>
     <div id="famDocsSignBar" style="margin-bottom:.65rem"></div>
     <div class="panel">
@@ -22129,9 +22738,18 @@ async function bindFamilleDocsSigner() {
       const pageTipEmpty = document.getElementById('famDocsSignPageTip');
       if (pageTipEmpty) { pageTipEmpty.style.display = 'none'; pageTipEmpty.innerHTML = ''; }
       if (bulOut) {
-        bulOut.innerHTML = famEmptyDense('Aucun enfant lié', [
+        const pageHref = famCfBDocsSignerPageHref();
+        bulOut.innerHTML = `<div class="bento" data-ui-audit="CF-B" style="margin:0 0 .55rem">
+          <div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Enfant lié · file docs</span></div>
+          <a class="stat-tile bento-span-4" href="/famille" style="text-decoration:none" data-fam-cf-go="/famille">
+            <strong>Accueil</strong><span>Portail famille</span>
+          </a>
+          <div class="stat-tile bento-span-4"><strong class="muted">CF-B</strong><span>Route ${pageHref}</span></div>
+        </div>${famEmptyDense('Aucun enfant lié', [
           'Connectez-vous avec un compte parent rattaché à un élève.',
-        ], '<a href="/famille">Accueil</a>');
+          'Audit UI CF-B — route /famille/docs-signer · compte parent requis.',
+        ], '<a href="/famille">Accueil</a>')}`;
+        bindFamHomeCfBTipGo();
       }
       if (out) out.innerHTML = '';
       return;
@@ -22177,20 +22795,24 @@ async function bindFamilleDocsSigner() {
         bulletins.forEach(b => allBul.push({ enfant: p.enfant, doc: b }));
       });
       if (stats) {
-        stats.innerHTML = `
-          <div class="stat-tile bento-span-3"><strong class="${nPending ? 'warn' : 'ok'}">${nPending}</strong><span>À signer</span></div>
-          <div class="stat-tile bento-span-3"><strong class="${nReg ? 'warn' : ''}">${nReg}</strong><span>Règlement</span></div>
-          <div class="stat-tile bento-span-3"><strong class="${nCharte ? 'warn' : ''}">${nCharte}</strong><span>Charte</span></div>
-          <div class="stat-tile bento-span-3"><strong>${nBul}</strong><span>Bulletin(s)</span></div>`;
+        stats.innerHTML = famDocsSignStatsCfBDenseHtml({
+          nPending,
+          nCharte,
+          nReg,
+          nBul,
+        });
       }
+      bindFamHomeCfBTipGo();
       const pageTip = document.getElementById('famDocsSignPageTip');
       if (pageTip) {
         const denseTip = famDocsSignPageTipDenseHtml({
           nPending,
           nCharte,
           nReg,
+          nBul,
           filterId,
           packs,
+          forceShow: !nPending,
         });
         if (denseTip) {
           pageTip.style.display = '';
@@ -22200,6 +22822,15 @@ async function bindFamilleDocsSigner() {
           pageTip.innerHTML = '';
         }
       }
+      bindFamHomeCfBTipGo();
+      maybeToastFamDocsSignOuverte({
+        nPending,
+        nCharte,
+        nReg,
+        nBul,
+        filterId,
+        packs,
+      });
       maybeToastFamDocsSignFilterFromUi(docsSignFilterPrev, filterId, enfants, packs, {
         nPending,
         nCharte,
@@ -22241,11 +22872,12 @@ async function bindFamilleDocsSigner() {
         }
       }
       if (!nPending) {
-        out.innerHTML = famEmptyDense('Rien à signer', [
-          'Charte numérique, règlement intérieur et autres pièces VS apparaissent ici dès publication.',
-          'Le carnet de vie scolaire se signe sur la fiche enfant (section Carnet), pas dans cette file.',
-          'Portail famille BS-B — docs + carnet + fiches enfants restent liés.',
-        ], '<a href="/famille/enfants">Mes enfants</a> · <a href="/famille">Accueil</a>');
+        out.innerHTML = famDocsSignPageEmptyDenseHtml({
+          nBul,
+          filterId,
+          packs,
+        });
+        bindFamHomeCfBTipGo();
         return;
       }
       if (filterId && packs.length === 1) {
@@ -22283,6 +22915,7 @@ function viewFamilleHome() {
   return shell('/famille', `
     <div id="famPushBanner" class="panel" style="display:none;margin-bottom:.75rem;border-left:3px solid var(--accent,#c45c26);padding:.65rem .85rem"></div>
     <div id="famDocsCta" style="display:none"></div>
+    <div id="famHomeDocsSignCfBTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="bento" id="famPulse"></div>
     <div id="famHomeFacturesTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeCarnetTip" style="display:none;margin:-.25rem 0 .65rem"></div>
@@ -22880,6 +23513,18 @@ async function bindFamilleHome() {
       quitCeBTip.style.display = '';
       quitCeBTip.innerHTML = famHomeQuittancesCeBTipDenseHtml(quittancesFam || [], resteFacturesTotal);
       bindFamHomeCeBTipGo();
+    }
+    const docsCfBTip = document.getElementById('famHomeDocsSignCfBTip');
+    if (docsCfBTip) {
+      const denseDocsCfB = famHomeDocsSignCfBTipDenseHtml(list, docsLists);
+      if (denseDocsCfB) {
+        docsCfBTip.style.display = '';
+        docsCfBTip.innerHTML = denseDocsCfB;
+        bindFamHomeCfBTipGo();
+      } else {
+        docsCfBTip.style.display = 'none';
+        docsCfBTip.innerHTML = '';
+      }
     }
     const reinscTip = document.getElementById('famHomeReinscTip');
     if (reinscTip) {
@@ -30235,7 +30880,8 @@ async function bindComms() {
   const pageTip = document.getElementById('commsPageTip');
   function refreshCommsPageTip(mails, sms) {
     if (!pageTip) return;
-    pageTip.innerHTML = commsOutboxPageTipDenseHtml(mails, sms);
+    pageTip.innerHTML = commsStaffPageCfcTipDenseHtml(mails, sms);
+    bindCommsStaffPageCfcTipActions(mails, sms);
   }
   function commsEmptyHint(kind) {
     if (kind === 'sms') {
@@ -36153,6 +36799,7 @@ function viewNotes() {
     <div id="notesChoCeSeedTip"></div>
     <div id="notesNevilleSeedTip"></div>
     <div id="notesNevilleCbSeedTip"></div>
+    <div id="notesNevilleCfSeedTip"></div>
     <div class="panel" id="notesQuickLab" style="margin-bottom:.75rem">
       <div class="row" style="margin:0;align-items:flex-start">
         <p class="muted" style="margin:0;flex:1">Raccourci labo — ouvrir la grille de saisie <strong>4B · Potions</strong> (créneau du jour ou devoir seed).</p>
@@ -36497,6 +37144,7 @@ async function bindNotes() {
       await refreshNotesChoCeSeedTip(devoirsPref);
       await refreshNotesNevilleSeedTip(devoirsPref);
       await refreshNotesNevilleCbSeedTip(devoirsPref);
+      await refreshNotesNevilleCfSeedTip(devoirsPref);
       box.innerHTML = `
         <div class="stat-tile bento-span-3"><strong>${nPer}</strong><span>Périodes · ${nPart} partielles</span></div>
         <div class="stat-tile bento-span-3"><strong>${nOuv}</strong><span>Ouvertes</span></div>
@@ -37101,6 +37749,31 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyCedricCbRefresh = refreshNotesDevoirsEmptyCedricCbSlot;
+  async function refreshNotesDevoirsEmptyCedricCfSlot() {
+    const el = document.getElementById('notesDevoirsEmptyCedricCfSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const cedricCfDevoir = findCedricCfDevoir(devoirs);
+      el.innerHTML = notesCedricCfDevoirGoTipDenseHtml({ cedricCfDevoir: cedricCfDevoir || null });
+      bindNotesCedricCfDevoirGoTipGo({
+        cedricCfDevoir: cedricCfDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyCedricCfRefresh = refreshNotesDevoirsEmptyCedricCfSlot;
   async function refreshNotesDevoirsEmptyChoSlot() {
     const el = document.getElementById('notesDevoirsEmptyChoSlot');
     if (!el) return;
@@ -37377,6 +38050,52 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyHermioneCdRefresh = refreshNotesDevoirsEmptyHermioneCdSlot;
+  async function refreshNotesDevoirsEmptyNevilleCfSlot() {
+    const el = document.getElementById('notesDevoirsEmptyNevilleCfSlot');
+    if (!el) return;
+    try {
+      const nevilleId = await resolveNevilleLondubatEleveId();
+      if (!nevilleId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '3C';
+      try {
+        const eleve = await api('/eleves/' + nevilleId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 3C */ }
+      const meta = await nevilleCfNoteMetaFromApi(nevilleId);
+      el.innerHTML = notesNevilleCfSeedTipDenseHtml({
+        nevilleId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesNevilleCfSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.nevilleId || nevilleId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Neville');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesNevilleCfSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip3C');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '3C';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyNevilleCfRefresh = refreshNotesDevoirsEmptyNevilleCfSlot;
   async function refreshNotesDevoirsEmptyDracoSlot() {
     const el = document.getElementById('notesDevoirsEmptyDracoSlot');
     if (!el) return;
@@ -37965,7 +38684,7 @@ async function bindNotes() {
       nNotes = (notes || []).length;
       const bwNote = (notes || []).find(n => {
         const lib = String(n.libelle || '');
-        if (/CB-A/i.test(lib)) return false;
+        if (/CB-A/i.test(lib) || /CF-A/i.test(lib)) return false;
         return /BW-A/i.test(lib)
           || (/neville/i.test(lib) && /math/i.test(String(n.matiere_libelle || n.matiere || '')));
       });
@@ -37996,6 +38715,23 @@ async function bindNotes() {
       nNotes = 0;
     }
     return { nNotes, cbNoteLabel, hasCbNote };
+  }
+  async function nevilleCfNoteMetaFromApi(nevilleId) {
+    let nNotes = 0;
+    let cfNoteLabel = '';
+    let hasCfNote = false;
+    try {
+      const notes = await api('/eleves/' + nevilleId + '/notes');
+      nNotes = (notes || []).length;
+      const cfNote = (notes || []).find(n => /CF-A/i.test(String(n.libelle || '')));
+      if (cfNote) {
+        hasCfNote = true;
+        if (cfNote.libelle) cfNoteLabel = String(cfNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, cfNoteLabel, hasCfNote };
   }
   async function lunaBsNoteMetaFromApi(lunaId) {
     let nNotes = 0;
@@ -38446,6 +39182,52 @@ async function bindNotes() {
         };
       }
       const btnCl = document.getElementById('notesNevilleCbSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip3C');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '3C';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesNevilleCfSeedTip(_devoirsPref) {
+    const el = document.getElementById('notesNevilleCfSeedTip');
+    if (!el) return;
+    try {
+      const nevilleId = await resolveNevilleLondubatEleveId();
+      if (!nevilleId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '3C';
+      try {
+        const eleve = await api('/eleves/' + nevilleId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 3C */ }
+      const meta = await nevilleCfNoteMetaFromApi(nevilleId);
+      el.innerHTML = notesNevilleCfSeedTipDenseHtml({
+        nevilleId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesNevilleCfSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.nevilleId || nevilleId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Neville');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesNevilleCfSeedClasseBtn');
       if (btnCl) {
         btnCl.onclick = () => {
           const chip = document.getElementById('notesChip3C');
@@ -43868,10 +44650,12 @@ async function bindMessages(base) {
             messagesHref: portalEleve ? '/eleve/messages' : '/famille/messages',
           });
         } else if (staff) {
-          pageTip.innerHTML = messagesPageStaffTipDenseHtml(list, {
+          const msgOpts = {
             showArchives: !!(chk && chk.checked),
             dossierFilter: dos && dos.value.trim() ? dos.value.trim() : '',
-          });
+          };
+          pageTip.innerHTML = messagesStaffPageCfcTipDenseHtml(list, msgOpts);
+          bindMessagesStaffPageCfcTipActions(list, msgOpts);
         }
       }
       if (!list.length) {
