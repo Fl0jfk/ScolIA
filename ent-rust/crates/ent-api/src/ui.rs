@@ -197,6 +197,16 @@ function toastNoteSaisie(n, eleveLabel) {
   );
 }
 
+function toastDevoirCree(d) {
+  const titre = esc(String((d && d.titre) || 'Devoir').trim() || 'Devoir');
+  const date = d && d.date_devoir ? ` · ${esc(String(d.date_devoir))}` : '';
+  const cl = d && d.classe ? ` · ${esc(String(d.classe))}` : '';
+  showEntToast(
+    `<strong>Devoir créé</strong> — ${titre}${date}${cl}. Prêt pour la saisie des notes.`,
+    8000,
+  );
+}
+
 function toastNotePeriodeFermee(p) {
   const label = esc(notePeriodeFermeeLabel(p));
   showEntToast(
@@ -979,6 +989,26 @@ function famEnfantsBarHtml(list, activePath) {
     }).join('')}
   </div>`;
 }
+/** Accueil famille — Molly (2+ enfants) : tuiles prénom + classe bien visibles. */
+function famHomeEnfantsHighlightHtml(list) {
+  if (!list || list.length < 2) return '';
+  const span = list.length === 2 ? 6 : (list.length === 3 ? 4 : 3);
+  return `<div class="bento" style="margin-bottom:.65rem">${list.map(e => {
+    const cls = String(e.classe || '').trim();
+    const clsHtml = cls
+      ? `<span class="pill warn" style="font-weight:700;letter-spacing:.02em">${esc(cls)}</span>`
+      : '<span class="muted">Classe à confirmer</span>';
+    return `<a class="stat-tile bento-span-${span}" href="/famille/enfants/${esc(e.id)}">
+      <strong>${esc(e.prenom)} ${esc(e.nom)}</strong>
+      <span style="margin-top:.2rem;display:block">${clsHtml}</span>
+    </a>`;
+  }).join('')}</div>`;
+}
+function toastPaiSigneFamille(prenom, motif) {
+  const who = esc(String(prenom || '').trim() || 'Enfant');
+  const m = motif ? ` · ${esc(String(motif).trim())}` : '';
+  showEntToast(`<strong>PAI signé</strong> — ${who}${m}. Prise de connaissance enregistrée.`, 8000);
+}
 function isFamDocPending(d) {
   if (!d) return false;
   const st = String(d.statut || '').toLowerCase();
@@ -1476,6 +1506,40 @@ function linkActive(active, href) {
 
 function navLink(active, href, label) {
   return `<a href="${href}" class="side-link${linkActive(active, href) ? ' active' : ''}">${label}</a>`;
+}
+
+async function refreshNavMsgBadgeFor(href, roleGuard) {
+  if (!roleGuard()) return;
+  const link = document.querySelector('.side-nav a[href="' + href + '"]');
+  if (!link) return;
+  try {
+    const fils = await api('/messages/fils');
+    const n = (fils || []).reduce((s, f) => s + (Number(f.nb_non_lus) || 0), 0);
+    let badge = link.querySelector('.nav-msg-badge');
+    if (n > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'pill-unread nav-msg-badge';
+        link.appendChild(document.createTextNode(' '));
+        link.appendChild(badge);
+      }
+      badge.textContent = String(n);
+      link.setAttribute('aria-label', `Messages, ${n} non lu(s)`);
+    } else {
+      if (badge) badge.remove();
+      link.removeAttribute('aria-label');
+    }
+  } catch {
+    /* hors ligne / API indisponible */
+  }
+}
+/** Badge non lus sur l’entrée Messages (sidebar portail élève). */
+async function refreshEleveNavMsgBadge() {
+  await refreshNavMsgBadgeFor('/eleve/messages', isEleve);
+}
+/** Badge non lus sur l’entrée Messages (sidebar portail famille). */
+async function refreshFamilleNavMsgBadge() {
+  await refreshNavMsgBadgeFor('/famille/messages', isParent);
 }
 
 function navGroup(active, label, items) {
@@ -3066,24 +3130,17 @@ async function bindEleveRepas() {
           <div class="stat-tile bento-span-4"><strong>${(menus || []).filter(m => m.publie).length}</strong><span>Menus publiés</span></div>`;
       }
       out.innerHTML = !list.length
-        ? '<p class="empty">Aucun passage sur la période.</p>'
+        ? famRepasPassagesEmptyHtml('', debut.value, fin.value)
         : `<table><thead><tr><th>Jour</th><th>Badge</th><th>Source</th></tr></thead>
            <tbody>${list.map(p => `<tr>
              <td>${esc(p.jour)}</td>
-             <td>${esc(p.badge_lu || '—')}</td>
+             <td><span class="pill-unread">${esc(p.badge_lu || '—')}</span></td>
              <td><span class="pill">${esc(p.source || '—')}</span></td>
-           </tr>`).join('')}</tbody></table>`;
+           </tr>`).join('')}</tbody></table>`
+          + `<p class="muted" style="margin-top:.45rem">${list.length} passage(s) badge · période ${esc(debut.value.slice(5))} → ${esc(fin.value.slice(5))}</p>`;
       if (menusOut) {
         const publies = (menus || []).filter(m => m.publie);
-        menusOut.innerHTML = publies.length
-          ? `<table><thead><tr><th>Jour</th><th>Entrée</th><th>Plat</th><th>Dessert</th></tr></thead>
-             <tbody>${publies.map(m => `<tr>
-               <td>${esc(m.jour)}</td>
-               <td>${esc(m.entree || '—')}</td>
-               <td><strong>${esc(m.plat || '—')}</strong></td>
-               <td>${esc(m.dessert || '—')}</td>
-             </tr>`).join('')}</tbody></table>`
-          : '<p class="empty">Aucun menu publié.</p>';
+        menusOut.innerHTML = famRepasMenusDenseHtml(publies);
       }
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -3116,7 +3173,10 @@ async function bindEleveRepas() {
       const list = await api('/eleves/' + eid + '/repas/dispenses');
       const actives = (list || []).filter(d => !d.annulee);
       dispOut.innerHTML = !actives.length
-        ? '<p class="empty">Aucune dispense active.</p>'
+        ? famEmptyDense('Aucune dispense active', [
+            'Déclarez une prévenance pour un jour sans cantine (non facturé).',
+            'Une grille repas active est requise — contactez l’établissement si la liste activité est vide.',
+          ], '')
         : `<table><thead><tr><th>Jour</th><th>Motif</th><th>Source</th><th></th></tr></thead>
            <tbody>${actives.map(d => `<tr>
              <td>${esc(d.jour)}</td>
@@ -3322,7 +3382,10 @@ async function bindEleveNotes() {
       ? `<p class="muted">${esc(p.libelle)}</p><ul>${moy.map(m =>
           `<li>${esc(m.matiere_libelle || 'Matière')} — ${Number(m.moyenne_sur_20).toFixed(1)} / 20</li>`
         ).join('')}</ul>`
-      : emptyState('Pas encore de moyenne', p.libelle);
+      : famEmptyDense('Pas encore de moyenne', [
+          `Période ${esc(p.libelle || '')} — les moyennes apparaissent dès que vos professeurs ont saisi des notes.`,
+          'Elles sont recalculées après chaque devoir noté (coef pris en compte).',
+        ], '<a href="/eleve/cahier">Cahier de texte</a>');
     const apps = await api('/eleves/' + eid + '/appreciations?periode_id=' + encodeURIComponent(p.id));
     appOut.innerHTML = apps.length
       ? `<ul>${apps.map(a =>
@@ -3733,6 +3796,7 @@ async function bindHome() {
   const campOuverte = !!(campN1 && (campN1.ouverte === true || campN1.ouverte === 1));
   const campLabel = campN1 && campN1.annee_cible ? String(campN1.annee_cible) : 'N+1';
   const nAlert = (alertes || []).length;
+  const nAlertUrgent = (alertes || []).filter(a => a.severite === 'urgent').length;
   const nSort = (sorties || []).filter(d => {
     const s = String(d.statut || '');
     return s === 'en_attente' || s === 'demandee' || s === 'ouverte' || s === 'soumise';
@@ -3813,7 +3877,8 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/editions"><strong>·</strong><span>Éditions VS</span></a>
         <a class="stat-tile bento-span-2" href="/app/inscriptions"><strong>${nIns}</strong><span>Inscrip. actives</span></a>
         <a class="stat-tile bento-span-2" href="/app/reinscription"><strong>${campOuverte ? 'ON' : '—'}</strong><span>Campagne ${esc(campLabel)}</span></a>
-        <a class="stat-tile bento-span-2" href="/app/alertes"><strong class="${nAlert ? 'warn' : ''}">${nAlert}</strong><span>Alertes CPE</span></a>
+        <a class="stat-tile bento-span-2" href="/app/alertes?sev=urgent"><strong class="${nAlertUrgent ? 'warn' : ''}">${nAlertUrgent}</strong><span>Alertes urgentes</span></a>
+        <a class="stat-tile bento-span-2" href="/app/alertes"><strong class="${nAlert ? 'warn' : ''}">${nAlert}</strong><span>Alertes CPE (toutes)</span></a>
         <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>`;
       const dirReinscTile = document.getElementById('homeDirReinscTile');
       if (dirReinscTile) {
@@ -3910,6 +3975,7 @@ async function bindHome() {
       <a class="stat-tile bento-span-3" href="/app/absences#absIncSanPanel"><strong class="${nSanJour4b ? 'warn' : ''}">${nSanJour4b != null ? nSanJour4b : '—'}</strong><span>Sanctions du jour (4B)</span></a>
       <a class="stat-tile bento-span-3" href="/app/editions"><strong>·</strong><span>Éditions VS · convocs</span></a>
       <a class="stat-tile bento-span-3" href="/app/absences"><strong>${tauxHint != null ? tauxHint + '%' : '—'}</strong><span>Proxy absentéisme 4B</span></a>
+      <a class="stat-tile bento-span-3" href="/app/alertes?sev=urgent"><strong class="${nAlertUrgent ? 'warn' : ''}">${nAlertUrgent}</strong><span>Alertes urgentes</span></a>
       <a class="stat-tile bento-span-3" href="/app/alertes"><strong class="${nAlert ? 'warn' : ''}">${nAlert}</strong><span>Alertes CPE ouvertes</span></a>
       ${lsunPer
         ? `<button type="button" class="stat-tile bento-span-3" id="homeDirLsun4b"><strong>LSUN 4B</strong><span>Export · période ${lsunPerCode}</span></button>`
@@ -4278,7 +4344,8 @@ async function bindFamilleHome() {
         + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas)).catch(() => []))),
     ]);
     const nRepasJour = (repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
-    const impayees = (facs || []).filter(facFamImpayee);
+    const impayees = (facs || []).filter(facFamImpayee)
+      .sort((a, b) => facFamResteCentimes(b) - facFamResteCentimes(a));
     const nImpayees = impayees.length;
     const resteFacturesTotal = (facs || []).reduce((s, f) => s + facFamResteCentimes(f), 0);
     let nAbs = 0, nCarnet = 0, nDocs = 0, nPai = 0, nCom = 0;
@@ -4307,9 +4374,12 @@ async function bindFamilleHome() {
       if (comPending) {
         lines.push(`<li><a href="/famille/vie-scolaire">${esc(e.prenom)} — ${comPending} commission(s) en cours</a></li>`);
       }
+      const clsCell = e.classe
+        ? `<span class="pill warn" style="font-weight:700">${esc(e.classe)}</span>`
+        : '—';
       return `<tr>
         <td><strong>${esc(e.prenom)} ${esc(e.nom)}</strong></td>
-        <td>${esc(e.classe || '—')}</td>
+        <td>${clsCell}</td>
         <td>${esc(e.lien)}${famLienDroitsBadgeHtml(e)}</td>
         <td>
           ${abs ? `<span class="pill-unread">${abs} abs</span> ` : ''}
@@ -4404,7 +4474,7 @@ async function bindFamilleHome() {
         reinsNav.style.display = 'none';
       }
     }
-    out.innerHTML = `<table>
+    out.innerHTML = `${famHomeEnfantsHighlightHtml(list)}<table>
       <thead><tr><th>Enfant</th><th>Classe</th><th>Lien</th><th>À traiter</th><th></th></tr></thead>
       <tbody>${rows.join('')}</tbody></table>`;
     if (todo) {
@@ -4857,6 +4927,7 @@ async function bindFamilleEnfant(id) {
             const msg = document.getElementById('paiFamMsg');
             try {
               await api('/eleves/' + id + '/pai/signer', { method: 'POST', body: '{}' });
+              toastPaiSigneFamille(e.prenom || '', pai.motif || '');
               await bindFamilleEnfant(id);
             } catch (err) {
               msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -5798,7 +5869,7 @@ function viewEleves() {
         <label>Classe <input id="trombiClasse" value="4B" style="width:4rem"/></label>
         <button type="button" id="btnTrombi">Charger</button>
       </div>
-      <div id="trombiOut" class="muted" style="margin-top:.75rem">…</div>
+      <div id="trombiOut" class="muted" style="margin-top:.75rem"></div>
     </div>
     <div class="panel">
       <h2>Homonymes</h2>
@@ -6032,8 +6103,22 @@ async function bindEleves() {
       }
     } catch { /* ignore */ }
   }
+  function bindTrombiEmptyLoadBtn() {
+    const btn = document.getElementById('btnTrombiEmptyLoad');
+    if (btn) btn.onclick = () => loadTrombi();
+  }
   applyTrombiDeepLink();
-  await loadTrombi();
+  let trombiAutoLoad = false;
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    trombiAutoLoad = !!(params.get('trombi') || (window.location.hash || '') === '#trombi');
+  } catch { /* ignore */ }
+  if (trombiAutoLoad) {
+    await loadTrombi();
+  } else if (trombiOut) {
+    trombiOut.innerHTML = trombiLazyHintHtml();
+    bindTrombiEmptyLoadBtn();
+  }
   const homOut = document.getElementById('homOut');
   if (homOut) {
     homOut.innerHTML = emptyState(
@@ -14525,7 +14610,9 @@ async function bindSorties() {
       } catch {}
       await updateSortStats(list, ctrls);
       if (!list.length) {
-        out.innerHTML = '<p class="empty">Aucune demande en attente.</p>';
+        out.innerHTML = staffSortiesDemEmptyHtml();
+        const btnRefresh = document.getElementById('btnSortDemEmptyRefresh');
+        if (btnRefresh) btnRefresh.onclick = () => loadDemandes();
         return;
       }
       await hydrateEleveNames(list.map(d => d.eleve_id));
@@ -14629,7 +14716,7 @@ async function bindSorties() {
       try { dem = await api('/vs/sorties/demandes'); } catch {}
       await updateSortStats(dem, list);
       if (!list.length) {
-        out.innerHTML = '<p class="empty">Aucun contrôle.</p>';
+        out.innerHTML = staffSortiesCtrlEmptyHtml(jour);
         return;
       }
       await hydrateEleveNames(list.map(c => c.eleve_id));
@@ -14973,6 +15060,7 @@ async function bindDispensesVs() {
         }),
       });
       msg.innerHTML = `<span class="ok">Dispense ${esc(d.motif)} posée</span>`;
+      toastDispensePosee(d, ELEVE_NAME_CACHE[id] || '');
       await loadEleve();
       await loadJour();
     } catch (e) {
@@ -15133,6 +15221,13 @@ async function bindAlertesCpe() {
   };
   document.getElementById('btnAlLoad').onclick = load;
   document.getElementById('alFlt').onchange = load;
+  try {
+    const sevDeep = new URLSearchParams(window.location.search || '').get('sev');
+    const alFltEl = document.getElementById('alFlt');
+    if (sevDeep && alFltEl && [...alFltEl.options].some(o => o.value === sevDeep)) {
+      alFltEl.value = sevDeep;
+    }
+  } catch { /* ignore */ }
   const alHistoOut = document.getElementById('alHistoOut');
   const alDossierLink = document.getElementById('alDossierLink');
   async function loadHistoEleve() {
@@ -15299,7 +15394,10 @@ async function bindConseils() {
           <div class="stat-tile bento-span-4"><strong>${nTenu}</strong><span>Tenus</span></div>`;
       }
       if (!list.length) {
-        out.innerHTML = '<p class="empty">Aucun conseil pour cette classe.</p>';
+        out.innerHTML = staffEmptyDense('Aucun conseil pour cette classe', [
+          'Planifiez un conseil (classe, période, jour, lieu) via le formulaire ci-dessus.',
+          'Les conseils à tenir et tenus s’affichent ici ; ouvrez-en un pour les dossiers élèves.',
+        ], '');
         return;
       }
       out.innerHTML = `<table><thead><tr><th>Jour</th><th>Période</th><th>Lieu</th><th>Statut</th><th></th></tr></thead>
@@ -15331,12 +15429,19 @@ async function bindConseils() {
     const box = document.getElementById('ccHistoOut');
     const eid = document.getElementById('ccEleve').value.trim();
     if (!box) return;
-    if (!eid) { box.innerHTML = '<p class="empty">Choisir un élève…</p>'; return; }
+    if (!eid) {
+      box.innerHTML = staffEmptyDense('Choisir un élève', [
+        'Sélectionnez un élève pour consulter son historique de conseils (mentions, décisions).',
+      ], '');
+      return;
+    }
     box.textContent = 'Chargement…';
     try {
       const list = await api('/eleves/' + encodeURIComponent(eid) + '/conseils');
       if (!list.length) {
-        box.innerHTML = '<p class="empty">Aucun dossier conseil pour cet élève.</p>';
+        box.innerHTML = staffEmptyDense('Aucun dossier conseil pour cet élève', [
+          'Les mentions et décisions apparaissent après saisie dans un conseil ouvert pour sa classe.',
+        ], '');
         return;
       }
       box.innerHTML = `<table><thead><tr><th>Mention</th><th>Appréciation</th><th>Décision</th><th>Fam.</th><th>Décidé</th><th></th></tr></thead>
@@ -15390,7 +15495,10 @@ async function bindConseils() {
     try {
       const list = await api('/conseils-classe/' + encodeURIComponent(id) + '/dossiers');
       if (!list.length) {
-        dosOut.innerHTML = '<p class="empty">Aucun dossier — Importer effectif ou ajouter un élève.</p>';
+        dosOut.innerHTML = staffEmptyDense('Aucun dossier sur ce conseil', [
+          'Utilisez « Importer effectif » pour créer un dossier par élève de la classe.',
+          'Vous pouvez aussi ajouter un élève manuellement via le formulaire dossier.',
+        ], '');
         return;
       }
       for (const d of list) {
@@ -15472,6 +15580,7 @@ async function bindConseils() {
       });
       setConseilActif(c);
       msg.innerHTML = `<span class="ok">Conseil ${esc(c.classe)} ${esc(c.periode_libelle)} créé</span>`;
+      toastConseilCree(c);
       await loadList();
       await loadDos();
     } catch (e) {
@@ -16417,6 +16526,7 @@ async function bindNotes() {
       });
       document.getElementById('noteDevoir').value = d.id;
       document.getElementById('noteLibelle').value = d.titre || 'DS1';
+      toastDevoirCree(d);
       msg.innerHTML = `<span class="ok">Devoir ${esc(d.titre || d.id.slice(0, 8))}</span>`;
       await loadDevoirs();
     } catch (e) {
@@ -19386,50 +19496,63 @@ async function bindFamilleSante() {
         api('/infirmerie/passages?eleve_id=' + encodeURIComponent(id)).catch(() => []),
         api('/eleves/' + id + '/dispenses-vs').catch(() => []),
       ]);
-      let html = `<h3>Fiche santé</h3>
-        <div class="row">
-          <label style="flex:1">Allergies <input id="pageSanteAll" style="width:100%" value="${esc((f && f.allergies) || '')}"/></label>
+      const alResume = famSanteAllergieResume(f && f.allergies, 999);
+      const densePanel = 'padding:.65rem .75rem;margin:.45rem 0;font-size:.88rem;line-height:1.35';
+      const alWarn = !alResume.empty || (pai && !pai.signe_famille)
+        ? 'border-left:3px solid var(--warn,#c45c26);'
+        : '';
+      const inpDense = 'width:100%;font-size:.88rem;padding:.28rem .4rem';
+      let html = famSanteStatsBentoHtml(f, pai, passages);
+      html += `<div class="panel" style="${densePanel}${alWarn}">
+        <h3 style="margin:0 0 .4rem;font-size:.95rem">Fiche santé &amp; allergies</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(10.5rem,1fr));gap:.35rem .5rem">
+          <label style="grid-column:1/-1">Allergies <input id="pageSanteAll" style="${inpDense}" value="${esc((f && f.allergies) || '')}"/></label>
+          <label style="grid-column:1/-1">Traitements <input id="pageSanteTrait" style="${inpDense}" value="${esc((f && f.traitements) || '')}"/></label>
+          <label style="grid-column:1/-1">Contre-indications <input id="pageSanteContre" style="${inpDense}" value="${esc((f && f.contre_indications) || '')}"/></label>
+          <label>Médecin <input id="pageSanteMed" style="${inpDense}" value="${esc((f && f.medecin_nom) || '')}"/></label>
+          <label>Tél. urgence <input id="pageSanteUrg" style="${inpDense}" value="${esc((f && f.urgence_tel) || '')}"/></label>
         </div>
-        <div class="row">
-          <label style="flex:1">Traitements <input id="pageSanteTrait" style="width:100%" value="${esc((f && f.traitements) || '')}"/></label>
-        </div>
-        <div class="row">
-          <label style="flex:1">Contre-indications <input id="pageSanteContre" style="width:100%" value="${esc((f && f.contre_indications) || '')}"/></label>
-        </div>
-        <div class="row">
-          <label>Médecin <input id="pageSanteMed" value="${esc((f && f.medecin_nom) || '')}"/></label>
-          <label>Tél. urgence <input id="pageSanteUrg" value="${esc((f && f.urgence_tel) || '')}"/></label>
+        <div class="row" style="margin-top:.45rem;gap:.45rem;flex-wrap:wrap">
           <button type="button" class="primary" id="btnPageSanteSave">Enregistrer</button>
-          <button type="button" id="btnPageSantePdf">PDF</button>
+          <button type="button" id="btnPageSantePdf">PDF fiche</button>
+          <span class="muted">PAI fiche : ${f && f.pai_actif ? '<span class="warn">actif</span>' : 'non'}</span>
         </div>
-        <p class="muted">PAI : ${f && f.pai_actif ? '<span class="warn">actif</span>' : 'non'}</p>
-        <div id="pageSanteMsg" class="muted"></div>`;
+        <div id="pageSanteMsg" class="muted"></div>
+      </div>`;
       if (!pai) {
-        html += '<h3 style="margin-top:1rem">PAI</h3><p class="empty">Aucun PAI actif.</p>';
+        html += famEmptyDense('Aucun PAI actif', [
+          'L’infirmerie publie un PAI lorsque des mesures d’accueil sont nécessaires.',
+          'Mettez à jour les allergies ci-dessus pour faciliter l’accueil en attendant.',
+        ], `<a href="/famille/messages">Contacter l’infirmerie</a>`);
       } else {
         let piecesHtml = '';
         try {
           const pieces = await api('/eleves/' + id + '/pai/pieces');
           if ((pieces || []).length) {
-            piecesHtml = `<ul>${pieces.map(x =>
+            piecesHtml = `<ul style="margin:.35rem 0 0;padding-left:1.1rem;font-size:.88rem">${pieces.map(x =>
               `<li><button type="button" class="btnPagePaiDl" data-pid="${x.id}" data-nom="${esc(x.nom)}">${esc(x.nom)}</button></li>`
             ).join('')}</ul>`;
           }
         } catch (_) { /* ignore */ }
-        html += `<h3 style="margin-top:1rem">PAI</h3>
-          <p><strong>${esc(pai.motif)}</strong> · du ${esc(pai.date_debut)}${pai.date_fin ? ' au ' + esc(pai.date_fin) : ''}</p>
-          <p>${esc(pai.mesures_accueil || '')}</p>
-          ${pai.protocole_urgence ? `<p class="muted">Urgence : ${esc(pai.protocole_urgence)}</p>` : ''}
-          ${piecesHtml || '<p class="empty">Pas d’ordonnance.</p>'}
-          <div class="row" style="margin-top:.5rem">
+        const paiBorder = !pai.signe_famille ? 'border-left:3px solid var(--warn,#c45c26);' : '';
+        html += `<div class="panel" style="${densePanel}${paiBorder}">
+          <h3 style="margin:0 0 .35rem;font-size:.95rem">PAI — ${esc(pai.motif)}</h3>
+          <p class="muted" style="margin:0">Du ${esc(pai.date_debut)}${pai.date_fin ? ' au ' + esc(pai.date_fin) : ''}</p>
+          <p style="margin:.35rem 0 0">${esc(pai.mesures_accueil || '')}</p>
+          ${pai.protocole_urgence ? `<p class="muted" style="margin:.25rem 0 0"><strong>Urgence</strong> — ${esc(pai.protocole_urgence)}</p>` : ''}
+          ${piecesHtml || '<p class="empty" style="margin:.35rem 0 0">Pas d’ordonnance jointe.</p>'}
+          <div class="row" style="margin-top:.45rem;gap:.45rem;flex-wrap:wrap">
             <input type="file" id="pagePaiFile" accept=".pdf,image/*"/>
             <button type="button" id="btnPagePaiPiece">Joindre ordonnance</button>
           </div>
           <div id="pagePaiUploadMsg" class="muted"></div>
           ${pai.signe_famille
-            ? `<p class="ok">Signé le ${esc(pai.signe_famille_at || '')}</p>`
-            : `<button type="button" class="primary" id="btnPageSignePai">J'ai pris connaissance du PAI</button>
-               <div id="pagePaiMsg" class="muted"></div>`}`;
+            ? `<p class="ok" style="margin:.45rem 0 0">Signé le ${esc(pai.signe_famille_at || '')}</p>`
+            : `<div class="row" style="margin-top:.45rem;gap:.45rem;flex-wrap:wrap;align-items:center">
+               <button type="button" class="primary" id="btnPageSignePai">J'ai pris connaissance du PAI</button>
+               <span class="muted">Obligatoire pour l’accueil</span>
+               </div><div id="pagePaiMsg" class="muted"></div>`}
+        </div>`;
       }
       html += `<h3 style="margin-top:1rem">Passages infirmière</h3>` + (!(passages || []).length
         ? '<p class="empty">Aucun passage visible.</p>'
@@ -19486,6 +19609,11 @@ async function bindFamilleSante() {
           const msg = document.getElementById('pagePaiMsg');
           try {
             await api('/eleves/' + id + '/pai/signer', { method: 'POST', body: '{}' });
+            const optPai = sel.selectedOptions && sel.selectedOptions[0];
+            const prenomPai = optPai
+              ? String(optPai.textContent || '').trim().split(/\s+/)[0]
+              : '';
+            toastPaiSigneFamille(prenomPai, pai.motif || '');
             await load();
           } catch (err) {
             if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -20189,7 +20317,10 @@ async function bindQuittancesFamille() {
         <div class="stat-tile bento-span-6"><strong>${esc(euros(total))}</strong><span>Total encaissé</span></div>`;
     }
     if (!list.length) {
-      out.innerHTML = `<p class="empty">Aucune quittance pour le moment.</p>`;
+      out.innerHTML = famEmptyDense('Aucune quittance pour le moment', [
+        'Un reçu est émis automatiquement à chaque paiement enregistré par la compta (virement, prélèvement SEPA, chèque…).',
+        'Les factures impayées et le mandat SEPA se gèrent depuis la page Factures.',
+      ], '<a href="/famille/factures">Mes factures</a> · <a href="/famille/factures#famSepaOut">Mandat SEPA</a>');
       return;
     }
     out.innerHTML = `<table><thead><tr><th>N°</th><th>Date</th><th>Moyen</th><th>Montant</th><th></th></tr></thead>
@@ -20407,10 +20538,14 @@ async function bindFacturesFamille() {
     }
   }
   try {
-    const [list] = await Promise.all([
+    const [rawList] = await Promise.all([
       api('/facturation/famille'),
       loadFacQuotient(),
     ]);
+    const list = (rawList || []).slice().sort((a, b) =>
+      facFamResteCentimes(b) - facFamResteCentimes(a)
+      || String(b.emise_at || '').localeCompare(String(a.emise_at || ''))
+    );
     const stats = document.getElementById('facFamStats');
     const progress = document.getElementById('facFamProgress');
     const total = (list || []).reduce((s, f) => s + (f.total_centimes || 0), 0);
@@ -20671,18 +20806,34 @@ async function bindMessages(base) {
       }
       await hydrateEleveNames(list.map(f => f.eleve_id));
       const nonLusTotal = list.reduce((n, f) => n + (Number(f.nb_non_lus) || 0), 0);
-      filsOut.innerHTML = `${nonLusTotal ? `<p class="muted" style="margin-bottom:.5rem"><span class="pill-unread">${nonLusTotal}</span> non lu(s)</p>` : ''}
-        <table><thead><tr><th></th><th>Sujet</th><th>Élève</th><th>Créé</th><th>Modèle</th><th>Dernier</th><th></th></tr></thead>
-        <tbody>${list.map(f => {
+      const filsSorted = list.slice().sort((a, b) => {
+        const na = Number(a.nb_non_lus) || 0;
+        const nb = Number(b.nb_non_lus) || 0;
+        if (nb !== na) return nb - na;
+        return String(b.last_message_at || b.created_at || '').localeCompare(String(a.last_message_at || a.created_at || ''));
+      });
+      const famFilsDense = portalFam
+        ? ' style="font-size:.88rem;line-height:1.35"'
+        : '';
+      const famFilsHead = portalFam
+        ? '<thead><tr><th></th><th>Sujet</th><th>Élève</th><th>Dernier</th><th></th></tr></thead>'
+        : '<thead><tr><th></th><th>Sujet</th><th>Élève</th><th>Créé</th><th>Modèle</th><th>Dernier</th><th></th></tr></thead>';
+      filsOut.innerHTML = `${nonLusTotal && portalFam
+        ? `<p style="margin:0 0 .45rem"><span class="pill-unread" style="font-size:.95rem;padding:.35rem .65rem">${nonLusTotal} non lu(s)</span></p>`
+        : (nonLusTotal ? `<p class="muted" style="margin-bottom:.5rem"><span class="pill-unread">${nonLusTotal}</span> non lu(s)</p>` : '')}
+        <table${famFilsDense}>${famFilsHead}
+        <tbody>${filsSorted.map(f => {
           const n = Number(f.nb_non_lus) || 0;
           const badge = n > 0 ? `<span class="pill-unread">${n}</span>` : '';
-          const rowStyle = n > 0 ? 'font-weight:600' : '';
+          const rowStyle = n > 0 ? 'font-weight:600;background:color-mix(in srgb, var(--warn,#c45c26) 6%, transparent)' : '';
+          const sujetExtra = portalFam ? '' : `${f.priorite === 'haute' ? ' <span class="pill">haute</span>' : ''}${f.archive ? ' <span class="muted">(archivé)</span>' : ''}${f.dossier ? ` <span class="muted">· ${esc(f.dossier)}</span>` : ''}`;
+          const metaCols = portalFam ? '' : `
+          <td class="muted">${esc((f.created_at || '').slice(0, 16).replace('T',' ') || '—')}</td>
+          <td class="muted">${f.modele_id ? esc(String(f.modele_id).slice(0, 8)) : '—'}</td>`;
           return `<tr style="${rowStyle}">
           <td>${badge}</td>
-          <td>${esc(f.sujet)}${f.priorite === 'haute' ? ' <span class="pill">haute</span>' : ''}${f.archive ? ' <span class="muted">(archivé)</span>' : ''}${f.dossier ? ` <span class="muted">· ${esc(f.dossier)}</span>` : ''}</td>
-          <td>${eleveCell(f)}</td>
-          <td class="muted">${esc((f.created_at || '').slice(0, 16).replace('T',' ') || '—')}</td>
-          <td class="muted">${f.modele_id ? esc(String(f.modele_id).slice(0, 8)) : '—'}</td>
+          <td>${esc(f.sujet)}${sujetExtra}${portalFam && f.priorite === 'haute' ? ' <span class="pill">haute</span>' : ''}</td>
+          <td>${eleveCell(f)}</td>${metaCols}
           <td class="muted">${esc((f.last_message_at || '').slice(0, 16).replace('T',' '))}</td>
           <td><button type="button" class="btnOpenFil" data-id="${esc(f.id)}">Ouvrir</button></td>
         </tr>`;
@@ -20692,6 +20843,9 @@ async function bindMessages(base) {
       });
     } catch (e) {
       filsOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    } finally {
+      if (portalEleve) refreshEleveNavMsgBadge();
+      if (portalFam) refreshFamilleNavMsgBadge();
     }
   }
 
@@ -20953,7 +21107,11 @@ function bindShell() {
       go(a.getAttribute('href'));
     });
   });
+  if (isEleve()) {
+    refreshEleveNavMsgBadge();
+  }
   if (isParent()) {
+    refreshFamilleNavMsgBadge();
     (async () => {
       const bar = document.getElementById('famShellEnfantsBar');
       if (!bar) return;

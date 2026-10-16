@@ -12,13 +12,15 @@ use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
     annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
     CreerAlerteCpe, CreerCarnetEntree, CreerDevoir, CreerNotePeriode, CreerPassageInfirmerie,
-    AbsenceStatut, AffecterEleveInternat, CarnetCategorie, ChangeRegime, ChoisirOptionN1,
-    ConvoquerCommission, CreerCahierTexte, CreerChambreInternat, CreerCommissionVs, CreerFacture,
+    AbsenceStatut, AffecterEleveInternat, AjouterDossierConseil, CarnetCategorie, ChangeRegime,
+    ChoisirOptionN1, ConvoquerCommission, CreerCahierTexte, CreerChambreInternat,
+    CreerCommissionVs, CreerConseilClasse, CreerFacture, DeciderDossierConseil,
     CreerInfoCompChamp, CreerMandatSepa, CreerRdvPsy, CreerSuiviInternat, DeclarerIncident,
     DeclareAbsence, DemanderGrant, DemanderSortieExceptionnelle, DocConfidentialite, DocTiroir,
     EcheanceCmd, EncaisserFacture,
     EntretienPsyKind, FactureStatut, MandatSepaStatut,
-    AlerteCpeStatut, DispenseVsMotif, DispenseVsStatut, PoserDispenseVs, UpsertAutorisationSortie,
+    AlerteCpeSeverite, AlerteCpeStatut, DispenseVsMotif, DispenseVsStatut, PoserDispenseVs,
+    UpsertAutorisationSortie,
     LigneFactureCmd, MonteeRapide, MoyenPaiement, OptionAnneeStatut, OptionNature,
     NotePeriodeStatut, OuvrirCampagneReinscription, OuvrirFil, PassageInfirmerieMotif,
     SortieCreneau,
@@ -718,7 +720,9 @@ impl PgEnt {
     /// lot A (Bot AA-A) : Luna, Cho, Seamus, mandat SEPA Harry, Molly mes_enfants Ron+Ginny ;
     /// lot B (Bot AB-A) : note Neville, absence Cedric J-1 à traiter, CHARTE_LAB, permis points Harry, dispense repas Harry ;
     /// lot C (Bot AC-A) : note Seamus, carnet Cedric, rappel facture Harry, cahier 5A, photo trombi Neville ;
-    /// lot D (Bot AD-A) : carnet Luna, passage infirmerie Hermione, sortie except. Harry jour J, facture Draco.
+    /// lot D (Bot AD-A) : carnet Luna, passage infirmerie Hermione, sortie except. Harry jour J, facture Draco ;
+    /// lot E (Bot AE-A) : note Cho, absence NJ Ron (Molly), note Ginny (staff / pas notes parent), alerte CPE urgente Harry, PDF JUSTIF non vide ;
+    /// lot F (Bot AF-A) : carnet Seamus (famille), absence NJ Luna, dossier conseil Harry, photo trombi Ron, renfort menus lun–ven publiés.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -1544,17 +1548,19 @@ impl PgEnt {
                     harry.id,
                 )
                 .await?;
-            if !docs_harry
+            let doc_justif = if let Some(found) = docs_harry
                 .iter()
-                .any(|(d, _)| d.code.as_deref() == Some(code_justif.as_str()))
+                .find(|(d, _)| d.code.as_deref() == Some(code_justif.as_str()))
             {
+                found.0.clone()
+            } else {
                 self.deposer_document_with_contenu(
                     domain_eleve::DeposerDocument {
                         etablissement_id: etab,
                         eleve_id: harry.id,
                         tiroir: DocTiroir::Famille,
                         titre: format!("Justificatif absence {code_justif}"),
-                        code: Some(code_justif),
+                        code: Some(code_justif.clone()),
                         mime_type: Some("application/pdf".into()),
                         storage_key: None,
                         confidentialite: DocConfidentialite::Standard,
@@ -1562,7 +1568,39 @@ impl PgEnt {
                     },
                     Some(PDF_JUSTIF_MINIMAL),
                 )
-                .await?;
+                .await?
+            };
+            let pdf_ok = self
+                .telecharger_document_bytes_for_actor(
+                    etab,
+                    administratif.user_id,
+                    role_admini,
+                    doc_justif.id,
+                )
+                .await
+                .map(|(_, b)| !b.is_empty() && b.starts_with(b"%PDF"))
+                .unwrap_or(false);
+            if !pdf_ok {
+                if let Some(key) = doc_justif.storage_key.as_ref() {
+                    let _ = self.objects().put(key, PDF_JUSTIF_MINIMAL);
+                } else {
+                    let _ = self
+                        .deposer_document_with_contenu(
+                            domain_eleve::DeposerDocument {
+                                etablissement_id: etab,
+                                eleve_id: harry.id,
+                                tiroir: DocTiroir::Famille,
+                                titre: format!("Justificatif absence {code_justif}"),
+                                code: Some(code_justif),
+                                mime_type: Some("application/pdf".into()),
+                                storage_key: None,
+                                confidentialite: DocConfidentialite::Standard,
+                                actor_user_id: harry.parent.user_id,
+                            },
+                            Some(PDF_JUSTIF_MINIMAL),
+                        )
+                        .await;
+                }
             }
         }
 
@@ -2907,6 +2945,288 @@ impl PgEnt {
                     admin.user_id,
                 )
                 .await;
+        }
+
+        // --- Bot AE-A lot E : note Cho, absence NJ Ron (Molly / VS), note Ginny (staff),
+        // alerte CPE urgente Harry (API severite), renfort PDF JUSTIF (ci-dessus).
+        if let Some(cho) = labo_eleve_prenom(eleves, "Cho") {
+            const CHO_NOTE_LIB: &str = "Interro Mathématiques lab (Cho)";
+            if !self
+                .notes_for_eleve(etab, cho.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(CHO_NOTE_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: cho.id,
+                    matiere_id: math.id,
+                    valeur: 14.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(CHO_NOTE_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
+            let absence_ron_nj = jour - Duration::days(3);
+            if !self
+                .eleve_est_absent(etab, ron.id, absence_ron_nj)
+                .await?
+            {
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: ron.id,
+                    debut: absence_ron_nj,
+                    fin: absence_ron_nj,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(ginny) = labo_eleve_prenom(eleves, "Ginny") {
+            const GINNY_NOTE_LIB: &str = "Interro Potions lab (Ginny)";
+            if !self
+                .notes_for_eleve(etab, ginny.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(GINNY_NOTE_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    matiere_id: potions.id,
+                    valeur: 15.5,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_rogue.user_id,
+                    libelle: Some(GINNY_NOTE_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        let alertes_harry_ae = self
+            .list_alertes_cpe_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+            )
+            .await?;
+        let harry_a_urgent = alertes_harry_ae.iter().any(|a| {
+            a.severite == AlerteCpeSeverite::Urgent && a.statut == AlerteCpeStatut::Ouverte
+        });
+        if !harry_a_urgent {
+            const HARRY_ALERTE_AE_TITRE: &str = "AUDIT AE-A: Alerte CPE urgente Harry";
+            self.creer_alerte_cpe_for_actor(
+                Role::Cpe.as_str(),
+                CreerAlerteCpe {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    titre: HARRY_ALERTE_AE_TITRE.into(),
+                    detail: "Seed labo lot AE-A — severite urgent pour audit API / UI CPE.".into(),
+                    severite: "urgent".into(),
+                    visible_famille: true,
+                    jour,
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+
+        // --- Bot AF-A lot F : carnet Seamus (famille), absence NJ Luna, dossier conseil Harry,
+        // photo trombi Ron, renfort menus lun–ven publiés.
+        if let Some(seamus) = labo_eleve_prenom(eleves, "Seamus") {
+            const SEAMUS_CARNET_AF_TITRE: &str = "AUDIT AF-A: Encouragements Seamus (famille)";
+            let carnet_seamus = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), seamus.id)
+                .await?;
+            if !carnet_seamus
+                .iter()
+                .any(|c| c.titre == SEAMUS_CARNET_AF_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: seamus.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: SEAMUS_CARNET_AF_TITRE.into(),
+                    corps: "Seed labo lot AF-A — entrée carnet visible famille pour audit portail Seamus Finnigan."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(luna) = labo_eleve_prenom(eleves, "Luna") {
+            let absences_luna = self.list_absences_eleve(etab, luna.id).await?;
+            let luna_a_absence_nj = absences_luna
+                .iter()
+                .any(|a| a.statut == AbsenceStatut::ATraiter);
+            if !luna_a_absence_nj {
+                let absence_luna_af = jour - Duration::days(2);
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: luna.id,
+                    debut: absence_luna_af,
+                    fin: absence_luna_af,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        const AF_A_CONSEIL_PERIODE: &str = "AUDIT AF-A T1";
+        const HARRY_CONSEIL_AF_APP: &str =
+            "Seed labo AF-A — trimestre solide, poursuite des efforts.";
+        let role_cpe_conseil = Role::Cpe.as_str();
+        let conseils_harry_classe = self
+            .list_conseils_classe_for_actor(etab, role_cpe_conseil, Some(&harry.classe))
+            .await?;
+        let conseil_harry_af = if let Some(c) = conseils_harry_classe
+            .iter()
+            .find(|c| c.periode_libelle == AF_A_CONSEIL_PERIODE)
+        {
+            c.clone()
+        } else {
+            self.creer_conseil_classe_for_actor(
+                role_cpe_conseil,
+                CreerConseilClasse {
+                    etablissement_id: etab,
+                    classe: harry.classe.clone(),
+                    periode_libelle: AF_A_CONSEIL_PERIODE.into(),
+                    jour: jour + Duration::days(7),
+                    heure: NaiveTime::from_hms_opt(17, 0, 0).expect("heure conseil valide"),
+                    lieu: "Salle des conseils".into(),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?
+        };
+        let dossiers_conseil_af = self
+            .list_dossiers_conseil_for_actor(etab, role_cpe_conseil, conseil_harry_af.id)
+            .await?;
+        let dossier_harry_af = if let Some(d) = dossiers_conseil_af
+            .iter()
+            .find(|d| d.eleve_id == harry.id)
+        {
+            d.clone()
+        } else {
+            self.ajouter_dossier_conseil_for_actor(
+                Role::Prof.as_str(),
+                AjouterDossierConseil {
+                    etablissement_id: etab,
+                    conseil_id: conseil_harry_af.id,
+                    eleve_id: harry.id,
+                    actor_user_id: prof_rogue.user_id,
+                },
+            )
+            .await?
+        };
+        if dossier_harry_af.decided_at.is_none() {
+            let _ = self
+                .decider_dossier_conseil_for_actor(
+                    role_cpe_conseil,
+                    DeciderDossierConseil {
+                        etablissement_id: etab,
+                        dossier_id: dossier_harry_af.id,
+                        appreciation: HARRY_CONSEIL_AF_APP.into(),
+                        mention: "encouragements".into(),
+                        decision_texte:
+                            "Seed labo AF-A — décision conseil visible portail famille.".into(),
+                        visible_famille: true,
+                        actor_user_id: cpe.user_id,
+                    },
+                )
+                .await;
+        }
+
+        if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
+            if self
+                .get_eleve(etab, ron.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        ron.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        const MENUS_AF_RENFORCE: [(&str, &str, &str); 5] = [
+            ("Velouté", "Gratin dauphinois", "Compote"),
+            ("Salade", "Poulet rôti", "Yaourt"),
+            ("Soupe", "Poisson pané", "Fruit"),
+            ("Taboulé", "Steak haché", "Gâteau"),
+            ("Carottes râpées", "Lasagnes", "Fromage"),
+        ];
+        for (i, menu) in MENUS_AF_RENFORCE.iter().enumerate() {
+            let j_menu = debut_sem + Duration::days(i as i64);
+            let menus_jour = self
+                .list_menus_cantine_for_actor(
+                    etab,
+                    administratif.user_id,
+                    role_admini,
+                    j_menu,
+                    j_menu,
+                )
+                .await?;
+            let manque_plat = !menus_jour.iter().any(|m| m.plat == menu.1);
+            let brouillon = menus_jour.iter().any(|m| !m.publie);
+            if manque_plat || brouillon {
+                self.upsert_menu_cantine_for_actor(
+                    role_admini,
+                    UpsertMenuCantine {
+                        etablissement_id: etab,
+                        jour: j_menu,
+                        entree: menu.0.into(),
+                        plat: menu.1.into(),
+                        dessert: menu.2.into(),
+                        notes: if manque_plat && harry.classe == "4B" {
+                            "Menu seed audit 4B".into()
+                        } else {
+                            String::new()
+                        },
+                        publie: true,
+                        actor_user_id: administratif.user_id,
+                    },
+                )
+                .await?;
+            }
         }
 
         // --- Messagerie CPE → parent Harry (1 fil, 1 message) — sans signature docs
