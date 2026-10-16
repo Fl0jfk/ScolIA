@@ -14,6 +14,8 @@ import {
 import type { NotificationsConfig } from "@/app/lib/app-config-schemas";
 import { absencesToday } from "@/app/lib/dashboard-absences";
 import { moduleIdToPillarId, type DashboardPillarId } from "@/app/lib/dashboard-pillars";
+import type { DashboardSignalSourceId } from "@/app/lib/dashboard-signals-parallel";
+import { resolveDashboardSignalSource } from "@/app/lib/dashboard-signal-source";
 import { tripsThisWeek, tripsToday, type TripIndexRow } from "@/app/lib/dashboard-trips";
 import { isTripTravelDatePast } from "@/app/lib/travels-trip-helpers";
 import { moduleHref } from "@/app/lib/pillar-module-routes";
@@ -68,6 +70,8 @@ export type DashboardShortcut = {
   id: string;
   pillarId: DashboardPillarId;
   moduleId: string;
+  /** Source parallèle dashboard (timeout / cache). */
+  signalSourceId?: DashboardSignalSourceId;
   href: string;
   label: string;
   rich?: boolean;
@@ -94,6 +98,7 @@ export type DashboardNotification = {
   id: string;
   /** Module intranet pour pastille rouge sur la tuile / hub. */
   moduleId: string;
+  signalSourceId?: DashboardSignalSourceId;
   label: string;
   count: number;
   href: string;
@@ -490,8 +495,22 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   const emailNorm = normalizeRequestEmail(email || "");
   const viewerNames = { firstName, lastName };
 
-  const pushNotif = (n: DashboardNotification) => {
-    if (n.count > 0) notifications.push(n);
+  const pushNotif = (
+    n: Omit<DashboardNotification, "signalSourceId"> & { signalSourceId?: DashboardSignalSourceId },
+  ) => {
+    if (n.count > 0) {
+      notifications.push({
+        ...n,
+        signalSourceId: n.signalSourceId ?? resolveDashboardSignalSource(n),
+      });
+    }
+  };
+
+  const pushShortcut = (s: DashboardShortcut) => {
+    shortcuts.push({
+      ...s,
+      signalSourceId: s.signalSourceId ?? resolveDashboardSignalSource(s),
+    });
   };
 
   // —— Élèves : Sorties ——
@@ -521,7 +540,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         detail:
           "Cours où tous les élèves attendus sont en sortie — signal VS, pas de remplacement inventé",
       });
-      shortcuts.push({
+      pushShortcut({
         id: "travels-creneaux-vides",
         pillarId: "vie_scolaire",
         moduleId: "travels",
@@ -554,7 +573,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               : `${unreadMsgs} messages internes à lire`
             : `${unreadMsgs} messages à lire sur ${unreadTrips} séjours`,
       });
-      shortcuts.push({
+      pushShortcut({
         id: "travels-messages",
         pillarId: "vie_scolaire",
         moduleId: "travels",
@@ -573,7 +592,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     if (canSeeTodayTripHighlight(roles) && todayTrips.length > 0) {
       const first = todayTrips[0]!;
       const travelColors = ["#0284c7", "#0369a1", "#0ea5e9", "#1d4ed8", "#075985"];
-      shortcuts.push({
+      pushShortcut({
         id: "travels-today",
         pillarId: "vie_scolaire",
         moduleId: "travels",
@@ -606,7 +625,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         (t) => t.status === "EN_ATTENTE_COMPTA" && !isTripTravelDatePast(t),
       ).length;
       if (n > 0) {
-        shortcuts.push({
+        pushShortcut({
           id: "travels-compta",
           pillarId: "vie_scolaire",
           moduleId: "travels",
@@ -626,7 +645,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           detail: n === 1 ? "1 séjour en attente compta" : `${n} séjours en attente compta`,
         });
       } else {
-        shortcuts.push({
+        pushShortcut({
           id: "travels",
           pillarId: "vie_scolaire",
           moduleId: "travels",
@@ -643,7 +662,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         return (t.data?.etablissement || "Groupe Scolaire") === etab;
       });
       if (pending.length > 0) {
-        shortcuts.push({
+        pushShortcut({
           id: "travels-dir",
           pillarId: "vie_scolaire",
           moduleId: "travels",
@@ -669,7 +688,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               : `${pending.length} séjours en attente de votre validation`,
         });
       } else {
-        shortcuts.push({
+        pushShortcut({
           id: "travels",
           pillarId: "vie_scolaire",
           moduleId: "travels",
@@ -678,7 +697,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
       }
     } else {
-      shortcuts.push({
+      pushShortcut({
         id: "travels",
         pillarId: "vie_scolaire",
         moduleId: "travels",
@@ -693,7 +712,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         .slice(0, 3)
         .map((t) => t.data?.title || "Sortie")
         .join(" · ");
-      shortcuts.push({
+      pushShortcut({
         id: "travels-week",
         pillarId: "vie_scolaire",
         moduleId: "travels",
@@ -716,7 +735,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             })
           : "À venir";
         const isToday = todayTrips.some((x) => x.id === t.id);
-        shortcuts.push({
+        pushShortcut({
           id: `travels-up-${t.id}`,
           pillarId: "vie_scolaire",
           moduleId: "travels",
@@ -732,7 +751,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     } else if (
       !shortcuts.some((s) => s.moduleId === "travels" && s.rich)
     ) {
-      shortcuts.push({
+      pushShortcut({
         id: "travels-empty",
         pillarId: "vie_scolaire",
         moduleId: "travels",
@@ -749,7 +768,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   // —— Élèves : Internat ——
   if (has("internat")) {
     const internatHome = moduleHref("internat");
-    shortcuts.push({
+    pushShortcut({
       id: "internat",
       pillarId: "vie_scolaire",
       moduleId: "internat",
@@ -765,7 +784,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
       if (showAppelSignal) {
         const isWaitingActivity = internatRollCallStatus === "attente_activite";
-        shortcuts.push({
+        pushShortcut({
           id: "internat-appel",
           pillarId: "vie_scolaire",
           moduleId: "internat",
@@ -797,7 +816,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               : "Appel du soir non démarré",
         });
       } else if (internatRollCallStatus === "validee") {
-        shortcuts.push({
+        pushShortcut({
           id: "internat-ok",
           pillarId: "vie_scolaire",
           moduleId: "internat",
@@ -817,7 +836,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   if (has("stages")) {
     const stagesHome = moduleHref("stages");
     if (stagesPendingSignatures > 0) {
-      shortcuts.push({
+      pushShortcut({
         id: "stages-sign",
         pillarId: "vie_scolaire",
         moduleId: "stages",
@@ -843,14 +862,14 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             : `${stagesPendingSignatures} signatures stages à faire`,
       });
     } else {
-      shortcuts.push({
+      pushShortcut({
         id: "stages",
         pillarId: "vie_scolaire",
         moduleId: "stages",
         href: stagesHome,
         label: "Stages & conventions",
       });
-      shortcuts.push({
+      pushShortcut({
         id: "stages-ok",
         pillarId: "vie_scolaire",
         moduleId: "stages",
@@ -866,7 +885,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Élèves : certificats (stables) ——
   if (has("certificates")) {
-    shortcuts.push({
+    pushShortcut({
       id: "certificates",
       pillarId: "vie_scolaire",
       moduleId: "certificates",
@@ -877,7 +896,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Facturation familles ——
   if (has("facturation-familles")) {
-    shortcuts.push({
+    pushShortcut({
       id: "facturation-familles",
       pillarId: "compta_rh",
       moduleId: "facturation-familles",
@@ -889,7 +908,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   }
 
   if (has("compta-etablissement")) {
-    shortcuts.push({
+    pushShortcut({
       id: "compta-etablissement",
       pillarId: "compta_rh",
       moduleId: "compta-etablissement",
@@ -901,7 +920,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   }
 
   if (has("paie-etablissement")) {
-    shortcuts.push({
+    pushShortcut({
       id: "paie-etablissement",
       pillarId: "compta_rh",
       moduleId: "paie-etablissement",
@@ -915,7 +934,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   // —— RH : Absences ——
   if (has("rh") || has("mon-planning")) {
     if (has("mon-planning")) {
-      shortcuts.push({
+      pushShortcut({
         id: "mon-planning",
         pillarId: "compta_rh",
         moduleId: "mon-planning",
@@ -925,7 +944,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
 
     if (input.planningNow) {
-      shortcuts.push({
+      pushShortcut({
         id: "planning-now",
         pillarId: "compta_rh",
         moduleId: "mon-planning",
@@ -938,14 +957,14 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
 
     if (has("rh")) {
-      shortcuts.push({
+      pushShortcut({
         id: "rh-mon-espace",
         pillarId: "compta_rh",
         moduleId: "rh",
         href: "/rh/moi",
         label: "Mon dossier RH",
       });
-      shortcuts.push({
+      pushShortcut({
         id: "rh-sst-registre",
         pillarId: "compta_rh",
         moduleId: "rh",
@@ -969,7 +988,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
       }
       if (canCreateHseDemand(roles)) {
-        shortcuts.push({
+        pushShortcut({
           id: "rh-demande-hse",
           pillarId: "compta_rh",
           moduleId: "demandes-hse",
@@ -1095,7 +1114,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       if (actionSlides.length > 0) {
         const totalQueue = actionSlides.reduce((sum, s) => sum + (s.count || 0), 0);
         const slides = todaySlide ? [...actionSlides, todaySlide] : actionSlides;
-        shortcuts.push({
+        pushShortcut({
           id: "absences-queue",
           pillarId: "compta_rh",
           moduleId: "absences",
@@ -1108,7 +1127,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           slides,
         });
       } else if (todaySlide) {
-        shortcuts.push({
+        pushShortcut({
           id: "absences-today",
           pillarId: "compta_rh",
           moduleId: "absences",
@@ -1119,7 +1138,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           tone: "neutral",
         });
       } else {
-        shortcuts.push({
+        pushShortcut({
           id: "absences",
           pillarId: "compta_rh",
           moduleId: "absences",
@@ -1128,7 +1147,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
       }
     } else if (has("rh")) {
-      shortcuts.push({
+      pushShortcut({
         id: "absences",
         pillarId: "compta_rh",
         moduleId: "absences",
@@ -1145,7 +1164,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           needsMakeupSlotsFromStaff(a),
       );
       if (ownMakeupNeeded.length > 0) {
-        shortcuts.push({
+        pushShortcut({
           id: "absences-makeup-slots",
           pillarId: "compta_rh",
           moduleId: "absences",
@@ -1183,7 +1202,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       if (isDir) {
         const pending = hse.filter((h) => h.status === "EN_ATTENTE").length;
         if (pending > 0) {
-          shortcuts.push({
+          pushShortcut({
             id: "hse-pending",
             pillarId: "compta_rh",
             moduleId: "demandes-hse",
@@ -1209,7 +1228,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
                 : `${pending} demandes HSE à traiter`,
           });
         } else {
-          shortcuts.push({
+          pushShortcut({
             id: "hse",
             pillarId: "compta_rh",
             moduleId: "demandes-hse",
@@ -1218,7 +1237,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           });
         }
       } else {
-        shortcuts.push({
+        pushShortcut({
           id: "hse",
           pillarId: "compta_rh",
           moduleId: "demandes-hse",
@@ -1253,7 +1272,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     const liveNow = activeToday.filter((r) => isReservationLiveNow(r, nowLocal));
 
     if (liveNow.length > 0) {
-      shortcuts.push({
+      pushShortcut({
         id: "rooms-live",
         pillarId: "administratif",
         moduleId: "prof-room",
@@ -1289,7 +1308,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     } else if (activeToday.length === 1) {
       const r = activeToday[0]!;
       const name = r.roomName || roomNameById.get(r.roomId) || "Salle";
-      shortcuts.push({
+      pushShortcut({
         id: "rooms-today-one",
         pillarId: "administratif",
         moduleId: "prof-room",
@@ -1303,7 +1322,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     } else if (activeToday.length > 1) {
       const next = activeToday[0]!;
       const name = next.roomName || roomNameById.get(next.roomId) || "Salle";
-      shortcuts.push({
+      pushShortcut({
         id: "rooms-today-many",
         pillarId: "administratif",
         moduleId: "prof-room",
@@ -1315,7 +1334,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         tone: "neutral",
       });
     } else {
-      shortcuts.push({
+      pushShortcut({
         id: "rooms-empty",
         pillarId: "administratif",
         moduleId: "prof-room",
@@ -1408,7 +1427,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
     if (requestSlides.length > 0) {
       const total = requestSlides.reduce((sum, s) => sum + (s.count || 0), 0);
-      shortcuts.push({
+      pushShortcut({
         id: "requests",
         pillarId: "administratif",
         moduleId: "requests-staff",
@@ -1421,7 +1440,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         slides: requestSlides,
       });
     } else {
-      shortcuts.push({
+      pushShortcut({
         id: "requests",
         pillarId: "administratif",
         moduleId: "requests-staff",
@@ -1539,7 +1558,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
       if (photoSlides.length > 0) {
         const totalPhoto = photoSlides.reduce((sum, s) => sum + (s.count || 0), 0);
-        shortcuts.push({
+        pushShortcut({
           id: "photocopies-couleur",
           pillarId: "services",
           moduleId: "photocopies-couleur",
@@ -1552,7 +1571,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           slides: photoSlides,
         });
       } else if (isOps || canCreate) {
-        shortcuts.push({
+        pushShortcut({
           id: "photocopies-couleur",
           pillarId: "services",
           moduleId: "photocopies-couleur",
@@ -1597,7 +1616,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   ];
   for (const s of stableServices) {
     if (!has(s.moduleId)) continue;
-    shortcuts.push({
+    pushShortcut({
       id: s.moduleId,
       pillarId: "services",
       moduleId: s.moduleId,
@@ -1618,7 +1637,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         accompagnementCount === 1
           ? `/eleves/dossier/${encodeURIComponent(first.eleveId)}`
           : moduleHref("eleve-dossier");
-      shortcuts.push({
+      pushShortcut({
         id: "eleve-dossier",
         pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
         moduleId: "eleve-dossier",
@@ -1653,7 +1672,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
       }
     } else {
-      shortcuts.push({
+      pushShortcut({
         id: "eleve-dossier",
         pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
         moduleId: "eleve-dossier",
@@ -1663,7 +1682,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
   }
   if (has("notes")) {
-    shortcuts.push({
+    pushShortcut({
       id: "notes",
       pillarId: "administratif",
       moduleId: "notes",
@@ -1709,7 +1728,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   }
   if (ENABLE_VS_WIP_DASHBOARD_SHORTCUTS && has("vs-sanctions")) {
     if (vsSanctionsAujourdhui > 0) {
-      shortcuts.push({
+      pushShortcut({
         id: "vs-sanctions",
         pillarId: "vie_scolaire",
         moduleId: "vs-sanctions",
@@ -1729,7 +1748,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         detail: "Incidents et sanctions enregistrés aujourd'hui",
       });
     } else {
-      shortcuts.push({
+      pushShortcut({
         id: "vs-sanctions",
         pillarId: "vie_scolaire",
         moduleId: "vs-sanctions",
@@ -1740,7 +1759,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   }
   if (ENABLE_VS_WIP_DASHBOARD_SHORTCUTS && has("vs-carnet")) {
     if (vsCarnetNonSignees > 0) {
-      shortcuts.push({
+      pushShortcut({
         id: "vs-carnet",
         pillarId: "vie_scolaire",
         moduleId: "vs-carnet",
@@ -1760,7 +1779,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         detail: "Entrées en attente d'accusé famille",
       });
     } else {
-      shortcuts.push({
+      pushShortcut({
         id: "vs-carnet",
         pillarId: "vie_scolaire",
         moduleId: "vs-carnet",
@@ -1848,7 +1867,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           : only.id === "accueil-absences-consult"
             ? "Absences déclarées à l'accueil"
             : "Absences";
-      shortcuts.push({
+      pushShortcut({
         id: "vs-absences-accueil",
         pillarId: "vie_scolaire",
         moduleId,
@@ -1864,7 +1883,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
     } else if (warnSlides.length > 0) {
       // Signaux à traiter : carrousel avec pastilles qui tournent.
-      shortcuts.push({
+      pushShortcut({
         id: "vs-absences-accueil",
         pillarId: "vie_scolaire",
         moduleId,
@@ -1879,7 +1898,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
     } else if (absenceViews.length > 1) {
       // Plusieurs vues : une tuile → module Absences (onglets selon droits).
-      shortcuts.push({
+      pushShortcut({
         id: "vs-absences-accueil",
         pillarId: "vie_scolaire",
         moduleId,
@@ -1893,7 +1912,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
   }
   if (has("vs-calendrier")) {
-    shortcuts.push({
+    pushShortcut({
       id: "vs-calendrier",
       pillarId: "vie_scolaire",
       moduleId: "vs-calendrier",
@@ -1902,7 +1921,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
   if (has("sante")) {
-    shortcuts.push({
+    pushShortcut({
       id: "sante",
       pillarId: "sante",
       moduleId: "sante",
@@ -1935,7 +1954,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   ];
   for (const s of stableEtab) {
     if (!has(s.moduleId)) continue;
-    shortcuts.push({
+    pushShortcut({
       id: s.moduleId,
       pillarId: "etablissement",
       moduleId: s.moduleId,

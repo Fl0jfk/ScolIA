@@ -112,12 +112,11 @@ function ShortcutSlidesCarousel({
       : slides.some((s) => typeof s.count === "number" && (s.count || 0) > 0)
         ? 0
         : notifCount;
-  const badgeProps =
-    badgeItem && sourceStatus
-      ? dashboardNotificationBadgeProps(slideCount, badgeItem, sourceStatus)
-      : slideCount > 0
-        ? { count: slideCount }
-        : null;
+  const badgeProps = badgeItem
+    ? dashboardNotificationBadgeProps(slideCount, badgeItem, sourceStatus)
+    : slideCount > 0
+      ? { count: slideCount }
+      : null;
   const bg = slide.colorHex || (alertTone ? "#f43f5e" : fallbackColor);
   const fg = slideTextColor(bg);
   const linkHref = slide.href || href;
@@ -167,7 +166,7 @@ function ShortcutSlidesCarousel({
                   <p className="truncate text-[11px] font-semibold tracking-tight">{title}</p>
                   <NotificationCountBadge
                     count={badgeProps?.count}
-                    label={badgeProps?.label}
+                    unavailable={badgeProps?.unavailable}
                   />
                 </div>
                 <p className="mt-0.5 truncate text-[9px] font-semibold leading-snug opacity-90">
@@ -338,7 +337,10 @@ function SignalShortcutTile({
                 </p>
               )}
             </div>
-            <NotificationCountBadge count={badgeProps?.count} label={badgeProps?.label} />
+            <NotificationCountBadge
+              count={badgeProps?.count}
+              unavailable={badgeProps?.unavailable}
+            />
           </div>
           {actionable && item.detail?.trim() && face.kind === "label" ? (
             <p className="mt-0.5 truncate text-[9px] font-medium leading-snug text-[var(--dash-mid)]" title={item.detail}>

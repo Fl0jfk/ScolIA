@@ -4,111 +4,83 @@ import {
   type DashboardNotification,
 } from "@/app/lib/dashboard-signals";
 import { moduleIdToPillarId, type DashboardPillarId } from "@/app/lib/dashboard-pillars";
+import { resolveDashboardSignalSource } from "@/app/lib/dashboard-signal-source";
 import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 
 export type DashboardNotificationBadgeProps = {
   count?: number;
-  label?: string;
+  unavailable?: boolean;
+  /** Au moins un compteur du groupe est indisponible alors que d’autres sont connus. */
+  partialUnavailable?: boolean;
+  compact?: boolean;
 };
 
-export function dashboardSignalSourceForNotification(item: {
+export type DashboardSignalCountable = {
   id: string;
   moduleId: string;
-}): DashboardSignalSourceId {
-  const { id, moduleId } = item;
-  if (moduleId === "stages" || id.startsWith("stages-")) return "stages";
-  if (
-    moduleId === "demandes-hse" ||
-    moduleId === "requests-staff" ||
-    moduleId === "photocopies-couleur"
-  ) {
-    return "demandes";
-  }
-  if (moduleId === "documents" || id.includes("documents")) return "documents";
-  if (moduleId === "internat") return "internat";
-  if (moduleId === "vs-sanctions" || moduleId === "vs-carnet" || id.includes("sanction")) {
-    return "others";
-  }
-  if (
-    moduleId === "vs-absences" ||
-    moduleId === "vs-appels" ||
-    moduleId === "vs-calendrier" ||
-    id.includes("vs-") ||
-    id.includes("absence")
-  ) {
-    return "absences";
-  }
-  if (moduleId === "travels" || id.includes("travels") || id.includes("creneaux")) {
-    return "others";
-  }
-  if (moduleId === "rh" || moduleId === "absences" || moduleId === "mon-planning") {
-    return "rh";
-  }
-  if (moduleId === "eleve-dossier" || moduleId === "facturation") return "others";
-  return "others";
-}
+  signalSourceId?: DashboardSignalSourceId;
+};
 
-export function isDashboardNotificationUnavailable(
-  item: Pick<DashboardNotification, "id" | "moduleId">,
+export function isDashboardSignalSourceUnavailable(
+  sourceId: DashboardSignalSourceId,
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
 ): boolean {
   if (!sourceStatus) return false;
-  const src = dashboardSignalSourceForNotification(item);
-  const st = sourceStatus[src];
+  const st = sourceStatus[sourceId];
   return st === "timeout" || st === "error";
 }
 
-/** Compteur affiché : « indisponible » si la source a échoué, sinon le nombre. */
-export function formatDashboardNotificationCount(
-  count: number,
-  item: Pick<DashboardNotification, "id" | "moduleId">,
+export function isDashboardNotificationUnavailable(
+  item: DashboardSignalCountable,
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
-): string {
-  if (isDashboardNotificationUnavailable(item, sourceStatus)) return "indisponible";
-  if (count <= 0) return "0";
-  return count > 99 ? "99+" : String(count);
+): boolean {
+  const src = resolveDashboardSignalSource(item);
+  return isDashboardSignalSourceUnavailable(src, sourceStatus);
 }
 
-export function formatDashboardNumericBadge(
-  count: number,
-  sourceId: DashboardSignalSourceId,
+/** Somme des comptes dont la source est OK. */
+export function sumAvailableNotificationCounts(
+  items: Array<Pick<DashboardNotification, "count"> & DashboardSignalCountable>,
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
-): string | null {
-  if (sourceStatus && (sourceStatus[sourceId] === "timeout" || sourceStatus[sourceId] === "error")) {
-    return "indisponible";
-  }
-  if (count <= 0) return null;
-  return count > 99 ? "99+" : String(count);
+): number {
+  return items.reduce((sum, item) => {
+    if (isDashboardNotificationUnavailable(item, sourceStatus)) return sum;
+    return sum + (item.count > 0 ? item.count : 0);
+  }, 0);
 }
 
-/** Props pour `NotificationCountBadge` (compteur ou pastille « indisponible »). */
 export function dashboardNotificationBadgeProps(
   count: number,
-  item: Pick<DashboardNotification, "id" | "moduleId">,
+  item: DashboardSignalCountable,
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
+  opts?: { compact?: boolean },
 ): DashboardNotificationBadgeProps | null {
-  const formatted = formatDashboardNotificationCount(count, item, sourceStatus);
-  if (formatted === "indisponible") return { label: "indisponible" };
-  if (formatted === "0") return null;
-  if (formatted === "99+") return { label: "99+" };
-  const n = Number(formatted);
-  return Number.isFinite(n) ? { count: n } : { label: formatted };
+  if (isDashboardNotificationUnavailable(item, sourceStatus)) {
+    return { unavailable: true, compact: opts?.compact };
+  }
+  if (count <= 0) return null;
+  return count > 99 ? { count: 99, partialUnavailable: false } : { count };
 }
 
 export function dashboardPillarBadgeProps(
   pillarId: DashboardPillarId,
   notifications: DashboardNotification[],
-  shortcuts: Array<{ id: string; moduleId: string; pillarId?: DashboardPillarId }>,
+  shortcuts: Array<
+    { id: string; moduleId: string; pillarId?: DashboardPillarId; signalSourceId?: DashboardSignalSourceId }
+  >,
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
+  opts?: { compact?: boolean },
 ): DashboardNotificationBadgeProps | null {
-  const count = notificationCountForPillar(pillarId, notifications);
-  if (count > 0) {
-    return count > 99 ? { label: "99+" } : { count };
-  }
-  for (const n of notifications) {
-    if (moduleIdToPillarId(n.moduleId) !== pillarId) continue;
+  const pillarNotifs = notifications.filter(
+    (n) => moduleIdToPillarId(n.moduleId) === pillarId,
+  );
+  let unavailable = false;
+  let count = 0;
+  for (const n of pillarNotifs) {
     if (isDashboardNotificationUnavailable(n, sourceStatus)) {
-      return { label: "indisponible" };
+      unavailable = true;
+    } else if (n.count > 0) {
+      count += n.count;
     }
   }
   for (const s of shortcuts) {
@@ -116,20 +88,24 @@ export function dashboardPillarBadgeProps(
       s.pillarId === pillarId || moduleIdToPillarId(s.moduleId) === pillarId;
     if (!inPillar) continue;
     const c = notificationCountForShortcut(s, notifications);
-    if (c === 0 && isDashboardNotificationUnavailable(s, sourceStatus)) {
-      return { label: "indisponible" };
+    if (isDashboardNotificationUnavailable(s, sourceStatus)) {
+      unavailable = true;
+    } else if (c > 0) {
+      count += c;
     }
   }
-  return null;
+  if (unavailable) {
+    return { unavailable: true, compact: opts?.compact };
+  }
+  if (count <= 0) return null;
+  return count > 99 ? { count: 99 } : { count };
 }
 
-/** Libellé grand compteur (bento home / hub pilier). */
-export function dashboardFaceCountLabel(
+/** État KPI bento : indisponible (pas de chiffre partiel). */
+export function isDashboardFaceCountUnavailable(
   count: number,
-  item: Pick<DashboardNotification, "id" | "moduleId">,
+  item: DashboardSignalCountable,
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
-): string | null {
-  const formatted = formatDashboardNotificationCount(count, item, sourceStatus);
-  if (formatted === "0") return null;
-  return formatted;
+): boolean {
+  return isDashboardNotificationUnavailable(item, sourceStatus);
 }

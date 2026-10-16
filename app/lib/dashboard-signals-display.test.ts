@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dashboardNotificationBadgeProps,
-  formatDashboardNotificationCount,
+  isDashboardNotificationUnavailable,
 } from "@/app/lib/dashboard-signals-display";
 import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 
@@ -13,29 +13,36 @@ const OK = Object.fromEntries(
   ]),
 ) as Record<DashboardSignalSourceId, SignalSourceStatus>;
 
-test("formatDashboardNotificationCount — indisponible si source absences en timeout", () => {
+test("isDashboardNotificationUnavailable — utilise signalSourceId explicite", () => {
   const status = { ...OK, absences: "timeout" as SignalSourceStatus };
   assert.equal(
-    formatDashboardNotificationCount(0, { id: "vs-abs-1", moduleId: "vs-absences" }, status),
-    "indisponible",
+    isDashboardNotificationUnavailable(
+      { id: "x", moduleId: "travels", signalSourceId: "absences" },
+      status,
+    ),
+    true,
   );
   assert.equal(
-    formatDashboardNotificationCount(3, { id: "vs-abs-1", moduleId: "vs-absences" }, status),
-    "indisponible",
+    isDashboardNotificationUnavailable({ id: "x", moduleId: "travels" }, status),
+    false,
+  );
+});
+
+test("dashboardNotificationBadgeProps — indisponible sans chiffre", () => {
+  const status = { ...OK, stages: "error" as SignalSourceStatus };
+  assert.deepEqual(
+    dashboardNotificationBadgeProps(
+      0,
+      { id: "stages-pend", moduleId: "stages", signalSourceId: "stages" },
+      status,
+    ),
+    { unavailable: true, compact: undefined },
   );
 });
 
 test("dashboardNotificationBadgeProps — null si 0 et source ok", () => {
   assert.equal(
-    dashboardNotificationBadgeProps(0, { id: "x", moduleId: "stages" }, OK),
+    dashboardNotificationBadgeProps(0, { id: "x", moduleId: "stages", signalSourceId: "stages" }, OK),
     null,
-  );
-});
-
-test("dashboardNotificationBadgeProps — label indisponible", () => {
-  const status = { ...OK, stages: "error" as SignalSourceStatus };
-  assert.deepEqual(
-    dashboardNotificationBadgeProps(0, { id: "stages-pend", moduleId: "stages" }, status),
-    { label: "indisponible" },
   );
 });

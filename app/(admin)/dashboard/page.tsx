@@ -20,7 +20,13 @@ export default function Home() {
   const { isLoaded, user } = useSessionUser();
   const isOrgAdmin = useIsOrgAdmin();
   const data = useData();
-  const { shortcuts, notifications, sourceStatus, loading: loadingSignals } = useDashboardSignals();
+  const {
+    shortcuts,
+    notifications,
+    sourceStatus,
+    loading: loadingSignals,
+    refresh: refreshSignals,
+  } = useDashboardSignals();
 
   const userRoles = useMemo(() => {
     if (!user) return [];
@@ -85,6 +91,7 @@ export default function Home() {
                 notifications={notifications}
                 sourceStatus={sourceStatus}
                 loading={loadingSignals}
+                onRetry={() => void refreshSignals()}
               />
             </>
           )}

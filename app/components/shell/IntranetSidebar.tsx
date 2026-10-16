@@ -261,22 +261,36 @@ export default function IntranetSidebar({ mobileOpen, onCloseMobile }: Props) {
               notifications,
               dashShortcuts,
               sourceStatus,
+              { compact: true },
             );
+            const linkAria =
+              pillarBadge?.unavailable
+                ? `${p.title}, compteur indisponible`
+                : pillarBadge?.count
+                  ? `${p.title}, ${pillarBadge.count} notification${pillarBadge.count > 1 ? "s" : ""}`
+                  : undefined;
+
             return (
               <Link
                 key={p.id}
                 href={p.href}
                 onClick={onCloseMobile}
-                className={`flex items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold transition ${
+                aria-label={linkAria}
+                className={`flex items-start gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold transition ${
                   active
                     ? "bg-[var(--dash-ink)] text-white shadow-sm"
                     : "text-[var(--dash-ink)] hover:bg-white/70"
                 }`}
               >
-                <span aria-hidden>{PILLAR_ICONS[p.id] || "•"}</span>
-                <span className="min-w-0 flex-1 truncate">{p.title}</span>
+                <span className="mt-0.5 shrink-0" aria-hidden>{PILLAR_ICONS[p.id] || "•"}</span>
+                <span className="min-w-0 flex-1 leading-snug">{p.title}</span>
                 {pillarBadge ? (
-                  <NotificationCountBadge count={pillarBadge.count} label={pillarBadge.label} />
+                  <NotificationCountBadge
+                    count={pillarBadge.count}
+                    unavailable={pillarBadge.unavailable}
+                    compact={pillarBadge.compact}
+                    decorative
+                  />
                 ) : active ? (
                   <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--dash-lime)]" aria-hidden />
                 ) : null}

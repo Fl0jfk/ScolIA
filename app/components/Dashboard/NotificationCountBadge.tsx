@@ -1,33 +1,66 @@
 /** Pastille type Apple pour compteurs de notifications. */
+
+export const NOTIFICATION_COUNT_BADGE_UNAVAILABLE_CLASS =
+  "bg-amber-100 text-amber-900 ring-1 ring-amber-300";
+
+export const NOTIFICATION_COUNT_BADGE_COUNT_CLASS =
+  "bg-[#FF3B30] tabular-nums text-white";
+
+/** Texte visible court dans la pastille (tous emplacements). */
+export const DASHBOARD_COUNTER_UNAVAILABLE_MARK = "!";
+
+export const DASHBOARD_COUNTER_UNAVAILABLE_TITLE = "Compteur indisponible";
+
+export type NotificationCountBadgeProps = {
+  count?: number;
+  /** Compteur non disponible (source timeout / error). */
+  unavailable?: boolean;
+  /** Pastille compacte « ! » (sidebar). */
+  compact?: boolean;
+  className?: string;
+  /** Masque le badge aux lecteurs d’écran si le nom est porté par le parent (lien). */
+  decorative?: boolean;
+};
+
 export default function NotificationCountBadge({
   count,
-  label,
+  unavailable = false,
+  compact = false,
   className = "",
-}: {
-  count?: number;
-  /** Si fourni, remplace le compteur (ex. « indisponible »). */
-  label?: string;
-  className?: string;
-}) {
-  const display =
-    label ??
-    (count !== undefined && count > 0 ? (count > 99 ? "99+" : String(count)) : null);
+  decorative = false,
+}: NotificationCountBadgeProps) {
+  const display = unavailable
+    ? DASHBOARD_COUNTER_UNAVAILABLE_MARK
+    : count !== undefined && count > 0
+      ? count > 99
+        ? "99+"
+        : String(count)
+      : null;
   if (!display) return null;
-  const unavailable = display === "indisponible";
+
+  const countLabel =
+    count !== undefined && count > 0
+      ? `${count} notification${count > 1 ? "s" : ""}`
+      : undefined;
+
   return (
     <span
+      role={decorative ? undefined : "img"}
+      aria-hidden={decorative ? true : undefined}
+      aria-label={decorative ? undefined : unavailable ? DASHBOARD_COUNTER_UNAVAILABLE_TITLE : countLabel}
+      title={unavailable ? DASHBOARD_COUNTER_UNAVAILABLE_TITLE : undefined}
       className={`inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full px-[5px] text-[11px] font-semibold leading-none tracking-tight shadow-[0_1px_2px_rgba(0,0,0,0.18)] ${
         unavailable
-          ? "bg-amber-600 text-white normal-case"
-          : "bg-[#FF3B30] tabular-nums text-white"
+          ? `${NOTIFICATION_COUNT_BADGE_UNAVAILABLE_CLASS} normal-case`
+          : NOTIFICATION_COUNT_BADGE_COUNT_CLASS
       } ${className}`}
-      aria-label={
-        unavailable
-          ? "Compteur indisponible"
-          : `${count ?? 0} notification${(count ?? 0) > 1 ? "s" : ""}`
-      }
     >
       {display}
+      {!decorative && unavailable ? (
+        <span className="sr-only">compteur indisponible</span>
+      ) : !decorative && countLabel ? (
+        <span className="sr-only">{countLabel}</span>
+      ) : null}
     </span>
   );
 }
