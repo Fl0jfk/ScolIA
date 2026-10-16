@@ -607,16 +607,15 @@ async function loadVsCounts(
     key: valkeyKeyDashboardSignalsVsCounts(signalsEtabId, scopeHash),
     ttlSeconds: VALKEY_TTL.dashboardSignalsVsCounts,
     loader: async () => {
-      const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
+      const etabId = signalsEtabId.trim();
+      if (!etabId) {
+        return { vsAbsencesATraiter: 0, vsAbsencesJustifFamille: 0, vsAppelsManquants: 0 };
+      }
       const {
         countAbsencesATraiter,
         countAbsencesJustifFamilleEnAttente,
         countAppelsManquants,
       } = await import("@/app/lib/vs-absences-db");
-      const etabId = await resolveCurrentEtablissementId();
-      if (!etabId) {
-        return { vsAbsencesATraiter: 0, vsAbsencesJustifFamille: 0, vsAppelsManquants: 0 };
-      }
       let vsAbsencesATraiter = 0;
       let vsAbsencesJustifFamille = 0;
       let vsAppelsManquants = 0;

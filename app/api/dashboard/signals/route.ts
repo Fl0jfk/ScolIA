@@ -11,6 +11,7 @@ import {
   loadDashboardSignalSources,
   type DashboardSignalsViewUser,
 } from "@/app/lib/dashboard-signals-load";
+import { isDashboardSignalsAggregateCacheable } from "@/app/lib/dashboard-signals-aggregate-cache";
 import { DASHBOARD_SIGNAL_SOURCES } from "@/app/lib/dashboard-signals-parallel";
 
 const EMPTY_SIGNALS = {
@@ -58,11 +59,15 @@ export async function GET() {
     perf.mark("cache_lookup");
     if (cachedSignals) {
       const snap = perf.snapshot();
+      const cachedSourceStatus = Object.fromEntries(
+        DASHBOARD_SIGNAL_SOURCES.map((id) => [id, "ok"]),
+      ) as Record<(typeof DASHBOARD_SIGNAL_SOURCES)[number], "ok">;
       return NextResponse.json({
         ...cachedSignals,
         perf: {
           ...snap,
           stepsMs: { ...snap.stepsMs, aggregate: snap.totalMs },
+          sourceStatus: cachedSourceStatus,
           fromCache: true,
         },
       });
@@ -202,7 +207,9 @@ export async function GET() {
           sourceStatus,
         },
       };
-      void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
+      if (isDashboardSignalsAggregateCacheable(sourceStatus)) {
+        void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
+      }
       return NextResponse.json(payload);
     } catch (err) {
       console.error("[dashboard/signals] getDashboardSignals", err);

@@ -5,18 +5,19 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useSessionUser } from "@/app/hooks/useAppUser";
-import {
-  readDashboardSignalsCache,
-  writeDashboardSignalsCache,
-} from "@/app/lib/dashboard-signals-cache";
 import type { DashboardSignals } from "@/app/lib/dashboard-signals";
+import {
+  fetchDashboardSignalsShared,
+  getDashboardSignalsLastFetchAt,
+  readWarmDashboardSignalsCache,
+  resetDashboardSignalsSharedFetch,
+} from "@/app/lib/dashboard-signals-shared-fetch";
 
 const EMPTY_SIGNALS: DashboardSignals = {
   shortcuts: [],
@@ -30,20 +31,6 @@ const EMPTY_SIGNALS: DashboardSignals = {
 export const DASHBOARD_SIGNALS_POLL_MS = 60_000;
 const FOCUS_REFETCH_MIN_GAP_MS = 8_000;
 
-function normalizeSignals(json: unknown): DashboardSignals {
-  const o = json && typeof json === "object" ? (json as Record<string, unknown>) : {};
-  return {
-    shortcuts: Array.isArray(o.shortcuts) ? (o.shortcuts as DashboardSignals["shortcuts"]) : [],
-    todayNews: Array.isArray(o.todayNews) ? (o.todayNews as DashboardSignals["todayNews"]) : [],
-    hasCurrentWeek: Boolean(o.hasCurrentWeek),
-    notifications: Array.isArray(o.notifications)
-      ? (o.notifications as DashboardSignals["notifications"])
-      : [],
-    anneeScolaireLabel:
-      typeof o.anneeScolaireLabel === "string" ? o.anneeScolaireLabel : null,
-  };
-}
-
 type DashboardSignalsContextValue = {
   shortcuts: DashboardSignals["shortcuts"];
   todayNews: DashboardSignals["todayNews"];
@@ -51,76 +38,78 @@ type DashboardSignalsContextValue = {
   hasCurrentWeek: boolean;
   anneeScolaireLabel: string | null;
   loading: boolean;
-  /** Incrémenté à chaque fetch réseau réussi (pour callbacks). */
   fetchGeneration: number;
   refresh: () => Promise<DashboardSignals | null>;
 };
 
 const DashboardSignalsContext = createContext<DashboardSignalsContextValue | null>(null);
 
-let fetchInFlight: Promise<DashboardSignals | null> | null = null;
-let lastNetworkFetchAt = 0;
-
-async function fetchDashboardSignalsNetwork(userId: string): Promise<DashboardSignals | null> {
-  if (fetchInFlight) return fetchInFlight;
-  fetchInFlight = (async () => {
-    try {
-      const res = await fetch("/api/dashboard/signals", { cache: "no-store" });
-      if (!res.ok) return null;
-      const payload = normalizeSignals(await res.json());
-      writeDashboardSignalsCache(userId, payload);
-      lastNetworkFetchAt = Date.now();
-      return payload;
-    } catch {
-      return null;
-    } finally {
-      fetchInFlight = null;
-    }
-  })();
-  return fetchInFlight;
-}
-
 export function DashboardSignalsProvider({ children }: { children: ReactNode }) {
   const { isLoaded, user } = useSessionUser();
   const userId = user?.id ?? null;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
 
   const [signals, setSignals] = useState<DashboardSignals>(EMPTY_SIGNALS);
   const [loading, setLoading] = useState(true);
   const [fetchGeneration, setFetchGeneration] = useState(0);
   const warmCacheRef = useRef(false);
 
-  useLayoutEffect(() => {
-    if (!userId) return;
-    const cached = readDashboardSignalsCache(userId);
+  useEffect(() => {
+    resetDashboardSignalsSharedFetch();
+    warmCacheRef.current = false;
+    setFetchGeneration(0);
+
+    if (!userId) {
+      setSignals(EMPTY_SIGNALS);
+      setLoading(false);
+      return;
+    }
+
+    const cached = readWarmDashboardSignalsCache(userId);
     if (cached) {
       setSignals(cached);
       setLoading(false);
       warmCacheRef.current = true;
+    } else {
+      setSignals(EMPTY_SIGNALS);
+      setLoading(true);
     }
   }, [userId]);
 
   const applyPayload = useCallback((payload: DashboardSignals | null, fromNetwork: boolean) => {
     if (!payload) return null;
+    if (userIdRef.current !== userId) return null;
     setSignals(payload);
     warmCacheRef.current = true;
     setLoading(false);
     if (fromNetwork) setFetchGeneration((g) => g + 1);
     return payload;
-  }, []);
+  }, [userId]);
 
   const refresh = useCallback(
     async (opts?: { showLoading?: boolean }) => {
-      if (!userId) {
+      const activeUserId = userIdRef.current;
+      if (!activeUserId) {
         setLoading(false);
         return null;
       }
       if (opts?.showLoading && !warmCacheRef.current) {
         setLoading(true);
       }
-      const payload = await fetchDashboardSignalsNetwork(userId);
-      return applyPayload(payload, true);
+      const result = await fetchDashboardSignalsShared(activeUserId, {
+        fetchJson: async () => {
+          const res = await fetch("/api/dashboard/signals", { cache: "no-store" });
+          if (!res.ok) throw new Error(`signals ${res.status}`);
+          return res.json();
+        },
+      });
+      if (result.userId !== activeUserId || userIdRef.current !== activeUserId) {
+        return null;
+      }
+      return applyPayload(result.payload, true);
     },
-    [userId, applyPayload],
+    [applyPayload],
   );
 
   useEffect(() => {
@@ -144,14 +133,14 @@ export function DashboardSignalsProvider({ children }: { children: ReactNode }) 
 
     const onVisibility = () => {
       if (!document.hidden) {
-        const stale = Date.now() - lastNetworkFetchAt > DASHBOARD_SIGNALS_POLL_MS;
+        const stale = Date.now() - getDashboardSignalsLastFetchAt() > DASHBOARD_SIGNALS_POLL_MS;
         if (stale) void refresh();
       }
     };
 
     const onFocus = () => {
       if (document.hidden) return;
-      if (Date.now() - lastNetworkFetchAt < FOCUS_REFETCH_MIN_GAP_MS) return;
+      if (Date.now() - getDashboardSignalsLastFetchAt() < FOCUS_REFETCH_MIN_GAP_MS) return;
       void refresh();
     };
 
