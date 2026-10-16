@@ -4753,6 +4753,19 @@ impl PgEnt {
                     return Err(EntDbError::Forbidden);
                 }
             }
+            Role::Eleve => {
+                // Portail élève : prévenance cantine sur son propre dossier (même source « parent » facturation).
+                if cmd.source != DispenseSource::Parent {
+                    return Err(EntDbError::Forbidden);
+                }
+                let linked = self
+                    .eleve_comptes
+                    .eleve_id_for_user(cmd.etablissement_id, actor_id)
+                    .await?;
+                if linked != Some(cmd.eleve_id) {
+                    return Err(EntDbError::Forbidden);
+                }
+            }
             _ if Self::role_can_manage_repas(role) => {
                 if cmd.source != DispenseSource::Staff {
                     return Err(EntDbError::Forbidden);
@@ -4785,6 +4798,18 @@ impl PgEnt {
                     .lien_parent_eleve(etablissement_id, actor_user_id, current.eleve_id)
                     .await?;
                 if lien.is_none() {
+                    return Err(EntDbError::Forbidden);
+                }
+            }
+            Role::Eleve => {
+                if current.source != DispenseSource::Parent {
+                    return Err(EntDbError::Forbidden);
+                }
+                let linked = self
+                    .eleve_comptes
+                    .eleve_id_for_user(etablissement_id, actor_user_id)
+                    .await?;
+                if linked != Some(current.eleve_id) {
                     return Err(EntDbError::Forbidden);
                 }
             }
@@ -7433,7 +7458,8 @@ impl PgEnt {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = Self::role_can_gerer_dispenses_vs(role);
         let parent = matches!(parsed, Role::Parent);
-        if !staff && !parent {
+        let eleve = matches!(parsed, Role::Eleve);
+        if !staff && !parent && !eleve {
             return Err(EntDbError::Forbidden);
         }
         if parent
@@ -7443,6 +7469,15 @@ impl PgEnt {
                 .is_none()
         {
             return Err(EntDbError::Forbidden);
+        }
+        if eleve {
+            let linked = self
+                .eleve_comptes
+                .eleve_id_for_user(cmd.etablissement_id, cmd.actor_user_id)
+                .await?;
+            if linked != Some(cmd.eleve_id) {
+                return Err(EntDbError::Forbidden);
+            }
         }
         self.eleves
             .get(cmd.etablissement_id, cmd.eleve_id)
@@ -10195,7 +10230,18 @@ impl PgEnt {
         role: &str,
         cmd: AttacherOrdonnancePai,
     ) -> Result<PaiPiece, EntDbError> {
-        if !Self::role_can_saisir_infirmerie(role) {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        let staff = Self::role_can_saisir_infirmerie(role);
+        let parent = matches!(parsed, Role::Parent);
+        if !staff && !parent {
+            return Err(EntDbError::Forbidden);
+        }
+        if parent
+            && self
+                .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
+                .await?
+                .is_none()
+        {
             return Err(EntDbError::Forbidden);
         }
         let pai = self

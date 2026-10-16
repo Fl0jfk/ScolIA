@@ -1290,7 +1290,16 @@ function viewEleveSante() {
     </div>
     <div class="panel">
       <h2>Dispenses EPS</h2>
-      <div id="eleveDispVsOut" class="muted">Chargement…</div>
+      <p class="muted">Demander une dispense (sport) — traitée par la vie scolaire.</p>
+      <div class="row">
+        <label>Début <input id="eleveDvDebut" type="date" value="${today()}"/></label>
+        <label>Fin <input id="eleveDvFin" type="date" value="${today()}"/></label>
+        <label>Motif <select id="eleveDvMotif"><option value="eps" selected>EPS</option><option value="autre">Autre</option></select></label>
+        <label>Commentaire <input id="eleveDvCom" value="Demande élève" style="min-width:10rem"/></label>
+        <button type="button" class="primary" id="btnEleveDvPose">Demander</button>
+      </div>
+      <div id="eleveDvMsg" class="muted"></div>
+      <div id="eleveDispVsOut" class="muted" style="margin-top:.5rem">Chargement…</div>
     </div>
     <div class="panel">
       <h2>Passages infirmière</h2>
@@ -1345,9 +1354,14 @@ async function bindEleveSante() {
           ).join('')}</ul>`;
         }
       } catch (_) { /* ignore */ }
+      const signe = pai.signe_famille
+        ? `<p class="ok">Prise de connaissance famille le ${esc(pai.signe_famille_at || '')}</p>`
+        : `<p class="warn">En attente de signature famille — <a href="/eleve/messages">contacter</a> ou demander à un parent.</p>`;
       paiOut.innerHTML = `<p><strong>${esc(pai.motif)}</strong> · du ${esc(pai.date_debut)}${pai.date_fin ? ' au ' + esc(pai.date_fin) : ''}</p>
         <p>${esc(pai.mesures_accueil || '')}</p>
         ${pai.protocole_urgence ? `<p class="muted">Urgence : ${esc(pai.protocole_urgence)}</p>` : ''}
+        ${signe}
+        <h4 style="margin:.75rem 0 .35rem">Ordonnances</h4>
         ${piecesHtml || '<p class="empty">Pas d’ordonnance jointe.</p>'}`;
       paiOut.querySelectorAll('.btnElevePaiDl').forEach(b => {
         b.onclick = async () => {
@@ -1359,8 +1373,9 @@ async function bindEleveSante() {
   } catch (e) {
     if (paiOut) paiOut.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
   }
-  const dispOut = document.getElementById('eleveDispVsOut');
-  if (dispOut) {
+  async function loadEleveDispVs() {
+    const dispOut = document.getElementById('eleveDispVsOut');
+    if (!dispOut) return;
     try {
       const list = await api('/eleves/' + eid + '/dispenses-vs');
       const actives = (list || []).filter(d => d.statut === 'active' || d.statut === 'ouverte');
@@ -1377,6 +1392,28 @@ async function bindEleveSante() {
     } catch (e) {
       dispOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
+  }
+  await loadEleveDispVs();
+  const btnDv = document.getElementById('btnEleveDvPose');
+  if (btnDv) {
+    btnDv.onclick = async () => {
+      const msg = document.getElementById('eleveDvMsg');
+      try {
+        const d = await api('/eleves/' + eid + '/dispenses-vs', {
+          method: 'POST',
+          body: JSON.stringify({
+            motif: (document.getElementById('eleveDvMotif') || {}).value || 'eps',
+            debut: (document.getElementById('eleveDvDebut') || {}).value || today(),
+            fin: (document.getElementById('eleveDvFin') || {}).value || today(),
+            commentaire: ((document.getElementById('eleveDvCom') || {}).value || '').trim() || 'Demande élève',
+          }),
+        });
+        if (msg) msg.innerHTML = `<span class="ok">Dispense ${esc(d.motif)} demandée</span>`;
+        await loadEleveDispVs();
+      } catch (err) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+      }
+    };
   }
   const infOut = document.getElementById('eleveInfOut');
   if (infOut) {
@@ -1532,8 +1569,15 @@ function viewEleveRepas() {
     </div>
     <div class="panel">
       <h3>Dispenses / prévenances</h3>
-      <p class="muted">Jours non facturés déclarés par la famille ou l’établissement.</p>
-      <div id="eleveDispOut" class="muted">Chargement…</div>
+      <p class="muted">Déclarer un jour sans cantine (non facturé) — grille repas requise.</p>
+      <div class="row">
+        <label>Jour <input id="eleveDispJour" type="date" value="${today()}"/></label>
+        <label>Activité <select id="eleveDispAct" style="min-width:10rem"></select></label>
+        <label>Motif <input id="eleveDispMotif" value="prévenance" style="min-width:8rem"/></label>
+        <button type="button" class="primary" id="btnEleveDisp">Dispenser</button>
+      </div>
+      <div id="eleveDispMsg" class="muted"></div>
+      <div id="eleveDispOut" class="muted" style="margin-top:.5rem">Chargement…</div>
     </div>
     <div class="panel">
       <h3>Menus publiés</h3>
@@ -1598,22 +1642,77 @@ async function bindEleveRepas() {
   if (debut) debut.onchange = load;
   if (fin) fin.onchange = load;
   await load();
-  const dispOut = document.getElementById('eleveDispOut');
-  if (dispOut) {
+  async function loadEleveDispenses() {
+    const dispOut = document.getElementById('eleveDispOut');
+    const actSel = document.getElementById('eleveDispAct');
+    if (!dispOut) return;
     try {
+      let grille = [];
+      try {
+        grille = await api('/eleves/' + eid + '/repas/grilles');
+      } catch {
+        const dossier = await api('/eleves/' + eid + '/dossier').catch(() => null);
+        grille = (dossier && dossier.grille_repas) || [];
+      }
+      if (actSel) {
+        actSel.innerHTML = (grille || []).length
+          ? grille.map(g =>
+              `<option value="${esc(g.activite_id)}">${esc(g.activite_label || g.activite_id.slice(0, 8))}</option>`
+            ).join('')
+          : '<option value="">— aucune grille —</option>';
+      }
       const list = await api('/eleves/' + eid + '/repas/dispenses');
       const actives = (list || []).filter(d => !d.annulee);
       dispOut.innerHTML = !actives.length
         ? '<p class="empty">Aucune dispense active.</p>'
-        : `<table><thead><tr><th>Jour</th><th>Motif</th><th>Source</th></tr></thead>
+        : `<table><thead><tr><th>Jour</th><th>Motif</th><th>Source</th><th></th></tr></thead>
            <tbody>${actives.map(d => `<tr>
              <td>${esc(d.jour)}</td>
              <td>${esc(d.motif || '—')}</td>
              <td><span class="pill">${esc(d.source || '—')}</span></td>
+             <td>${d.source === 'parent'
+               ? `<button type="button" class="btnEleveAnnulDisp" data-id="${esc(d.id)}">Annuler</button>`
+               : ''}</td>
            </tr>`).join('')}</tbody></table>`;
+      dispOut.querySelectorAll('.btnEleveAnnulDisp').forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await api('/eleves/' + eid + '/repas/dispenses/' + btn.dataset.id + '/annuler', {
+              method: 'POST', body: '{}',
+            });
+            await loadEleveDispenses();
+          } catch (err) { alert(err.message); }
+        };
+      });
     } catch (e) {
       dispOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
+  }
+  await loadEleveDispenses();
+  const btnDisp = document.getElementById('btnEleveDisp');
+  if (btnDisp) {
+    btnDisp.onclick = async () => {
+      const msg = document.getElementById('eleveDispMsg');
+      const aid = (document.getElementById('eleveDispAct') || {}).value;
+      if (!aid) {
+        if (msg) msg.innerHTML = '<span class="bad">Activité (grille) requise</span>';
+        return;
+      }
+      try {
+        await api('/eleves/' + eid + '/repas/dispenses', {
+          method: 'POST',
+          body: JSON.stringify({
+            activite_id: aid,
+            jour: (document.getElementById('eleveDispJour') || {}).value || today(),
+            motif: ((document.getElementById('eleveDispMotif') || {}).value || '').trim() || 'prévenance',
+          }),
+        });
+        if (msg) msg.innerHTML = '<span class="ok">Dispense enregistrée</span>';
+        await loadEleveDispenses();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
   }
 }
 
@@ -9286,6 +9385,26 @@ function viewVsJour() {
           <h3>Alertes CPE ouvertes</h3>
           <div id="vsJourAl" class="muted">…</div>
         </section>
+        <section class="panel bento-span-12">
+          <h3>Incident / sanction rapide</h3>
+          <p class="dossier-help">Sans quitter la file · même API que Absences &amp; commissions.</p>
+          <div class="row">
+            ${elevePickerRow('vsIncEleve', 'vsIncEleveQ', 'btnVsIncEleveSearch')}
+            <label>Jour <input id="vsIncJour" type="date" value="${today()}"/></label>
+          </div>
+          <div class="row">
+            <label>Type incident <select id="vsIncType" style="min-width:10rem"></select></label>
+            <label>Description <input id="vsIncDesc" style="min-width:12rem" placeholder="Faits…"/></label>
+            <button type="button" class="primary" id="btnVsIncSave">Déclarer incident</button>
+          </div>
+          <div class="row">
+            <label>Type sanction <select id="vsSanType" style="min-width:10rem"></select></label>
+            <label>Motif <select id="vsSanMotif" style="min-width:8rem"><option value="">—</option></select></label>
+            <label>Durée (min) <input id="vsSanDuree" type="number" value="60" style="width:4rem"/></label>
+            <button type="button" class="primary" id="btnVsSanSave">Prononcer</button>
+          </div>
+          <div id="vsIncSanMsg" class="muted"></div>
+        </section>
         <section class="panel bento-span-6">
           <h3>Accès documents en attente</h3>
           <div id="vsJourGrants" class="muted">…</div>
@@ -9629,23 +9748,43 @@ async function bindVsJour() {
       alBox.innerHTML = '<p class="empty">Aucune alerte ouverte.</p>';
     } else {
       await hydrateEleveNames(al.map(a => a.eleve_id));
-      alBox.innerHTML = `<table><thead><tr><th>Jour</th><th>Élève</th><th>Titre</th><th>Sév.</th><th></th></tr></thead>
+      alBox.innerHTML = `<table><thead><tr><th>Jour</th><th>Élève</th><th>Titre</th><th>Sév.</th><th>Clôture</th></tr></thead>
         <tbody>${al.slice(0, 30).map(a => `<tr>
           <td>${esc(a.jour)}</td>
-          <td>${eleveCell(a)}</td>
+          <td>${eleveCell(a)}
+            <button type="button" class="btnVsAlPick" data-eid="${esc(a.eleve_id)}" title="Préremplir incident">↗</button>
+          </td>
           <td>${esc(a.titre)}</td>
           <td><span class="pill">${esc(a.severite)}</span></td>
-          <td><button type="button" class="btnVsAlClore" data-id="${esc(a.id)}">Clôturer</button></td>
+          <td>
+            <input class="vsAlCloreNote" data-id="${esc(a.id)}" value="Traité" size="12" placeholder="Note"/>
+            <button type="button" class="btnVsAlClore" data-id="${esc(a.id)}">Clôturer</button>
+          </td>
         </tr>`).join('')}</tbody></table>`;
       alBox.querySelectorAll('.btnVsAlClore').forEach(btn => {
         btn.onclick = async () => {
+          const inp = alBox.querySelector('.vsAlCloreNote[data-id="' + btn.dataset.id + '"]');
+          const note = ((inp && inp.value) || noteVs('Traité (file du jour)')).trim() || 'Traité';
           try {
             await api('/vs/alertes-cpe/' + btn.dataset.id + '/clore', {
               method: 'POST',
-              body: JSON.stringify({ note: noteVs('Traité (file du jour)') }),
+              body: JSON.stringify({ note }),
             });
             await load();
           } catch (e) { alert(e.message); }
+        };
+      });
+      alBox.querySelectorAll('.btnVsAlPick').forEach(btn => {
+        btn.onclick = () => {
+          const sel = document.getElementById('vsIncEleve');
+          if (!sel || !btn.dataset.eid) return;
+          if (![...sel.options].some(o => o.value === btn.dataset.eid)) {
+            const o = document.createElement('option');
+            o.value = btn.dataset.eid;
+            o.textContent = ELEVE_NAME_CACHE[btn.dataset.eid] || btn.dataset.eid.slice(0, 8);
+            sel.appendChild(o);
+          }
+          sel.value = btn.dataset.eid;
         };
       });
     }
@@ -9698,20 +9837,60 @@ async function bindVsJour() {
         insBox.innerHTML = '<p class="empty">Aucune inscription en étape pièces · <a href="/app/inscriptions">Board</a></p>';
       } else {
         await hydrateEleveNames(insPieces.map(s => s.eleve_id));
-        insBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Motif</th><th></th></tr></thead>
+        const docCounts = {};
+        await Promise.all(insPieces.slice(0, 20).map(async s => {
+          try {
+            const docs = await api('/eleves/' + encodeURIComponent(s.eleve_id) + '/documents');
+            docCounts[s.eleve_id] = (docs || []).length;
+          } catch { docCounts[s.eleve_id] = null; }
+        }));
+        insBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Motif</th><th>Pièces</th><th></th></tr></thead>
           <tbody>${insPieces.slice(0, 20).map(s => {
             const nxt = nextInsEtape(s.etape || 'pieces');
+            const nDocs = docCounts[s.eleve_id];
             return `<tr>
             <td>${eleveCell(s)}</td>
             <td>${esc(s.motif_code || '—')}</td>
+            <td>${nDocs != null ? `<span class="pill">${nDocs} doc(s)</span>` : '—'}
+              <button type="button" class="btnVsInsDepot" data-eid="${esc(s.eleve_id)}">Déposer</button></td>
             <td>
               <a href="/app/eleves/${esc(s.eleve_id)}">Dossier</a>
+              <a href="/app/inscriptions?etape=pieces">Board</a>
               ${nxt
                 ? `<button type="button" class="btnVsInsNext" data-eid="${esc(s.eleve_id)}" data-etape="${esc(s.etape || 'pieces')}" data-next="${esc(nxt)}" data-annee="${esc(s.annee_scolaire || '')}">→ ${esc(nxt)}</button>`
                 : '<span class="muted">finalisé</span>'}
             </td>
           </tr>`;
-          }).join('')}</tbody></table>`;
+          }).join('')}</tbody></table>
+          <div id="vsInsDepotMsg" class="muted" style="margin-top:.35rem"></div>`;
+        insBox.querySelectorAll('.btnVsInsDepot').forEach(btn => {
+          btn.onclick = async () => {
+            const msg = document.getElementById('vsInsDepotMsg');
+            const file = await pickLocalFile('.pdf,.png,.jpg,.jpeg,.txt,application/pdf,image/*');
+            if (!file) {
+              if (msg) msg.innerHTML = '<span class="muted">Dépôt annulé</span>';
+              return;
+            }
+            try {
+              const d = await api('/eleves/' + encodeURIComponent(btn.dataset.eid) + '/documents', {
+                method: 'POST',
+                body: JSON.stringify({
+                  titre: file.name || 'Pièce inscription',
+                  tiroir: 'administratif',
+                  confidentialite: 'standard',
+                  code: 'inscription',
+                  mime_type: file.type || 'application/octet-stream',
+                  contenu_base64: await fileToBase64(file),
+                }),
+              });
+              if (msg) msg.innerHTML = `<span class="ok">Déposé — ${esc(d.titre)}</span>`;
+              await load();
+            } catch (e) {
+              if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+              else alert(e.message);
+            }
+          };
+        });
         insBox.querySelectorAll('.btnVsInsNext').forEach(btn => {
           btn.onclick = async () => {
             try {
@@ -9797,6 +9976,96 @@ async function bindVsJour() {
 
   document.getElementById('btnVsJourLoad').onclick = load;
   document.getElementById('vsJourDate').onchange = load;
+
+  if (document.getElementById('vsIncEleve')) {
+    await bindElevePickers('vsIncEleve', 'vsIncEleveQ', 'btnVsIncEleveSearch');
+    try {
+      const types = await api('/vs/incident-types');
+      const sel = document.getElementById('vsIncType');
+      if (sel) {
+        sel.innerHTML = (types || []).map(t =>
+          `<option value="${esc(t.id)}">${esc(t.libelle)} (${esc(t.code)})</option>`
+        ).join('') || '<option value="">—</option>';
+      }
+    } catch {
+      const sel = document.getElementById('vsIncType');
+      if (sel) sel.innerHTML = '<option value="">(indisponible)</option>';
+    }
+    try {
+      const st = await api('/vs/sanction-types');
+      const sel = document.getElementById('vsSanType');
+      if (sel) {
+        sel.innerHTML = (st || []).map(t =>
+          `<option value="${esc(t.id)}">${esc(t.libelle)} (${esc(t.code)})</option>`
+        ).join('') || '<option value="">—</option>';
+      }
+      const motifs = await api('/vs/sanction-motifs');
+      const msel = document.getElementById('vsSanMotif');
+      if (msel) {
+        msel.innerHTML = '<option value="">—</option>' + (motifs || []).map(t =>
+          `<option value="${esc(t.id)}">${esc(t.libelle)}</option>`
+        ).join('');
+      }
+    } catch {
+      const sel = document.getElementById('vsSanType');
+      if (sel) sel.innerHTML = '<option value="">(indisponible)</option>';
+    }
+    const btnInc = document.getElementById('btnVsIncSave');
+    if (btnInc) {
+      btnInc.onclick = async () => {
+        const msg = document.getElementById('vsIncSanMsg');
+        const id = (document.getElementById('vsIncEleve') || {}).value;
+        const typeId = (document.getElementById('vsIncType') || {}).value;
+        if (!id || !typeId) {
+          if (msg) msg.innerHTML = '<span class="bad">Élève et type incident requis</span>';
+          return;
+        }
+        try {
+          const d = await api('/eleves/' + id + '/incidents', {
+            method: 'POST',
+            body: JSON.stringify({
+              type_id: typeId,
+              jour: (document.getElementById('vsIncJour') || {}).value || today(),
+              description: ((document.getElementById('vsIncDesc') || {}).value || '').trim() || null,
+            }),
+          });
+          if (msg) msg.innerHTML = `<span class="ok">Incident ${esc(d.id.slice(0, 8))} · <a href="/app/absences">détail</a></span>`;
+        } catch (e) {
+          if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    }
+    const btnSan = document.getElementById('btnVsSanSave');
+    if (btnSan) {
+      btnSan.onclick = async () => {
+        const msg = document.getElementById('vsIncSanMsg');
+        const id = (document.getElementById('vsIncEleve') || {}).value;
+        const typeId = (document.getElementById('vsSanType') || {}).value;
+        if (!id || !typeId) {
+          if (msg) msg.innerHTML = '<span class="bad">Élève et type sanction requis</span>';
+          return;
+        }
+        try {
+          const body = {
+            type_id: typeId,
+            jour: (document.getElementById('vsIncJour') || {}).value || today(),
+            duree_minutes: Number((document.getElementById('vsSanDuree') || {}).value) || null,
+            note: noteVs('Prononcée depuis file VS'),
+          };
+          const motif = (document.getElementById('vsSanMotif') || {}).value;
+          if (motif) body.motif_id = motif;
+          const d = await api('/eleves/' + id + '/sanctions', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          if (msg) msg.innerHTML = `<span class="ok">Sanction ${esc(d.statut)} · ${d.duree_minutes || '—'} min</span>`;
+        } catch (e) {
+          if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    }
+  }
+
   await load();
 }
 
@@ -15271,16 +15540,43 @@ async function bindFamilleSante() {
       if (!pai) {
         html += '<h3 style="margin-top:1rem">PAI</h3><p class="empty">Aucun PAI actif.</p>';
       } else {
+        let piecesHtml = '';
+        try {
+          const pieces = await api('/eleves/' + id + '/pai/pieces');
+          if ((pieces || []).length) {
+            piecesHtml = `<ul>${pieces.map(x =>
+              `<li><button type="button" class="btnPagePaiDl" data-pid="${x.id}" data-nom="${esc(x.nom)}">${esc(x.nom)}</button></li>`
+            ).join('')}</ul>`;
+          }
+        } catch (_) { /* ignore */ }
         html += `<h3 style="margin-top:1rem">PAI</h3>
           <p><strong>${esc(pai.motif)}</strong> · du ${esc(pai.date_debut)}${pai.date_fin ? ' au ' + esc(pai.date_fin) : ''}</p>
-          <p>${esc(pai.mesures_accueil || '')}</p>`;
+          <p>${esc(pai.mesures_accueil || '')}</p>
+          ${pai.protocole_urgence ? `<p class="muted">Urgence : ${esc(pai.protocole_urgence)}</p>` : ''}
+          ${piecesHtml || '<p class="empty">Pas d’ordonnance.</p>'}
+          <div class="row" style="margin-top:.5rem">
+            <input type="file" id="pagePaiFile" accept=".pdf,image/*"/>
+            <button type="button" id="btnPagePaiPiece">Joindre ordonnance</button>
+          </div>
+          <div id="pagePaiUploadMsg" class="muted"></div>
+          ${pai.signe_famille
+            ? `<p class="ok">Signé le ${esc(pai.signe_famille_at || '')}</p>`
+            : `<button type="button" class="primary" id="btnPageSignePai">J'ai pris connaissance du PAI</button>
+               <div id="pagePaiMsg" class="muted"></div>`}`;
       }
       html += `<h3 style="margin-top:1rem">Passages infirmière</h3>` + (!(passages || []).length
         ? '<p class="empty">Aucun passage visible.</p>'
         : `<ul>${passages.map(p =>
             `<li>${esc(p.jour)} — ${esc(p.motif_libelle || p.motif)}${p.note_soins ? ' · ' + esc(p.note_soins) : ''}</li>`
           ).join('')}</ul>`);
-      html += `<h3 style="margin-top:1rem">Dispenses EPS</h3>` + (!(dispenses || []).length
+      html += `<h3 style="margin-top:1rem">Dispenses EPS</h3>
+        <div class="row">
+          <label>Début <input id="pageDvDebut" type="date" value="${today()}"/></label>
+          <label>Fin <input id="pageDvFin" type="date" value="${today()}"/></label>
+          <label>Commentaire <input id="pageDvCom" value="EPS" style="min-width:8rem"/></label>
+          <button type="button" class="primary" id="btnPageDvPose">Demander</button>
+        </div>
+        <div id="pageDvMsg" class="muted"></div>` + (!(dispenses || []).length
         ? '<p class="empty">Aucune dispense.</p>'
         : `<ul>${dispenses.map(d =>
             `<li>${esc(d.debut || '—')} → ${esc(d.fin || '—')} · ${esc(d.commentaire || d.motif || '—')} · ${esc(d.statut || '—')}</li>`
@@ -15315,6 +15611,68 @@ async function bindFamilleSante() {
         btnPdf.onclick = async () => {
           try { await downloadPdf('/eleves/' + id + '/fiche-sante.pdf', 'fiche-sante.pdf'); }
           catch (err) { alert(err.message); }
+        };
+      }
+      const btnSigne = document.getElementById('btnPageSignePai');
+      if (btnSigne) {
+        btnSigne.onclick = async () => {
+          const msg = document.getElementById('pagePaiMsg');
+          try {
+            await api('/eleves/' + id + '/pai/signer', { method: 'POST', body: '{}' });
+            await load();
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+      const btnPiece = document.getElementById('btnPagePaiPiece');
+      if (btnPiece) {
+        btnPiece.onclick = async () => {
+          const msg = document.getElementById('pagePaiUploadMsg');
+          const file = (document.getElementById('pagePaiFile') || {}).files
+            && document.getElementById('pagePaiFile').files[0];
+          if (!file) { if (msg) msg.innerHTML = '<span class="bad">fichier requis</span>'; return; }
+          try {
+            const d = await api('/eleves/' + id + '/pai/pieces', {
+              method: 'POST',
+              body: JSON.stringify({
+                nom: file.name,
+                mime_type: file.type || 'application/pdf',
+                contenu_base64: await fileToBase64(file),
+              }),
+            });
+            if (msg) msg.innerHTML = `<span class="ok">${esc(d.nom)} joint</span>`;
+            await load();
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
+        };
+      }
+      out.querySelectorAll('.btnPagePaiDl').forEach(b => {
+        b.onclick = async () => {
+          try { await downloadFile('/pai/pieces/' + b.dataset.pid, b.dataset.nom || 'ordonnance.pdf'); }
+          catch (err) { alert(err.message); }
+        };
+      });
+      const btnDv = document.getElementById('btnPageDvPose');
+      if (btnDv) {
+        btnDv.onclick = async () => {
+          const msg = document.getElementById('pageDvMsg');
+          try {
+            const d = await api('/eleves/' + id + '/dispenses-vs', {
+              method: 'POST',
+              body: JSON.stringify({
+                motif: 'eps',
+                debut: (document.getElementById('pageDvDebut') || {}).value || today(),
+                fin: (document.getElementById('pageDvFin') || {}).value || today(),
+                commentaire: ((document.getElementById('pageDvCom') || {}).value || '').trim() || 'EPS',
+              }),
+            });
+            if (msg) msg.innerHTML = `<span class="ok">Dispense ${esc(d.motif)} posée</span>`;
+            await load();
+          } catch (err) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+          }
         };
       }
     } catch (e) {

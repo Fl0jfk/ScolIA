@@ -6218,7 +6218,7 @@ async fn attacher_ordonnance_pai(
     Path(id): Path<Uuid>,
     Json(body): Json<AttacherPieceBody>,
 ) -> Result<(StatusCode, Json<PaiPieceDto>), (StatusCode, String)> {
-    session.require_saisir_infirmerie()?;
+    // Infirmerie ou parent lié — contrôle métier dans attacher_ordonnance_pai_for_actor.
     let contenu = base64::engine::general_purpose::STANDARD
         .decode(body.contenu_base64.trim())
         .map_err(|_| (StatusCode::BAD_REQUEST, "contenu_base64 invalide".into()))?;
@@ -9311,7 +9311,7 @@ async fn poser_dispense_repas(
     Path(id): Path<Uuid>,
     Json(body): Json<PoserDispenseRepasBody>,
 ) -> Result<(StatusCode, Json<DispenseRepasDto>), (StatusCode, String)> {
-    let source = if session.role == "parent" {
+    let source = if session.role == "parent" || session.role == "eleve" {
         DispenseSource::Parent
     } else {
         DispenseSource::Staff
