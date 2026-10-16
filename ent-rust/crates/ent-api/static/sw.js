@@ -1,12 +1,16 @@
 /* ENT labo — cache assets statiques + shell HTML hors ligne (pas de Web Push). */
-const CACHE = 'ent-offline-v1';
+const CACHE = 'ent-offline-v2';
 
 const PRECACHE = [
   '/',
+  '/login',
+  '/app',
+  '/famille',
   '/static/css/app.css',
   '/static/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',
+  '/static/sw.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -37,6 +41,19 @@ function isStaticPath(pathname) {
   return pathname.startsWith('/static/');
 }
 
+function isShellPath(pathname) {
+  return (
+    pathname === '/'
+    || pathname === '/login'
+    || pathname === '/app'
+    || pathname === '/famille'
+    || pathname === '/eleve'
+    || pathname.startsWith('/app/')
+    || pathname.startsWith('/famille/')
+    || pathname.startsWith('/eleve/')
+  );
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -52,7 +69,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* API / JSON / mutations : réseau uniquement (pas de cache stale). */
+  if (!isShellPath(url.pathname)) {
+    event.respondWith(networkFirstApi(request));
+    return;
+  }
+
   event.respondWith(fetch(request));
 });
 
@@ -77,14 +98,36 @@ async function networkFirstShell(request) {
     if (response.ok) {
       const cache = await caches.open(CACHE);
       await cache.put(request, response.clone());
+      if (isShellPath(new URL(request.url).pathname)) {
+        await cache.put('/', response.clone());
+      }
     }
     return response;
   } catch {
-    const cached = (await caches.match(request)) || (await caches.match('/'));
+    const cached =
+      (await caches.match(request))
+      || (await caches.match(new URL(request.url).pathname))
+      || (await caches.match('/'));
     if (cached) return cached;
     return new Response('Hors ligne — reconnectez-vous au réseau.', {
       status: 503,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
+  }
+}
+
+async function networkFirstApi(request) {
+  try {
+    return await fetch(request);
+  } catch {
+    return new Response(
+      JSON.stringify({
+        error: 'Hors ligne — API indisponible sans connexion réseau.',
+      }),
+      {
+        status: 503,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      }
+    );
   }
 }

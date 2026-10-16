@@ -66,6 +66,12 @@ function seedRouteFromQuery() {
   if (qp.get('fac')) { routeState.openFacId = qp.get('fac'); qp.delete('fac'); dirty = true; }
   if (qp.get('section')) { routeState.famSection = qp.get('section'); qp.delete('section'); dirty = true; }
   if (qp.get('filtre')) { routeState.absFiltre = qp.get('filtre'); qp.delete('filtre'); dirty = true; }
+  if (qp.get('com') || qp.get('dos')) { routeState.scrollComPanel = true; }
+  if (qp.get('grille') === '4b-potions') {
+    routeState.notesGrille4b = true;
+    qp.delete('grille');
+    dirty = true;
+  }
   if (dirty) {
     const q = qp.toString();
     history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + (location.hash || ''));
@@ -77,11 +83,59 @@ function go(to) {
   render();
 }
 
+let entOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+function syncOfflineBanner() {
+  if (typeof document === 'undefined') return;
+  entOnline = navigator.onLine;
+  let el = document.getElementById('entOfflineBanner');
+  if (!entOnline) {
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'entOfflineBanner';
+      el.className = 'offline-banner';
+      el.setAttribute('role', 'status');
+      el.innerHTML = '<strong>Hors ligne</strong> — shell et assets en cache ; les données API ne se mettent pas à jour.';
+      document.body.prepend(el);
+    }
+    el.style.display = '';
+    document.documentElement.classList.add('ent-offline');
+  } else {
+    if (el) el.style.display = 'none';
+    document.documentElement.classList.remove('ent-offline');
+  }
+}
+
+function initOfflineWatch() {
+  if (typeof window === 'undefined' || window.__entOfflineWatch) return;
+  window.__entOfflineWatch = true;
+  const apply = () => syncOfflineBanner();
+  window.addEventListener('online', apply);
+  window.addEventListener('offline', apply);
+  apply();
+}
+
+function goNotesGrille4bPotions() {
+  routeState.notesGrille4b = true;
+  go('/app/notes');
+}
+
 async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (opts.body && !headers['content-type']) headers['content-type'] = 'application/json';
   if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
-  const res = await fetch(path, { ...opts, headers });
+  let res;
+  try {
+    res = await fetch(path, { ...opts, headers });
+  } catch (fetchErr) {
+    const offline = !navigator.onLine;
+    const err = new Error(offline
+      ? 'Hors ligne — reconnectez le réseau pour charger ou enregistrer des données.'
+      : 'Réseau indisponible — vérifiez votre connexion (timeout ou serveur injoignable).');
+    err.network = true;
+    err.cause = fetchErr;
+    throw err;
+  }
   if (res.status === 204) return null;
   const text = await res.text();
   let data = null;
@@ -309,6 +363,58 @@ function hasMotifJustifAbsence(a) {
 function isJustifATranche(a) {
   return !!(a && a.statut === 'a_traiter' && hasMotifJustifAbsence(a));
 }
+function isComDossierOuvert(d) {
+  if (!d || !d.id) return false;
+  if (d.decided_at) return false;
+  if (d.decision) return false;
+  return true;
+}
+function absencesComDeepLink(params) {
+  const q = new URLSearchParams();
+  if (params && params.comId) q.set('com', params.comId);
+  if (params && params.dosId) q.set('dos', params.dosId);
+  if (params && params.eleveId) q.set('eleve', params.eleveId);
+  const s = q.toString();
+  return '/app/absences' + (s ? '?' + s : '');
+}
+async function snapshotComDossiersOuverts(jour) {
+  const j = jour || today();
+  const coms = await api('/vs/commissions?jour=' + encodeURIComponent(j)).catch(() => []);
+  if (!Array.isArray(coms) || !coms.length) {
+    return { count: 0, coms: 0, first: null };
+  }
+  const packs = await Promise.all(coms.map(c =>
+    api('/vs/commissions/' + c.id + '/dossiers')
+      .then(list => ({ com: c, list: list || [] }))
+      .catch(() => ({ com: c, list: [] }))
+  ));
+  const open = [];
+  for (const { com, list } of packs) {
+    for (const d of list) {
+      if (isComDossierOuvert(d)) {
+        open.push({ comId: com.id, dosId: d.id, eleveId: d.eleve_id });
+      }
+    }
+  }
+  return { count: open.length, coms: coms.length, first: open[0] || null };
+}
+async function findComContextForDossier(dosId, jour) {
+  if (!dosId) return null;
+  const coms = await api('/vs/commissions?jour=' + encodeURIComponent(jour || today())).catch(() => []);
+  for (const c of coms || []) {
+    const list = await api('/vs/commissions/' + c.id + '/dossiers').catch(() => []);
+    const d = (list || []).find(x => String(x.id) === String(dosId));
+    if (d) return { comId: c.id, eleveId: d.eleve_id, dossier: d };
+  }
+  return null;
+}
+function scrollToAbsComPanel() {
+  const el = document.getElementById('absComPanel');
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.style.outline = '2px solid var(--accent, #2563eb)';
+  setTimeout(() => { el.style.outline = ''; }, 1800);
+}
 function justifPjBadgeHtml(doc) {
   if (!doc || !doc.id) return '';
   return '<span class="pill" title="Pièce jointe déposée">PJ</span> ';
@@ -318,6 +424,104 @@ function isFamJustifImageFile(file) {
   const mime = String(file.type || '').toLowerCase();
   if (mime.startsWith('image/')) return true;
   return /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(String(file.name || ''));
+}
+function formatOctetsFam(n) {
+  const b = Number(n);
+  if (!Number.isFinite(b) || b < 0) return '—';
+  if (b < 1024) return b + ' o';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' Ko';
+  return (b / (1024 * 1024)).toFixed(1) + ' Mo';
+}
+function famLienDroitsHintHtml(e) {
+  if (!e) return '';
+  const notes = !!e.peut_voir_notes;
+  const vs = !!e.peut_voir_vs;
+  const justif = !!e.peut_justifier_absence;
+  if (notes && !vs && !justif) {
+    return '<p class="warn" style="margin:.65rem 0">Notes consultables — absences / vie scolaire non autorisés pour ce lien parent.</p>';
+  }
+  if (!vs && !justif) {
+    return '<p class="warn" style="margin:.65rem 0">Absences et vie scolaire non visibles pour ce lien parent.</p>';
+  }
+  if (!justif && vs) {
+    return '<p class="muted" style="margin:.65rem 0">Justification d’absence désactivée — consultation vie scolaire uniquement.</p>';
+  }
+  if (!vs && justif) {
+    return '<p class="muted" style="margin:.65rem 0">Vie scolaire (sanctions, carnet…) non visible — justification d’absence autorisée.</p>';
+  }
+  return '';
+}
+function famVsSectionDeniedHtml() {
+  return '<p class="empty">Vie scolaire non visible pour ce lien parent (sanctions, carnet, points…).</p>';
+}
+function isFamPapDocument(d) {
+  if (!d) return false;
+  const code = String(d.code || '').trim().toUpperCase();
+  if (code === 'PAP') return true;
+  const titre = String(d.titre || '').toUpperCase();
+  return /\bPAP\b/.test(titre) || titre.includes('ACCOMPAGNEMENT PERSONNALIS');
+}
+function famDocGrantPendingKey(docId) {
+  return 'ent_fam_doc_grant_pending:' + docId;
+}
+function markFamDocGrantPending(docId) {
+  try { localStorage.setItem(famDocGrantPendingKey(docId), String(Date.now())); } catch {}
+}
+function isFamDocGrantPending(docId) {
+  try { return !!localStorage.getItem(famDocGrantPendingKey(docId)); } catch { return false; }
+}
+function clearFamDocGrantPending(docId) {
+  try { localStorage.removeItem(famDocGrantPendingKey(docId)); } catch {}
+}
+function updateFamJustifFileHint(inp, hint) {
+  if (!hint) return;
+  const f = inp.files && inp.files[0];
+  if (!f) {
+    hint.style.display = 'none';
+    hint.innerHTML = '';
+    if (hint._previewUrl) {
+      URL.revokeObjectURL(hint._previewUrl);
+      hint._previewUrl = null;
+    }
+    return;
+  }
+  const isImg = isFamJustifImageFile(f);
+  let inner = `<strong>${esc(f.name || 'fichier')}</strong> · ${esc(formatOctetsFam(f.size))}`;
+  if (isImg) {
+    inner += ' · <span class="muted">OCR bientôt</span>';
+    if (hint._previewUrl) URL.revokeObjectURL(hint._previewUrl);
+    hint._previewUrl = URL.createObjectURL(f);
+    inner += `<br/><img src="${hint._previewUrl}" alt="" style="max-width:10rem;max-height:7rem;margin-top:.35rem;object-fit:contain;border:1px solid var(--line);border-radius:2px"/>`;
+  }
+  inner += '<br/><span class="muted">La pièce sera jointe pour le CPE.</span>';
+  hint.innerHTML = inner;
+  hint.style.display = 'block';
+}
+function famDocGrantFamilleCellHtml(d) {
+  if (d.accessible) {
+    clearFamDocGrantPending(d.id);
+    return `<button type="button" class="btnFamDocDl" data-id="${esc(d.id)}" data-titre="${esc(d.titre)}">Télécharger</button>`;
+  }
+  if (isFamDocGrantPending(d.id)) {
+    return `<span class="pill warn">Demande en attente</span>
+      <p class="muted" style="margin:.25rem 0 0;max-width:14rem;font-size:.85rem">Transmise à l’administration (Établissement → Docs / grants).</p>`;
+  }
+  return `<button type="button" class="primary btnFamDocGrant" data-id="${esc(d.id)}">Demander accès</button>`;
+}
+function famPapGrantCalloutHtml(papDocs) {
+  const locked = (papDocs || []).filter(d => !d.accessible);
+  if (!locked.length) return '';
+  const d0 = locked[0];
+  const pending = isFamDocGrantPending(d0.id);
+  return `<div class="panel" id="fam-sec-pap-grant" style="margin:.5rem 0;padding:.65rem .75rem;border-left:3px solid var(--warn)">
+    <p style="margin:0"><strong>Plan d’accompagnement (PAP)</strong> — document restreint.</p>
+    <p class="muted" style="margin:.35rem 0 0">${esc(d0.titre || 'PAP')}</p>
+    ${pending
+      ? `<p class="warn" style="margin:.45rem 0 0">Accès demandé — en attente de validation par l’administration.</p>
+         <p class="muted" style="margin:.25rem 0 0">Traitement côté école : menu <strong>Établissement → Docs / grants</strong>.</p>`
+      : `<p class="muted" style="margin:.45rem 0 0">Demandez un accès temporaire pour consulter le PDF du PAP.</p>
+         <button type="button" class="primary btnFamPapGrant" data-id="${esc(d0.id)}" style="margin-top:.35rem">Demander accès au PAP</button>`}
+  </div>`;
 }
 async function loadJustifDocsByEleve(eleveIds) {
   const map = {};
@@ -2581,13 +2785,27 @@ async function bindHome() {
   }).length;
   const nIns = INSC_HOME.reduce((s, _, i) => s + ((insByEtape[i] || []).length), 0);
   const nGrants = (grants || []).length;
+  let comSnap = { count: 0, coms: 0, first: null };
+  if (role === 'cpe') {
+    comSnap = await settle(snapshotComDossiersOuverts(jour), comSnap);
+  }
+  const nComDos = comSnap.count || 0;
+  const comDosHref = comSnap.first
+    ? absencesComDeepLink({ comId: comSnap.first.comId, dosId: comSnap.first.dosId })
+    : '/app/absences';
+  const comDosTileSpan = nComDos > 0
+    ? 'Dossiers commission'
+    : 'Aucune commission — créer depuis un signal VS';
   if (pulse) {
     if (role === 'prof') {
       pulse.innerHTML = `
+        <button type="button" class="stat-tile bento-span-3" id="homeProfGrille4b"><strong>4B</strong><span>Grille Potions</span></button>
         <a class="stat-tile bento-span-3" href="/app/appel"><strong>·</strong><span>Faire l’appel</span></a>
         <a class="stat-tile bento-span-3" href="/app/mon-edt"><strong>·</strong><span>Mon EDT</span></a>
         <a class="stat-tile bento-span-3" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
         <a class="stat-tile bento-span-3" href="/app/rh"><strong>${(rh || []).length}</strong><span>Mes absences RH</span></a>`;
+      const homeProfGrille4b = document.getElementById('homeProfGrille4b');
+      if (homeProfGrille4b) homeProfGrille4b.onclick = () => goNotesGrille4bPotions();
     } else if (role === 'compta') {
       pulse.innerHTML = `
         <a class="stat-tile bento-span-3" href="/app/facturation"><strong>·</strong><span>Facturation</span></a>
@@ -2604,6 +2822,7 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/absences?filtre=justifs-trancher"><strong class="${nJustifTrancher ? 'warn' : ''}">${nJustifTrancher}</strong><span>Justifs à trancher</span></a>
         <a class="stat-tile bento-span-2" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>
+        <a class="stat-tile bento-span-2" href="${esc(comDosHref)}"><strong class="${nComDos ? 'warn' : ''}">${nComDos}</strong><span>${esc(comDosTileSpan)}</span></a>
         <a class="stat-tile bento-span-2" href="/app/eleves"><strong>·</strong><span>Annuaire élèves</span></a>
         <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
         ${wantSort ? `<a class="stat-tile bento-span-2" href="/app/sorties"><strong>${nSort}</strong><span>Sorties</span></a>` : ''}
@@ -2645,12 +2864,16 @@ async function bindHome() {
   const signauxBox = document.getElementById('homeSignauxPrecoces');
   if (signauxBox && role === 'cpe') {
     const totalEarly = nAbs + nAlert + nSig;
+    const comEarly = nComDos > 0
+      ? `<a class="stat-tile bento-span-3" href="${esc(comDosHref)}"><strong class="warn">${nComDos}</strong><span>Dossiers commission ouverts</span></a>`
+      : '<p class="empty" style="margin:0;grid-column:1/-1">Aucune commission — créer depuis un signal VS</p>';
     signauxBox.innerHTML = totalEarly
       ? `
-        <a class="stat-tile bento-span-4" href="/app/absences"><strong>${nAbs}</strong><span>Absences à traiter</span></a>
-        <a class="stat-tile bento-span-4" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
-        <a class="stat-tile bento-span-4" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>`
-      : '<p class="ok" style="margin:0">Aucun signal précoce en file — continuer la veille VS.</p>';
+        <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nAbs}</strong><span>Absences à traiter</span></a>
+        <a class="stat-tile bento-span-3" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
+        <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>
+        ${comEarly}`
+      : comEarly;
   }
   const dirKpi = document.getElementById('homeDirKpi');
   if (dirKpi && role === 'direction') {
@@ -2691,12 +2914,17 @@ async function bindHome() {
       if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
       lines.push('<li><a href="/app/appel">Faire l’appel du jour</a></li>');
       lines.push('<li><a href="/app/mon-edt">Voir mon EDT</a></li>');
-      lines.push('<li><a href="/app/notes">Saisir notes (grille classe)</a></li>');
+      lines.push('<li><a href="#" id="homeTodoGrille4b">Grille notes 4B · Potions</a></li>');
     } else if (role === 'cpe') {
       if (nJustifTrancher) lines.push(`<li><a href="/app/absences?filtre=justifs-trancher">${nJustifTrancher} justificatif(s) à trancher</a></li>`);
       if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) à traiter</a></li>`);
       if (nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE</a></li>`);
       if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
+      if (nComDos) {
+        lines.push(`<li><a href="${esc(comDosHref)}">${nComDos} dossier(s) commission à décider</a></li>`);
+      } else if (!comSnap.coms) {
+        lines.push('<li class="muted">Aucune commission — créer depuis un signal VS</li>');
+      }
       if (wantSort && nSort) lines.push(`<li><a href="/app/sorties">${nSort} demande(s) de sortie</a></li>`);
       if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
       lines.push('<li><a href="/app/eleves">Consulter l’annuaire élèves</a></li>');
@@ -2734,6 +2962,13 @@ async function bindHome() {
     todo.innerHTML = lines.length
       ? `<ul style="margin:0;padding-left:1.1rem">${lines.join('')}</ul>`
       : '<p class="ok">Rien en file pour aujourd’hui — ou modules hors droits.</p>';
+    const homeTodoGrille4b = document.getElementById('homeTodoGrille4b');
+    if (homeTodoGrille4b) {
+      homeTodoGrille4b.onclick = (ev) => {
+        ev.preventDefault();
+        goNotesGrille4bPotions();
+      };
+    }
   }
 }
 
@@ -2977,12 +3212,15 @@ async function bindFamilleEnfant(id) {
     const e = enfants.find(x => x.id === id) || {};
     let html = `<h2>${esc(e.prenom || '')} ${esc(e.nom || '')}</h2>
       <p class="muted">${esc(e.classe || '')} · lien ${esc(e.lien || '')}</p>`;
+    html += famLienDroitsHintHtml(e);
 
     // Absences à justifier
     html += `<h3 id="fam-sec-absences">Absences à justifier</h3>`;
     const abs = resume.absences_a_justifier || [];
     if (!e.peut_justifier_absence && !e.peut_voir_vs) {
-      html += `<p class="empty">Pas le droit de voir / justifier les absences.</p>`;
+      html += e.peut_voir_notes
+        ? `<p class="empty">Notes consultables — absences / vie scolaire non autorisés pour ce lien parent.</p>`
+        : `<p class="empty">Absences et vie scolaire non visibles pour ce lien parent.</p>`;
     } else if (!abs.length) {
       html += `<p class="empty">Rien à justifier pour le moment.</p>`;
     } else {
@@ -3001,7 +3239,7 @@ async function bindFamilleEnfant(id) {
                 </select>
                 <input class="famJustifNote" data-for="${esc(a.id)}" placeholder="Précision (optionnel)" style="min-width:10rem"/>
                 <input type="file" class="famJustifFile" data-for="${esc(a.id)}" accept=".pdf,image/jpeg,image/png,image/webp"/>
-                <p class="muted famJustifOcrHint" data-for="${esc(a.id)}" style="display:none;margin:.25rem 0 0;width:100%">OCR bientôt — la pièce est déjà jointe pour le CPE</p>
+                <p class="muted famJustifOcrHint" data-for="${esc(a.id)}" style="display:none;margin:.25rem 0 0;width:100%"></p>
               </div>`
             : '—'}</td>
           <td>${e.peut_justifier_absence
@@ -3059,7 +3297,7 @@ async function bindFamilleEnfant(id) {
     html += `<h3 id="fam-sec-carnet">Carnet</h3>`;
     const carnet = resume.carnet_a_signer || [];
     if (!e.peut_voir_vs) {
-      html += `<p class="empty">Carnet non visible (droit VS désactivé).</p>`;
+      html += `<p class="empty">Carnet non visible — vie scolaire non autorisée pour ce lien parent.</p>`;
     } else if (!carnet.length) {
       html += `<p class="empty">Aucune entrée en attente de signature.</p>`;
     } else {
@@ -3124,15 +3362,17 @@ async function bindFamilleEnfant(id) {
     if (secCont) {
       html += `<h3 id="fam-sec-continuum">Parcours scolaire</h3><div id="continuumFamOut" class="muted">Chargement…</div>`;
     }
-    html += `<h3>Dispenses VS (EPS)</h3>
-      <div class="row">
+    html += `<h3>Dispenses VS (EPS)</h3>`;
+    if (e.peut_voir_vs) {
+      html += `<div class="row">
         <label>Début <input id="dvFamDebut" type="date" value="${today()}"/></label>
         <label>Fin <input id="dvFamFin" type="date" value="${today()}"/></label>
         <label>Commentaire <input id="dvFamCom" value="blessure légère" style="min-width:10rem"/></label>
         <button type="button" class="primary" id="btnDvFamPose">Déclarer EPS</button>
       </div>
-      <div id="dvFamMsg" class="muted"></div>
-      <div id="dvFamOut" class="muted">Chargement…</div>`;
+      <div id="dvFamMsg" class="muted"></div>`;
+    }
+    html += `<div id="dvFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Moyennes</h3><div id="moyFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Appréciations</h3><div id="appFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Photo</h3>
@@ -3380,11 +3620,7 @@ async function bindFamilleEnfant(id) {
     out.querySelectorAll('.famJustifMotif').forEach(sel => { sel.innerHTML = motifOptsFam; });
     out.querySelectorAll('.famJustifFile').forEach(inp => {
       const hint = out.querySelector('.famJustifOcrHint[data-for="' + inp.dataset.for + '"]');
-      inp.onchange = () => {
-        if (!hint) return;
-        const f = inp.files && inp.files[0];
-        hint.style.display = isFamJustifImageFile(f) ? 'block' : 'none';
-      };
+      inp.onchange = () => updateFamJustifFileHint(inp, hint);
     });
     out.querySelectorAll('.btnJustifFam').forEach(btn => {
       btn.onclick = async () => {
@@ -3521,17 +3757,21 @@ async function bindFamilleEnfant(id) {
       try {
         const list = await api('/eleves/' + id + '/documents');
         const shown = list || [];
+        shown.forEach(d => { if (d.accessible) clearFamDocGrantPending(d.id); });
+        const papCallout = famPapGrantCalloutHtml(shown.filter(isFamPapDocument));
         box.innerHTML = !shown.length
-          ? '<p class="empty">Aucun document.</p>'
-          : `<table><thead><tr><th>Titre</th><th>Code</th><th>Tiroir</th><th>État</th><th></th></tr></thead>
+          ? papCallout + '<p class="empty">Aucun document.</p>'
+          : papCallout + `<table><thead><tr><th>Titre</th><th>Code</th><th>Tiroir</th><th>État</th><th></th></tr></thead>
              <tbody>${shown.map(d => `<tr>
                <td>${esc(d.titre)}</td>
                <td class="muted">${esc(d.code || '—')}</td>
                <td><span class="pill">${esc(d.tiroir || '—')}</span></td>
-               <td>${d.accessible ? '<span class="ok">accessible</span>' : '<span class="bad">verrouillé</span>'}</td>
                <td>${d.accessible
-                 ? `<button type="button" class="btnFamDocDl" data-id="${esc(d.id)}" data-titre="${esc(d.titre)}">Télécharger</button>`
-                 : `<button type="button" class="btnFamDocGrant" data-id="${esc(d.id)}">Demander un accès</button>`}</td>
+                 ? '<span class="ok">accessible</span>'
+                 : (isFamDocGrantPending(d.id)
+                   ? '<span class="warn">demande en attente</span>'
+                   : '<span class="bad">verrouillé</span>')}</td>
+               <td>${famDocGrantFamilleCellHtml(d)}</td>
              </tr>`).join('')}</tbody></table>
              <p class="muted">${shown.length} document(s)</p>`;
         box.querySelectorAll('.btnFamDocDl').forEach(btn => {
@@ -3541,14 +3781,25 @@ async function bindFamilleEnfant(id) {
             } catch (err) { alert(err.message); }
           };
         });
+        async function requestFamDocGrant(docId) {
+          await api('/documents/' + docId + '/grants', {
+            method: 'POST',
+            body: JSON.stringify({ duration_days: 14, note: 'besoin de lecture (famille)' }),
+          });
+          markFamDocGrantPending(docId);
+        }
         box.querySelectorAll('.btnFamDocGrant').forEach(btn => {
           btn.onclick = async () => {
             try {
-              await api('/documents/' + btn.dataset.id + '/grants', {
-                method: 'POST',
-                body: JSON.stringify({ duration_days: 14, note: 'besoin de lecture (famille)' }),
-              });
-              alert('Demande envoyée à l’administration');
+              await requestFamDocGrant(btn.dataset.id);
+              await loadFamDocsTiroir();
+            } catch (err) { alert(err.message); }
+          };
+        });
+        box.querySelectorAll('.btnFamPapGrant').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await requestFamDocGrant(btn.dataset.id);
               await loadFamDocsTiroir();
             } catch (err) { alert(err.message); }
           };
@@ -3638,7 +3889,7 @@ async function bindFamilleEnfant(id) {
       const list = await api('/eleves/' + id + '/sanctions');
       const box = document.getElementById('sanFamOut');
       if (!e.peut_voir_vs) {
-        box.innerHTML = '<p class="empty">Vie scolaire non visible pour ce lien.</p>';
+        box.innerHTML = famVsSectionDeniedHtml();
       } else if (!list.length) {
         box.innerHTML = '<p class="empty">Aucune sanction.</p>';
       } else {
@@ -3655,7 +3906,7 @@ async function bindFamilleEnfant(id) {
       const list = await api('/eleves/' + id + '/incidents');
       const box = document.getElementById('incFamOut');
       if (!e.peut_voir_vs) {
-        box.innerHTML = '<p class="empty">Vie scolaire non visible pour ce lien.</p>';
+        box.innerHTML = famVsSectionDeniedHtml();
       } else if (!list.length) {
         box.innerHTML = '<p class="empty">Aucun incident.</p>';
       } else {
@@ -3671,12 +3922,16 @@ async function bindFamilleEnfant(id) {
     try {
       const list = await api('/eleves/' + id + '/commissions');
       const box = document.getElementById('comFamOut');
-      const visibles = (list || []).filter(d => d.signale_famille);
-      box.innerHTML = visibles.length
-        ? `<ul>${visibles.map(d =>
-            `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.points_retires ? ' · −' + d.points_retires + ' pts' : ''}</li>`
-          ).join('')}</ul>`
-        : '<p class="empty">Aucune commission signalée.</p>';
+      if (!e.peut_voir_vs) {
+        box.innerHTML = famVsSectionDeniedHtml();
+      } else {
+        const visibles = (list || []).filter(d => d.signale_famille);
+        box.innerHTML = visibles.length
+          ? `<ul>${visibles.map(d =>
+              `<li>${esc(d.motifs)} — ${esc(d.decision_libelle || 'en attente')}${d.points_retires ? ' · −' + d.points_retires + ' pts' : ''}</li>`
+            ).join('')}</ul>`
+          : '<p class="empty">Aucune commission signalée.</p>';
+      }
     } catch (err) {
       const box = document.getElementById('comFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
@@ -3714,11 +3969,15 @@ async function bindFamilleEnfant(id) {
     try {
       const list = await api('/eleves/' + id + '/alertes-cpe');
       const box = document.getElementById('alerteFamOut');
-      box.innerHTML = list.length
-        ? `<ul>${list.map(a =>
-            `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}</li>`
-          ).join('')}</ul>`
-        : '<p class="empty">Aucune alerte.</p>';
+      if (!e.peut_voir_vs) {
+        box.innerHTML = famVsSectionDeniedHtml();
+      } else {
+        box.innerHTML = list.length
+          ? `<ul>${list.map(a =>
+              `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}</li>`
+            ).join('')}</ul>`
+          : '<p class="empty">Aucune alerte.</p>';
+      }
     } catch (err) {
       const box = document.getElementById('alerteFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
@@ -3828,14 +4087,18 @@ async function bindFamilleEnfant(id) {
       const list = await api('/eleves/' + id + '/dispenses-vs');
       const box = document.getElementById('dvFamOut');
       if (box) {
-        box.innerHTML = !list.length
-          ? '<p class="empty">Aucune dispense VS.</p>'
-          : `<ul>${list.map(d =>
-              `<li><span class="pill">${esc(d.motif)}</span> ${esc(d.debut)} → ${esc(d.fin)} · ${esc(d.statut)}${d.commentaire ? ' — ' + esc(d.commentaire) : ''}</li>`
-            ).join('')}</ul>`;
+        if (!e.peut_voir_vs) {
+          box.innerHTML = famVsSectionDeniedHtml();
+        } else {
+          box.innerHTML = !list.length
+            ? '<p class="empty">Aucune dispense VS.</p>'
+            : `<ul>${list.map(d =>
+                `<li><span class="pill">${esc(d.motif)}</span> ${esc(d.debut)} → ${esc(d.fin)} · ${esc(d.statut)}${d.commentaire ? ' — ' + esc(d.commentaire) : ''}</li>`
+              ).join('')}</ul>`;
+        }
       }
       const btn = document.getElementById('btnDvFamPose');
-      if (btn) {
+      if (btn && e.peut_voir_vs) {
         btn.onclick = async () => {
           const msg = document.getElementById('dvFamMsg');
           try {
@@ -4014,9 +4277,13 @@ async function bindFamilleEnfant(id) {
     }
 
     try {
-      const p = await api('/eleves/' + id + '/points-vs');
-      document.getElementById('ptsFamOut').innerHTML =
-        `<p><strong>${p.solde}</strong> / ${p.depart}</p>`;
+      const box = document.getElementById('ptsFamOut');
+      if (!e.peut_voir_vs) {
+        if (box) box.innerHTML = famVsSectionDeniedHtml();
+      } else {
+        const p = await api('/eleves/' + id + '/points-vs');
+        if (box) box.innerHTML = `<p><strong>${p.solde}</strong> / ${p.depart}</p>`;
+      }
     } catch (err) {
       const box = document.getElementById('ptsFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
@@ -10986,7 +11253,7 @@ function viewAbsences() {
       <p class="muted">Ouverts / en cours — alerte famille via messagerie au seuil, puis prise en charge CPE / clôture.</p>
       <div id="sigOut" class="muted">Chargement…</div>
     </div>
-    <div class="panel">
+    <div class="panel" id="absComPanel">
       <h2>Commission VS</h2>
       <p class="muted">Planifier → convoquer → décider. Points retirés alimentent le permis à points (départ 20).</p>
       <div class="row">
@@ -11457,7 +11724,10 @@ async function bindAbsences() {
     comOut.textContent = 'Chargement…';
     try {
       const list = await api('/vs/commissions?jour=' + encodeURIComponent(jour));
-      if (!list.length) { comOut.innerHTML = '<p class="empty">Aucune commission ce jour.</p>'; return; }
+      if (!list.length) {
+        comOut.innerHTML = '<p class="empty">Aucune commission — créer depuis un signal VS</p>';
+        return;
+      }
       comOut.innerHTML = `<table><thead><tr><th>Heure</th><th>Objet</th><th>Lieu</th><th>Statut</th><th></th></tr></thead>
         <tbody>${list.map(c => `<tr>
           <td>${esc(c.heure)}</td><td>${esc(c.objet)}</td><td>${esc(c.lieu || '—')}</td>
@@ -11471,7 +11741,28 @@ async function bindAbsences() {
       comOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   }
-  async function openCommission(cid) {
+  function applyComDossierSelection(did, eidHint) {
+    if (!did) return;
+    document.getElementById('comDosId').value = did;
+    const dosLab = document.getElementById('comDosLabel');
+    if (dosLab) dosLab.textContent = 'Dossier : ' + String(did).slice(0, 8) + '…';
+    let eid = eidHint || '';
+    const btn = comDosOut.querySelector('.btnComSel[data-did="' + did + '"]');
+    if (btn && btn.dataset.eid) eid = btn.dataset.eid;
+    if (eid) {
+      const eleveSel = document.getElementById('comEleve');
+      if (eleveSel) {
+        if (![...eleveSel.options].some(o => o.value === eid)) {
+          const o = document.createElement('option');
+          o.value = eid;
+          o.textContent = ELEVE_NAME_CACHE[eid] || eid.slice(0, 8);
+          eleveSel.appendChild(o);
+        }
+        eleveSel.value = eid;
+      }
+    }
+  }
+  async function openCommission(cid, preselectDosId) {
     if (!cid) return;
     document.getElementById('comId').value = cid;
     const lab = document.getElementById('comIdLabel');
@@ -11481,7 +11772,8 @@ async function bindAbsences() {
     if (dosLab) dosLab.textContent = 'Dossier : — (Sélectionner dans la liste)';
     const dos = await api('/vs/commissions/' + cid + '/dossiers');
     if (!dos.length) {
-      comDosOut.innerHTML = '<p class="empty">Aucun dossier.</p>';
+      comDosOut.innerHTML = '<p class="empty">Aucun dossier — convoquer depuis un signal VS ou le formulaire ci-dessus.</p>';
+      if (preselectDosId) applyComDossierSelection(preselectDosId);
       return;
     }
     for (const d of dos) {
@@ -11507,21 +11799,9 @@ async function bindAbsences() {
     comDosOut.innerHTML = `<table><thead><tr><th>Élève</th><th>Motifs</th><th>Note interne</th><th>Famille</th><th>Décision</th><th>Texte</th><th>Le</th><th>Pts</th><th></th></tr></thead>
       <tbody>${rows.join('')}</tbody></table>`;
     comDosOut.querySelectorAll('.btnComSel').forEach(b => {
-      b.onclick = () => {
-        document.getElementById('comDosId').value = b.dataset.did;
-        if (dosLab) dosLab.textContent = 'Dossier : ' + b.dataset.did.slice(0, 8) + '…';
-        const eleveSel = document.getElementById('comEleve');
-        if (eleveSel && b.dataset.eid) {
-          if (![...eleveSel.options].some(o => o.value === b.dataset.eid)) {
-            const o = document.createElement('option');
-            o.value = b.dataset.eid;
-            o.textContent = ELEVE_NAME_CACHE[b.dataset.eid] || b.dataset.eid.slice(0, 8);
-            eleveSel.appendChild(o);
-          }
-          eleveSel.value = b.dataset.eid;
-        }
-      };
+      b.onclick = () => applyComDossierSelection(b.dataset.did, b.dataset.eid);
     });
+    if (preselectDosId) applyComDossierSelection(preselectDosId);
     comDosOut.querySelectorAll('.btnComDecInline').forEach(b => {
       b.onclick = async () => {
         document.getElementById('comDosId').value = b.dataset.did;
@@ -11833,9 +12113,26 @@ async function bindAbsences() {
   await loadPoints();
   await loadIncidentsLies();
   await loadIncSanHisto();
-  if (routeState.comEleveId) {
-    const eid = routeState.comEleveId;
-    delete routeState.comEleveId;
+  const wantScrollCom = !!routeState.scrollComPanel;
+  delete routeState.scrollComPanel;
+  let pendingComId = routeState.comId ? String(routeState.comId) : '';
+  let pendingDosId = routeState.comDosId ? String(routeState.comDosId) : '';
+  let pendingComEleve = routeState.comEleveId ? String(routeState.comEleveId) : '';
+  delete routeState.comId;
+  delete routeState.comDosId;
+  delete routeState.comEleveId;
+  if (pendingDosId && !pendingComId) {
+    const ctx = await findComContextForDossier(
+      pendingDosId,
+      document.getElementById('comJour')?.value || today()
+    );
+    if (ctx) {
+      pendingComId = ctx.comId;
+      if (!pendingComEleve && ctx.eleveId) pendingComEleve = ctx.eleveId;
+    }
+  }
+  if (pendingComEleve) {
+    const eid = pendingComEleve;
     const eleveSel = document.getElementById('comEleve');
     if (eleveSel) {
       if (![...eleveSel.options].some(o => o.value === eid)) {
@@ -11848,17 +12145,16 @@ async function bindAbsences() {
       await loadComEleveHist();
     }
   }
-  if (routeState.comId) {
-    const cid = routeState.comId;
-    delete routeState.comId;
-    try { await openCommission(cid); } catch (e) { comMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  if (pendingComId) {
+    try {
+      await openCommission(pendingComId, pendingDosId || undefined);
+    } catch (e) {
+      comMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  } else if (pendingDosId) {
+    applyComDossierSelection(pendingDosId, pendingComEleve);
   }
-  if (routeState.comDosId) {
-    document.getElementById('comDosId').value = routeState.comDosId;
-    const dosLab = document.getElementById('comDosLabel');
-    if (dosLab) dosLab.textContent = 'Dossier : ' + String(routeState.comDosId).slice(0, 8) + '…';
-    delete routeState.comDosId;
-  }
+  if (wantScrollCom || pendingComId || pendingDosId) scrollToAbsComPanel();
   if (routeState.absEleveId) {
     const eid = routeState.absEleveId;
     delete routeState.absEleveId;
@@ -13219,6 +13515,13 @@ async function bindConseils() {
 function viewNotes() {
   return shell('/app/notes', `
     <div class="bento" id="notesStats"></div>
+    <div class="panel" id="notesQuickLab" style="margin-bottom:.75rem">
+      <div class="row" style="margin:0;align-items:flex-start">
+        <p class="muted" style="margin:0;flex:1">Raccourci labo — ouvrir la grille de saisie <strong>4B · Potions</strong> (créneau du jour ou devoir seed).</p>
+        <button type="button" class="primary" id="btnNotesGrille4b">Ouvrir grille 4B / Potions</button>
+      </div>
+      <div id="notesQuickMsg" class="muted" style="margin-top:.5rem"></div>
+    </div>
     <div id="notesGuideBanner" class="panel" style="display:none;margin-bottom:.75rem"></div>
     <div class="panel">
       <h2>Notes</h2>
@@ -13778,7 +14081,15 @@ async function bindNotes() {
       if (!eleves.length) {
         const cl = esc(devoir.classe || '4B');
         box.innerHTML = `<p class="empty">Ouvrir un appel ou vérifier classe ${cl}.</p>
-          <p class="muted">Effectif vide pour le ${esc(jour)} — l’appel du jour alimente la liste.</p>`;
+          <p class="muted">Effectif vide pour le ${esc(jour)} — l’appel du jour alimente la liste.</p>
+          <div class="row">
+            <button type="button" class="primary" id="btnGrilleGoAppel">Faire l’appel ${cl}</button>
+            <button type="button" id="btnGrilleRetry">Réessayer</button>
+          </div>`;
+        const goAppel = document.getElementById('btnGrilleGoAppel');
+        if (goAppel) goAppel.onclick = () => go('/app/appel');
+        const retry = document.getElementById('btnGrilleRetry');
+        if (retry) retry.onclick = () => openGrille(devoir);
         return;
       }
       const notesByEleve = {};
@@ -13980,12 +14291,95 @@ async function bindNotes() {
     }
   };
 
+  const NOTES_LAB = { classe: '4B', matiereCode: 'POTIONS', matiereLib: 'Potions' };
+
+  function applyNotesLabInputs() {
+    const dc = document.getElementById('devClasse');
+    if (dc) dc.value = NOTES_LAB.classe;
+    const mc = document.getElementById('matCode');
+    if (mc) mc.value = NOTES_LAB.matiereCode;
+    const ml = document.getElementById('matLib');
+    if (ml) ml.value = NOTES_LAB.matiereLib;
+    const ec = document.getElementById('expClasse');
+    if (ec) ec.value = NOTES_LAB.classe;
+  }
+
+  async function resolvePotionsDevoir4B() {
+    applyNotesLabInputs();
+    const mats = await fillMatieres();
+    const mat = (mats || []).find(m =>
+      String(m.code || '').toUpperCase() === NOTES_LAB.matiereCode
+      || /potions/i.test(m.libelle || ''));
+    if (mat) {
+      const devM = document.getElementById('devMatiere');
+      if (devM) devM.value = mat.id;
+    }
+    const list = await loadDevoirs();
+    if (!list.length) return null;
+    return list.find(d =>
+      d.classe === NOTES_LAB.classe
+      && (/potions/i.test(d.titre || '') || /potions/i.test(d.matiere_libelle || ''))
+    ) || list.find(d => d.classe === NOTES_LAB.classe) || list[0];
+  }
+
+  async function openNotesGrille4bPotions(opts) {
+    const msgEl = (opts && opts.msgEl) || document.getElementById('notesQuickMsg') || document.getElementById('grilleMsg');
+    try {
+      if (msgEl) msgEl.textContent = 'Ouverture grille 4B · Potions…';
+      const jour = today();
+      try {
+        const creneaux = await api('/edt/mes-creneaux?jour=' + encodeURIComponent(jour));
+        const slot = (creneaux || []).find(c =>
+          c.classe === NOTES_LAB.classe && /potions/i.test(c.matiere_libelle || ''));
+        const devDate = document.getElementById('devDate');
+        if (slot && devDate) devDate.value = jour;
+      } catch (_) { /* hors droits / hors ligne */ }
+      await loadPeriodes();
+      const devoir = await resolvePotionsDevoir4B();
+      if (!devoir) {
+        if (msgEl) {
+          msgEl.innerHTML = '<span class="warn">Aucun devoir Potions en 4B — préremplissage fait, créez ou listez les devoirs.</span>';
+        }
+        const banner = document.getElementById('notesGuideBanner');
+        if (banner) {
+          banner.style.display = '';
+          banner.style.borderLeft = '3px solid var(--accent,#c45c26)';
+          banner.innerHTML = `<p style="margin:0 0 .5rem"><strong>Raccourci 4B · Potions</strong> — aucun devoir trouvé sur la période.</p>
+            <div class="row" style="flex-wrap:wrap;gap:.35rem">
+              <button type="button" class="primary" data-notes-step="3">Créer devoir</button>
+              <button type="button" id="btnNotesQuickDevList">Lister devoirs</button>
+            </div>`;
+          bindNotesGuideClicks(banner);
+          const btnList = document.getElementById('btnNotesQuickDevList');
+          if (btnList) btnList.onclick = () => loadDevoirs();
+        }
+        document.getElementById('grilleOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      await openGrille(devoir);
+      document.getElementById('grilleOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (msgEl) {
+        msgEl.innerHTML = `<span class="ok">Grille ouverte · ${esc(devoir.titre)} · ${esc(devoir.classe)}</span>`;
+      }
+    } catch (e) {
+      if (msgEl) msgEl.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      else alert(e.message);
+    }
+  }
+
+  const btnNotesGrille4b = document.getElementById('btnNotesGrille4b');
+  if (btnNotesGrille4b) btnNotesGrille4b.onclick = () => openNotesGrille4bPotions({});
+
   try {
     await loadPeriodes();
     await fillMatieres();
     await loadDevoirs();
     await loadNotesEleve();
   } catch {}
+  if (routeState.notesGrille4b) {
+    delete routeState.notesGrille4b;
+    await openNotesGrille4bPotions({});
+  }
   async function downloadCsv(path, filename) {
     const msg = document.getElementById('expMsg');
     msg.textContent = 'Téléchargement…';
@@ -17983,6 +18377,7 @@ function bindShell() {
 }
 
 async function render() {
+  syncOfflineBanner();
   const root = document.getElementById('root');
   const p = path();
   seedRouteFromQuery();
@@ -18418,6 +18813,7 @@ async function render() {
 
 window.addEventListener('popstate', () => render());
 window.addEventListener('load', () => {
+  initOfflineWatch();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/static/sw.js', { scope: '/' }).catch(() => {});
   }

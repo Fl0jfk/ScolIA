@@ -169,6 +169,24 @@
     @apply flex flex-wrap items-center gap-2;
   }
 
+  .offline-banner {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 200;
+    padding: 0.55rem 1rem;
+    font-size: 0.88rem;
+    line-height: 1.35;
+    color: #fff;
+    background: var(--color-ent-warn);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  }
+  .offline-banner strong {
+    font-weight: 700;
+  }
+  html.ent-offline body {
+    padding-top: 2.85rem;
+  }
+
   /* Shell = left bar fixe (comme IntranetShell Next.js) */
   .shell {
     @apply relative min-h-screen;
