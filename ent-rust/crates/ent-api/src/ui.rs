@@ -104,6 +104,9 @@ async function snapshotOutboxPending() {
 let entToastTimer = null;
 /** Rempli dans bindNotes — repère Cedric sur tip « 0 devoir ». */
 let notesDevoirsEmptyCedricRefresh = null;
+/** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
+let notePeriodePickSuppress = 0;
+let eleveNotePeriodePickReady = false;
 let exportsEnPeriodesMeta = { nPeriodes: 0, nFermees: 0 };
 function showEntToast(html, ms) {
   const duration = ms == null ? 9000 : ms;
@@ -1018,6 +1021,83 @@ function isStaffElevesAnnuaireFlux() {
   return path() === '/app/eleves';
 }
 
+/** /app/eleves — synthèse annuaire (liste courante · comptes · trombi). */
+function elevesPageTipDenseHtml(stats, opts) {
+  if (!isStaffElevesAnnuaireFlux()) return '';
+  const s = stats || {};
+  const o = opts || {};
+  const nList = Number(s.nList) || 0;
+  const nActifs = Number(s.nActifs) || 0;
+  const nSans = Number(s.nSans) || 0;
+  const mode = String(o.mode || 'annuaire');
+  const sansTile = nSans
+    ? `<button type="button" class="stat-tile bento-span-4" id="btnElevesTipSansCompte" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nSans}</strong><span>Sans compte · filtrer liste</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Comptes élèves · à jour</span></div>`;
+  const modeTile = mode === 'sans-compte'
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>Inviter</strong><span>Compte /eleve · mdp temporaire</span></div>`
+    : `<a class="stat-tile bento-span-4" href="/app/eleves?trombi=4B" style="text-decoration:none">
+        <strong>Trombi</strong><span>4B seed · photos lazy</span></a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong>${nList}</strong><span>Dans la liste courante</span></div>
+    <div class="stat-tile bento-span-4"><strong>${nActifs}</strong><span>Actifs / inscrits</span></div>
+    ${sansTile}
+    ${modeTile}
+  </div>`;
+}
+
+function bindElevesPageTipActions() {
+  const btn = document.getElementById('btnElevesTipSansCompte');
+  if (btn) {
+    btn.onclick = () => document.getElementById('btnSansCompte')?.click();
+  }
+}
+
+/** /app/eleves — mode « sans compte » : repère au-dessus du tableau. */
+function elevesSansCompteListTipDenseHtml(list) {
+  if (!isStaffElevesAnnuaireFlux()) return '';
+  const rows = list || [];
+  const n = rows.length;
+  if (!n) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Aucun élève actif sans compte</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Invitations · historique</span></div>
+      <button type="button" class="stat-tile bento-span-4" id="btnElevesTipInvitations" style="cursor:pointer;text-align:left">
+        <strong>File</strong><span>Invitations en attente</span></button>
+    </div>`;
+  }
+  const first = rows[0];
+  const firstLabel = first
+    ? esc(`${first.prenom || ''} ${first.nom || ''}`.trim())
+    : '—';
+  const firstHref = first && first.id ? `/app/eleves/${esc(String(first.id))}` : '/app/eleves';
+  const classes = [];
+  rows.forEach(e => {
+    const cl = String(e.classe || '').trim();
+    if (cl && !classes.includes(cl)) classes.push(cl);
+  });
+  const clsLbl = classes.length
+    ? esc(classes.slice(0, 3).join(' · ') + (classes.length > 3 ? '…' : ''))
+    : '—';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">${n}</strong><span>À inviter · portail /eleve</span></div>
+    <a class="stat-tile bento-span-4" href="${firstHref}" style="text-decoration:none">
+      <strong>1ʳᵉ</strong><span>${firstLabel}</span></a>
+    <button type="button" class="stat-tile bento-span-4" id="btnElevesTipProvLot" style="cursor:pointer;text-align:left">
+      <strong class="muted">${clsLbl}</strong><span>Classe(s) · provisionner le lot</span></button>
+  </div>`;
+}
+
+function bindElevesSansCompteListTipActions() {
+  const inv = document.getElementById('btnElevesTipInvitations');
+  if (inv) inv.onclick = () => document.getElementById('btnInvitations')?.click();
+  const lot = document.getElementById('btnElevesTipProvLot');
+  if (lot) lot.onclick = () => document.getElementById('btnProvLot')?.click();
+}
+
 /** Annuaire /app/eleves — toast bento après recherche (champ #q). */
 function toastElevesSearchUiDense(q, list) {
   if (!isStaffElevesAnnuaireFlux()) return;
@@ -1746,6 +1826,36 @@ function refreshEleveHomeAbsencesTip(absences, absencesApiOk) {
     return;
   }
   el.innerHTML = eleveHomeAbsencesTipDenseHtml(absences, absencesApiOk);
+}
+
+/** Accueil /eleve — classe + régime (bento). */
+function eleveHomeClasseTipDenseHtml(classeVal, regimeVal, opts) {
+  const o = opts || {};
+  const cl = esc(String(classeVal || '').trim() || '—');
+  const reg = esc(String(regimeVal || '').trim() || '—');
+  const nCo = Number(o.nCours) || 0;
+  const nNo = Number(o.nNotes) || 0;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${cl}</strong><span>Ma classe · groupe du jour</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${reg}</strong><span>Régime scolaire</span></div>
+    <a class="stat-tile bento-span-4" href="/eleve/notes" style="text-decoration:none">
+      <strong>${nNo}</strong><span>Note(s) · ${nCo} cours aujourd’hui</span>
+    </a>
+  </div>`;
+}
+
+function refreshEleveHomeClasseTip(classeVal, regimeVal, opts) {
+  const el = document.getElementById('eleveHomeClasseTip');
+  if (!el) return;
+  const cl = String(classeVal || '').trim();
+  const reg = String(regimeVal || '').trim();
+  if (!cl && !reg) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = eleveHomeClasseTipDenseHtml(classeVal, regimeVal, opts);
 }
 
 function eleveAlerteCpeOuverte(a) {
@@ -2923,11 +3033,18 @@ function famHomeEnfantsTipDenseHtml(list, resumes, docsLists, paiList, absLists)
   if (!kids.length) return '';
   let nTodo = 0;
   const classes = [];
+  let bestMulti = null;
+  let bestMultiScore = -1;
   kids.forEach((e, i) => {
     const cl = String(e.classe || '').trim();
     if (cl && !classes.includes(cl)) classes.push(cl);
     const s = famEnfantListTodoStats(e, resumes[i], docsLists[i], paiList[i], absLists && absLists[i]);
-    nTodo += (Number(s.abs) || 0) + (Number(s.car) || 0) + (Number(s.docs) || 0) + (s.paiPending ? 1 : 0);
+    const score = (Number(s.abs) || 0) + (Number(s.car) || 0) + (Number(s.docs) || 0) + (s.paiPending ? 1 : 0);
+    nTodo += score;
+    if (score > bestMultiScore) {
+      bestMultiScore = score;
+      bestMulti = { e, score };
+    }
   });
   const clsLbl = classes.length
     ? classes.slice(0, 3).map(c => esc(c)).join(' · ') + (classes.length > 3 ? '…' : '')
@@ -2935,7 +3052,6 @@ function famHomeEnfantsTipDenseHtml(list, resumes, docsLists, paiList, absLists)
   const effTile = `<a class="stat-tile bento-span-4" href="/famille/enfants" style="text-decoration:none;border-color:var(--accent,#0071e3)">
       <strong>${kids.length}</strong><span>Enfant(s) lié(s) · effectif foyer</span>
     </a>`;
-  const clsTile = `<div class="stat-tile bento-span-4"><strong style="font-size:.82rem;font-weight:600">${clsLbl}</strong><span>Classe(s)</span></div>`;
   const todoTile = nTodo
     ? `<a class="stat-tile bento-span-4" href="/famille/enfants" style="text-decoration:none;border-color:var(--warn,#b45309)">
         <strong class="warn">${nTodo}</strong><span>Point(s) à traiter · cartes</span>
@@ -2943,7 +3059,36 @@ function famHomeEnfantsTipDenseHtml(list, resumes, docsLists, paiList, absLists)
     : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
         <strong class="ok">OK</strong><span>Tous les dossiers à jour</span>
       </div>`;
+  if (kids.length >= 2) {
+    const prenoms = kids.slice(0, 4).map(e => esc(String(e.prenom || '').trim())).join(' · ');
+    const extraKid = kids.length > 4 ? ` · +${kids.length - 4}` : '';
+    const multiTile = `<div class="stat-tile bento-span-4"><strong>${prenoms}${extraKid}</strong><span>${clsLbl} · ${kids.length} fiche(s)</span></div>`;
+    let focusTile = todoTile;
+    if (bestMulti && bestMultiScore > 0) {
+      const eid = esc(String(bestMulti.e.id));
+      const prenom = esc(String(bestMulti.e.prenom || 'Enfant').trim());
+      focusTile = `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+          <strong class="warn">${prenom}</strong><span>${bestMultiScore} point(s) · priorité</span>
+        </a>`;
+    }
+    return `<div class="bento" style="margin:0 0 .55rem">${effTile}${multiTile}${focusTile}</div>`;
+  }
+  const clsTile = `<div class="stat-tile bento-span-4"><strong style="font-size:.82rem;font-weight:600">${clsLbl}</strong><span>Classe(s)</span></div>`;
   return `<div class="bento" style="margin:0 0 .55rem">${effTile}${clsTile}${todoTile}</div>`;
+}
+
+/** Liste /famille/enfants — tip bento quand tous les dossiers sont à jour. */
+function famEnfantsListTipEmptyDenseHtml(kids) {
+  const list = kids || [];
+  if (!list.length) return '';
+  const n = list.length;
+  const prenoms = list.slice(0, 3).map(e => esc(String(e.prenom || '').trim())).join(' · ');
+  const extra = n > 3 ? ` · +${n - 3}` : '';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong class="ok">${n}</strong><span>Enfant(s) · dossiers à jour</span></div>
+    <div class="stat-tile bento-span-4"><strong>${prenoms}${extra}</strong><span>Cartes · absences · PAI · docs</span></div>
+    <a class="stat-tile bento-span-4" href="/famille" style="text-decoration:none"><strong>Accueil</strong><span>Messages · factures</span></a>
+  </div>`;
 }
 
 /** Fiche enfant — fils messagerie (bento, deep-link ?section=messages). */
@@ -3024,11 +3169,7 @@ function famEnfantsListTipDenseHtml(list, resumes, docsLists, paiList, absLists)
   });
   const nTodo = nAbs + nCar + nDocs + nPai;
   if (!nTodo) {
-    return `<div class="bento" style="margin:0 0 .55rem">
-      <div class="stat-tile bento-span-4"><strong class="ok">${kids.length}</strong><span>Enfant(s) · à jour</span></div>
-      <a class="stat-tile bento-span-4" href="/famille" style="text-decoration:none"><strong>Accueil</strong><span>Factures · messages</span></a>
-      <div class="stat-tile bento-span-4"><strong class="muted">Cartes</strong><span>Absences · PAI · docs</span></div>
-    </div>`;
+    return famEnfantsListTipEmptyDenseHtml(kids);
   }
   const absTile = nAbs
     ? `<a class="stat-tile bento-span-4" href="/famille/vie-scolaire" style="text-decoration:none;border-color:var(--warn,#b45309)">
@@ -3642,6 +3783,31 @@ function bindNotesGrilleEmptyTipGo() {
   if (labBtn) labBtn.onclick = () => goNotesGrille4bPotions();
 }
 
+/** /app/notes — grille ouverte mais effectif vide (appel du jour). */
+function notesGrilleElevesEmptyTipDenseHtml(classe, jour) {
+  const cl = esc(String(classe || '').trim() || '—');
+  const j = esc(String(jour || today()).slice(0, 10));
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">0</strong><span>Élève(s) · classe ${cl} · ${j}</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="btnGrilleGoAppel" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Appel</strong><span>Faire l’appel · alimente l’effectif</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="btnGrilleRetry" style="cursor:pointer;text-align:left">
+      <strong>↻</strong><span>Réessayer après appel</span>
+    </button>
+  </div>
+  <p class="muted" style="margin:.25rem 0 .35rem;font-size:.85rem">L’effectif du jour provient de l’appel — vérifiez la classe et la date du devoir.</p>`;
+}
+
+function bindNotesGrilleElevesEmptyTipGo(retryFn) {
+  const goAppel = document.getElementById('btnGrilleGoAppel');
+  if (goAppel) goAppel.onclick = () => go('/app/appel');
+  const retry = document.getElementById('btnGrilleRetry');
+  if (retry && typeof retryFn === 'function') retry.onclick = () => { void retryFn(); };
+}
+
 /** /app/notes — grille ouverte : navigation clavier (Entrée / Tab / Esc). */
 function notesGrilleKeyboardTipDenseHtml(nEleves) {
   const n = Math.max(0, Number(nEleves) || 0);
@@ -3730,10 +3896,128 @@ function toastNotePeriodeFermee(p) {
 
 function toastNotePeriodePartielle(p) {
   const label = esc(notePeriodeFermeeLabel(p));
+  const dates = p && p.date_debut && p.date_fin
+    ? `${esc(String(p.date_debut))} → ${esc(String(p.date_fin))}`
+    : '—';
+  if (isStaffNotesFlux()) {
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>Partielle</strong><span>Notes verrouillées</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${label}</strong><span>${notePeriodeStatutBadge('partielle_appreciations')}</span></div>
+      <div class="stat-tile bento-span-4"><strong>${dates}</strong><span>Appréciations ouvertes</span></div>`;
+    showEntToast(
+      `<strong>Période partielle</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="/app/notes">Module Notes</a></p>`,
+      9000,
+    );
+    return;
+  }
   showEntToast(
     `<strong>Période « ${label} »</strong> ${notePeriodeStatutBadge('partielle_appreciations')} — notes verrouillées, saisie des appréciations ouverte.`,
     9000,
   );
+}
+
+function suppressNotePeriodePickToast() {
+  notePeriodePickSuppress += 1;
+}
+
+function releaseNotePeriodePickToast() {
+  notePeriodePickSuppress = Math.max(0, notePeriodePickSuppress - 1);
+}
+
+function shouldToastNotePeriodePick() {
+  return notePeriodePickSuppress === 0;
+}
+
+function bindToastNotePeriodeChangeLinks() {
+  const devLink = document.getElementById('entToastNotesPeriodeDev');
+  if (devLink) {
+    devLink.onclick = (ev) => {
+      ev.preventDefault();
+      document.getElementById('btnDevList')?.click();
+      document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const grilleLink = document.getElementById('entToastNotesPeriodeGrille');
+  if (grilleLink) {
+    grilleLink.onclick = (ev) => {
+      ev.preventDefault();
+      document.getElementById('notesGrillePanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const bulLink = document.getElementById('entToastNotesPeriodeBul');
+  if (bulLink) {
+    bulLink.onclick = (ev) => {
+      ev.preventDefault();
+      const panel = document.getElementById('notesBulletinsPanel');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+}
+
+function toastNotePeriodeChange(p, opts) {
+  if (!p) return;
+  const o = opts || {};
+  const label = esc(notePeriodeFermeeLabel(p));
+  const statut = notePeriodeStatutBadge(p.statut || 'ouverte');
+  const dates = p.date_debut && p.date_fin
+    ? `${esc(String(p.date_debut))} → ${esc(String(p.date_fin))}`
+    : '—';
+  const st = String(p.statut || 'ouverte');
+  const lockTile = st === 'fermee'
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)"><strong class="warn">Fermée</strong><span>Saisie verrouillée</span></div>`
+    : (st === 'partielle_appreciations'
+      ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)"><strong>Partielle</strong><span>Appréciations ouvertes</span></div>`
+      : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)"><strong class="ok">Ouverte</strong><span>Saisie notes</span></div>`);
+  const tiles = `${lockTile}`
+    + `<div class="stat-tile bento-span-4"><strong>${label}</strong><span>${statut}</span></div>`
+    + `<div class="stat-tile bento-span-4"><strong>${dates}</strong><span>Dates période</span></div>`;
+  if (isStaffNotesFlux() || o.staff) {
+    showEntToast(
+      `<strong>Période sélectionnée</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+      + `<a href="#" id="entToastNotesPeriodeDev">Devoirs</a> · `
+      + `<a href="#" id="entToastNotesPeriodeGrille">Grille</a> · `
+      + `<a href="#" id="entToastNotesPeriodeBul">Bulletins</a> · `
+      + `<a href="/app/notes">Module Notes</a></p>`,
+      6500,
+    );
+    bindToastNotePeriodeChangeLinks();
+    return;
+  }
+  if (isEleveNotesFlux() || o.eleve) {
+    showEntToast(
+      `<strong>Période affichée</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+      + `<a href="/eleve/notes">Mes notes</a> · `
+      + `<a href="/eleve/cahier">Cahier</a>`
+      + (st === 'fermee' ? ` · <a href="#" id="entToastNotesPeriodeBul">Bulletin</a>` : '')
+      + `</p>`,
+      6500,
+    );
+    bindToastNotePeriodeChangeLinks();
+    return;
+  }
+  showEntToast(`<strong>Période « ${label} »</strong> ${statut}`, 5500);
+}
+
+async function maybeToastNotePeriodePick(pid, opts) {
+  if (!shouldToastNotePeriodePick() || !pid) return;
+  const o = opts || {};
+  let p = o.periode || null;
+  if (!p) {
+    try {
+      const list = await api('/note-periodes');
+      p = (list || []).find(x => x.id === pid) || null;
+    } catch {
+      return;
+    }
+  }
+  if (p) toastNotePeriodeChange(p, o);
 }
 
 function toastNotePeriodeCreee(p) {
@@ -4357,23 +4641,48 @@ function toastEdtContrainteCreee(c) {
 }
 
 function toastConseilCree(c) {
-  const cls = esc((c && c.classe) || '');
-  const per = esc((c && c.periode_libelle) || '');
-  const jour = esc((c && c.jour) || '');
-  const heure = esc((c && c.heure) || '');
-  const horaire = jour && heure ? `${jour} ${heure}` : (jour || heure || '—');
-  showEntToast(
+  const conseil = c || {};
+  const cls = esc(String(conseil.classe || '').trim() || '—');
+  const per = esc(String(conseil.periode_libelle || '').trim() || '—');
+  const jour = esc(String(conseil.jour || '').slice(0, 10));
+  const heure = esc(String(conseil.heure || '').trim());
+  const lieu = conseil.lieu ? esc(String(conseil.lieu).trim()) : '—';
+  const horaire = jour && heure && jour !== '—' ? `${jour} ${heure}` : (jour !== '—' ? jour : (heure || '—'));
+  const statut = esc(String(conseil.statut || 'planifie').trim());
+  const footImport = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="#" id="entToastCcImport">Importer l’effectif</a> · `
+    + `<a href="/app/notes">Notes &amp; mentions</a></p>`;
+  const simple = () => showEntToast(
     `<strong>Conseil planifié</strong> — ${cls} · ${per} · ${horaire}. `
     + `<a href="#" id="entToastCcImport">Importer l’effectif</a>`,
     9500,
   );
-  const link = document.getElementById('entToastCcImport');
-  if (link) {
-    link.onclick = (ev) => {
-      ev.preventDefault();
-      document.getElementById('btnCcImport')?.click();
-    };
+  const bindImport = () => {
+    const link = document.getElementById('entToastCcImport');
+    if (link) {
+      link.onclick = (ev) => {
+        ev.preventDefault();
+        document.getElementById('btnCcImport')?.click();
+      };
+    }
+  };
+  if (!isStaffAbsencesFlux()) {
+    simple();
+    bindImport();
+    return;
   }
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${cls}</strong><span>Conseil · ${per}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${horaire}</strong><span>${lieu} · ${statut}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Dossiers · import effectif</span></div>`;
+  showEntToast(
+    `<strong>Conseil de classe créé</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + footImport,
+    10000,
+  );
+  bindImport();
 }
 
 function toastConseilImportEffectif(classe, ok, skip, err) {
@@ -4575,6 +4884,13 @@ function seedRouteFromQuery() {
       routeState.famScrollFactures = true;
     } else if (secRaw === 'quittances' || secRaw === 'quittance') {
       routeState.famScrollQuittances = true;
+    } else if (secRaw === 'enfants' || secRaw === 'enfant' || secRaw === 'mes-enfants') {
+      const pathNow = location.pathname.replace(/\/$/, '') || '/';
+      if (pathNow === '/famille') {
+        routeState.famScrollEnfants = true;
+      } else {
+        routeState.famSection = normalizeFamEnfantSection(qp.get('section'));
+      }
     } else {
       routeState.famSection = normalizeFamEnfantSection(qp.get('section'));
     }
@@ -5196,6 +5512,40 @@ function countAppelManquants(appel) {
   return (appel.lignes || []).filter(l => !saisies[String(l.eleve_id)]).length;
 }
 /** Appel prof — élèves sans clic P/A/R explicite avant clôture. */
+/** Appel prof — aperçu effectif classe (bouton Effectif sur créneau). */
+function appelEffectifPreviewTipDenseHtml(classe, eleves, jour) {
+  if (!isStaffAppelFlux()) return '';
+  const cl = esc(String(classe || '').trim() || '—');
+  const j = esc(String(jour || today()).slice(0, 10));
+  const rows = eleves || [];
+  const n = rows.length;
+  if (!n) {
+    return `<div class="bento" style="margin:.55rem 0">
+      <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">0</strong><span>Effectif vide · ${cl} · ${j}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Appel du jour alimente la liste</span></div>
+      <a class="stat-tile bento-span-4" href="/app/eleves" style="text-decoration:none">
+        <strong>Élèves</strong><span>Vérifier classe · affectation</span></a>
+    </div>`;
+  }
+  const first = rows[0];
+  const firstLabel = first
+    ? esc(`${first.prenom || ''} ${first.nom || ''}`.trim())
+    : '—';
+  const regimes = {};
+  rows.forEach(e => {
+    const r = String(e.regime || '—').trim();
+    regimes[r] = (regimes[r] || 0) + 1;
+  });
+  const regParts = Object.keys(regimes).slice(0, 3).map(k => `${k}:${regimes[k]}`).join(' · ');
+  return `<div class="bento" style="margin:.55rem 0">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${n}</strong><span>${cl} · effectif ${j}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${firstLabel}</strong><span>1ʳᵉ ligne · ${n > 1 ? (n - 1) + ' autre(s)' : 'seul'}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${esc(regParts || '—')}</strong><span>Régimes · ouvrir appel</span></div>
+  </div>`;
+}
+
 function appelManquantsTipDenseHtml(nManq, total) {
   const k = Number(nManq) || 0;
   const tot = Number(total) || 0;
@@ -6218,6 +6568,57 @@ function famDocsSignPageTipDenseHtml(opts) {
     ${charteTile}
     ${regTile}
   </div>`;
+}
+/** /famille/docs-signer — toast bento après filtre enfant (select). */
+function toastFamDocsSignFilterUiDense(filterId, enfants, packs, opts) {
+  if (!isFamilleDocsSignerFlux()) return;
+  const fid = filterId ? String(filterId).trim() : '';
+  if (!fid) return;
+  const all = enfants || [];
+  const enfant = all.find(e => String(e.id) === fid);
+  if (!enfant) return;
+  const o = opts || {};
+  const who = esc(String(enfant.prenom || 'Enfant').trim());
+  const cls = enfant.classe ? esc(String(enfant.classe).trim()) : '—';
+  const pack = (packs || []).find(p => p.enfant && String(p.enfant.id) === fid);
+  let nPending = Number(o.nPending);
+  let nCharte = Number(o.nCharte);
+  let nReg = Number(o.nReg);
+  let nBul = Number(o.nBul);
+  if (!Number.isFinite(nPending) && pack) {
+    const pending = (pack.docs || []).filter(isFamDocPending);
+    nPending = pending.length;
+    nCharte = 0;
+    nReg = 0;
+    pending.forEach(d => {
+      const k = famDocCodeKind(d.code);
+      if (k === 'charte') nCharte += 1;
+      else if (k === 'reglement') nReg += 1;
+    });
+    nBul = (pack.metierDocs || []).filter(d => d && d.accessible).length;
+  }
+  nPending = Number(nPending) || 0;
+  nCharte = Number(nCharte) || 0;
+  nReg = Number(nReg) || 0;
+  nBul = Number(nBul) || 0;
+  const ficheHref = `/famille/enfants/${esc(fid)}?section=docs`;
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${who}</strong><span>${cls} · filtre actif</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="${nPending ? 'warn' : 'ok'}">${nPending}</strong><span>À signer · charte ${nCharte} · règl. ${nReg}</span></div>
+    <div class="stat-tile bento-span-4"><strong>${nBul}</strong><span>Bulletin(s) publiés</span></div>`;
+  showEntToast(
+    `<strong>Filtre enfant</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${ficheHref}">Fiche · docs</a> · `
+    + `<a href="#famDocsSignOut">File ci-dessous</a></p>`,
+    nPending ? 7500 : 6000,
+  );
+}
+function maybeToastFamDocsSignFilterFromUi(prevId, nextId, enfants, packs, opts) {
+  if (prevId === nextId) return;
+  toastFamDocsSignFilterUiDense(nextId, enfants, packs, opts);
 }
 function isFamilleReinscriptionFlux() {
   return path() === '/famille/reinscription';
@@ -8789,6 +9190,7 @@ async function bindLogin() {
 function viewEleveHome() {
   return shell('/eleve', `
     <div class="bento" id="eleveHomeStats"></div>
+    <div id="eleveHomeClasseTip"></div>
     <div id="eleveHomeConseilSpot"></div>
     <div id="eleveHomeAbsencesTip"></div>
     <div id="eleveHomeDispensesTip"></div>
@@ -9013,6 +9415,11 @@ async function bindEleveHome() {
     }
     refreshEleveHomeOrientTip(orientApiOk, orientMeta);
     refreshEleveHomeProchainCoursTip(edt, jour);
+    refreshEleveHomeClasseTip(
+      classe && classe.valeur,
+      regime && regime.valeur,
+      { nCours: (edt || []).length, nNotes: (notes || []).length },
+    );
     let vol = null;
     try {
       vol = await api('/eleves/' + eid + '/repas/volume?debut=' + debutMois + '&fin=' + jour + '&kind=midi');
@@ -10409,6 +10816,7 @@ function viewEleveNotes() {
 }
 
 async function bindEleveNotes() {
+  eleveNotePeriodePickReady = false;
   const eid = me && me.eleve_id;
   const notesOut = document.getElementById('eleveNotesOut');
   const devOut = document.getElementById('eleveDevOut');
@@ -10507,7 +10915,13 @@ async function bindEleveNotes() {
       ).join('') || '<option value="">—</option>';
       const ouverte = (periodes || []).find(x => x.statut === 'ouverte') || (periodes || [])[0];
       if (ouverte) sel.value = ouverte.id;
-      sel.onchange = loadNotesAll;
+      sel.onchange = async () => {
+        const pidPick = String(sel.value || '').trim();
+        if (eleveNotePeriodePickReady && pidPick) {
+          await maybeToastNotePeriodePick(pidPick, { eleve: true });
+        }
+        await loadNotesAll();
+      };
     }
     const pidSel = (document.getElementById('eleveNotePeriode') || {}).value;
     const p = (periodes || []).find(x => x.id === pidSel) || periodes.find(x => x.statut === 'ouverte') || periodes[0];
@@ -10522,6 +10936,7 @@ async function bindEleveNotes() {
       moyOut.innerHTML = noPer;
       appOut.innerHTML = noPer;
       updateEleveBulletinHint(null);
+      eleveNotePeriodePickReady = true;
       return;
     }
     updateEleveBulletinHint(p);
@@ -10595,6 +11010,7 @@ async function bindEleveNotes() {
       if (conseilOut) conseilOut.innerHTML = emptyState('Décisions indisponibles', esc(e.message));
     }
   }
+  eleveNotePeriodePickReady = true;
   }
   function isNotePeriodeT0(p) {
     if (!p) return false;
@@ -11504,6 +11920,7 @@ async function bindFamilleDocsSigner() {
     return;
   }
 
+  let docsSignFilterPrev = '';
   async function load() {
     const filterId = sel.value;
     const targets = filterId
@@ -11559,6 +11976,13 @@ async function bindFamilleDocsSigner() {
           pageTip.innerHTML = '';
         }
       }
+      maybeToastFamDocsSignFilterFromUi(docsSignFilterPrev, filterId, enfants, packs, {
+        nPending,
+        nCharte,
+        nReg,
+        nBul,
+      });
+      docsSignFilterPrev = filterId;
       if (bulOut) {
         if (!allBul.length) {
           bulOut.innerHTML = famEmptyDense('Aucun bulletin publié', [
@@ -11664,7 +12088,7 @@ function viewFamilleHome() {
       <a class="stat-tile bento-span-2" href="/famille/quittances"><strong>Quittances</strong><span>Reçus de paiement</span></a>
       <a class="stat-tile bento-span-2" id="famReinsNavTile" href="/famille/reinscription" style="display:none"><strong>—</strong><span>Réinscription</span></a>
     </div>
-    <div class="panel" style="margin-top:1rem">
+    <div class="panel" style="margin-top:1rem" id="famHomeEnfantsPanel">
       <h2>Mes enfants</h2>
       <div id="enfantsOut" class="muted">Chargement…</div>
     </div>
@@ -12195,6 +12619,23 @@ async function bindFamilleHome() {
         requestAnimationFrame(scrollHomeMessages);
       });
       setTimeout(scrollHomeMessages, 450);
+    }
+    if (routeState.famScrollEnfants) {
+      delete routeState.famScrollEnfants;
+      const scrollHomeEnfants = () => {
+        const panel = document.getElementById('famHomeEnfantsPanel');
+        const target = panel
+          || document.getElementById('enfantsOut')
+          || document.querySelector('a.stat-tile[href="/famille/enfants"]');
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.style.outline = '2px solid var(--accent, #2563eb)';
+        setTimeout(() => { target.style.outline = ''; }, 1800);
+      };
+      requestAnimationFrame(() => {
+        requestAnimationFrame(scrollHomeEnfants);
+      });
+      setTimeout(scrollHomeEnfants, 450);
     }
     async function registerFamPush() {
       const msg = document.getElementById('famPushMsg');
@@ -13926,6 +14367,7 @@ function viewEleves() {
         <button type="button" id="btnProvLot">Provisionner le lot</button>
         <button type="button" id="btnInvitations">Invitations</button>
       </div>
+      <div id="elevesListTip"></div>
       <div id="elevesOut" class="muted">Chargement…</div>
       <div id="provOut" class="muted" style="margin-top:.75rem"></div>
     </div>
@@ -13967,7 +14409,9 @@ async function bindEleves() {
   const out = document.getElementById('elevesOut');
   const provOut = document.getElementById('provOut');
 
-  async function refreshElevesStats(list) {
+  let elevesListMode = 'annuaire';
+
+  async function refreshElevesStats(list, mode) {
     const box = document.getElementById('elevesStats');
     if (!box) return;
     let nSans = 0;
@@ -13976,17 +14420,25 @@ async function bindEleves() {
       nSans = (sans || []).length;
     } catch (_) { /* hors droits */ }
     const nActifs = (list || []).filter(e => !e.status || e.status === 'inscrit' || e.status === 'actif').length;
-    box.innerHTML = `
-      <div class="stat-tile bento-span-4"><strong>${(list || []).length}</strong><span>Dans la liste</span></div>
-      <div class="stat-tile bento-span-4"><strong>${nActifs}</strong><span>Actifs / inscrits</span></div>
-      <button type="button" class="stat-tile bento-span-4" id="btnStatSansCompte">
-        <strong>${nSans}</strong><span>Sans compte</span></button>`;
-    const btn = document.getElementById('btnStatSansCompte');
-    if (btn) btn.onclick = () => loadSans();
+    const tipMode = mode || elevesListMode;
+    box.innerHTML = elevesPageTipDenseHtml({
+      nList: (list || []).length,
+      nActifs,
+      nSans,
+    }, { mode: tipMode });
+    bindElevesPageTipActions();
   }
 
   function renderList(list, withInvite) {
-    if (!list.length) { out.innerHTML = '<p class="empty">Aucun élève.</p>'; return; }
+    const listTip = document.getElementById('elevesListTip');
+    if (listTip) {
+      listTip.innerHTML = withInvite ? elevesSansCompteListTipDenseHtml(list) : '';
+      if (withInvite) bindElevesSansCompteListTipActions();
+    }
+    if (!list.length) {
+      out.innerHTML = '<p class="empty">Aucun élève.</p>';
+      return;
+    }
     out.innerHTML = `<table>
       <thead><tr><th>Élève · classe</th><th>Régime</th><th>Site</th><th>MEF</th><th>Statut</th><th>INE</th><th></th></tr></thead>
       <tbody>${list.map(e => `<tr>
@@ -14021,11 +14473,12 @@ async function bindEleves() {
   }
 
   async function load(q, opts) {
+    elevesListMode = 'annuaire';
     out.textContent = 'Chargement…';
     provOut.textContent = '';
     try {
       const list = await api('/eleves/search?q=' + encodeURIComponent(q || 'a'));
-      await refreshElevesStats(list);
+      await refreshElevesStats(list, 'annuaire');
       renderList(list, false);
       const o = opts || {};
       if (o.toastSearch) toastElevesSearchUiDense(q, list);
@@ -14035,10 +14488,11 @@ async function bindEleves() {
   }
 
   async function loadSans() {
+    elevesListMode = 'sans-compte';
     out.textContent = 'Chargement…';
     try {
       const list = await api('/eleves/sans-compte');
-      await refreshElevesStats(list);
+      await refreshElevesStats(list, 'sans-compte');
       renderList(list, true);
       if (!list.length) provOut.innerHTML = '<span class="ok">Tous les élèves actifs ont un compte.</span>';
     } catch (e) {
@@ -14063,6 +14517,9 @@ async function bindEleves() {
   document.getElementById('btnAll').onclick = () => load('a');
   document.getElementById('btnSansCompte').onclick = () => loadSans();
   document.getElementById('btnInvitations').onclick = async () => {
+    elevesListMode = 'annuaire';
+    const listTip = document.getElementById('elevesListTip');
+    if (listTip) listTip.innerHTML = '';
     out.textContent = 'Chargement…';
     try {
       const list = await api('/eleves/comptes/invitations');
@@ -15811,14 +16268,15 @@ async function bindAppel() {
     if (!preview) return;
     try {
       const eleves = await loadNames(classe, jour);
+      const tip = appelEffectifPreviewTipDenseHtml(classe, eleves, jour);
       if (!eleves.length) {
-        preview.innerHTML = '<p class="empty">Effectif vide.</p>';
+        preview.innerHTML = tip || '<p class="empty">Effectif vide.</p>';
         return;
       }
-      preview.innerHTML = `<h3>Effectif ${esc(classe)} (${eleves.length})</h3>
-        <ul style="margin:0;padding-left:1.1rem;columns:2">${eleves.map(e =>
-          `<li>${esc(e.prenom)} ${esc(e.nom)}</li>`
-        ).join('')}</ul>`;
+      const listHtml = `<ul style="margin:.35rem 0 0;padding-left:1.1rem;columns:2">${eleves.map(e =>
+        `<li>${esc(e.prenom)} ${esc(e.nom)}</li>`
+      ).join('')}</ul>`;
+      preview.innerHTML = `${tip}<p class="muted" style="margin:.25rem 0 0;font-size:.85rem">Liste complète · ${esc(classe)} · ${esc(jour)}</p>${listHtml}`;
     } catch (e) {
       preview.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
     }
@@ -24550,6 +25008,7 @@ function viewNotes() {
 }
 
 async function bindNotes() {
+  suppressNotePeriodePickToast();
   function focusNotesStep(step) {
     const targets = {
       1: 'btnNewPeriode',
@@ -24650,6 +25109,7 @@ async function bindNotes() {
   }
 
   function syncPeriodeSelects(list, preferredId) {
+    suppressNotePeriodePickToast();
     const opts = (list || []).map(p =>
       `<option value="${esc(p.id)}">${esc(p.code)} — ${esc(p.libelle)} (${esc(p.statut)})</option>`
     ).join('') || '<option value="">—</option>';
@@ -24676,6 +25136,7 @@ async function bindNotes() {
     const noteSel = document.getElementById('notePeriode');
     refreshNotePeriodeStatutBadge(list, noteSel ? noteSel.value : preferredId);
     updateNotePeriodeFermerBtn();
+    releaseNotePeriodePickToast();
   }
 
   async function refreshNotesStats() {
@@ -24909,10 +25370,19 @@ async function bindNotes() {
     }
   }
   document.getElementById('btnNoteList').onclick = loadNotesEleve;
-  document.getElementById('notePeriode').onchange = async () => {
+  function wirePeriodeSelectWithToast(selId, afterChange) {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    sel.onchange = async () => {
+      const pid = String(sel.value || '').trim();
+      await maybeToastNotePeriodePick(pid, { staff: true });
+      if (typeof afterChange === 'function') await afterChange();
+    };
+  }
+  wirePeriodeSelectWithToast('notePeriode', async () => {
     await loadNotesEleve();
     await updateNotePeriodeFermerBtn();
-  };
+  });
   const btnNotePeriodeFermer = document.getElementById('btnNotePeriodeFermer');
   if (btnNotePeriodeFermer) {
     btnNotePeriodeFermer.onclick = async () => {
@@ -24943,11 +25413,12 @@ async function bindNotes() {
   }
   const noteEleveEl = document.getElementById('noteEleve');
   if (noteEleveEl) noteEleveEl.onchange = loadNotesEleve;
-  document.getElementById('devPeriode').onchange = loadDevoirs;
-  document.getElementById('moyPeriode').onchange = () => document.getElementById('btnMoyennes').onclick();
+  wirePeriodeSelectWithToast('devPeriode', loadDevoirs);
+  wirePeriodeSelectWithToast('moyPeriode', () => document.getElementById('btnMoyennes').onclick());
   document.getElementById('moyEleve').onchange = () => document.getElementById('btnMoyennes').onclick();
-  document.getElementById('appPeriode').onchange = () => document.getElementById('btnAppList').onclick();
+  wirePeriodeSelectWithToast('appPeriode', () => document.getElementById('btnAppList').onclick());
   document.getElementById('appEleve').onchange = () => document.getElementById('btnAppList').onclick();
+  wirePeriodeSelectWithToast('expPeriode', () => {});
   document.getElementById('btnSaisirNote').onclick = async () => {
     const msg = document.getElementById('noteMsg');
     msg.textContent = '';
@@ -25180,18 +25651,10 @@ async function bindNotes() {
         + '/effectif?jour=' + encodeURIComponent(jour));
       const eleves = eff.eleves || [];
       if (!eleves.length) {
-        const cl = esc(devoir.classe || '4B');
-        box.innerHTML = `<p class="empty">Ouvrir un appel ou vérifier classe ${cl}.</p>
-          <p class="muted">Effectif vide pour le ${esc(jour)} — l’appel du jour alimente la liste.</p>
-          <div class="row">
-            <button type="button" class="primary" id="btnGrilleGoAppel">Faire l’appel ${cl}</button>
-            <button type="button" id="btnGrilleRetry">Réessayer</button>
-          </div>`;
-        const goAppel = document.getElementById('btnGrilleGoAppel');
-        if (goAppel) goAppel.onclick = () => go('/app/appel');
-        const retry = document.getElementById('btnGrilleRetry');
-        if (retry) retry.onclick = () => openGrille(devoir);
+        box.innerHTML = notesGrilleElevesEmptyTipDenseHtml(devoir.classe, jour);
+        bindNotesGrilleElevesEmptyTipGo(() => openGrille(devoir));
         refreshGrilleCoefTip(null);
+        refreshNotesGrilleEmptyTip(false, 0);
         return;
       }
       const notesByEleve = {};
@@ -25586,7 +26049,7 @@ async function bindNotes() {
       loadDevoirs();
     };
   }
-  if (devPeriodeEl) devPeriodeEl.onchange = loadDevoirs;
+  wirePeriodeSelectWithToast('devPeriode', loadDevoirs);
   document.querySelectorAll('.notes-devoir-date-chip').forEach(chip => {
     chip.onclick = async () => {
       const q = chip.dataset.dateQuick || '';
@@ -26020,6 +26483,7 @@ async function bindNotes() {
 
   await loadPeriodes();
   await loadBulDocs();
+  releaseNotePeriodePickToast();
 }
 
 /* ---------- Exports EN (ponts) ---------- */

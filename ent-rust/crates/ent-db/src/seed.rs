@@ -774,6 +774,8 @@ impl PgEnt {
     /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
     /// lot BI (Bot BI-A) : note Luna, carnet Harry (titre unique BI), devoir Hermione, carnet Draco (famille) ;
     /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
+    /// lot BJ (Bot BJ-A) : note Ginny, devoir Ron, carnet Neville (famille), photo trombi Cedric si vide ;
+    /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
