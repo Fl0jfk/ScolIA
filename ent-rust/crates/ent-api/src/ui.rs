@@ -1501,6 +1501,61 @@ function refreshEleveHomeAbsencesTip(absences, absencesApiOk) {
   el.innerHTML = eleveHomeAbsencesTipDenseHtml(absences, absencesApiOk);
 }
 
+function eleveAlerteCpeOuverte(a) {
+  const st = String((a && a.statut) || '').toLowerCase();
+  return st === 'ouverte' || st === 'open';
+}
+
+/** Accueil /eleve — alertes CPE (GET /eleves/:id/alertes-cpe si autorisé). */
+function eleveHomeAlertesTipDenseHtml(alertes, alertesApiOk) {
+  if (!alertesApiOk) return '';
+  const list = (alertes || []).filter(eleveAlerteCpeOuverte);
+  const nU = list.filter(a => a.severite === 'urgent').length;
+  const nA = list.filter(a => a.severite === 'attention').length;
+  const sorted = list.slice().sort((a, b) => String(b.jour || '').localeCompare(String(a.jour || '')));
+  const last = sorted[0] || null;
+  const titreRaw = last && last.titre ? String(last.titre).trim() : '';
+  const titreShort = titreRaw.length > 28 ? esc(titreRaw.slice(0, 28)) + '…' : esc(titreRaw || '—');
+  const jour = last && last.jour ? esc(String(last.jour).slice(0, 10)) : '—';
+  const vsHref = '/eleve/vie-scolaire';
+  if (!list.length) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <a class="stat-tile bento-span-4" href="${vsHref}" style="text-decoration:none">
+        <strong class="ok">0</strong><span>Alerte CPE · suivi à jour</span>
+      </a>
+      <div class="stat-tile bento-span-4"><strong class="muted">VS</strong><span>Convocations &amp; discipline</span></div>
+      <a class="stat-tile bento-span-4" href="/eleve/messages" style="text-decoration:none">
+        <strong>→</strong><span>Contacter le CPE</span>
+      </a>
+    </div>`;
+  }
+  const urgentTile = nU
+    ? `<a class="stat-tile bento-span-4" href="${vsHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nU}</strong><span>Urgent · ${list.length} ouverte(s)</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${vsHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${list.length}</strong><span>Alerte(s) CPE ouverte(s)</span>
+      </a>`;
+  const attTile = nA
+    ? `<div class="stat-tile bento-span-4"><strong>${nA}</strong><span>Attention · suivi VS</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">${nA}</strong><span>Attention</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${urgentTile}${attTile}
+    <a class="stat-tile bento-span-4" href="${vsHref}" style="text-decoration:none">
+      <strong>${titreShort}</strong><span>${jour} · dernier signal</span>
+    </a>
+  </div>`;
+}
+
+function refreshEleveHomeAlertesTip(alertes, alertesApiOk) {
+  const el = document.getElementById('eleveHomeAlertesTip');
+  if (!el) return;
+  if (!alertesApiOk) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = eleveHomeAlertesTipDenseHtml(alertes, alertesApiOk);
+}
+
 function isEleveHomeFlux() {
   return path() === '/eleve';
 }
@@ -2298,6 +2353,88 @@ function famHomeQuittancesRecentTipDenseHtml(quittances) {
   </div>`;
 }
 
+/** Accueil famille — reste à payer + facture prioritaire (bento). */
+function famHomeFacturesResteTipDenseHtml(impayees, resteTotal, nImpayees) {
+  const imp = impayees || [];
+  if (!imp.length) return '';
+  const reste = Math.max(0, Number(resteTotal) || 0);
+  const n = Number(nImpayees) || imp.length;
+  const facHref = n === 1 && imp[0] && imp[0].id
+    ? '/famille/factures?fac=' + encodeURIComponent(imp[0].id)
+    : '/famille/factures?section=factures';
+  const top = imp[0];
+  const topReste = facFamResteCentimes(top);
+  const topLbl = esc(top.numero || top.libelle || 'Facture');
+  const topHref = top.id
+    ? '/famille/factures?fac=' + encodeURIComponent(top.id)
+    : facHref;
+  const topTile = n > 1
+    ? `<a class="stat-tile bento-span-4" href="${topHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${topLbl}</strong><span>Plus gros reste · ${esc(euros(topReste))}</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${topHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${topLbl}</strong><span>Reste ${esc(euros(topReste))}</span>
+      </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+      <strong class="warn">${esc(euros(reste))}</strong><span>Reste à payer · ${n} facture(s)</span>
+    </a>
+    ${topTile}
+    <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
+      <strong>Quittances</strong><span>Reçus après encaissement</span>
+    </a>
+  </div>`;
+}
+
+function famQuittanceMoyenIsSepa(q) {
+  const m = String((q && q.moyen) || '').trim().toLowerCase();
+  return m === 'prelevement' || m === 'prélèvement' || m === 'sepa';
+}
+function famQuittancesFilteredList(listAll, filterKey) {
+  const key = String(filterKey || 'all');
+  const all = listAll || [];
+  if (key === 'sepa') return all.filter(famQuittanceMoyenIsSepa);
+  if (key === 'autres') return all.filter(q => !famQuittanceMoyenIsSepa(q));
+  return all;
+}
+function famQuittancesFilterLabel(filterKey) {
+  const key = String(filterKey || 'all');
+  if (key === 'sepa') return 'Prélèvement SEPA';
+  if (key === 'autres') return 'Autres moyens';
+  return 'Toutes';
+}
+
+/** Page quittances — astuce bento (totaux + lien factures). */
+function famQuittancesPageTipDenseHtml(listAll, listShown, filterKey, resteFacturesCent) {
+  const all = listAll || [];
+  if (!all.length) return '';
+  const shown = listShown || all;
+  const totalShown = shown.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+  const totalAll = all.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+  const nSepa = all.filter(famQuittanceMoyenIsSepa).length;
+  const last = famQuittancesSortedRecent(all)[0] || null;
+  const lastNum = last ? esc(String(last.numero || 'Quittance').trim().slice(0, 24)) : '—';
+  const lbl = esc(famQuittancesFilterLabel(filterKey));
+  const reste = Math.max(0, Number(resteFacturesCent) || 0);
+  const facHref = reste
+    ? '/famille/factures?section=factures'
+    : '/famille/factures';
+  const resteTile = reste
+    ? `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${esc(euros(reste))}</strong><span>Reste factures · à régler</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">Soldé</strong><span>Pas de reste facture</span>
+      </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${lbl}</strong><span>${shown.length} / ${all.length} · ${esc(euros(totalShown))}</span>
+    </div>
+    ${resteTile}
+    <div class="stat-tile bento-span-4"><strong>${lastNum}</strong><span>Dernière · ${nSepa} SEPA · ${esc(euros(totalAll))} total</span></div>
+  </div>`;
+}
+
 /** Accueil famille — réinscription N+1 (bento, si API répond). */
 function famHomeReinscTipDenseHtml(reinsc) {
   const d = reinsc || {};
@@ -2826,29 +2963,54 @@ function toastMatiereMiseAJour(m) {
 function toastDevoirCree(d, opts) {
   const o = opts || {};
   const titre = esc(String((d && d.titre) || 'Devoir').trim() || 'Devoir');
-  const date = d && d.date_devoir ? ` · ${esc(String(d.date_devoir))}` : '';
-  const cl = d && d.classe ? ` · ${esc(String(d.classe))}` : '';
-  showEntToast(
-    `<strong>Devoir créé</strong> — ${titre}${date}${cl}. `
+  const dateRaw = d && d.date_devoir ? String(d.date_devoir).slice(0, 10) : '—';
+  const date = esc(dateRaw);
+  const cl = d && d.classe ? esc(String(d.classe)) : '—';
+  const coef = d && d.coef != null ? esc(String(d.coef)) : '1';
+  const sur = d && d.sur != null ? esc(String(d.sur)) : '20';
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="#" id="entToastDevGrille">Grille classe</a> · `
+    + `<a href="#" id="entToastDevScroll">Liste devoirs</a></p>`;
+  const simple = () => showEntToast(
+    `<strong>Devoir créé</strong> — ${titre} · ${date} · ${cl}. `
     + `<a href="#" id="entToastDevGrille">Grille classe</a> · `
     + `<a href="#" id="entToastDevScroll">Matières &amp; devoirs</a>`,
     7000,
   );
-  const linkGrille = document.getElementById('entToastDevGrille');
-  if (linkGrille && typeof o.onGrille === 'function' && d) {
-    linkGrille.onclick = (ev) => {
-      ev.preventDefault();
-      o.onGrille(d);
-    };
+  const wireLinks = () => {
+    const linkGrille = document.getElementById('entToastDevGrille');
+    if (linkGrille && typeof o.onGrille === 'function' && d) {
+      linkGrille.onclick = (ev) => {
+        ev.preventDefault();
+        o.onGrille(d);
+      };
+    }
+    const linkScroll = document.getElementById('entToastDevScroll');
+    if (linkScroll) {
+      linkScroll.onclick = (ev) => {
+        ev.preventDefault();
+        document.getElementById('btnDevList')?.click();
+        document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    }
+  };
+  if (!isStaffNotesFlux()) {
+    simple();
+    wireLinks();
+    return;
   }
-  const linkScroll = document.getElementById('entToastDevScroll');
-  if (linkScroll) {
-    linkScroll.onclick = (ev) => {
-      ev.preventDefault();
-      const btn = document.getElementById('btnDevList');
-      if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    };
-  }
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${titre}</strong><span>${cl} · ${date}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>coef ${coef}</strong><span>Sur ${sur} · période ouverte</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Saisir grille · moyennes</span></div>`;
+  showEntToast(
+    `<strong>Devoir créé</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + foot,
+    8500,
+  );
+  wireLinks();
 }
 
 function toastDevoirSupprime(d) {
@@ -2950,6 +3112,81 @@ function bindNotesDevoirsEmptyTipGo() {
       document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       document.getElementById('btnDevCreer')?.click();
       document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+}
+
+/** /app/notes — liste devoirs vide (filtre classe / date). */
+function notesDevListEmptyDenseHtml(opts) {
+  const o = opts || {};
+  const cl = o.classe ? esc(String(o.classe).trim()) : 'Toutes classes';
+  const dateF = o.dateFilter ? esc(String(o.dateFilter).slice(0, 10)) : '';
+  const pl = o.periodeLabel ? esc(String(o.periodeLabel).trim()) : 'Période';
+  const scope = dateF
+    ? `Aucun devoir le ${dateF}`
+    : (o.classe ? `Aucun devoir · ${cl}` : 'Aucun devoir sur la période');
+  return `<div class="bento" style="margin:.35rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">0</strong><span>${scope} · ${pl}</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesDevListEmptyCreerBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>+</strong><span>Créer un devoir · panneau ci-dessus</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesDevListEmptyFilterBtn" style="cursor:pointer;text-align:left">
+      <strong>↔</strong><span>${dateF ? 'Toutes dates' : 'Filtre 4B labo'}</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesDevListEmptyTipGo(opts) {
+  const o = opts || {};
+  const creer = document.getElementById('notesDevListEmptyCreerBtn');
+  if (creer) {
+    creer.onclick = () => {
+      document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('devTitre')?.focus({ preventScroll: true });
+    };
+  }
+  const filt = document.getElementById('notesDevListEmptyFilterBtn');
+  if (filt) {
+    filt.onclick = async () => {
+      if (o.dateFilter) {
+        if (typeof o.clearDateFilter === 'function') await o.clearDateFilter();
+        return;
+      }
+      const chip4b = document.getElementById('notesChip4B');
+      if (chip4b) chip4b.click();
+    };
+  }
+}
+
+/** /app/notes — panel Bulletin PDF sans doc famille (bento). */
+function notesBulletinsEmptyTipDenseHtml(opts) {
+  const o = opts || {};
+  const pl = o.periodeLabel ? esc(String(o.periodeLabel).trim()) : 'Période';
+  const fermee = !!o.periodeFermee;
+  const statTile = fermee
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">Fermée</strong><span>${pl} · publication possible</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">Ouverte</strong><span>${pl} · fermer avant PDF</span>
+      </div>`;
+  return `<div class="bento" style="margin:.35rem 0 .55rem">
+    ${statTile}
+    <div class="stat-tile bento-span-4"><strong>BULLETIN_T0</strong><span>Code seed · trimestre 0</span></div>
+    <button type="button" class="stat-tile bento-span-4" id="notesBulEmptyPubBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>PDF</strong><span>Publier bulletin · bouton ci-dessus</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesBulletinsEmptyTipGo() {
+  const btn = document.getElementById('notesBulEmptyPubBtn');
+  if (btn) {
+    btn.onclick = () => {
+      document.getElementById('btnBulPublier')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('notesBulletinsPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
   }
 }
@@ -4562,6 +4799,39 @@ function isStaffEtabFlux() {
   return path() === '/app/etab';
 }
 
+function isStaffRhFlux() {
+  return path() === '/app/rh';
+}
+
+function isStaffReinscriptionFlux() {
+  return path() === '/app/reinscription';
+}
+
+/** RH staff — circuit validation + file période (/app/rh). */
+function rhPageTipDenseHtml(opts) {
+  if (!isStaffRhFlux()) return '';
+  const o = opts || {};
+  const nSig = Number(o.nSig) || 0;
+  const nVal = Number(o.nVal) || 0;
+  const nTotal = Number(o.nTotal) || 0;
+  const sigTile = nSig
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nSig}</strong><span>À valider · direction / admin</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Rien en attente</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    ${sigTile}
+    <div class="stat-tile bento-span-4"><strong>${nVal}</strong><span>Validées · ${nTotal} sur période</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span><a href="/app/vs">File du jour</a> · signalements</span></div>
+  </div>`;
+}
+
+/** Réinscription staff — campagne N+1, montée, exigences (/app/reinscription). */
+function reinsStaffPageTipDenseHtml(camp, montee, exigences) {
+  if (!isStaffReinscriptionFlux()) return '';
+  const inner = homeDirReinscDenseHtml(camp, montee, exigences);
+  return `<div class="bento" style="margin:0 0 .55rem">${inner}</div>`;
+}
+
 /** EDT staff — synthèse contraintes soft (solveur greedy). */
 function edtContraintesTipDenseHtml(list) {
   const items = list || [];
@@ -4780,6 +5050,42 @@ function etabPageTipDenseHtml(stats) {
     <div class="stat-tile bento-span-3"><strong>${nVac}</strong><span>Période(s) vacances</span></div>
     <div class="stat-tile bento-span-3"><strong>${nSal}</strong><span>Salle(s) référentiel</span></div>
     ${grantTile}
+  </div>`;
+}
+
+/** /app/etab — synthèse liste vacances / fermetures (section Lister). */
+function vacancesListTipDenseHtml(list) {
+  if (!isStaffEtabFlux()) return '';
+  const items = list || [];
+  if (!items.length) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Aucune période publiée</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Créer ci-dessus · EDT · cantine</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Test</strong><span>Jour fermé · outil ci-dessous</span></div>
+    </div>`;
+  }
+  let nVac = 0;
+  let nFerie = 0;
+  let nFerm = 0;
+  items.forEach(v => {
+    const k = String(v.kind || 'vacances').trim();
+    if (k === 'ferie') nFerie += 1;
+    else if (k === 'fermeture') nFerm += 1;
+    else nVac += 1;
+  });
+  const now = today();
+  const upcoming = items
+    .filter(v => v.fin && String(v.fin).slice(0, 10) >= now)
+    .sort((a, b) => String(a.debut || '').localeCompare(String(b.debut || '')))[0];
+  const nextLbl = upcoming
+    ? esc(String(upcoming.libelle || upcoming.kind || '—').trim().slice(0, 24)
+      + (String(upcoming.libelle || '').length > 24 ? '…' : ''))
+    : '—';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-3"><strong>${items.length}</strong><span>Période(s) totales</span></div>
+    <div class="stat-tile bento-span-3"><strong>${nVac}</strong><span>Vacances · ${nFerie} férié · ${nFerm} ferm.</span></div>
+    <div class="stat-tile bento-span-3"><strong class="muted">${nextLbl}</strong><span>Prochaine / en cours</span></div>
+    <div class="stat-tile bento-span-3"><strong class="muted">→</strong><span>Supprimer · recalc jour fermé</span></div>
   </div>`;
 }
 
@@ -5687,6 +5993,39 @@ function maybeToastFacFamFilterFromUi(prevKey, nextKey, listAll, listShown) {
   if (prevKey === nextKey) return;
   toastFacFamFilterUiDense(nextKey, listAll, listShown);
 }
+/** Quittances famille — toast bento après changement de filtre (chips UI). */
+function toastQuitFamFilterUiDense(filterKey, listAll, listShown) {
+  if (!isFamilleQuittancesFlux()) return;
+  if (!document.querySelector('.quit-fam-filter-chips')) return;
+  const all = listAll || [];
+  const shown = listShown || [];
+  const key = String(filterKey || 'all');
+  if (key === 'all') return;
+  const label = famQuittancesFilterLabel(key);
+  const nShown = shown.length;
+  const nAll = all.length;
+  const totalShown = shown.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+  const totalAll = all.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+  const last = famQuittancesSortedRecent(shown)[0] || famQuittancesSortedRecent(all)[0] || null;
+  const lastNum = last ? esc(String(last.numero || '—').trim().slice(0, 22)) : '—';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${label}</strong><span>${nShown} / ${nAll} quittance(s)</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${esc(euros(totalShown))}</strong><span>Total filtré · ${esc(euros(totalAll))} global</span></div>
+    <div class="stat-tile bento-span-4"><strong>${lastNum}</strong><span>Plus récente dans la vue</span></div>`;
+  showEntToast(
+    `<strong>Filtre quittances</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/factures?section=factures">Factures</a> · `
+    + `<a href="#quitOut">Liste</a></p>`,
+    nShown ? 7500 : 6000,
+  );
+}
+function maybeToastQuitFamFilterFromUi(prevKey, nextKey, listAll, listShown) {
+  if (prevKey === nextKey) return;
+  toastQuitFamFilterUiDense(nextKey, listAll, listShown);
+}
 function isStaffAbsencesFlux() {
   return path() === '/app/absences';
 }
@@ -6579,34 +6918,29 @@ function toastReinscConfirmeeFamille(prenom, annee, opts) {
   const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="/famille/reinscription">Suivi réinscription</a> · `
     + `<a href="/famille">Accueil famille</a></p>`;
-  if (isFamilleReinscriptionFlux() || o.dense) {
-    const nManq = Number(o.nDocsManq);
-    const manqLbl = Number.isFinite(nManq) && nManq > 0
-      ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
-          <strong class="warn">${nManq}</strong><span>Doc(s) encore manquant(s)</span>
-        </div>`
-      : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-          <strong class="ok">OK</strong><span>Dossier N+1 enregistré</span>
-        </div>`;
-    const acompteTile = o.acompteRequis
-      ? `<div class="stat-tile bento-span-4"><strong>${o.acompteOk ? '<span class="ok">Acompte OK</span>' : '<span class="warn">Acompte</span>'}</strong><span>${esc(String(o.acompteLbl || 'À régler en compta'))}</span></div>`
-      : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas d’acompte requis</span></div>`;
-    showEntToast(
-      `<strong>Réinscription confirmée</strong>`
-      + `<div class="bento" style="margin:.4rem 0 0">`
-      + `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-          <strong class="ok">${who}</strong><span>Année ${a}</span>
-        </div>`
-      + manqLbl
-      + acompteTile
-      + `</div>`
-      + foot,
-      9500,
-    );
-    return;
-  }
-  const aInline = aRaw ? ` · ${a}` : '';
-  showEntToast(`<strong>Réinscription confirmée</strong> — ${who}${aInline}. Dossier enregistré pour l’année suivante.`, 9000);
+  const nManq = Number(o.nDocsManq);
+  const manqLbl = Number.isFinite(nManq) && nManq > 0
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nManq}</strong><span>Doc(s) encore manquant(s)</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">OK</strong><span>Dossier N+1 enregistré</span>
+      </div>`;
+  const acompteTile = o.acompteRequis
+    ? `<div class="stat-tile bento-span-4"><strong>${o.acompteOk ? '<span class="ok">Acompte OK</span>' : '<span class="warn">Acompte</span>'}</strong><span>${esc(String(o.acompteLbl || 'À régler en compta'))}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas d’acompte requis</span></div>`;
+  showEntToast(
+    `<strong>Réinscription confirmée</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">`
+    + `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${who}</strong><span>Année ${a}</span>
+      </div>`
+    + manqLbl
+    + acompteTile
+    + `</div>`
+    + foot,
+    9500,
+  );
 }
 function isFamDocPending(d) {
   if (!d) return false;
@@ -7779,6 +8113,7 @@ function viewEleveHome() {
     <div id="eleveHomePaiTip"></div>
     <div id="eleveHomeSanctionsTip"></div>
     <div id="eleveHomeCommissionsTip"></div>
+    <div id="eleveHomeAlertesTip"></div>
     <div id="eleveHomeProchainCoursTip"></div>
     <div class="bento" id="eleveHomeHub" style="margin-bottom:.75rem">
       <a class="panel bento-span-3 eleve-hub-tile" href="/eleve/edt">
@@ -7963,6 +8298,16 @@ async function bindEleveHome() {
       commissionsApiOk = false;
     }
     refreshEleveHomeCommissionsTip(commissionsList, commissionsApiOk);
+    let alertesApiOk = false;
+    let alertesList = [];
+    try {
+      alertesList = await api('/eleves/' + eid + '/alertes-cpe');
+      alertesApiOk = true;
+    } catch {
+      alertesList = [];
+      alertesApiOk = false;
+    }
+    refreshEleveHomeAlertesTip(alertesList, alertesApiOk);
     refreshEleveHomeProchainCoursTip(edt, jour);
     let vol = null;
     try {
@@ -10567,7 +10912,7 @@ function viewFamilleHome() {
     <div id="famPushBanner" class="panel" style="display:none;margin-bottom:.75rem;border-left:3px solid var(--accent,#c45c26);padding:.65rem .85rem"></div>
     <div id="famDocsCta" style="display:none"></div>
     <div class="bento" id="famPulse"></div>
-    <p id="famFacMaxResteTip" class="muted" style="display:none;margin:-.25rem 0 .65rem;font-size:.88rem"></p>
+    <div id="famHomeFacturesTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeAbsJustifTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <p id="famHomeAgendaTip" class="muted" style="display:none;margin:-.25rem 0 .65rem;font-size:.88rem"></p>
     <div id="famHomePsyTip" style="display:none;margin:-.25rem 0 .65rem"></div>
@@ -10715,7 +11060,7 @@ async function bindFamilleHome() {
       if (todo) todo.innerHTML = '<p class="empty">Aucun enfant.</p>';
       const docsCta0 = document.getElementById('famDocsCta');
       if (docsCta0) { docsCta0.innerHTML = ''; docsCta0.style.display = 'none'; }
-      const tip0 = document.getElementById('famFacMaxResteTip');
+      const tip0 = document.getElementById('famHomeFacturesTip');
       if (tip0) { tip0.style.display = 'none'; tip0.innerHTML = ''; }
       const absJustifTip0 = document.getElementById('famHomeAbsJustifTip');
       if (absJustifTip0) { absJustifTip0.style.display = 'none'; absJustifTip0.innerHTML = ''; }
@@ -10856,7 +11201,7 @@ async function bindFamilleHome() {
     }
     const facPulseHref = nImpayees === 1 && impayees[0]
       ? '/famille/factures?fac=' + encodeURIComponent(impayees[0].id)
-      : '/famille/factures';
+      : '/famille/factures?section=factures';
     if (nImpayees) {
       lines.push(`<li><a href="${facPulseHref}">${nImpayees} facture(s) · reste ${esc(euros(resteFacturesTotal))}</a></li>`);
       impayees.forEach(f => {
@@ -10893,20 +11238,15 @@ async function bindFamilleHome() {
         docsCta.style.display = 'none';
       }
     }
-    const facMaxResteTip = document.getElementById('famFacMaxResteTip');
-    if (facMaxResteTip) {
-      if (impayees.length && impayees[0]) {
-        const topFac = impayees[0];
-        const topReste = facFamResteCentimes(topFac);
-        const topLbl = esc(topFac.numero || topFac.libelle || 'Facture');
-        const topHref = '/famille/factures?fac=' + encodeURIComponent(topFac.id);
-        facMaxResteTip.style.display = '';
-        facMaxResteTip.innerHTML = impayees.length > 1
-          ? `Astuce : commencer par <a href="${topHref}"><strong>${topLbl}</strong></a> — plus gros reste <span class="pill-unread">${esc(euros(topReste))}</span> sur ${nImpayees} facture(s).`
-          : `Facture en attente : <a href="${topHref}"><strong>${topLbl}</strong></a> — reste <span class="pill-unread">${esc(euros(topReste))}</span>.`;
+    const facResteTip = document.getElementById('famHomeFacturesTip');
+    if (facResteTip) {
+      const denseFac = famHomeFacturesResteTipDenseHtml(impayees, resteFacturesTotal, nImpayees);
+      if (denseFac) {
+        facResteTip.style.display = '';
+        facResteTip.innerHTML = denseFac;
       } else {
-        facMaxResteTip.style.display = 'none';
-        facMaxResteTip.innerHTML = '';
+        facResteTip.style.display = 'none';
+        facResteTip.innerHTML = '';
       }
     }
     const absJustifTip = document.getElementById('famHomeAbsJustifTip');
@@ -16416,6 +16756,7 @@ function viewEtab() {
         <span id="vacFermeMsg" class="muted"></span>
       </div>
       <div id="vacMsg" class="muted"></div>
+      <div id="vacListTip"></div>
       <div id="vacOut" class="muted" style="margin-top:.5rem">…</div>
     </div>
     <div class="panel">
@@ -16554,9 +16895,11 @@ async function bindEtab() {
   }
   const vacMsg = document.getElementById('vacMsg');
   const vacOut = document.getElementById('vacOut');
+  const vacListTip = document.getElementById('vacListTip');
   async function loadVac() {
     try {
       const list = await api('/vacances');
+      if (vacListTip) vacListTip.innerHTML = vacancesListTipDenseHtml(list);
       vacOut.innerHTML = !list.length
         ? '<p class="empty">Aucune période.</p>'
         : `<table><thead><tr><th>Libellé</th><th>Type</th><th>Période</th><th></th></tr></thead>
@@ -16574,6 +16917,7 @@ async function bindEtab() {
         };
       });
     } catch (e) {
+      if (vacListTip) vacListTip.innerHTML = '';
       vacOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   }
@@ -19670,6 +20014,7 @@ function viewRhAbsences() {
         </div>
       </header>
     </div>
+    <div id="rhPageTip"></div>
     <div class="bento" id="rhStats"></div>
     <div class="bento">
       <div class="panel bento-span-5">
@@ -19713,6 +20058,7 @@ async function bindRhAbsences() {
   const msg = document.getElementById('rhMsg');
   const out = document.getElementById('rhOut');
   const stats = document.getElementById('rhStats');
+  const rhPageTip = document.getElementById('rhPageTip');
   const staffLabel = {};
   const staffList = await bindStaffPickers('rhUser', 'rhUserQ', 'btnRhUserSearch', '— moi-même');
   (staffList || []).forEach(p => { staffLabel[p.user_id] = (p.label || p.email) + ' (' + p.role + ')'; });
@@ -19729,6 +20075,9 @@ async function bindRhAbsences() {
       const list = await api('/rh/absences?debut=' + debut + '&fin=' + fin);
       const nSig = list.filter(a => a.statut === 'signalee').length;
       const nVal = list.filter(a => a.statut === 'validee').length;
+      if (rhPageTip) {
+        rhPageTip.innerHTML = rhPageTipDenseHtml({ nSig, nVal, nTotal: list.length });
+      }
       if (stats) {
         stats.innerHTML = `
           <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Sur la période</span></div>
@@ -23334,6 +23683,7 @@ function viewNotes() {
         <button type="button" id="btnBulDocs">Docs famille</button>
       </div>
       <div id="bulMsg" class="muted"></div>
+      <div id="notesBulletinsEmptyTip"></div>
       <div id="bulDocsOut" class="muted" style="margin-top:.5rem"></div>
     </div>
     <div class="panel">
@@ -24239,11 +24589,24 @@ async function bindNotes() {
         ? (listRaw || []).filter(d => String(d.date_devoir) === notesDevDateFilter)
         : (listRaw || []);
       if (out) {
-        out.innerHTML = !list.length
-          ? (notesDevDateFilter
-            ? `<p class="empty">Aucun devoir le ${esc(notesDevDateFilter)} sur cette période.</p>`
-            : '<p class="empty">Aucun devoir sur cette période.</p>')
-          : `<table><thead><tr><th>Titre</th><th>Matière</th><th>Classe</th><th>Date</th><th>Coef</th><th>Sur</th><th></th></tr></thead>
+        if (!list.length) {
+          const perSel = document.getElementById('devPeriode');
+          const perOpt = perSel && perSel.selectedOptions && perSel.selectedOptions[0];
+          const periodeLabel = perOpt ? String(perOpt.textContent || '').trim() : '';
+          out.innerHTML = notesDevListEmptyDenseHtml({
+            classe,
+            dateFilter: notesDevDateFilter,
+            periodeLabel,
+          });
+          bindNotesDevListEmptyTipGo({
+            dateFilter: notesDevDateFilter,
+            clearDateFilter: async () => {
+              applyNotesDevDateFilter('');
+              await loadDevoirs();
+            },
+          });
+        } else {
+          out.innerHTML = `<table><thead><tr><th>Titre</th><th>Matière</th><th>Classe</th><th>Date</th><th>Coef</th><th>Sur</th><th></th></tr></thead>
              <tbody>${list.map(d => `<tr>
                <td><strong>${esc(d.titre)}</strong></td>
                <td>${esc(d.matiere_libelle || '—')}</td>
@@ -24254,6 +24617,7 @@ async function bindNotes() {
                  <button type="button" class="btnDevSuppr" data-did="${esc(d.id)}" title="Supprimer le devoir (sans notes rattachées)">Supprimer</button>
                </td>
              </tr>`).join('')}</tbody></table>`;
+        }
         const byId = Object.fromEntries(list.map(d => [d.id, d]));
         out.querySelectorAll('.btnGrille').forEach(btn => {
           btn.onclick = () => openGrille(byId[btn.dataset.did]);
@@ -24686,8 +25050,10 @@ async function bindNotes() {
 
   async function loadBulDocs() {
     const box = document.getElementById('bulDocsOut');
+    const tipEl = document.getElementById('notesBulletinsEmptyTip');
     const eid = document.getElementById('bulEleve').value.trim();
     if (!box) return;
+    if (tipEl) tipEl.innerHTML = '';
     if (!eid) { box.innerHTML = '<p class="empty">Choisir un élève.</p>'; return; }
     try {
       const docs = await api('/eleves/' + eid + '/documents');
@@ -24695,15 +25061,28 @@ async function bindNotes() {
         /bulletin/i.test(d.titre || '') || /bulletin/i.test(d.code || '') || (d.tiroir || '') === 'famille'
       );
       const shown = bullets.length ? bullets : (docs || []).slice(0, 8);
-      box.innerHTML = !shown.length
-        ? '<p class="empty">Aucun document famille.</p>'
-        : `<table><thead><tr><th>Titre</th><th>Code</th><th>Tiroir</th><th>Conf.</th></tr></thead>
+      const bulPerSel = document.getElementById('bulPeriode');
+      const bulPerOpt = bulPerSel && bulPerSel.selectedOptions && bulPerSel.selectedOptions[0];
+      const bulPeriodeLabel = bulPerOpt ? String(bulPerOpt.textContent || '').trim() : '';
+      const bulPeriodeFermee = !!(bulPerOpt && bulPerOpt.value);
+      if (!shown.length) {
+        if (tipEl) {
+          tipEl.innerHTML = notesBulletinsEmptyTipDenseHtml({
+            periodeLabel: bulPeriodeLabel,
+            periodeFermee: bulPeriodeFermee,
+          });
+          bindNotesBulletinsEmptyTipGo();
+        }
+        box.innerHTML = '<p class="empty muted">Aucun bulletin publié pour cet élève — voir le repère ci-dessus.</p>';
+      } else {
+        box.innerHTML = `<table><thead><tr><th>Titre</th><th>Code</th><th>Tiroir</th><th>Conf.</th></tr></thead>
            <tbody>${shown.map(d => `<tr>
              <td>${esc(d.titre || d.id.slice(0, 8))}</td>
              <td>${esc(d.code || '—')}</td>
              <td>${esc(d.tiroir || '—')}</td>
              <td class="muted">${esc(d.confidentialite || '—')}</td>
            </tr>`).join('')}</tbody></table>`;
+      }
     } catch (e) {
       box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -24922,6 +25301,7 @@ async function bindExportsEn() {
 /* ---------- Réinscription ---------- */
 function viewReinscriptionStaff() {
   return shell('/app/reinscription', `
+    <div id="reinsStaffPageTip"></div>
     <div class="bento" id="reinsCampStats"></div>
     <div class="panel">
       <h2>Réinscription — staff</h2>
@@ -24967,6 +25347,28 @@ async function bindReinscriptionStaff() {
   const out = document.getElementById('reinsStaffOut');
   const status = document.getElementById('campStatus');
   await bindElevePickers('monteeEleve', 'monteeEleveQ', 'btnMonteeEleveSearch');
+  function anneeN1() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const nStart = m >= 9 ? y : y - 1;
+    return (nStart + 1) + '-' + (nStart + 2);
+  }
+  async function refreshReinsStaffPageTip() {
+    const el = document.getElementById('reinsStaffPageTip');
+    if (!el) return;
+    try {
+      const niv = (document.getElementById('lotNiveau') || {}).value || '4e';
+      const [camp, montee, exig] = await Promise.all([
+        api('/reinscription/campagne').catch(() => null),
+        api('/reinscription/montee/candidats?niveau=' + encodeURIComponent(niv)).catch(() => null),
+        api('/reinscription/exigences?annee_cible=' + encodeURIComponent(anneeN1())).catch(() => []),
+      ]);
+      el.innerHTML = reinsStaffPageTipDenseHtml(camp, montee, exig);
+    } catch {
+      el.innerHTML = '';
+    }
+  }
   async function refreshCamp() {
     const campStats = document.getElementById('reinsCampStats');
     try {
@@ -24987,6 +25389,7 @@ async function bindReinscriptionStaff() {
     } catch (e) {
       status.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
+    await refreshReinsStaffPageTip();
   }
   document.getElementById('btnCampagne').onclick = async () => {
     try {
@@ -25013,6 +25416,7 @@ async function bindReinscriptionStaff() {
         body: JSON.stringify({ eleve_id: document.getElementById('monteeEleve').value.trim() }),
       });
       out.innerHTML = `<span class="ok">Projection ${esc(s.annee_scolaire)} niveau ${esc(s.niveau || '—')} (statut ${esc(s.statut)})</span>`;
+      await refreshReinsStaffPageTip();
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -25040,7 +25444,12 @@ async function bindReinscriptionStaff() {
     }
   };
   const lotNiveauEl = document.getElementById('lotNiveau');
-  if (lotNiveauEl) lotNiveauEl.onchange = () => document.getElementById('btnLotApercu').click();
+  if (lotNiveauEl) {
+    lotNiveauEl.onchange = () => {
+      refreshReinsStaffPageTip();
+      document.getElementById('btnLotApercu').click();
+    };
+  }
   document.getElementById('btnLotMontee').onclick = async () => {
     try {
       const niv = document.getElementById('lotNiveau').value;
@@ -25060,17 +25469,11 @@ async function bindReinscriptionStaff() {
         : '';
       out.innerHTML = `<p><span class="ok">Lot ${esc(r.niveau_source)} → ${esc(r.niveau_cible)} : ${r.montes_count} monté(s), ${r.ignores_count} ignoré(s)</span>
         · cible ${esc(r.annee_cible)}</p>${ignTable}`;
+      await refreshReinsStaffPageTip();
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   };
-  function anneeN1() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth() + 1;
-    const nStart = m >= 9 ? y : y - 1;
-    return (nStart + 1) + '-' + (nStart + 2);
-  }
   const exBox = document.getElementById('reinsExigences');
   async function loadExigences() {
     if (!exBox) return;
@@ -25105,6 +25508,7 @@ async function bindReinscriptionStaff() {
       });
       out.innerHTML = `<span class="ok">Exigence ${esc(ex.code)} posée pour ${esc(ex.annee_cible)} — confirmation parent bloquée tant que le doc manque</span>`;
       await loadExigences();
+      await refreshReinsStaffPageTip();
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -25316,6 +25720,7 @@ async function bindReinscriptionFamille() {
               method: 'POST', body: '{}',
             });
             toastReinscConfirmeeFamille(prenom, annee, {
+              dense: true,
               nDocsManq,
               acompteRequis,
               acompteOk,
@@ -28546,9 +28951,16 @@ function viewFacturesFamille() {
 function viewQuittancesFamille() {
   return shell('/famille/quittances', `
     <div class="bento" id="quitStats"></div>
+    <div id="quitPageTip" style="display:none;margin:0 0 .55rem"></div>
     <div class="panel">
       <h2>Mes quittances</h2>
-      <p class="muted">Reçus émis automatiquement à chaque paiement enregistré par la compta.</p>
+      <p class="muted">Reçus émis automatiquement à chaque paiement enregistré par la compta. Factures impayées : <a href="/famille/factures?section=factures">mes factures</a>.</p>
+      <div class="row quit-fam-filter-chips" style="margin:.35rem 0 .5rem;flex-wrap:wrap;gap:.35rem;align-items:center">
+        <span class="muted" style="font-size:.85rem">Afficher</span>
+        <button type="button" class="pill quit-fam-chip primary" id="quitFamChipAll">Toutes</button>
+        <button type="button" class="pill quit-fam-chip" id="quitFamChipSepa">Prélèvement SEPA</button>
+        <button type="button" class="pill quit-fam-chip" id="quitFamChipAutres">Autres moyens</button>
+      </div>
       <div id="quitOut" class="muted">Chargement…</div>
     </div>`);
 }
@@ -28556,21 +28968,19 @@ function viewQuittancesFamille() {
 async function bindQuittancesFamille() {
   const out = document.getElementById('quitOut');
   const stats = document.getElementById('quitStats');
-  try {
-    const list = await api('/facturation/famille/quittances');
-    const total = (list || []).reduce((s, q) => s + (q.montant_centimes || 0), 0);
-    if (stats) {
-      stats.innerHTML = `
-        <div class="stat-tile bento-span-6"><strong>${list.length}</strong><span>Quittances</span></div>
-        <div class="stat-tile bento-span-6"><strong>${esc(euros(total))}</strong><span>Total encaissé</span></div>`;
-    }
-    if (!list.length) {
-      out.innerHTML = famEmptyDense('Aucune quittance pour le moment', [
-        'Un reçu est émis automatiquement à chaque paiement enregistré par la compta (virement, prélèvement SEPA, chèque…).',
-        'Les factures impayées et le mandat SEPA se gèrent depuis la page Factures.',
-      ], '<a href="/famille/factures">Mes factures</a> · <a href="/famille/factures#famSepaOut">Mandat SEPA</a>');
-      return;
-    }
+  const pageTip = document.getElementById('quitPageTip');
+  let quitFamSortedList = [];
+  let quitFamFilter = 'all';
+  let quitFamResteFactures = 0;
+  function syncQuitFamChipUi() {
+    const chipAll = document.getElementById('quitFamChipAll');
+    const chipSepa = document.getElementById('quitFamChipSepa');
+    const chipAut = document.getElementById('quitFamChipAutres');
+    if (chipAll) chipAll.classList.toggle('primary', quitFamFilter === 'all');
+    if (chipSepa) chipSepa.classList.toggle('primary', quitFamFilter === 'sepa');
+    if (chipAut) chipAut.classList.toggle('primary', quitFamFilter === 'autres');
+  }
+  function wireQuitTable(list) {
     out.innerHTML = `<table><thead><tr><th>N°</th><th>Date</th><th>Moyen</th><th>Montant</th><th></th></tr></thead>
       <tbody>${list.map(q => `<tr>
         <td><strong>${esc(q.numero)}</strong></td>
@@ -28607,8 +29017,97 @@ async function bindQuittancesFamille() {
         } catch (e) { alert(e.message); }
       };
     });
+  }
+  function paintQuitFamList() {
+    syncQuitFamChipUi();
+    const listAll = quitFamSortedList;
+    const list = famQuittancesFilteredList(listAll, quitFamFilter);
+    const totalAll = (listAll || []).reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+    const totalShown = list.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+    if (stats) {
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-4"><strong>${listAll.length}</strong><span>Quittances</span></div>
+        <div class="stat-tile bento-span-4"><strong>${esc(euros(totalShown))}</strong><span>Total vue · ${esc(euros(totalAll))}</span></div>
+        <a class="stat-tile bento-span-4" href="/famille/factures?section=factures" style="text-decoration:none">
+          <strong class="${quitFamResteFactures ? 'warn' : 'ok'}">${esc(euros(quitFamResteFactures))}</strong><span>Reste factures</span>
+        </a>`;
+    }
+    if (pageTip) {
+      const dense = famQuittancesPageTipDenseHtml(listAll, list, quitFamFilter, quitFamResteFactures);
+      if (dense) {
+        pageTip.style.display = '';
+        pageTip.innerHTML = dense;
+      } else {
+        pageTip.style.display = 'none';
+        pageTip.innerHTML = '';
+      }
+    }
+    if (!listAll.length) {
+      out.innerHTML = famEmptyDense('Aucune quittance pour le moment', [
+        'Un reçu est émis automatiquement à chaque paiement enregistré par la compta (virement, prélèvement SEPA, chèque…).',
+        'Les factures impayées et le mandat SEPA se gèrent depuis la page Factures.',
+      ], '<a href="/famille/factures?section=factures">Mes factures</a> · <a href="/famille/factures#famSepaOut">Mandat SEPA</a>');
+      return;
+    }
+    if (!list.length) {
+      const emptyLbl = quitFamFilter === 'sepa'
+        ? 'Aucune quittance SEPA avec ce filtre.'
+        : (quitFamFilter === 'autres'
+          ? 'Aucune quittance « autres moyens » avec ce filtre.'
+          : 'Aucune quittance avec ce filtre.');
+      out.innerHTML = `<p class="empty">${emptyLbl}</p>`;
+      return;
+    }
+    wireQuitTable(list);
+  }
+  function wireQuitFamChips() {
+    const chipAll = document.getElementById('quitFamChipAll');
+    const chipSepa = document.getElementById('quitFamChipSepa');
+    const chipAut = document.getElementById('quitFamChipAutres');
+    if (chipAll) {
+      chipAll.onclick = () => {
+        const prev = quitFamFilter;
+        quitFamFilter = 'all';
+        paintQuitFamList();
+        maybeToastQuitFamFilterFromUi(prev, quitFamFilter, quitFamSortedList, famQuittancesFilteredList(quitFamSortedList, quitFamFilter));
+      };
+    }
+    if (chipSepa) {
+      chipSepa.onclick = () => {
+        const prev = quitFamFilter;
+        quitFamFilter = 'sepa';
+        paintQuitFamList();
+        maybeToastQuitFamFilterFromUi(prev, quitFamFilter, quitFamSortedList, famQuittancesFilteredList(quitFamSortedList, quitFamFilter));
+      };
+    }
+    if (chipAut) {
+      chipAut.onclick = () => {
+        const prev = quitFamFilter;
+        quitFamFilter = 'autres';
+        paintQuitFamList();
+        maybeToastQuitFamFilterFromUi(prev, quitFamFilter, quitFamSortedList, famQuittancesFilteredList(quitFamSortedList, quitFamFilter));
+      };
+    }
+  }
+  wireQuitFamChips();
+  try {
+    const [rawList, facs] = await Promise.all([
+      api('/facturation/famille/quittances'),
+      api('/facturation/famille').catch(() => []),
+    ]);
+    quitFamResteFactures = (facs || []).reduce((s, f) => s + facFamResteCentimes(f), 0);
+    quitFamSortedList = famQuittancesSortedRecent(rawList || []);
+    paintQuitFamList();
   } catch (e) {
+    if (stats) stats.innerHTML = '';
+    if (pageTip) { pageTip.style.display = 'none'; pageTip.innerHTML = ''; }
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+  if (routeState.famScrollQuittances) {
+    delete routeState.famScrollQuittances;
+    requestAnimationFrame(() => {
+      document.getElementById('quitOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 }
 
@@ -29552,7 +30051,9 @@ async function render() {
   const root = document.getElementById('root');
   let p = path();
   seedRouteFromQuery();
-  if (routeState.famScrollFactures && (p === '/famille' || p === '/famille/')) {
+  if (routeState.famScrollFactures && (
+    p === '/famille' || p === '/famille/' || p === '/famille/quittances'
+  )) {
     history.replaceState(null, '', '/famille/factures');
     p = '/famille/factures';
   }
