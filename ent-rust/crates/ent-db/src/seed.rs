@@ -723,7 +723,8 @@ impl PgEnt {
     /// lot D (Bot AD-A) : carnet Luna, passage infirmerie Hermione, sortie except. Harry jour J, facture Draco ;
     /// lot E (Bot AE-A) : note Cho, absence NJ Ron (Molly), note Ginny (staff / pas notes parent), alerte CPE urgente Harry, PDF JUSTIF non vide ;
     /// lot F (Bot AF-A) : carnet Seamus (famille), absence NJ Luna, dossier conseil Harry, photo trombi Ron, renfort menus lun–ven publiés ;
-    /// lot G (Bot AG-A) : absence NJ Seamus, note Cedric, RDV psy Harry J+10, carnet Draco, ré-ensure CHARTE_LAB + REGLEMENT_LAB.
+    /// lot G (Bot AG-A) : absence NJ Seamus, note Cedric, RDV psy Harry J+10, carnet Draco, ré-ensure CHARTE_LAB + REGLEMENT_LAB ;
+    /// lot H (Bot AH-A) : carnet Hermione (famille), absence NJ Neville, rappel SMS dry-run Harry si API, photo trombi Ginny, Molly mes_enfants Ron+Ginny.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -3372,6 +3373,152 @@ impl PgEnt {
                 },
             )
             .await?;
+        }
+
+        // --- Bot AH-A lot H : carnet Hermione (famille), absence NJ Neville, rappel SMS dry-run Harry (si API),
+        // photo trombi Ginny, renfort Molly → Ron + Ginny dans mes_enfants.
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            const HERMIONE_CARNET_AH_TITRE: &str = "AUDIT AH-A: Encouragements Hermione (famille)";
+            let carnet_hermione = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), hermione.id)
+                .await?;
+            if !carnet_hermione
+                .iter()
+                .any(|c| c.titre == HERMIONE_CARNET_AH_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: hermione.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: HERMIONE_CARNET_AH_TITRE.into(),
+                    corps: "Seed labo lot AH-A — entrée carnet visible famille pour audit portail Hermione Granger."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(neville) = labo_eleve_prenom(eleves, "Neville") {
+            let absences_neville = self.list_absences_eleve(etab, neville.id).await?;
+            let neville_a_absence_nj = absences_neville
+                .iter()
+                .any(|a| a.statut == AbsenceStatut::ATraiter);
+            if !neville_a_absence_nj {
+                let absence_neville_ah = jour - Duration::days(3);
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: neville.id,
+                    debut: absence_neville_ah,
+                    fin: absence_neville_ah,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        const HARRY_RAPPEL_SMS_AH_TITRE: &str = "AUDIT AH-A: Rappel SMS Harry";
+        if self.sms().is_ready() {
+            let carnet_harry_ah = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), harry.id)
+                .await?;
+            if !carnet_harry_ah
+                .iter()
+                .any(|c| c.titre == HARRY_RAPPEL_SMS_AH_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: HARRY_RAPPEL_SMS_AH_TITRE.into(),
+                    corps: "Seed labo lot AH-A — rappel SMS dry-run vers Lily Potter (outbox si API SMS prête)."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(ginny) = labo_eleve_prenom(eleves, "Ginny") {
+            if self
+                .get_eleve(etab, ginny.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        ginny.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        if let (Some(ron), Some(ginny)) = (
+            labo_eleve_prenom(eleves, "Ron"),
+            labo_eleve_prenom(eleves, "Ginny"),
+        ) {
+            let molly_user = ron.parent.user_id;
+            let molly_foyer = ron.foyer_id;
+            let enfants_molly = self
+                .mes_enfants_for_parent(etab, molly_user, Role::Parent.as_str())
+                .await?;
+            let ids_molly: Vec<Uuid> = enfants_molly.iter().map(|e| e.eleve.id).collect();
+            if !ids_molly.iter().any(|id| *id == ron.id) {
+                self.link_parent(CreateLien {
+                    etablissement_id: etab,
+                    eleve_id: ron.id,
+                    user_id: molly_user,
+                    foyer_id: Some(molly_foyer),
+                    lien: "mère".into(),
+                    peut_voir_notes: ron.peut_voir_notes,
+                    peut_voir_vs: ron.peut_voir_vs,
+                    peut_justifier_absence: ron.peut_justifier,
+                    peut_autoriser_sorties: ron.peut_justifier,
+                    est_payeur: true,
+                    part_paiement: Some(100),
+                })
+                .await?;
+            }
+            if !ids_molly.iter().any(|id| *id == ginny.id) {
+                self.link_parent(CreateLien {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    user_id: molly_user,
+                    foyer_id: Some(molly_foyer),
+                    lien: "mère".into(),
+                    peut_voir_notes: ginny.peut_voir_notes,
+                    peut_voir_vs: ginny.peut_voir_vs,
+                    peut_justifier_absence: ginny.peut_justifier,
+                    peut_autoriser_sorties: ginny.peut_justifier,
+                    est_payeur: true,
+                    part_paiement: Some(100),
+                })
+                .await?;
+            }
+            if let Some(ginny_idx) = eleves
+                .iter()
+                .position(|e| e.prenom.eq_ignore_ascii_case("Ginny"))
+            {
+                eleves[ginny_idx].parent = ron.parent.clone();
+                eleves[ginny_idx].foyer_id = molly_foyer;
+            }
         }
 
         // --- Messagerie CPE → parent Harry (1 fil, 1 message) — sans signature docs

@@ -145,6 +145,15 @@
   .pill-unread {
     @apply mr-1 inline-block rounded-full bg-ent-acc px-2 py-0.5 text-[0.75rem] font-bold text-white;
   }
+  .pill-fermee {
+    @apply border-ent-warn/35 bg-[#f3ebe3] font-semibold text-ent-warn;
+  }
+  .pill-partielle {
+    @apply border-ent-acc/30 bg-[#eef4fb] text-[#2a5080];
+  }
+  .pill-ouverte {
+    @apply border-ent-ok/35 bg-[#e8f5ec] font-medium text-ent-ok;
+  }
   .errbox {
     @apply my-3 rounded-bento-sm border border-ent-bad/20 bg-[#ffe5e8] px-3.5 py-3 text-ent-bad;
   }

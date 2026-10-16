@@ -104,6 +104,63 @@ function notePeriodeFermeeLabel(p) {
   return lib || code || 'Période';
 }
 
+function notePeriodeStatutBadge(statut) {
+  const s = String(statut || '').trim();
+  if (s === 'fermee') {
+    return '<span class="pill pill-fermee" title="Saisie verrouillée — bulletins publiables">Fermée</span>';
+  }
+  if (s === 'partielle_appreciations') {
+    return '<span class="pill pill-partielle" title="Appréciations seules">Appréciations</span>';
+  }
+  if (s === 'ouverte') {
+    return '<span class="pill pill-ouverte">Ouverte</span>';
+  }
+  return `<span class="pill">${esc(s || '—')}</span>`;
+}
+
+function refreshNotePeriodeStatutBadge(periodes, pid) {
+  const badge = document.getElementById('notePeriodeStatutBadge');
+  if (!badge) return;
+  const id = String(pid || '').trim();
+  if (!id) {
+    badge.innerHTML = '';
+    return;
+  }
+  const p = (periodes || []).find(x => x.id === id);
+  badge.innerHTML = p ? notePeriodeStatutBadge(p.statut) : '';
+}
+
+function toastIncidentDeclare(d, eleveLabel, opts) {
+  const o = opts || {};
+  const who = eleveLabel ? ` · ${esc(String(eleveLabel).trim())}` : '';
+  const jour = d && d.jour ? ` · ${esc(String(d.jour))}` : '';
+  const ref = d && d.id ? ` · ${esc(String(d.id).slice(0, 8))}` : '';
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  const href = eid ? `/app/eleves/${esc(eid)}` : '/app/absences';
+  const link = eid ? 'Fiche élève' : 'Absences &amp; commissions';
+  showEntToast(
+    `<strong>Incident déclaré</strong>${who}${jour}${ref}. `
+    + `<a href="${href}">${link}</a> · `
+    + `<a href="/app/absences#absIncSanPanel">Registre discipline</a>`,
+    9000,
+  );
+}
+
+function toastRhAbsenceDeclaree(statut, forceMe) {
+  const st = esc(String(statut || 'signalee'));
+  const moi = forceMe ? ' (moi)' : '';
+  showEntToast(
+    `<strong>Absence RH déclarée</strong>${moi} · ${st}. `
+    + 'Visible dans la file période après actualisation.',
+    8000,
+  );
+}
+
+function toastRhAbsenceValidee(agentLabel) {
+  const who = agentLabel ? ` · ${esc(String(agentLabel).trim())}` : '';
+  showEntToast(`<strong>Absence RH validée</strong>${who}.`, 7000);
+}
+
 function toastAlerteCpeCloturee(note) {
   const n = esc((note || 'Traité').trim() || 'Traité');
   showEntToast(`<strong>Alerte clôturée</strong> — ${n}. La file ouverte a été actualisée.`);
@@ -299,6 +356,40 @@ function toastNoteSaisie(n, eleveLabel) {
   );
 }
 
+function toastBulletinTelecharge(titre) {
+  showEntToast(
+    `<strong>Bulletin téléchargé</strong> — ${esc(String(titre || 'PDF').trim())}`,
+    8000,
+  );
+}
+
+function eleveConseilEncouragementsVisibles(conseils) {
+  return (conseils || []).filter(c =>
+    c.visible_famille !== false
+    && String(c.mention || '').toLowerCase() === 'encouragements',
+  );
+}
+
+function eleveConseilEncouragementTile(conseils) {
+  if (!eleveConseilEncouragementsVisibles(conseils).length) return '';
+  return `<a class="stat-tile bento-span-2" href="/eleve/notes"><strong class="ok">★</strong><span>Encouragements</span></a>`;
+}
+
+function eleveHomeConseilEncouragementHtml(conseils) {
+  const enc = eleveConseilEncouragementsVisibles(conseils)[0];
+  if (!enc) return '';
+  const app = String(enc.appreciation || enc.decision_texte || '').trim();
+  const appHtml = app ? `<p class="muted" style="margin:.35rem 0 0">${esc(app)}</p>` : '';
+  return `<div class="panel" style="margin-bottom:.75rem;padding:.65rem .85rem;border-left:3px solid var(--ok,#16a34a)">
+    <p style="margin:0"><span class="pill ok">encouragements</span> <strong>Conseil de classe</strong>${enc.classe ? ` · ${esc(enc.classe)}` : ''}</p>
+    ${appHtml}
+    <p class="row" style="gap:.65rem;margin:.45rem 0 0;font-size:.85rem;flex-wrap:wrap">
+      <a href="/eleve/notes">Notes &amp; décisions</a>
+      <a href="/eleve/vie-scolaire">Vie scolaire</a>
+    </p>
+  </div>`;
+}
+
 function toastDevoirCree(d) {
   const titre = esc(String((d && d.titre) || 'Devoir').trim() || 'Devoir');
   const date = d && d.date_devoir ? ` · ${esc(String(d.date_devoir))}` : '';
@@ -312,7 +403,7 @@ function toastDevoirCree(d) {
 function toastNotePeriodeFermee(p) {
   const label = esc(notePeriodeFermeeLabel(p));
   showEntToast(
-    `<strong>Période « ${label} » fermée</strong> — saisie verrouillée. `
+    `<strong>Période « ${label} » fermée</strong> ${notePeriodeStatutBadge('fermee')} — saisie verrouillée. `
     + `<a href="#" id="entToastNotesBul">Publier les bulletins</a>`,
   );
   const link = document.getElementById('entToastNotesBul');
@@ -940,12 +1031,13 @@ function formatOctetsFam(n) {
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' Ko';
   return (b / (1024 * 1024)).toFixed(1) + ' Mo';
 }
+function famIsNotesOnlyLink(e) {
+  if (!e) return false;
+  return !!e.peut_voir_notes && !e.peut_voir_vs && !e.peut_justifier_absence;
+}
 function famLienDroitsBadgeHtml(e) {
   if (!e) return '';
-  const notes = !!e.peut_voir_notes;
-  const vs = !!e.peut_voir_vs;
-  const justif = !!e.peut_justifier_absence;
-  if (notes && !vs && !justif) {
+  if (famIsNotesOnlyLink(e)) {
     return `<span class="pill" style="font-size:.72rem;font-weight:600;letter-spacing:.02em;margin-left:.25rem" title="Notes consultables — absences et vie scolaire non autorisés pour ce lien parent">Notes only</span>`;
   }
   return '';
@@ -1087,22 +1179,28 @@ function facFamEncaisseCentimes(f) {
   const total = Number(f.total_centimes) || 0;
   return Math.max(0, total - facFamResteCentimes(f));
 }
-function facFamProgressPanelHtml(encaisseCent, totalCent, resteCent) {
+function facFamProgressPanelHtml(encaisseCent, totalCent, resteCent, opts) {
+  const o = opts || {};
   const total = Math.max(0, Number(totalCent) || 0);
   const enc = Math.max(0, Math.min(total, Number(encaisseCent) || 0));
   const reste = Number.isFinite(Number(resteCent))
     ? Math.max(0, Number(resteCent))
     : Math.max(0, total - enc);
   const pct = total ? Math.min(100, Math.round((enc / total) * 100)) : 0;
+  const title = o.sepaActif ? 'Paiements · prélèvement SEPA' : 'Paiements';
+  const rum = o.sepaRum ? String(o.sepaRum).trim() : '';
+  const foot = o.sepaActif
+    ? `${pct}% encaissé${rum ? ' · mandat ' + esc(rum) + ' actif' : ''} — le reste sera prélevé selon l’échéancier`
+    : `${pct}% encaissé sur le total des factures visibles`;
   return `<div class="panel bento-span-12" style="margin:0;padding:.65rem .85rem;border-left:3px solid var(--accent,#0071e3)">
     <div class="row" style="justify-content:space-between;align-items:baseline;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem">
-      <strong>Paiements</strong>
+      <strong>${esc(title)}</strong>
       <span>${esc(euros(enc))} encaissé · ${esc(euros(total))} facturé · <strong class="${reste ? 'warn' : 'ok'}">reste ${esc(euros(reste))}</strong></span>
     </div>
     <div style="height:.55rem;border-radius:999px;background:var(--line,#e5e5ea);overflow:hidden" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
       <div style="height:100%;width:${pct}%;background:var(--accent,#0071e3);border-radius:999px"></div>
     </div>
-    <p class="muted" style="margin:.35rem 0 0;font-size:.88rem">${pct}% encaissé sur le total des factures visibles</p>
+    <p class="muted" style="margin:.35rem 0 0;font-size:.88rem">${foot}</p>
   </div>`;
 }
 /** Personas labo — inclut Molly (parent_weasley) si absent de personas (cast localStorage ancien). */
@@ -1160,6 +1258,19 @@ function toastPaiSigneFamille(prenom, motif) {
   const m = motif ? ` · ${esc(String(motif).trim())}` : '';
   showEntToast(`<strong>PAI signé</strong> — ${who}${m}. Prise de connaissance enregistrée.`, 8000);
 }
+function toastFamSortieAutorisation(prenom, creneaux) {
+  const who = esc(String(prenom || '').trim() || 'Enfant');
+  const c = creneaux || {};
+  const parts = [];
+  if (c.matin) parts.push('matin');
+  if (c.midi) parts.push('midi');
+  if (c.soir) parts.push('soir');
+  const detail = parts.length ? ` · ${esc(parts.join(', '))}` : '';
+  showEntToast(
+    `<strong>Autorisation enregistrée</strong> — ${who}${detail}. Sortie permanente mise à jour.`,
+    8000,
+  );
+}
 function toastFamDocGrantRequested(titre, status, opts) {
   const o = opts || {};
   const t = esc(String(titre || 'Document').trim());
@@ -1191,24 +1302,31 @@ function famEnfantListTodoStats(e, resume, docsPending, pai) {
 }
 function famEnfantDenseCardHtml(e, stats) {
   const s = stats || {};
-  const badges = [];
-  if (s.abs) badges.push(`<span class="pill-unread">${s.abs} abs.</span>`);
-  if (s.car) badges.push(`<span class="pill-unread">${s.car} carnet</span>`);
-  if (s.docs) badges.push(`<span class="pill-unread">${s.docs} docs</span>`);
-  if (s.paiPending) badges.push('<span class="pill-unread">PAI</span>');
-  const badgeRow = badges.length
-    ? `<div class="row" style="gap:.3rem;flex-wrap:wrap;margin-top:.4rem">${badges.join(' ')}</div>`
-    : '<p class="ok" style="margin:.35rem 0 0;font-size:.85rem">À jour</p>';
+  const notesOnly = famIsNotesOnlyLink(e);
+  const rightsBadge = famLienDroitsBadgeHtml(e);
+  let badgeRow;
+  if (notesOnly) {
+    badgeRow = `<div class="row" style="gap:.3rem;flex-wrap:wrap;margin-top:.4rem;align-items:center">${rightsBadge}</div>`;
+  } else {
+    const badges = [];
+    if (s.abs) badges.push(`<span class="pill-unread">${s.abs} abs.</span>`);
+    if (s.car) badges.push(`<span class="pill-unread">${s.car} carnet</span>`);
+    if (s.docs) badges.push(`<span class="pill-unread">${s.docs} docs</span>`);
+    if (s.paiPending) badges.push('<span class="pill-unread">PAI</span>');
+    badgeRow = badges.length
+      ? `<div class="row" style="gap:.3rem;flex-wrap:wrap;margin-top:.4rem">${badges.join(' ')}</div>`
+      : '<p class="ok" style="margin:.35rem 0 0;font-size:.85rem">À jour</p>';
+  }
   const cls = e.classe
     ? `<span class="pill warn" style="font-weight:700;font-size:.85rem">${esc(e.classe)}</span>`
     : '';
   const eid = esc(e.id);
   return `<article class="panel fam-enfant-card" data-href="/famille/enfants/${eid}" style="margin:0;padding:.55rem .65rem;border-left:3px solid var(--line);cursor:pointer">
     <div class="row" style="justify-content:space-between;align-items:flex-start;gap:.45rem;flex-wrap:wrap">
-      <strong style="font-size:1rem;line-height:1.25">${esc(e.prenom)} ${esc(e.nom)}</strong>
+      <strong style="font-size:1rem;line-height:1.25">${esc(e.prenom)} ${esc(e.nom)}${notesOnly ? ' ' + rightsBadge : ''}</strong>
       ${cls}
     </div>
-    <p class="muted" style="margin:.28rem 0 0;font-size:.82rem">Lien ${esc(e.lien || '—')}${famLienDroitsBadgeHtml(e)}</p>
+    <p class="muted" style="margin:.28rem 0 0;font-size:.82rem">Lien ${esc(e.lien || '—')}${notesOnly ? '' : rightsBadge}</p>
     ${badgeRow}
     <p class="row" style="margin:.4rem 0 0;gap:.45rem;flex-wrap:wrap;font-size:.82rem">
       <a href="/famille/enfants/${eid}">Fiche complète</a>
@@ -1464,17 +1582,85 @@ async function famInternatEmptyHtml(id, prenom) {
   } catch {}
   const isInt = /^INT/i.test(String(regime || ''));
   if (isInt) {
-    return `<div class="panel" style="padding:.75rem;border-left:3px solid var(--warn)">
-      <p class="empty" style="margin:0">Internat (${esc(regime)}) — pas encore de chambre / présence pour ce jour.</p>
-      <p class="muted" style="margin:.5rem 0 0">Changez la date ou revenez plus tard ; l’éducateur met à jour chambre et pointages.</p>
-      <p class="muted" style="margin:.35rem 0 0"><a href="/famille/messages">Contacter l’internat</a></p>
+    return famEmptyDense(
+      `Internat (${esc(regime || 'INT')}) — rien à afficher ce jour`,
+      [
+        'Chambre, présence et suivis apparaissent dès que l’équipe internat les saisit.',
+        'Changez la date si vous consultez un autre jour.',
+        '<a href="/famille/messages">Contacter l’internat</a>',
+      ],
+      `<a href="/famille/enfants/${esc(id)}">Fiche enfant</a>`,
+    );
+  }
+  const who = prenom ? esc(prenom) : 'Cet enfant';
+  return famEmptyDense(
+    `${who} n’est pas en internat`,
+    [
+      regime ? `Régime scolaire actuel : ${esc(regime)} (externe ou demi-pension).` : 'Seuls les élèves en régime INT ont chambre et pointages ici.',
+      'Parent multi-enfants : basculez sur un autre enfant si l’un d’eux est interne.',
+      '<a href="/famille/repas">Repas / cantine</a> — repas pointés badge',
+    ],
+    `<a href="/famille/enfants/${esc(id)}">Fiche enfant</a> · <a href="/famille">Accueil</a>`,
+  );
+}
+function famInternatDetailDenseHtml(r, id, jour) {
+  const chambre = r && r.chambre;
+  const presence = r && r.presence_du_jour;
+  const suivis = (r && r.suivis) || [];
+  const aff = r && r.affectation;
+  let h = '<div class="bento" style="margin-bottom:.55rem">';
+  h += chambre
+    ? `<div class="stat-tile bento-span-4"><strong>${esc(chambre.code)}</strong><span>Chambre · bât. ${esc(chambre.batiment)} ét. ${esc(String(chambre.etage))}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong>—</strong><span>Pas de chambre ce jour</span></div>`;
+  h += presence
+    ? `<div class="stat-tile bento-span-4"><strong class="ok">${esc(presence.statut)}</strong><span>Présence ${esc(presence.jour)}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucun pointage le ${esc(jour)}</span></div>`;
+  h += `<div class="stat-tile bento-span-4"><strong>${suivis.length}</strong><span>Suivi(s) partagé(s)</span></div>`;
+  h += '</div>';
+  if (aff && aff.date_debut) {
+    h += `<p class="muted" style="margin:0 0 .5rem">Affectation depuis ${esc(aff.date_debut)}</p>`;
+  }
+  if (suivis.length) {
+    h += `<div class="panel" style="padding:.6rem .75rem;margin:0;border-left:3px solid var(--line)">
+      <h3 style="margin:0 0 .4rem;font-size:.95rem">Suivis internat</h3>
+      <ul style="margin:0;padding-left:1.1rem">${suivis.map(s =>
+        `<li style="margin:.28rem 0">${esc(s.jour)} — ${esc(s.texte)}</li>`
+      ).join('')}</ul>
     </div>`;
   }
-  return `<div class="panel" style="padding:.75rem;border-left:3px solid var(--line)">
-    <p class="empty" style="margin:0">${esc(prenom || 'Cet enfant')} n’est pas interne${regime ? ' (régime ' + esc(regime) + ')' : ''}.</p>
-    <p class="muted" style="margin:.5rem 0 0">Cette page affiche chambre, présence du jour et suivis pour les élèves en internat (INT) uniquement.</p>
-    <p class="muted" style="margin:.35rem 0 0"><a href="/famille/repas">Repas / cantine</a> · <a href="/famille">Accueil famille</a></p>
-  </div>`;
+  h += `<p class="muted" style="margin:.65rem 0 0"><a href="/famille/enfants/${esc(id)}?section=internat">Fiche enfant</a> · <a href="/famille/messages">Contacter l’internat</a></p>`;
+  return h;
+}
+async function famInternatMultiOverviewHtml(enfants, jour) {
+  const rows = await Promise.all((enfants || []).map(async e => {
+    try {
+      const r = await api('/eleves/' + e.id + '/internat?jour=' + encodeURIComponent(jour));
+      const hasData = !!(r.chambre || r.presence_du_jour || (r.suivis || []).length);
+      return { e, r, hasData, err: null };
+    } catch (err) {
+      return { e, r: null, hasData: false, err };
+    }
+  }));
+  const nInt = rows.filter(x => x.hasData).length;
+  const tiles = rows.map(({ e, r, hasData }) => {
+    const ch = r && r.chambre ? r.chambre.code : (hasData ? '—' : 'Externe');
+    const sub = hasData && r && r.presence_du_jour
+      ? esc(r.presence_du_jour.statut)
+      : (hasData ? 'Internat' : 'Pas INT');
+    return `<a class="stat-tile bento-span-${rows.length === 2 ? 6 : 4}" href="#" data-fam-int-pick="${esc(e.id)}" style="text-decoration:none">
+      <strong>${esc(e.prenom)}</strong>
+      <span>${esc(ch)} · ${sub}</span>
+    </a>`;
+  }).join('');
+  return {
+    stats: `<div class="bento" style="margin-bottom:.55rem">
+      <div class="stat-tile bento-span-4"><strong>${enfants.length}</strong><span>Enfant(s)</span></div>
+      <div class="stat-tile bento-span-4"><strong class="${nInt ? 'ok' : ''}">${nInt}</strong><span>Avec internat ce jour</span></div>
+      <div class="stat-tile bento-span-4"><strong>${esc(jour)}</strong><span>Jour consulté</span></div>
+    </div>`,
+    tiles,
+    rows,
+  };
 }
 function famPapGrantCalloutHtml(papDocs) {
   const locked = (papDocs || []).filter(d => !d.accessible);
@@ -2115,6 +2301,7 @@ async function bindLogin() {
 function viewEleveHome() {
   return shell('/eleve', `
     <div class="bento" id="eleveHomeStats"></div>
+    <div id="eleveHomeConseilSpot"></div>
     <div class="bento" id="eleveHomeHub" style="margin-bottom:.75rem">
       <a class="panel bento-span-4 eleve-hub-tile" href="/eleve/edt">
         <h2 class="eleve-hub-title">EDT</h2>
@@ -2218,7 +2405,7 @@ async function bindEleveHome() {
   const jour = today();
   const debutMois = jour.slice(0, 8) + '01';
   try {
-    const [notes, edt, fils, abs, carnet, periodes, docs, devoirs, dispenses, menus, cahier, eleveDocs] = await Promise.all([
+    const [notes, edt, fils, abs, carnet, periodes, docs, devoirs, dispenses, menus, cahier, eleveDocs, conseils] = await Promise.all([
       api('/eleves/' + eid + '/notes').catch(() => []),
       api('/eleves/' + eid + '/edt?jour=' + encodeURIComponent(jour)).catch(() => []),
       api('/messages/fils').catch(() => []),
@@ -2231,7 +2418,12 @@ async function bindEleveHome() {
       api('/menus-cantine?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour)).catch(() => []),
       api('/cahier-texte?eleve_id=' + encodeURIComponent(eid) + '&from=' + encodeURIComponent(jour) + '&to=' + encodeURIComponent(jour)).catch(() => []),
       api('/eleves/' + eid + '/documents').catch(() => []),
+      api('/eleves/' + eid + '/conseils').catch(() => []),
     ]);
+    const conseilSpot = document.getElementById('eleveHomeConseilSpot');
+    if (conseilSpot) {
+      conseilSpot.innerHTML = eleveHomeConseilEncouragementHtml(conseils);
+    }
     let vol = null;
     try {
       vol = await api('/eleves/' + eid + '/repas/volume?debut=' + debutMois + '&fin=' + jour + '&kind=midi');
@@ -2267,6 +2459,7 @@ async function bindEleveHome() {
         <a class="stat-tile bento-span-2" href="/eleve/docs"><strong>${docsASigner}</strong><span>Docs à signer</span></a>
         <a class="stat-tile bento-span-2" href="/eleve/docs"><strong class="${carASigner ? 'warn' : ''}">${carASigner}</strong><span>Carnet à signer</span></a>
         <div class="stat-tile bento-span-2"><strong>${nonLus || (fils || []).length}</strong><span>${nonLus ? 'Msg non lus' : 'Fils'}</span></div>
+        ${eleveConseilEncouragementTile(conseils)}
         ${bulletinT0Tile}`;
     }
     if (ident) {
@@ -3333,7 +3526,7 @@ async function bindEleveDocs() {
           btn.onclick = async () => {
             try {
               await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'bulletin.pdf');
-              showEntToast(`<strong>Bulletin téléchargé</strong> — ${esc(btn.dataset.titre || 'PDF')}`);
+              toastBulletinTelecharge(btn.dataset.titre || 'PDF');
             } catch (err) { alert(err.message); }
           };
         });
@@ -3606,6 +3799,7 @@ async function bindEleveNotes() {
           const msg = document.getElementById('eleveBulletinMsg');
           try {
             await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'bulletin.pdf');
+            toastBulletinTelecharge(btn.dataset.titre || 'Bulletin');
             if (msg) msg.innerHTML = `<span class="ok">${esc(btn.dataset.titre || 'Bulletin')}</span>`;
           } catch (err) {
             if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -3764,6 +3958,7 @@ async function bindEleveNotes() {
           if (hit) doc = hit;
         }
         await downloadFile('/documents/' + doc.id + '/fichier', doc.titre || 'bulletin.pdf');
+        toastBulletinTelecharge(doc.titre || 'Bulletin');
         if (msg) msg.innerHTML = `<span class="ok">${esc(doc.titre)}</span>`;
       } catch (err) {
         if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -3950,6 +4145,7 @@ function viewHome() {
       <a class="stat-tile bento-span-3" href="/app/appel"><strong>Appel</strong><span>Créneaux</span></a>
       <a class="stat-tile bento-span-3" href="/app/absences"><strong>Absences</strong><span>Commissions &amp; incidents</span></a>
       <a class="stat-tile bento-span-3" href="/app/alertes"><strong>Alertes</strong><span>Suivi CPE</span></a>
+      <a class="stat-tile bento-span-3" href="/app/sorties" id="homeCpeSortiesTile"><strong>·</strong><span>Sorties en attente</span></a>
       <a class="stat-tile bento-span-3" href="/app/editions"><strong>Éditions</strong><span>Convocs &amp; courriers</span></a>
       <a class="stat-tile bento-span-3" href="/app/messages"><strong>Messages</strong><span>Fils familles</span></a>
       <a class="stat-tile bento-span-3" href="/app/psy"><strong>Psy</strong><span>RDV &amp; entretiens</span></a>`;
@@ -4157,7 +4353,7 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="${esc(comDosHref)}"><strong class="${nComDos ? 'warn' : ''}">${nComDos}</strong><span>${esc(comDosTileSpan)}</span></a>
         <a class="stat-tile bento-span-2" href="/app/eleves"><strong>·</strong><span>Annuaire élèves</span></a>
         <a class="stat-tile bento-span-2" href="/app/messages"><strong>${nMsg}</strong><span>Msg non lus</span></a>
-        ${wantSort ? `<a class="stat-tile bento-span-2" href="/app/sorties"><strong>${nSort}</strong><span>Sorties</span></a>` : ''}
+        ${wantSort ? `<a class="stat-tile bento-span-2" href="/app/sorties"><strong class="${nSort ? 'warn' : ''}">${nSort}</strong><span>Sorties en attente</span></a>` : ''}
         <a class="stat-tile bento-span-2" href="/app/infirmerie"><strong>${nPassInfJour}</strong><span>Passages infirmerie</span></a>
         <a class="stat-tile bento-span-2" href="/app/appel"><strong>·</strong><span>Faire l’appel</span></a>
         <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>
@@ -4234,6 +4430,10 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/vs"><strong>·</strong><span>File VS</span></a>`;
     }
   }
+  const homeCpeSortiesTile = document.getElementById('homeCpeSortiesTile');
+  if (homeCpeSortiesTile && role === 'cpe' && wantSort) {
+    homeCpeSortiesTile.innerHTML = `<strong class="${nSort ? 'warn' : ''}">${nSort}</strong><span>Sorties en attente</span>`;
+  }
   const signauxBox = document.getElementById('homeSignauxPrecoces');
   if (signauxBox && role === 'cpe') {
     const totalEarly = nAbs + nAlert + nSig + nJustifTrancher;
@@ -4241,14 +4441,18 @@ async function bindHome() {
     const comEarly = nComDos > 0
       ? `<a class="stat-tile bento-span-3" href="${esc(comDosHref)}"><strong class="warn">${nComDos}</strong><span>Dossiers commission · ouvrir</span></a>`
       : `<a class="stat-tile bento-span-3" href="/app/absences"><strong>0</strong><span>Commissions — créer depuis un signal</span></a>`;
-    signauxBox.innerHTML = totalEarly || nComDos
+    const sortEarly = wantSort
+      ? `<a class="stat-tile bento-span-3" href="/app/sorties"><strong class="${nSort ? 'warn' : ''}">${nSort}</strong><span>Sorties en attente</span></a>`
+      : '';
+    signauxBox.innerHTML = totalEarly || nComDos || nSort
       ? `
         ${justifTile}
         <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nAbs}</strong><span>Absences à traiter</span></a>
         <a class="stat-tile bento-span-3" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
         <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>
+        ${sortEarly}
         ${comEarly}`
-      : `${justifTile}${comEarly}`;
+      : `${justifTile}${sortEarly}${comEarly}`;
   }
   const dirKpi = document.getElementById('homeDirKpi');
   if (dirKpi && wantPilotageKpi) {
@@ -5742,16 +5946,19 @@ async function bindFamilleEnfant(id) {
         btnSave.onclick = async () => {
           const msg = document.getElementById('famSortieMsg');
           try {
+            const midi = document.getElementById('famSortieMidi').checked;
+            const soir = document.getElementById('famSortieSoir').checked;
             await api('/eleves/' + id + '/sorties', {
               method: 'PUT',
               body: JSON.stringify({
                 matin: false,
-                midi: document.getElementById('famSortieMidi').checked,
-                soir: document.getElementById('famSortieSoir').checked,
+                midi,
+                soir,
                 interdit_etablissement: false,
               }),
             });
             msg.innerHTML = '<span class="ok">Autorisation enregistrée</span>';
+            toastFamSortieAutorisation(e && e.prenom, { midi, soir });
             await bindFamilleEnfant(id);
           } catch (err) {
             msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -7916,6 +8123,7 @@ async function bindAppel() {
             return;
           }
           try {
+            const incLabel = (document.getElementById('appelIncEleveLabel') || {}).textContent || '';
             const d = await api('/eleves/' + appelIncEleveId + '/incidents', {
               method: 'POST',
               body: JSON.stringify({
@@ -7924,6 +8132,7 @@ async function bindAppel() {
                 description: ((document.getElementById('appelIncDesc') || {}).value || '').trim() || null,
               }),
             });
+            toastIncidentDeclare(d, incLabel.replace(/^Élève\s*:\s*/i, ''), { eleveId: appelIncEleveId });
             if (msg) msg.innerHTML = `<span class="ok">Incident ${esc(String(d.id).slice(0, 8))} — <a href="/app/absences">Absences &amp; commissions</a></span>`;
             panel.style.display = 'none';
             appelIncEleveId = null;
@@ -12678,11 +12887,23 @@ async function bindPsy() {
 /* ---------- Absences ---------- */
 function viewRhAbsences() {
   return shell('/app/rh', `
+    <div class="dossier">
+      <header class="dossier-bandeau" style="grid-template-columns:1fr auto">
+        <div>
+          <h1 class="dossier-titre">Absences personnel</h1>
+          <p class="dossier-meta">Déclaration agents · validation direction / admin · file partagée avec la vie scolaire</p>
+          <div class="dossier-raccourcis">
+            <a href="/app/vs">File du jour</a>
+            <a href="/app/messages">Messages</a>
+          </div>
+        </div>
+      </header>
+    </div>
     <div class="bento" id="rhStats"></div>
     <div class="bento">
       <div class="panel bento-span-5">
         <h2>Déclarer</h2>
-        <p class="muted">Absence personnel — validation direction / admin.</p>
+        <p class="dossier-help">Absence personnel — validation direction / admin.</p>
         <div class="row">
           <button type="button" class="primary" id="btnRhMe">Déclarer mon absence</button>
         </div>
@@ -12701,6 +12922,7 @@ function viewRhAbsences() {
       </div>
       <div class="panel bento-span-7">
         <h2>File période</h2>
+        <p class="dossier-help">Filtrez par statut — les lignes « signalée » attendent une validation.</p>
         <div class="row">
           <label>Début <input id="rhListDeb" type="date" value="${today()}"/></label>
           <label>Fin <input id="rhListFin" type="date"/></label>
@@ -12739,13 +12961,31 @@ async function bindRhAbsences() {
       if (stats) {
         stats.innerHTML = `
           <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Sur la période</span></div>
-          <div class="stat-tile bento-span-4"><strong>${nSig}</strong><span>À valider</span></div>
+          <a class="stat-tile bento-span-4" href="#" id="rhStatSig"><strong class="${nSig ? 'warn' : ''}">${nSig}</strong><span>À valider</span></a>
           <div class="stat-tile bento-span-4"><strong>${nVal}</strong><span>Validées</span></div>`;
+        const rhStatSig = document.getElementById('rhStatSig');
+        if (rhStatSig) {
+          rhStatSig.onclick = (ev) => {
+            ev.preventDefault();
+            const sel = document.getElementById('rhFlt');
+            if (sel) sel.value = 'signalee';
+            load();
+          };
+        }
       }
       const flt = (document.getElementById('rhFlt') || {}).value || '';
       const shown = flt ? list.filter(a => a.statut === flt) : list;
       out.innerHTML = !shown.length
-        ? '<p class="empty">Aucune absence RH' + (flt ? ' pour ce filtre' : '') + '.</p>'
+        ? staffEmptyDense(
+          'Aucune absence RH' + (flt ? ' pour ce filtre' : ''),
+          [
+            flt === 'signalee'
+              ? 'Rien en attente de validation sur cette période.'
+              : 'Déclarez une absence à gauche ou élargissez la période.',
+            'La file du jour VS affiche aussi les signalements du jour.',
+          ],
+          '<a href="/app/vs">File du jour</a>',
+        )
         : `<table><thead><tr><th>Agent</th><th>Période</th><th>Motif</th><th>Statut</th><th></th></tr></thead><tbody>${
             shown.map(a => `<tr>
               <td>${esc(a.user_label || staffLabel[a.user_id] || a.user_id.slice(0, 8))}</td>
@@ -12760,7 +13000,10 @@ async function bindRhAbsences() {
       out.querySelectorAll('.btnRhVal').forEach(btn => {
         btn.onclick = async () => {
           try {
+            const row = btn.closest('tr');
+            const agentCell = row && row.querySelector('td');
             await api('/rh/absences/' + btn.dataset.id + '/valider', { method: 'POST', body: '{}' });
+            toastRhAbsenceValidee(agentCell ? agentCell.textContent : '');
             await load();
           } catch (e) { alert(e.message); }
         };
@@ -12784,6 +13027,7 @@ async function bindRhAbsences() {
         if (uid) body.user_id = uid;
       }
       const d = await api('/rh/absences', { method: 'POST', body: JSON.stringify(body) });
+      toastRhAbsenceDeclaree(d.statut, forceMe);
       msg.innerHTML = `<span class="ok">Déclarée · ${esc(d.statut)}${forceMe ? ' (moi)' : ''}</span>`;
       await load();
     } catch (e) {
@@ -13517,6 +13761,10 @@ async function bindVsJour() {
           return;
         }
         try {
+          const elSel = document.getElementById('vsIncEleve');
+          const elLab = elSel && elSel.selectedOptions && elSel.selectedOptions[0]
+            ? elSel.selectedOptions[0].textContent
+            : '';
           const d = await api('/eleves/' + id + '/incidents', {
             method: 'POST',
             body: JSON.stringify({
@@ -13525,6 +13773,7 @@ async function bindVsJour() {
               description: ((document.getElementById('vsIncDesc') || {}).value || '').trim() || null,
             }),
           });
+          toastIncidentDeclare(d, elLab, { eleveId: id });
           if (msg) msg.innerHTML = `<span class="ok">Incident ${esc(d.id.slice(0, 8))} · <a href="/app/absences">détail</a></span>`;
         } catch (e) {
           if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -14484,6 +14733,9 @@ async function bindAbsences() {
     const typeId = document.getElementById('incType').value;
     if (!id || !typeId) { msg.innerHTML = '<span class="bad">Élève et type requis</span>'; return; }
     try {
+      const elOpt = incEleve.selectedOptions && incEleve.selectedOptions[0]
+        ? incEleve.selectedOptions[0].textContent
+        : '';
       const d = await api('/eleves/' + id + '/incidents', {
         method: 'POST',
         body: JSON.stringify({
@@ -14492,6 +14744,7 @@ async function bindAbsences() {
           description: document.getElementById('incDesc').value.trim() || null,
         }),
       });
+      toastIncidentDeclare(d, elOpt, { eleveId: id });
       await loadIncidentsLies();
       await loadIncSanHisto();
       const sanInc = document.getElementById('sanInc');
@@ -16074,6 +16327,7 @@ function viewNotes() {
         <label>Matière <select id="noteMatiereSel" style="min-width:10rem"></select></label>
         <input type="hidden" id="noteMatiere"/>
         <label>Période <select id="notePeriode" style="min-width:12rem"></select></label>
+        <span id="notePeriodeStatutBadge" style="align-self:center"></span>
         <button type="button" id="btnNotePeriodeFermer" title="Verrouille la saisie des notes">Fermer période</button>
         <label>Devoir <select id="noteDevoirSel" style="min-width:12rem"><option value="">— aucun —</option></select></label>
         <input type="hidden" id="noteDevoir"/>
@@ -16234,6 +16488,7 @@ async function bindNotes() {
     try {
       const list = await api('/note-periodes');
       const p = (list || []).find(x => x.id === pid);
+      refreshNotePeriodeStatutBadge(list, pid);
       const fermee = !p || p.statut === 'fermee';
       btn.disabled = fermee;
       btn.title = fermee
@@ -16241,6 +16496,7 @@ async function bindNotes() {
         : 'Verrouille la saisie des notes';
     } catch {
       btn.disabled = true;
+      refreshNotePeriodeStatutBadge([], pid);
     }
   }
 
@@ -16268,6 +16524,8 @@ async function bindNotes() {
       else if (fermees[0]) bulSel.value = fermees[0].id;
     }
     updateBulPublierState();
+    const noteSel = document.getElementById('notePeriode');
+    refreshNotePeriodeStatutBadge(list, noteSel ? noteSel.value : preferredId);
     updateNotePeriodeFermerBtn();
   }
 
@@ -16352,7 +16610,7 @@ async function bindNotes() {
           <td><code>${esc(p.id)}</code><br/><strong>${esc(p.code)}</strong></td>
           <td>${esc(p.libelle)}</td>
           <td>${esc(p.date_debut)} → ${esc(p.date_fin)}</td>
-          <td><span class="pill">${esc(p.statut)}</span></td>
+          <td>${notePeriodeStatutBadge(p.statut)}</td>
           <td>
             ${p.statut === 'ouverte' ? `<button type="button" class="btnPartielle" data-id="${esc(p.id)}">Appréciations</button> <button type="button" class="btnFermer" data-id="${esc(p.id)}">Fermer</button>` : ''}
             ${p.statut === 'partielle_appreciations' ? `<button type="button" class="btnFermer" data-id="${esc(p.id)}">Fermer</button> <button type="button" class="btnOuvrir" data-id="${esc(p.id)}">Rouvrir</button>` : ''}
@@ -16602,6 +16860,54 @@ async function bindNotes() {
     }
   };
   let grilleCtx = null;
+  function grilleEleveLabelFromInput(inp) {
+    const tr = inp && inp.closest('tr');
+    return tr && tr.cells && tr.cells[0] ? String(tr.cells[0].textContent || '').trim() : '';
+  }
+  async function saveGrilleNoteInput(inp) {
+    if (!grilleCtx || !inp) return null;
+    const raw = String(inp.value ?? '').trim();
+    if (raw === '') return null;
+    return api('/eleves/' + inp.dataset.eid + '/notes', {
+      method: 'POST',
+      body: JSON.stringify({
+        matiere_id: grilleCtx.matiere_id,
+        valeur: Number(raw),
+        sur: Number(grilleCtx.sur) || 20,
+        date_note: grilleCtx.date_devoir || today(),
+        libelle: grilleCtx.titre || null,
+        periode_id: grilleCtx.periode_id || null,
+        devoir_id: grilleCtx.id,
+      }),
+    });
+  }
+  function bindGrilleNoteEnterNav(box) {
+    if (!box) return;
+    const inputs = [...box.querySelectorAll('.grilleNote')];
+    inputs.forEach((inp, idx) => {
+      inp.onkeydown = async (ev) => {
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        const msg = document.getElementById('grilleMsg');
+        try {
+          const n = await saveGrilleNoteInput(inp);
+          if (n) {
+            const tr = inp.closest('tr');
+            if (tr && tr.cells && tr.cells[2]) tr.cells[2].textContent = 'déjà saisie';
+            toastNoteSaisie(n, grilleEleveLabelFromInput(inp));
+            if (msg) msg.innerHTML = '<span class="ok">Note enregistrée — ligne suivante</span>';
+          }
+          const next = inputs[idx + 1];
+          if (next) {
+            next.focus({ preventScroll: true });
+            if (typeof next.select === 'function') next.select();
+          }
+        } catch (e) {
+          if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+        }
+      };
+    });
+  }
   async function openGrille(devoir) {
     grilleCtx = devoir;
     const meta = document.getElementById('grilleMeta');
@@ -16661,6 +16967,7 @@ async function bindNotes() {
           </tr>`;
         }).join('')}</tbody></table>`;
       btnSave.disabled = false;
+      bindGrilleNoteEnterNav(box);
       focusGrillePanel(true);
     } catch (e) {
       box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -20218,13 +20525,15 @@ async function bindFamilleAccompagnement() {
 
 function viewFamilleInternat() {
   return shell('/famille/internat', `
+    <div class="bento" id="famIntStats"></div>
+    <div id="famIntMulti" style="margin-bottom:.55rem"></div>
     <div class="panel">
       <h2>Internat</h2>
-      <p class="muted">Chambre, présence du jour et suivis visibles famille.</p>
+      <p class="muted">Chambre, présence du jour et suivis visibles famille (régime INT).</p>
       <div class="row">
         <label>Enfant <select id="famIntEnfant" style="min-width:14rem"></select></label>
         <label>Jour <input id="famIntJour" type="date" value="${today()}"/></label>
-        <button type="button" class="primary" id="btnFamIntLoad">Charger</button>
+        <button type="button" class="primary" id="btnFamIntLoad">Actualiser</button>
       </div>
       <div id="famIntOut" class="muted" style="margin-top:.75rem">Chargement…</div>
     </div>`);
@@ -20233,44 +20542,53 @@ function viewFamilleInternat() {
 async function bindFamilleInternat() {
   const sel = document.getElementById('famIntEnfant');
   const out = document.getElementById('famIntOut');
+  const stats = document.getElementById('famIntStats');
+  const multi = document.getElementById('famIntMulti');
+  let enfants = [];
   try {
-    await fillFamilleEnfantSelect('famIntEnfant');
+    enfants = await fillFamilleEnfantSelect('famIntEnfant');
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     return;
   }
   async function load() {
     const id = sel.value;
-    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    if (!id) {
+      out.innerHTML = famEmptyDense('Aucun enfant lié', [
+        'Ce compte parent n’est rattaché à aucun élève.',
+      ], '<a href="/famille">Accueil famille</a>');
+      if (stats) stats.innerHTML = '';
+      if (multi) multi.innerHTML = '';
+      return;
+    }
     const jour = (document.getElementById('famIntJour') || {}).value || today();
     out.textContent = 'Chargement…';
     try {
+      if (enfants.length > 1) {
+        const ov = await famInternatMultiOverviewHtml(enfants, jour);
+        if (stats) stats.innerHTML = ov.stats;
+        if (multi) {
+          multi.innerHTML = `<div class="bento">${ov.tiles}</div>`;
+          multi.querySelectorAll('[data-fam-int-pick]').forEach(a => {
+            a.onclick = (ev) => {
+              ev.preventDefault();
+              sel.value = a.dataset.famIntPick;
+              load();
+            };
+          });
+        }
+      } else {
+        if (stats) stats.innerHTML = '';
+        if (multi) multi.innerHTML = '';
+      }
       const r = await api('/eleves/' + id + '/internat?jour=' + encodeURIComponent(jour));
-      const enfantOpt = (sel.options[sel.selectedIndex] || {}).textContent || '';
-      const prenom = enfantOpt.split(/\s/)[0] || '';
+      const cur = (enfants || []).find(e => String(e.id) === String(id));
+      const prenom = (cur && cur.prenom) || ((sel.options[sel.selectedIndex] || {}).textContent || '').split(/\s/)[0] || '';
       if (!r.chambre && !(r.suivis || []).length && !r.presence_du_jour) {
         out.innerHTML = await famInternatEmptyHtml(id, prenom);
         return;
       }
-      let h = '';
-      if (r.chambre) {
-        h += `<p><strong>Chambre ${esc(r.chambre.code)}</strong> — bât. ${esc(r.chambre.batiment)} · ét. ${esc(String(r.chambre.etage))}</p>`;
-      }
-      if (r.affectation) {
-        h += `<p class="muted">Affectation depuis ${esc(r.affectation.date_debut || '—')}</p>`;
-      }
-      if (r.presence_du_jour) {
-        h += `<p>Présence ${esc(r.presence_du_jour.jour)} : <span class="pill">${esc(r.presence_du_jour.statut)}</span></p>`;
-      } else {
-        h += `<p class="muted">Aucune présence pointée le ${esc(jour)}.</p>`;
-      }
-      if ((r.suivis || []).length) {
-        h += `<h3>Suivis</h3><ul>${r.suivis.map(s =>
-          `<li>${esc(s.jour)} — ${esc(s.texte)}</li>`
-        ).join('')}</ul>`;
-      }
-      h += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}?section=internat">Fiche enfant</a></p>`;
-      out.innerHTML = h;
+      out.innerHTML = famInternatDetailDenseHtml(r, id, jour);
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -20351,16 +20669,21 @@ async function bindFamilleSorties() {
         btnSave.onclick = async () => {
           const msg = document.getElementById('pageSortieMsg');
           try {
+            const midi = document.getElementById('pageSortieMidi').checked;
+            const soir = document.getElementById('pageSortieSoir').checked;
             await api('/eleves/' + id + '/sorties', {
               method: 'PUT',
               body: JSON.stringify({
                 matin: false,
-                midi: document.getElementById('pageSortieMidi').checked,
-                soir: document.getElementById('pageSortieSoir').checked,
+                midi,
+                soir,
                 interdit_etablissement: false,
               }),
             });
+            const opt = sel.options[sel.selectedIndex];
+            const prenom = opt ? String(opt.textContent || '').trim().split(/\s/)[0] : '';
             if (msg) msg.innerHTML = '<span class="ok">Autorisation enregistrée</span>';
+            toastFamSortieAutorisation(prenom, { midi, soir });
             await load();
           } catch (err) {
             if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -20894,10 +21217,12 @@ async function bindFacturesFamille() {
     }
   }
   try {
-    const [rawList] = await Promise.all([
+    const [rawList, , mandatsList] = await Promise.all([
       api('/facturation/famille'),
       loadFacQuotient(),
+      api('/facturation/sepa/mandats').catch(() => []),
     ]);
+    const mandatActif = (mandatsList || []).find(m => m.statut === 'actif');
     const list = (rawList || []).slice().sort((a, b) =>
       facFamResteCentimes(b) - facFamResteCentimes(a)
       || String(b.emise_at || '').localeCompare(String(a.emise_at || ''))
@@ -20921,8 +21246,11 @@ async function bindFacturesFamille() {
         ${quoTile}`;
     }
     if (progress) {
-      progress.innerHTML = list.length
-        ? facFamProgressPanelHtml(encaisseTotal, total, resteTotal)
+      progress.innerHTML = (list.length && mandatActif)
+        ? facFamProgressPanelHtml(encaisseTotal, total, resteTotal, {
+            sepaActif: true,
+            sepaRum: mandatActif.rum,
+          })
         : '';
     }
     if (!list.length) {
