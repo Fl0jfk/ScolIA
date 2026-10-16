@@ -190,8 +190,39 @@ function toastRhAbsenceValidee(agentLabel) {
   showEntToast(`<strong>Absence RH validée</strong>${who}.`, 7000);
 }
 
-function toastAlerteCpeCloturee(note) {
+function toastAlerteCpeCloturee(note, meta) {
+  const m = meta || {};
   const n = esc((note || 'Traité').trim() || 'Traité');
+  const eid = m.eleveId ? String(m.eleveId).trim() : '';
+  const who = m.eleveLabel ? esc(String(m.eleveLabel).trim()) : '';
+  const titreRaw = m.titre ? String(m.titre).trim() : '';
+  const titre = titreRaw
+    ? esc(titreRaw.length > 32 ? titreRaw.slice(0, 32) + '…' : titreRaw)
+    : '';
+  const nClosed = Number(m.nClosedHisto);
+  const hasReopen = eid && (nClosed > 0 || m.allowReopen);
+  const reopen = hasReopen
+    ? `<a href="/app/alertes?eleve=${encodeURIComponent(eid)}">Rouvrir suivi</a> · `
+    : '';
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}">Fiche élève</a> · ` : '';
+  if (eid || titre) {
+    const histoSpan = nClosed > 0
+      ? `${nClosed} clôturée(s) · historique`
+      : 'Nouvelle alerte possible';
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">Clôturée</strong><span>${n} · note de clôture</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${who || titre || '—'}</strong><span>${titre && who ? titre : 'Alerte CPE'}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">${hasReopen ? '↗' : '—'}</strong><span>${histoSpan}</span></div>`;
+    showEntToast(
+      `<strong>Alerte clôturée</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}${reopen}`
+      + `<a href="/app/alertes">File ouverte</a></p>`,
+      8500,
+    );
+    return;
+  }
   showEntToast(
     `<strong>Alerte clôturée</strong> — ${n}. `
     + `<a href="/app/alertes">File ouverte</a>`,
@@ -836,6 +867,74 @@ function trombiMissingPhotosTipDenseHtml(nSans, classe, nTotal) {
   </div>`;
 }
 
+/** Trombinoscope — repère seed labo 4B (lazy ou avant chargement). */
+function trombiClasse4BTipDenseHtml(classe, opts) {
+  const cl = String(classe || '').trim().toUpperCase();
+  if (cl !== '4B') return '';
+  const o = opts || {};
+  const lazy = !!o.lazy;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <a class="stat-tile bento-span-4" href="/app/eleves?trombi=4B" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>4B</strong><span>Seed labo · Harry Potter · audit photos</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong class="muted">${lazy ? 'Lazy' : 'Grille'}</strong><span>${lazy ? 'Charger puis vignettes lazy' : 'Vignettes + compteur photos'}</span></div>
+    <a class="stat-tile bento-span-4" href="/app/notes?grille=4b-potions" style="text-decoration:none"><strong>Potions</strong><span>Grille notes · même classe</span></a>
+  </div>`;
+}
+
+function isStaffElevesAnnuaireFlux() {
+  return path() === '/app/eleves';
+}
+
+/** Annuaire /app/eleves — toast bento après recherche (champ #q). */
+function toastElevesSearchUiDense(q, list) {
+  if (!isStaffElevesAnnuaireFlux()) return;
+  if (!document.getElementById('q')) return;
+  const trimmed = String(q || '').trim();
+  if (!trimmed || trimmed === 'a') return;
+  const rows = list || [];
+  const n = rows.length;
+  const nActifs = rows.filter(e => !e.status || e.status === 'inscrit' || e.status === 'actif').length;
+  const first = rows[0];
+  const firstLabel = first
+    ? esc(`${first.prenom || ''} ${first.nom || ''}`.trim() + (first.classe ? ` · ${first.classe}` : ''))
+    : '—';
+  const firstHref = first && first.id ? `/app/eleves/${esc(String(first.id))}` : '/app/eleves';
+  const qEsc = esc(trimmed.length > 24 ? trimmed.slice(0, 24) + '…' : trimmed);
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${n}</strong><span>Résultat(s) · « ${qEsc} »</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${nActifs}</strong><span>Actifs / inscrits</span></div>
+    <a class="stat-tile bento-span-4" href="${firstHref}" style="text-decoration:none"><strong>${first ? '1ʳᵉ' : '—'}</strong><span>${firstLabel}</span></a>`;
+  showEntToast(
+    `<strong>Recherche élèves</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">GET /eleves/search?q=… · `
+    + `<a href="/app/eleves">Annuaire</a></p>`,
+    n ? 7500 : 6500,
+  );
+}
+
+function isStaffCommsFlux() {
+  return path() === '/app/comms';
+}
+
+/** /app/comms — synthèse outbox mail / SMS. */
+function commsOutboxPageTipDenseHtml(mails, sms) {
+  if (!isStaffCommsFlux()) return '';
+  const nPending = countOutboxPending(mails) + countOutboxPending(sms);
+  const nDry = countOutboxDryRun(mails) + countOutboxDryRun(sms);
+  const nMail = (mails || []).length;
+  const nSms = (sms || []).length;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:${nPending ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nPending ? 'warn' : ''}">${nPending}</strong><span>Outbox en attente · mail + SMS</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${nMail}</strong><span>Mails récents · ${nSms} SMS</span></div>
+    <div class="stat-tile bento-span-4"><strong class="warn">${nDry}</strong><span><span class="pill warn">dry-run</span> labo</span></div>
+  </div>`;
+}
+
 function toastAppreciationPubliee(a, eleveLabel) {
   const matRaw = a && (a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'));
   const mat = matRaw ? esc(String(matRaw).trim()) : 'Générale';
@@ -1060,31 +1159,44 @@ function eleveHomeConseilEncouragementHtml(conseils) {
   return eleveConseilEncouragementPanelHtml(enc, { withLinks: true });
 }
 
-/** Accueil élève — carnet à signer + messages non lus (bento). */
+/** Accueil élève — carnet / docs à signer + messages non lus (bento). */
 function eleveHomeCarnetTipDenseHtml(opts) {
   const o = opts || {};
   const carASigner = Number(o.carASigner) || 0;
+  const docsASigner = Number(o.docsASigner) || 0;
   const nonLus = Number(o.nonLus) || 0;
   const carnet = o.carnet || [];
-  if (!carASigner && !nonLus && !carnet.length) return '';
+  if (!carASigner && !docsASigner && !nonLus && !carnet.length) return '';
   const pending = carnet.filter(c => !c.signe_at);
-  const last = pending[0] || carnet[0] || null;
-  const signTile = carASigner
+  const firstPending = pending[0] || null;
+  const docsTile = docsASigner
+    ? `<a class="stat-tile bento-span-4" href="/eleve/docs" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${docsASigner}</strong><span>Document(s) à signer</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="/eleve/docs" style="text-decoration:none">
+        <strong class="ok">0</strong><span>Docs signés · charte &amp; autorisations</span>
+      </a>`;
+  const carTile = carASigner
     ? `<a class="stat-tile bento-span-4" href="/eleve/docs" style="text-decoration:none;border-color:var(--warn,#b45309)">
         <strong class="warn">${carASigner}</strong><span>Entrée(s) carnet à signer</span>
       </a>`
-    : `<div class="stat-tile bento-span-4"><strong class="ok">OK</strong><span>Carnet signé à jour</span></div>`;
-  const msgTile = nonLus
-    ? `<a class="stat-tile bento-span-4" href="/eleve/messages" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+    : `<div class="stat-tile bento-span-4"><strong class="ok">OK</strong><span>Carnet VS signé à jour</span></div>`;
+  let actionTile;
+  if (firstPending) {
+    const lastTitle = firstPending.titre ? String(firstPending.titre).trim() : '';
+    const lastShort = lastTitle.length > 26 ? esc(lastTitle.slice(0, 26)) + '…' : esc(lastTitle || '—');
+    const jour = firstPending.date_entree ? esc(String(firstPending.date_entree).slice(0, 10)) : '—';
+    actionTile = `<a class="stat-tile bento-span-4" href="/eleve/docs" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${lastShort}</strong><span>${jour} · ${esc(firstPending.categorie || 'carnet')} · Signer</span>
+      </a>`;
+  } else if (nonLus) {
+    actionTile = `<a class="stat-tile bento-span-4" href="/eleve/messages" style="text-decoration:none;border-color:var(--accent,#0071e3)">
         <strong class="warn">${nonLus}</strong><span>Message(s) non lu(s)</span>
-      </a>`
-    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Messagerie à jour</span></div>`;
-  const lastTitle = last && last.titre ? String(last.titre).trim() : '';
-  const lastShort = lastTitle.length > 28 ? esc(lastTitle.slice(0, 28)) + '…' : esc(lastTitle || '—');
-  const lastTile = last
-    ? `<div class="stat-tile bento-span-4"><strong>${lastShort}</strong><span>Dernière entrée · ${esc(last.categorie || 'carnet')}${last.signe_at ? ' · signée' : ''}</span></div>`
-    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucune entrée carnet</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${signTile}${msgTile}${lastTile}</div>`;
+      </a>`;
+  } else {
+    actionTile = `<div class="stat-tile bento-span-4"><strong class="muted">Lecture</strong><span>« Lire » avant chaque signature</span></div>`;
+  }
+  return `<div class="bento" style="margin:0 0 .55rem">${docsTile}${carTile}${actionTile}</div>`;
 }
 
 function refreshEleveHomeCarnetTip(opts) {
@@ -1492,6 +1604,79 @@ function famEnfantCarnetTipDenseHtml(opts) {
   return `<div class="bento" style="margin:0 0 .55rem">${signTile}${detailTile}${vsTile}</div>`;
 }
 
+const FAM_LAST_ENFANT_SS = 'ent_fam_last_enfant_id';
+
+function readFamLastEnfantId() {
+  try { return sessionStorage.getItem(FAM_LAST_ENFANT_SS) || ''; } catch { return ''; }
+}
+function writeFamLastEnfantId(id) {
+  try {
+    const v = id ? String(id).trim() : '';
+    if (v) sessionStorage.setItem(FAM_LAST_ENFANT_SS, v);
+    else sessionStorage.removeItem(FAM_LAST_ENFANT_SS);
+  } catch {}
+}
+
+/** Changement d’enfant (barre / multi-enfants) — toast bento. */
+function toastFamEnfantSwitchDense(e, stats, opts) {
+  const o = opts || {};
+  const s = stats || {};
+  const who = esc(`${String(e.prenom || '').trim()} ${String(e.nom || '').trim()}`.trim() || 'Enfant');
+  const cls = e.classe ? esc(String(e.classe)) : '—';
+  const eid = e.id ? esc(String(e.id)) : '';
+  const nAbs = Number(s.abs) || 0;
+  const nCar = Number(s.car) || 0;
+  const nDocs = Number(s.docs) || 0;
+  const paiPending = !!s.paiPending;
+  const nTodo = nAbs + nCar + nDocs + (paiPending ? 1 : 0);
+  const prevLbl = o.prevPrenom ? esc(String(o.prevPrenom).trim()) : '';
+  const absTile = nAbs
+    ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=absences" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nAbs}</strong><span>Abs. à justifier</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Absences</span></div>`;
+  const carTile = nCar
+    ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=carnet" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nCar}</strong><span>Carnet à signer</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4"><strong>${nCar}</strong><span>Carnet</span></div>`;
+  const docsTile = nDocs
+    ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=docs" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nDocs}</strong><span>Docs à signer</span>
+      </a>`
+    : (paiPending
+      ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=pai" style="text-decoration:none;border-color:var(--warn,#b45309)">
+          <strong class="warn">PAI</strong><span>Protocole à signer</span>
+        </a>`
+      : `<div class="stat-tile bento-span-4"><strong class="ok">OK</strong><span>Docs &amp; PAI à jour</span></div>`);
+  const sec = o.deepSection ? String(o.deepSection).trim() : '';
+  const secFoot = sec && eid
+    ? ` · <a href="/famille/enfants/${eid}?section=${esc(sec)}">Section ${esc(sec)}</a>`
+    : '';
+  const lead = prevLbl
+    ? `<strong>Enfant actif</strong> — ${who} · ${cls} <span class="muted">(après ${prevLbl})</span>`
+    : `<strong>Enfant actif</strong> — ${who} · ${cls}`;
+  showEntToast(
+    lead
+    + `<div class="bento" style="margin:.4rem 0 0">${absTile}${carTile}${docsTile}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/enfants">Mes enfants</a> · `
+    + `<a href="/famille/enfants/${eid}">Fiche complète</a>${secFoot}</p>`,
+    nTodo ? 8500 : 6500,
+  );
+}
+
+function maybeToastFamEnfantSwitch(e, stats, opts, nEnfants) {
+  if (!isParent() || !isFamilleEnfantFlux()) return;
+  const id = e && e.id ? String(e.id) : '';
+  if (!id) return;
+  const n = Number(nEnfants) || 0;
+  const prev = readFamLastEnfantId();
+  writeFamLastEnfantId(id);
+  if (n < 2 || !prev || prev === id) return;
+  toastFamEnfantSwitchDense(e, stats, opts || {});
+}
+
 /** Fiche enfant ouverte — synthèse à traiter (toast bento). */
 function toastFamEnfantOuverte(e, stats, opts) {
   const o = opts || {};
@@ -1707,6 +1892,96 @@ function famHomeReinscTipDenseHtml(reinsc) {
       <strong>Ouverte</strong><span>Réinscription · options &amp; docs</span>
     </a>
   </div>`;
+}
+
+/** Accueil famille — effectif enfants liés (bento). */
+function famHomeEnfantsTipDenseHtml(list, resumes, docsLists, paiList, absLists) {
+  const kids = list || [];
+  if (!kids.length) return '';
+  let nTodo = 0;
+  const classes = [];
+  kids.forEach((e, i) => {
+    const cl = String(e.classe || '').trim();
+    if (cl && !classes.includes(cl)) classes.push(cl);
+    const s = famEnfantListTodoStats(e, resumes[i], docsLists[i], paiList[i], absLists && absLists[i]);
+    nTodo += (Number(s.abs) || 0) + (Number(s.car) || 0) + (Number(s.docs) || 0) + (s.paiPending ? 1 : 0);
+  });
+  const clsLbl = classes.length
+    ? classes.slice(0, 3).map(c => esc(c)).join(' · ') + (classes.length > 3 ? '…' : '')
+    : '—';
+  const effTile = `<a class="stat-tile bento-span-4" href="/famille/enfants" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>${kids.length}</strong><span>Enfant(s) lié(s) · effectif foyer</span>
+    </a>`;
+  const clsTile = `<div class="stat-tile bento-span-4"><strong style="font-size:.82rem;font-weight:600">${clsLbl}</strong><span>Classe(s)</span></div>`;
+  const todoTile = nTodo
+    ? `<a class="stat-tile bento-span-4" href="/famille/enfants" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nTodo}</strong><span>Point(s) à traiter · cartes</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">OK</strong><span>Tous les dossiers à jour</span>
+      </div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${effTile}${clsTile}${todoTile}</div>`;
+}
+
+/** Fiche enfant — fils messagerie (bento, deep-link ?section=messages). */
+function famEnfantMessagesTipDenseHtml(fils, enfantId) {
+  const eid = enfantId ? String(enfantId) : '';
+  const mine = (fils || []).filter(f => eid && String(f.eleve_id) === eid);
+  const nonLus = mine.reduce((s, f) => s + (Number(f.nb_non_lus) || 0), 0);
+  const sorted = mine.slice().sort((a, b) =>
+    (Number(b.nb_non_lus) || 0) - (Number(a.nb_non_lus) || 0)
+    || String(b.dernier_message_at || b.updated_at || '').localeCompare(String(a.dernier_message_at || a.updated_at || ''))
+  );
+  const top = sorted[0];
+  const filHref = top && top.id
+    ? `/famille/messages?fil=${encodeURIComponent(String(top.id))}`
+    : '/famille/messages';
+  const unreadTile = nonLus
+    ? `<a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nonLus}</strong><span>Message(s) non lu(s)</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Rien en attente</span></div>`;
+  const subjShort = top
+    ? esc(String(top.sujet || 'Fil').trim().slice(0, 28))
+    : '—';
+  const filTile = top
+    ? `<a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none">
+        <strong>${subjShort}</strong><span>${mine.length} fil(s) · dernier échange</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+        <strong>—</strong><span>Aucun fil · contacter l’école</span>
+      </a>`;
+  const actTile = `<a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>↓</strong><span>Ouvrir la messagerie</span>
+    </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${unreadTile}${filTile}${actTile}</div>`;
+}
+
+/** Page /famille/vie-scolaire — synthèse enfant sélectionné (bento). */
+function famVsPageTipDenseHtml(opts) {
+  const o = opts || {};
+  const eid = o.enfantId ? esc(String(o.enfantId)) : '';
+  const prenom = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=vs` : '/famille/vie-scolaire';
+  const nCom = Number(o.nComOpen) || 0;
+  const nSan = Number(o.nSanctions) || 0;
+  const pts = o.pointsVs != null && o.pointsVs !== '' ? esc(String(o.pointsVs)) : '—';
+  const nSign = (Number(o.nDocsPending) || 0) + (Number(o.nCarPending) || 0);
+  const comTile = nCom
+    ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nCom}</strong><span>Commission(s) en cours</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Commissions</span></div>`;
+  const sanTile = `<div class="stat-tile bento-span-4"><strong class="${nSan ? 'warn' : ''}">${nSan}</strong><span>Sanction(s)</span></div>`;
+  const ptsTile = `<div class="stat-tile bento-span-4"><strong>${pts}</strong><span>Points VS · ${prenom}</span></div>`;
+  const signTile = nSign
+    ? `<a class="stat-tile bento-span-4" href="${eid ? `/famille/enfants/${eid}?section=docs` : '/famille/docs-signer'}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nSign}</strong><span>À signer (docs + carnet)</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none">
+        <strong class="ok">OK</strong><span>Dossier VS à jour</span>
+      </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${comTile}${sanTile}${ptsTile}${signTile}</div>`;
 }
 
 /** Liste /famille/enfants — synthèse à traiter (bento). */
@@ -2117,6 +2392,29 @@ function grilleMoyenneLiveTipHtml(vals) {
   }
   const m = vals.reduce((a, b) => a + b, 0) / vals.length;
   return `<span class="ok"><strong>Moyenne live</strong> ${m.toFixed(1)} / 20</span> · ${vals.length} note(s) dans la grille`;
+}
+
+/** /app/notes — aucune période configurée (bento). */
+function notesPeriodesEmptyTipDenseHtml() {
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">0</strong><span>Aucune période de notes</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesPeriodesEmptyNewBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>T1</strong><span>Créer trimestre 1 · rôle admin</span>
+    </button>
+    <div class="stat-tile bento-span-4"><strong>→</strong><span>Matières · devoirs · grille · bulletins</span></div>
+  </div>`;
+}
+
+function bindNotesPeriodesEmptyTipGo() {
+  const btn = document.getElementById('notesPeriodesEmptyNewBtn');
+  if (btn) {
+    btn.onclick = () => {
+      document.getElementById('btnNewPeriode')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('btnNewPeriode')?.click();
+    };
+  }
 }
 
 /** /app/notes — grille sans devoir ouvert (bento). */
@@ -2704,6 +3002,8 @@ function seedRouteFromQuery() {
     const pathNow = location.pathname.replace(/\/$/, '') || '/';
     if (pathNow === '/famille/sorties') {
       routeState.famSortieEleveId = eleveQ;
+    } else if (pathNow === '/app/alertes') {
+      routeState.alEleveId = eleveQ;
     } else {
       routeState.absEleveId = eleveQ;
     }
@@ -4877,12 +5177,16 @@ function toastJustifAccepte(meta) {
 function toastFilReponseEnvoyee(meta) {
   const o = typeof meta === 'string' ? { sujet: meta } : (meta || {});
   const sujet = esc(String(o.sujet || 'Fil').trim());
-  const pj = o.withPiece ? ' · pièce jointe' : '';
+  const pjLabel = o.withPiece ? 'Pièce jointe' : '—';
+  const pjDetail = o.withPiece ? 'Fichier attaché au message' : 'Réponse texte seule';
   const msgHref = o.messagesHref || (path().startsWith('/eleve') ? '/eleve/messages' : '/famille/messages');
   const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
       <strong class="ok">Envoyé</strong><span>Réponse ajoutée au fil</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong>${sujet}</strong><span>Sujet du fil${pj}</span></div>
+    <div class="stat-tile bento-span-4"><strong>${sujet}</strong><span>Sujet du fil</span></div>
+    <div class="stat-tile bento-span-4" style="border-color:${o.withPiece ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${o.withPiece ? 'ok' : 'muted'}">${esc(pjLabel)}</strong><span>${esc(pjDetail)}</span>
+    </div>
     <a class="stat-tile bento-span-4" href="#filPanel" style="text-decoration:none;border-color:var(--accent,#0071e3)">
       <strong>↓</strong><span>Poursuivre la conversation</span>
     </a>`;
@@ -5075,6 +5379,7 @@ function famEnfantDenseCardHtml(e, stats) {
       <a href="/famille/enfants/${eid}?section=absences">Absences</a>
       <a href="/famille/enfants/${eid}?section=carnet">Carnet</a>
       <a href="/famille/enfants/${eid}?section=notes">Notes</a>
+      <a href="/famille/enfants/${eid}?section=messages">Messages</a>
       <a href="/famille/enfants/${eid}?section=docs">Docs</a>
       <a href="/famille/enfants/${eid}?section=pai">PAI</a>
       <a href="/famille/enfants/${eid}?section=sorties">Sorties</a>
@@ -5108,6 +5413,7 @@ function normalizeFamEnfantSection(sec) {
   if (s === 'psy' || s === 'pap' || s === 'accompagnement') return 'accompagnement';
   if (s === 'note' || s === 'notes' || s === 'bulletin' || s === 'bulletins' || s === 'moyenne' || s === 'moyennes') return 'notes';
   if (s === 'journal' || s === 'modifications' || s === 'journal-modif') return 'journal';
+  if (s === 'messages' || s === 'message' || s === 'messagerie' || s === 'fil' || s === 'fils') return 'messages';
   return String(sec || '').trim();
 }
 function famApplyEnfantSectionDeepLink(forcedSec) {
@@ -6669,7 +6975,7 @@ async function bindEleveHome() {
           + (nonLus ? `<p class="muted eleve-hub-msg-foot"><span class="pill-unread">${nonLus}</span> non lu(s)</p>` : '');
       }
     }
-    refreshEleveHomeCarnetTip({ carnet, carASigner, nonLus });
+    refreshEleveHomeCarnetTip({ carnet, carASigner, docsASigner, nonLus });
     if (carBox) {
       const recent = (carnet || []).slice(0, 5);
       carBox.innerHTML = `
@@ -9023,6 +9329,7 @@ function viewFamilleHome() {
     <div id="famHomePaiTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeQuittancesTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeReinscTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeEnfantsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -9175,6 +9482,8 @@ async function bindFamilleHome() {
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
       const reinscTip0 = document.getElementById('famHomeReinscTip');
       if (reinscTip0) { reinscTip0.style.display = 'none'; reinscTip0.innerHTML = ''; }
+      const enfantsTip0 = document.getElementById('famHomeEnfantsTip');
+      if (enfantsTip0) { enfantsTip0.style.display = 'none'; enfantsTip0.innerHTML = ''; }
       return;
     }
     const jourRepas = today();
@@ -9459,6 +9768,17 @@ async function bindFamilleHome() {
         reinscTip.innerHTML = '';
       }
     }
+    const enfantsTip = document.getElementById('famHomeEnfantsTip');
+    if (enfantsTip) {
+      const denseEff = famHomeEnfantsTipDenseHtml(list, resumes, docsLists, paiList, absLists);
+      if (denseEff) {
+        enfantsTip.style.display = '';
+        enfantsTip.innerHTML = denseEff;
+      } else {
+        enfantsTip.style.display = 'none';
+        enfantsTip.innerHTML = '';
+      }
+    }
     if (pulse) {
       pulse.innerHTML = `
         ${resteTile}
@@ -9623,6 +9943,12 @@ async function bindFamilleEnfant(id) {
     let html = `<h2 style="margin-bottom:.15rem">${esc(e.prenom || '')} ${esc(e.nom || '')}</h2>`;
     html += famEnfantIdentBandeauHtml(e, dossier);
     html += famLienDroitsHintHtml(e);
+
+    html += `<div id="fam-sec-messages" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantMessagesTip" style="display:none;margin:0 0 .55rem"></div>
+      <h3>Messagerie</h3>
+      <div id="famEnfantMsgOut" class="muted">Chargement…</div>
+    </div>`;
 
     // Absences à justifier
     html += `<h3 id="fam-sec-absences">Absences à justifier</h3>`;
@@ -9862,6 +10188,67 @@ async function bindFamilleEnfant(id) {
       } else {
         carTipEl.style.display = 'none';
         carTipEl.innerHTML = '';
+      }
+    }
+
+    const msgTipEl = document.getElementById('famEnfantMessagesTip');
+    const msgOutEl = document.getElementById('famEnfantMsgOut');
+    if (msgTipEl || msgOutEl) {
+      try {
+        const allFils = await api('/messages/fils').catch(() => []);
+        const denseMsg = famEnfantMessagesTipDenseHtml(allFils, id);
+        const mine = (allFils || []).filter(f => String(f.eleve_id) === String(id));
+        if (msgTipEl) {
+          if (denseMsg || enfantDeepSection === 'messages') {
+            msgTipEl.style.display = '';
+            msgTipEl.innerHTML = denseMsg || famEnfantMessagesTipDenseHtml([], id);
+          } else {
+            msgTipEl.style.display = 'none';
+            msgTipEl.innerHTML = '';
+          }
+        }
+        if (msgOutEl) {
+          if (!mine.length) {
+            msgOutEl.innerHTML = `<p class="empty">Aucun fil pour ${esc(e.prenom || 'cet enfant')}.</p>
+              <p class="row" style="gap:.75rem;margin:.45rem 0 0;flex-wrap:wrap">
+                <a href="/famille/messages">Ouvrir la messagerie</a>
+                <button type="button" class="primary" id="btnFamEnfantNewFil">Contacter l’école</button>
+              </p>
+              <div id="famEnfantNewFilMsg" class="muted"></div>`;
+            const btnNew = document.getElementById('btnFamEnfantNewFil');
+            if (btnNew) {
+              btnNew.onclick = async () => {
+                const m = document.getElementById('famEnfantNewFilMsg');
+                try {
+                  const f = await api('/messages/fils', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      eleve_id: id,
+                      sujet: 'Message famille',
+                      message: 'Bonjour, je souhaite échanger au sujet de mon enfant.',
+                    }),
+                  });
+                  if (m) {
+                    m.innerHTML = `<span class="ok">Fil ouvert — <a href="/famille/messages?fil=${esc(f.id)}">messagerie</a></span>`;
+                  }
+                } catch (err) {
+                  if (m) m.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+                }
+              };
+            }
+          } else {
+            msgOutEl.innerHTML = `<ul style="margin:0;padding-left:1.1rem">${mine.map(f => {
+              const n = Number(f.nb_non_lus) || 0;
+              const href = '/famille/messages?fil=' + encodeURIComponent(String(f.id));
+              return `<li style="margin:.35rem 0"><a href="${esc(href)}">${esc(f.sujet || 'Fil')}</a>`
+                + (n ? ` <span class="pill-unread">${n}</span>` : '')
+                + `</li>`;
+            }).join('')}</ul>
+              <p class="muted" style="margin:.45rem 0 0"><a href="/famille/messages">Tous les fils</a></p>`;
+          }
+        }
+      } catch (err) {
+        if (msgOutEl) msgOutEl.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
       }
     }
 
@@ -11036,12 +11423,19 @@ async function bindFamilleEnfant(id) {
 
     const absJustif = famAbsencesJustifMergedList(resume.absences_a_justifier || [], absAll);
     const nDocsPending = (docsSign || []).filter(isFamDocPending).length;
-    maybeToastFamEnfantOuverte(e, {
+    const prevEnfantId = readFamLastEnfantId();
+    const prevEnfant = enfants.find(x => String(x.id) === String(prevEnfantId));
+    const enfantTodoStats = {
       abs: absJustif.length,
       car: (resume.carnet_a_signer || []).length,
       docs: nDocsPending,
       paiPending: !!(paiActif && !paiActif.signe_famille),
-    }, { deepSection: enfantDeepSection });
+    };
+    maybeToastFamEnfantSwitch(e, enfantTodoStats, {
+      prevPrenom: prevEnfant && prevEnfant.prenom,
+      deepSection: enfantDeepSection,
+    }, enfants.length);
+    maybeToastFamEnfantOuverte(e, enfantTodoStats, { deepSection: enfantDeepSection });
 
     famApplyEnfantSectionDeepLink(enfantDeepSection);
     if (enfantDeepSection) {
@@ -11083,6 +11477,9 @@ async function bindFamilleEnfant(id) {
       if (enfantDeepSection === 'internat') {
         setTimeout(() => famApplyEnfantSectionDeepLink('internat'), 900);
       }
+      if (enfantDeepSection === 'messages') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('messages'), 900);
+      }
     }
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -11113,6 +11510,7 @@ function viewEleves() {
         <label>Classe <input id="trombiClasse" value="4B" style="width:4rem"/></label>
         <button type="button" id="btnTrombi">Charger</button>
       </div>
+      <div id="trombiPageTip"></div>
       <div id="trombiOut" class="muted" style="margin-top:.75rem"></div>
     </div>
     <div class="panel">
@@ -11196,13 +11594,15 @@ async function bindEleves() {
     }
   }
 
-  async function load(q) {
+  async function load(q, opts) {
     out.textContent = 'Chargement…';
     provOut.textContent = '';
     try {
       const list = await api('/eleves/search?q=' + encodeURIComponent(q || 'a'));
       await refreshElevesStats(list);
       renderList(list, false);
+      const o = opts || {};
+      if (o.toastSearch) toastElevesSearchUiDense(q, list);
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -11220,13 +11620,18 @@ async function bindEleves() {
     }
   }
 
-  document.getElementById('btnSearch').onclick = () => load(document.getElementById('q').value.trim());
+  document.getElementById('btnSearch').onclick = () => {
+    load(document.getElementById('q').value.trim(), { toastSearch: true });
+  };
   let elevesQTimer = null;
   const elevesQ = document.getElementById('q');
   if (elevesQ) {
     elevesQ.oninput = () => {
       clearTimeout(elevesQTimer);
-      elevesQTimer = setTimeout(() => load(elevesQ.value.trim()), 300);
+      elevesQTimer = setTimeout(() => {
+        const v = elevesQ.value.trim();
+        load(v, { toastSearch: v.length >= 2 });
+      }, 300);
     };
   }
   document.getElementById('btnAll').onclick = () => load('a');
@@ -11284,8 +11689,14 @@ async function bindEleves() {
   };
   document.getElementById('q').onkeydown = (ev) => { if (ev.key === 'Enter') load(ev.target.value.trim()); };
   const trombiOut = document.getElementById('trombiOut');
+  const trombiPageTip = document.getElementById('trombiPageTip');
+  function refreshTrombiPageTip(classe, lazy) {
+    if (!trombiPageTip) return;
+    trombiPageTip.innerHTML = trombiClasse4BTipDenseHtml(classe, { lazy: !!lazy });
+  }
   async function loadTrombi() {
     const classe = document.getElementById('trombiClasse').value.trim() || '4B';
+    refreshTrombiPageTip(classe, false);
     trombiOut.textContent = 'Chargement…';
     try {
       const list = await api('/classes/' + encodeURIComponent(classe) + '/trombi');
@@ -11342,7 +11753,11 @@ async function bindEleves() {
     }
   }
   document.getElementById('btnTrombi').onclick = loadTrombi;
-  document.getElementById('trombiClasse').onchange = loadTrombi;
+  document.getElementById('trombiClasse').onchange = () => {
+    const cl = document.getElementById('trombiClasse').value.trim() || '4B';
+    refreshTrombiPageTip(cl, !trombiAutoLoad && trombiOut && !trombiOut.querySelector('#trombiGrid'));
+    loadTrombi();
+  };
   document.getElementById('trombiClasse').onkeydown = (ev) => {
     if (ev.key === 'Enter') loadTrombi();
   };
@@ -11373,6 +11788,8 @@ async function bindEleves() {
   if (trombiAutoLoad) {
     await loadTrombi();
   } else if (trombiOut) {
+    const clLazy = (document.getElementById('trombiClasse') || {}).value || '4B';
+    refreshTrombiPageTip(clLazy, true);
     trombiOut.innerHTML = trombiLazyHintHtml();
     bindTrombiEmptyLoadBtn();
   }
@@ -15734,6 +16151,7 @@ async function bindInscriptions() {
 /* ---------- Cantine / badge ---------- */
 function viewComms() {
   return shell('/app/comms', `
+    <div id="commsPageTip"></div>
     <div class="bento" id="commsStats"></div>
     <div class="panel">
       <h2>Notifications sortantes</h2>
@@ -15751,6 +16169,11 @@ function viewComms() {
 async function bindComms() {
   const out = document.getElementById('commsOut');
   const stats = document.getElementById('commsStats');
+  const pageTip = document.getElementById('commsPageTip');
+  function refreshCommsPageTip(mails, sms) {
+    if (!pageTip) return;
+    pageTip.innerHTML = commsOutboxPageTipDenseHtml(mails, sms);
+  }
   function commsEmptyHint(kind) {
     if (kind === 'sms') {
       return emptyState(
@@ -15788,12 +16211,14 @@ async function bindComms() {
         } catch { /* idem */ }
         if (!mailOk && !smsOk) {
           if (stats) stats.innerHTML = '';
+          if (pageTip) pageTip.innerHTML = '';
           out.innerHTML = emptyState(
             'Outbox indisponible',
             'Les API GET /mails et /sms ne répondent pas pour ce compte — réservé direction / admin / CPE selon droits.',
           );
           return;
         }
+        refreshCommsPageTip(mails, sms);
         const nPending = countOutboxPending(mails) + countOutboxPending(sms);
         const nDry = countOutboxDryRun(mails) + countOutboxDryRun(sms);
         if (stats) {
@@ -15837,6 +16262,9 @@ async function bindComms() {
       }
       if (kind === 'sms') {
         const list = await api('/sms?limit=' + encodeURIComponent(String(limit)));
+        let mailsForTip = [];
+        try { mailsForTip = await api('/mails?limit=' + encodeURIComponent(String(limit))); } catch { /* ignore */ }
+        refreshCommsPageTip(mailsForTip, list);
         if (stats) {
           const nOk = (list || []).filter(s => s.status === 'sent' || s.status === 'ok').length;
           const nPending = countOutboxPending(list);
@@ -15859,6 +16287,9 @@ async function bindComms() {
              </tr>`).join('')}</tbody></table>`;
       } else {
         const list = await api('/mails?limit=' + encodeURIComponent(String(limit)));
+        let smsForTip = [];
+        try { smsForTip = await api('/sms?limit=' + encodeURIComponent(String(limit))); } catch { /* ignore */ }
+        refreshCommsPageTip(list, smsForTip);
         if (stats) {
           const nOk = (list || []).filter(m => m.status === 'sent' || m.status === 'ok').length;
           const nPending = countOutboxPending(list);
@@ -18499,12 +18930,29 @@ async function bindVsJour() {
         btn.onclick = async () => {
           const inp = alBox.querySelector('.vsAlCloreNote[data-id="' + btn.dataset.id + '"]');
           const note = ((inp && inp.value) || noteVs('Traité (file du jour)')).trim() || 'Traité';
+          const closedRow = al.find(a => String(a.id) === String(btn.dataset.id));
+          const eid = closedRow && closedRow.eleve_id ? String(closedRow.eleve_id) : '';
           try {
             await api('/vs/alertes-cpe/' + btn.dataset.id + '/clore', {
               method: 'POST',
               body: JSON.stringify({ note }),
             });
-            toastAlerteCpeCloturee(note);
+            let toastMeta = {
+              eleveId: eid,
+              titre: closedRow && closedRow.titre,
+              allowReopen: !!eid,
+            };
+            if (eid) {
+              await hydrateEleveNames([eid]);
+              toastMeta.eleveLabel = ELEVE_NAME_CACHE[eid] || '';
+              try {
+                const histo = await api('/eleves/' + encodeURIComponent(eid) + '/alertes-cpe');
+                toastMeta.nClosedHisto = (histo || []).filter(a =>
+                  String(a.statut || '').toLowerCase() === 'close'
+                ).length;
+              } catch { /* ignore */ }
+            }
+            toastAlerteCpeCloturee(note, toastMeta);
             await load();
           } catch (e) { alert(e.message); }
         };
@@ -20802,12 +21250,29 @@ async function bindAlertesCpe() {
         btn.onclick = async () => {
           const inp = out.querySelector('.alCloreNote[data-id="' + btn.dataset.id + '"]');
           const note = ((inp && inp.value) || 'Traité').trim() || 'Traité';
+          const closedRow = shown.find(a => String(a.id) === String(btn.dataset.id));
+          const eid = closedRow && closedRow.eleve_id ? String(closedRow.eleve_id) : '';
           try {
             await api('/vs/alertes-cpe/' + btn.dataset.id + '/clore', {
               method: 'POST',
               body: JSON.stringify({ note }),
             });
-            toastAlerteCpeCloturee(note);
+            let toastMeta = {
+              eleveId: eid,
+              titre: closedRow && closedRow.titre,
+              allowReopen: !!eid,
+            };
+            if (eid) {
+              await hydrateEleveNames([eid]);
+              toastMeta.eleveLabel = ELEVE_NAME_CACHE[eid] || '';
+              try {
+                const histo = await api('/eleves/' + encodeURIComponent(eid) + '/alertes-cpe');
+                toastMeta.nClosedHisto = (histo || []).filter(a =>
+                  String(a.statut || '').toLowerCase() === 'close'
+                ).length;
+              } catch { /* ignore */ }
+            }
+            toastAlerteCpeCloturee(note, toastMeta);
             await load();
             await loadHistoEleve();
             await refreshHomePulseIfNeeded();
@@ -20893,6 +21358,24 @@ async function bindAlertesCpe() {
     }
   }
   document.getElementById('alEleve').onchange = loadHistoEleve;
+  if (routeState.alEleveId) {
+    const pickId = String(routeState.alEleveId);
+    delete routeState.alEleveId;
+    const sel = document.getElementById('alEleve');
+    if (sel && pickId) {
+      if (![...sel.options].some(o => o.value === pickId)) {
+        await hydrateEleveNames([pickId]);
+        const o = document.createElement('option');
+        o.value = pickId;
+        o.textContent = ELEVE_NAME_CACHE[pickId] || pickId.slice(0, 8);
+        sel.appendChild(o);
+      }
+      sel.value = pickId;
+      await loadHistoEleve();
+      const titreEl = document.getElementById('alTitre');
+      if (titreEl) titreEl.focus();
+    }
+  }
   await load();
   await loadHistoEleve();
 }
@@ -21675,7 +22158,8 @@ async function bindNotes() {
       const list = await api('/note-periodes');
       await refreshNotesStats();
       if (!list.length) {
-        out.innerHTML = `<p class="empty">Aucune période — crée T1 (rôle admin / administratif).</p>`;
+        out.innerHTML = notesPeriodesEmptyTipDenseHtml();
+        bindNotesPeriodesEmptyTipGo();
         syncPeriodeSelects([]);
         return;
       }
@@ -25459,6 +25943,8 @@ function viewFamilleVieScolaire() {
   return shell('/famille/vie-scolaire', `
     <div class="bento" id="famVsStats"></div>
     <div id="famVsPaiBanner"></div>
+    <div id="famVsBar" style="margin-bottom:.65rem"></div>
+    <div id="famVsPageTip" style="display:none;margin-bottom:.65rem"></div>
     <div class="panel">
       <h2>Vie scolaire</h2>
       <p class="muted">Sanctions, incidents, commissions, alertes et décisions de conseil — par enfant.</p>
@@ -25474,7 +25960,16 @@ async function bindFamilleVieScolaire() {
   const sel = document.getElementById('famVsEnfant');
   const out = document.getElementById('famVsOut');
   const stats = document.getElementById('famVsStats');
+  const pageTip = document.getElementById('famVsPageTip');
+  const bar = document.getElementById('famVsBar');
+  let vsLoadCount = 0;
+  let enfantsVs = [];
   try {
+    enfantsVs = await fetchFamEnfants(true);
+    if (bar) {
+      bar.innerHTML = famEnfantsBarHtml(enfantsVs, '/famille/vie-scolaire');
+      bar.style.display = bar.innerHTML ? '' : 'none';
+    }
     await fillFamilleEnfantSelect('famVsEnfant');
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -25482,8 +25977,14 @@ async function bindFamilleVieScolaire() {
   }
   async function load() {
     const id = sel.value;
-    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    if (!id) {
+      if (pageTip) { pageTip.style.display = 'none'; pageTip.innerHTML = ''; }
+      out.innerHTML = '<p class="empty">Aucun enfant.</p>';
+      return;
+    }
     out.textContent = 'Chargement…';
+    const opt = sel.options[sel.selectedIndex];
+    const prenomVs = opt ? opt.textContent.trim().split(/\s/)[0] : '';
     try {
       const [sanctions, incidents, commissions, alertes, conseils, points, docs, carnet] = await Promise.all([
         api('/eleves/' + id + '/sanctions').catch(() => []),
@@ -25515,6 +26016,33 @@ async function bindFamilleVieScolaire() {
           <div class="stat-tile bento-span-2"><strong>${comVis.length}</strong><span>Commissions</span></div>
           <div class="stat-tile bento-span-2"><strong>${esc(String(pts))}</strong><span>Points VS</span></div>`;
       }
+      if (pageTip) {
+        pageTip.style.display = '';
+        pageTip.innerHTML = famVsPageTipDenseHtml({
+          enfantId: id,
+          prenom: prenomVs,
+          nComOpen: comOpen.length,
+          nSanctions: (sanctions || []).length,
+          pointsVs: pts,
+          nDocsPending: docsPending.length,
+          nCarPending: carPending.length,
+        });
+      }
+      if (vsLoadCount > 0 && enfantsVs.length >= 2) {
+        const prevId = readFamLastEnfantId();
+        writeFamLastEnfantId(id);
+        if (prevId && prevId !== id) {
+          const prevE = enfantsVs.find(x => String(x.id) === String(prevId));
+          const eCur = enfantsVs.find(x => String(x.id) === String(id)) || { id, prenom: prenomVs };
+          toastFamEnfantSwitchDense(eCur, {
+            abs: 0,
+            car: carPending.length,
+            docs: docsPending.length,
+            paiPending: false,
+          }, { prevPrenom: prevE && prevE.prenom, deepSection: 'vs' });
+        }
+      }
+      vsLoadCount += 1;
       const sec = (title, body) => `<section style="margin-top:1rem"><h3>${esc(title)}</h3>${body}</section>`;
       let html = '';
       if (comOpen.length) {
