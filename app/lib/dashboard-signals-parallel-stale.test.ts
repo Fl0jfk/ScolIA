@@ -125,6 +125,74 @@ test("runDashboardSignalSourceFlight — 3 appels concurrents = 1 loader", async
   assert.equal(calls, 1);
 });
 
+test("runParallelSignalSources — rejet source isolé, autres ok (pas de throw)", async () => {
+  const { outcomes, sourceStatus } = await runParallelSignalSources(
+    {
+      ...NULL_LOADERS,
+      internat: async () => {
+        await new Promise((r) => setTimeout(r, 100));
+        throw new Error("internat-down");
+      },
+    },
+    { timeoutMs: 2_000, softTimeoutMs: 1_300 },
+  );
+  assert.equal(sourceStatus.internat, "error");
+  assert.equal(outcomes.internat.ok, false);
+  assert.equal(sourceStatus.rh, "ok");
+  assert.equal(outcomes.rh.ok && outcomes.rh.value, 0);
+});
+
+test("runParallelSignalSources — rejet avec stale disponible → status stale", async () => {
+  let store: number | null = 77;
+  const stale = {
+    readStale: async () => store,
+    writeFresh: async (v: unknown) => {
+      store = v as number;
+    },
+  };
+  const { sourceStatus, outcomes } = await runParallelSignalSources(
+    {
+      ...NULL_LOADERS,
+      internat: async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        throw new Error("fail");
+      },
+    },
+    { timeoutMs: 2_000, softTimeoutMs: 1_300, stale: { internat: stale } },
+  );
+  assert.equal(sourceStatus.internat, "stale");
+  assert.equal(outcomes.internat.ok && outcomes.internat.value, 77);
+});
+
+test("runParallelSignalSources — rejet après retour stale sans rejet non géré", async () => {
+  let store: number | null = 99;
+  const stale = {
+    readStale: async () => store,
+    writeFresh: async () => {},
+  };
+  const rejections: unknown[] = [];
+  const onRejection = (reason: unknown) => {
+    rejections.push(reason);
+  };
+  process.on("unhandledRejection", onRejection);
+
+  const result = await runParallelSignalSources(
+    {
+      ...NULL_LOADERS,
+      internat: async () => {
+        await new Promise((r) => setTimeout(r, 120));
+        throw new Error("late-fail");
+      },
+    },
+    { timeoutMs: 500, softTimeoutMs: 40, stale: { internat: stale } },
+  );
+
+  assert.equal(result.sourceStatus.internat, "stale");
+  await new Promise((r) => setTimeout(r, 150));
+  process.off("unhandledRejection", onRejection);
+  assert.equal(rejections.length, 0);
+});
+
 test("runParallelSignalSources — writeFresh ignoré si invalidation pendant le load", async () => {
   const etab = "etab-invalidate-race";
   resetDashboardSignalsBundleGenerationForTests();

@@ -104,7 +104,25 @@ function startSourceLoad<T>(
     }
     return value;
   })();
+  void loadPromise.catch(() => {});
   return loadPromise;
+}
+
+async function resolveLoadOutcome<T>(
+  loadPromise: Promise<T>,
+  stale: SourceStaleAdapter<T> | undefined,
+  ms: number,
+): Promise<SignalSourceOutcome<T>> {
+  try {
+    const value = await loadPromise;
+    return { ok: true, value, ms, status: "ok" };
+  } catch (error) {
+    const staleVal = stale ? await stale.readStale() : null;
+    if (staleVal !== null && staleVal !== undefined) {
+      return { ok: true, value: staleVal, ms, status: "stale" };
+    }
+    return { ok: false, error, ms, status: "error" };
+  }
 }
 
 async function runOneSource<T>(
@@ -134,7 +152,10 @@ async function runOneSource<T>(
     const remaining = Math.max(0, deadline - Date.now());
     if (remaining <= 0) return "deadline";
     const result = await Promise.race([
-      loadPromise.then(() => "done" as const),
+      loadPromise.then(
+        () => "done" as const,
+        () => "done" as const,
+      ),
       sleep(remaining).then(() => "deadline" as const),
     ]);
     return result;
@@ -142,12 +163,7 @@ async function runOneSource<T>(
 
   const first = await raceUntil(softDeadline);
   if (first === "done") {
-    try {
-      const value = await loadPromise;
-      return { ok: true, value, ms: Date.now() - t0, status: "ok" };
-    } catch (error) {
-      return { ok: false, error, ms: Date.now() - t0, status: "error" };
-    }
+    return resolveLoadOutcome(loadPromise, stale, Date.now() - t0);
   }
 
   const staleAtSoft = stale ? await stale.readStale() : null;
@@ -157,12 +173,7 @@ async function runOneSource<T>(
 
   const second = await raceUntil(hardDeadline);
   if (second === "done") {
-    try {
-      const value = await loadPromise;
-      return { ok: true, value, ms: Date.now() - t0, status: "ok" };
-    } catch (error) {
-      return { ok: false, error, ms: Date.now() - t0, status: "error" };
-    }
+    return resolveLoadOutcome(loadPromise, stale, Date.now() - t0);
   }
 
   const staleAtHard = stale ? await stale.readStale() : null;
