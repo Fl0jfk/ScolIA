@@ -375,19 +375,42 @@ function eleveConseilEncouragementTile(conseils) {
   return `<a class="stat-tile bento-span-2" href="/eleve/notes"><strong class="ok">★</strong><span>Encouragements</span></a>`;
 }
 
-function eleveHomeConseilEncouragementHtml(conseils) {
-  const enc = eleveConseilEncouragementsVisibles(conseils)[0];
+function eleveConseilEncouragementPanelHtml(enc, opts) {
   if (!enc) return '';
+  const links = opts && opts.withLinks !== false;
   const app = String(enc.appreciation || enc.decision_texte || '').trim();
   const appHtml = app ? `<p class="muted" style="margin:.35rem 0 0">${esc(app)}</p>` : '';
+  const linkRow = links
+    ? `<p class="row" style="gap:.65rem;margin:.45rem 0 0;font-size:.85rem;flex-wrap:wrap">
+      <a href="/eleve/notes">Notes &amp; décisions</a>
+      <a href="/eleve/vie-scolaire">Vie scolaire</a>
+    </p>`
+    : '';
   return `<div class="panel" style="margin-bottom:.75rem;padding:.65rem .85rem;border-left:3px solid var(--ok,#16a34a)">
     <p style="margin:0"><span class="pill ok">encouragements</span> <strong>Conseil de classe</strong>${enc.classe ? ` · ${esc(enc.classe)}` : ''}</p>
     ${appHtml}
-    <p class="row" style="gap:.65rem;margin:.45rem 0 0;font-size:.85rem;flex-wrap:wrap">
-      <a href="/eleve/notes">Notes &amp; décisions</a>
-      <a href="/eleve/vie-scolaire">Vie scolaire</a>
-    </p>
+    ${linkRow}
   </div>`;
+}
+
+function eleveHomeConseilEncouragementHtml(conseils) {
+  const enc = eleveConseilEncouragementsVisibles(conseils)[0];
+  return eleveConseilEncouragementPanelHtml(enc, { withLinks: true });
+}
+
+function eleveNotesEncouragementsHtml(conseils) {
+  const list = eleveConseilEncouragementsVisibles(conseils);
+  if (!list.length) return '';
+  return list.map(enc => eleveConseilEncouragementPanelHtml(enc, { withLinks: false })).join('');
+}
+
+function toastMatiereCreee(m) {
+  const code = esc(String((m && m.code) || '').trim() || '—');
+  const lib = esc(String((m && m.libelle) || '').trim());
+  showEntToast(
+    `<strong>Matière créée</strong> — ${code}${lib ? ` · ${lib}` : ''}. Disponible pour devoirs et saisie.`,
+    8000,
+  );
 }
 
 function toastDevoirCree(d) {
@@ -414,6 +437,14 @@ function toastNotePeriodeFermee(p) {
       if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
   }
+}
+
+function toastNotePeriodePartielle(p) {
+  const label = esc(notePeriodeFermeeLabel(p));
+  showEntToast(
+    `<strong>Période « ${label} »</strong> ${notePeriodeStatutBadge('partielle_appreciations')} — notes verrouillées, saisie des appréciations ouverte.`,
+    9000,
+  );
 }
 
 function entMessageLooksEdtConflit(msg) {
@@ -1271,6 +1302,34 @@ function toastFamSortieAutorisation(prenom, creneaux) {
     8000,
   );
 }
+function toastFilOuvert(sujet, opts) {
+  const o = opts || {};
+  const s = esc(String(sujet || 'Fil').trim());
+  const arch = o.archive ? ' · archivé' : '';
+  showEntToast(`<strong>Fil ouvert</strong> — ${s}${arch}. Lecture enregistrée.`, 6500);
+}
+function toastSortieValidee(meta) {
+  const o = meta || {};
+  const who = o.eleveLabel ? ` — ${esc(String(o.eleveLabel).trim())}` : '';
+  const jour = o.jour ? ` · ${esc(String(o.jour))}` : '';
+  const creneau = o.creneau ? ` · ${esc(String(o.creneau))}` : '';
+  showEntToast(`<strong>Sortie validée</strong>${who}${jour}${creneau}. Demande acceptée.`, 8000);
+}
+function toastInternatChambreCreee(c) {
+  if (!c) return;
+  const code = esc(String(c.code || '').trim() || '—');
+  const bat = esc(String(c.batiment || 'A').trim());
+  showEntToast(`<strong>Chambre créée</strong> — ${code} · bât. ${bat}. Liste actualisée.`, 8000);
+}
+function staffMotifJustifCellHtml(motif, maxLen) {
+  const raw = String(motif || '').trim();
+  if (!raw) return esc('—');
+  const lim = maxLen || 48;
+  const truncated = raw.length > lim;
+  const display = truncated ? raw.slice(0, lim - 1) + '…' : raw;
+  const titleAttr = truncated ? ` title="${esc(raw)}"` : '';
+  return `<span class="muted"${titleAttr}>${esc(display)}</span>`;
+}
 function toastFamDocGrantRequested(titre, status, opts) {
   const o = opts || {};
   const t = esc(String(titre || 'Document').trim());
@@ -1331,6 +1390,7 @@ function famEnfantDenseCardHtml(e, stats) {
     <p class="row" style="margin:.4rem 0 0;gap:.45rem;flex-wrap:wrap;font-size:.82rem">
       <a href="/famille/enfants/${eid}">Fiche complète</a>
       <a href="/famille/enfants/${eid}?section=absences">Absences</a>
+      <a href="/famille/enfants/${eid}?section=docs">Docs</a>
       <a href="/famille/enfants/${eid}?section=pai">PAI</a>
       <a href="/famille/enfants/${eid}?section=sorties">Sorties</a>
     </p>
@@ -1345,10 +1405,10 @@ function famEnfantsListDenseGridHtml(list, resumes, docsLists, paiList) {
   );
   return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));gap:.45rem">${cards.join('')}</div>`;
 }
-function famApplyEnfantSectionDeepLink() {
-  const sec = routeState.famSection;
+function famApplyEnfantSectionDeepLink(forcedSec) {
+  const sec = forcedSec || routeState.famSection;
   if (!sec) return;
-  delete routeState.famSection;
+  if (!forcedSec) delete routeState.famSection;
   function highlight(el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     el.style.outline = '2px solid var(--accent, #2563eb)';
@@ -1362,7 +1422,9 @@ function famApplyEnfantSectionDeepLink() {
   }
   if (!tryScroll()) {
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => { tryScroll(); });
+      requestAnimationFrame(() => {
+        if (!tryScroll()) setTimeout(tryScroll, 150);
+      });
     });
   }
 }
@@ -1812,6 +1874,20 @@ function hmSort(hm) {
   if (!hm) return 10000;
   const p = String(hm).split(':');
   return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
+}
+
+function edtSlotIsCurrent(jourIso, heureDebut, heureFin) {
+  if (!jourIso || jourIso !== today()) return false;
+  const now = new Date();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const deb = hmSort(heureDebut);
+  const fin = hmSort(heureFin);
+  if (fin <= deb) return mins >= deb;
+  return mins >= deb && mins < fin;
+}
+
+function edtSlotNowClass(jourIso, heureDebut, heureFin) {
+  return edtSlotIsCurrent(jourIso, heureDebut, heureFin) ? ' edt-slot-now' : '';
 }
 
 function edtIcalPathEleve(eleveId, debut, fin) {
@@ -3721,6 +3797,7 @@ function viewEleveNotes() {
   return shell('/eleve/notes', `
     <div class="panel">
       <h2>Notes</h2>
+      <div id="eleveEncouragementsSpot"></div>
       <div class="row">
         <label>Période <select id="eleveNotePeriode" style="min-width:12rem"></select></label>
         <button type="button" id="btnEleveBulletin">Télécharger le bulletin</button>
@@ -3891,17 +3968,25 @@ async function bindEleveNotes() {
   } catch (e) {
     moyOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
-  if (conseilOut) {
+  const encSpot = document.getElementById('eleveEncouragementsSpot');
+  if (conseilOut || encSpot) {
     try {
       const list = await api('/eleves/' + eid + '/conseils');
       const vis = (list || []).filter(c => c.visible_famille !== false);
-      conseilOut.innerHTML = vis.length
-        ? `<ul>${vis.map(c =>
-            `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}${c.classe ? ' · ' + esc(c.classe) : ''}</li>`
-          ).join('')}</ul>`
-        : emptyState('Aucune décision de conseil visible', 'Voir aussi la vie scolaire.');
+      if (encSpot) encSpot.innerHTML = eleveNotesEncouragementsHtml(vis);
+      const autres = vis.filter(c => String(c.mention || '').toLowerCase() !== 'encouragements');
+      if (conseilOut) {
+        conseilOut.innerHTML = autres.length
+          ? `<ul>${autres.map(c =>
+              `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}${c.classe ? ' · ' + esc(c.classe) : ''}</li>`
+            ).join('')}</ul>`
+          : vis.length
+            ? emptyState('Pas d’autre décision de conseil', 'Les encouragements sont affichés ci-dessus.')
+            : emptyState('Aucune décision de conseil visible', 'Voir aussi la vie scolaire.');
+      }
     } catch (e) {
-      conseilOut.innerHTML = emptyState('Décisions indisponibles', esc(e.message));
+      if (encSpot) encSpot.innerHTML = '';
+      if (conseilOut) conseilOut.innerHTML = emptyState('Décisions indisponibles', esc(e.message));
     }
   }
   }
@@ -4029,7 +4114,7 @@ async function bindEleveEdt() {
       out.innerHTML = !list.length
         ? emptyState('Aucun cours ce jour', 'Changez de date ou affichez la semaine complète.')
         : `<ul>${list.map(c =>
-            `<li>${esc(c.heure_debut)}–${esc(c.heure_fin)} · ${esc(c.matiere_libelle)} · ${esc(c.salle || '—')}</li>`
+            `<li class="edt-slot${edtSlotNowClass(jour, c.heure_debut, c.heure_fin)}">${esc(c.heure_debut)}–${esc(c.heure_fin)} · ${esc(c.matiere_libelle)} · ${esc(c.salle || '—')}</li>`
           ).join('')}</ul>`;
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -4077,7 +4162,7 @@ async function bindEleveEdt() {
         const slots = [...(lists[i] || [])].sort((a, b) => String(a.heure_debut).localeCompare(String(b.heure_debut)));
         const ferme = fermes[i] && fermes[i].ferme;
         const body = slots.length
-          ? slots.map(c => `<div class="edt-slot">
+          ? slots.map(c => `<div class="edt-slot${edtSlotNowClass(j, c.heure_debut, c.heure_fin)}">
               <strong>${esc(c.heure_debut)}–${esc(c.heure_fin)}</strong>
               <div>${esc(c.matiere_libelle)}</div>
               <div class="muted">${esc(c.salle || '—')}</div>
@@ -4268,7 +4353,7 @@ async function bindHome() {
     wantGrants ? settle(api('/documents/grants/pending'), []) : Promise.resolve([]),
     wantPilotageKpi && role === 'direction' ? settle(api('/reinscription/campagne'), null) : Promise.resolve(null),
     wantPilotageKpi ? settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(jour)), null) : Promise.resolve(null),
-    wantPilotageKpi && role === 'admin' ? settle(snapshotEffectifTotal(jour), null) : Promise.resolve(null),
+    wantPilotageKpi ? settle(snapshotEffectifTotal(jour), null) : Promise.resolve(null),
     wantPilotageKpi && role === 'direction'
       ? settle(countSanctionsClasseJour('4B', jour), null)
       : Promise.resolve(null),
@@ -4370,6 +4455,7 @@ async function bindHome() {
       pulse.innerHTML = `
         <a class="stat-tile bento-span-2" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
+        <a class="stat-tile bento-span-2" href="/app/eleves"><strong>${nEffTotal != null ? nEffTotal : '—'}</strong><span>Effectif total</span></a>
         <a class="stat-tile bento-span-2" href="/app/vs"><strong>${nEff4b || '·'}</strong><span>Effectif 4B</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences#absIncSanPanel"><strong class="${nSanJour4b ? 'warn' : ''}">${sanLbl}</strong><span>Sanctions du jour (4B)</span></a>
         <a class="stat-tile bento-span-2" href="/app/editions"><strong>·</strong><span>Éditions VS</span></a>
@@ -4470,8 +4556,8 @@ async function bindHome() {
       : `<a class="stat-tile bento-span-3" href="/app/inscriptions"><strong>${nIns}</strong><span>Inscriptions actives</span></a>`;
     dirKpi.innerHTML = `
       <a class="stat-tile bento-span-3" href="/app/etab"><strong class="${nGrants ? 'warn' : ''}">${nGrants}</strong><span>Grants en attente</span></a>
-      ${role === 'admin' && nEffTotal != null
-        ? `<a class="stat-tile bento-span-3" href="/app/eleves"><strong>${nEffTotal}</strong><span>Effectif total établ.</span></a>`
+      ${role === 'admin' || role === 'direction'
+        ? `<a class="stat-tile bento-span-3" href="/app/eleves"><strong>${nEffTotal != null ? nEffTotal : '—'}</strong><span>Effectif total établ.</span></a>`
         : ''}
       <a class="stat-tile bento-span-3" href="/app/eleves?trombi=4B"><strong>4B</strong><span>Trombinoscope</span></a>
       <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nAbs}</strong><span>Abs. VS à traiter · ${nAbsAll} signalées</span></a>
@@ -5107,6 +5193,7 @@ async function bindFamilleHome() {
 
 async function bindFamilleEnfant(id) {
   const out = document.getElementById('enfantOut');
+  const enfantDeepSection = routeState.famSection;
   try {
     const [enfants, resume, dossier, justifDocs] = await Promise.all([
       api('/famille/enfants'),
@@ -5249,7 +5336,7 @@ async function bindFamilleEnfant(id) {
     html += `<h3 id="fam-sec-pai">PAI</h3><div id="paiFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Fiche santé</h3><div id="santeFamOut" class="muted">Chargement…</div>`;
 
-    html += `<h3 id="fam-sec-docs">Documents à signer</h3><div id="docsFamOut" class="muted">Chargement…</div>`;
+    html += `<div id="fam-sec-docs" style="scroll-margin-top:4.5rem"><h3>Documents à signer</h3><div id="docsFamOut" class="muted">Chargement…</div></div>`;
     html += `<h3>Documents / bulletins</h3>
       <div class="row">
         <label>Titre <input id="famDocTitre" value="Pièce famille"/></label>
@@ -6379,6 +6466,9 @@ async function bindFamilleEnfant(id) {
     }
 
     famApplyEnfantSectionDeepLink();
+    if (enfantDeepSection === 'docs') {
+      setTimeout(() => famApplyEnfantSectionDeepLink('docs'), 160);
+    }
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
@@ -11958,6 +12048,7 @@ async function bindInternat() {
         }),
       });
       chMsg.innerHTML = `<span class="ok">Chambre ${esc(c.code)} créée</span>`;
+      toastInternatChambreCreee(c);
       document.getElementById('intChambreId').value = c.id;
       await loadChambres();
     } catch (e) {
@@ -13271,7 +13362,7 @@ async function bindVsJour() {
             <td>${esc(a.debut)} → ${esc(a.fin)}</td>
             <td><span class="pill">${esc(a.statut)}</span></td>
             <td>${formatPtsVsCell(ptsMap[a.eleve_id])}</td>
-            <td>${pjBadge}${esc(a.motif_justif || '—')}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
+            <td>${pjBadge}${staffMotifJustifCellHtml(a.motif_justif)}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
             <td>${actions}</td>
           </tr>`;
         }).join('')}</tbody></table>`;
@@ -13418,7 +13509,7 @@ async function bindVsJour() {
           <td><span class="pill">${esc(d.creneau)}</span></td>
           <td>${esc(d.motif)}</td>
           <td>
-            <button type="button" class="primary btnVsDemOk" data-id="${esc(d.id)}">Accepter</button>
+            <button type="button" class="primary btnVsDemOk" data-id="${esc(d.id)}" data-eid="${esc(d.eleve_id)}" data-jour="${esc(d.jour)}" data-creneau="${esc(d.creneau)}">Accepter</button>
             <button type="button" class="btnVsDemNo" data-id="${esc(d.id)}">Refuser</button>
           </td>
         </tr>`).join('')}</tbody></table>`;
@@ -13428,6 +13519,11 @@ async function bindVsJour() {
             await api('/vs/sorties/demandes/' + btn.dataset.id + '/decider', {
               method: 'POST',
               body: JSON.stringify({ accepter: true, decision_note: noteVs('OK (file du jour)') }),
+            });
+            toastSortieValidee({
+              eleveLabel: ELEVE_NAME_CACHE[btn.dataset.eid] || btn.dataset.eid,
+              jour: btn.dataset.jour,
+              creneau: btn.dataset.creneau,
             });
             await load();
           } catch (e) { alert(e.message); }
@@ -14102,7 +14198,7 @@ async function bindAbsences() {
           <td>${esc(a.motif)}</td>
           <td><span class="pill">${esc(a.statut)}</span></td>
           <td>${formatPtsVsCell(ptsMap[a.eleve_id])}</td>
-          <td>${pjBadge}${esc(a.motif_justif || '—')}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
+          <td>${pjBadge}${staffMotifJustifCellHtml(a.motif_justif)}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
           <td class="muted">${esc(a.decision_note || '—')}</td>
           <td>${actions}</td>
         </tr>`);
@@ -15224,7 +15320,7 @@ async function bindSorties() {
           <td><span class="pill">${esc(d.statut || 'en_attente')}</span></td>
           <td class="muted">${esc(d.decision_note || '—')}</td>
           <td>
-            <button type="button" class="btnDemOk" data-id="${d.id}">Accepter</button>
+            <button type="button" class="btnDemOk" data-id="${d.id}" data-eid="${esc(d.eleve_id)}" data-jour="${esc(d.jour)}" data-creneau="${esc(d.creneau)}">Accepter</button>
             <button type="button" class="btnDemNo" data-id="${d.id}">Refuser</button>
           </td>
         </tr>`).join('')}</tbody></table>`;
@@ -15238,6 +15334,11 @@ async function bindSorties() {
             await api('/vs/sorties/demandes/' + btn.dataset.id + '/decider', {
               method: 'POST',
               body: JSON.stringify({ accepter: true, decision_note: noteDec() || 'OK CPE' }),
+            });
+            toastSortieValidee({
+              eleveLabel: ELEVE_NAME_CACHE[btn.dataset.eid] || btn.dataset.eid,
+              jour: btn.dataset.jour,
+              creneau: btn.dataset.creneau,
             });
             await loadDemandes();
           } catch (e) { alert(e.message); }
@@ -16314,6 +16415,12 @@ function viewNotes() {
         <button type="button" class="primary" id="btnDevCreer">Créer devoir</button>
         <button type="button" id="btnDevList">Lister devoirs</button>
       </div>
+      <div class="row notes-devoir-date-chips" style="margin:.35rem 0;flex-wrap:wrap;gap:.35rem;align-items:center">
+        <span class="muted">Filtre date devoirs</span>
+        <button type="button" class="pill notes-devoir-date-chip primary" data-date-quick="all" type="button">Toutes dates</button>
+        <button type="button" class="pill notes-devoir-date-chip" data-date-quick="today" type="button">Aujourd’hui</button>
+        <label class="muted" style="display:inline-flex;align-items:center;gap:.25rem">Jour <input id="devListDate" type="date" style="width:auto"/></label>
+      </div>
       <div id="matMsg" class="muted"></div>
       <div id="matOut" class="muted" style="margin-top:.5rem">…</div>
       <div id="devOut" class="muted" style="margin-top:.5rem"></div>
@@ -16852,6 +16959,7 @@ async function bindNotes() {
         }),
       });
       msg.innerHTML = `<span class="ok">Matière ${esc(m.code)}</span>`;
+      toastMatiereCreee(m);
       document.getElementById('noteMatiere').value = m.id;
       await fillMatieres();
       document.getElementById('btnMatList').onclick();
@@ -16881,30 +16989,33 @@ async function bindNotes() {
       }),
     });
   }
+  async function grilleNoteAdvanceFromInput(inp, inputs, idx) {
+    const msg = document.getElementById('grilleMsg');
+    try {
+      const n = await saveGrilleNoteInput(inp);
+      if (n) {
+        const tr = inp.closest('tr');
+        if (tr && tr.cells && tr.cells[2]) tr.cells[2].textContent = 'déjà saisie';
+        toastNoteSaisie(n, grilleEleveLabelFromInput(inp));
+        if (msg) msg.innerHTML = '<span class="ok">Note enregistrée — ligne suivante</span>';
+      }
+      const next = inputs[idx + 1];
+      if (next) {
+        next.focus({ preventScroll: true });
+        if (typeof next.select === 'function') next.select();
+      }
+    } catch (e) {
+      if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
   function bindGrilleNoteEnterNav(box) {
     if (!box) return;
     const inputs = [...box.querySelectorAll('.grilleNote')];
     inputs.forEach((inp, idx) => {
       inp.onkeydown = async (ev) => {
-        if (ev.key !== 'Enter') return;
+        if (ev.key !== 'Enter' && ev.key !== 'Tab') return;
         ev.preventDefault();
-        const msg = document.getElementById('grilleMsg');
-        try {
-          const n = await saveGrilleNoteInput(inp);
-          if (n) {
-            const tr = inp.closest('tr');
-            if (tr && tr.cells && tr.cells[2]) tr.cells[2].textContent = 'déjà saisie';
-            toastNoteSaisie(n, grilleEleveLabelFromInput(inp));
-            if (msg) msg.innerHTML = '<span class="ok">Note enregistrée — ligne suivante</span>';
-          }
-          const next = inputs[idx + 1];
-          if (next) {
-            next.focus({ preventScroll: true });
-            if (typeof next.select === 'function') next.select();
-          }
-        } catch (e) {
-          if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
-        }
+        await grilleNoteAdvanceFromInput(inp, inputs, idx);
       };
     });
   }
@@ -20724,7 +20835,7 @@ function orientVoeuxTableHtml(list, emptyMsg) {
     return famEmptyDense(emptyMsg || 'Aucun vœu', [
       'Les vœux post-bac / Parcoursup saisis par la famille apparaissent ici par rang.',
       'L’équipe éducative peut aussi compléter les champs info-comp ci-dessous.',
-    ], '<a href="https://www.parcoursup.fr/" target="_blank" rel="noopener">Parcoursup</a>');
+    ], '<a class="primary" href="https://www.parcoursup.fr/" target="_blank" rel="noopener">Ouvrir Parcoursup</a>');
   }
   return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
     <thead><tr>
@@ -21260,14 +21371,19 @@ async function bindFacturesFamille() {
     const quoFoot = facQuoCache
       ? `<p class="muted" style="margin:.65rem 0 0">Tarification foyer : ${famQuotientSummaryHtml(facQuoCache, (document.getElementById('facQuoAnnee') || {}).value)}</p>`
       : '';
+    const maxResteCent = impayees.length
+      ? impayees.reduce((m, f) => Math.max(m, facFamResteCentimes(f)), 0)
+      : 0;
     out.innerHTML = `<table><thead><tr><th>N°</th><th>Libellé</th><th>Statut</th><th>Total</th><th>Reste</th><th></th></tr></thead>
       <tbody>${list.map(f => {
         const reste = facFamResteCentimes(f);
         const imp = facFamImpayee(f);
+        const isMaxReste = imp && reste > 0 && reste === maxResteCent;
         const resteCell = imp
           ? `<span class="pill-unread">reste ${esc(euros(reste))}</span>`
           : `<span class="ok">${reste ? esc(euros(reste)) : '—'}</span>`;
-        return `<tr style="${imp ? 'font-weight:600' : ''}">
+        const trCls = isMaxReste ? ' class="fac-fam-row-max-reste"' : '';
+        return `<tr${trCls} style="${imp ? 'font-weight:600' : ''}">
         <td>${esc(f.numero)}</td>
         <td>${esc(f.libelle)}</td>
         <td>${imp ? '<span class="pill-unread">impayée</span>' : `<span class="pill">${esc(f.statut)}</span>`}</td>
@@ -21533,7 +21649,8 @@ async function bindMessages(base) {
     }
   }
 
-  async function openFil(id) {
+  async function openFil(id, opts) {
+    const o = opts || {};
     currentFil = id;
     const err = document.getElementById('filMsgErr');
     err.textContent = '';
@@ -21576,10 +21693,14 @@ async function bindMessages(base) {
           if (!inp || !inp.files || !inp.files[0]) { alert('Choisir un fichier'); return; }
           try {
             await attachPiece(msgid, inp.files[0]);
-            await openFil(id);
+            await openFil(id, { quiet: true });
           } catch (e) { alert(e.message); }
         };
       });
+      if (!o.quiet) {
+        toastFilOuvert(d.fil.sujet, { archive: !!d.fil.archive });
+        filPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
       // Ouvrir accuse la lecture → rafraîchir les badges
       await loadFils(true);
     } catch (e) {
@@ -21667,7 +21788,7 @@ async function bindMessages(base) {
       try {
         await api('/messages/fils/' + currentFil + '/archiver', { method: 'POST', body: '{}' });
         await loadFils();
-        await openFil(currentFil);
+        await openFil(currentFil, { quiet: true });
       } catch (e) { alert(e.message); }
     };
   }
@@ -21682,7 +21803,7 @@ async function bindMessages(base) {
         }),
       });
       await loadFils();
-      if (!silent) await openFil(currentFil);
+      if (!silent) await openFil(currentFil, { quiet: true });
     } catch (e) {
       if (!silent) alert(e.message);
     }
@@ -21733,7 +21854,7 @@ async function bindMessages(base) {
         await attachPiece(msg.id, fileInp.files[0]);
         fileInp.value = '';
       }
-      await openFil(currentFil);
+      await openFil(currentFil, { quiet: true });
       await loadFils();
     } catch (e) {
       err.innerHTML = `<span class="bad">${esc(e.message)}</span>`;

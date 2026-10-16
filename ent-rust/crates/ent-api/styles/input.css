@@ -196,6 +196,13 @@
     font-weight: 600;
   }
 
+  .fac-fam-row-max-reste {
+    background: color-mix(in srgb, var(--warn, #c45c26) 10%, transparent);
+  }
+  .fac-fam-row-max-reste td:first-child {
+    box-shadow: inset 3px 0 0 var(--warn, #c45c26);
+  }
+
   .eleve-hub-tile {
     display: block;
     color: inherit;

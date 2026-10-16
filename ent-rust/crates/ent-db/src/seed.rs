@@ -724,7 +724,9 @@ impl PgEnt {
     /// lot E (Bot AE-A) : note Cho, absence NJ Ron (Molly), note Ginny (staff / pas notes parent), alerte CPE urgente Harry, PDF JUSTIF non vide ;
     /// lot F (Bot AF-A) : carnet Seamus (famille), absence NJ Luna, dossier conseil Harry, photo trombi Ron, renfort menus lun–ven publiés ;
     /// lot G (Bot AG-A) : absence NJ Seamus, note Cedric, RDV psy Harry J+10, carnet Draco, ré-ensure CHARTE_LAB + REGLEMENT_LAB ;
-    /// lot H (Bot AH-A) : carnet Hermione (famille), absence NJ Neville, rappel SMS dry-run Harry si API, photo trombi Ginny, Molly mes_enfants Ron+Ginny.
+    /// lot H (Bot AH-A) : carnet Hermione (famille), absence NJ Neville, rappel SMS dry-run Harry si API, photo trombi Ginny, Molly mes_enfants Ron+Ginny ;
+    /// lot I (Bot AI-A) : absence NJ Cho, carnet Luna (si pas déjà AH-A), renfort justif Harry jour J a_traiter, note Cedric (autre matière), photo trombi Seamus ;
+    /// lot J (Bot AJ-A) : absence NJ Ginny (staff / Molly sans VS Ginny), note Ron (staff / Molly sans notes Ron), ré-ensure dispense EPS Harry, photo trombi Cedric, ré-ensure facture Draco.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -3519,6 +3521,320 @@ impl PgEnt {
                 eleves[ginny_idx].parent = ron.parent.clone();
                 eleves[ginny_idx].foyer_id = molly_foyer;
             }
+        }
+
+        // --- Bot AI-A lot I : absence NJ Cho, carnet Luna (si pas déjà AH-A), renfort justif Harry
+        // jour J a_traiter, note Cedric (matière distincte), photo trombi Seamus.
+        if let Some(cho) = labo_eleve_prenom(eleves, "Cho") {
+            let absences_cho = self.list_absences_eleve(etab, cho.id).await?;
+            let cho_a_absence_nj = absences_cho
+                .iter()
+                .any(|a| a.statut == AbsenceStatut::ATraiter);
+            if !cho_a_absence_nj {
+                let absence_cho_ai = jour - Duration::days(2);
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: cho.id,
+                    debut: absence_cho_ai,
+                    fin: absence_cho_ai,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(luna) = labo_eleve_prenom(eleves, "Luna") {
+            const LUNA_CARNET_AH_PREFIX: &str = "AUDIT AH-A:";
+            const LUNA_CARNET_AI_TITRE: &str = "AUDIT AI-A: Encouragements Luna (famille)";
+            let carnet_luna = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), luna.id)
+                .await?;
+            let luna_deja_carnet_ah = carnet_luna
+                .iter()
+                .any(|c| c.titre.starts_with(LUNA_CARNET_AH_PREFIX));
+            if !luna_deja_carnet_ah
+                && !carnet_luna.iter().any(|c| c.titre == LUNA_CARNET_AI_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: luna.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: LUNA_CARNET_AI_TITRE.into(),
+                    corps: "Seed labo lot AI-A — entrée carnet visible famille pour audit portail Luna Lovegood."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        const JUSTIF_AUDIT_MOTIF_AI: &str = "maladie";
+        let absence_justif_jour_ai = jour;
+        if !self
+            .eleve_est_absent(etab, harry.id, absence_justif_jour_ai)
+            .await?
+        {
+            let motifs = self.list_motifs_absence(etab).await?;
+            let motif_code = motifs
+                .iter()
+                .find(|m| m.code.eq_ignore_ascii_case("maladie"))
+                .or_else(|| motifs.first())
+                .map(|m| m.code.clone())
+                .unwrap_or_else(|| "maladie".into());
+            self.declare_absence(DeclareAbsence {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                debut: absence_justif_jour_ai,
+                fin: absence_justif_jour_ai,
+                motif: motif_code,
+                actor_user_id: Some(cpe.user_id.to_string()),
+            })
+            .await?;
+        }
+        let absences_harry_ai = self.list_absences_eleve(etab, harry.id).await?;
+        if let Some(abs_justif_ai) = absences_harry_ai
+            .iter()
+            .find(|a| a.debut == absence_justif_jour_ai && a.fin == absence_justif_jour_ai)
+        {
+            if abs_justif_ai.statut == AbsenceStatut::ATraiter
+                && abs_justif_ai.motif_justif.as_deref() != Some(JUSTIF_AUDIT_MOTIF_AI)
+            {
+                self.justifier_absence_for_actor(
+                    etab,
+                    harry.parent.user_id,
+                    Role::Parent.as_str(),
+                    abs_justif_ai.id,
+                    JUSTIF_AUDIT_MOTIF_AI.into(),
+                )
+                .await?;
+            }
+            let code_justif_ai = format!("JUSTIF_ABSENCE_{}", abs_justif_ai.id);
+            let docs_harry_ai = self
+                .list_documents_meta_eleve_for_actor(
+                    etab,
+                    administratif.user_id,
+                    role_admini,
+                    harry.id,
+                )
+                .await?;
+            if !docs_harry_ai
+                .iter()
+                .any(|(d, _)| d.code.as_deref() == Some(code_justif_ai.as_str()))
+            {
+                let _ = self
+                    .deposer_document_with_contenu(
+                        domain_eleve::DeposerDocument {
+                            etablissement_id: etab,
+                            eleve_id: harry.id,
+                            tiroir: DocTiroir::Famille,
+                            titre: format!("Justificatif absence {code_justif_ai}"),
+                            code: Some(code_justif_ai),
+                            mime_type: Some("application/pdf".into()),
+                            storage_key: None,
+                            confidentialite: DocConfidentialite::Standard,
+                            actor_user_id: harry.parent.user_id,
+                        },
+                        Some(PDF_JUSTIF_MINIMAL),
+                    )
+                    .await;
+            }
+        }
+
+        if let Some(cedric) = labo_eleve_prenom(eleves, "Cedric") {
+            const CEDRIC_NOTE_AI_LIB: &str = "Interro Potions lab (Cedric AI-A)";
+            if !self
+                .notes_for_eleve(etab, cedric.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(CEDRIC_NOTE_AI_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: cedric.id,
+                    matiere_id: potions.id,
+                    valeur: 12.5,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_rogue.user_id,
+                    libelle: Some(CEDRIC_NOTE_AI_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(seamus) = labo_eleve_prenom(eleves, "Seamus") {
+            if self
+                .get_eleve(etab, seamus.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        seamus.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        // --- Bot AJ-A lot J : absence NJ Ginny (peut_voir_vs=false → VS staff), note Ron
+        // (peut_voir_notes=false → note staff), ré-ensure dispense EPS Harry, photo trombi Cedric,
+        // ré-ensure facture émise foyer Draco.
+        if let Some(ginny) = labo_eleve_prenom(eleves, "Ginny") {
+            let absences_ginny = self.list_absences_eleve(etab, ginny.id).await?;
+            let ginny_a_absence_nj = absences_ginny
+                .iter()
+                .any(|a| a.statut == AbsenceStatut::ATraiter);
+            if !ginny_a_absence_nj {
+                let absence_ginny_aj = jour - Duration::days(4);
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    debut: absence_ginny_aj,
+                    fin: absence_ginny_aj,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
+            const RON_NOTE_AJ_LIB: &str = "Interro Mathématiques lab (Ron AJ-A)";
+            if !self
+                .notes_for_eleve(etab, ron.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(RON_NOTE_AJ_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: ron.id,
+                    matiere_id: math.id,
+                    valeur: 11.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(RON_NOTE_AJ_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        let fin_as_eps_aj = NaiveDate::from_ymd_opt(debut_as.year() + 1, 7, 5)
+            .unwrap_or_else(|| debut_as + Duration::days(300));
+        let dispenses_harry_aj = self
+            .list_dispenses_vs_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+                true,
+            )
+            .await?;
+        if !dispenses_harry_aj.iter().any(|d| {
+            d.motif == DispenseVsMotif::Eps && d.statut == DispenseVsStatut::Active
+        }) {
+            self.poser_dispense_vs_for_actor(
+                Role::Cpe.as_str(),
+                PoserDispenseVs {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    motif: "eps".into(),
+                    debut: debut_as,
+                    fin: fin_as_eps_aj,
+                    commentaire: "Seed audit — dispense EPS (asthme, certificat médical).".into(),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+
+        if let Some(cedric) = labo_eleve_prenom(eleves, "Cedric") {
+            if self
+                .get_eleve(etab, cedric.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        cedric.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        let fac_draco_numero_aj = format!("LAB-DRACO-{etab_short}");
+        let factures_draco_aj = self
+            .list_factures_for_actor(etab, compta.user_id, role_compta)
+            .await?;
+        let facture_draco_aj = if let Some(f) = factures_draco_aj
+            .iter()
+            .find(|f| f.foyer_id == draco.foyer_id && f.numero == fac_draco_numero_aj)
+        {
+            f.clone()
+        } else {
+            let (f, _lignes) = self
+                .creer_facture_for_actor(
+                    role_compta,
+                    CreerFacture {
+                        etablissement_id: etab,
+                        foyer_id: draco.foyer_id,
+                        numero: fac_draco_numero_aj.clone(),
+                        libelle: "Fournitures — seed audit Draco".into(),
+                        nature: None,
+                        annee_scolaire: Some(annee_scolaire_de(jour)),
+                        lignes: vec![LigneFactureCmd {
+                            eleve_id: Some(draco.id),
+                            libelle: "Cahier de correspondance".into(),
+                            quantite: 1,
+                            montant_unitaire_centimes: 350,
+                        }],
+                        actor_user_id: compta.user_id,
+                    },
+                )
+                .await?;
+            f
+        };
+        if facture_draco_aj.statut == FactureStatut::Brouillon {
+            let _ = self
+                .emettre_facture_for_actor(
+                    etab,
+                    facture_draco_aj.id,
+                    compta.user_id,
+                    role_compta,
+                )
+                .await?;
         }
 
         // --- Messagerie CPE → parent Harry (1 fil, 1 message) — sans signature docs
