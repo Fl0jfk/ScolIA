@@ -114,6 +114,8 @@ let notesDevoirsEmptyDracoRefresh = null;
 let notesDevoirsEmptyRonRefresh = null;
 /** Rempli dans bindNotes — repère Harry devoir BS-A sur tip « 0 devoir ». */
 let notesDevoirsEmptyHarryRefresh = null;
+/** Rempli dans bindNotes — repère Ron devoir BT-A sur tip « 0 devoir ». */
+let notesDevoirsEmptyRonBtRefresh = null;
 /** Rempli dans bindNotes — repère Luna BS-D sur tip « éval sans note ». */
 let notesEvalSansNoteLunaRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
@@ -873,6 +875,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyDracoRefresh === 'function') void notesDevoirsEmptyDracoRefresh();
     if (typeof notesDevoirsEmptyRonRefresh === 'function') void notesDevoirsEmptyRonRefresh();
     if (typeof notesDevoirsEmptyHarryRefresh === 'function') void notesDevoirsEmptyHarryRefresh();
+    if (typeof notesDevoirsEmptyRonBtRefresh === 'function') void notesDevoirsEmptyRonBtRefresh();
   } else if ((!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations')
     && Number.isFinite(nMatiere) && nMatiere > 0 && nTot > 0) {
     if (typeof notesEvalSansNoteLunaRefresh === 'function') void notesEvalSansNoteLunaRefresh();
@@ -883,6 +886,67 @@ function findHarryBsDevoir(devoirs) {
   return (devoirs || []).find(d =>
     /harry/i.test(String(d.titre || ''))
     && (/BS-A/i.test(String(d.titre || '')) || /potions/i.test(String(d.matiere_libelle || ''))));
+}
+
+function findRonBtDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /ron/i.test(String(d.titre || ''))
+    && (/BT-A/i.test(String(d.titre || '')) || /fran/i.test(String(d.matiere_libelle || d.matiere || ''))));
+}
+
+function notesRonDevoirGoActions() {
+  const chip = document.getElementById('notesChip5A');
+  if (chip) chip.click();
+  const devCl = document.getElementById('devClasse');
+  if (devCl) devCl.value = '5A';
+  document.getElementById('btnDevList')?.click();
+  document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** /app/notes — repère devoir Ron BT-A (0 devoir global ou liste filtrée vide). */
+function notesRonDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.ronBtDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'DS Français lab (Ron BT-A)';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Ron Weasley</strong><span>Seed labo · 5A · devoir audit BT-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesRonDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir BT-A · 5A'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesRonDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 5A</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesRonDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesRonDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.ronBtDevoir && o.ronBtDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.ronBtDevoir);
+        return;
+      }
+      notesRonDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'DS Français lab (Ron BT-A)';
+      }
+      if (!o.ronBtDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesRonDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesRonDevoirGoActions();
+  }
 }
 
 function notesHarryDevoirGoActions() {
@@ -1139,24 +1203,26 @@ async function resolveCedricDiggoryEleveId() {
   }
 }
 
-/** /app/notes — repère seed labo Hermione Granger (4B · note Maths audit). */
+/** /app/notes — repère seed labo Hermione Granger (4B · note Potions BT-A · audit BT-D). */
 function notesHermioneSeedTipDenseHtml(meta) {
   const o = meta || {};
   if (!o.hermioneId) return '';
   const nNotes = Number(o.nNotes) || 0;
   const classe = esc(String(o.classe || '4B').trim());
-  const mathNote = o.mathNoteLabel
-    ? esc(String(o.mathNoteLabel).trim().slice(0, 28))
-    : 'Interro Maths';
+  const hasBtNote = !!o.hasBtNote;
+  const noteLbl = o.btNoteLabel
+    ? esc(String(o.btNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · BT-A');
+  const noteStrong = hasBtNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
   return `<div class="bento" style="margin:.15rem 0 .45rem">
     <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
-      <strong>Hermione Granger</strong><span>Seed labo · ${classe} · audit notes</span>
+      <strong>Hermione Granger</strong><span>Seed labo · ${classe} · audit notes BT-D</span>
     </div>
     <button type="button" class="stat-tile bento-span-4" id="notesHermioneSeedNotesBtn" data-hermione-id="${esc(String(o.hermioneId))}" style="cursor:pointer;text-align:left">
-      <strong>${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesHermioneSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
-      <strong>${mathNote}</strong><span>Filtre 4B · devoirs / saisie</span>
+      <strong class="${hasBtNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBtNote ? 'Repère Hermione · Potions BT-A' : 'Filtre 4B · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -1857,6 +1923,232 @@ function homeStaffMsgTipDenseHtml(fils, nMsg) {
       </a>`;
   return `<div class="bento" style="margin:0 0 .55rem">${unreadTile}${prioTile}${homeStaffMsgCountTipDenseHtml(filsList, n)}
   </div>`;
+}
+
+function isStaffHomeCockpitFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && (role === 'prof' || role === 'administratif');
+}
+
+function isStaffDocsSignerFlux() {
+  return path() === '/app/docs-signer';
+}
+
+/** Accueil prof / administratif — cockpit EDT · cahier · annuaire · orientation · docs (audit UI BT-C). */
+function homeStaffCockpitTipDenseHtml(meta) {
+  if (!isStaffHomeCockpitFlux()) return '';
+  const o = meta || {};
+  const role = String(o.role || (me && me.role) || '');
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const btcTile = `<div class="stat-tile bento-span-4"><strong class="muted">BT-C</strong><span>Cockpit staff · sans VS com.</span></div>`;
+  if (role === 'prof') {
+    const nEdt = Number(o.nEdt) || 0;
+    const nCahierJour = Number(o.nCahierJour) || 0;
+    const nEff = Number(o.nEff4b) || 0;
+    const hasCur = !!o.edtCurrent;
+    const edtLbl = hasCur
+      ? esc(String(o.edtCurrent.matiere || 'Cours').slice(0, 18))
+      : (nEdt ? String(nEdt) : '0');
+    const edtSpan = hasCur
+      ? 'En cours · ouvrir appel'
+      : (nEdt ? `Créneau(x) le ${jour}` : `Pas de cours · ${jour}`);
+    const edtTile = nEdt || hasCur
+      ? `<button type="button" class="stat-tile bento-span-4" id="homeBtcEdtGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+          <strong class="${hasCur ? 'warn' : ''}">${edtLbl}</strong><span>Mon EDT · ${edtSpan}</span></button>`
+      : `<button type="button" class="stat-tile bento-span-4" id="homeBtcEdtGo" style="cursor:pointer;text-align:left">
+          <strong class="muted">—</strong><span>EDT vide · consulter la semaine</span></button>`;
+    const cahierTile = nCahierJour
+      ? `<button type="button" class="stat-tile bento-span-4" id="homeBtcCahierGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+          <strong class="ok">${nCahierJour}</strong><span>Cahier 4B · publié pour ${jour}</span></button>`
+      : `<button type="button" class="stat-tile bento-span-4" id="homeBtcCahierGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+          <strong class="warn">0</strong><span>Cahier 4B · publier une consigne</span></button>`;
+    const annTile = `<a class="stat-tile bento-span-4" href="/app/eleves?trombi=4B" style="text-decoration:none">
+        <strong>${nEff || '4B'}</strong><span>Annuaire · trombi seed</span></a>`;
+    const notesTile = `<button type="button" class="stat-tile bento-span-4" id="homeBtcGrilleGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>Potions</strong><span>Grille notes · 4B</span></button>`;
+    return `<div class="bento" style="margin:0 0 .55rem">${edtTile}${cahierTile}${annTile}${notesTile}${btcTile}</div>`;
+  }
+  if (role === 'administratif') {
+    const nDocs = Number(o.nDocs) || 0;
+    const nGrants = Number(o.nGrants) || 0;
+    const nIns = Number(o.nIns) || 0;
+    const nFil = Number(o.nFilieres) || 0;
+    const nEff = Number(o.nEff4b) || 0;
+    const docsTile = nDocs
+      ? `<button type="button" class="stat-tile bento-span-4" id="homeBtcDocsGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+          <strong class="warn">${nDocs}</strong><span>Docs à signer · file active</span></button>`
+      : `<button type="button" class="stat-tile bento-span-4" id="homeBtcDocsGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+          <strong class="ok">0</strong><span>Docs à signer · rien en attente</span></button>`;
+    const annTile = `<a class="stat-tile bento-span-4" href="/app/eleves" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${nEff || '→'}</strong><span>Annuaire élèves · 4B = ${nEff || '—'}</span></a>`;
+    const orientTile = nFil
+      ? `<button type="button" class="stat-tile bento-span-4" id="homeBtcOrientGo" style="cursor:pointer;text-align:left">
+          <strong>${nFil}</strong><span>Orientation · filières référentiel</span></button>`
+      : `<button type="button" class="stat-tile bento-span-4" id="homeBtcOrientGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+          <strong class="warn">0</strong><span>Orientation · créer filières</span></button>`;
+    const grantsTile = nGrants
+      ? `<a class="stat-tile bento-span-4" href="/app/etab" style="text-decoration:none;border-color:var(--warn,#b45309)">
+          <strong class="warn">${nGrants}</strong><span>Grant(s) document · ${nIns} inscrip.</span></a>`
+      : `<a class="stat-tile bento-span-4" href="/app/inscriptions" style="text-decoration:none">
+          <strong>${nIns}</strong><span>Inscriptions actives</span></a>`;
+    return `<div class="bento" style="margin:0 0 .55rem">${docsTile}${annTile}${orientTile}${grantsTile}${btcTile}</div>`;
+  }
+  return '';
+}
+
+function bindHomeStaffCockpitTipActions(meta) {
+  const o = meta || {};
+  const role = String(o.role || (me && me.role) || '');
+  const edt = document.getElementById('homeBtcEdtGo');
+  if (edt) {
+    edt.onclick = () => {
+      const href = o.edtCurrent ? '/app/appel' : '/app/mon-edt';
+      toastStaffCockpitAction('edt', { ...o, href });
+      go(href);
+    };
+  }
+  const cahier = document.getElementById('homeBtcCahierGo');
+  if (cahier) {
+    cahier.onclick = () => {
+      toastStaffCockpitAction('cahier', o);
+      go('/app/cahier');
+    };
+  }
+  const grille = document.getElementById('homeBtcGrilleGo');
+  if (grille) {
+    grille.onclick = () => {
+      toastStaffCockpitAction('grille', o);
+      goNotesGrille4bPotions();
+    };
+  }
+  const docs = document.getElementById('homeBtcDocsGo');
+  if (docs) {
+    docs.onclick = () => {
+      toastStaffCockpitAction('docs', o);
+      go('/app/docs-signer');
+    };
+  }
+  const orient = document.getElementById('homeBtcOrientGo');
+  if (orient) {
+    orient.onclick = () => {
+      toastStaffCockpitAction('orient', o);
+      go('/app/etab');
+    };
+  }
+}
+
+/** Toast bento — action cockpit staff (routes existantes · audit BT-C). */
+function toastStaffCockpitAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Cockpit staff';
+  let href = '/app';
+  let tiles = '';
+  if (k === 'edt') {
+    href = o.href || '/app/mon-edt';
+    const nEdt = Number(o.nEdt) || 0;
+    title = o.edtCurrent ? 'Cours en cours' : 'Mon EDT';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nEdt || '—'}</strong><span>Créneau(x) · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BT-C</strong><span>${o.edtCurrent ? 'Appel du créneau' : 'Vue jour / semaine'}</span></div>
+      <a class="stat-tile bento-span-4" href="${esc(href)}" style="text-decoration:none"><strong>→</strong><span>Ouvrir ${esc(href === '/app/appel' ? 'Appel' : 'Mon EDT')}</span></a>`;
+  } else if (k === 'cahier' || k === 'cahier-empty-hint') {
+    href = '/app/cahier';
+    const nJ = Number(o.nCahierJour) || 0;
+    title = nJ ? 'Cahier 4B publié' : 'Cahier 4B vide';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nJ ? 'var(--ok,#16a34a)' : 'var(--warn,#b45309)'}">
+        <strong class="${nJ ? 'ok' : 'warn'}">${nJ}</strong><span>Entrée(s) pour ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BT-C</strong><span>Publier · classe 4B</span></div>
+      <a class="stat-tile bento-span-4" href="/app/cahier" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>→</strong><span>Module cahier de texte</span></a>`;
+  } else if (k === 'grille') {
+    href = '/app/notes?grille=4b-potions';
+    title = 'Grille Potions 4B';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>4B</strong><span>Notes · devoirs</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BT-C</strong><span>Audit pédagogie staff</span></div>
+      <a class="stat-tile bento-span-4" href="${esc(href)}" style="text-decoration:none"><strong>→</strong><span>Ouvrir la grille</span></a>`;
+  } else if (k === 'docs' || k === 'docs-file' || k === 'docs-pub') {
+    href = '/app/docs-signer';
+    const nDocs = Number(o.nDocs ?? o.nAtt) || 0;
+    title = nDocs ? 'Docs à signer — file' : 'Docs à signer — calme';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nDocs ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nDocs ? 'warn' : 'ok'}">${nDocs}</strong><span>En attente signature</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BT-C</strong><span>Publier charte / règlement</span></div>
+      <a class="stat-tile bento-span-4" href="/app/docs-signer" style="text-decoration:none"><strong>→</strong><span>File établissement</span></a>`;
+  } else if (k === 'orient') {
+    href = '/app/etab';
+    const nFil = Number(o.nFilieres) || 0;
+    title = 'Orientation · établissement';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nFil}</strong><span>Filière(s) référentiel</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BT-C</strong><span>Vœux · Parcoursup / exports</span></div>
+      <a class="stat-tile bento-span-4" href="/app/etab" style="text-decoration:none"><strong>→</strong><span>Paramètres établissement</span></a>`;
+  } else {
+    return;
+  }
+  if (k === 'cahier-empty-hint') {
+    showEntToast(
+      `<strong>${title}</strong> — ${jour}`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`,
+      7000,
+    );
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit BT-C</p>`,
+    6500,
+  );
+}
+
+/** /app/docs-signer — synthèse dense file + publier (audit BT-C). */
+function staffDocsSignerPageTipDenseHtml(list, counts) {
+  if (!isStaffDocsSignerFlux()) return '';
+  const c = counts || {};
+  const nAtt = Number(c.nAtt) || 0;
+  const nSigne = Number(c.nSigne) || 0;
+  const nAnnule = Number(c.nAnnule) || 0;
+  const nTot = (list || []).length;
+  const pendingTile = nAtt
+    ? `<button type="button" class="stat-tile bento-span-4" id="staffDocsTipGoFile" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nAtt}</strong><span>À signer · filtrer ci-dessous</span></button>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>File calme · rien à signer</span></div>`;
+  const pubTile = `<button type="button" class="stat-tile bento-span-4" id="staffDocsTipGoPub" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Publier</strong><span>Élève ou lot classe 4B</span></button>`;
+  const statsTile = `<div class="stat-tile bento-span-4"><strong>${nTot}</strong><span>Total · ${nSigne} signé(s) · ${nAnnule} annulé(s)</span></div>`;
+  const btcTile = `<div class="stat-tile bento-span-4"><strong class="muted">BT-C</strong><span>Docs staff · portail famille lié</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${pendingTile}${pubTile}${statsTile}${btcTile}</div>`;
+}
+
+function bindStaffDocsSignerTipActions(counts) {
+  const c = counts || {};
+  const file = document.getElementById('staffDocsTipGoFile');
+  if (file) {
+    file.onclick = () => {
+      const flt = document.getElementById('docFlt');
+      if (flt) flt.value = 'a_signer';
+      document.getElementById('btnDocLoad')?.click();
+      document.getElementById('docOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      toastStaffCockpitAction('docs-file', { nAtt: c.nAtt, nDocs: c.nAtt });
+    };
+  }
+  const pub = document.getElementById('staffDocsTipGoPub');
+  if (pub) {
+    pub.onclick = () => {
+      document.getElementById('docTitre')?.focus();
+      document.getElementById('docClasse')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      toastStaffCockpitAction('docs-pub', { nAtt: c.nAtt, nDocs: c.nAtt });
+    };
+  }
 }
 
 /** /eleve/messages ou /famille/messages — synthèse non lus (pas de « tout marquer lu »). */
@@ -4125,7 +4417,7 @@ function famQuittancesSortedRecent(list) {
   );
 }
 
-/** Accueil famille — quittances récentes + lien factures (bento). */
+/** Accueil famille — quittances récentes + lien factures (bento) — audit UI BT-B. */
 function famHomeQuittancesRecentTipDenseHtml(quittances, resteFacturesCent) {
   const sorted = famQuittancesSortedRecent(quittances);
   const reste = Math.max(0, Number(resteFacturesCent) || 0);
@@ -4140,7 +4432,7 @@ function famHomeQuittancesRecentTipDenseHtml(quittances, resteFacturesCent) {
         <strong class="ok">Soldé</strong><span>Pas de reste facture</span>
       </a>`;
   if (!sorted.length) {
-    return `<div class="bento" style="margin:0 0 .55rem">
+    return `<div class="bento" data-ui-audit="BT-B" style="margin:0 0 .55rem">
       <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
         <strong class="muted">0</strong><span>Aucun reçu · après encaissement</span>
       </a>
@@ -4167,7 +4459,7 @@ function famHomeQuittancesRecentTipDenseHtml(quittances, resteFacturesCent) {
   </div>`;
 }
 
-/** Accueil famille — reste à payer + facture prioritaire (bento). */
+/** Accueil famille — reste à payer + facture prioritaire (bento) — audit UI BT-B. */
 function famHomeFacturesResteTipDenseHtml(impayees, resteTotal, nImpayees) {
   const imp = impayees || [];
   if (!imp.length) return '';
@@ -4189,7 +4481,7 @@ function famHomeFacturesResteTipDenseHtml(impayees, resteTotal, nImpayees) {
     : `<a class="stat-tile bento-span-4" href="${topHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
         <strong class="warn">${topLbl}</strong><span>Reste ${esc(euros(topReste))}</span>
       </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
+  return `<div class="bento" data-ui-audit="BT-B" style="margin:0 0 .55rem">
     <a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
       <strong class="warn">${esc(euros(reste))}</strong><span>Reste à payer · ${n} facture(s)</span>
     </a>
@@ -4198,6 +4490,77 @@ function famHomeFacturesResteTipDenseHtml(impayees, resteTotal, nImpayees) {
       <strong>Quittances</strong><span>Reçus après encaissement</span>
     </a>
   </div>`;
+}
+
+/** Accueil famille — factures soldées / aucune émission (bento) — audit UI BT-B. */
+function famHomeFacturesCalmeTipDenseHtml(opts) {
+  const o = opts || {};
+  const nAll = Math.max(0, Number(o.nFactures) || 0);
+  const nQuit = Math.max(0, Number(o.nQuittances) || 0);
+  const sepaActif = !!o.sepaActif;
+  const facHref = '/famille/factures?section=factures';
+  const sepaHref = '/famille/factures#famSepaOut';
+  const facTile = nAll
+    ? `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">Soldé</strong><span>${nAll} facture(s) · rien à régler</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong class="muted">0</strong><span>Facture · dès émission compta</span>
+      </a>`;
+  const sepaTile = sepaActif
+    ? `<a class="stat-tile bento-span-4" href="${sepaHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">SEPA</strong><span>Prélèvement actif · factures</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${sepaHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>Mandat</strong><span>Configurer le prélèvement SEPA</span>
+      </a>`;
+  const quitTile = nQuit
+    ? `<a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong>${nQuit}</strong><span>Quittance(s) · reçus paiement</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
+        <strong>Quittances</strong><span>Reçus après encaissement</span>
+      </a>`;
+  return `<div class="bento" data-ui-audit="BT-B" style="margin:0 0 .55rem">${facTile}${sepaTile}${quitTile}</div>`;
+}
+
+/** Accueil famille — synthèse factures (impayées ou calme) — audit UI BT-B. */
+function famHomeFacturesTipDenseHtml(impayees, resteTotal, nImpayees, opts) {
+  const imp = impayees || [];
+  if (imp.length) {
+    return famHomeFacturesResteTipDenseHtml(imp, resteTotal, nImpayees);
+  }
+  return famHomeFacturesCalmeTipDenseHtml(opts || {});
+}
+
+/** Page /famille/factures — liste vide (bento SEPA + quittances) — audit UI BT-B. */
+function famFacturesPageEmptyTipDenseHtml(opts) {
+  const o = opts || {};
+  const sepaActif = !!o.sepaActif;
+  const sepaHref = '#famSepaOut';
+  return `<div class="bento" data-ui-audit="BT-B" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>0</strong><span>Aucune facture émise · portail famille</span>
+    </div>
+    <a class="stat-tile bento-span-4" href="${sepaHref}" style="text-decoration:none;border-color:${sepaActif ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${sepaActif ? 'ok' : ''}">${sepaActif ? 'SEPA actif' : 'Mandat SEPA'}</strong><span>${sepaActif ? 'Prélèvement configuré' : 'Créer le prélèvement'}</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
+      <strong>Quittances</strong><span>Reçus après paiement compta</span>
+    </a>
+  </div>`;
+}
+
+/** Page /famille/factures — empty-state liste (famEmptyDense) — audit UI BT-B. */
+function famFacturesFamilleListEmptyHtml(sepaActif) {
+  const sepaLine = sepaActif
+    ? 'Votre mandat SEPA est actif : les prélèvements génèrent une quittance automatique.'
+    : 'Activez le mandat SEPA ci-dessus pour régler sans friction dès l’émission des factures.';
+  return famEmptyDense('Aucune facture émise pour le moment', [
+    'Les factures scolaires du foyer s’affichent ici dès leur émission (brouillons compta invisibles).',
+    sepaLine,
+    'Les encaissements (virement, chèque, prélèvement) déclenchent un reçu sur Mes quittances.',
+  ], '<a href="/famille/factures#famSepaOut">Mandat SEPA</a> · <a href="/famille/quittances">Mes quittances</a>');
 }
 
 function famQuittanceMoyenIsSepa(q) {
@@ -4218,11 +4581,11 @@ function famQuittancesFilterLabel(filterKey) {
   return 'Toutes';
 }
 
-/** Page /famille/factures — synthèse liste + SEPA (bento). */
+/** Page /famille/factures — synthèse liste + SEPA (bento) — audit UI BT-B. */
 function famFacturesPageTipDenseHtml(listAll, listShown, filterKey, opts) {
   const o = opts || {};
   const all = listAll || [];
-  if (!all.length) return '';
+  if (!all.length) return famFacturesPageEmptyTipDenseHtml(o);
   const shown = listShown || all;
   const key = String(filterKey || 'all');
   const label = key === 'emises'
@@ -4242,7 +4605,7 @@ function famFacturesPageTipDenseHtml(listAll, listShown, filterKey, opts) {
     : `<a class="stat-tile bento-span-4" href="#famSepaOut" style="text-decoration:none;border-color:var(--accent,#0071e3)">
         <strong>Mandat SEPA</strong><span>Créer le prélèvement</span>
       </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
+  return `<div class="bento" data-ui-audit="BT-B" style="margin:0 0 .55rem">
     <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
       <strong>${esc(label)}</strong><span>${nShown} / ${nAll} facture(s)</span>
     </div>
@@ -5185,7 +5548,8 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyHermioneSlot"></div>
   <div id="notesDevoirsEmptyDracoSlot"></div>
   <div id="notesDevoirsEmptyRonSlot"></div>
-  <div id="notesDevoirsEmptyHarrySlot"></div>`;
+  <div id="notesDevoirsEmptyHarrySlot"></div>
+  <div id="notesDevoirsEmptyRonBtSlot"></div>`;
 }
 
 function bindNotesDevoirsEmptyTipGo() {
@@ -5219,7 +5583,8 @@ function notesDevListEmptyDenseHtml(opts) {
       <strong>↔</strong><span>${dateF ? 'Toutes dates' : 'Filtre 4B labo'}</span>
     </button>
   </div>
-  <div id="notesDevListEmptyHarrySlot"></div>`;
+  <div id="notesDevListEmptyHarrySlot"></div>
+  <div id="notesDevListEmptyRonBtSlot"></div>`;
 }
 
 function bindNotesDevListEmptyTipGo(opts) {
@@ -5251,6 +5616,21 @@ function bindNotesDevListEmptyTipGo(opts) {
       harryBsDevoir: o.harryBsDevoir || null,
       openGrille: o.openGrille,
     });
+  }
+  const ronBtSlot = document.getElementById('notesDevListEmptyRonBtSlot');
+  if (ronBtSlot) {
+    const showRonBt = !o.classe || o.classe === '5A';
+    if (showRonBt) {
+      ronBtSlot.innerHTML = notesRonDevoirGoTipDenseHtml({
+        ronBtDevoir: o.ronBtDevoir || null,
+      });
+      bindNotesRonDevoirGoTipGo({
+        ronBtDevoir: o.ronBtDevoir || null,
+        openGrille: o.openGrille,
+      });
+    } else {
+      ronBtSlot.innerHTML = '';
+    }
   }
 }
 
@@ -9866,31 +10246,129 @@ function toastFamFactureOuverte(detail, opts) {
     imp ? 9500 : 8000,
   );
 }
-/** Deep-link ?section=factures — toast bento (liste mes factures). */
+/** Deep-link ?section=factures — toast bento (liste mes factures) — audit UI BT-B. */
 function toastFacFamSectionDeepDense(listAll, opts) {
   if (!isFamilleFacturesFlux()) return;
   const o = opts || {};
   const all = listAll || [];
   const nAll = all.length;
+  if (!nAll) {
+    toastFacFamListeVideDense(o);
+    return;
+  }
   const nImpay = all.filter(facFamImpayee).length;
   const reste = all.reduce((s, f) => s + facFamResteCentimes(f), 0);
   const sepaActif = !!o.sepaActif;
   const sepaLbl = sepaActif ? 'SEPA actif' : 'Mandat SEPA';
-  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+  const imp = all.filter(facFamImpayee).sort((a, b) => facFamResteCentimes(b) - facFamResteCentimes(a));
+  const facHref = nImpay === 1 && imp[0] && imp[0].id
+    ? '/famille/factures?fac=' + encodeURIComponent(imp[0].id)
+    : '/famille/factures?section=factures';
+  const tiles = `<div class="bento" data-ui-audit="BT-B" style="margin:.4rem 0 0">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
       <strong>Mes factures</strong><span>${nAll} facture(s) · section liste</span>
     </div>
     <div class="stat-tile bento-span-4"><strong class="${nImpay ? 'warn' : 'ok'}">${nImpay}</strong><span>À régler · reste ${esc(euros(reste))}</span></div>
     <a class="stat-tile bento-span-4" href="#famSepaOut" style="text-decoration:none">
       <strong>${sepaActif ? 'OK' : '→'}</strong><span>${esc(sepaLbl)} · prélèvement</span>
-    </a>`;
+    </a></div>`;
   showEntToast(
     `<strong>Factures — liste</strong>`
-    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + tiles
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + (nImpay ? `<a href="${facHref}">Régler / détail</a> · ` : '')
     + `<a href="/famille/quittances">Quittances</a> · `
     + `<a href="#famMesFactures">↓ Liste ci-dessous</a></p>`,
     nImpay ? 8500 : 7000,
   );
+}
+
+/** Page /famille/factures — liste vide (toast actionnable) — audit UI BT-B. */
+function toastFacFamListeVideDense(opts) {
+  if (!isFamilleFacturesFlux()) return;
+  const o = opts || {};
+  const sepaActif = !!o.sepaActif;
+  const tiles = `<div class="bento" data-ui-audit="BT-B" style="margin:.4rem 0 0">
+    <div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas encore de facture émise</span></div>
+    <a class="stat-tile bento-span-4" href="#famSepaOut" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>${sepaActif ? 'SEPA OK' : '→ SEPA'}</strong><span>Mandat · prélèvement</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
+      <strong>Quittances</strong><span>Reçus après encaissement</span>
+    </a></div>`;
+  showEntToast(
+    `<strong>Paiements foyer</strong>`
+    + tiles
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="#famMesFactures">Liste factures</a> · `
+    + `<a href="/famille">Accueil famille</a></p>`,
+    7500,
+  );
+}
+
+const FAM_FAC_HOME_TOAST_SS = 'ent_fam_fac_home_bt_b';
+
+/** Accueil famille — toast factures (1× / session) — audit UI BT-B. */
+function maybeToastFamFacturesHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_FAC_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const imp = (o.impayees || []).slice();
+  const nImpay = Number(o.nImpayees) || imp.length;
+  const reste = Math.max(0, Number(o.resteTotal) || 0);
+  const nAll = Math.max(0, Number(o.nFactures) || 0);
+  const sepaActif = !!o.sepaActif;
+  const facHref = nImpay === 1 && imp[0] && imp[0].id
+    ? '/famille/factures?fac=' + encodeURIComponent(imp[0].id)
+    : '/famille/factures?section=factures';
+  let lead;
+  let tiles;
+  if (nImpay) {
+    const top = imp[0];
+    const topLbl = esc(top.numero || top.libelle || 'Facture');
+    lead = `<strong>Factures à régler</strong>`;
+    tiles = `<div class="bento" data-ui-audit="BT-B" style="margin:.4rem 0 0">
+      <a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${esc(euros(reste))}</strong><span>${nImpay} facture(s) · reste foyer</span>
+      </a>
+      <div class="stat-tile bento-span-4"><strong>${topLbl}</strong><span>Priorité · ${esc(euros(facFamResteCentimes(top)))}</span></div>
+      <a class="stat-tile bento-span-4" href="/famille/factures#famSepaOut" style="text-decoration:none">
+        <strong>${sepaActif ? 'SEPA OK' : '→ SEPA'}</strong><span>Mandat · prélèvement</span>
+      </a></div>`;
+  } else if (!nAll) {
+    lead = `<strong>Paiements · en attente</strong>`;
+    tiles = `<div class="bento" data-ui-audit="BT-B" style="margin:.4rem 0 0">
+      <a class="stat-tile bento-span-4" href="/famille/factures?section=factures" style="text-decoration:none">
+        <strong class="muted">0</strong><span>Facture · dès émission compta</span>
+      </a>
+      <a class="stat-tile bento-span-4" href="/famille/factures#famSepaOut" style="text-decoration:none">
+        <strong>${sepaActif ? 'SEPA OK' : 'Mandat'}</strong><span>Prélèvement sans friction</span>
+      </a>
+      <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
+        <strong>Quittances</strong><span>Reçus de paiement</span>
+      </a></div>`;
+  } else {
+    lead = `<strong>Factures soldées</strong>`;
+    tiles = `<div class="bento" data-ui-audit="BT-B" style="margin:.4rem 0 0">
+      <a class="stat-tile bento-span-4" href="/famille/factures?section=factures" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nAll}</strong><span>Facture(s) · rien à régler</span>
+      </a>
+      <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
+        <strong>Quittances</strong><span>Historique encaissements</span>
+      </a>
+      <a class="stat-tile bento-span-4" href="/famille/factures#famSepaOut" style="text-decoration:none">
+        <strong>${sepaActif ? 'SEPA OK' : '→ SEPA'}</strong><span>Mandat prélèvement</span>
+      </a></div>`;
+  }
+  const foot = nImpay
+    ? `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${facHref}">Ouvrir la facture</a> · <a href="/famille/quittances">Quittances</a></p>`
+    : `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="/famille/factures?section=factures">Mes factures</a> · <a href="/famille/quittances">Quittances</a></p>`;
+  showEntToast(lead + tiles + foot, nImpay ? 9500 : 7000);
+  try { sessionStorage.setItem(FAM_FAC_HOME_TOAST_SS, '1'); } catch {}
 }
 /** Quittances famille — toast bento après changement de filtre (chips UI). */
 function toastQuitFamFilterUiDense(filterKey, listAll, listShown) {
@@ -14940,6 +15418,12 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/notes"><strong>Saisir notes</strong><span>Grille classe &amp; devoirs</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils familles</span></a>
       <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Déclarer une absence</span></a>`;
+    homeExtra = `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit métier</h3>
+      <p class="muted" style="margin-top:0">EDT · cahier · annuaire · notes — repères du jour <span class="muted empty-state-hint" style="font-size:.72rem">BT-C</span>.</p>
+      <div id="homeStaffCockpitTip" class="muted">Chargement…</div>
+    </div>`;
   } else if (role === 'cpe') {
     homeTitle = 'Vie scolaire &amp; accompagnement';
     homeLead = 'File du jour, signaux précoces et annuaire élèves — même cerveau que la direction.';
@@ -15010,6 +15494,12 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/docs-signer"><strong>Docs à signer</strong><span>Signatures en attente</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>
       <a class="stat-tile bento-span-4" href="/app/reinscription"><strong>Réinscription</strong><span>Suivi campagne</span></a>`;
+    homeExtra = `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit administratif</h3>
+      <p class="muted" style="margin-top:0">Docs à signer · annuaire · orientation · inscriptions — <span class="muted empty-state-hint" style="font-size:.72rem">BT-C</span>.</p>
+      <div id="homeStaffCockpitTip" class="muted">Chargement…</div>
+    </div>`;
   } else if (role === 'admin') {
     homeTitle = 'Administration globale';
     homeLead = 'Vue transversale établissement — tous modules (droits admin).';
@@ -15404,6 +15894,49 @@ async function bindHome() {
     const bootHtml = homeAdminBootstrapTipDenseHtml(STORE.cast);
     adminBootstrapTip.innerHTML = bootHtml
       || '<p class="muted" style="margin:0">Pas de cast en mémoire — déconnectez-vous puis bootstrap labo sur la page login.</p>';
+  }
+  const staffCockpitBox = document.getElementById('homeStaffCockpitTip');
+  if (staffCockpitBox && (role === 'prof' || role === 'administratif')) {
+    const cockpitMeta = { role, jour };
+    if (role === 'prof') {
+      const [edtList, cahierList, eff4bCock] = await Promise.all([
+        settle(api('/edt/mes-creneaux?jour=' + encodeURIComponent(jour)), []),
+        settle(api('/cahier-texte?classe=4B'), []),
+        settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(jour)), null),
+      ]);
+      const pick = eleveEdtPickCurrentAndNext([edtList || []], [jour]);
+      const nCahierJour = (cahierList || []).filter(e =>
+        String(e.pour_le || e.cree_le || '').slice(0, 10) === jour
+      ).length;
+      const nEff = (eff4bCock && Array.isArray(eff4bCock.eleves))
+        ? eff4bCock.eleves.length
+        : ((eff4bCock && eff4bCock.effectif) || 0);
+      Object.assign(cockpitMeta, {
+        nEdt: (edtList || []).length,
+        edtCurrent: pick.current,
+        edtNext: pick.next,
+        nCahierJour,
+        nCahierTotal: (cahierList || []).length,
+        nEff4b: nEff,
+      });
+    } else {
+      const [filieres, eff4bCock] = await Promise.all([
+        settle(api('/filieres'), []),
+        settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(jour)), null),
+      ]);
+      const nEff = (eff4bCock && Array.isArray(eff4bCock.eleves))
+        ? eff4bCock.eleves.length
+        : ((eff4bCock && eff4bCock.effectif) || 0);
+      Object.assign(cockpitMeta, {
+        nDocs,
+        nGrants,
+        nIns,
+        nFilieres: (filieres || []).length,
+        nEff4b: nEff,
+      });
+    }
+    staffCockpitBox.innerHTML = homeStaffCockpitTipDenseHtml(cockpitMeta);
+    bindHomeStaffCockpitTipActions(cockpitMeta);
   }
   if (todo) {
     const lines = [];
@@ -16088,14 +16621,13 @@ async function bindFamilleHome() {
     }
     const facResteTip = document.getElementById('famHomeFacturesTip');
     if (facResteTip) {
-      const denseFac = famHomeFacturesResteTipDenseHtml(impayees, resteFacturesTotal, nImpayees);
-      if (denseFac) {
-        facResteTip.style.display = '';
-        facResteTip.innerHTML = denseFac;
-      } else {
-        facResteTip.style.display = 'none';
-        facResteTip.innerHTML = '';
-      }
+      const denseFac = famHomeFacturesTipDenseHtml(impayees, resteFacturesTotal, nImpayees, {
+        nFactures: (facs || []).length,
+        sepaActif: !!sepaMandatActif,
+        nQuittances: (quittancesFam || []).length,
+      });
+      facResteTip.style.display = '';
+      facResteTip.innerHTML = denseFac;
     }
     const carnetTip = document.getElementById('famHomeCarnetTip');
     if (carnetTip) {
@@ -16362,6 +16894,13 @@ async function bindFamilleHome() {
         : '<p class="ok">Rien en attente.</p>';
     }
     maybeToastFamDailySummary(lines, lines.length);
+    maybeToastFamFacturesHomeDense({
+      impayees,
+      nImpayees,
+      resteTotal: resteFacturesTotal,
+      nFactures: (facs || []).length,
+      sepaActif: !!sepaMandatActif,
+    });
     const homeDeepMsg = normalizeFamEnfantSection(routeState.famSection);
     if (homeDeepMsg === 'messages') {
       delete routeState.famSection;
@@ -27788,10 +28327,9 @@ async function bindDocsSigner() {
       const nAtt = list.filter(d => d.statut === 'a_signer').length;
       const nSigne = list.filter(d => d.statut === 'signe').length;
       const nAnnule = list.filter(d => d.statut === 'annule').length;
-      stats.innerHTML = `
-        <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Documents</span></div>
-        <div class="stat-tile bento-span-4"><strong>${nAtt}</strong><span>À signer</span></div>
-        <div class="stat-tile bento-span-4"><strong>${nSigne}</strong><span>Signés · ${nAnnule} annulés</span></div>`;
+      const docCounts = { nAtt, nSigne, nAnnule };
+      stats.innerHTML = staffDocsSignerPageTipDenseHtml(list, docCounts);
+      bindStaffDocsSignerTipActions(docCounts);
       const flt = (document.getElementById('docFlt') || {}).value || '';
       const shown = !flt ? list : list.filter(d => d.statut === flt);
       if (!shown.length) {
@@ -30181,28 +30719,16 @@ async function bindNotes() {
         el.innerHTML = '';
         return;
       }
-      let nNotes = 0;
       let classe = '4B';
-      let mathNoteLabel = '';
-      try {
-        const notes = await api('/eleves/' + hermioneId + '/notes');
-        nNotes = (notes || []).length;
-        const mathNote = (notes || []).find(n =>
-          /hermione/i.test(String(n.libelle || ''))
-          || /math/i.test(String(n.matiere_libelle || n.matiere || '')));
-        if (mathNote && mathNote.libelle) mathNoteLabel = String(mathNote.libelle);
-      } catch {
-        nNotes = 0;
-      }
       try {
         const eleve = await api('/eleves/' + hermioneId);
         if (eleve && eleve.classe) classe = eleve.classe;
       } catch { /* défaut 4B */ }
+      const meta = await hermioneBtNoteMetaFromApi(hermioneId);
       el.innerHTML = notesHermioneSeedTipDenseHtml({
         hermioneId,
-        nNotes,
         classe,
-        mathNoteLabel,
+        ...meta,
       });
       const btnNotes = document.getElementById('notesHermioneSeedNotesBtn');
       if (btnNotes) {
@@ -30371,6 +30897,50 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyHarryRefresh = refreshNotesDevoirsEmptyHarrySlot;
+  async function refreshNotesDevoirsEmptyRonBtSlot() {
+    const el = document.getElementById('notesDevoirsEmptyRonBtSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const ronBtDevoir = findRonBtDevoir(devoirs);
+      el.innerHTML = notesRonDevoirGoTipDenseHtml({ ronBtDevoir: ronBtDevoir || null });
+      bindNotesRonDevoirGoTipGo({
+        ronBtDevoir: ronBtDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyRonBtRefresh = refreshNotesDevoirsEmptyRonBtSlot;
+  async function hermioneBtNoteMetaFromApi(hermioneId) {
+    let nNotes = 0;
+    let btNoteLabel = '';
+    let hasBtNote = false;
+    try {
+      const notes = await api('/eleves/' + hermioneId + '/notes');
+      nNotes = (notes || []).length;
+      const btNote = (notes || []).find(n =>
+        /BT-A/i.test(String(n.libelle || ''))
+        || (/hermione/i.test(String(n.libelle || '')) && /potions/i.test(String(n.matiere_libelle || n.matiere || ''))));
+      if (btNote) {
+        hasBtNote = /BT-A/i.test(String(btNote.libelle || ''));
+        if (btNote.libelle) btNoteLabel = String(btNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, btNoteLabel, hasBtNote };
+  }
   async function lunaBsNoteMetaFromApi(lunaId) {
     let nNotes = 0;
     let bsNoteLabel = '';
@@ -30754,8 +31324,10 @@ async function bindNotes() {
             periodeLabel,
           });
           bindNotesDevListEmptyTipGo({
+            classe,
             dateFilter: notesDevDateFilter,
             harryBsDevoir: findHarryBsDevoir(listRaw || []),
+            ronBtDevoir: findRonBtDevoir(listRaw || []),
             openGrille: (d) => openGrille(d),
             clearDateFilter: async () => {
               applyNotesDevDateFilter('');
@@ -35301,9 +35873,13 @@ async function bindQuittancesFamille() {
       }
     }
     if (!listAll.length) {
+      const resteLbl = quitFamResteFactures
+        ? `Reste à régler sur vos factures : <strong class="warn">${esc(euros(quitFamResteFactures))}</strong>.`
+        : 'Si une facture est encore ouverte, elle apparaît sur Mes factures.';
       out.innerHTML = famEmptyDense('Aucune quittance pour le moment', [
         'Un reçu est émis automatiquement à chaque paiement enregistré par la compta (virement, prélèvement SEPA, chèque…).',
-        'Les factures impayées et le mandat SEPA se gèrent depuis la page Factures.',
+        resteLbl,
+        'Le mandat SEPA et le détail des échéances sont sur la page Factures.',
       ], '<a href="/famille/factures?section=factures">Mes factures</a> · <a href="/famille/factures#famSepaOut">Mandat SEPA</a>');
       return;
     }
@@ -35434,7 +36010,7 @@ async function bindFacturesFamille() {
       }
     }
     if (!listAll.length) {
-      out.innerHTML = `<p class="empty">Aucune facture émise pour le moment.</p>`;
+      out.innerHTML = famFacturesFamilleListEmptyHtml(!!facFamMandatActif);
       return;
     }
     if (!list.length) {
@@ -35733,6 +36309,12 @@ async function bindFacturesFamille() {
       || String(b.emise_at || '').localeCompare(String(a.emise_at || ''))
     );
     paintFacFamList();
+    if (!facFamSortedList.length && !routeState.famScrollFactures) {
+      toastFacFamListeVideDense({
+        sepaActif: !!facFamMandatActif,
+        sepaRum: facFamMandatActif && facFamMandatActif.rum,
+      });
+    }
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
