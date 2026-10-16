@@ -16,6 +16,7 @@ import {
   TripSection,
   TripTextarea,
 } from "@/app/components/travels/TripDetailUI";
+import { dash } from "@/app/lib/dashboard-brand";
 
 type TripTransportHubPanelProps = {
   trip: TravelsTrip;
@@ -26,13 +27,14 @@ type TripTransportHubPanelProps = {
   canRemindTransportQuotes: boolean;
   remindTransportQuotes: () => void;
   canSign: boolean;
+  /** Créateur / administratif / compta : choisir un devis sans le signer. */
+  canSelectBusQuoteOnly: boolean;
   skipTransportToCompta: () => void | Promise<void>;
   openSecureFile: (url: string, key?: string | null) => void;
   effectifChanged: boolean;
   datesChanged: boolean;
   snapshotEffectifTotal: number | null;
   currentEffectifTotal: number;
-  isOwner: boolean;
   selectBusQuote: (quote: Record<string, unknown>) => void;
   selectAndSignBusQuote: (quote: Record<string, unknown>) => void;
   deleteBusQuote: (quote: Record<string, unknown>) => void;
@@ -62,13 +64,13 @@ export function TripTransportHubPanel({
   canRemindTransportQuotes,
   remindTransportQuotes,
   canSign,
+  canSelectBusQuoteOnly,
   skipTransportToCompta,
   openSecureFile,
   effectifChanged,
   datesChanged,
   snapshotEffectifTotal,
   currentEffectifTotal,
-  isOwner,
   selectBusQuote,
   selectAndSignBusQuote,
   deleteBusQuote,
@@ -246,7 +248,7 @@ export function TripTransportHubPanel({
                           >
                             Voir PDF
                           </TripButton>
-                          {isOwner && !canSign && trip.status === "PROF_LOGISTICS" && (
+                          {canSelectBusQuoteOnly && trip.status === "PROF_LOGISTICS" && (
                             <TripButton variant="primary" size="sm" onClick={() => selectBusQuote(quote)}>
                               Choisir
                             </TripButton>
@@ -444,7 +446,7 @@ export function TripTransportHubPanel({
                       </button>
                     </div>
                   )}
-                  {isOwner && !canSign && trip.status === "EN_ATTENTE_BUS_SIGNATURE" && (
+                  {canSelectBusQuoteOnly && trip.status === "EN_ATTENTE_BUS_SIGNATURE" && (
                     <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
                       Devis choisi — en attente de signature par la direction.
                     </p>
@@ -457,7 +459,7 @@ export function TripTransportHubPanel({
                 </div>
               ) : (
                 <p className="text-sm text-slate-400 italic text-center">
-                  Le créateur choisira un devis à l&apos;étape « Choix du devis transport ».
+                  Le créateur, l&apos;administratif ou la comptabilité peut choisir un devis à l&apos;étape « Choix du devis transport ». La direction signe ensuite.
                 </p>
               )}
             </div>
@@ -585,11 +587,15 @@ export function TripTransportHubPanel({
                 <p className="text-xs font-bold text-slate-800">Écrire au transporteur</p>
                 {receivedQuotes.length > 0 ? (
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+                    <label
+                      htmlFor="transport-reply-quote"
+                      className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1"
+                    >
                       Devis concerné
                     </label>
                     <select
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                      id="transport-reply-quote"
+                      className={dash.field}
                       value={replyQuoteId}
                       onChange={(e) => {
                         const id = e.target.value;

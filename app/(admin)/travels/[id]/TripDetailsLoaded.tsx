@@ -729,8 +729,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       note.trim() ? `Dossier réouvert : ${note.trim()}` : `Dossier réouvert à l'étape « ${stepLabel} »`,
     );
   };
+  /** Créateur, administratif, compta ou admin général — sans pouvoir de signature direction. */
+  const canSelectBusQuoteOnly =
+    !canSign && (isOwner || isAdministratif || isCompta || isGlobalAdmin);
+
   const selectBusQuote = async (quote: any) => {
-    if (!isOwner || canSign) return;
+    if (!canSelectBusQuoteOnly) return;
     if (trip.status !== "PROF_LOGISTICS") return;
     if (!confirm(`Confirmer le choix de ${quote.providerName} ? La direction devra ensuite signer la commande.`)) return;
     const updatedTrip = { ...trip, status: "EN_ATTENTE_BUS_SIGNATURE", data: { ...trip.data, selectedBusQuote: quote } };
@@ -1890,13 +1894,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           canRemindTransportQuotes={canRemindTransportQuotes}
           remindTransportQuotes={remindTransportQuotes}
           canSign={canSign}
+          canSelectBusQuoteOnly={canSelectBusQuoteOnly}
           skipTransportToCompta={skipTransportToCompta}
           openSecureFile={openSecureFile}
           effectifChanged={effectifChanged}
           datesChanged={datesChanged}
           snapshotEffectifTotal={snapshotEffectifTotal}
           currentEffectifTotal={currentEffectifTotal}
-          isOwner={isOwner}
           selectBusQuote={selectBusQuote}
           selectAndSignBusQuote={selectAndSignBusQuote}
           deleteBusQuote={deleteBusQuote}

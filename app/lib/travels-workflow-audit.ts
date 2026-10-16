@@ -85,8 +85,8 @@ function expectedPathFor(trip: TravelsTrip, withBus: boolean): string[] {
   }
   return [
     "EN_ATTENTE_DIR_INITIAL (pédagogie)",
-    "PROF_LOGISTICS (choix devis — créateur « Choisir » ou direction « Choisir et signer »)",
-    "EN_ATTENTE_BUS_SIGNATURE (signature direction si seul choix créateur)",
+    "PROF_LOGISTICS (choix devis — créateur / administratif / compta « Choisir » ou direction « Choisir et signer »)",
+    "EN_ATTENTE_BUS_SIGNATURE (signature direction si devis seulement choisi)",
     "EN_ATTENTE_COMPTA (finances)",
     "EN_ATTENTE_DIR_FINAL (finale)",
     "FINALISE_DIR_ATTENTE_ELEVES (liste élèves si absente)",
@@ -206,15 +206,15 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
     } else if (pendingAmended) {
       expectedActorsNow.push("transporteur");
       blockers.push("Avenant transport en cours — nouveau devis pas encore reçu ou pas encore choisi.");
-      advice.push("Attendre le nouveau devis dans l’onglet Transport, puis « Choisir » (créateur) ou « Choisir et signer » (direction).");
+      advice.push("Attendre le nouveau devis dans l’onglet Transport, puis « Choisir » (créateur / administratif / compta) ou « Choisir et signer » (direction).");
     } else if (devisList.length === 0) {
       expectedActorsNow.push("transporteur");
       missingForCurrentStep.push("au moins un devis bus dans receivedDevis");
       blockers.push("Aucun devis reçu : impossible de choisir / signer.");
       advice.push("Relancer les transporteurs ou attendre leurs réponses. Ne pas faire attendre la direction pour une signature : il n’y a encore rien à signer.");
     } else {
-      expectedActorsNow.push("createur", "direction");
-      missingForCurrentStep.push("sélection d’un devis (selectedBusQuote) — créateur « Choisir » ou direction « Choisir et signer »");
+      expectedActorsNow.push("createur", "administratif", "comptabilite", "direction");
+      missingForCurrentStep.push("sélection d’un devis (selectedBusQuote) — créateur / administratif / compta « Choisir » ou direction « Choisir et signer »");
       blockers.push(
         `${devisList.length} devis reçu(s) (${providers.join(", ") || "transporteurs"}) mais aucun n’est encore choisi.`,
       );
@@ -232,7 +232,7 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
         );
       }
       advice.push(
-        "Créateur → bouton « Choisir » (puis signature direction). Direction → bouton « Choisir et signer » (choix + commande d’un coup).",
+        "Créateur, administratif ou compta → bouton « Choisir » (puis signature direction). Direction → bouton « Choisir et signer » (choix + commande d’un coup).",
       );
     }
   } else if (status === "EN_ATTENTE_BUS_SIGNATURE") {
@@ -245,7 +245,7 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
         : "Étape signature mais aucun devis sélectionné (anomalie).",
     );
     advice.push(
-      "La direction doit signer / commander dans Transport (ou via le circuit de validation). Le créateur n’a plus à « Choisir ».",
+      "La direction doit signer / commander dans Transport (ou via le circuit de validation). Le choix du devis est déjà fait.",
     );
   } else if (status === "EN_ATTENTE_COMPTA") {
     expectedActorsNow.push("comptabilite");

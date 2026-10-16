@@ -864,7 +864,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Pièces PAP/PAI/PPS/GEVASCO : INTERDIT de coller des liens /api/eleves/…/documents/…/file dans le texte. L’UI affiche le catalogue / les boutons d’ouverture. Dans le texte, cite le total et éventuellement le détail par classe (noms), sans liens.\n` +
     `Séjours scolaires (travels) :\n` +
     `- SIMPLE ≠ COMPLEX : SIMPLE n'a pas d'étape devis bus ; COMPLEX avec needsBus=true a Logistique puis Signature.\n` +
-    `- À PROF_LOGISTICS : créateur peut « Choisir » un devis ; direction peut « Choisir et signer ».\n` +
+    `- À PROF_LOGISTICS : créateur / administratif / compta peut « Choisir » un devis ; direction peut « Choisir et signer ».\n` +
     `- Si l'utilisateur demande où en est un séjour / quoi faire / ce qui bloque : appelle get_trip_status (tripId) et base-toi sur audit / auditText / projectSnapshot.\n` +
     `- Conseille concrètement (attendre vs choisir des devis, montants manquants en compta, etc.) sans inventer des champs absents.\n`;
 
