@@ -722,7 +722,8 @@ impl PgEnt {
     /// lot C (Bot AC-A) : note Seamus, carnet Cedric, rappel facture Harry, cahier 5A, photo trombi Neville ;
     /// lot D (Bot AD-A) : carnet Luna, passage infirmerie Hermione, sortie except. Harry jour J, facture Draco ;
     /// lot E (Bot AE-A) : note Cho, absence NJ Ron (Molly), note Ginny (staff / pas notes parent), alerte CPE urgente Harry, PDF JUSTIF non vide ;
-    /// lot F (Bot AF-A) : carnet Seamus (famille), absence NJ Luna, dossier conseil Harry, photo trombi Ron, renfort menus lun–ven publiés.
+    /// lot F (Bot AF-A) : carnet Seamus (famille), absence NJ Luna, dossier conseil Harry, photo trombi Ron, renfort menus lun–ven publiés ;
+    /// lot G (Bot AG-A) : absence NJ Seamus, note Cedric, RDV psy Harry J+10, carnet Draco, ré-ensure CHARTE_LAB + REGLEMENT_LAB.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -3227,6 +3228,150 @@ impl PgEnt {
                 )
                 .await?;
             }
+        }
+
+        // --- Bot AG-A lot G : absence NJ Seamus (Finnigan), note Cedric (Diggory), RDV psy Harry J+10,
+        // carnet Draco, ré-ensure CHARTE_LAB + REGLEMENT_LAB publiés.
+        if let Some(seamus) = labo_eleve_prenom(eleves, "Seamus") {
+            let absence_seamus_ag = jour - Duration::days(6);
+            if !self
+                .eleve_est_absent(etab, seamus.id, absence_seamus_ag)
+                .await?
+            {
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: seamus.id,
+                    debut: absence_seamus_ag,
+                    fin: absence_seamus_ag,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(cedric) = labo_eleve_prenom(eleves, "Cedric") {
+            const CEDRIC_NOTE_AG_LIB: &str = "Interro Histoire-Géo lab (Cedric AG-A)";
+            if !self
+                .notes_for_eleve(etab, cedric.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(CEDRIC_NOTE_AG_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: cedric.id,
+                    matiere_id: _hg.id,
+                    valeur: 11.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(CEDRIC_NOTE_AG_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(psy) = psys.first() {
+            let role_psy = Role::Psy.as_str();
+            const RDV_PSY_AG_AUDIT: &str = "Seed audit AG-A — entretien complémentaire Harry J+10";
+            let rdvs_ag = self
+                .list_rdvs_psy_for_actor(etab, psy.user_id, role_psy, Some(harry.id), None)
+                .await?;
+            if !rdvs_ag
+                .iter()
+                .any(|r| r.motif == RDV_PSY_AG_AUDIT && r.signale_famille)
+            {
+                self.creer_rdv_psy_for_actor(
+                    role_psy,
+                    CreerRdvPsy {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        jour: jour + Duration::days(10),
+                        heure_debut: NaiveTime::from_hms_opt(11, 0, 0).unwrap(),
+                        heure_fin: NaiveTime::from_hms_opt(11, 45, 0).unwrap(),
+                        kind: EntretienPsyKind::Individuel,
+                        motif: RDV_PSY_AG_AUDIT.into(),
+                        note_interne: "Seed labo lot AG-A — créneau J+10 pour audit API psy.".into(),
+                        signale_famille: true,
+                        actor_user_id: psy.user_id,
+                    },
+                )
+                .await?;
+            }
+        }
+
+        const DRACO_CARNET_AG_TITRE: &str = "AUDIT AG-A: Suivi comportement Draco (famille)";
+        let carnet_draco_ag = self
+            .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), draco.id)
+            .await?;
+        if !carnet_draco_ag
+            .iter()
+            .any(|c| c.titre == DRACO_CARNET_AG_TITRE)
+        {
+            self.creer_carnet_entree(CreerCarnetEntree {
+                etablissement_id: etab,
+                eleve_id: draco.id,
+                date_entree: jour,
+                categorie: CarnetCategorie::Information,
+                titre: DRACO_CARNET_AG_TITRE.into(),
+                corps: "Seed labo lot AG-A — entrée carnet visible famille pour audit portail Draco Malefoy."
+                    .into(),
+                visible_famille: true,
+                actor_user_id: cpe.user_id,
+            })
+            .await?;
+        }
+
+        let docs_ag_ensure = self
+            .list_docs_a_signer_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+                false,
+            )
+            .await?;
+        if !docs_ag_ensure.iter().any(|d| d.code == "REGLEMENT_LAB") {
+            self.publier_doc_a_signer_for_actor(
+                Role::Cpe.as_str(),
+                PublierDocASigner {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    code: "REGLEMENT_LAB".into(),
+                    titre: "Règlement intérieur — signature requise".into(),
+                    corps: "Merci de prendre connaissance du règlement et de le signer en ligne.".into(),
+                    annee_scolaire: annee.clone(),
+                    echeance: Some(jour + Duration::days(30)),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+        if !docs_ag_ensure.iter().any(|d| d.code == "CHARTE_LAB") {
+            self.publier_doc_a_signer_for_actor(
+                Role::Cpe.as_str(),
+                PublierDocASigner {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    code: "CHARTE_LAB".into(),
+                    titre: "Charte numérique — signature requise".into(),
+                    corps: "Merci de lire et signer la charte d'usage des outils numériques.".into(),
+                    annee_scolaire: annee.clone(),
+                    echeance: Some(jour + Duration::days(21)),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
         }
 
         // --- Messagerie CPE → parent Harry (1 fil, 1 message) — sans signature docs

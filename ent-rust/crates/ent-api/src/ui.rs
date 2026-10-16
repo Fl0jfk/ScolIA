@@ -245,6 +245,55 @@ function toastSanctionAnnulee() {
   showEntToast('<strong>Sanction annulée</strong> — registre discipline et points actualisés.');
 }
 
+function toastConseilCree(c) {
+  const cls = esc((c && c.classe) || '');
+  const per = esc((c && c.periode_libelle) || '');
+  const jour = esc((c && c.jour) || '');
+  const heure = esc((c && c.heure) || '');
+  const horaire = jour && heure ? `${jour} ${heure}` : (jour || heure || '—');
+  showEntToast(
+    `<strong>Conseil planifié</strong> — ${cls} · ${per} · ${horaire}. `
+    + `<a href="#" id="entToastCcImport">Importer l’effectif</a>`,
+    9500,
+  );
+  const link = document.getElementById('entToastCcImport');
+  if (link) {
+    link.onclick = (ev) => {
+      ev.preventDefault();
+      document.getElementById('btnCcImport')?.click();
+    };
+  }
+}
+
+function toastConseilImportEffectif(classe, ok, skip, err) {
+  const cl = esc(String(classe || '').trim() || 'classe');
+  let detail = `${Number(ok) || 0} dossier(s) ajouté(s)`;
+  if (skip) detail += ` · ${skip} déjà présents`;
+  if (err) detail += ` · <span class="bad">${err} échec(s)</span>`;
+  showEntToast(`<strong>Effectif importé</strong> — ${cl} · ${detail}.`, 9000);
+}
+
+function toastDispensePosee(d, eleveLabel) {
+  const motif = esc((d && d.motif) || 'dispense');
+  const who = eleveLabel ? ` · ${esc(eleveLabel)}` : '';
+  const deb = d && d.debut ? String(d.debut) : '';
+  const fin = d && d.fin ? String(d.fin) : '';
+  let periode = '';
+  if (deb && fin && deb !== fin) periode = ` (${esc(deb)} → ${esc(fin)})`;
+  else if (deb) periode = ` (${esc(deb)})`;
+  showEntToast(
+    `<strong>Dispense posée</strong> — ${motif}${who}${periode}. Historique élève et file du jour actualisés.`,
+    8000,
+  );
+}
+
+function trombiLazyHintHtml() {
+  return staffEmptyDense('Trombinoscope non chargé', [
+    'Saisissez la classe puis « Charger » — les photos se chargent ensuite une par une (lazy).',
+    'Depuis l’accueil direction, le lien Trombinoscope 4B ouvre cette section et charge la classe.',
+  ], '<button type="button" id="btnTrombiEmptyLoad">Charger maintenant</button>');
+}
+
 function eleveTimelineEmptyHtml() {
   return famEmptyDense('Rien de particulier pour aujourd’hui', [
     'Cours, devoirs, carnet, repas et notes du jour s’affichent ici au fil de la journée.',
@@ -1008,6 +1057,44 @@ function toastPaiSigneFamille(prenom, motif) {
   const who = esc(String(prenom || '').trim() || 'Enfant');
   const m = motif ? ` · ${esc(String(motif).trim())}` : '';
   showEntToast(`<strong>PAI signé</strong> — ${who}${m}. Prise de connaissance enregistrée.`, 8000);
+}
+function famSanteAllergieResume(allergies, maxLen) {
+  const t = String(allergies || '').trim();
+  if (!t) return { html: '<span class="muted">Non renseigné</span>', empty: true };
+  const lim = maxLen || 40;
+  const short = t.length > lim ? t.slice(0, lim - 1) + '…' : t;
+  return { html: `<span class="warn">${esc(short)}</span>`, empty: false };
+}
+function famSanteStatsBentoHtml(f, pai, passages) {
+  const al = famSanteAllergieResume(f && f.allergies, 36);
+  let paiStrong = 'Aucun';
+  let paiSub = 'PAI';
+  let paiCls = '';
+  if (pai) {
+    if (pai.signe_famille) {
+      paiStrong = 'Signé';
+      paiSub = 'PAI · ' + esc(String(pai.motif || '').slice(0, 26));
+    } else {
+      paiStrong = 'À signer';
+      paiCls = ' warn';
+      paiSub = 'PAI · ' + esc(String(pai.motif || 'protocole').slice(0, 26));
+    }
+  } else if (f && f.pai_actif) {
+    paiStrong = 'Actif';
+    paiCls = ' warn';
+    paiSub = 'PAI (fiche)';
+  }
+  const nPass = (passages || []).length;
+  return `<div class="bento" style="margin-bottom:.55rem">
+    <div class="stat-tile bento-span-4"><strong>${al.html}</strong><span>Allergies</span></div>
+    <div class="stat-tile bento-span-4"><strong class="${paiCls.trim()}">${esc(paiStrong)}</strong><span>${paiSub}</span></div>
+    <div class="stat-tile bento-span-4"><strong>${nPass}</strong><span>Passage(s) infirmerie</span></div>
+  </div>`;
+}
+function toastReinscConfirmeeFamille(prenom, annee) {
+  const who = esc(String(prenom || '').trim() || 'Enfant');
+  const a = annee ? ` · ${esc(String(annee).trim())}` : '';
+  showEntToast(`<strong>Réinscription confirmée</strong> — ${who}${a}. Dossier enregistré pour l’année suivante.`, 9000);
 }
 function isFamDocPending(d) {
   if (!d) return false;
@@ -3364,7 +3451,10 @@ async function bindEleveNotes() {
       try {
         const devoirs = await api('/eleves/' + eid + '/devoirs?periode_id=' + encodeURIComponent(p.id));
         devOut.innerHTML = !devoirs.length
-          ? emptyState('Aucun devoir planifié', p.libelle)
+          ? famEmptyDense('Aucun devoir planifié', [
+              `Période ${esc(p.libelle || '')} — les DS et contrôles publiés par vos professeurs s’affichent ici.`,
+              'Le cahier de texte indique le travail quotidien à préparer en attendant.',
+            ], '<a href="/eleve/cahier">Mon cahier</a> · <a href="/eleve">Accueil</a>')
           : `<p class="muted">${esc(p.libelle)}</p>
              <table><thead><tr><th>Titre</th><th>Date</th><th>Coef</th><th>Sur</th></tr></thead>
              <tbody>${devoirs.map(d => `<tr>
@@ -4036,6 +4126,9 @@ async function bindHome() {
       }
       if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
       if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
+      if (role === 'direction' && nAlertUrgent) {
+        lines.push(`<li><a href="/app/alertes?sev=urgent" class="warn">${nAlertUrgent} alerte(s) CPE urgente(s)</a></li>`);
+      }
       if (wantAlert && nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE ouverte(s)</a></li>`);
       if (role === 'direction' && campOuverte) {
         lines.push(`<li><a href="/app/reinscription">Campagne réinscription ${esc(campLabel)} ouverte — suivre les dossiers</a></li>`);
@@ -15631,6 +15724,7 @@ async function bindConseils() {
         } catch (_) { err += 1; }
       }
       msg.innerHTML = `<span class="ok">${ok} ajouté(s)</span>${skip ? ' · ' + skip + ' déjà présents' : ''}${err ? ' · <span class="bad">' + err + ' échec(s)</span>' : ''}`;
+      toastConseilImportEffectif(classe, ok, skip, err);
       await loadDos();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -15695,7 +15789,7 @@ function viewNotes() {
         <button type="button" class="pill notes-classe-chip" data-classe="5A" id="notesChip5A">5A</button>
         <button type="button" class="pill notes-classe-chip" data-classe="3C" id="notesChip3C">3C</button>
         <button type="button" class="pill notes-classe-chip" data-classe="6A" id="notesChip6A">6A</button>
-        <button type="button" class="pill notes-classe-chip" data-classe="" id="notesChipAll">Toutes</button>
+        <button type="button" class="pill notes-classe-chip" data-classe="" id="notesChipAll">Toutes classes</button>
       </div>
       <div class="row">
         <label>Code <input id="matCode" value="MATH" style="width:5rem"/></label>
@@ -16500,6 +16594,9 @@ async function bindNotes() {
         msg.innerHTML = cl
           ? `<span class="ok">Filtre <strong>${esc(cl)}</strong> — devoirs et champs classe.</span>`
           : '<span class="muted">Toutes les classes (filtre devoirs levé).</span>';
+      }
+      if (!cl) {
+        showEntToast('<strong>Toutes classes</strong> — filtre devoirs levé, liste complète de la période.', 5500);
       }
     };
   });
@@ -17358,10 +17455,17 @@ async function bindReinscriptionFamille() {
       });
       out.querySelectorAll('.btnConfirmer').forEach(btn => {
         btn.onclick = async () => {
+          const eleveId = btn.dataset.eleve;
+          const row = (d.enfants || []).find(r =>
+            r.enfant && String(r.enfant.id).toLowerCase() === String(eleveId).toLowerCase()
+          );
+          const prenom = row && row.enfant ? row.enfant.prenom : '';
+          const annee = row && row.projection_n1 ? row.projection_n1.annee_scolaire : '';
           try {
-            await api('/reinscription/famille/' + btn.dataset.eleve + '/confirmer', {
+            await api('/reinscription/famille/' + eleveId + '/confirmer', {
               method: 'POST', body: '{}',
             });
+            toastReinscConfirmeeFamille(prenom, annee);
             await load();
           } catch (err) { alert(err.message); }
         };
