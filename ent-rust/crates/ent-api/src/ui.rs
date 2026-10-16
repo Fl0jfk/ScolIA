@@ -133,6 +133,81 @@ function staffEmptyDense(title, bullets, actionsHtml) {
   </div>`;
 }
 
+/** Journal modif élève (staff dossier) — bento + listes par domaine. */
+function staffJournalModifDenseHtml(list) {
+  const items = list || [];
+  if (!items.length) {
+    return {
+      stats: '',
+      body: staffEmptyDense('Aucune entrée journal', [
+        'Les modifications métier (classe, documents, vie scolaire…) s’affichent ici au fil des actions staff.',
+        'Les entrées marquées « famille » sont visibles sur le portail parent / élève.',
+      ], ''),
+    };
+  }
+  const byDom = {};
+  let nFam = 0;
+  items.forEach(j => {
+    const d = j.domaine || 'autre';
+    byDom[d] = (byDom[d] || 0) + 1;
+    if (j.visible_famille) nFam += 1;
+  });
+  const domKeys = Object.keys(byDom).sort();
+  const stats = `<div class="bento" style="margin-bottom:.55rem">
+    <div class="stat-tile bento-span-3"><strong>${items.length}</strong><span>Entrées</span></div>
+    <div class="stat-tile bento-span-3"><strong>${nFam}</strong><span>Visibles famille</span></div>
+    ${domKeys.slice(0, 2).map(k =>
+      `<div class="stat-tile bento-span-3"><strong>${byDom[k]}</strong><span>${esc(k)}</span></div>`
+    ).join('')}
+  </div>`;
+  const groups = {};
+  items.forEach(j => {
+    const d = j.domaine || 'autre';
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(j);
+  });
+  const body = domKeys.map(dom => {
+    const slice = groups[dom].slice(0, 15);
+    const rows = slice.map(j => {
+      const when = esc((j.created_at || '').slice(0, 16));
+      const act = esc(j.action || '—');
+      const fam = j.visible_famille
+        ? '<span class="pill ok">famille</span>'
+        : '<span class="pill">interne</span>';
+      return `<li style="margin:.32rem 0;line-height:1.4">
+        <strong>${esc(j.libelle)}</strong>
+        <span class="muted"> · ${when} · ${act}</span> ${fam}
+      </li>`;
+    }).join('');
+    const extra = groups[dom].length > 15
+      ? `<li class="muted">… ${groups[dom].length - 15} autre(s) dans ${esc(dom)}</li>`
+      : '';
+    return `<h4 style="margin:.85rem 0 .35rem;font-size:.92rem">${esc(dom)}</h4>
+      <ul style="margin:0;padding-left:1.1rem">${rows}${extra}</ul>`;
+  }).join('');
+  return { stats, body };
+}
+
+function homeInscPiecesSpotlightTile(insPieces, spanClass) {
+  const list = insPieces || [];
+  if (!list.length) return '';
+  let hit = list.find(s => {
+    const lab = String(s.eleve_label || '').toLowerCase();
+    return lab.includes('cedric') || lab.includes('diggory');
+  });
+  if (!hit) hit = list[0];
+  if (!hit) return '';
+  const lab = String(hit.eleve_label || 'Inscription').trim();
+  const short = lab.split(/\s+/).slice(0, 2).join(' ') || 'Élève';
+  const motif = hit.motif_code ? ` · ${hit.motif_code}` : '';
+  const n = list.length;
+  const spanLbl = n > 1
+    ? `${esc(short)} · pièces (+${n - 1})${esc(motif)}`
+    : `${esc(short)} · pièces${esc(motif)}`;
+  const span = spanClass || 'bento-span-2';
+  return `<a class="stat-tile ${span}" href="/app/inscriptions?etape=pieces"><strong class="warn">${n}</strong><span>${spanLbl}</span></a>`;
+}
+
 const PTS_VS_SEUIL_BAS = 8;
 
 function isPtsVsSoldeBas(pts) {
@@ -179,6 +254,33 @@ function toastCommissionCreee(payload) {
     ? `<a href="${esc(href)}">Ouvrir le dossier</a>`
     : `<a href="${esc(href || '/app/absences')}">Absences &amp; commissions</a>`;
   showEntToast(`<strong>Commission créée</strong> — ${who}. ${link}`, 11000);
+}
+
+function toastCommissionDecidee(d, meta) {
+  const lib = esc((d && d.decision_libelle) || (meta && meta.decision_texte) || 'Décision');
+  const ptsRaw = d && d.points_retires != null
+    ? d.points_retires
+    : (meta && meta.points_retires != null ? meta.points_retires : null);
+  const ptsTxt = ptsRaw != null ? ` · −${esc(String(ptsRaw))} pts` : '';
+  const whoRaw = (d && d.eleve_label) || (meta && meta.eleveLabel) || '';
+  const who = whoRaw ? ` · ${esc(String(whoRaw).trim())}` : '';
+  showEntToast(
+    `<strong>Commission décidée</strong> — ${lib}${ptsTxt}${who}. Registre discipline et points actualisés.`,
+    9000,
+  );
+}
+
+function toastCahierPublie(opts) {
+  const titre = opts && opts.titre ? String(opts.titre).trim() : '';
+  const lead = titre ? `${esc(titre)} — ` : '';
+  const notif = !!(opts && opts.notified);
+  const detail = notif
+    ? `${lead}publié · familles notifiées`
+    : `${lead}publié · visible sur le cahier famille`;
+  showEntToast(
+    `<strong>Cahier publié</strong> — ${detail}. <a href="/famille/cahier">Vue famille</a>`,
+    9000,
+  );
 }
 
 function goAbsencesComDeepLink(params, scrollPanel) {
@@ -1058,6 +1160,94 @@ function toastPaiSigneFamille(prenom, motif) {
   const m = motif ? ` · ${esc(String(motif).trim())}` : '';
   showEntToast(`<strong>PAI signé</strong> — ${who}${m}. Prise de connaissance enregistrée.`, 8000);
 }
+function toastFamDocGrantRequested(titre, status, opts) {
+  const o = opts || {};
+  const t = esc(String(titre || 'Document').trim());
+  const st = String(status || 'pending').toLowerCase();
+  const pap = !!o.pap;
+  if (st === 'granted') {
+    showEntToast(
+      pap
+        ? `<strong>PAP accessible</strong> — ${t}. Vous pouvez consulter le PDF.`
+        : `<strong>Accès accordé</strong> — ${t}.`,
+      8000,
+    );
+    return;
+  }
+  showEntToast(
+    pap
+      ? `<strong>Demande PAP enregistrée</strong> — ${t}. L’établissement valide l’accès (14 jours).`
+      : `<strong>Demande enregistrée</strong> — ${t}. En attente de validation.`,
+    9000,
+  );
+}
+function famEnfantListTodoStats(e, resume, docsPending, pai) {
+  const r = resume || {};
+  const abs = (r.absences_a_justifier || []).length;
+  const car = (r.carnet_a_signer || []).length;
+  const docs = (docsPending || []).filter(isFamDocPending).length;
+  const paiPending = !!(pai && !pai.signe_famille);
+  return { abs, car, docs, paiPending };
+}
+function famEnfantDenseCardHtml(e, stats) {
+  const s = stats || {};
+  const badges = [];
+  if (s.abs) badges.push(`<span class="pill-unread">${s.abs} abs.</span>`);
+  if (s.car) badges.push(`<span class="pill-unread">${s.car} carnet</span>`);
+  if (s.docs) badges.push(`<span class="pill-unread">${s.docs} docs</span>`);
+  if (s.paiPending) badges.push('<span class="pill-unread">PAI</span>');
+  const badgeRow = badges.length
+    ? `<div class="row" style="gap:.3rem;flex-wrap:wrap;margin-top:.4rem">${badges.join(' ')}</div>`
+    : '<p class="ok" style="margin:.35rem 0 0;font-size:.85rem">À jour</p>';
+  const cls = e.classe
+    ? `<span class="pill warn" style="font-weight:700;font-size:.85rem">${esc(e.classe)}</span>`
+    : '';
+  const eid = esc(e.id);
+  return `<article class="panel fam-enfant-card" data-href="/famille/enfants/${eid}" style="margin:0;padding:.55rem .65rem;border-left:3px solid var(--line);cursor:pointer">
+    <div class="row" style="justify-content:space-between;align-items:flex-start;gap:.45rem;flex-wrap:wrap">
+      <strong style="font-size:1rem;line-height:1.25">${esc(e.prenom)} ${esc(e.nom)}</strong>
+      ${cls}
+    </div>
+    <p class="muted" style="margin:.28rem 0 0;font-size:.82rem">Lien ${esc(e.lien || '—')}${famLienDroitsBadgeHtml(e)}</p>
+    ${badgeRow}
+    <p class="row" style="margin:.4rem 0 0;gap:.45rem;flex-wrap:wrap;font-size:.82rem">
+      <a href="/famille/enfants/${eid}">Fiche complète</a>
+      <a href="/famille/enfants/${eid}?section=absences">Absences</a>
+      <a href="/famille/enfants/${eid}?section=pai">PAI</a>
+      <a href="/famille/enfants/${eid}?section=sorties">Sorties</a>
+    </p>
+  </article>`;
+}
+function famEnfantsListDenseGridHtml(list, resumes, docsLists, paiList) {
+  const cards = (list || []).map((e, i) =>
+    famEnfantDenseCardHtml(
+      e,
+      famEnfantListTodoStats(e, resumes[i], docsLists[i], paiList[i]),
+    ),
+  );
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));gap:.45rem">${cards.join('')}</div>`;
+}
+function famApplyEnfantSectionDeepLink() {
+  const sec = routeState.famSection;
+  if (!sec) return;
+  delete routeState.famSection;
+  function highlight(el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.style.outline = '2px solid var(--accent, #2563eb)';
+    setTimeout(() => { el.style.outline = ''; }, 1800);
+  }
+  function tryScroll() {
+    const el = document.getElementById('fam-sec-' + sec);
+    if (!el) return false;
+    highlight(el);
+    return true;
+  }
+  if (!tryScroll()) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { tryScroll(); });
+    });
+  }
+}
 function famSanteAllergieResume(allergies, maxLen) {
   const t = String(allergies || '').trim();
   if (!t) return { html: '<span class="muted">Non renseigné</span>', empty: true };
@@ -1243,25 +1433,26 @@ function famRepasPassagesEmptyHtml(prenom, debut, fin) {
     <p class="muted" style="margin:.4rem 0 0">Chaque scan à la cantine (badge) apparaît ici — utile avant la facture mensuelle.</p>
   </div>`;
 }
-function famAccRichEmptyHtml(prenom, opts) {
+function famAccEmptyDenseHtml(prenom, opts) {
   const o = opts || {};
-  let h = `<div class="panel" style="padding:.75rem;border-left:3px solid var(--line)">
-    <p class="empty" style="margin:0">Aucun dossier psy signalé à la famille${prenom ? ' pour <strong>' + esc(prenom) + '</strong>' : ''}.</p>
-    <p class="muted" style="margin:.5rem 0 0">Quand l’établissement ouvre un suivi ou partage des RDV, ils apparaissent ici (sans notes confidentielles).</p>
-    <ul class="muted" style="margin:.5rem 0 0;padding-left:1.1rem">
-      <li><a href="/famille/messages">Messagerie</a> — contacter le CPE ou l’équipe éducative</li>
-      <li><a href="/famille/sante">Santé</a> — fiche, PAI, passages infirmerie</li>`;
+  const who = String(prenom || '').trim();
+  const title = who
+    ? `Aucun dossier psy partagé pour ${who}`
+    : 'Aucun dossier psy signalé à la famille';
+  const bullets = [
+    'Quand l’établissement ouvre un suivi ou partage des RDV, ils apparaissent ici (sans notes confidentielles).',
+    '<a href="/famille/messages">Messagerie</a> — contacter le CPE ou l’équipe éducative',
+    '<a href="/famille/sante">Santé</a> — fiche, PAI, passages infirmerie',
+  ];
   if (o.hasPapLocked) {
-    h += `<li><strong>PAP</strong> — utilisez le bandeau ci-dessus pour demander l’accès au plan d’accompagnement</li>`;
+    bullets.push('<strong>PAP</strong> — utilisez le bandeau ci-dessus pour demander l’accès au plan d’accompagnement');
   } else if (o.hasPapGranted) {
-    h += `<li><strong>PAP</strong> — document accessible dans vos documents enfant</li>`;
+    bullets.push('<strong>PAP</strong> — document accessible dans vos documents enfant');
   }
-  h += `</ul>`;
   if (o.noRdvHint) {
-    h += `<p class="muted" style="margin:.5rem 0 0">Aucun RDV psy visible : soit pas de rendez-vous planifié, soit non partagé avec la famille.</p>`;
+    bullets.push('Aucun RDV psy visible : pas planifié ou non partagé avec la famille.');
   }
-  h += `</div>`;
-  return h;
+  return famEmptyDense(title, bullets, '<a href="/famille/messages">Contacter le psy</a>');
 }
 async function famInternatEmptyHtml(id, prenom) {
   let regime = '';
@@ -1298,12 +1489,12 @@ function famPapGrantCalloutHtml(papDocs) {
          <p class="muted" style="margin:.25rem 0 0">Vous serez notifié lorsque l’accès sera accordé ou refusé.</p>`
       : etat === 'refused'
         ? `<p class="bad" style="margin:.45rem 0 0">${esc(famDocGrantEtatLabel('refused'))} — contactez l’établissement pour en savoir plus.</p>
-           <button type="button" class="primary btnFamPapGrant" data-id="${esc(d0.id)}" style="margin-top:.35rem">Redemander l’accès</button>`
+           <button type="button" class="primary btnFamPapGrant" data-id="${esc(d0.id)}" data-titre="${esc(d0.titre || 'PAP')}" style="margin-top:.35rem">Redemander l’accès</button>`
         : etat === 'expired'
           ? `<p class="warn" style="margin:.45rem 0 0">${esc(famDocGrantEtatLabel('expired'))}.</p>
-             <button type="button" class="primary btnFamPapGrant" data-id="${esc(d0.id)}" style="margin-top:.35rem">Renouveler l’accès au PAP</button>`
+             <button type="button" class="primary btnFamPapGrant" data-id="${esc(d0.id)}" data-titre="${esc(d0.titre || 'PAP')}" style="margin-top:.35rem">Renouveler l’accès au PAP</button>`
           : `<p class="muted" style="margin:.45rem 0 0">Demandez un accès temporaire pour consulter le PDF du PAP.</p>
-             <button type="button" class="primary btnFamPapGrant" data-id="${esc(d0.id)}" style="margin-top:.35rem">Demander accès au PAP</button>`}
+             <button type="button" class="primary btnFamPapGrant" data-id="${esc(d0.id)}" data-titre="${esc(d0.titre || 'PAP')}" style="margin-top:.35rem">Demander accès au PAP</button>`}
   </div>`;
 }
 async function famPaiBannerHtml(enfantId, extraLinks) {
@@ -1326,14 +1517,30 @@ async function hydrateFamDocGrantEtats(docs) {
     syncFamDocGrantEtatFromDoc(d);
   }
 }
-async function requestFamDocGrant(docId) {
+async function requestFamDocGrant(docId, opts) {
+  const o = opts || {};
   const g = await api('/documents/' + docId + '/grants', {
     method: 'POST',
     body: JSON.stringify({ duration_days: 14, note: 'besoin de lecture (famille)' }),
   });
   const st = String((g && g.status) || 'pending').toLowerCase();
   writeFamDocGrantEtat(docId, st);
+  const titre = o.titre || (g && (g.document_titre || g.titre)) || 'Document';
+  toastFamDocGrantRequested(titre, st, { pap: !!o.pap });
   return g;
+}
+function bindFamPapGrantButtons(root, reload) {
+  (root || document).querySelectorAll('.btnFamPapGrant').forEach(btn => {
+    btn.onclick = async () => {
+      try {
+        await requestFamDocGrant(btn.dataset.id, {
+          titre: btn.dataset.titre || 'PAP',
+          pap: true,
+        });
+        if (reload) await reload();
+      } catch (err) { alert(err.message); }
+    };
+  });
 }
 function famDocGrantEtatCellHtml(d) {
   const etat = syncFamDocGrantEtatFromDoc(d);
@@ -1588,6 +1795,7 @@ function linkActive(active, href) {
   return active === href
     || (href !== '/app' && href !== '/famille' && href !== '/eleve' && active.startsWith(href + '/'))
     || (href === '/famille' && (active === '/famille' || active === '/famille/'))
+    || (href === '/famille/enfants' && (active === '/famille/enfants' || active.startsWith('/famille/enfants/')))
     || (href === '/eleve' && (active === '/eleve' || active === '/eleve/'));
 }
 
@@ -1640,7 +1848,8 @@ function navGroup(active, label, items) {
 function navHtml(active) {
   if (isParent()) {
     return [
-      ['/famille', 'Mes enfants'],
+      ['/famille/enfants', 'Mes enfants'],
+      ['/famille', 'Accueil'],
       ['/famille/vie-scolaire', 'Vie scolaire'],
       ['/famille/sante', 'Santé'],
       ['/famille/journal', 'Journal'],
@@ -3892,6 +4101,9 @@ async function bindHome() {
     return s === 'en_attente' || s === 'demandee' || s === 'ouverte' || s === 'soumise';
   }).length;
   const nIns = INSC_HOME.reduce((s, _, i) => s + ((insByEtape[i] || []).length), 0);
+  const insPiecesHome = insByEtape[INSC_HOME.indexOf('pieces')] || [];
+  const inscPiecesTilePulse = homeInscPiecesSpotlightTile(insPiecesHome, 'bento-span-2');
+  const inscPiecesTileKpi = homeInscPiecesSpotlightTile(insPiecesHome, 'bento-span-3');
   const nGrants = (grants || []).length;
   const nPassInfJour = role === 'cpe' ? (passagesInfJour || []).length : 0;
   let comSnap = { count: 0, coms: 0, first: null };
@@ -3994,6 +4206,7 @@ async function bindHome() {
         <a class="stat-tile bento-span-2" href="/app/eleves"><strong>${nEffTotal != null ? nEffTotal : '—'}</strong><span>Effectif total</span></a>
         <a class="stat-tile bento-span-2" href="/app/eleves?trombi=4B"><strong>4B</strong><span>Trombinoscope</span></a>
         <a class="stat-tile bento-span-2" href="/app/inscriptions"><strong>${nIns}</strong><span>File inscriptions</span></a>
+        ${inscPiecesTilePulse}
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
         <a class="stat-tile bento-span-2" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
         <a class="stat-tile bento-span-2" href="/app/vs"><strong>${nEff4b || '·'}</strong><span>Effectif 4B</span></a>
@@ -4060,6 +4273,7 @@ async function bindHome() {
       <a class="stat-tile bento-span-3" href="/app/absences"><strong>${nAbs}</strong><span>Abs. VS à traiter · ${nAbsAll} signalées</span></a>
       <a class="stat-tile bento-span-3" href="/app/rh"><strong>${nRh}</strong><span>RH à valider</span></a>
       ${inscTile}
+      ${role === 'admin' ? inscPiecesTileKpi : ''}
       ${reinscTile}
       <a class="stat-tile bento-span-3" href="/app/vs"><strong>${nEff4b || '—'}</strong><span>Effectif 4B aujourd’hui</span></a>
       <a class="stat-tile bento-span-3" href="/app/absences#absIncSanPanel"><strong class="${nSanJour4b ? 'warn' : ''}">${nSanJour4b != null ? nSanJour4b : '—'}</strong><span>Sanctions du jour (4B)</span></a>
@@ -4403,11 +4617,52 @@ function viewFamilleHome() {
 }
 
 function viewFamilleEnfant(id) {
-  return shell('/famille', `
+  return shell('/famille/enfants/' + id, `
     <div class="panel">
-      <div class="row"><a href="/famille">← Mes enfants</a></div>
+      <div class="row"><a href="/famille/enfants">← Mes enfants</a></div>
       <div id="enfantOut" class="muted">Chargement…</div>
     </div>`);
+}
+
+function viewFamilleEnfantsList() {
+  return shell('/famille/enfants', `
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+        <h2 style="margin:0">Mes enfants</h2>
+        <a href="/famille">Accueil famille</a>
+      </div>
+      <p class="muted">Cartes compactes — absences, PAI, documents et fiche détaillée par enfant.</p>
+      <div id="famEnfantsListOut" class="muted" style="margin-top:.65rem">Chargement…</div>
+    </div>`);
+}
+
+async function bindFamilleEnfantsList() {
+  const out = document.getElementById('famEnfantsListOut');
+  if (!out) return;
+  try {
+    const list = await fetchFamEnfants(true);
+    if (!list.length) {
+      out.innerHTML = famEmptyDense('Aucun enfant lié', [
+        'Vérifiez que votre compte parent est rattaché au bon foyer.',
+        'L’établissement peut lier plusieurs responsables légaux au même dossier.',
+      ], '<a href="/famille/messages">Contacter l’école</a>');
+      return;
+    }
+    const [resumes, docsLists, paiList] = await Promise.all([
+      Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
+      Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
+      Promise.all(list.map(e => api('/eleves/' + e.id + '/pai').catch(() => null))),
+    ]);
+    out.innerHTML = famEnfantsListDenseGridHtml(list, resumes, docsLists, paiList);
+    out.querySelectorAll('.fam-enfant-card[data-href]').forEach(card => {
+      card.onclick = (ev) => {
+        if (ev.target.closest('a')) return;
+        go(card.dataset.href);
+      };
+    });
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
 }
 
 async function bindFamilleHome() {
@@ -5240,19 +5495,12 @@ async function bindFamilleEnfant(id) {
         box.querySelectorAll('.btnFamDocGrant').forEach(btn => {
           btn.onclick = async () => {
             try {
-              await requestFamDocGrant(btn.dataset.id);
+              await requestFamDocGrant(btn.dataset.id, { titre: btn.dataset.titre });
               await loadFamDocsTiroir();
             } catch (err) { alert(err.message); }
           };
         });
-        box.querySelectorAll('.btnFamPapGrant').forEach(btn => {
-          btn.onclick = async () => {
-            try {
-              await requestFamDocGrant(btn.dataset.id);
-              await loadFamDocsTiroir();
-            } catch (err) { alert(err.message); }
-          };
-        });
+        bindFamPapGrantButtons(box, loadFamDocsTiroir);
       } catch (err) {
         box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
       }
@@ -5923,16 +6171,7 @@ async function bindFamilleEnfant(id) {
       contBox.innerHTML = h;
     }
 
-    if (routeState.famSection) {
-      const sec = routeState.famSection;
-      delete routeState.famSection;
-      const el = document.getElementById('fam-sec-' + sec);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        el.style.outline = '2px solid var(--accent, #2563eb)';
-        setTimeout(() => { el.style.outline = ''; }, 1800);
-      }
-    }
+    famApplyEnfantSectionDeepLink();
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
@@ -6737,7 +6976,8 @@ function renderDossier(d) {
       <div id="dosDispVsOut" class="muted">Chargement…</div>
     <h4 style="margin-top:1.25rem">Commissions VS</h4>
       <div id="comDossierOut" class="muted">Chargement…</div>
-    <h4 style="margin-top:1.25rem">Journal du jour</h4>
+    <h4 style="margin-top:1.25rem">Journal des modifications</h4>
+      <div id="journalDossierStats"></div>
       <div id="journalDossierOut" class="muted">Chargement…</div>
     </section>`;
   }
@@ -7458,20 +7698,16 @@ async function bindDossier(id) {
         comBox.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
       }
     }
+    const jourStats = document.getElementById('journalDossierStats');
     const jourBox = document.getElementById('journalDossierOut');
     if (jourBox) {
       try {
         const list = await api('/eleves/' + id + '/journal?limit=50');
-        jourBox.innerHTML = list.length
-          ? `<table><thead><tr><th>Quand</th><th>Domaine</th><th>Action</th><th>Libellé</th><th>Famille</th></tr></thead>
-             <tbody>${list.map(j => `<tr>
-               <td class="muted">${esc((j.created_at || '').slice(0, 16))}</td>
-               <td>${esc(j.domaine)}</td><td>${esc(j.action)}</td>
-               <td>${esc(j.libelle)}</td>
-               <td>${j.visible_famille ? 'oui' : 'non'}</td>
-             </tr>`).join('')}</tbody></table>`
-          : '<p class="empty">Aucune entrée journal.</p>';
+        const dense = staffJournalModifDenseHtml(list);
+        if (jourStats) jourStats.innerHTML = dense.stats;
+        jourBox.innerHTML = dense.body;
       } catch (e) {
+        if (jourStats) jourStats.innerHTML = '';
         jourBox.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
       }
     }
@@ -8040,13 +8276,16 @@ async function bindCahier(base) {
         });
         const famLink = ' · <a href="/famille/cahier">Vue famille — cahier</a>';
         let publishedMsg = '<span class="ok">Publié — les familles voient le cahier</span>' + famLink;
+        let notifiedParents = false;
         const entryId = created && created.id;
+        const titrePub = document.getElementById('cdtTitre').value.trim();
         if (entryId) {
           try {
             await api('/cahier-texte/' + encodeURIComponent(entryId) + '/notify-parents', {
               method: 'POST',
               body: '{}',
             });
+            notifiedParents = true;
             publishedMsg = '<span class="ok">Publié — les familles ont été notifiées</span>' + famLink;
           } catch (notifyErr) {
             const st = notifyErr && notifyErr.status;
@@ -8057,7 +8296,7 @@ async function bindCahier(base) {
           }
         }
         msg.innerHTML = publishedMsg;
-        showEntToast(publishedMsg);
+        toastCahierPublie({ titre: titrePub, notified: notifiedParents });
         document.getElementById('cdtConsigne').value = '';
         await load();
       } catch (e) {
@@ -13989,6 +14228,12 @@ async function bindAbsences() {
             method: 'POST',
             body: JSON.stringify({ decision, decision_texte, points_retires }),
           });
+          const selBtn = row && row.querySelector('.btnComSel[data-did="' + b.dataset.did + '"]');
+          const eidInline = selBtn && selBtn.dataset.eid;
+          const eleveLabel = (d && d.eleve_label)
+            || (eidInline && ELEVE_NAME_CACHE[eidInline])
+            || '';
+          toastCommissionDecidee(d, { decision_texte, points_retires, eleveLabel });
           comMsg.innerHTML = `<span class="ok">Décision enregistrée · ${esc(d.decision_libelle || decision_texte)} · −${d.points_retires} pts (sans quitter la liste)</span>`;
           await loadCommissions();
           await openCommission(document.getElementById('comId').value);
@@ -14048,13 +14293,21 @@ async function bindAbsences() {
     comMsg.textContent = '';
     const did = document.getElementById('comDosId').value.trim();
     try {
+      const decision_texte = document.getElementById('comDec').selectedOptions[0].text;
+      const points_retires = Number(document.getElementById('comPts').value) || 0;
       const d = await api('/vs/commissions/dossiers/' + did + '/decider', {
         method: 'POST',
         body: JSON.stringify({
           decision: document.getElementById('comDec').value,
-          decision_texte: document.getElementById('comDec').selectedOptions[0].text,
-          points_retires: Number(document.getElementById('comPts').value) || 0,
+          decision_texte,
+          points_retires,
         }),
+      });
+      const eidCom = document.getElementById('comEleve').value.trim();
+      toastCommissionDecidee(d, {
+        decision_texte,
+        points_retires,
+        eleveLabel: (d && d.eleve_label) || (eidCom && ELEVE_NAME_CACHE[eidCom]) || '',
       });
       comMsg.innerHTML = `<span class="ok">Décision ${esc(d.decision_libelle || '')} · −${d.points_retires} pts</span>`;
       await loadCommissions();
@@ -19880,7 +20133,13 @@ async function bindFamilleAccompagnement() {
   }
   async function load() {
     const id = sel.value;
-    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    if (!id) {
+      out.innerHTML = famEmptyDense('Aucun enfant lié', [
+        'Sélectionnez un enfant dès qu’il apparaît dans la liste.',
+        'Sinon, vérifiez le rattachement de votre compte parent au foyer.',
+      ], '<a href="/famille/messages">Contacter l’école</a>');
+      return;
+    }
     out.textContent = 'Chargement…';
     try {
       const docs = await api('/eleves/' + id + '/documents').catch(() => []);
@@ -19912,7 +20171,7 @@ async function bindFamilleAccompagnement() {
           `<li>${esc(r.jour)} ${esc(r.heure_debut)}–${esc(r.heure_fin)} · ${esc(r.kind_libelle || r.kind)} · <span class="pill">${esc(r.statut)}</span></li>`
         ).join('')}</ul>`;
       } else if (!psyVisible) {
-        h += famAccRichEmptyHtml(prenom, {
+        h += famAccEmptyDenseHtml(prenom, {
           hasPapLocked: papDocs.some(d => !d.accessible),
           hasPapGranted: papDocs.some(d => d.accessible),
           noRdvHint: true,
@@ -19923,14 +20182,7 @@ async function bindFamilleAccompagnement() {
       }
       h += `<p class="muted" style="margin-top:.75rem"><a href="/famille/enfants/${esc(id)}">Fiche enfant</a> · <a href="/famille/messages">Messages</a></p>`;
       out.innerHTML = h;
-      out.querySelectorAll('.btnFamPapGrant').forEach(btn => {
-        btn.onclick = async () => {
-          try {
-            await requestFamDocGrant(btn.dataset.id);
-            await load();
-          } catch (err) { alert(err.message); }
-        };
-      });
+      bindFamPapGrantButtons(out, load);
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -21379,6 +21631,12 @@ async function render() {
     root.innerHTML = viewFamilleEnfant(fm[1]);
     bindShell();
     await bindFamilleEnfant(fm[1]);
+    return;
+  }
+  if (p === '/famille/enfants') {
+    root.innerHTML = viewFamilleEnfantsList();
+    bindShell();
+    await bindFamilleEnfantsList();
     return;
   }
   if (p === '/famille/cahier') {
