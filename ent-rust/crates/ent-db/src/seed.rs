@@ -731,6 +731,7 @@ impl PgEnt {
     /// lot K (Bot AK-A) : ré-ensure lot J Ginny/Ron, note Hermione (autre matière), photo trombi Cho, 2ᵉ message fil CPE Harry, ré-ensure facture LAB-HARRY-2 (reste > 0).
     /// lot L (Bot AL-A) : note Luna (suppl.), absence NJ Seamus, photo trombi Luna, dossier commission Harry ouvert (decision null), Molly mes_enfants Ron+Ginny.
     /// lot M (Bot AM-A) : carnet Cedric (Diggory) si pas d’entrée récente famille, note Cho, photo trombi Cedric, PAI Harry non signé, facture LAB-DRACO.
+    /// lot N (Bot AN-A) : note Seamus (Finnigan), absence NJ Luna (Lovegood), photo trombi Hermione, ré-ensure CHARTE_LAB + REGLEMENT_LAB Harry, Molly mes_enfants Ron+Ginny.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -4325,6 +4326,170 @@ impl PgEnt {
                     role_compta,
                 )
                 .await?;
+        }
+
+        // --- Bot AN-A lot N : note Seamus (Finnigan), absence NJ Luna (Lovegood), photo trombi Hermione,
+        // ré-ensure CHARTE_LAB + REGLEMENT_LAB Harry, renfort Molly → Ron + Ginny dans mes_enfants.
+        if let Some(seamus) = labo_eleve_prenom(eleves, "Seamus") {
+            const SEAMUS_NOTE_AN_LIB: &str = "Interro Français lab (Seamus AN-A)";
+            if !self
+                .notes_for_eleve(etab, seamus.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(SEAMUS_NOTE_AN_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: seamus.id,
+                    matiere_id: _fr.id,
+                    valeur: 12.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(SEAMUS_NOTE_AN_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(luna) = labo_eleve_prenom(eleves, "Luna") {
+            let absences_luna_an = self.list_absences_eleve(etab, luna.id).await?;
+            let luna_a_absence_nj = absences_luna_an
+                .iter()
+                .any(|a| a.statut == AbsenceStatut::ATraiter);
+            if !luna_a_absence_nj {
+                let absence_luna_an = jour - Duration::days(5);
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: luna.id,
+                    debut: absence_luna_an,
+                    fin: absence_luna_an,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            if self
+                .get_eleve(etab, hermione.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        hermione.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        let docs_an_ensure = self
+            .list_docs_a_signer_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+                false,
+            )
+            .await?;
+        if !docs_an_ensure.iter().any(|d| d.code == "REGLEMENT_LAB") {
+            self.publier_doc_a_signer_for_actor(
+                Role::Cpe.as_str(),
+                PublierDocASigner {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    code: "REGLEMENT_LAB".into(),
+                    titre: "Règlement intérieur — signature requise".into(),
+                    corps: "Merci de prendre connaissance du règlement et de le signer en ligne.".into(),
+                    annee_scolaire: annee.clone(),
+                    echeance: Some(jour + Duration::days(30)),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+        if !docs_an_ensure.iter().any(|d| d.code == "CHARTE_LAB") {
+            self.publier_doc_a_signer_for_actor(
+                Role::Cpe.as_str(),
+                PublierDocASigner {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    code: "CHARTE_LAB".into(),
+                    titre: "Charte numérique — signature requise".into(),
+                    corps: "Merci de lire et signer la charte d'usage des outils numériques.".into(),
+                    annee_scolaire: annee.clone(),
+                    echeance: Some(jour + Duration::days(21)),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+
+        if let (Some(ron), Some(ginny)) = (
+            labo_eleve_prenom(eleves, "Ron"),
+            labo_eleve_prenom(eleves, "Ginny"),
+        ) {
+            let molly_user = ron.parent.user_id;
+            let molly_foyer = ron.foyer_id;
+            let enfants_molly = self
+                .mes_enfants_for_parent(etab, molly_user, Role::Parent.as_str())
+                .await?;
+            let ids_molly: Vec<Uuid> = enfants_molly.iter().map(|e| e.eleve.id).collect();
+            if !ids_molly.iter().any(|id| *id == ron.id) {
+                self.link_parent(CreateLien {
+                    etablissement_id: etab,
+                    eleve_id: ron.id,
+                    user_id: molly_user,
+                    foyer_id: Some(molly_foyer),
+                    lien: "mère".into(),
+                    peut_voir_notes: ron.peut_voir_notes,
+                    peut_voir_vs: ron.peut_voir_vs,
+                    peut_justifier_absence: ron.peut_justifier,
+                    peut_autoriser_sorties: ron.peut_justifier,
+                    est_payeur: true,
+                    part_paiement: Some(100),
+                })
+                .await?;
+            }
+            if !ids_molly.iter().any(|id| *id == ginny.id) {
+                self.link_parent(CreateLien {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    user_id: molly_user,
+                    foyer_id: Some(molly_foyer),
+                    lien: "mère".into(),
+                    peut_voir_notes: ginny.peut_voir_notes,
+                    peut_voir_vs: ginny.peut_voir_vs,
+                    peut_justifier_absence: ginny.peut_justifier,
+                    peut_autoriser_sorties: ginny.peut_justifier,
+                    est_payeur: true,
+                    part_paiement: Some(100),
+                })
+                .await?;
+            }
+            if let Some(ginny_idx) = eleves
+                .iter()
+                .position(|e| e.prenom.eq_ignore_ascii_case("Ginny"))
+            {
+                eleves[ginny_idx].parent = ron.parent.clone();
+                eleves[ginny_idx].foyer_id = molly_foyer;
+            }
         }
 
         Ok(())
