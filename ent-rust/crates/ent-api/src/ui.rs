@@ -232,19 +232,23 @@ function toastGrantDecide(accepter, meta) {
   const duree = m.duration_days != null && Number(m.duration_days) > 0
     ? `${Number(m.duration_days)} j`
     : '—';
+  const noteRaw = String(m.note || m.motif || '').trim();
+  const notePart = noteRaw ? esc(noteRaw.length > 36 ? noteRaw.slice(0, 36) + '…' : noteRaw) : '—';
   const ok = !!accepter;
   const verdict = ok ? 'Accordé' : 'Refusé';
+  const eid = m.eleveId ? String(m.eleveId).trim() : '';
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}">Dossier élève</a> · ` : '';
   const tiles = `<div class="stat-tile bento-span-4" style="border-color:${ok ? 'var(--ok,#16a34a)' : 'var(--warn,#b45309)'}">
-      <strong class="${ok ? 'ok' : 'warn'}">${verdict}</strong><span>Grant · tiroir restreint</span>
+      <strong class="${ok ? 'ok' : 'warn'}">${verdict}</strong><span>Accès document · tiroir</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong>${doc}</strong><span>Document</span></div>
-    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>Durée ${esc(duree)}</span></div>`;
+    <div class="stat-tile bento-span-4"><strong>${doc}</strong><span>Pièce concernée</span></div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>${esc(duree)} · ${notePart}</span></div>`;
   showEntToast(
-    `<strong>${ok ? 'Accès accordé' : 'Accès refusé'}</strong>`
+    `<strong>${ok ? 'Grant accordé' : 'Grant refusé'}</strong>`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
-    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}`
     + `<a href="/app/etab">Établissement</a> · file actualisée</p>`,
-    8500,
+    9000,
   );
 }
 
@@ -911,7 +915,39 @@ function portalMsgDenseHtml(fils, nonLus, opts) {
   return `<ul class="eleve-hub-list eleve-hub-list-dense">${preview}</ul>${foot}`;
 }
 
+/** Accueil famille — messages non lus (bento). */
+function famHomeMsgTipDenseHtml(fils, nonLus) {
+  const n = Number(nonLus) || 0;
+  if (!n) return '';
+  const filsList = (fils || []).slice().sort((a, b) =>
+    (Number(b.nb_non_lus) || 0) - (Number(a.nb_non_lus) || 0)
+    || String(b.dernier_message_at || b.updated_at || b.last_message_at || '').localeCompare(String(a.dernier_message_at || a.updated_at || a.last_message_at || ''))
+  );
+  const unread = filsList.filter(f => (Number(f.nb_non_lus) || 0) > 0);
+  const top = unread[0] || filsList[0] || null;
+  const nFil = unread.length || filsList.length;
+  const subjectRaw = top ? String(top.sujet || top.titre || 'Fil').trim() : '—';
+  const subject = subjectRaw.length > 30 ? esc(subjectRaw.slice(0, 30)) + '…' : esc(subjectRaw);
+  const topN = top ? (Number(top.nb_non_lus) || 0) : 0;
+  const filHref = top && top.id
+    ? `/famille/messages?fil=${encodeURIComponent(String(top.id))}`
+    : '/famille/messages';
+  return `<div class="bento" style="margin:0">
+    <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none;border-color:var(--warn,#b45309)">
+      <strong class="warn">${n}</strong><span>Message(s) non lu(s)</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>${subject}</strong><span>${topN ? topN + ' non lu(s) · ' : ''}${nFil} fil(s)</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+      <strong>↓</strong><span>Ouvrir la messagerie</span>
+    </a>
+  </div>`;
+}
+
 function famHomeMsgDenseHtml(fils, nonLus) {
+  const dense = famHomeMsgTipDenseHtml(fils, nonLus);
+  if (dense) return dense;
   return portalMsgDenseHtml(fils, nonLus, { messagesHref: '/famille/messages' });
 }
 
@@ -981,6 +1017,51 @@ function refreshEleveHomeCarnetTip(opts) {
   const el = document.getElementById('eleveHomeCarnetTip');
   if (!el) return;
   el.innerHTML = eleveHomeCarnetTipDenseHtml(opts);
+}
+
+/** /eleve/docs — synthèse docs + carnet (bento). */
+function eleveDocsPageTipDenseHtml(pendingDocs, pendingCar) {
+  const docs = pendingDocs || [];
+  const cars = pendingCar || [];
+  const nDocs = docs.length;
+  const nCar = cars.length;
+  const nTot = nDocs + nCar;
+  if (!nTot) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">OK</strong><span>Charte, carnet et autorisations à jour</span>
+      </div>
+      <a class="stat-tile bento-span-4" href="/eleve/documents" style="text-decoration:none">
+        <strong>Tiroir</strong><span>Bulletins &amp; pièces déposées</span>
+      </a>
+      <div class="stat-tile bento-span-4"><strong class="muted">Lecture</strong><span>« Lire » avant chaque signature</span></div>
+    </div>`;
+  }
+  const first = docs[0] || cars[0] || null;
+  const firstTitle = first && (first.titre || first.code)
+    ? String(first.titre || first.code).trim()
+    : '';
+  const firstShort = firstTitle.length > 32
+    ? esc(firstTitle.slice(0, 32)) + '…'
+    : esc(firstTitle || '—');
+  const docsTile = nDocs
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nDocs}</strong><span>Document(s) à signer</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Docs signés</span></div>`;
+  const carTile = nCar
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nCar}</strong><span>Entrée(s) carnet</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Carnet à jour</span></div>`;
+  const nextTile = `<div class="stat-tile bento-span-4"><strong>${firstShort}</strong><span>Prochaine signature · lecture obligatoire</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${docsTile}${carTile}${nextTile}</div>`;
+}
+
+function refreshEleveDocsPageTip(pendingDocs, pendingCar) {
+  const el = document.getElementById('eleveDocsPageTip');
+  if (!el) return;
+  el.innerHTML = eleveDocsPageTipDenseHtml(pendingDocs, pendingCar);
 }
 
 function eleveSanctionsActives(sanctions) {
@@ -1200,6 +1281,93 @@ function famEnfantCarnetTipDenseHtml(opts) {
       <strong>VS</strong><span>Carnet · sanctions · commissions</span>
     </a>`;
   return `<div class="bento" style="margin:0 0 .55rem">${signTile}${detailTile}${vsTile}</div>`;
+}
+
+/** Fiche enfant ouverte — synthèse à traiter (toast bento). */
+function toastFamEnfantOuverte(e, stats, opts) {
+  const o = opts || {};
+  const s = stats || {};
+  const who = esc(`${String(e.prenom || '').trim()} ${String(e.nom || '').trim()}`.trim() || 'Enfant');
+  const cls = e.classe ? esc(String(e.classe)) : '—';
+  const eid = e.id ? esc(String(e.id)) : '';
+  const nAbs = Number(s.abs) || 0;
+  const nCar = Number(s.car) || 0;
+  const nDocs = Number(s.docs) || 0;
+  const paiPending = !!s.paiPending;
+  const nTodo = nAbs + nCar + nDocs + (paiPending ? 1 : 0);
+  const absTile = nAbs
+    ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=absences" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nAbs}</strong><span>Abs. à justifier</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Absences</span></div>`;
+  const carTile = nCar
+    ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=carnet" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nCar}</strong><span>Carnet à signer</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4"><strong>${nCar}</strong><span>Carnet</span></div>`;
+  const docsTile = nDocs
+    ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=docs" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nDocs}</strong><span>Docs à signer</span>
+      </a>`
+    : (paiPending
+      ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=pai" style="text-decoration:none;border-color:var(--warn,#b45309)">
+          <strong class="warn">PAI</strong><span>Protocole à signer</span>
+        </a>`
+      : `<div class="stat-tile bento-span-4"><strong class="ok">OK</strong><span>Docs &amp; PAI à jour</span></div>`);
+  const sec = o.deepSection ? String(o.deepSection).trim() : '';
+  const secFoot = sec && eid
+    ? ` · <a href="/famille/enfants/${eid}?section=${esc(sec)}">Section ${esc(sec)}</a>`
+    : '';
+  showEntToast(
+    `<strong>Fiche enfant</strong> — ${who} · ${cls}`
+    + `<div class="bento" style="margin:.4rem 0 0">${absTile}${carTile}${docsTile}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/enfants">Mes enfants</a> · `
+    + `<a href="/famille/enfants/${eid}">Fiche complète</a>${secFoot}</p>`,
+    nTodo ? 9500 : 7000,
+  );
+}
+
+function maybeToastFamEnfantOuverte(e, stats, opts) {
+  if (!isParent() || !isFamilleEnfantFlux()) return;
+  const id = e && e.id ? String(e.id) : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_enfant_open_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamEnfantOuverte(e, stats, opts);
+}
+
+/** Journal visible famille — bento (fiche ?section=journal). */
+function famPortalJournalTipDenseHtml(list) {
+  const items = list || [];
+  if (!items.length) return '';
+  const byDom = {};
+  items.forEach(j => {
+    const d = j.domaine || 'autre';
+    byDom[d] = (byDom[d] || 0) + 1;
+  });
+  const domKeys = Object.keys(byDom).sort();
+  const last = items[0];
+  const lastLabel = last && last.libelle ? String(last.libelle).trim() : '—';
+  const lastShort = lastLabel.length > 28 ? esc(lastLabel.slice(0, 28)) + '…' : esc(lastLabel);
+  const domTiles = domKeys.slice(0, 2).map(k =>
+    `<div class="stat-tile bento-span-4"><strong>${byDom[k]}</strong><span>${esc(k)}</span></div>`,
+  ).join('');
+  const padTile = domKeys.length >= 2
+    ? domTiles
+    : `${domTiles}<div class="stat-tile bento-span-4"><strong>${lastShort}</strong><span>Dernière entrée</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong>${items.length}</strong><span>Entrée(s) journal</span></div>
+    ${padTile}
+    <a class="stat-tile bento-span-4" href="/famille/journal" style="text-decoration:none">
+      <strong>Journal</strong><span>Vue multi-enfants</span>
+    </a>
+  </div>`;
 }
 
 /** Bannière push famille (lab) — tuiles denses. */
@@ -1731,6 +1899,44 @@ function grilleMoyenneLiveTipHtml(vals) {
   }
   const m = vals.reduce((a, b) => a + b, 0) / vals.length;
   return `<span class="ok"><strong>Moyenne live</strong> ${m.toFixed(1)} / 20</span> · ${vals.length} note(s) dans la grille`;
+}
+
+/** /app/notes — grille sans devoir ouvert (bento). */
+function notesGrilleEmptyTipDenseHtml() {
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>—</strong><span>Aucun devoir ouvert · effectif du jour</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesGrilleEmptyDevListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Devoirs · bouton « Grille » sur une ligne</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesGrilleEmpty4bBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>4B</strong><span>Labo · grille Potions</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesGrilleEmptyTipGo() {
+  const listBtn = document.getElementById('notesGrilleEmptyDevListBtn');
+  if (listBtn) {
+    listBtn.onclick = () => {
+      document.getElementById('btnDevList')?.click();
+      document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const labBtn = document.getElementById('notesGrilleEmpty4bBtn');
+  if (labBtn) labBtn.onclick = () => goNotesGrille4bPotions();
+}
+
+function refreshNotesGrilleEmptyTip(active) {
+  const el = document.getElementById('notesGrilleEmptyTip');
+  if (!el) return;
+  if (active) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = notesGrilleEmptyTipDenseHtml();
+  bindNotesGrilleEmptyTipGo();
 }
 
 function refreshGrilleMoyenneLiveTip(sur) {
@@ -3263,6 +3469,137 @@ function adminUsersRolesTipDenseHtml(users) {
   return `<div class="bento" style="margin:0 0 .65rem">${tiles}${restTile}</div>`;
 }
 
+/** Toast — compte staff créé (POST /auth/register). */
+function toastUtilisateurCree(u, opts) {
+  const o = opts || {};
+  const user = u || {};
+  const email = esc(String(user.email || o.email || '—').trim());
+  const who = user.display_name || o.displayName
+    ? esc(String(user.display_name || o.displayName).trim())
+    : email;
+  const role = esc(roleAdulteLabel(String(user.role || o.role || 'prof').trim()));
+  const uid = user.id ? String(user.id).trim() : (o.userId ? String(o.userId).trim() : '');
+  const pwdTile = o.tempPassword
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">Temp.</strong><span>Communiquer le mot de passe</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Connexion ENT / staff</span></div>`;
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${who}</strong><span>${role} · ${email}</span>
+    </div>
+    ${pwdTile}
+    <div class="stat-tile bento-span-4"><strong class="muted">${uid ? esc(uid.slice(0, 8)) + '…' : '—'}</strong><span>User ID</span></div>`;
+  const fiche = uid ? `<a href="/app/adultes/${esc(uid)}">Fiche adulte</a> · ` : '';
+  showEntToast(
+    `<strong>Utilisateur créé</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}`
+    + `<a href="/app/adultes">Annuaire adultes</a></p>`,
+    10000,
+  );
+}
+
+/** Toast — invitation compte élève (mdp temporaire). */
+function toastCompteEleveInvite(d, opts) {
+  const o = opts || {};
+  const inv = d || {};
+  const email = esc(String(inv.email || '—').trim());
+  const pwd = inv.mot_de_passe_temporaire ? esc(String(inv.mot_de_passe_temporaire)) : '—';
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  const who = o.eleveLabel ? esc(String(o.eleveLabel).trim()) : 'Élève';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${email}</strong><span>Compte élève · ${who}</span>
+    </div>
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn"><code>${pwd}</code></strong><span>Mot de passe temporaire</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Portail</strong><span>/eleve · noter maintenant</span></div>`;
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}">Dossier</a> · ` : '';
+  showEntToast(
+    `<strong>Compte élève provisionné</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}`
+    + `<a href="/app/eleves">Liste sans compte</a></p>`,
+    11000,
+  );
+}
+
+/** Accueil admin — rappel cast labo (STORE.cast après bootstrap). */
+function homeAdminBootstrapTipDenseHtml(cast) {
+  if (!cast) return '';
+  const personas = labCastPersonas(cast);
+  const nEl = (cast.eleves || []).length;
+  const nPer = personas.length;
+  const etabShort = cast.etablissement_id
+    ? esc(String(cast.etablissement_id).slice(0, 8)) + '…'
+    : '—';
+  const adminP = personas.find(p => String(p.role || '') === 'admin')
+    || personas.find(p => /admin/i.test(String(p.label || '')));
+  const cpeP = personas.find(p => String(p.role || '') === 'cpe');
+  const parentP = personas.find(p => String(p.role || '') === 'parent');
+  const adminEmail = adminP && adminP.email ? esc(String(adminP.email)) : '—';
+  const cpeEmail = cpeP && cpeP.email ? esc(String(cpeP.email)) : '—';
+  const parentEmail = parentP && parentP.email ? esc(String(parentP.email)) : '—';
+  return `<div class="bento" style="margin:0">
+    <div class="stat-tile bento-span-4"><strong>${nEl || '—'}</strong><span>Élèves seed · ${etabShort}</span></div>
+    <div class="stat-tile bento-span-4"><strong>${nPer || '—'}</strong><span>Personas · mdp <code>DevLocalPass1!</code></span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${adminEmail}</strong><span>Admin labo</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${cpeEmail}</strong><span>CPE · démo VS</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${parentEmail}</strong><span>Parent · portail famille</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Re-bootstrap : page login</span></div>
+  </div>`;
+}
+
+/** Dossier élève — synthèse documents + grants en attente sur cette fiche. */
+function staffEleveDocsTipDenseHtml(docs, nPendingOnDossier) {
+  const list = docs || [];
+  const n = list.length;
+  const nLock = list.filter(d => !d.accessible).length;
+  const nOpen = n - nLock;
+  const nPend = Number(nPendingOnDossier) || 0;
+  if (!n && !nPend) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Aucun document déposé</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Déposer · tiroir famille / scolaire</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Grant</strong><span>Restreint = accès sur demande</span></div>
+    </div>`;
+  }
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong>${n}</strong><span>Document(s) dossier</span></div>
+    <div class="stat-tile bento-span-4"><strong class="${nLock ? 'warn' : 'ok'}">${nLock}</strong><span>Verrouillé(s) · ${nOpen} accessible(s)</span></div>
+    <div class="stat-tile bento-span-4" style="border-color:${nPend ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nPend ? 'warn' : ''}">${nPend}</strong><span>Grant(s) en attente · fiche</span>
+    </div>
+  </div>`;
+}
+
+/** Toast — droits parent (notes / VS / justifs / sorties) enregistrés sur la fiche élève. */
+function toastEleveLiensRoleGrant(liens, opts) {
+  const o = opts || {};
+  const rows = liens || [];
+  const n = rows.length;
+  if (!n) return;
+  const nNotes = rows.filter(l => l.peut_voir_notes).length;
+  const nVs = rows.filter(l => l.peut_voir_vs).length;
+  const nJustif = rows.filter(l => l.peut_justifier_absence).length;
+  const nSort = rows.filter(l => l.peut_autoriser_sorties).length;
+  const nPay = rows.filter(l => l.est_payeur).length;
+  const who = o.eleveLabel ? esc(String(o.eleveLabel).trim()) : 'Élève';
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${n}</strong><span>Responsable(s) · droits portail</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${nNotes} / ${nVs}</strong><span>Notes · vie scolaire</span></div>
+    <div class="stat-tile bento-span-4"><strong>${nJustif} · ${nSort}</strong><span>Justifs · sorties · ${nPay} payeur(s)</span></div>`;
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}#dos-famille">Famille</a> · ` : '';
+  showEntToast(
+    `<strong>Droits famille enregistrés</strong> — ${who}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}`
+    + `Parts payeurs = 100 % · <a href="/app/foyers">Foyers</a></p>`,
+    9000,
+  );
+}
+
 /** Recharge les tuiles accueil staff si l’utilisateur est sur /app (après décision VS). */
 async function refreshHomePulseIfNeeded() {
   if (path() !== '/app') return;
@@ -3963,6 +4300,39 @@ function toastFamDocSigne(titre, opts) {
     8500,
   );
 }
+
+function toastEleveDocSigne(titre, opts) {
+  const o = opts || {};
+  const t = esc(String(titre || 'Document').trim());
+  const restant = Number(o.restant);
+  const restLbl = Number.isFinite(restant) && restant > 0
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${restant}</strong><span>Pièce(s) restante(s)</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">OK</strong><span>File à signer à jour</span>
+      </div>`;
+  const kind = o.kind || famDocCodeKind(o.code);
+  const kindLbl = kind === 'charte' ? 'Charte' : (kind === 'reglement' ? 'Règlement' : 'Doc');
+  if (isEleveDocsFlux() || isEleve() || o.dense) {
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">Signé</strong><span>${esc(kindLbl)} · prise en compte</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${t}</strong><span>Signature enregistrée</span></div>
+      ${restLbl}`;
+    showEntToast(
+      `<strong>Document signé</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+      + `<a href="/eleve/docs">Docs &amp; carnet</a> · `
+      + `<a href="/eleve/vie-scolaire">Vie scolaire</a></p>`,
+      9000,
+    );
+    return;
+  }
+  showEntToast(`<strong>Document signé</strong> — ${t}`, 7500);
+}
+
 function toastFamDocTiroirDepose(doc, opts) {
   const o = opts || {};
   const d = doc || {};
@@ -4049,9 +4419,37 @@ function toastFamSortieAutorisation(prenom, creneaux, opts) {
     : 'Sortie permanente mise à jour.';
   showEntToast(`<strong>Autorisation enregistrée</strong> — ${who}${detail}. ${fin}`, 8000);
 }
-function toastFilArchiver(sujet) {
+function toastFilArchiver(sujet, opts) {
+  const o = opts || {};
   const s = esc(String(sujet || 'Fil').trim());
-  showEntToast(`<strong>Fil archivé</strong> — ${s}. Il reste consultable dans les archives.`, 7000);
+  const msgHref = o.messagesHref
+    || (path().startsWith('/eleve') ? '/eleve/messages'
+      : (path().startsWith('/famille') ? '/famille/messages' : '/app/messages'));
+  const archTile = `<div class="stat-tile bento-span-4" style="border-color:var(--muted,#64748b)">
+      <strong class="muted">Archive</strong><span>Fil rangé · historique conservé</span>
+    </div>`;
+  const subjTile = `<div class="stat-tile bento-span-4"><strong>${s}</strong><span>Sujet archivé</span></div>`;
+  const okTile = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">OK</strong><span>Consultable dans les archives</span>
+    </div>`;
+  showEntToast(
+    `<strong>Fil archivé</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${archTile}${subjTile}${okTile}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${esc(msgHref)}">Messagerie</a>`
+    + ' · <label style="font-size:.85rem;cursor:pointer"><input type="checkbox" id="entToastFilArchivesChk" checked> Afficher les archives</label></p>`,
+    8000,
+  );
+  const archChk = document.getElementById('entToastFilArchivesChk');
+  if (archChk) {
+    archChk.onchange = () => {
+      const chk = document.getElementById('chkArchives');
+      if (chk) {
+        chk.checked = archChk.checked;
+        chk.dispatchEvent(new Event('change'));
+      }
+    };
+  }
 }
 function toastFilOuvert(sujet, opts) {
   const o = opts || {};
@@ -4342,6 +4740,7 @@ function famEnfantDenseCardHtml(e, stats) {
       <a href="/famille/enfants/${eid}">Fiche complète</a>
       <a href="/famille/enfants/${eid}?section=absences">Absences</a>
       <a href="/famille/enfants/${eid}?section=carnet">Carnet</a>
+      <a href="/famille/enfants/${eid}?section=notes">Notes</a>
       <a href="/famille/enfants/${eid}?section=docs">Docs</a>
       <a href="/famille/enfants/${eid}?section=pai">PAI</a>
       <a href="/famille/enfants/${eid}?section=sorties">Sorties</a>
@@ -4371,6 +4770,8 @@ function normalizeFamEnfantSection(sec) {
   if (s === 'bourse' || s === 'bourses') return 'bourses';
   if (s === 'internat' || s === 'int') return 'internat';
   if (s === 'psy' || s === 'pap' || s === 'accompagnement') return 'accompagnement';
+  if (s === 'note' || s === 'notes' || s === 'bulletin' || s === 'bulletins' || s === 'moyenne' || s === 'moyennes') return 'notes';
+  if (s === 'journal' || s === 'modifications' || s === 'journal-modif') return 'journal';
   return String(sec || '').trim();
 }
 function famApplyEnfantSectionDeepLink(forcedSec) {
@@ -5185,6 +5586,13 @@ async function renderDocsASignerTable(box, pending, onSigned, eleveId, enfantLab
             kind: famDocCodeKind(d.code),
           });
           refreshFamilleNavDocsBadge().catch(() => {});
+        } else if (isEleve()) {
+          const restDocs = pending.filter(x => x.id !== d.id && !x.signe_at).length;
+          toastEleveDocSigne(d.titre, {
+            code: d.code,
+            kind: famDocCodeKind(d.code),
+            restant: restDocs,
+          });
         } else {
           showEntToast(`<strong>Document signé</strong> — ${esc(d.titre || 'enregistrement pris en compte')}`);
         }
@@ -6778,6 +7186,7 @@ async function bindEleveJournal() {
 function viewEleveDocs() {
   return shell('/eleve/docs', `
     <div class="bento" id="eleveDocsStats"></div>
+    <div id="eleveDocsPageTip"></div>
     <div class="panel">
       <h2>Bulletins</h2>
       <p class="muted">PDF publiés après fermeture de période (ex. BULLETIN_T0) — distinct des pièces à signer.</p>
@@ -6827,6 +7236,7 @@ async function bindEleveDocs() {
         <div class="stat-tile bento-span-3"><strong class="${bulletins.length ? 'ok' : ''}">${bulletins.length}</strong><span>Bulletin(s)</span></div>
         ${bulletinT0 ? '<div class="stat-tile bento-span-3"><strong>T0</strong><span>Trimestre 0</span></div>' : ''}`;
     }
+    refreshEleveDocsPageTip(pendingDocs, pendingCar);
     if (bulOut) {
       if (!bulletins.length) {
         bulOut.innerHTML = emptyState(
@@ -7609,9 +8019,19 @@ function viewHome() {
       <div id="homeDirKpi" class="bento muted">Chargement…</div>
     </div>
     <div class="panel" style="margin-top:.75rem">
+      <h3>Réinscription N+1</h3>
+      <p class="muted" style="margin-top:0">Campagne, acompte, montée 4e→3e et pièces exigées.</p>
+      <div id="homeAdminReinscDense" class="bento muted">Chargement…</div>
+    </div>
+    <div class="panel" style="margin-top:.75rem">
       <h3>Effectifs établissement</h3>
       <p class="muted" style="margin-top:0">Répartition seed par classe — détail 4B (genre, régime, aperçu noms).</p>
       <div id="homeAdminEffectifDense" class="bento muted">Chargement…</div>
+    </div>
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Labo · dernier bootstrap</h3>
+      <p class="muted" style="margin-top:0">Cast en mémoire locale — comptes démo après « Créer l’école labo ».</p>
+      <div id="homeAdminBootstrapTip" class="bento muted">Chargement…</div>
     </div>`;
   } else if (isAdminish) {
     tiles = `
@@ -7674,10 +8094,10 @@ async function bindHome() {
     role === 'cpe'
       ? settle(api('/infirmerie/passages?jour=' + encodeURIComponent(jour)), [])
       : Promise.resolve([]),
-    role === 'direction'
+    role === 'direction' || role === 'admin'
       ? settle(api('/reinscription/montee/candidats?niveau=4e'), null)
       : Promise.resolve(null),
-    role === 'direction'
+    role === 'direction' || role === 'admin'
       ? settle(
         api('/reinscription/exigences?annee_cible=' + encodeURIComponent(anneeScolaireCibleN1())),
         [],
@@ -7948,6 +8368,16 @@ async function bindHome() {
   const adminEffDense = document.getElementById('homeAdminEffectifDense');
   if (adminEffDense && role === 'admin') {
     adminEffDense.innerHTML = homeAdminEffectifDenseHtml(eff4b, effByClass, jour);
+  }
+  const adminReinscDense = document.getElementById('homeAdminReinscDense');
+  if (adminReinscDense && role === 'admin') {
+    adminReinscDense.innerHTML = homeDirReinscDenseHtml(campN1, reinscMontee4e, reinscExigences);
+  }
+  const adminBootstrapTip = document.getElementById('homeAdminBootstrapTip');
+  if (adminBootstrapTip && role === 'admin') {
+    const bootHtml = homeAdminBootstrapTipDenseHtml(STORE.cast);
+    adminBootstrapTip.innerHTML = bootHtml
+      || '<p class="muted" style="margin:0">Pas de cast en mémoire — déconnectez-vous puis bootstrap labo sur la page login.</p>';
   }
   if (todo) {
     const lines = [];
@@ -8823,11 +9253,13 @@ async function bindFamilleEnfant(id) {
   const out = document.getElementById('enfantOut');
   const enfantDeepSection = normalizeFamEnfantSection(routeState.famSection);
   try {
-    const [enfants, resume, dossier, justifDocs] = await Promise.all([
+    const [enfants, resume, dossier, justifDocs, docsSign, paiActif] = await Promise.all([
       api('/famille/enfants'),
       api('/famille/enfants/' + id + '/resume'),
       api('/eleves/' + id + '/dossier').catch(() => null),
       api('/eleves/' + id + '/documents').catch(() => []),
+      api('/eleves/' + id + '/docs-a-signer').catch(() => []),
+      api('/eleves/' + id + '/pai').catch(() => null),
     ]);
     const e = enfants.find(x => x.id === id) || {};
     let absAll = [];
@@ -8956,8 +9388,9 @@ async function bindFamilleEnfant(id) {
     html += `<div id="carnetHistoFam" class="muted" style="margin-top:.5rem">Chargement historique…</div>
       </div></div>`;
 
-    // Notes (période sélectionnable)
-    html += `<h3>Notes</h3>`;
+    // Notes (période sélectionnable) — ancre ?section=notes
+    html += `<div id="fam-sec-notes" style="scroll-margin-top:4.5rem">
+      <h3>Notes</h3>`;
     if (!e.peut_voir_notes) {
       html += `<p class="empty">Notes non visibles pour ce lien.</p>`;
     } else {
@@ -8968,6 +9401,7 @@ async function bindFamilleEnfant(id) {
       <div id="famBulletinMsg" class="muted"></div>
       <div id="notesFamOut" class="muted" style="margin-top:.5rem">Chargement…</div>`;
     }
+    html += `</div>`;
     const secOpts = dossier && dossier.sections && dossier.sections.options;
     if (secOpts) {
       html += `<h3 id="fam-sec-options">Options</h3><div id="optionsFamOut" class="muted">Chargement…</div>`;
@@ -9051,7 +9485,9 @@ async function bindFamilleEnfant(id) {
       </div>
       <div id="famVoeMsg" class="muted"></div>
       <div id="voeuxFamOut" class="muted" style="margin-top:.5rem">Chargement…</div>`;
-    html += `<h3>Journal</h3><div id="jourFamOut" class="muted">Chargement…</div>`;
+    html += `<div id="fam-sec-journal" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantJournalTip" style="display:none;margin:0 0 .55rem"></div>
+      <h3>Journal</h3><div id="jourFamOut" class="muted">Chargement…</div></div>`;
 
     if (dossier && dossier.sections) {
       html += `<p class="muted" style="margin-top:1rem">Dossier famille — sections ci-dessus (absences, carnet, notes, PAI…).</p>`;
@@ -10104,14 +10540,50 @@ async function bindFamilleEnfant(id) {
     try {
       const list = await api('/eleves/' + id + '/journal?limit=40');
       const box = document.getElementById('jourFamOut');
-      box.innerHTML = list.length
-        ? `<ul>${list.map(j =>
-            `<li><strong>${esc(j.libelle)}</strong> <span class="muted">${esc(j.domaine)} · ${esc((j.created_at || '').slice(0, 16))}</span></li>`
-          ).join('')}</ul>`
-        : '<p class="empty">Aucune entrée visible.</p>';
+      const jourTip = document.getElementById('famEnfantJournalTip');
+      const jourSection = enfantDeepSection === 'journal';
+      if (jourSection && jourTip) {
+        const denseTip = famPortalJournalTipDenseHtml(list);
+        if (denseTip) {
+          jourTip.style.display = '';
+          jourTip.innerHTML = denseTip;
+        } else {
+          jourTip.style.display = 'none';
+          jourTip.innerHTML = '';
+        }
+      } else if (jourTip) {
+        jourTip.style.display = 'none';
+        jourTip.innerHTML = '';
+      }
+      if (!box) { /* noop */ } else if (!list.length) {
+        box.innerHTML = jourSection
+          ? famEmptyDense('Aucune entrée visible', [
+            'Les modifications partagées avec la famille apparaissent ici.',
+          ], '<a href="/famille/journal">Page Journal</a>')
+          : '<p class="empty">Aucune entrée visible.</p>';
+      } else if (jourSection) {
+        const groups = {};
+        list.forEach(j => {
+          const d = j.domaine || 'autre';
+          if (!groups[d]) groups[d] = [];
+          groups[d].push(j);
+        });
+        box.innerHTML = Object.keys(groups).sort().map(dom => `
+          <h4 style="margin:.85rem 0 .35rem;font-size:.92rem">${esc(dom)}</h4>
+          <ul style="margin:0;padding-left:1.1rem">${groups[dom].map(j =>
+            `<li style="margin:.32rem 0;line-height:1.4"><strong>${esc(j.libelle)}</strong> <span class="muted">${esc((j.created_at || '').slice(0, 16))}</span></li>`
+          ).join('')}</ul>`).join('')
+          + `<p class="muted" style="margin-top:.75rem"><a href="/famille/journal">Journal multi-enfants</a></p>`;
+      } else {
+        box.innerHTML = `<ul>${list.map(j =>
+          `<li><strong>${esc(j.libelle)}</strong> <span class="muted">${esc(j.domaine)} · ${esc((j.created_at || '').slice(0, 16))}</span></li>`
+        ).join('')}</ul>`;
+      }
     } catch (err) {
       const box = document.getElementById('jourFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+      const jourTip = document.getElementById('famEnfantJournalTip');
+      if (jourTip) { jourTip.style.display = 'none'; jourTip.innerHTML = ''; }
     }
 
     const optsBox = document.getElementById('optionsFamOut');
@@ -10186,6 +10658,15 @@ async function bindFamilleEnfant(id) {
       contBox.innerHTML = h;
     }
 
+    const absJustif = famAbsencesJustifMergedList(resume.absences_a_justifier || [], absAll);
+    const nDocsPending = (docsSign || []).filter(isFamDocPending).length;
+    maybeToastFamEnfantOuverte(e, {
+      abs: absJustif.length,
+      car: (resume.carnet_a_signer || []).length,
+      docs: nDocsPending,
+      paiPending: !!(paiActif && !paiActif.signe_famille),
+    }, { deepSection: enfantDeepSection });
+
     famApplyEnfantSectionDeepLink(enfantDeepSection);
     if (enfantDeepSection) {
       setTimeout(() => famApplyEnfantSectionDeepLink(enfantDeepSection), 160);
@@ -10195,6 +10676,12 @@ async function bindFamilleEnfant(id) {
       }
       if (enfantDeepSection === 'carnet') {
         setTimeout(() => famApplyEnfantSectionDeepLink('carnet'), 900);
+      }
+      if (enfantDeepSection === 'notes') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('notes'), 900);
+      }
+      if (enfantDeepSection === 'journal') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('journal'), 900);
       }
       if (enfantDeepSection === 'orientation') {
         setTimeout(() => famApplyEnfantSectionDeepLink('orientation'), 900);
@@ -10315,7 +10802,11 @@ async function bindEleves() {
             const d = await api('/eleves/' + btn.dataset.id + '/compte/inviter', {
               method: 'POST', body: JSON.stringify({}),
             });
+            const tr = btn.closest('tr');
+            const strong = tr && tr.querySelector('strong');
+            const eleveLabel = strong ? strong.textContent.trim() : '';
             provOut.innerHTML = `<span class="ok">Compte ${esc(d.email)} · mdp temporaire <code>${esc(d.mot_de_passe_temporaire)}</code> (à noter maintenant)</span>`;
+            toastCompteEleveInvite(d, { eleveId: btn.dataset.id, eleveLabel });
             await loadSans();
           } catch (e) { alert(e.message); }
         };
@@ -10791,6 +11282,7 @@ function renderDossier(d) {
     html += `<section class="panel dossier-section" id="dos-documents">
       <h3>Documents</h3>
       <p class="dossier-help">Par défaut verrouillés. Un professeur peut demander un accès temporaire (14 jours) ; l’administration l’accorde ou le refuse.</p>
+      <div id="staffEleveDocsTip"></div>
       <div id="docsMetaOut" class="muted">Chargement des documents…</div>
       <h4 style="margin:1rem 0 .35rem">Déposer un document</h4>
       <div class="row">
@@ -11053,6 +11545,23 @@ async function bindDossier(id) {
   try {
     const d = await api('/eleves/' + id + '/dossier');
     out.innerHTML = renderDossier(d);
+    const e0 = (d && d.eleve) || {};
+    const dossierEleveLabel = [e0.prenom, e0.nom].filter(Boolean).join(' ').trim();
+
+    let lastDocsList = [];
+
+    async function updateStaffEleveDocsTip(list) {
+      const tip = document.getElementById('staffEleveDocsTip');
+      if (!tip) return;
+      const docs = list != null ? list : lastDocsList;
+      let nPend = 0;
+      try {
+        const pending = await api('/documents/grants/pending');
+        const docIds = new Set((docs || []).map(doc => doc.id));
+        nPend = (pending || []).filter(g => docIds.has(g.document_id)).length;
+      } catch (_) { /* file réservée admin */ }
+      tip.innerHTML = staffEleveDocsTipDenseHtml(docs, nPend);
+    }
 
     function showDossierTab(secId) {
       const links = [...out.querySelectorAll('#dossierNav a[data-sec]')];
@@ -11226,6 +11735,8 @@ async function bindDossier(id) {
       if (!box) return;
       try {
         const list = await api('/eleves/' + id + '/documents');
+        lastDocsList = list || [];
+        await updateStaffEleveDocsTip(lastDocsList);
         if (!list.length) {
           box.innerHTML = '<p class="empty">Aucun document déposé.</p>';
           return;
@@ -11283,9 +11794,13 @@ async function bindDossier(id) {
             <td>${esc(g.note || '—')}</td>
             <td>
               <button type="button" class="primary btnGrantOk" data-id="${esc(g.id)}"
-                data-doc="${esc(g.document_titre || '')}" data-who="${esc(g.grantee_label || '')}">Accorder l’accès</button>
+                data-doc="${esc(g.document_titre || '')}" data-who="${esc(g.grantee_label || '')}"
+                data-dur="${g.duration_days != null ? esc(String(g.duration_days)) : ''}"
+                data-note="${esc(g.note || '')}">Accorder l’accès</button>
               <button type="button" class="btnGrantNo" data-id="${esc(g.id)}"
-                data-doc="${esc(g.document_titre || '')}" data-who="${esc(g.grantee_label || '')}">Refuser</button>
+                data-doc="${esc(g.document_titre || '')}" data-who="${esc(g.grantee_label || '')}"
+                data-dur="${g.duration_days != null ? esc(String(g.duration_days)) : ''}"
+                data-note="${esc(g.note || '')}">Refuser</button>
             </td>
           </tr>`).join('')}</tbody></table>`;
         box.querySelectorAll('.btnGrantOk').forEach(btn => {
@@ -11295,7 +11810,13 @@ async function bindDossier(id) {
                 method: 'POST',
                 body: JSON.stringify({ accepter: true, note: 'accès accordé' }),
               });
-              toastGrantDecide(true, { document_titre: btn.dataset.doc, grantee_label: btn.dataset.who });
+              toastGrantDecide(true, {
+                document_titre: btn.dataset.doc,
+                grantee_label: btn.dataset.who,
+                duration_days: btn.dataset.dur ? Number(btn.dataset.dur) : null,
+                note: btn.dataset.note || '',
+                eleveId: id,
+              });
               await loadGrantsPending();
               await loadDocsMeta();
             } catch (e) { alert(e.message); }
@@ -11308,8 +11829,15 @@ async function bindDossier(id) {
                 method: 'POST',
                 body: JSON.stringify({ accepter: false }),
               });
-              toastGrantDecide(false, { document_titre: btn.dataset.doc, grantee_label: btn.dataset.who });
+              toastGrantDecide(false, {
+                document_titre: btn.dataset.doc,
+                grantee_label: btn.dataset.who,
+                duration_days: btn.dataset.dur ? Number(btn.dataset.dur) : null,
+                note: btn.dataset.note || '',
+                eleveId: id,
+              });
               await loadGrantsPending();
+              await updateStaffEleveDocsTip();
             } catch (e) { alert(e.message); }
           };
         });
@@ -11317,6 +11845,7 @@ async function bindDossier(id) {
         // Prof / rôles sans manage : file masquée.
         box.innerHTML = `<p class="muted">File des demandes réservée à l’administration.</p>`;
       }
+      await updateStaffEleveDocsTip();
     }
     await loadDocsMeta();
     await loadGrantsPending();
@@ -11447,6 +11976,7 @@ async function bindDossier(id) {
             body: JSON.stringify({ liens }),
           });
           msg.innerHTML = '<span class="ok">Liens enregistrés</span>';
+          toastEleveLiensRoleGrant(liens, { eleveId: id, eleveLabel: dossierEleveLabel });
           await bindDossier(id);
         } catch (e) {
           msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -20449,6 +20979,7 @@ function viewNotes() {
       <h3>Grille classe (devoir)</h3>
       <p class="muted">Ouvrir depuis la liste des devoirs — effectif du jour + notes déjà saisies.</p>
       <div id="grilleMeta" class="muted">Choisir un devoir…</div>
+      <div id="notesGrilleEmptyTip"></div>
       <p id="grilleCoefTip" class="muted" style="margin:.25rem 0 0;font-size:.85rem"></p>
       <p id="grilleMoyenneTip" class="muted" style="margin:.35rem 0 0;font-size:.85rem"></p>
       <div id="grilleOut" class="muted" style="margin-top:.5rem">…</div>
@@ -21030,9 +21561,10 @@ async function bindNotes() {
     const d = devoir || grilleCtx;
     if (d && d.coef != null) {
       el.innerHTML = notesCoefTipHtml(d.coef, d.titre, { grille: true });
-      return;
+    } else {
+      el.innerHTML = notesCoefTipHtml('', '', { grille: true });
     }
-    el.innerHTML = notesCoefTipHtml('', '', { grille: true });
+    refreshNotesGrilleEmptyTip(!!d);
   }
   function grilleEleveLabelFromInput(inp) {
     const tr = inp && inp.closest('tr');
@@ -22601,6 +23133,7 @@ async function bindAdultes() {
           msg.innerHTML = `<span class="ok">Compte ${esc(u.email || email)} créé</span>
             · <a href="/app/adultes/${esc(u.id)}">Fiche</a>`;
         }
+        toastUtilisateurCree(u, { email, displayName: display_name, role, tempPassword: password });
         document.getElementById('adulteNewEmail').value = '';
         await load();
       } catch (e) {
