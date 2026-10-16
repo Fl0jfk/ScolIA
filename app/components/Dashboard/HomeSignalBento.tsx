@@ -9,14 +9,18 @@ import {
   type DashboardShortcutSlide,
   type DashboardShortcutTone,
 } from "@/app/lib/dashboard-signals";
+import { dashboardFaceCountLabel } from "@/app/lib/dashboard-signals-display";
+import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
 
 type Face = {
   id: string;
+  moduleId: string;
   label: string;
   detail?: string;
   badge?: string;
   count?: number;
+  countLabel?: string | null;
   href: string;
 };
 
@@ -66,36 +70,52 @@ function bestTone(tones: Array<DashboardShortcutTone | undefined>): DashboardSho
   return [...tones].sort((a, b) => toneRank(a) - toneRank(b))[0] || "neutral";
 }
 
-function slideToFace(slide: DashboardShortcutSlide, fallbackHref: string): Face {
+function slideToFace(
+  slide: DashboardShortcutSlide,
+  fallbackHref: string,
+  moduleId: string,
+  countLabel: string | null,
+): Face {
   return {
     id: slide.id,
+    moduleId,
     label: slide.label,
     detail: slide.detail,
     badge: slide.badge,
     count: slide.count,
+    countLabel,
     href: slide.href || fallbackHref,
   };
 }
 
-function shortcutToFaces(s: DashboardShortcut, count: number): Face[] {
+function shortcutToFaces(
+  s: DashboardShortcut,
+  count: number,
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>,
+): Face[] {
   if (s.slides && s.slides.length > 0) {
-    return s.slides.map((sl) =>
-      slideToFace(
+    return s.slides.map((sl) => {
+      const slideCount = sl.count ?? (sl.id === s.id ? count : sl.count) ?? 0;
+      return slideToFace(
         {
           ...sl,
           count: sl.count ?? (sl.id === s.id ? count : sl.count),
         },
         s.href,
-      ),
-    );
+        s.moduleId,
+        dashboardFaceCountLabel(slideCount, { id: sl.id, moduleId: s.moduleId }, sourceStatus),
+      );
+    });
   }
   return [
     {
       id: s.id,
+      moduleId: s.moduleId,
       label: s.label,
       detail: s.detail,
       badge: s.badge,
       count: count > 0 ? count : undefined,
+      countLabel: dashboardFaceCountLabel(count, s, sourceStatus),
       href: s.href,
     },
   ];
@@ -197,6 +217,9 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
         {faces.map((face, i) => {
           const visible = i === slideIdx;
           const faceCount = face.count ?? 0;
+          const countDisplay =
+            face.countLabel ??
+            (faceCount > 0 ? (faceCount > 99 ? "99+" : String(faceCount)) : null);
           return (
             <div
               key={face.id}
@@ -207,12 +230,18 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
               }`}
               aria-hidden={!visible}
             >
-              {faceCount > 0 ? (
-                <p className="text-4xl font-black leading-none tracking-tight sm:text-5xl">
-                  {faceCount > 99 ? "99+" : faceCount}
+              {countDisplay ? (
+                <p
+                  className={`font-black leading-none tracking-tight ${
+                    countDisplay === "indisponible"
+                      ? "text-xl sm:text-2xl"
+                      : "text-4xl sm:text-5xl"
+                  }`}
+                >
+                  {countDisplay}
                 </p>
               ) : null}
-              <div className={`flex flex-wrap items-center gap-2 ${faceCount > 0 ? "mt-2" : ""}`}>
+              <div className={`flex flex-wrap items-center gap-2 ${countDisplay ? "mt-2" : ""}`}>
                 <p className="text-lg font-semibold tracking-tight sm:text-xl">{face.label}</p>
                 {face.badge ? (
                   <span
@@ -313,13 +342,19 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
 type Props = {
   shortcuts: DashboardShortcut[];
   notifications: DashboardNotification[];
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   loading?: boolean;
 };
 
 /**
  * Bento signaux : 1 tuile par module, faces fusionnées + transition.
  */
-export default function HomeSignalBento({ shortcuts, notifications, loading }: Props) {
+export default function HomeSignalBento({
+  shortcuts,
+  notifications,
+  sourceStatus,
+  loading,
+}: Props) {
   const tiles = useMemo(() => {
     const worthy = shortcuts
       .map((s) => ({
@@ -344,7 +379,7 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
         return b.count - a.count;
       });
       const faces = dedupeFaces(
-        items.flatMap(({ shortcut, count }) => shortcutToFaces(shortcut, count)),
+        items.flatMap(({ shortcut, count }) => shortcutToFaces(shortcut, count, sourceStatus)),
       );
       if (faces.length === 0) continue;
       const tone = bestTone(items.map((i) => i.shortcut.tone));
@@ -371,7 +406,8 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
     const coveredFaceIds = new Set(grouped.flatMap((t) => t.faces.map((f) => f.id)));
 
     for (const n of notifications) {
-      if (n.count <= 0) continue;
+      const notifLabel = dashboardFaceCountLabel(n.count, n, sourceStatus);
+      if (n.count <= 0 && notifLabel !== "indisponible") continue;
       if (coveredModules.has(n.moduleId)) continue;
       if (coveredFaceIds.has(n.id)) continue;
       grouped.push({
@@ -383,10 +419,12 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
         faces: [
           {
             id: n.id,
+            moduleId: n.moduleId,
             label: n.label,
             detail: n.detail,
             badge: "À traiter",
-            count: n.count,
+            count: n.count > 0 ? n.count : undefined,
+            countLabel: notifLabel,
             href: n.href,
           },
         ],
@@ -397,7 +435,7 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
     return grouped
       .sort((a, b) => toneRank(a.tone) - toneRank(b.tone))
       .slice(0, 6);
-  }, [shortcuts, notifications]);
+  }, [shortcuts, notifications, sourceStatus]);
 
   if (loading && tiles.length === 0) {
     return (

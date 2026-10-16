@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  dashboardSignalsFlightKey,
   fetchDashboardSignalsShared,
   normalizeDashboardSignalsJson,
   resetDashboardSignalsSharedFetch,
@@ -20,7 +21,8 @@ test("fetchDashboardSignalsShared — ignore résultat si session user a changé
     resolveSlow = r;
   });
 
-  const p1 = fetchDashboardSignalsShared("user-a", {
+  const flightA = dashboardSignalsFlightKey("user-a", "default");
+  const p1 = fetchDashboardSignalsShared(flightA, "user-a", {
     fetchJson: () => slow,
   });
 
@@ -38,7 +40,9 @@ test("fetchDashboardSignalsShared — ignore résultat si session user a changé
   assert.equal(r1.payload, null);
   assert.equal(r1.wroteClientCache, false);
 
-  const p2 = await fetchDashboardSignalsShared("user-b", {
+  const flightB = dashboardSignalsFlightKey("user-b", "default");
+  resetDashboardSignalsSharedFetch();
+  const p2 = await fetchDashboardSignalsShared(flightB, "user-b", {
     fetchJson: async () => ({
       shortcuts: [{ id: "s1" }],
       todayNews: [],
@@ -50,9 +54,40 @@ test("fetchDashboardSignalsShared — ignore résultat si session user a changé
   assert.equal(p2.payload?.shortcuts.length, 1);
 });
 
+test("fetchDashboardSignalsShared — vols distincts user A / user B", async () => {
+  resetDashboardSignalsSharedFetch();
+  const flightA = dashboardSignalsFlightKey("user-a", "etab-1");
+  const flightB = dashboardSignalsFlightKey("user-b", "etab-1");
+
+  const [ra, rb] = await Promise.all([
+    fetchDashboardSignalsShared(flightA, "user-a", {
+      fetchJson: async () => ({
+        shortcuts: [{ id: "a-only" }],
+        todayNews: [],
+        hasCurrentWeek: false,
+        notifications: [],
+        perf: { sourceStatus: OK_STATUS },
+      }),
+    }),
+    fetchDashboardSignalsShared(flightB, "user-b", {
+      fetchJson: async () => ({
+        shortcuts: [{ id: "b-only" }],
+        todayNews: [],
+        hasCurrentWeek: false,
+        notifications: [],
+        perf: { sourceStatus: OK_STATUS },
+      }),
+    }),
+  ]);
+
+  assert.equal(ra.payload?.shortcuts[0]?.id, "a-only");
+  assert.equal(rb.payload?.shortcuts[0]?.id, "b-only");
+});
+
 test("fetchDashboardSignalsShared — pas de cache client si source en timeout", async () => {
   resetDashboardSignalsSharedFetch();
-  const r = await fetchDashboardSignalsShared("user-cache", {
+  const flight = dashboardSignalsFlightKey("user-cache", "default");
+  const r = await fetchDashboardSignalsShared(flight, "user-cache", {
     fetchJson: async () => ({
       shortcuts: [],
       todayNews: [],

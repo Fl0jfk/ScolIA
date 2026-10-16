@@ -10,9 +10,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useAppUser } from "@/app/hooks/useAppUser";
+import { clearDashboardSignalsCache } from "@/app/lib/dashboard-signals-cache";
 import type { DashboardSignals } from "@/app/lib/dashboard-signals";
+import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 import {
+  dashboardSignalsFlightKey,
   fetchDashboardSignalsShared,
   getDashboardSignalsLastFetchAt,
   readWarmDashboardSignalsCache,
@@ -27,7 +30,6 @@ const EMPTY_SIGNALS: DashboardSignals = {
   anneeScolaireLabel: null,
 };
 
-/** Aligné sur le polling client (une seule requête partagée). */
 export const DASHBOARD_SIGNALS_POLL_MS = 60_000;
 const FOCUS_REFETCH_MIN_GAP_MS = 8_000;
 
@@ -37,6 +39,7 @@ type DashboardSignalsContextValue = {
   notifications: DashboardSignals["notifications"];
   hasCurrentWeek: boolean;
   anneeScolaireLabel: string | null;
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   loading: boolean;
   fetchGeneration: number;
   refresh: () => Promise<DashboardSignals | null>;
@@ -44,13 +47,22 @@ type DashboardSignalsContextValue = {
 
 const DashboardSignalsContext = createContext<DashboardSignalsContextValue | null>(null);
 
-export function DashboardSignalsProvider({ children }: { children: ReactNode }) {
-  const { isLoaded, user } = useSessionUser();
-  const userId = user?.id ?? null;
-  const userIdRef = useRef(userId);
-  userIdRef.current = userId;
+type InnerProps = {
+  authUserId: string;
+  etablissementId: string;
+  roles: string[];
+  children: ReactNode;
+};
+
+function DashboardSignalsProviderInner({ authUserId, etablissementId, roles, children }: InnerProps) {
+  const flightKey = dashboardSignalsFlightKey(authUserId, etablissementId);
+  const sessionRef = useRef({ authUserId, etablissementId, rolesKey: roles.join("|") });
+  sessionRef.current = { authUserId, etablissementId, rolesKey: roles.join("|") };
 
   const [signals, setSignals] = useState<DashboardSignals>(EMPTY_SIGNALS);
+  const [sourceStatus, setSourceStatus] = useState<
+    Record<DashboardSignalSourceId, SignalSourceStatus> | undefined
+  >(undefined);
   const [loading, setLoading] = useState(true);
   const [fetchGeneration, setFetchGeneration] = useState(0);
   const warmCacheRef = useRef(false);
@@ -59,71 +71,69 @@ export function DashboardSignalsProvider({ children }: { children: ReactNode }) 
     resetDashboardSignalsSharedFetch();
     warmCacheRef.current = false;
     setFetchGeneration(0);
+    setSourceStatus(undefined);
 
-    if (!userId) {
-      setSignals(EMPTY_SIGNALS);
-      setLoading(false);
-      return;
-    }
-
-    const cached = readWarmDashboardSignalsCache(userId);
+    const cached = readWarmDashboardSignalsCache(authUserId);
     if (cached) {
       setSignals(cached);
+      setSourceStatus(cached.sourceStatus);
       setLoading(false);
       warmCacheRef.current = true;
     } else {
       setSignals(EMPTY_SIGNALS);
       setLoading(true);
     }
-  }, [userId]);
 
-  const applyPayload = useCallback((payload: DashboardSignals | null, fromNetwork: boolean) => {
-    if (!payload) return null;
-    if (userIdRef.current !== userId) return null;
-    setSignals(payload);
-    warmCacheRef.current = true;
-    setLoading(false);
-    if (fromNetwork) setFetchGeneration((g) => g + 1);
-    return payload;
-  }, [userId]);
+    return () => {
+      resetDashboardSignalsSharedFetch();
+    };
+  }, [authUserId, etablissementId, roles.join("|")]);
+
+  const applyPayload = useCallback(
+    (
+      payload: DashboardSignals | null,
+      nextSourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
+      fromNetwork: boolean,
+    ) => {
+      if (!payload) return null;
+      if (sessionRef.current.authUserId !== authUserId) return null;
+      setSignals(payload);
+      setSourceStatus(nextSourceStatus);
+      warmCacheRef.current = true;
+      setLoading(false);
+      if (fromNetwork) setFetchGeneration((g) => g + 1);
+      return payload;
+    },
+    [authUserId],
+  );
 
   const refresh = useCallback(
     async (opts?: { showLoading?: boolean }) => {
-      const activeUserId = userIdRef.current;
-      if (!activeUserId) {
-        setLoading(false);
-        return null;
-      }
+      const session = sessionRef.current;
+      if (session.authUserId !== authUserId) return null;
       if (opts?.showLoading && !warmCacheRef.current) {
         setLoading(true);
       }
-      const result = await fetchDashboardSignalsShared(activeUserId, {
+      const result = await fetchDashboardSignalsShared(flightKey, authUserId, {
         fetchJson: async () => {
           const res = await fetch("/api/dashboard/signals", { cache: "no-store" });
           if (!res.ok) throw new Error(`signals ${res.status}`);
           return res.json();
         },
       });
-      if (result.userId !== activeUserId || userIdRef.current !== activeUserId) {
+      if (result.flightKey !== flightKey || sessionRef.current.authUserId !== authUserId) {
         return null;
       }
-      return applyPayload(result.payload, true);
+      return applyPayload(result.payload, result.sourceStatus, true);
     },
-    [applyPayload],
+    [applyPayload, authUserId, flightKey],
   );
 
   useEffect(() => {
-    if (!isLoaded) return;
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
     void refresh({ showLoading: !warmCacheRef.current });
-  }, [isLoaded, userId, refresh]);
+  }, [authUserId, etablissementId, roles.join("|"), refresh]);
 
   useEffect(() => {
-    if (!isLoaded || !userId) return;
-
     const maybePoll = () => {
       if (document.hidden) return;
       void refresh();
@@ -133,14 +143,14 @@ export function DashboardSignalsProvider({ children }: { children: ReactNode }) 
 
     const onVisibility = () => {
       if (!document.hidden) {
-        const stale = Date.now() - getDashboardSignalsLastFetchAt() > DASHBOARD_SIGNALS_POLL_MS;
+        const stale = Date.now() - getDashboardSignalsLastFetchAt(flightKey) > DASHBOARD_SIGNALS_POLL_MS;
         if (stale) void refresh();
       }
     };
 
     const onFocus = () => {
       if (document.hidden) return;
-      if (Date.now() - getDashboardSignalsLastFetchAt() < FOCUS_REFETCH_MIN_GAP_MS) return;
+      if (Date.now() - getDashboardSignalsLastFetchAt(flightKey) < FOCUS_REFETCH_MIN_GAP_MS) return;
       void refresh();
     };
 
@@ -152,7 +162,7 @@ export function DashboardSignalsProvider({ children }: { children: ReactNode }) 
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };
-  }, [isLoaded, userId, refresh]);
+  }, [authUserId, etablissementId, roles.join("|"), flightKey, refresh]);
 
   const value = useMemo<DashboardSignalsContextValue>(
     () => ({
@@ -161,15 +171,47 @@ export function DashboardSignalsProvider({ children }: { children: ReactNode }) 
       notifications: signals.notifications,
       hasCurrentWeek: signals.hasCurrentWeek,
       anneeScolaireLabel: signals.anneeScolaireLabel ?? null,
+      sourceStatus,
       loading,
       fetchGeneration,
       refresh: () => refresh({ showLoading: false }),
     }),
-    [signals, loading, fetchGeneration, refresh],
+    [signals, sourceStatus, loading, fetchGeneration, refresh],
   );
 
   return (
     <DashboardSignalsContext.Provider value={value}>{children}</DashboardSignalsContext.Provider>
+  );
+}
+
+export function DashboardSignalsProvider({ children }: { children: ReactNode }) {
+  const { isLoaded, user } = useAppUser();
+  const authUserId = user?.id ?? null;
+  const etablissementId = user?.etablissementId?.trim() || "default";
+  const roles = user?.roles ?? [];
+
+  useEffect(() => {
+    if (!authUserId) {
+      resetDashboardSignalsSharedFetch();
+      clearDashboardSignalsCache();
+    }
+  }, [authUserId]);
+
+  if (!isLoaded || !authUserId) {
+    return <>{children}</>;
+  }
+
+  const sessionKey = `${authUserId}:${etablissementId}:${roles.join("|")}`;
+
+  return (
+    <DashboardSignalsProviderInner
+      key={sessionKey}
+      authUserId={authUserId}
+      etablissementId={etablissementId}
+      roles={roles}
+    >
+      {children}
+    </DashboardSignalsProviderInner>
   );
 }
 

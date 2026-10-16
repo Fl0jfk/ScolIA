@@ -87,7 +87,9 @@ export function isScopedMemoryCacheKey(key: string): boolean {
 
 function isScopedMemoryCachePrefix(prefix: string): boolean {
   if (!prefix.startsWith(SCOPED_MEMORY_NS)) return false;
-  return prefix.includes(":stages:roster:");
+  if (prefix.includes(":stages:roster:")) return true;
+  if (prefix.includes(":dash:sig") || prefix.includes(":dash:creneaux:")) return true;
+  return false;
 }
 
 function scopedMemoryTtlSeconds(requested: number): number {
@@ -752,7 +754,9 @@ export async function valkeyDeleteByPrefix(prefix: string): Promise<number> {
   if (!prefix) return 0;
   let deleted = 0;
   if (isScopedMemoryCachePrefix(prefix)) {
-    deleted = [...scopedMemoryCache.keys()].filter((k) => k.startsWith(prefix)).length;
+    for (const store of [stagesScopedStore, dashSigScopedStore]) {
+      deleted += [...store.cache.keys()].filter((k) => k.startsWith(prefix)).length;
+    }
     bumpScopedGenerationByPrefix(prefix);
   }
   if (!isValkeyConfigured() || circuitOpen()) return deleted;

@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DashboardNotification } from "@/app/lib/dashboard-signals";
+import { formatDashboardNotificationCount } from "@/app/lib/dashboard-signals-display";
+import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 
 type Props = {
   items: DashboardNotification[];
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   /** Ouverture du panneau (bas = sous le badge, haut = au-dessus — sidebar profil). */
   panelPlacement?: "bottom" | "top";
 };
@@ -15,9 +18,17 @@ type Props = {
  */
 export default function DashboardGlobalNotifications({
   items,
+  sourceStatus,
   panelPlacement = "bottom",
 }: Props) {
-  const total = items.reduce((sum, item) => sum + item.count, 0);
+  const total = items.reduce((sum, item) => {
+    const label = formatDashboardNotificationCount(item.count, item, sourceStatus);
+    if (label === "indisponible") return sum;
+    return sum + item.count;
+  }, 0);
+  const hasUnavailable = items.some(
+    (item) => formatDashboardNotificationCount(item.count, item, sourceStatus) === "indisponible",
+  );
   const panelId = useId();
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -28,9 +39,9 @@ export default function DashboardGlobalNotifications({
     };
   }, []);
 
-  if (total <= 0) return null;
+  if (total <= 0 && !hasUnavailable) return null;
 
-  const label = total > 99 ? "99+" : String(total);
+  const label = hasUnavailable && total <= 0 ? "—" : total > 99 ? "99+" : String(total);
 
   const openNow = () => {
     if (closeTimer.current) {
@@ -110,8 +121,20 @@ export default function DashboardGlobalNotifications({
                   className="flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-black/[0.04] active:bg-black/[0.06]"
                   onClick={closeNow}
                 >
-                  <span className="inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full bg-[#FF3B30] px-[5px] text-[11px] font-semibold tabular-nums leading-none text-white">
-                    {item.count > 99 ? "99+" : item.count}
+                  <span
+                    className={`inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full px-[5px] text-[11px] font-semibold leading-none text-white ${
+                      formatDashboardNotificationCount(item.count, item, sourceStatus) ===
+                      "indisponible"
+                        ? "bg-amber-600 normal-case"
+                        : "bg-[#FF3B30] tabular-nums"
+                    }`}
+                  >
+                    {formatDashboardNotificationCount(item.count, item, sourceStatus) ===
+                    "indisponible"
+                      ? "indisponible"
+                      : item.count > 99
+                        ? "99+"
+                        : item.count}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-semibold tracking-tight text-[var(--dash-ink,#1d1d1f)]">

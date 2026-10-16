@@ -180,6 +180,15 @@ export function valkeyKeyDashboardCreneauxVides(
   return `${NS}:dash:creneaux:${etablissementId}:${parisDateKey}`;
 }
 
+/** Agrégat par utilisateur : `scola:dash:sig:{etab}:{userId}` */
+export function valkeyPrefixDashboardSignalsEtab(etablissementId: string): string {
+  return `${NS}:dash:sig:${etablissementId}:`;
+}
+
+export function valkeyPrefixDashboardSignalsCreneaux(etablissementId: string): string {
+  return `${NS}:dash:creneaux:${etablissementId}:`;
+}
+
 export function valkeyKeyAppConfig(tenantSlug: string): string {
   return `${NS}:cfg:app:${tenantSlug || "default"}`;
 }

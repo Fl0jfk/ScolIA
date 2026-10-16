@@ -3,6 +3,7 @@
 import {
   readDashboardSignalsCache,
   writeDashboardSignalsCache,
+  type DashboardSignalsCachePayload,
 } from "@/app/lib/dashboard-signals-cache";
 import { isDashboardSignalsAggregateCacheable } from "@/app/lib/dashboard-signals-aggregate-cache";
 import type { DashboardSignals } from "@/app/lib/dashboard-signals";
@@ -22,7 +23,9 @@ export function normalizeDashboardSignalsJson(json: unknown): DashboardSignals {
   };
 }
 
-function parseSourceStatus(json: unknown): Record<DashboardSignalSourceId, SignalSourceStatus> | undefined {
+export function parseDashboardSignalsSourceStatus(
+  json: unknown,
+): Record<DashboardSignalSourceId, SignalSourceStatus> | undefined {
   if (!json || typeof json !== "object") return undefined;
   const perf = (json as { perf?: { sourceStatus?: unknown } }).perf;
   const raw = perf?.sourceStatus;
@@ -31,75 +34,74 @@ function parseSourceStatus(json: unknown): Record<DashboardSignalSourceId, Signa
 }
 
 export type SharedFetchResult = {
-  userId: string;
+  flightKey: string;
   payload: DashboardSignals | null;
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   wroteClientCache: boolean;
 };
 
-type InFlightRecord = {
-  userId: string;
-  promise: Promise<SharedFetchResult>;
-};
+const inFlightByKey = new Map<string, Promise<SharedFetchResult>>();
+const lastFetchAtByFlight = new Map<string, number>();
+let fetchEpoch = 0;
 
-let inFlight: InFlightRecord | null = null;
-let lastNetworkFetchAt = 0;
-
-export function getDashboardSignalsLastFetchAt(): number {
-  return lastNetworkFetchAt;
+export function dashboardSignalsFlightKey(userId: string, etablissementId: string): string {
+  return `${userId.trim()}:${etablissementId.trim() || "default"}`;
 }
 
-/** À appeler quand l’utilisateur session change (sign-out / autre compte). */
+export function getDashboardSignalsLastFetchAt(flightKey: string): number {
+  return lastFetchAtByFlight.get(flightKey) ?? 0;
+}
+
+/** À appeler quand l’utilisateur / établissement session change. */
 export function resetDashboardSignalsSharedFetch(): void {
-  inFlight = null;
-  lastNetworkFetchAt = 0;
+  fetchEpoch += 1;
+  inFlightByKey.clear();
+  lastFetchAtByFlight.clear();
 }
 
 export type FetchDashboardSignalsDeps = {
   fetchJson: () => Promise<unknown>;
 };
 
-/**
- * Un seul fetch réseau partagé par userId ; les résultats d’un autre user ou d’une requête
- * orpheline après changement de session sont ignorés (pas de cache client).
- */
 export async function fetchDashboardSignalsShared(
+  flightKey: string,
   userId: string,
   deps: FetchDashboardSignalsDeps,
 ): Promise<SharedFetchResult> {
-  if (inFlight?.userId === userId) {
-    return inFlight.promise;
+  const existing = inFlightByKey.get(flightKey);
+  if (existing) {
+    return existing;
   }
 
-  const startedFor = userId;
+  const startedKey = flightKey;
+  const startedEpoch = fetchEpoch;
   const promise = (async (): Promise<SharedFetchResult> => {
     try {
       const json = await deps.fetchJson();
-      if (inFlight?.userId !== startedFor) {
-        return { userId: startedFor, payload: null, wroteClientCache: false };
+      if (startedEpoch !== fetchEpoch) {
+        return { flightKey: startedKey, payload: null, wroteClientCache: false };
       }
       const payload = normalizeDashboardSignalsJson(json);
-      const sourceStatus = parseSourceStatus(json);
+      const sourceStatus = parseDashboardSignalsSourceStatus(json);
       const cacheable = isDashboardSignalsAggregateCacheable(sourceStatus);
       let wroteClientCache = false;
       if (cacheable) {
-        writeDashboardSignalsCache(startedFor, payload);
+        writeDashboardSignalsCache(userId, { ...payload, sourceStatus });
         wroteClientCache = true;
       }
-      lastNetworkFetchAt = Date.now();
-      return { userId: startedFor, payload, wroteClientCache };
+      lastFetchAtByFlight.set(startedKey, Date.now());
+      return { flightKey: startedKey, payload, sourceStatus, wroteClientCache };
     } catch {
-      return { userId: startedFor, payload: null, wroteClientCache: false };
+      return { flightKey: startedKey, payload: null, wroteClientCache: false };
     } finally {
-      if (inFlight?.userId === startedFor) {
-        inFlight = null;
-      }
+      inFlightByKey.delete(startedKey);
     }
   })();
 
-  inFlight = { userId: startedFor, promise };
+  inFlightByKey.set(startedKey, promise);
   return promise;
 }
 
-export function readWarmDashboardSignalsCache(userId: string): DashboardSignals | null {
+export function readWarmDashboardSignalsCache(userId: string): DashboardSignalsCachePayload | null {
   return readDashboardSignalsCache(userId);
 }

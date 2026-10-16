@@ -31,7 +31,7 @@
     "test:impact-format": "SCOLIA_TEST_MODE=1 npx tsx --test app/lib/impact-engine/format-preview.test.ts",
     "test:stage-db": "SCOLIA_TEST_MODE=1 npx tsx --test app/lib/stage-db-roundtrip.test.ts",
     "test:stages-perf": "SCOLIA_TEST_MODE=1 SCOLA_TEST_DB=1 npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/stage-index.test.ts app/lib/stage-legacy-backoff.test.ts app/lib/stage-legacy-index.integration.test.ts app/lib/valkey-memory-cache.test.ts app/components/stages/stage-class-roster-panel-logic.test.ts",
-    "test:dashboard-signals": "SCOLIA_TEST_MODE=1 SCOLA_TEST_DB=1 npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/dashboard-signals-parallel.test.ts app/lib/dashboard-signals-cache-keys.test.ts app/lib/dashboard-signals-aggregate-cache.test.ts app/lib/dashboard-signals-shared-fetch.test.ts",
+    "test:dashboard-signals": "SCOLIA_TEST_MODE=1 SCOLA_TEST_DB=1 npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/dashboard-signals-parallel.test.ts app/lib/dashboard-signals-cache-keys.test.ts app/lib/dashboard-signals-aggregate-cache.test.ts app/lib/dashboard-signals-shared-fetch.test.ts app/lib/dashboard-signals-display.test.ts app/lib/dashboard-signals-invalidate.test.ts app/lib/impact-engine/empty-slot-trip-filter.test.ts",
     "ent:migrate-stages": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/migrate-stages-to-typed.mjs",
     "db:generate": "drizzle-kit generate",
     "db:push": "node scripts/run-dev-database-guard.mjs && drizzle-kit push --force",

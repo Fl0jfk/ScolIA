@@ -1,15 +1,14 @@
 import "server-only";
 
 import { listTravelsFromDb } from "@/app/lib/travel-db";
-import { OCCUPANCY_TRAVEL_STATUSES } from "@/app/lib/occupancy/travels-read";
 import { runWithConcurrency } from "@/app/lib/async-concurrency";
+import { filterTripsActiveOnParisDate } from "@/app/lib/impact-engine/empty-slot-trip-filter";
 import { valkeyCached } from "@/app/lib/valkey";
 import { VALKEY_TTL, valkeyKeyDashboardCreneauxVides } from "@/app/lib/valkey-keys";
 import { previewVoyageImpacts } from "./preview";
 import { listCreneauVideSignals } from "./signals";
 import type { CreneauVideSignal } from "./types";
 
-const ACTIVE = new Set<string>(OCCUPANCY_TRAVEL_STATUSES);
 const PREVIEW_CONCURRENCY = 3;
 
 export type CreneauVideDashboardPayload = {
@@ -37,13 +36,7 @@ async function loadCreneauVideSignalsForDashboardUncached(opts: {
 
   try {
     const trips = await listTravelsFromDb(etabId, { forListIndex: true });
-    const active = trips.filter((t) => {
-      if (!ACTIVE.has(String(t.status || ""))) return false;
-      if (t.data?.listeElevesStatus !== "confirmed") return false;
-      const start = String(t.data?.startDate || "").slice(0, 10);
-      const end = String(t.data?.endDate || start).slice(0, 10);
-      return start <= date && end >= date;
-    });
+    const active = filterTripsActiveOnParisDate(trips, date);
     const cap = opts.maxTrips ?? 12;
     const slice = active.slice(0, cap);
     await runWithConcurrency(

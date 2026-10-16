@@ -44,6 +44,7 @@ export function useDashboardSignals(options: Options = {}) {
     notifications: ctx.notifications,
     hasCurrentWeek: ctx.hasCurrentWeek,
     anneeScolaireLabel: ctx.anneeScolaireLabel,
+    sourceStatus: ctx.sourceStatus,
     loading: ctx.loading,
     refresh: ctx.refresh,
   };
