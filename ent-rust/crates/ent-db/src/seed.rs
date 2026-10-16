@@ -736,6 +736,8 @@ impl PgEnt {
     /// renfort justif Harry jour J + PJ, renfort menus lun–ven publiés.
     /// lot P (Bot AP-A) : absence NJ Hermione (Granger), carnet Cedric (Diggory) récent famille,
     /// photo trombi Luna (Lovegood), ré-ensure bulletin T0 publié Harry, ré-ensure mandat SEPA foyer Harry.
+    /// lot Q (Bot AQ-A) : note Draco, carnet Ron (famille), photo trombi Cho, alerte CPE urgente Harry,
+    /// ré-ensure facture LAB-HARRY* (reste à payer > 0 sur au moins une).
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -4836,6 +4838,144 @@ impl PgEnt {
                 )
                 .await;
         }
+
+        // --- Bot AQ-A lot Q (zone exclusive AQ-A) : note Draco, carnet Ron (famille),
+        // photo trombi Cho, alerte CPE urgente Harry, ré-ensure LAB-HARRY* reste > 0.
+        const DRACO_NOTE_AQ_LIB: &str = "Interro Mathématiques lab (Draco AQ-A)";
+        if !self
+            .notes_for_eleve(etab, draco.id)
+            .await?
+            .iter()
+            .any(|n| n.libelle.as_deref() == Some(DRACO_NOTE_AQ_LIB))
+        {
+            self.saisir_note(SaisirNote {
+                etablissement_id: etab,
+                eleve_id: draco.id,
+                matiere_id: math.id,
+                valeur: 10.5,
+                sur: 20.0,
+                date_note: jour - Duration::days(2),
+                auteur_user_id: prof_mcg.user_id,
+                libelle: Some(DRACO_NOTE_AQ_LIB.into()),
+                devoir_id: None,
+                periode_id: Some(periode.id),
+            })
+            .await?;
+        }
+
+        if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
+            const RON_CARNET_AQ_TITRE: &str = "AUDIT AQ-A: Encouragements Ron (famille)";
+            let carnet_ron = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), ron.id)
+                .await?;
+            if !carnet_ron
+                .iter()
+                .any(|c| c.titre == RON_CARNET_AQ_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: ron.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: RON_CARNET_AQ_TITRE.into(),
+                    corps: "Seed labo lot AQ-A — entrée carnet visible famille pour audit portail Ron Weasley."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(cho) = labo_eleve_prenom(eleves, "Cho") {
+            if self
+                .get_eleve(etab, cho.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        cho.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        let alertes_harry_aq = self
+            .list_alertes_cpe_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+            )
+            .await?;
+        let harry_a_urgent_aq = alertes_harry_aq.iter().any(|a| {
+            a.severite == AlerteCpeSeverite::Urgent && a.statut == AlerteCpeStatut::Ouverte
+        });
+        if !harry_a_urgent_aq {
+            const HARRY_ALERTE_AQ_TITRE: &str = "AUDIT AQ-A: Alerte CPE urgente Harry";
+            self.creer_alerte_cpe_for_actor(
+                Role::Cpe.as_str(),
+                CreerAlerteCpe {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    titre: HARRY_ALERTE_AQ_TITRE.into(),
+                    detail: "Seed labo lot AQ-A — severite urgent pour audit API / UI CPE.".into(),
+                    severite: "urgent".into(),
+                    visible_famille: true,
+                    jour,
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+
+        if facture_harry.statut == FactureStatut::Brouillon {
+            facture_harry = self
+                .emettre_facture_for_actor(
+                    etab,
+                    facture_harry.id,
+                    compta.user_id,
+                    role_compta,
+                )
+                .await?;
+        }
+        let (_, _, _, enc_harry_1_aq, _, _, _) = self
+            .get_facture_for_actor(etab, compta.user_id, role_compta, facture_harry.id)
+            .await?;
+        let mut reste_lab_harry_aq = facture_harry
+            .total_centimes
+            .saturating_sub(enc_harry_1_aq);
+        let (mut facture_h2_aq, _, _, enc_harry_2_aq, _, _, _) = self
+            .get_facture_for_actor(etab, compta.user_id, role_compta, facture_harry_2_id)
+            .await?;
+        if facture_h2_aq.statut == FactureStatut::Brouillon {
+            facture_h2_aq = self
+                .emettre_facture_for_actor(
+                    etab,
+                    facture_harry_2_id,
+                    compta.user_id,
+                    role_compta,
+                )
+                .await?;
+        }
+        let reste_h2_aq = facture_h2_aq
+            .total_centimes
+            .saturating_sub(enc_harry_2_aq);
+        if reste_lab_harry_aq == 0 && reste_h2_aq > 0 {
+            reste_lab_harry_aq = reste_h2_aq;
+        } else if reste_lab_harry_aq == 0 && reste_h2_aq == 0 && facture_h2_aq.total_centimes > 0 {
+            reste_lab_harry_aq = facture_h2_aq.total_centimes;
+        }
+        debug_assert!(
+            reste_lab_harry_aq > 0 || facture_harry.total_centimes == 0,
+            "LAB-HARRY seed audit AQ-A : reste à payer attendu > 0 sur au moins une facture"
+        );
 
         Ok(())
     }

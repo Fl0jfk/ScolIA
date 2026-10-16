@@ -2303,6 +2303,40 @@ impl PgEnt {
         Ok(matiere)
     }
 
+    pub async fn update_matiere_libelle(
+        &self,
+        etablissement_id: Uuid,
+        matiere_id: Uuid,
+        libelle: String,
+        actor_user_id: Option<String>,
+    ) -> Result<Matiere, EntDbError> {
+        let libelle = libelle.trim().to_string();
+        if libelle.is_empty() {
+            return Err(EntDbError::MatiereInvalide);
+        }
+        let updated = self
+            .matieres
+            .update_libelle(etablissement_id, matiere_id, &libelle)
+            .await?;
+        let matiere = updated.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        self.events
+            .publish(MetierEventDraft {
+                etablissement_id: matiere.etablissement_id,
+                type_name: types::MATIERE_CREATED.to_string(),
+                aggregate: AggregateKind::Matiere,
+                aggregate_id: matiere.id,
+                eleve_id: None,
+                payload: json!({
+                    "code": matiere.code,
+                    "libelle": matiere.libelle,
+                    "updated": true,
+                }),
+                actor_user_id,
+            })
+            .await?;
+        Ok(matiere)
+    }
+
     pub async fn list_matieres(
         &self,
         etablissement_id: Uuid,

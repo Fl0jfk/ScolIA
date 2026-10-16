@@ -3,7 +3,7 @@ use crate::ical::{render_edt_calendar, EdtOccurrence};
 use crate::dto::{
     AbsenceDto, AbsentDto, AppelDto, AppelLigneDto, CampagneDto, CarnetEntreeDto, ChangeClasseBody,
     ChangeMefBody, ChangeRegimeBody, ChangeSiteBody, ChoisirOptionBody, CreateEleveBody,
-    CreateMatiereBody, CreerCarnetBody,
+    CreateMatiereBody, UpdateMatiereBody, CreerCarnetBody,
     CreerDevoirBody, CreerFactureBody, CreerNotePeriodeBody, DeclareAbsenceBody, DevoirDto,
     EcheanceDto, EcheancierPartsBody, EdtCreneauDto, EdtExceptionDto, EffectifDto, EleveDto,
     EncaissementDto,
@@ -69,7 +69,7 @@ use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
 use chrono::{NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
@@ -452,6 +452,7 @@ pub fn router() -> Router<AppState> {
         .route("/devoirs/{id}", delete(supprimer_devoir))
         .route("/classes/{classe}/effectif", get(effectif_classe))
         .route("/matieres", get(list_matieres).post(create_matiere))
+        .route("/matieres/{id}", patch(update_matiere))
         .route("/appels", post(ouvrir_appel))
         .route("/appels/{id}", get(get_appel))
         .route("/appels/{id}/lignes", post(marquer_appel_ligne))
@@ -5159,6 +5160,26 @@ async fn create_matiere(
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(MatiereDto::from(&matiere))))
+}
+
+async fn update_matiere(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateMatiereBody>,
+) -> Result<Json<MatiereDto>, (StatusCode, String)> {
+    session.require_manage_matieres()?;
+    let matiere = state
+        .ent
+        .update_matiere_libelle(
+            session.etablissement_id,
+            id,
+            body.libelle,
+            Some(session.actor_user_id),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(MatiereDto::from(&matiere)))
 }
 
 async fn list_matieres(

@@ -66,6 +66,29 @@ impl PgMatiereRepo {
         Ok(row.map(MatiereRow::into_matiere))
     }
 
+    pub async fn update_libelle(
+        &self,
+        etablissement_id: Uuid,
+        matiere_id: Uuid,
+        libelle: &str,
+    ) -> Result<Option<Matiere>, DomainError> {
+        let row = sqlx::query_as::<_, MatiereRow>(
+            r#"
+            UPDATE ent_matiere
+            SET libelle = $3
+            WHERE etablissement_id = $1 AND id = $2
+            RETURNING id, etablissement_id, code, libelle, source_nomenclature
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(matiere_id)
+        .bind(libelle.trim())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(MatiereRow::into_matiere))
+    }
+
     pub async fn list(&self, etablissement_id: Uuid) -> Result<Vec<Matiere>, DomainError> {
         let rows = sqlx::query_as::<_, MatiereRow>(
             r#"

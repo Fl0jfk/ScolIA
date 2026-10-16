@@ -652,6 +652,11 @@ pub struct CreateMatiereBody {
     pub source_nomenclature: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateMatiereBody {
+    pub libelle: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct MatiereDto {
     pub id: Uuid,
