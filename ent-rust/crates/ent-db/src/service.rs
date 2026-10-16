@@ -425,6 +425,14 @@ impl PgEnt {
         Ok(self.auth.set_telephone(user_id, telephone).await?)
     }
 
+    pub async fn set_user_email(
+        &self,
+        user_id: Uuid,
+        email: &str,
+    ) -> Result<(), EntDbError> {
+        Ok(self.auth.set_email(user_id, email).await?)
+    }
+
     pub async fn migrate(&self) -> Result<(), EntDbError> {
         apply_socle_migrations(&self.pool).await?;
         Ok(())
@@ -1763,6 +1771,25 @@ impl PgEnt {
             return Err(DomainError::NotFound.into());
         }
         self.set_user_telephone(user_id, telephone).await
+    }
+
+    pub async fn set_user_email_for_actor(
+        &self,
+        role: &str,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        user_id: Uuid,
+        email: &str,
+    ) -> Result<(), EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        let self_edit = actor_user_id == user_id;
+        if !parsed.can_manage_eleves() && !self_edit {
+            return Err(EntDbError::Forbidden);
+        }
+        if !self.auth.is_member(etablissement_id, user_id).await? {
+            return Err(DomainError::NotFound.into());
+        }
+        self.set_user_email(user_id, email).await
     }
 
     /// Crée (ou retrouve) un compte parent et le rattache à un élève sur ce foyer.

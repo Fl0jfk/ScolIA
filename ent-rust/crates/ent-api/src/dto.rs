@@ -3660,6 +3660,11 @@ pub struct SetTelephoneBody {
     pub telephone: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SetEmailBody {
+    pub email: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct FoyerLienDto {
     pub lien_id: Uuid,

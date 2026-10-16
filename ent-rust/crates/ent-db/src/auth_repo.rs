@@ -351,6 +351,32 @@ impl PgAuthRepo {
         Ok(())
     }
 
+    pub async fn set_email(&self, user_id: Uuid, email: &str) -> Result<(), AuthError> {
+        let email = normalize_email(email)?;
+        let updated = sqlx::query(
+            r#"
+            UPDATE ent_user SET email = $2, updated_at = now()
+            WHERE id = $1
+            "#,
+        )
+        .bind(user_id)
+        .bind(&email)
+        .execute(&self.pool)
+        .await;
+        match updated {
+            Ok(r) if r.rows_affected() > 0 => Ok(()),
+            Ok(_) => Err(AuthError::InvalidCredentials),
+            Err(e) => {
+                if let sqlx::Error::Database(db) = &e {
+                    if db.constraint() == Some("ent_user_email_unique") {
+                        return Err(AuthError::EmailTaken);
+                    }
+                }
+                Err(AuthError::InvalidCredentials)
+            }
+        }
+    }
+
     pub async fn revoke_bearer(&self, authorization: &str) -> Result<(), AuthError> {
         let raw = authorization
             .strip_prefix("Bearer ")

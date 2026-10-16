@@ -60,7 +60,7 @@ use crate::dto::{
     RendreEditionVsBody, ConventionStageDto, CreerConventionStageBody, CreerEntrepriseBody,
     EntrepriseDto, CreerEdtContrainteBody, EdtContrainteDto,
     CreateFoyerBody, EleveLienDto, FoyerDetailDto, FoyerLienDto, FoyerListItemDto,
-    RattacherResponsableFoyerBody, SetTelephoneBody, UpdateLienBody, UpdateLiensEleveBody,
+    RattacherResponsableFoyerBody, SetEmailBody, SetTelephoneBody, UpdateLienBody, UpdateLiensEleveBody,
     UpdateIdentiteBody,
 };
 use crate::ui;
@@ -379,6 +379,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/foyers/{id}/liens", post(rattacher_responsable_foyer))
         .route("/users/{id}/telephone", put(set_user_telephone))
+        .route("/users/{id}/email", put(set_user_email))
         .route(
             "/eleves/{id}/liens/{lien_id}",
             put(update_lien_eleve).delete(delete_lien_eleve),
@@ -3674,6 +3675,26 @@ async fn set_user_telephone(
             session.user_id,
             id,
             &body.telephone,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn set_user_email(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<SetEmailBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .ent
+        .set_user_email_for_actor(
+            &session.role,
+            session.etablissement_id,
+            session.user_id,
+            id,
+            body.email.trim(),
         )
         .await
         .map_err(map_db)?;

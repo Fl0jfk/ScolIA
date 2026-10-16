@@ -734,6 +734,8 @@ impl PgEnt {
     /// lot N (Bot AN-A) : note Seamus (Finnigan), absence NJ Luna (Lovegood), photo trombi Hermione, ré-ensure CHARTE_LAB + REGLEMENT_LAB Harry, Molly mes_enfants Ron+Ginny.
     /// lot O (Bot AO-A) : note Neville, carnet Ginny (famille / visible_famille), photo trombi Seamus (Finnigan),
     /// renfort justif Harry jour J + PJ, renfort menus lun–ven publiés.
+    /// lot P (Bot AP-A) : absence NJ Hermione (Granger), carnet Cedric (Diggory) récent famille,
+    /// photo trombi Luna (Lovegood), ré-ensure bulletin T0 publié Harry, ré-ensure mandat SEPA foyer Harry.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -4707,6 +4709,132 @@ impl PgEnt {
                 )
                 .await?;
             }
+        }
+
+        // --- Bot AP-A lot P (zone exclusive AP-A) : absence NJ Hermione (Granger),
+        // carnet Cedric (Diggory) récent visible famille, photo trombi Luna (Lovegood),
+        // ré-ensure bulletin T0 publié Harry, ré-ensure mandat SEPA actif foyer Harry.
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            let absences_hermione_ap = self.list_absences_eleve(etab, hermione.id).await?;
+            let hermione_a_absence_nj = absences_hermione_ap
+                .iter()
+                .any(|a| a.statut == AbsenceStatut::ATraiter);
+            if !hermione_a_absence_nj {
+                let absence_hermione_ap = jour - Duration::days(1);
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: hermione.id,
+                    debut: absence_hermione_ap,
+                    fin: absence_hermione_ap,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(cedric) = labo_eleve_prenom(eleves, "Cedric") {
+            const CEDRIC_CARNET_RECENT_JOURS_AP: i64 = 60;
+            let seuil_carnet_recent_ap = jour - Duration::days(CEDRIC_CARNET_RECENT_JOURS_AP);
+            let carnet_cedric_ap = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), cedric.id)
+                .await?;
+            let cedric_a_carnet_recent = carnet_cedric_ap.iter().any(|c| {
+                c.visible_famille && c.date_entree >= seuil_carnet_recent_ap
+            });
+            if !cedric_a_carnet_recent {
+                const CEDRIC_CARNET_AP_TITRE: &str = "AUDIT AP-A: Suivi positif Cedric (famille)";
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: cedric.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: CEDRIC_CARNET_AP_TITRE.into(),
+                    corps: "Seed labo lot AP-A — entrée carnet visible famille pour audit portail Cedric Diggory."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(luna) = labo_eleve_prenom(eleves, "Luna") {
+            if self
+                .get_eleve(etab, luna.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        luna.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        let docs_harry_t0_ap = self
+            .list_documents_meta_eleve_for_actor(
+                etab,
+                administratif.user_id,
+                role_admini,
+                harry.id,
+            )
+            .await?;
+        if !docs_harry_t0_ap
+            .iter()
+            .any(|(d, _)| d.code.as_deref() == Some(bulletin_t0_code.as_str()))
+        {
+            let _ = self
+                .publier_bulletin_for_actor(
+                    Role::Direction.as_str(),
+                    etab,
+                    harry.id,
+                    periode_t0.id,
+                    admin.user_id,
+                )
+                .await;
+        }
+
+        let rum_harry_sepa_ap = format!("LAB-HARRY-SEPA-{etab_short}");
+        let mandats_sepa_ap = self
+            .list_mandats_sepa_for_actor(etab, compta.user_id, role_compta)
+            .await?;
+        let harry_mandat_seed_ap = mandats_sepa_ap.iter().any(|m| {
+            m.foyer_id == harry.foyer_id && m.rum == rum_harry_sepa_ap
+        });
+        let harry_mandat_actif_ap = mandats_sepa_ap.iter().any(|m| {
+            m.foyer_id == harry.foyer_id && m.statut == MandatSepaStatut::Actif
+        });
+        if !harry_mandat_seed_ap && !harry_mandat_actif_ap {
+            let _ = self
+                .creer_mandat_sepa_for_actor(
+                    role_compta,
+                    compta.user_id,
+                    CreerMandatSepa {
+                        etablissement_id: etab,
+                        foyer_id: harry.foyer_id,
+                        rum: rum_harry_sepa_ap,
+                        iban: "FR7630006000011234567890189".into(),
+                        bic: Some("AGRIFRPP".into()),
+                        titulaire: "Lily Potter".into(),
+                        signe_at: Utc::now(),
+                        actor_user_id: compta.user_id,
+                    },
+                )
+                .await;
         }
 
         Ok(())

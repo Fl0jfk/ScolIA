@@ -701,6 +701,13 @@
   .edt-week {
     @apply grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5;
   }
+  .edt-week-eleve {
+    @apply gap-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7;
+  }
+  .edt-day-weekend {
+    @apply py-1.5;
+    background: color-mix(in srgb, var(--muted, #6e6e73) 7%, transparent);
+  }
   .edt-day {
     @apply rounded-bento-sm border border-ent-line bg-white/60 p-2.5;
   }
