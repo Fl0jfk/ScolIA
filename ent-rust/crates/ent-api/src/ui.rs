@@ -112,6 +112,10 @@ let notesDevoirsEmptyHermioneRefresh = null;
 let notesDevoirsEmptyDracoRefresh = null;
 /** Rempli dans bindNotes — repère Ron sur tip « 0 devoir ». */
 let notesDevoirsEmptyRonRefresh = null;
+/** Rempli dans bindNotes — repère Harry devoir BS-A sur tip « 0 devoir ». */
+let notesDevoirsEmptyHarryRefresh = null;
+/** Rempli dans bindNotes — repère Luna BS-D sur tip « éval sans note ». */
+let notesEvalSansNoteLunaRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
 let notePeriodePickSuppress = 0;
 let eleveNotePeriodePickReady = false;
@@ -795,7 +799,8 @@ function notesEvalSansNoteTipDenseHtml(nSans, nTotal, periodeLabel) {
     <button type="button" class="stat-tile bento-span-4" id="notesHomeTipGrilleBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong>→</strong><span>Saisir · grille classe</span>
     </button>
-  </div>`;
+  </div>
+  <div id="notesEvalSansNoteLunaSlot"></div>`;
 }
 
 function bindNotesHomeTipGo() {
@@ -867,6 +872,71 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyHermioneRefresh === 'function') void notesDevoirsEmptyHermioneRefresh();
     if (typeof notesDevoirsEmptyDracoRefresh === 'function') void notesDevoirsEmptyDracoRefresh();
     if (typeof notesDevoirsEmptyRonRefresh === 'function') void notesDevoirsEmptyRonRefresh();
+    if (typeof notesDevoirsEmptyHarryRefresh === 'function') void notesDevoirsEmptyHarryRefresh();
+  } else if ((!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations')
+    && Number.isFinite(nMatiere) && nMatiere > 0 && nTot > 0) {
+    if (typeof notesEvalSansNoteLunaRefresh === 'function') void notesEvalSansNoteLunaRefresh();
+  }
+}
+
+function findHarryBsDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /harry/i.test(String(d.titre || ''))
+    && (/BS-A/i.test(String(d.titre || '')) || /potions/i.test(String(d.matiere_libelle || ''))));
+}
+
+function notesHarryDevoirGoActions() {
+  const chip = document.getElementById('notesChip4B');
+  if (chip) chip.click();
+  const devCl = document.getElementById('devClasse');
+  if (devCl) devCl.value = '4B';
+  document.getElementById('btnDevList')?.click();
+  document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** /app/notes — repère devoir Harry BS-A (0 devoir global ou liste filtrée vide). */
+function notesHarryDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.harryBsDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'DS Potions lab (Harry BS-A)';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Harry Potter</strong><span>Seed labo · 4B · devoir audit BS-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesHarryDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir BS-A · 4B'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesHarryDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 4B</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesHarryDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesHarryDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.harryBsDevoir && o.harryBsDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.harryBsDevoir);
+        return;
+      }
+      notesHarryDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'DS Potions lab (Harry BS-A)';
+      }
+      if (!o.harryBsDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesHarryDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesHarryDevoirGoActions();
   }
 }
 
@@ -876,7 +946,11 @@ function notesHarrySeedTipDenseHtml(meta) {
   if (!o.harryId) return '';
   const nNotes = Number(o.nNotes) || 0;
   const classe = esc(String(o.classe || '4B').trim());
-  const potions = o.potionsDevoir
+  const hasBsDevoir = !!o.harryBsDevoir;
+  const devoirLbl = o.harryBsDevoir && o.harryBsDevoir.titre
+    ? esc(String(o.harryBsDevoir.titre).trim().slice(0, 28))
+    : 'DS Potions BS-A';
+  const potions = hasBsDevoir
     ? `<span class="pill ok pill-dense">Potions</span> `
     : '';
   return `<div class="bento" style="margin:.15rem 0 .55rem">
@@ -886,8 +960,8 @@ function notesHarrySeedTipDenseHtml(meta) {
     <button type="button" class="stat-tile bento-span-4" id="notesHarrySeedNotesBtn" data-harry-id="${esc(String(o.harryId))}" style="cursor:pointer;text-align:left">
       <strong>${nNotes}</strong><span>Note(s) enregistrée(s) · voir fiche élève</span>
     </button>
-    <button type="button" class="stat-tile bento-span-4" id="notesHarrySeedGrilleBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
-      <strong>4B</strong><span>Ouvrir grille Potions (seed)</span>
+    <button type="button" class="stat-tile bento-span-4" id="notesHarrySeedDevoirBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasBsDevoir ? 'ok' : 'muted'}">${devoirLbl}</strong><span>${hasBsDevoir ? 'Devoir seed · grille / liste' : 'Aller devoirs · 4B'}</span>
     </button>
   </div>`;
 }
@@ -941,25 +1015,47 @@ async function resolveGinnyWeasleyEleveId() {
   }
 }
 
-/** /app/notes — repère seed labo Luna Lovegood (6A · note Français audit). */
+/** /app/notes — repère seed labo Luna Lovegood (6A · note Potions BS-A · audit BS-D). */
 function notesLunaSeedTipDenseHtml(meta) {
   const o = meta || {};
   if (!o.lunaId) return '';
   const nNotes = Number(o.nNotes) || 0;
   const classe = esc(String(o.classe || '6A').trim());
-  const frNote = o.frNoteLabel
-    ? esc(String(o.frNoteLabel).trim().slice(0, 28))
-    : 'Interro Français';
+  const hasBsNote = !!o.hasBsNote;
+  const noteLbl = o.bsNoteLabel
+    ? esc(String(o.bsNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · BS-A');
+  const noteStrong = hasBsNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
   return `<div class="bento" style="margin:.15rem 0 .55rem">
     <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
-      <strong>Luna Lovegood</strong><span>Seed labo · ${classe} · audit notes</span>
+      <strong>Luna Lovegood</strong><span>Seed labo · ${classe} · audit notes BS-D</span>
     </div>
     <button type="button" class="stat-tile bento-span-4" id="notesLunaSeedNotesBtn" data-luna-id="${esc(String(o.lunaId))}" style="cursor:pointer;text-align:left">
-      <strong>${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesLunaSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
-      <strong>${frNote}</strong><span>Filtre 6A · devoirs / saisie</span>
+      <strong class="${hasBsNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBsNote ? 'Repère Luna · Potions BS-A' : 'Filtre 6A · saisie / seed'}</span>
     </button>
+  </div>`;
+}
+
+/** /app/notes — repère Luna sur tip « éval sans note » (surface distincte Ron BR-D). */
+function notesEvalSansNoteLunaTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.lunaId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const hasBsNote = !!o.hasBsNote;
+  const noteLbl = o.bsNoteLabel
+    ? esc(String(o.bsNoteLabel).trim().slice(0, 28))
+    : 'Luna · BS-A';
+  return `<div class="bento" style="margin:.05rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Luna</strong><span>Lovegood · repère BS-D · autres devoirs à saisir</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesEvalLunaNotesBtn" data-luna-id="${esc(String(o.lunaId))}" style="cursor:pointer;text-align:left">
+      <strong class="${hasBsNote ? 'ok' : 'muted'}">${nNotes}</strong><span>Note(s) Luna · audit seed</span>
+    </button>
+    <div class="stat-tile bento-span-4"><strong class="${hasBsNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBsNote ? 'Potions BS-A OK' : '0 note BS-A · voir fiche'}</span></div>
   </div>`;
 }
 
@@ -1887,6 +1983,30 @@ function famHomeMsgDenseHtml(fils, nonLus) {
   const dense = famHomeMsgTipDenseHtml(fils, nonLus);
   if (dense) return dense;
   return portalMsgDenseHtml(fils, nonLus, { messagesHref: '/famille/messages' });
+}
+
+/** Accueil famille — carnet VS (à signer ou calme) — audit UI BS-B. */
+function famHomeCarnetFamilleDenseHtml(list, resumes) {
+  const pending = famHomeCarnetTipDenseHtml(list, resumes);
+  if (pending) return pending;
+  const kids = (list || []).filter(e => e && e.peut_voir_vs !== false);
+  if (!kids.length) return '';
+  const first = kids[0];
+  const eid = first && first.id ? esc(String(first.id)) : '';
+  const carHref = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
+  const prenoms = kids.slice(0, 2).map(e => esc(String(e.prenom || '').trim())).join(' · ');
+  const extra = kids.length > 2 ? ` · +${kids.length - 2}` : '';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">OK</strong><span>Carnet famille · rien à signer</span>
+    </div>
+    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>${prenoms}${extra}</strong><span>Ouvrir le carnet · VS</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/famille/docs-signer" style="text-decoration:none">
+      <strong>Docs</strong><span>Charte · autorisations</span>
+    </a>
+  </div>`;
 }
 
 /** Accueil famille — entrées carnet à signer (bento). */
@@ -3725,6 +3845,22 @@ function refreshEleveHomeOrientTip(orientApiOk, orientMeta) {
   el.innerHTML = eleveOrientTipDenseHtml(orientMeta || {});
 }
 
+/** Section carnet fiche enfant — empty-state dense (BS-B). */
+function famEnfantCarnetEmptyDenseHtml(e, enfantId) {
+  const who = e && e.prenom ? esc(String(e.prenom).trim()) : 'Enfant';
+  const eid = enfantId ? esc(String(enfantId)) : '';
+  const actions = eid
+    ? `<a href="/famille/enfants/${eid}?section=docs">Documents</a> · `
+      + `<a href="/famille/vie-scolaire">Vie scolaire</a> · `
+      + `<a href="#fam-sec-carnet">Historique carnet</a>`
+    : '<a href="/famille/vie-scolaire">Vie scolaire</a>';
+  return famEmptyDense(`Carnet à jour — ${who}`, [
+    'Aucune entrée en attente de signature sur ce dossier.',
+    'Les prises de connaissance déjà signées restent dans l’historique ci-dessous.',
+    'Labo seed BS-A : entrées « AUDIT BS-A: Draco / Ginny (famille) » selon le foyer parent (Molly / Narcissa).',
+  ], actions);
+}
+
 /** Fiche enfant famille — carnet à signer (bento). */
 function famEnfantCarnetTipDenseHtml(opts) {
   const o = opts || {};
@@ -3831,7 +3967,7 @@ function maybeToastFamEnfantSwitch(e, stats, opts, nEnfants) {
   toastFamEnfantSwitchDense(e, stats, opts || {});
 }
 
-/** Fiche enfant ouverte — synthèse à traiter (toast bento). */
+/** Fiche enfant ouverte — synthèse à traiter (toast bento · lien carnet BS-B). */
 function toastFamEnfantOuverte(e, stats, opts) {
   const o = opts || {};
   const s = stats || {};
@@ -3852,7 +3988,9 @@ function toastFamEnfantOuverte(e, stats, opts) {
     ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=carnet" style="text-decoration:none;border-color:var(--warn,#b45309)">
         <strong class="warn">${nCar}</strong><span>Carnet à signer</span>
       </a>`
-    : `<div class="stat-tile bento-span-4"><strong>${nCar}</strong><span>Carnet</span></div>`;
+    : `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=carnet" style="text-decoration:none">
+        <strong class="ok">OK</strong><span>Carnet · ouvrir</span>
+      </a>`;
   const docsTile = nDocs
     ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=docs" style="text-decoration:none;border-color:var(--warn,#b45309)">
         <strong class="warn">${nDocs}</strong><span>Docs à signer</span>
@@ -4304,17 +4442,22 @@ function famHomeEnfantsSwitchTipDenseHtml(list, resumes, docsLists, paiList, abs
   return `<div class="bento" style="margin-bottom:.65rem">${childTiles}${listTile}</div>`;
 }
 
-/** Liste /famille/enfants — tip bento quand tous les dossiers sont à jour. */
+/** Liste /famille/enfants — tip bento quand tous les dossiers sont à jour (BS-B). */
 function famEnfantsListTipEmptyDenseHtml(kids) {
   const list = kids || [];
   if (!list.length) return '';
   const n = list.length;
   const prenoms = list.slice(0, 3).map(e => esc(String(e.prenom || '').trim())).join(' · ');
   const extra = n > 3 ? ` · +${n - 3}` : '';
+  const firstVs = list.find(e => e && e.peut_voir_vs !== false) || list[0];
+  const eid = firstVs && firstVs.id ? esc(String(firstVs.id)) : '';
+  const carHref = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
   return `<div class="bento" style="margin:0 0 .55rem">
     <div class="stat-tile bento-span-4"><strong class="ok">${n}</strong><span>Enfant(s) · dossiers à jour</span></div>
-    <div class="stat-tile bento-span-4"><strong>${prenoms}${extra}</strong><span>Cartes · absences · PAI · docs</span></div>
-    <a class="stat-tile bento-span-4" href="/famille" style="text-decoration:none"><strong>Accueil</strong><span>Messages · factures</span></a>
+    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Carnet</strong><span>${prenoms}${extra} · VS</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/famille/docs-signer" style="text-decoration:none"><strong>Docs</strong><span>Charte · autorisations</span></a>
   </div>`;
 }
 
@@ -4560,6 +4703,31 @@ function isLabSeamusEleveSession() {
     && /finnigan/i.test(String(me.nom || '').trim());
 }
 
+function isLabLunaEleveSession() {
+  if (!me || !isEleve()) return false;
+  return /^luna$/i.test(String(me.prenom || '').trim())
+    && /lovegood/i.test(String(me.nom || '').trim());
+}
+
+/** Élève /eleve/notes — liste vide · repère seed labo Luna Lovegood (BS-D / BS-A). */
+function eleveNotesLunaSeedTipDenseHtml(classe, meta) {
+  const o = meta || {};
+  const cl = esc(String(classe || '6A').trim());
+  const hasBsNote = !!o.hasBsNote;
+  const noteLbl = o.bsNoteLabel
+    ? esc(String(o.bsNoteLabel).trim().slice(0, 28))
+    : 'Potions BS-A';
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Luna Lovegood</strong><span>Seed labo · ${cl} · audit portail BS-D</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="${hasBsNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBsNote ? 'Note BS-A publiée' : 'En attente saisie prof'}</span></div>
+    <a class="stat-tile bento-span-4" href="/eleve/cahier" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Cahier</strong><span>Devoirs quotidiens · en attendant</span>
+    </a>
+  </div>`;
+}
+
 /** Élève /eleve/notes — liste vide · repère seed labo Seamus Finnigan (6A). */
 function eleveNotesSeamusSeedTipDenseHtml(classe) {
   const cl = esc(String(classe || '6A').trim());
@@ -4606,7 +4774,16 @@ function refreshEleveNotesListEmptyTip(periode, notes) {
     return;
   }
   let html = eleveNotesListEmptyTipDenseHtml(periode);
-  if (isLabSeamusEleveSession()) {
+  if (isLabLunaEleveSession()) {
+    const cl = (me && me.classe) ? String(me.classe) : '6A';
+    const bsNote = (notes || []).find(n =>
+      /BS-A/i.test(String(n.libelle || ''))
+      || (/luna/i.test(String(n.libelle || '')) && /potions/i.test(String(n.matiere_libelle || n.matiere || ''))));
+    html += eleveNotesLunaSeedTipDenseHtml(cl, {
+      hasBsNote: !!bsNote,
+      bsNoteLabel: bsNote && bsNote.libelle ? String(bsNote.libelle) : '',
+    });
+  } else if (isLabSeamusEleveSession()) {
     const cl = (me && me.classe) ? String(me.classe) : '6A';
     html += eleveNotesSeamusSeedTipDenseHtml(cl);
   }
@@ -5007,7 +5184,8 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyChoSlot"></div>
   <div id="notesDevoirsEmptyHermioneSlot"></div>
   <div id="notesDevoirsEmptyDracoSlot"></div>
-  <div id="notesDevoirsEmptyRonSlot"></div>`;
+  <div id="notesDevoirsEmptyRonSlot"></div>
+  <div id="notesDevoirsEmptyHarrySlot"></div>`;
 }
 
 function bindNotesDevoirsEmptyTipGo() {
@@ -5040,7 +5218,8 @@ function notesDevListEmptyDenseHtml(opts) {
     <button type="button" class="stat-tile bento-span-4" id="notesDevListEmptyFilterBtn" style="cursor:pointer;text-align:left">
       <strong>↔</strong><span>${dateF ? 'Toutes dates' : 'Filtre 4B labo'}</span>
     </button>
-  </div>`;
+  </div>
+  <div id="notesDevListEmptyHarrySlot"></div>`;
 }
 
 function bindNotesDevListEmptyTipGo(opts) {
@@ -5062,6 +5241,16 @@ function bindNotesDevListEmptyTipGo(opts) {
       const chip4b = document.getElementById('notesChip4B');
       if (chip4b) chip4b.click();
     };
+  }
+  const harrySlot = document.getElementById('notesDevListEmptyHarrySlot');
+  if (harrySlot) {
+    harrySlot.innerHTML = notesHarryDevoirGoTipDenseHtml({
+      harryBsDevoir: o.harryBsDevoir || null,
+    });
+    bindNotesHarryDevoirGoTipGo({
+      harryBsDevoir: o.harryBsDevoir || null,
+      openGrille: o.openGrille,
+    });
   }
 }
 
@@ -6954,7 +7143,7 @@ async function snapshotComDossiersOuverts(jour) {
   const j = jour || today();
   const coms = await api('/vs/commissions?jour=' + encodeURIComponent(j)).catch(() => []);
   if (!Array.isArray(coms) || !coms.length) {
-    return { count: 0, coms: 0, first: null };
+    return { count: 0, coms: 0, first: null, open: [] };
   }
   const packs = await Promise.all(coms.map(c =>
     api('/vs/commissions/' + c.id + '/dossiers')
@@ -6969,7 +7158,28 @@ async function snapshotComDossiersOuverts(jour) {
       }
     }
   }
-  return { count: open.length, coms: coms.length, first: open[0] || null };
+  return { count: open.length, coms: coms.length, first: open[0] || null, open };
+}
+function harryComOpenEntry(snap, harryId) {
+  if (!harryId || !snap || !Array.isArray(snap.open)) return null;
+  const hid = String(harryId);
+  return snap.open.find(x => x && String(x.eleveId) === hid) || null;
+}
+function goAbsencesComPanelJour() {
+  routeState.scrollComPanel = true;
+  go('/app/absences#absComPanel');
+}
+function goStaffVsAbsencesJour() {
+  if (path() === '/app/absences') {
+    const el = document.getElementById('vsOut');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.style.outline = '2px solid var(--accent, #2563eb)';
+      setTimeout(() => { el.style.outline = ''; }, 1800);
+    }
+    return;
+  }
+  go('/app/absences');
 }
 async function findComContextForDossier(dosId, jour) {
   if (!dosId) return null;
@@ -7092,50 +7302,219 @@ function refreshAbsStaffJustifsCountTip(n, jour, onGo) {
   bindAbsStaffJustifsCountTipGo(onGo);
 }
 
-/** /app/vs — justificatifs parent dans la file absences du jour. */
+/** /app/vs — justificatifs parent dans la file absences du jour (BS-C). */
 function vsJustifsJourTipDenseHtml(nJustif, nAbsTodo, jour) {
   if (!isStaffVsJourFlux()) return '';
   const k = Number(nJustif) || 0;
   const nAbs = Number(nAbsTodo) || 0;
   const j = esc(String(jour || today()).slice(0, 10));
-  if (!k && !nAbs) return '';
+  const bscLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">BS-C</span>';
   const justifTile = k
     ? `<a class="stat-tile bento-span-4" href="/app/absences?filtre=justifs-trancher" style="text-decoration:none;border-color:var(--warn,#b45309)">
         <strong class="warn">${k}</strong><span>Justif(s) parent · à trancher</span></a>`
-    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Justif parent · jour ${j}</span></div>`;
-  return `<div class="bento" style="margin:.15rem 0 .55rem">
-    ${justifTile}
-    <div class="stat-tile bento-span-4"><strong>${nAbs}</strong><span>Absence(s) à traiter · ${j}</span></div>
-    <a class="stat-tile bento-span-4" href="/app/absences" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>→</strong><span>File VS · détail &amp; commissions</span></a>
-  </div>`;
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Justif parent · ${j} · ${bscLbl}</span></div>`;
+  const absTile = nAbs
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nAbs}</strong><span>Absence(s) à traiter · ${j}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>File absences · à jour</span></div>`;
+  const chainTile = (k || nAbs)
+    ? `<button type="button" class="stat-tile bento-span-4" id="vsJustifsGoAbsDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>→</strong><span>Absences du jour · détail file</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="vsJustifsGoAbsDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>→</strong><span>Absences du jour · panneau complet</span></button>`;
+  return `<div class="bento" data-bsc="vs-abs-jour" style="margin:.15rem 0 .55rem">${justifTile}${absTile}${chainTile}</div>`;
+}
+
+function bindVsJustifsJourTipGo() {
+  const btn = document.getElementById('vsJustifsGoAbsDense');
+  if (btn) btn.onclick = () => go('/app/absences');
 }
 
 function refreshVsJustifsJourTip(nJustif, nAbsTodo, jour) {
   const el = document.getElementById('vsJustifsTip');
   if (!el) return;
   el.innerHTML = vsJustifsJourTipDenseHtml(nJustif, nAbsTodo, jour);
+  bindVsJustifsJourTipGo();
 }
 
-/** File VS du jour — commissions planifiées + dossiers ouverts à décider. */
-function vsComJourTipDenseHtml(snap, jour) {
+/** File VS du jour — commissions planifiées + dossiers ouverts à décider (BS-C). */
+function vsComJourTipDenseHtml(snap, jour, meta) {
+  if (!isStaffVsJourFlux()) return '';
+  const o = meta || {};
   const nComs = snap && snap.coms ? Number(snap.coms) : 0;
   const nDos = snap && snap.count ? Number(snap.count) : 0;
-  if (!nComs && !nDos) return '';
-  const j = esc(jour || today());
+  const j = esc(String(jour || today()).slice(0, 10));
   const first = snap && snap.first;
-  const href = esc(first
+  const harryCom = harryComOpenEntry(snap, o.harryId);
+  const href = first
     ? absencesComDeepLink({ comId: first.comId, dosId: first.dosId, eleveId: first.eleveId })
-    : '/app/absences#absComPanel');
-  return `<div class="bento" style="margin:.15rem 0 .55rem">
-    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
-      <strong class="warn">${nComs}</strong><span>Commission(s) VS · jour ${j}</span>
+    : '/app/absences#absComPanel';
+  const bscLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">BS-C</span>';
+  if (!nComs && !nDos) {
+    return `<div class="bento" data-bsc="vs-com-jour" style="margin:.15rem 0 .55rem">
+      <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Commission · jour ${j} · ${bscLbl}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucune com. planifiée · signal VS</span></div>
+      <button type="button" class="stat-tile bento-span-4" id="vsComJourGoAbsDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>→</strong><span>Absences &amp; commissions · panneau</span>
+      </button>
+    </div>`;
+  }
+  const comTile = nComs
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nComs}</strong><span>Commission(s) · jour ${j} · ${bscLbl}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Commission · ${j}</span></div>`;
+  const dosTile = nDos
+    ? `<button type="button" class="stat-tile bento-span-4" id="vsComJourGoDeciderDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong class="warn">${nDos}</strong><span>Dossier(s) à décider · ouvrir</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Dossier ouvert · com. sans file</span></div>`;
+  const harryTile = harryCom
+    ? `<a class="stat-tile bento-span-4" href="${esc(absencesComDeepLink(harryCom))}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>Harry</strong><span>Seed labo · dossier commission jour J</span></a>`
+    : (nDos
+      ? `<a class="stat-tile bento-span-4" href="${esc(href)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+          <strong>→</strong><span>Panneau commission · convoquer / décider</span></a>`
+      : `<button type="button" class="stat-tile bento-span-4" id="vsComJourGoAbsDense" style="cursor:pointer;text-align:left">
+          <strong>→</strong><span>Panneau commission</span></button>`);
+  return `<div class="bento" data-bsc="vs-com-jour" style="margin:.15rem 0 .55rem">${comTile}${dosTile}${harryTile}</div>`;
+}
+
+function bindVsComJourTipGo(snap) {
+  const first = snap && snap.first;
+  const href = first
+    ? absencesComDeepLink({ comId: first.comId, dosId: first.dosId, eleveId: first.eleveId })
+    : null;
+  const goAbs = document.getElementById('vsComJourGoAbsDense');
+  if (goAbs) goAbs.onclick = () => goAbsencesComPanelJour();
+  const goDec = document.getElementById('vsComJourGoDeciderDense');
+  if (goDec) {
+    goDec.onclick = () => {
+      if (href) goAbsencesComDeepLink(first, true);
+      else goAbsencesComPanelJour();
+    };
+  }
+}
+
+function refreshVsComJourTip(snap, jour, meta) {
+  const el = document.getElementById('vsJourComTip');
+  if (!el) return;
+  el.innerHTML = vsComJourTipDenseHtml(snap, jour, meta);
+  bindVsComJourTipGo(snap);
+}
+
+/** /app/absences — bento commission jour J (BS-C). */
+function absComJourTipDenseHtml(snap, jour, meta) {
+  if (!isStaffAbsencesFlux()) return '';
+  const o = meta || {};
+  const nComs = snap && snap.coms ? Number(snap.coms) : 0;
+  const nDos = snap && snap.count ? Number(snap.count) : 0;
+  const j = esc(String(jour || today()).slice(0, 10));
+  const first = snap && snap.first;
+  const harryCom = harryComOpenEntry(snap, o.harryId);
+  const bscLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">BS-C</span>';
+  const comBorder = nComs ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)';
+  const comStrong = nComs ? `<strong class="warn">${nComs}</strong>` : '<strong class="ok">0</strong>';
+  const dosTile = nDos
+    ? `<button type="button" class="stat-tile bento-span-4" id="absComJourGoDeciderDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong class="warn">${nDos}</strong><span>À décider · sélectionner dossier</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">${nComs ? '—' : '0'}</strong><span>${nComs ? 'Com. sans dossier ouvert' : 'Créer via signal ou formulaire'}</span></div>`;
+  const chainTile = nDos
+    ? `<button type="button" class="stat-tile bento-span-4" id="absComJourGoFileAbsDense" style="cursor:pointer;text-align:left">
+        <strong>↔</strong><span>File absences du jour · #vsOut</span></button>`
+    : (harryCom
+      ? `<a class="stat-tile bento-span-4" href="${esc(absencesComDeepLink(harryCom))}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+          <strong>Harry</strong><span>Seed labo · commission audit</span></a>`
+      : `<button type="button" class="stat-tile bento-span-4" id="absComJourGoFileAbsDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+          <strong>→</strong><span>File absences du jour</span></button>`);
+  return `<div class="bento" data-bsc="abs-com-jour" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:${comBorder}">
+      ${comStrong}<span>Commission(s) · ${j} · ${bscLbl}</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong class="${nDos ? 'warn' : ''}">${nDos}</strong><span>Dossier(s) à décider</span></div>
-    <a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>→</strong><span>Panneau commission · convoquer / décider</span>
-    </a>
+    ${dosTile}
+    ${chainTile}
   </div>`;
+}
+
+function bindAbsComJourTipGo(snap, onOpenFirst) {
+  const first = snap && snap.first;
+  const goDec = document.getElementById('absComJourGoDeciderDense');
+  if (goDec) {
+    goDec.onclick = () => {
+      scrollToAbsComPanel();
+      if (typeof onOpenFirst === 'function') onOpenFirst(first);
+      else if (first) goAbsencesComDeepLink(first, true);
+    };
+  }
+  const goFile = document.getElementById('absComJourGoFileAbsDense');
+  if (goFile) goFile.onclick = () => goStaffVsAbsencesJour();
+}
+
+function refreshAbsComJourTip(snap, jour, meta, onOpenFirst) {
+  const el = document.getElementById('absComJourTip');
+  if (!el) return;
+  el.innerHTML = absComJourTipDenseHtml(snap, jour, meta);
+  bindAbsComJourTipGo(snap, onOpenFirst);
+}
+
+/** /app/absences — repère seed Harry commission (dossier ouvert jour J). */
+function absHarryComSeedTipDenseHtml(snap, meta) {
+  if (!isStaffAbsencesFlux()) return '';
+  const o = meta || {};
+  const harryId = o.harryId ? String(o.harryId).trim() : '';
+  if (!harryId) return '';
+  const harryCom = harryComOpenEntry(snap, harryId);
+  const j = esc(String(o.jour || today()).slice(0, 10));
+  if (!harryCom) {
+    return `<div class="bento" data-bsc="abs-harry-com" style="margin:.15rem 0 .45rem">
+      <div class="stat-tile bento-span-4"><strong>Harry Potter</strong><span>Seed labo · aucune commission ouverte · ${j}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BS-C</strong><span>Relancer seed labo si audit com.</span></div>
+      <button type="button" class="stat-tile bento-span-4" id="absHarryComGoPanelDense" style="cursor:pointer;text-align:left">
+        <strong>→</strong><span>Lister commissions · panneau</span></button>
+    </div>`;
+  }
+  const href = esc(absencesComDeepLink(harryCom));
+  return `<div class="bento" data-bsc="abs-harry-com" style="margin:.15rem 0 .45rem">
+    <a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Harry</strong><span>Dossier commission · seed labo · ${j}</span></a>
+    <div class="stat-tile bento-span-4"><strong class="muted">BS-C</strong><span>Convoquer · décider · points permis</span></div>
+    <button type="button" class="stat-tile bento-span-4" id="absHarryComGoFileDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>↔</strong><span>File absences du jour</span></button>
+  </div>`;
+}
+
+function bindAbsHarryComSeedTipGo(snap, harryId) {
+  const harryCom = harryComOpenEntry(snap, harryId);
+  const goPanel = document.getElementById('absHarryComGoPanelDense');
+  if (goPanel) goPanel.onclick = () => {
+    scrollToAbsComPanel();
+    const btn = document.getElementById('btnComLoad');
+    if (btn) btn.click();
+  };
+  const goFile = document.getElementById('absHarryComGoFileDense');
+  if (goFile) goFile.onclick = () => goStaffVsAbsencesJour();
+  if (harryCom) {
+    const openHarry = document.querySelector('[data-bsc="abs-harry-com"] a.stat-tile');
+    if (openHarry) {
+      openHarry.onclick = (ev) => {
+        ev.preventDefault();
+        goAbsencesComDeepLink(harryCom, true);
+      };
+    }
+  }
+}
+
+async function refreshAbsHarryComSeedTip(snap, meta) {
+  const el = document.getElementById('absHarryComSeedTip');
+  if (!el) return;
+  const o = meta || {};
+  const harryId = o.harryId || await resolveHarryPotterEleveId();
+  if (!harryId) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = absHarryComSeedTipDenseHtml(snap, { ...o, harryId });
+  bindAbsHarryComSeedTipGo(snap, harryId);
 }
 
 function isStaffAlertesFlux() {
@@ -7253,12 +7632,13 @@ function appelSaveTipDenseHtml(appel, opts) {
   const lastEtat = o.lastEtat ? esc(String(o.lastEtat).trim()) : '';
   const lastWho = o.lastWho ? esc(String(o.lastWho).trim().slice(0, 22)) : '';
   if (nManq <= 0 && nSaisi >= tot) {
-    return `<div class="bento" style="margin:0 0 .55rem">
+    return `<div class="bento" data-bsc="appel-pret-cloture" style="margin:0 0 .55rem">
       <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
         <strong class="ok">${tot}/${tot}</strong><span>Saisies complètes · prêt à clôturer</span>
       </div>
-      <div class="stat-tile bento-span-4"><strong class="muted">VS</strong><span>Seuls les absents remontent</span></div>
-      <div class="stat-tile bento-span-4"><strong class="muted">↓</strong><span>Bouton « Clôturer l’appel »</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">VS</strong><span>Seuls les absents remontent · BS-C</span></div>
+      <button type="button" class="stat-tile bento-span-4" id="appelGoVsAbsDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>→</strong><span>File absences du jour (après clôture)</span></button>
     </div>`;
   }
   const etatLbl = lastEtat
@@ -10415,6 +10795,7 @@ function toastAppelClos(appel, opts) {
   const tot = (a.lignes || []).length;
   const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="/app/absences">File absences</a>`
+    + (nAbs ? ` · <a href="/app/vs">File VS du jour</a>` : '')
     + (nAbs ? ` · <a href="/app/absences?filtre=justifs-trancher">Justificatifs</a>` : '')
     + ` · <a href="/app/mon-edt">Mon EDT</a></p>`;
   const simple = () => showEntToast(
@@ -11495,6 +11876,50 @@ function maybeToastFamRepasSectionDeep(opts) {
     return;
   }
   toastFamRepasSectionDeepDense(o);
+}
+
+/** Deep-link fiche ?section=carnet — toast actionnable (BS-B). */
+function toastFamCarnetSectionDeepDense(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const carnet = o.carnet || [];
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
+  const tipHtml = famEnfantCarnetTipDenseHtml({
+    carnet,
+    enfantId: o.enfantId,
+    forceShow: true,
+    deepLink: true,
+  });
+  const nPending = carnet.filter(c => c && !c.signe_at).length;
+  showEntToast(
+    `<strong>Carnet famille</strong> — ${who}`
+    + (nPending
+      ? ` · <span class="warn">${nPending} à signer</span>`
+      : ' · <span class="ok">à jour</span>')
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${ficheHref}">Ouvrir le carnet</a> · `
+    + `<a href="#fam-sec-carnet">↓ Section ci-dessous</a> · `
+    + `<a href="/famille/docs-signer">Docs</a></p>`,
+    nPending ? 9500 : 7500,
+  );
+}
+
+function maybeToastFamCarnetSectionDeep(opts) {
+  if (!isParent() || !isFamilleEnfantFlux()) return;
+  const o = opts || {};
+  if (normalizeFamEnfantSection(o.deepSection) !== 'carnet') return;
+  const id = o.enfantId ? String(o.enfantId).trim() : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_carnet_sec_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamCarnetSectionDeepDense(o);
 }
 
 function famAccEmptyDenseHtml(prenom, opts) {
@@ -15249,7 +15674,9 @@ async function bindFamilleDocsSigner() {
       if (!nPending) {
         out.innerHTML = famEmptyDense('Rien à signer', [
           'Charte numérique, règlement intérieur et autres pièces VS apparaissent ici dès publication.',
-        ], '<a href="/famille">Accueil famille</a>');
+          'Le carnet de vie scolaire se signe sur la fiche enfant (section Carnet), pas dans cette file.',
+          'Portail famille BS-B — docs + carnet + fiches enfants restent liés.',
+        ], '<a href="/famille/enfants">Mes enfants</a> · <a href="/famille">Accueil</a>');
         return;
       }
       if (filterId && packs.length === 1) {
@@ -15672,7 +16099,7 @@ async function bindFamilleHome() {
     }
     const carnetTip = document.getElementById('famHomeCarnetTip');
     if (carnetTip) {
-      const denseCar = famHomeCarnetTipDenseHtml(list, resumes);
+      const denseCar = famHomeCarnetFamilleDenseHtml(list, resumes);
       if (denseCar) {
         carnetTip.style.display = '';
         carnetTip.innerHTML = denseCar;
@@ -16185,7 +16612,7 @@ async function bindFamilleEnfant(id) {
     if (!e.peut_voir_vs) {
       html += `<p class="empty">Carnet non visible — vie scolaire non autorisée pour ce lien parent.</p>`;
     } else if (!carnet.length) {
-      html += `<p class="empty">Aucune entrée en attente de signature.</p>`;
+      html += famEnfantCarnetEmptyDenseHtml(e, id);
     } else {
       html += `<table><thead><tr><th>Date</th><th>Titre</th><th>Message</th><th></th></tr></thead><tbody>
         ${carnet.map(c => `<tr>
@@ -16355,6 +16782,14 @@ async function bindFamilleEnfant(id) {
         carTipEl.style.display = 'none';
         carTipEl.innerHTML = '';
       }
+    }
+    if (enfantDeepSection === 'carnet') {
+      maybeToastFamCarnetSectionDeep({
+        enfantId: id,
+        prenom: e.prenom,
+        carnet,
+        deepSection: enfantDeepSection,
+      });
     }
 
     const msgTipEl = document.getElementById('famEnfantMessagesTip');
@@ -17833,7 +18268,7 @@ async function bindFamilleEnfant(id) {
       prevPrenom: prevEnfant && prevEnfant.prenom,
       deepSection: enfantDeepSection,
     }, enfants.length);
-    if (enfantDeepSection !== 'orientation' && enfantDeepSection !== 'repas') {
+    if (enfantDeepSection !== 'orientation' && enfantDeepSection !== 'repas' && enfantDeepSection !== 'carnet') {
       maybeToastFamEnfantOuverte(e, enfantTodoStats, { deepSection: enfantDeepSection });
     }
 
@@ -19747,6 +20182,8 @@ async function bindAppel() {
           lastEtat: appelLastSaveMeta.etat,
           lastWho: appelLastSaveMeta.who,
         });
+      const goVsAbs = document.getElementById('appelGoVsAbsDense');
+      if (goVsAbs) goVsAbs.onclick = () => go('/app/vs');
     }
     out.innerHTML = renderAppelPanel(appel, names, absentMap);
     if (nAbs > 0 && appel.statut !== 'clos') {
@@ -25507,11 +25944,9 @@ async function bindVsJour() {
       pillStat('insc. pièces', insPieces.length, '/app/inscriptions', true),
     ].join('');
 
-    const comSnap = await snapshotComDossiersOuverts(jour).catch(() => ({ count: 0, coms: 0, first: null }));
-    const comTipEl = document.getElementById('vsJourComTip');
-    if (comTipEl) comTipEl.innerHTML = vsComJourTipDenseHtml(comSnap, jour);
-
+    const comSnap = await snapshotComDossiersOuverts(jour).catch(() => ({ count: 0, coms: 0, first: null, open: [] }));
     const harryId = await resolveHarryPotterEleveId();
+    refreshVsComJourTip(comSnap, jour, { harryId });
     const harryAl = harryId ? al.filter(a => String(a.eleve_id) === harryId) : [];
     const harryJustif = harryId
       ? absTodo.some(a => String(a.eleve_id) === harryId && hasMotifJustifAbsence(a))
@@ -26194,6 +26629,8 @@ function viewAbsences() {
     <div class="panel" id="absComPanel">
       <h2>Commission VS</h2>
       <p class="muted">Planifier → convoquer → décider. Points retirés alimentent le permis à points (départ 20).</p>
+      <div id="absComJourTip"></div>
+      <div id="absHarryComSeedTip"></div>
       <div class="row">
         <label>Jour <input id="comJour" type="date" value="${today()}"/></label>
         <label>Heure <input id="comHeure" type="time" value="14:00"/></label>
@@ -26743,6 +27180,17 @@ async function bindAbsences() {
   const comEleveEl = document.getElementById('comEleve');
   if (comEleveEl) comEleveEl.onchange = loadComEleveHist;
 
+  async function refreshAbsComStaffTips(jour) {
+    const j = jour || document.getElementById('comJour')?.value || today();
+    const snap = await snapshotComDossiersOuverts(j).catch(() => ({ count: 0, coms: 0, first: null, open: [] }));
+    const harryId = await resolveHarryPotterEleveId().catch(() => null);
+    refreshAbsComJourTip(snap, j, { harryId }, (first) => {
+      if (first && first.comId) openCommission(first.comId, first.dosId || undefined).catch(() => {});
+    });
+    await refreshAbsHarryComSeedTip(snap, { harryId, jour: j });
+    return snap;
+  }
+
   async function loadCommissions() {
     const jour = document.getElementById('comJour').value || today();
     comOut.textContent = 'Chargement…';
@@ -26750,6 +27198,7 @@ async function bindAbsences() {
       const list = await api('/vs/commissions?jour=' + encodeURIComponent(jour));
       if (!list.length) {
         comOut.innerHTML = `<p class="empty">Aucune commission le <strong>${esc(jour)}</strong>.</p>
+          <p class="muted empty-state-hint" style="margin-top:.25rem;font-size:.85rem">Seed labo · commission Harry Potter (BS-C) — relancer le seed si audit jour J.</p>
           <p class="muted" style="margin-top:.35rem;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">
             <button type="button" class="primary" id="btnComEmptyCreate">Créer une commission</button>
             <button type="button" id="btnComEmptySig">Depuis un signal seuil</button>
@@ -26769,6 +27218,7 @@ async function bindAbsences() {
             if (sig) sig.scrollIntoView({ behavior: 'smooth', block: 'start' });
           };
         }
+        await refreshAbsComStaffTips(jour);
         return;
       }
       comOut.innerHTML = `<table><thead><tr><th>Heure</th><th>Objet</th><th>Lieu</th><th>Statut</th><th></th></tr></thead>
@@ -26780,8 +27230,10 @@ async function bindAbsences() {
       comOut.querySelectorAll('button[data-cid]').forEach(btn => {
         btn.onclick = () => openCommission(btn.dataset.cid);
       });
+      await refreshAbsComStaffTips(jour);
     } catch (e) {
       comOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      await refreshAbsComStaffTips(jour);
     }
   }
   function applyComDossierSelection(did, eidHint) {
@@ -29894,6 +30346,77 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyRonRefresh = refreshNotesDevoirsEmptyRonSlot;
+  async function refreshNotesDevoirsEmptyHarrySlot() {
+    const el = document.getElementById('notesDevoirsEmptyHarrySlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const harryBsDevoir = findHarryBsDevoir(devoirs);
+      el.innerHTML = notesHarryDevoirGoTipDenseHtml({ harryBsDevoir: harryBsDevoir || null });
+      bindNotesHarryDevoirGoTipGo({
+        harryBsDevoir: harryBsDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyHarryRefresh = refreshNotesDevoirsEmptyHarrySlot;
+  async function lunaBsNoteMetaFromApi(lunaId) {
+    let nNotes = 0;
+    let bsNoteLabel = '';
+    let hasBsNote = false;
+    try {
+      const notes = await api('/eleves/' + lunaId + '/notes');
+      nNotes = (notes || []).length;
+      const bsNote = (notes || []).find(n =>
+        /BS-A/i.test(String(n.libelle || ''))
+        || (/luna/i.test(String(n.libelle || '')) && /potions/i.test(String(n.matiere_libelle || n.matiere || ''))));
+      if (bsNote) {
+        hasBsNote = true;
+        if (bsNote.libelle) bsNoteLabel = String(bsNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, bsNoteLabel, hasBsNote };
+  }
+  async function refreshNotesEvalSansNoteLunaSlot() {
+    const el = document.getElementById('notesEvalSansNoteLunaSlot');
+    if (!el) return;
+    try {
+      const lunaId = await resolveLunaLovegoodEleveId();
+      if (!lunaId) {
+        el.innerHTML = '';
+        return;
+      }
+      const meta = await lunaBsNoteMetaFromApi(lunaId);
+      el.innerHTML = notesEvalSansNoteLunaTipDenseHtml({ lunaId, ...meta });
+      const btn = document.getElementById('notesEvalLunaNotesBtn');
+      if (btn) {
+        btn.onclick = async () => {
+          const cid = btn.dataset.lunaId || lunaId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Luna');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesEvalSansNoteLunaRefresh = refreshNotesEvalSansNoteLunaSlot;
   async function refreshNotesHarrySeedTip(devoirsPref) {
     const el = document.getElementById('notesHarrySeedTip');
     if (!el) return;
@@ -29914,23 +30437,25 @@ async function bindNotes() {
         nNotes = 0;
       }
       const devoirs = devoirsPref || [];
-      const potionsDevoir = devoirs.some(d =>
-        d.classe === '4B' && (/potions/i.test(d.titre || '') || /potions/i.test(d.matiere_libelle || '')));
+      const harryBsDevoir = findHarryBsDevoir(devoirs);
       el.innerHTML = notesHarrySeedTipDenseHtml({
         harryId: h.id,
         nNotes,
         classe: h.classe || '4B',
-        potionsDevoir,
+        harryBsDevoir: harryBsDevoir || null,
       });
       const btnNotes = document.getElementById('notesHarrySeedNotesBtn');
       if (btnNotes) {
         btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.harryId || h.id);
       }
-      const btnGrille = document.getElementById('notesHarrySeedGrilleBtn');
-      if (btnGrille) {
-        btnGrille.onclick = () => {
-          const quick = document.getElementById('btnNotesGrille4b');
-          if (quick) quick.click();
+      const btnDevoir = document.getElementById('notesHarrySeedDevoirBtn');
+      if (btnDevoir) {
+        btnDevoir.onclick = async () => {
+          if (harryBsDevoir && harryBsDevoir.id) {
+            await openGrille(harryBsDevoir);
+            return;
+          }
+          notesHarryDevoirGoActions();
         };
       }
     } catch {
@@ -29985,28 +30510,16 @@ async function bindNotes() {
         el.innerHTML = '';
         return;
       }
-      let nNotes = 0;
       let classe = '6A';
-      let frNoteLabel = '';
-      try {
-        const notes = await api('/eleves/' + lunaId + '/notes');
-        nNotes = (notes || []).length;
-        const frNote = (notes || []).find(n =>
-          /luna/i.test(String(n.libelle || ''))
-          || /français|francais/i.test(String(n.matiere_libelle || n.matiere || '')));
-        if (frNote && frNote.libelle) frNoteLabel = String(frNote.libelle);
-      } catch {
-        nNotes = 0;
-      }
+      const meta = await lunaBsNoteMetaFromApi(lunaId);
       try {
         const eleve = await api('/eleves/' + lunaId);
         if (eleve && eleve.classe) classe = eleve.classe;
       } catch { /* défaut 6A */ }
       el.innerHTML = notesLunaSeedTipDenseHtml({
         lunaId,
-        nNotes,
         classe,
-        frNoteLabel,
+        ...meta,
       });
       const btnNotes = document.getElementById('notesLunaSeedNotesBtn');
       if (btnNotes) {
@@ -30242,6 +30755,8 @@ async function bindNotes() {
           });
           bindNotesDevListEmptyTipGo({
             dateFilter: notesDevDateFilter,
+            harryBsDevoir: findHarryBsDevoir(listRaw || []),
+            openGrille: (d) => openGrille(d),
             clearDateFilter: async () => {
               applyNotesDevDateFilter('');
               await loadDevoirs();
