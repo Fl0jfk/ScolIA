@@ -114,6 +114,8 @@ let notesDevoirsEmptyChoRefresh = null;
 let notesDevoirsEmptyChoBzRefresh = null;
 /** Rempli dans bindNotes — repère Cho note CE-A sur tip « 0 devoir » (audit CE-D). */
 let notesDevoirsEmptyChoCeRefresh = null;
+/** Rempli dans bindNotes — repère Cho note CJ-A sur tip « 0 devoir » (audit CJ-D). */
+let notesDevoirsEmptyChoCjRefresh = null;
 /** Rempli dans bindNotes — repère Hermione sur tip « 0 devoir ». */
 let notesDevoirsEmptyHermioneRefresh = null;
 /** Rempli dans bindNotes — repère Hermione note BY-A sur tip « 0 devoir » (audit BY-D). */
@@ -140,6 +142,8 @@ let notesDevoirsEmptySeamusRefresh = null;
 let notesDevoirsEmptySeamusBzRefresh = null;
 /** Rempli dans bindNotes — repère Seamus devoir CE-A sur tip « 0 devoir » (audit CE-D). */
 let notesDevoirsEmptySeamusCeRefresh = null;
+/** Rempli dans bindNotes — repère Seamus devoir CJ-A sur tip « 0 devoir » (audit CJ-D). */
+let notesDevoirsEmptySeamusCjRefresh = null;
 /** Rempli dans bindNotes — repère Neville note CF-A sur tip « 0 devoir » (audit CF-D). */
 let notesDevoirsEmptyNevilleCfRefresh = null;
 /** Rempli dans bindNotes — repère Luna note BX-A sur tip « 0 devoir » (audit BX-D). */
@@ -921,6 +925,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyChoRefresh === 'function') void notesDevoirsEmptyChoRefresh();
     if (typeof notesDevoirsEmptyChoBzRefresh === 'function') void notesDevoirsEmptyChoBzRefresh();
     if (typeof notesDevoirsEmptyChoCeRefresh === 'function') void notesDevoirsEmptyChoCeRefresh();
+    if (typeof notesDevoirsEmptyChoCjRefresh === 'function') void notesDevoirsEmptyChoCjRefresh();
     if (typeof notesDevoirsEmptyHermioneRefresh === 'function') void notesDevoirsEmptyHermioneRefresh();
     if (typeof notesDevoirsEmptyHermioneByRefresh === 'function') void notesDevoirsEmptyHermioneByRefresh();
     if (typeof notesDevoirsEmptyHermioneCdRefresh === 'function') void notesDevoirsEmptyHermioneCdRefresh();
@@ -934,6 +939,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptySeamusRefresh === 'function') void notesDevoirsEmptySeamusRefresh();
     if (typeof notesDevoirsEmptySeamusBzRefresh === 'function') void notesDevoirsEmptySeamusBzRefresh();
     if (typeof notesDevoirsEmptySeamusCeRefresh === 'function') void notesDevoirsEmptySeamusCeRefresh();
+    if (typeof notesDevoirsEmptySeamusCjRefresh === 'function') void notesDevoirsEmptySeamusCjRefresh();
     if (typeof notesDevoirsEmptyNevilleCfRefresh === 'function') void notesDevoirsEmptyNevilleCfRefresh();
     if (typeof notesDevoirsEmptyLunaBxRefresh === 'function') void notesDevoirsEmptyLunaBxRefresh();
     if (typeof notesDevoirsEmptyGinnyRefresh === 'function') void notesDevoirsEmptyGinnyRefresh();
@@ -1689,6 +1695,57 @@ function bindNotesSeamusCeDevoirGoTipGo(opts) {
   }
 }
 
+function findSeamusCjDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /seamus/i.test(String(d.titre || '')) && /CJ-A/i.test(String(d.titre || '')));
+}
+
+/** /app/notes — repère devoir Seamus CJ-A (0 devoir global ou liste filtrée vide). */
+function notesSeamusCjDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.seamusCjDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Seamus CJ-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Seamus Finnigan</strong><span>Seed labo · 6A · devoir audit CJ-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesSeamusCjDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CJ-A · 6A'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesSeamusCjDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 6A</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesSeamusCjDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesSeamusCjDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.seamusCjDevoir && o.seamusCjDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.seamusCjDevoir);
+        return;
+      }
+      notesSeamusDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Seamus CJ-A';
+      }
+      if (!o.seamusCjDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesSeamusCjDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesSeamusDevoirGoActions();
+  }
+}
+
 function notesHarryDevoirGoActions() {
   const chip = document.getElementById('notesChip4B');
   if (chip) chip.click();
@@ -2251,6 +2308,30 @@ function notesChoCeSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesChoCeSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasCeNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCeNote ? 'Repère Cho · Français CE-A' : 'Filtre 5A · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Cho Chang (5A · note Français CJ-A · audit CJ-D). */
+function notesChoCjSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.choId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '5A').trim());
+  const hasCjNote = !!o.hasCjNote;
+  const noteLbl = o.cjNoteLabel
+    ? esc(String(o.cjNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CJ-A');
+  const noteStrong = hasCjNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Cho Chang</strong><span>Seed labo · ${classe} · audit notes CJ-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesChoCjSeedNotesBtn" data-cho-id="${esc(String(o.choId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesChoCjSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasCjNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCjNote ? 'Repère Cho · Français CJ-A' : 'Filtre 5A · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -6395,6 +6476,253 @@ function toastStaffCccAction(kind, meta) {
     `<strong>${title}</strong> · ${jour}`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir</a> · audit CC-C</p>`,
+    6500,
+  );
+}
+
+function staffHomeCjcPanelShell() {
+  return `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit exports EN</h3>
+      <p class="muted" style="margin-top:0">LSL · LSUN · Parcoursup · préflight périodes notes — <span class="muted empty-state-hint" style="font-size:.72rem">CJ-C</span>.</p>
+      <div id="homeStaffCjcTip" class="muted">Chargement…</div>
+    </div>`;
+}
+
+function isStaffHomeCjcFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && role === 'compta';
+}
+
+function isStaffExportsCjcFlux() {
+  return path() === '/app/exports';
+}
+
+function staffExportsCjcRoleOk() {
+  const role = (me && me.role) || '';
+  return ['admin', 'direction', 'administratif', 'compta', 'prof'].includes(role);
+}
+
+/** Accueil compta — ponts EN · périodes · effectif 4B (audit UI CJ-C · hors BY-C / CE-C / CI-C). */
+function homeStaffCjcTipDenseHtml(meta) {
+  if (!isStaffHomeCjcFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cjcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CJ-C</span>';
+  const nPer = Number(o.nPeriodes) || 0;
+  const nFerm = Number(o.nFermees) || 0;
+  const nEff = Number(o.nEff4b) || 0;
+  const perTile = nPer
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCjcPerGo" style="cursor:pointer;text-align:left;border-color:${nFerm ? 'var(--ok,#16a34a)' : 'var(--warn,#b45309)'}">
+        <strong class="${nFerm ? 'ok' : 'warn'}">${nFerm}/${nPer}</strong><span>Période(s) fermée(s) · bulletins · ${cjcLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCjcPerGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">—</strong><span>Périodes notes · configurer</span></button>`;
+  const effTile = nEff
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCjcEffGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${nEff}</strong><span>Effectif 4B · ${jour} · préflight LSL</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCjcEffGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">4B</strong><span>Aperçu effectif · exports</span></button>`;
+  const lslTile = `<button type="button" class="stat-tile bento-span-4" id="homeCjcLslGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>LSL</strong><span>Livret scolaire · classe · période</span></button>`;
+  const lsunTile = `<button type="button" class="stat-tile bento-span-4" id="homeCjcLsunGo" style="cursor:pointer;text-align:left">
+      <strong>LSUN</strong><span>CSV · confirm préflight</span></button>`;
+  const psupTile = `<button type="button" class="stat-tile bento-span-4" id="homeCjcPsGo" style="cursor:pointer;text-align:left">
+      <strong>Parcoursup</strong><span>Orientation · vœux · année</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CJ-C</strong><span>Exports EN · route /app/exports</span></div>`;
+  return `<div class="bento" data-ui-audit="CJ-C" style="margin:0 0 .55rem">
+    ${perTile}${effTile}${lslTile}${lsunTile}${psupTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffCjcTipActions(meta) {
+  const o = meta || {};
+  const per = document.getElementById('homeCjcPerGo');
+  if (per) {
+    per.onclick = () => {
+      toastStaffCjcAction('periodes', o);
+      go('/app/notes');
+    };
+  }
+  const eff = document.getElementById('homeCjcEffGo');
+  if (eff) {
+    eff.onclick = () => {
+      toastStaffCjcAction('effectif', o);
+      go('/app/exports');
+    };
+  }
+  const lsl = document.getElementById('homeCjcLslGo');
+  if (lsl) {
+    lsl.onclick = () => {
+      toastStaffCjcAction('lsl', o);
+      go('/app/exports');
+    };
+  }
+  const lsun = document.getElementById('homeCjcLsunGo');
+  if (lsun) {
+    lsun.onclick = () => {
+      toastStaffCjcAction('lsun', o);
+      go('/app/exports');
+    };
+  }
+  const ps = document.getElementById('homeCjcPsGo');
+  if (ps) {
+    ps.onclick = () => {
+      toastStaffCjcAction('parcoursup', o);
+      go('/app/exports');
+    };
+  }
+}
+
+/** Page /app/exports — ponts EN · préflight (audit UI CJ-C). */
+function exportsStaffPageCjcTipDenseHtml(meta) {
+  if (!isStaffExportsCjcFlux() || !staffExportsCjcRoleOk()) return '';
+  const o = meta || {};
+  const cjcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CJ-C</span>';
+  const nPer = Number(o.nPeriodes) || 0;
+  const nFerm = Number(o.nFermees) || 0;
+  const nEff = Number(o.nEff) || 0;
+  const cl = esc(String(o.classe || '4B').trim() || '4B');
+  const perTile = `<button type="button" class="stat-tile bento-span-4" id="expCjcPerGo" style="cursor:pointer;text-align:left;border-color:${nFerm ? 'var(--ok,#16a34a)' : 'var(--warn,#b45309)'}">
+      <strong class="${nFerm ? 'ok' : 'warn'}">${nFerm}/${nPer || '—'}</strong><span>Périodes fermées · ${cjcLbl}</span></button>`;
+  const effTile = `<button type="button" class="stat-tile bento-span-4" id="expCjcEffGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${nEff || '—'}</strong><span>Effectif ${cl} · aperçu CSV</span></button>`;
+  const lslTile = `<button type="button" class="stat-tile bento-span-4" id="expCjcLslGo" style="cursor:pointer;text-align:left">
+      <strong>LSL</strong><span>Livret · Notanet · ONDE</span></button>`;
+  const lsunTile = `<button type="button" class="stat-tile bento-span-4" id="expCjcLsunGo" style="cursor:pointer;text-align:left">
+      <strong>LSUN</strong><span>Préflight lignes · télécharger</span></button>`;
+  const psTile = `<button type="button" class="stat-tile bento-span-4" id="expCjcPsGo" style="cursor:pointer;text-align:left">
+      <strong>Parcoursup</strong><span>Année · effectif classe</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CJ-C</strong><span>Ponts nationaux · hors pédagogie CD-C</span></div>`;
+  return `<div class="bento" data-ui-audit="CJ-C" style="margin:0 0 .55rem">
+    ${perTile}${effTile}${lslTile}${lsunTile}${psTile}${auditTile}
+  </div>`;
+}
+
+function bindExportsStaffPageCjcTipActions(meta) {
+  const o = meta || {};
+  const scrollBtn = (id) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  const per = document.getElementById('expCjcPerGo');
+  if (per) {
+    per.onclick = () => {
+      toastStaffCjcAction('periodes', o);
+      go('/app/notes');
+    };
+  }
+  const eff = document.getElementById('expCjcEffGo');
+  if (eff) {
+    eff.onclick = () => {
+      toastStaffCjcAction('effectif', o);
+      document.getElementById('btnExpEnEffectif')?.click();
+      scrollBtn('btnExpEnEffectif');
+    };
+  }
+  const lsl = document.getElementById('expCjcLslGo');
+  if (lsl) {
+    lsl.onclick = () => {
+      toastStaffCjcAction('lsl', o);
+      scrollBtn('btnExpEnLsl');
+    };
+  }
+  const lsun = document.getElementById('expCjcLsunGo');
+  if (lsun) {
+    lsun.onclick = () => {
+      toastStaffCjcAction('lsun', o);
+      scrollBtn('btnExpEnLsun');
+    };
+  }
+  const ps = document.getElementById('expCjcPsGo');
+  if (ps) {
+    ps.onclick = () => {
+      toastStaffCjcAction('parcoursup', o);
+      scrollBtn('btnExpEnParcoursup');
+    };
+  }
+}
+
+function refreshExportsStaffCjcTip(meta) {
+  const box = document.getElementById('exportsStaffCjcTip');
+  if (!box) return;
+  box.innerHTML = exportsStaffPageCjcTipDenseHtml(meta || {});
+  bindExportsStaffPageCjcTipActions(meta || {});
+}
+
+function maybeToastStaffExportsCjcPageOpen(meta) {
+  if (!isStaffExportsCjcFlux() || !staffExportsCjcRoleOk()) return;
+  const ssKey = 'ent_staff_exports_cjc_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastStaffCjcAction('page-open', meta);
+}
+
+/** Toast bento — exports EN staff (routes existantes · audit CJ-C). */
+function toastStaffCjcAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cl = esc(String(o.classe || '4B').trim() || '4B');
+  const nPer = Number(o.nPeriodes) || 0;
+  const nFerm = Number(o.nFermees) || 0;
+  const nEff = Number(o.nEff4b != null ? o.nEff4b : o.nEff) || 0;
+  let title = 'Exports EN · staff';
+  let href = '/app/exports';
+  let tiles = '';
+  if (k === 'periodes') {
+    href = '/app/notes';
+    title = nPer ? 'Périodes notes · bulletins' : 'Configurer les périodes';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nFerm ? 'var(--ok,#16a34a)' : 'var(--warn,#b45309)'}">
+        <strong class="${nFerm ? 'ok' : 'warn'}">${nFerm}/${nPer || '—'}</strong><span>Fermée(s) · saisie / clôture</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">LSL · LSUN</strong><span>Export après clôture période</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CJ-C</strong><span>Route /app/notes · périodes</span></div>`;
+  } else if (k === 'effectif') {
+    title = nEff ? `Effectif ${cl}` : 'Préflight effectif classe';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nEff || '—'}</strong><span>Élève(s) · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Aperçu</strong><span>Bouton « Aperçu effectif »</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CJ-C</strong><span>GET /classes/…/effectif</span></div>`;
+  } else if (k === 'lsl') {
+    title = 'Export LSL · livret';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>LSL</strong><span>Classe ${cl} · période notes</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Notanet</strong><span>Brevet · même page</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CJ-C</strong><span>CSV local · pont national</span></div>`;
+  } else if (k === 'lsun') {
+    title = 'Export LSUN · préflight';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>LSUN</strong><span>Confirm · lignes CSV</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">${nEff || '—'}</strong><span>Effectif · refus si vide</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CJ-C</strong><span>Bandeau préflight LSUN</span></div>`;
+  } else if (k === 'parcoursup') {
+    title = 'Export Parcoursup';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>Parcoursup</strong><span>Vœux · orientation</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">${cl}</strong><span>Année scolaire · effectif</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CJ-C</strong><span>Route /app/exports</span></div>`;
+  } else if (k === 'page-open') {
+    title = 'Module exports EN';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>5</strong><span>Ponts · LSL LSUN Notanet …</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${nFerm}/${nPer || '—'}</strong><span>Période(s) fermée(s)</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CJ-C</strong><span>Page /app/exports</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CJ-C</p>`,
     6500,
   );
 }
@@ -11537,6 +11865,296 @@ function maybeToastFamVieScolaireOuverte(opts) {
   });
 }
 
+function famCjBVsPageHref() {
+  return '/famille/vie-scolaire';
+}
+
+function famCjBFicheHref(enfantId, section) {
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  if (!eid) return famCjBVsPageHref();
+  const sec = section ? String(section).trim() : '';
+  return sec
+    ? `/famille/enfants/${eid}?section=${encodeURIComponent(sec)}`
+    : `/famille/enfants/${eid}`;
+}
+
+function famConseilsVisiblesFamille(list) {
+  return (list || []).filter(c => c.visible_famille !== false);
+}
+
+function famAlertesCpeOuvertesFamille(list) {
+  return (list || []).filter(eleveAlerteCpeOuverte);
+}
+
+function famCollectAlertesConseilHomeStats(list, alertesLists, conseilsLists) {
+  const kids = list || [];
+  let nAlertOpen = 0;
+  let nAlertUrgent = 0;
+  let nConseil = 0;
+  let lead = null;
+  let leadScore = -1;
+  kids.forEach((e, i) => {
+    if (!e || e.peut_voir_vs === false) return;
+    const aOpen = famAlertesCpeOuvertesFamille((alertesLists || [])[i]);
+    const cVis = famConseilsVisiblesFamille((conseilsLists || [])[i]);
+    nAlertOpen += aOpen.length;
+    nAlertUrgent += aOpen.filter(x => x.severite === 'urgent').length;
+    nConseil += cVis.length;
+    const score = aOpen.length * 10 + (aOpen.some(x => x.severite === 'urgent') ? 5 : 0) + cVis.length;
+    if (score > leadScore) {
+      leadScore = score;
+      lead = { e, aOpen, cVis };
+    }
+  });
+  if (!lead) {
+    const pick = kids.find(x => x && x.peut_voir_vs !== false);
+    if (pick) lead = { e: pick, aOpen: [], cVis: [] };
+  }
+  return { nAlertOpen, nAlertUrgent, nConseil, lead };
+}
+
+/** Accueil famille — alertes CPE & conseil (bento) — audit UI CJ-B. */
+function famHomeAlertesConseilCjBTipDenseHtml(list, alertesLists, conseilsLists, opts) {
+  const o = opts || {};
+  const kids = (list || []).filter(e => e && e.peut_voir_vs !== false);
+  if (!kids.length && !o.forceShow) return '';
+  const st = famCollectAlertesConseilHomeStats(list, alertesLists, conseilsLists);
+  const pageHref = famCjBVsPageHref();
+  const leadE = st.lead && st.lead.e ? st.lead.e : kids[0];
+  const eid = leadE && leadE.id ? String(leadE.id) : '';
+  const prenom = leadE && leadE.prenom ? esc(String(leadE.prenom).trim()) : 'Enfant';
+  const alertHref = famCjBFicheHref(eid, 'alertes');
+  const conseilHref = famCjBFicheHref(eid, 'conseil');
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CJ-B</strong><span>Alertes CPE · conseil</span></div>`;
+  const alertTile = st.nAlertOpen
+    ? `<a class="stat-tile bento-span-4" href="${alertHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-cj-go="${alertHref}">
+        <strong class="warn">${st.nAlertOpen}</strong><span>Alerte(s) CPE · ${st.nAlertUrgent ? st.nAlertUrgent + ' urgent · ' : ''}${prenom}</span></a>`
+    : `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)" data-fam-cj-go="${pageHref}">
+        <strong class="ok">0</strong><span>Alertes CPE · calme</span></a>`;
+  const consTile = st.nConseil
+    ? `<a class="stat-tile bento-span-4" href="${conseilHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-cj-go="${conseilHref}">
+        <strong>${st.nConseil}</strong><span>Conseil de classe · ${prenom}</span></a>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Conseil · pas de décision</span></div>`;
+  const actTile = `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none" data-fam-cj-go="/famille/messages">
+      <strong>CPE</strong><span>Messagerie · suivi pédagogique</span></a>`;
+  return `<div class="bento" data-ui-audit="CJ-B" style="margin:0 0 .55rem">${alertTile}${consTile}${actTile}${auditTile}</div>`;
+}
+
+/** Page /famille/vie-scolaire — alertes & conseil (bento) — audit UI CJ-B. */
+function famVsPageAlertesConseilCjBTipDenseHtml(opts) {
+  const o = opts || {};
+  if (!o.forceShow && !o.enfantId) return '';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const aOpen = famAlertesCpeOuvertesFamille(o.alertes || []);
+  const cVis = famConseilsVisiblesFamille(o.conseils || []);
+  const nU = aOpen.filter(x => x.severite === 'urgent').length;
+  const lastA = aOpen.slice().sort((a, b) => String(b.jour || '').localeCompare(String(a.jour || '')))[0];
+  const titreA = lastA && lastA.titre ? esc(String(lastA.titre).trim().slice(0, 24)) : '—';
+  const lastC = cVis[0];
+  const mentionC = lastC && lastC.mention ? esc(String(lastC.mention).trim()) : 'Décision';
+  const alertHref = famCjBFicheHref(eid, 'alertes');
+  const conseilHref = famCjBFicheHref(eid, 'conseil');
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CJ-B</strong><span>${famCjBVsPageHref()}</span></div>`;
+  const alertTile = aOpen.length
+    ? `<a class="stat-tile bento-span-4" href="${alertHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-cj-go="${alertHref}">
+        <strong class="warn">${aOpen.length}</strong><span>${titreA} · ${who}</span></a>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Alertes CPE · ${who}</span></div>`;
+  const consTile = cVis.length
+    ? `<a class="stat-tile bento-span-4" href="${conseilHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-cj-go="${conseilHref}">
+        <strong>${cVis.length}</strong><span>${mentionC} · conseil</span></a>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Conseil visible · ${who}</span></div>`;
+  const msgTile = `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none" data-fam-cj-go="/famille/messages">
+      <strong>→</strong><span>Contacter le CPE${nU ? ' · urgent' : ''}</span></a>`;
+  return `<div class="bento" data-ui-audit="CJ-B" style="margin:0 0 .55rem">${alertTile}${consTile}${msgTile}${auditTile}</div>`;
+}
+
+/** Fiche enfant ?section=alertes — synthèse alertes CPE (bento) — audit UI CJ-B. */
+function famEnfantAlertesTipDenseHtml(opts) {
+  const o = opts || {};
+  const list = o.alertes || [];
+  if (!o.forceShow && !list.length && !o.deepLink) return '';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const aOpen = famAlertesCpeOuvertesFamille(list);
+  const nU = aOpen.filter(x => x.severite === 'urgent').length;
+  const vsHref = famCjBVsPageHref();
+  const last = aOpen.slice().sort((a, b) => String(b.jour || '').localeCompare(String(a.jour || '')))[0];
+  const titre = last && last.titre ? esc(String(last.titre).trim().slice(0, 28)) : '—';
+  const jour = last && last.jour ? esc(String(last.jour).slice(0, 10)) : '—';
+  const countTile = aOpen.length
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${aOpen.length}</strong><span>Ouverte(s)${nU ? ' · ' + nU + ' urgent' : ''} · ${who}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Alertes CPE · calme</span></div>`;
+  const detTile = last
+    ? `<div class="stat-tile bento-span-4"><strong>${titre}</strong><span>${jour} · ${esc(String(last.severite || 'info'))}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucune alerte ouverte</span></div>`;
+  const actTile = `<a class="stat-tile bento-span-4" href="${vsHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-cj-go="${vsHref}">
+      <strong>→</strong><span>Page vie scolaire</span></a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CJ-B</strong><span>?section=alertes · GET alertes-cpe</span></div>`;
+  return `<div class="bento" data-ui-audit="CJ-B" style="margin:0 0 .55rem">${countTile}${detTile}${actTile}${auditTile}</div>`;
+}
+
+/** Fiche enfant ?section=conseil — synthèse conseil de classe (bento) — audit UI CJ-B. */
+function famEnfantConseilTipDenseHtml(opts) {
+  const o = opts || {};
+  const cVis = famConseilsVisiblesFamille(o.conseils || []);
+  if (!o.forceShow && !cVis.length && !o.deepLink) return '';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const first = cVis[0];
+  const mention = first && first.mention ? esc(String(first.mention).trim()) : '—';
+  const app = first && first.appreciation
+    ? esc(String(first.appreciation).trim().slice(0, 32)) + (String(first.appreciation).trim().length > 32 ? '…' : '')
+    : '—';
+  const n = cVis.length;
+  const notesHref = famCjBFicheHref(eid, 'notes');
+  const countTile = n
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${n}</strong><span>Décision(s) · ${who}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Pas de conseil partagé</span></div>`;
+  const detTile = n
+    ? `<div class="stat-tile bento-span-4"><strong>${mention}</strong><span>${app}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Conseil de classe</span></div>`;
+  const actTile = `<a class="stat-tile bento-span-4" href="${notesHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-cj-go="${notesHref}">
+      <strong>Notes</strong><span>Bulletins · appréciations</span></a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CJ-B</strong><span>?section=conseil · GET conseils</span></div>`;
+  return `<div class="bento" data-ui-audit="CJ-B" style="margin:0 0 .55rem">${countTile}${detTile}${actTile}${auditTile}</div>`;
+}
+
+function famEnfantAlertesEmptyDenseHtml(prenom, enfantId) {
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  const tip = famEnfantAlertesTipDenseHtml({ forceShow: true, enfantId: eid, prenom: who, alertes: [] });
+  return `${tip}${famEmptyDense(`Aucune alerte CPE — ${who}`, [
+    'Le CPE signale ici convocations, vigilance ou suivi disciplinaire marqués « ouverts ».',
+    'Audit UI <span class="muted empty-state-hint">CJ-B</span> — distinct des commissions (CI-B) et du permis (CB-B).',
+    '<a href="/famille/messages">Messagerie</a> pour échanger avec l’équipe éducative.',
+  ], `<a href="${famCjBVsPageHref()}">Vie scolaire</a> · <a href="/famille/messages">Contacter le CPE</a>`)}`;
+}
+
+function famEnfantConseilEmptyDenseHtml(prenom, enfantId) {
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  const tip = famEnfantConseilTipDenseHtml({ forceShow: true, enfantId: eid, prenom: who, conseils: [] });
+  return `${tip}${famEmptyDense(`Aucune décision de conseil visible — ${who}`, [
+    'Les mentions et appréciations partagées avec la famille apparaissent ici après le conseil de classe.',
+    'Audit UI <span class="muted empty-state-hint">CJ-B</span> — fiche <code>?section=conseil</code>.',
+  ], `<a href="${famCjBFicheHref(eid, 'notes')}">Section notes</a> · <a href="${famCjBVsPageHref()}">Vie scolaire</a>`)}`;
+}
+
+function bindFamHomeCjBTipGo() {
+  ['famHomeCjBTip', 'famVsPageCjBTip', 'famEnfantAlertesTip', 'famEnfantConseilTip', 'entToast'].forEach(rootId => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('[data-fam-cj-go]').forEach(btn => {
+      if (btn.dataset.famCjBound === '1') return;
+      btn.dataset.famCjBound = '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-cj-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  });
+}
+
+const FAM_CJ_HOME_TOAST_SS = 'ent_fam_cj_b_home_toast';
+
+/** Accueil famille — toast alertes / conseil (1× / session) — audit UI CJ-B. */
+function maybeToastFamAlertesConseilHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_CJ_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const st = famCollectAlertesConseilHomeStats(o.list, o.alertesLists, o.conseilsLists);
+  const kids = (o.list || []).filter(e => e && e.peut_voir_vs !== false);
+  if (!kids.length) return;
+  if (!st.nAlertOpen && !st.nConseil) return;
+  const tiles = famHomeAlertesConseilCjBTipDenseHtml(o.list, o.alertesLists, o.conseilsLists, { forceShow: true });
+  if (!tiles) return;
+  const lead = st.lead && st.lead.e ? st.lead.e : kids[0];
+  const who = lead && lead.prenom ? esc(String(lead.prenom).trim()) : 'Enfant(s)';
+  showEntToast(
+    (st.nAlertOpen ? '<strong>Alertes CPE</strong>' : '<strong>Conseil de classe</strong>')
+    + ` — ${who}`
+    + `<div style="margin:.35rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${famCjBVsPageHref()}">Vie scolaire</a> · `
+    + `<a href="/famille/messages">Messagerie</a></p>`,
+    st.nAlertOpen ? 8500 : 7500,
+  );
+  try { sessionStorage.setItem(FAM_CJ_HOME_TOAST_SS, '1'); } catch {}
+  bindFamHomeCjBTipGo();
+}
+
+function maybeToastFamVsPageCjBDense(opts) {
+  if (!isParent() || !isFamilleVieScolaireFlux()) return;
+  const o = opts || {};
+  const aOpen = famAlertesCpeOuvertesFamille(o.alertes || []);
+  const cVis = famConseilsVisiblesFamille(o.conseils || []);
+  if (!aOpen.length && !cVis.length) return;
+  const ssKey = 'ent_fam_vs_cj_b_page_toast_' + (o.enfantId || '');
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const tipHtml = famVsPageAlertesConseilCjBTipDenseHtml({ ...o, forceShow: true });
+  showEntToast(
+    `<strong>Suivi CPE &amp; conseil</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${famCjBFicheHref(o.enfantId, 'alertes')}">Alertes</a> · `
+    + `<a href="${famCjBFicheHref(o.enfantId, 'conseil')}">Conseil</a></p>`,
+    aOpen.length ? 8500 : 7500,
+  );
+  bindFamHomeCjBTipGo();
+}
+
+/** Deep-link fiche ?section=alertes|conseil — toast bento — audit UI CJ-B. */
+function maybeToastFamEnfantAlertesConseilSection(opts) {
+  if (!isParent()) return;
+  const o = opts || {};
+  const sec = normalizeFamEnfantSection(o.deepSection);
+  if (sec !== 'alertes' && sec !== 'conseil') return;
+  const ssKey = 'ent_fam_cj_section_' + sec + '_' + (o.enfantId || '');
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const tipHtml = sec === 'alertes'
+    ? famEnfantAlertesTipDenseHtml({ ...o, forceShow: true, deepLink: true })
+    : famEnfantConseilTipDenseHtml({ ...o, forceShow: true, deepLink: true });
+  showEntToast(
+    `<strong>${sec === 'alertes' ? 'Alertes CPE' : 'Conseil de classe'}</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${famCjBVsPageHref()}">Vie scolaire</a> · `
+    + `<a href="/famille/messages">Contacter le CPE</a></p>`,
+    7500,
+  );
+  bindFamHomeCjBTipGo();
+}
+
 /** Liste /famille/enfants — tip bento par carte enfant (priorité dossiers) — audit UI CG-B. */
 function famEnfantsListTipCardsDenseHtml(list, resumes, docsLists, paiList, absLists) {
   const kids = list || [];
@@ -12223,6 +12841,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyChoSlot"></div>
   <div id="notesDevoirsEmptyChoBzSlot"></div>
   <div id="notesDevoirsEmptyChoCeSlot"></div>
+  <div id="notesDevoirsEmptyChoCjSlot"></div>
   <div id="notesDevoirsEmptyHermioneSlot"></div>
   <div id="notesDevoirsEmptyHermioneBySlot"></div>
   <div id="notesDevoirsEmptyHermioneCdSlot"></div>
@@ -12240,6 +12859,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptySeamusSlot"></div>
   <div id="notesDevoirsEmptySeamusBzSlot"></div>
   <div id="notesDevoirsEmptySeamusCeSlot"></div>
+  <div id="notesDevoirsEmptySeamusCjSlot"></div>
   <div id="notesDevoirsEmptyLunaBxSlot"></div>
   <div id="notesDevoirsEmptyGinnySlot"></div>
   <div id="notesDevoirsEmptyLunaCcSlot"></div>
@@ -18553,6 +19173,8 @@ function normalizeFamEnfantSection(sec) {
   if (s === 'absences' || s === 'absence' || s === 'justif' || s === 'justificatif' || s === 'justificatifs') return 'absences';
   if (s === 'pai' || s === 'protocole' || s === 'protocole-infirmierie' || s === 'infirmerie-pai') return 'pai';
   if (s === 'vs' || s === 'vie-scolaire' || s === 'viescolaire') return 'vs';
+  if (s === 'alertes' || s === 'alerte' || s === 'alertes-cpe' || s === 'cpe') return 'alertes';
+  if (s === 'conseil' || s === 'conseils' || s === 'conseil-classe' || s === 'conseils-classe') return 'conseil';
   if (s === 'info-comp' || s === 'infocomp' || s === 'voeux' || s === 'voeu') return 'orientation';
   if (s === 'orientation' || s === 'orient' || s === 'parcoursup' || s === 'post-bac' || s === 'postbac') return 'orientation';
   if (s === 'onisep') return 'orientation';
@@ -23421,7 +24043,7 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; foyers</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>
       <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Absences agents</span></a>`;
-    homeExtra = staffHomeCfcPanelShell() + staffHomeBxcPanelShell() + staffHomeBvcPanelShell();
+    homeExtra = staffHomeCfcPanelShell() + staffHomeBxcPanelShell() + staffHomeBvcPanelShell() + staffHomeCjcPanelShell();
   } else if (role === 'infirmerie') {
     tiles = `
       <a class="stat-tile bento-span-4" href="/app/infirmerie"><strong>Infirmerie</strong><span>Passages, PAI, fiches</span></a>
@@ -23997,6 +24619,29 @@ async function bindHome() {
     });
     staffCccBox.innerHTML = homeStaffCccTipDenseHtml(cccMeta);
     bindHomeStaffCccTipActions(cccMeta);
+  }
+  const staffCjcBox = document.getElementById('homeStaffCjcTip');
+  if (staffCjcBox && isStaffHomeCjcFlux()) {
+    const [periodesCjc, effCjc] = await Promise.all([
+      settle(api('/note-periodes'), []),
+      settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(jour)), null),
+    ]);
+    const nPerCjc = (periodesCjc || []).length;
+    const nFermCjc = (periodesCjc || []).filter(p => p.statut === 'fermee').length;
+    const nEffCjc = (effCjc && Array.isArray(effCjc.eleves))
+      ? effCjc.eleves.length
+      : ((effCjc && effCjc.effectif) || 0);
+    const cjcMeta = {
+      jour,
+      nPeriodes: nPerCjc,
+      nFermees: nFermCjc,
+      nEff4b: nEffCjc,
+      classe: '4B',
+    };
+    staffCjcBox.innerHTML = homeStaffCjcTipDenseHtml(cjcMeta);
+    bindHomeStaffCjcTipActions(cjcMeta);
+  } else if (staffCjcBox) {
+    staffCjcBox.innerHTML = '';
   }
   const dirPageTip = document.getElementById('homeDirPageTip');
   if (dirPageTip && role === 'direction') {
@@ -24691,6 +25336,7 @@ function viewFamilleHome() {
     <div id="famHomeRepasTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeInternatTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeVsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeCjBTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -24878,6 +25524,8 @@ async function bindFamilleHome() {
       if (contactTip0) { contactTip0.style.display = 'none'; contactTip0.innerHTML = ''; }
       const vsTip0 = document.getElementById('famHomeVsTip');
       if (vsTip0) { vsTip0.style.display = 'none'; vsTip0.innerHTML = ''; }
+      const cjTip0 = document.getElementById('famHomeCjBTip');
+      if (cjTip0) { cjTip0.style.display = 'none'; cjTip0.innerHTML = ''; }
       const quitTip0 = document.getElementById('famHomeQuittancesTip');
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
       const quitCeBTip0 = document.getElementById('famHomeQuittancesCeBTip');
@@ -24896,7 +25544,7 @@ async function bindFamilleHome() {
     }
     const jourRepas = today();
     const orientAnneeHome = '2026-2027';
-    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, dispenseVsLists, comLists, repasJourLists, menusJourHome, sepaMandats, rdvLists, psyDossierLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, dispenseVsLists, comLists, repasJourLists, menusJourHome, sepaMandats, rdvLists, psyDossierLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists, alertesLists, conseilsLists] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
@@ -24933,6 +25581,16 @@ async function bindFamilleHome() {
       api('/facturation/famille/quittances').catch(() => []),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/voeux?annee_scolaire='
         + encodeURIComponent(orientAnneeHome)).catch(() => []))),
+      Promise.all(list.map(e => (
+        e.peut_voir_vs !== false
+          ? api('/eleves/' + e.id + '/alertes-cpe').catch(() => [])
+          : Promise.resolve([])
+      ))),
+      Promise.all(list.map(e => (
+        e.peut_voir_vs !== false
+          ? api('/eleves/' + e.id + '/conseils').catch(() => [])
+          : Promise.resolve([])
+      ))),
     ]);
     const sepaApiOk = sepaMandats !== null;
     const sepaMandatActif = sepaApiOk
@@ -25177,6 +25835,21 @@ async function bindFamilleHome() {
       }
     }
     bindFamHomeCbBTipGo();
+    const cjTip = document.getElementById('famHomeCjBTip');
+    if (cjTip) {
+      const denseCj = list.some(e => e && e.peut_voir_vs !== false)
+        ? famHomeAlertesConseilCjBTipDenseHtml(list, alertesLists, conseilsLists, { forceShow: true })
+        : '';
+      if (denseCj) {
+        cjTip.style.display = '';
+        cjTip.innerHTML = denseCj;
+      } else {
+        cjTip.style.display = 'none';
+        cjTip.innerHTML = '';
+      }
+    }
+    bindFamHomeCjBTipGo();
+    maybeToastFamAlertesConseilHomeDense({ list, alertesLists, conseilsLists });
     const devoirTip = document.getElementById('famHomeDevoirTip');
     const edtTip = document.getElementById('famHomeEdtTip');
     const devoirPicksHome = famCollectProchainDevoirs(list, devoirLists);
@@ -25782,11 +26455,17 @@ async function bindFamilleEnfant(id) {
     html += `<h3>Commissions VS</h3><div id="comFamOut" class="muted">Chargement…</div>`;
     html += `<div id="fam-sec-accompagnement" style="scroll-margin-top:4.5rem">
       <h3>Suivi psy · accompagnement</h3><div id="psyFamOut" class="muted">Chargement…</div></div>`;
-    html += `<h3>Alertes CPE</h3><div id="alerteFamOut" class="muted">Chargement…</div>`;
+    html += `<div id="fam-sec-alertes" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantAlertesTip" style="display:none;margin:0 0 .55rem"></div>
+      <h3>Alertes CPE <span class="muted empty-state-hint" style="font-size:.72rem;font-weight:400">CJ-B</span></h3>
+      <div id="alerteFamOut" class="muted">Chargement…</div></div>`;
     html += `<div id="fam-sec-internat" style="scroll-margin-top:4.5rem">
       <div id="famEnfantInternatTip" style="display:none;margin:0 0 .55rem"></div>
       <h3>Internat</h3><div id="intFamOut" class="muted">Chargement…</div></div>`;
-    html += `<h3>Conseil de classe</h3><div id="conseilFamOut" class="muted">Chargement…</div>`;
+    html += `<div id="fam-sec-conseil" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantConseilTip" style="display:none;margin:0 0 .55rem"></div>
+      <h3>Conseil de classe <span class="muted empty-state-hint" style="font-size:.72rem;font-weight:400">CJ-B</span></h3>
+      <div id="conseilFamOut" class="muted">Chargement…</div></div>`;
     html += `<div id="fam-sec-sorties" style="scroll-margin-top:4.5rem">
       <div id="famEnfantSortiesTip" style="display:none;margin:0 0 .55rem"></div>
       <h3>Sorties</h3><div id="sortieFamOut" class="muted">Chargement…</div>
@@ -26706,18 +27385,54 @@ async function bindFamilleEnfant(id) {
     try {
       const list = await api('/eleves/' + id + '/alertes-cpe');
       const box = document.getElementById('alerteFamOut');
+      const alertTip = document.getElementById('famEnfantAlertesTip');
+      const deepAlertes = enfantDeepSection === 'alertes';
       if (!e.peut_voir_vs) {
+        if (alertTip) { alertTip.style.display = 'none'; alertTip.innerHTML = ''; }
         box.innerHTML = famVsSectionDeniedHtml();
       } else {
+        const nOpenAlert = famAlertesCpeOuvertesFamille(list).length;
+        const useFullEmptyAlert = deepAlertes && !list.length;
+        const denseAlert = useFullEmptyAlert
+          ? ''
+          : famEnfantAlertesTipDenseHtml({
+            enfantId: id,
+            prenom: e.prenom,
+            alertes: list,
+            deepLink: deepAlertes,
+            forceShow: deepAlertes || nOpenAlert > 0,
+          });
+        if (alertTip) {
+          if (denseAlert) {
+            alertTip.style.display = '';
+            alertTip.innerHTML = denseAlert;
+          } else {
+            alertTip.style.display = 'none';
+            alertTip.innerHTML = '';
+          }
+        }
+        bindFamHomeCjBTipGo();
         box.innerHTML = list.length
           ? `<ul>${list.map(a =>
               `<li><strong>${esc(a.titre)}</strong> · ${esc(a.jour)} · ${esc(a.severite)} · ${esc(a.statut)}</li>`
             ).join('')}</ul>`
-          : '<p class="empty">Aucune alerte.</p>';
+          : (useFullEmptyAlert
+            ? famEnfantAlertesEmptyDenseHtml(e.prenom, id)
+            : '<p class="empty">Aucune alerte.</p>');
+        if (deepAlertes) {
+          maybeToastFamEnfantAlertesConseilSection({
+            enfantId: id,
+            prenom: e.prenom,
+            deepSection: 'alertes',
+            alertes: list,
+          });
+        }
       }
     } catch (err) {
       const box = document.getElementById('alerteFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+      const alertTip = document.getElementById('famEnfantAlertesTip');
+      if (alertTip) { alertTip.style.display = 'none'; alertTip.innerHTML = ''; }
     }
 
     try {
@@ -26782,15 +27497,49 @@ async function bindFamilleEnfant(id) {
     try {
       const list = await api('/eleves/' + id + '/conseils');
       const box = document.getElementById('conseilFamOut');
-      const vis = (list || []).filter(c => c.visible_famille !== false);
+      const conseilTip = document.getElementById('famEnfantConseilTip');
+      const deepConseil = enfantDeepSection === 'conseil';
+      const vis = famConseilsVisiblesFamille(list);
+      const useFullEmptyConseil = deepConseil && !vis.length;
+      const denseConseil = useFullEmptyConseil
+        ? ''
+        : famEnfantConseilTipDenseHtml({
+          enfantId: id,
+          prenom: e.prenom,
+          conseils: list,
+          deepLink: deepConseil,
+          forceShow: deepConseil || vis.length > 0,
+        });
+      if (conseilTip) {
+        if (denseConseil) {
+          conseilTip.style.display = '';
+          conseilTip.innerHTML = denseConseil;
+        } else {
+          conseilTip.style.display = 'none';
+          conseilTip.innerHTML = '';
+        }
+      }
+      bindFamHomeCjBTipGo();
       box.innerHTML = vis.length
         ? `<ul>${vis.map(c =>
             `<li>${esc(c.mention || 'Décision')} — ${esc(c.appreciation || '')}</li>`
           ).join('')}</ul>`
-        : '<p class="empty">Aucune décision visible.</p>';
+        : (useFullEmptyConseil
+          ? famEnfantConseilEmptyDenseHtml(e.prenom, id)
+          : '<p class="empty">Aucune décision visible.</p>');
+      if (deepConseil) {
+        maybeToastFamEnfantAlertesConseilSection({
+          enfantId: id,
+          prenom: e.prenom,
+          deepSection: 'conseil',
+          conseils: list,
+        });
+      }
     } catch (err) {
       const box = document.getElementById('conseilFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+      const conseilTip = document.getElementById('famEnfantConseilTip');
+      if (conseilTip) { conseilTip.style.display = 'none'; conseilTip.innerHTML = ''; }
     }
 
     try {
@@ -27565,7 +28314,8 @@ async function bindFamilleEnfant(id) {
       deepSection: enfantDeepSection,
     }, enfants.length);
     if (enfantDeepSection !== 'orientation' && enfantDeepSection !== 'repas'
-      && enfantDeepSection !== 'carnet' && enfantDeepSection !== 'absences') {
+      && enfantDeepSection !== 'carnet' && enfantDeepSection !== 'absences'
+      && enfantDeepSection !== 'alertes' && enfantDeepSection !== 'conseil') {
       maybeToastFamEnfantOuverte(e, enfantTodoStats, { deepSection: enfantDeepSection });
     }
 
@@ -27624,6 +28374,12 @@ async function bindFamilleEnfant(id) {
       if (enfantDeepSection === 'edt') {
         setTimeout(() => famApplyEnfantSectionDeepLink('edt'), 900);
         setTimeout(() => famApplyEnfantSectionDeepLink('edt'), 1400);
+      }
+      if (enfantDeepSection === 'alertes') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('alertes'), 900);
+      }
+      if (enfantDeepSection === 'conseil') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('conseil'), 900);
       }
     }
   } catch (e) {
@@ -38602,6 +39358,7 @@ function viewNotes() {
     <div id="notesChoSeedTip"></div>
     <div id="notesChoBzSeedTip"></div>
     <div id="notesChoCeSeedTip"></div>
+    <div id="notesChoCjSeedTip"></div>
     <div id="notesNevilleSeedTip"></div>
     <div id="notesNevilleCbSeedTip"></div>
     <div id="notesNevilleCfSeedTip"></div>
@@ -38950,6 +39707,7 @@ async function bindNotes() {
       await refreshNotesChoSeedTip(devoirsPref);
       await refreshNotesChoBzSeedTip(devoirsPref);
       await refreshNotesChoCeSeedTip(devoirsPref);
+      await refreshNotesChoCjSeedTip(devoirsPref);
       await refreshNotesNevilleSeedTip(devoirsPref);
       await refreshNotesNevilleCbSeedTip(devoirsPref);
       await refreshNotesNevilleCfSeedTip(devoirsPref);
@@ -39768,6 +40526,52 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyChoCeRefresh = refreshNotesDevoirsEmptyChoCeSlot;
+  async function refreshNotesDevoirsEmptyChoCjSlot() {
+    const el = document.getElementById('notesDevoirsEmptyChoCjSlot');
+    if (!el) return;
+    try {
+      const choId = await resolveChoChangEleveId();
+      if (!choId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '5A';
+      try {
+        const eleve = await api('/eleves/' + choId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      const meta = await choCjNoteMetaFromApi(choId);
+      el.innerHTML = notesChoCjSeedTipDenseHtml({
+        choId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesChoCjSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.choId || choId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Cho');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesChoCjSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyChoCjRefresh = refreshNotesDevoirsEmptyChoCjSlot;
   async function refreshNotesDevoirsEmptyHermioneSlot() {
     const el = document.getElementById('notesDevoirsEmptyHermioneSlot');
     if (!el) return;
@@ -40331,6 +41135,31 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptySeamusCeRefresh = refreshNotesDevoirsEmptySeamusCeSlot;
+  async function refreshNotesDevoirsEmptySeamusCjSlot() {
+    const el = document.getElementById('notesDevoirsEmptySeamusCjSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const seamusCjDevoir = findSeamusCjDevoir(devoirs);
+      el.innerHTML = notesSeamusCjDevoirGoTipDenseHtml({ seamusCjDevoir: seamusCjDevoir || null });
+      bindNotesSeamusCjDevoirGoTipGo({
+        seamusCjDevoir: seamusCjDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptySeamusCjRefresh = refreshNotesDevoirsEmptySeamusCjSlot;
   async function refreshNotesDevoirsEmptyLunaBxSlot() {
     const el = document.getElementById('notesDevoirsEmptyLunaBxSlot');
     if (!el) return;
@@ -40598,6 +41427,23 @@ async function bindNotes() {
       nNotes = 0;
     }
     return { nNotes, ceNoteLabel, hasCeNote };
+  }
+  async function choCjNoteMetaFromApi(choId) {
+    let nNotes = 0;
+    let cjNoteLabel = '';
+    let hasCjNote = false;
+    try {
+      const notes = await api('/eleves/' + choId + '/notes');
+      nNotes = (notes || []).length;
+      const cjNote = (notes || []).find(n => /CJ-A/i.test(String(n.libelle || '')));
+      if (cjNote) {
+        hasCjNote = true;
+        if (cjNote.libelle) cjNoteLabel = String(cjNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, cjNoteLabel, hasCjNote };
   }
   async function hermioneBtNoteMetaFromApi(hermioneId) {
     let nNotes = 0;
@@ -41213,6 +42059,45 @@ async function bindNotes() {
         btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.choId || choId);
       }
       const btnCl = document.getElementById('notesChoCeSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesChoCjSeedTip(_devoirsPref) {
+    const el = document.getElementById('notesChoCjSeedTip');
+    if (!el) return;
+    try {
+      const choId = await resolveChoChangEleveId();
+      if (!choId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '5A';
+      try {
+        const eleve = await api('/eleves/' + choId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      const meta = await choCjNoteMetaFromApi(choId);
+      el.innerHTML = notesChoCjSeedTipDenseHtml({
+        choId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesChoCjSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.choId || choId);
+      }
+      const btnCl = document.getElementById('notesChoCjSeedClasseBtn');
       if (btnCl) {
         btnCl.onclick = () => {
           const chip = document.getElementById('notesChip5A');
@@ -42089,6 +42974,10 @@ async function bindNotes() {
 /* ---------- Exports EN (ponts) ---------- */
 function viewExportsEn() {
   return shell('/app/exports', `
+    <div class="panel" style="margin-bottom:.55rem">
+      <p class="muted" style="margin:0">Ponts nationaux · préflight périodes — <span class="muted empty-state-hint" style="font-size:.72rem">CJ-C</span>.</p>
+      <div id="exportsStaffCjcTip" class="muted" style="margin-top:.35rem">Chargement…</div>
+    </div>
     <div class="bento" id="expEnStats"></div>
     <div id="expEnLsunTip"></div>
     <div id="expEnParcoursupTip"></div>
@@ -42117,6 +43006,17 @@ function viewExportsEn() {
 async function bindExportsEn() {
   const msg = document.getElementById('expEnMsg');
   const stats = document.getElementById('expEnStats');
+  function syncExportsStaffCjcTip(nEff) {
+    const meta = {
+      jour: today(),
+      nPeriodes: exportsEnPeriodesMeta.nPeriodes || 0,
+      nFermees: exportsEnPeriodesMeta.nFermees || 0,
+      nEff: Number(nEff) || 0,
+      classe: (document.getElementById('expEnClasse') || {}).value || '4B',
+    };
+    refreshExportsStaffCjcTip(meta);
+    return meta;
+  }
   try {
     const list = await api('/note-periodes');
     const sel = document.getElementById('expEnPeriode');
@@ -42165,9 +43065,11 @@ async function bindExportsEn() {
         ...lsunPreflightTipMeta(c, pid, eleves.length),
         phase: eleves.length ? 'idle' : 'empty',
       });
+      syncExportsStaffCjcTip(eleves.length);
       return eleves.length;
     } catch (e) {
       box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      syncExportsStaffCjcTip(0);
       return 0;
     }
   }
@@ -42261,7 +43163,9 @@ async function bindExportsEn() {
     const c = document.getElementById('expEnClasse').value.trim();
     downloadCsv('/exports/onde?classe=' + encodeURIComponent(c), 'export-onde.csv');
   };
-  await previewEffectif();
+  const nInitEff = await previewEffectif();
+  const cjcOpenMeta = syncExportsStaffCjcTip(nInitEff);
+  maybeToastStaffExportsCjcPageOpen(cjcOpenMeta);
 }
 
 /* ---------- Réinscription ---------- */
@@ -44875,9 +45779,10 @@ function viewFamilleVieScolaire() {
     <div id="famVsBar" style="margin-bottom:.65rem"></div>
     <div id="famVsPageTip" style="display:none;margin-bottom:.65rem"></div>
     <div id="famVsPageCiBComTip" style="display:none;margin-bottom:.65rem"></div>
+    <div id="famVsPageCjBTip" style="display:none;margin-bottom:.65rem"></div>
     <div class="panel">
       <h2>Vie scolaire</h2>
-      <p class="muted">Sanctions, incidents, commissions, permis à points et alertes CPE — par enfant · <span class="muted empty-state-hint">CB-B</span> · commissions <span class="muted empty-state-hint">CI-B</span>.</p>
+      <p class="muted">Sanctions, incidents, commissions, permis à points et alertes CPE — par enfant · <span class="muted empty-state-hint">CB-B</span> · commissions <span class="muted empty-state-hint">CI-B</span> · alertes / conseil <span class="muted empty-state-hint">CJ-B</span>.</p>
       <div class="row">
         <label>Enfant <select id="famVsEnfant" style="min-width:14rem"></select></label>
         <button type="button" class="primary" id="btnFamVsLoad">Actualiser</button>
@@ -44990,7 +45895,31 @@ async function bindFamilleVieScolaire() {
         }
         bindFamHomeCiBTipGo();
       }
+      const cjBPageTip = document.getElementById('famVsPageCjBTip');
+      if (cjBPageTip) {
+        const cjHtml = famVsPageAlertesConseilCjBTipDenseHtml({
+          forceShow: true,
+          enfantId: id,
+          prenom: prenomVs,
+          alertes,
+          conseils,
+        });
+        if (cjHtml) {
+          cjBPageTip.style.display = '';
+          cjBPageTip.innerHTML = cjHtml;
+        } else {
+          cjBPageTip.style.display = 'none';
+          cjBPageTip.innerHTML = '';
+        }
+        bindFamHomeCjBTipGo();
+      }
       if (vsLoadCount === 0) {
+        maybeToastFamVsPageCjBDense({
+          enfantId: id,
+          prenom: prenomVs,
+          alertes,
+          conseils,
+        });
         maybeToastFamVieScolaireOuverte({
           enfantId: id,
           prenom: prenomVs,
