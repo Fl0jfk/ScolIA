@@ -1,5 +1,6 @@
 import "server-only";
 
+import { bumpDashboardSignalsBundleGeneration } from "@/app/lib/dashboard-signals-bundle-generation-server";
 import { valkeyDel, valkeyDeleteByPrefix } from "@/app/lib/valkey";
 import {
   valkeyKeyDashboardSignalsAbsenceIndex,
@@ -15,6 +16,8 @@ export async function invalidateDashboardSignalsForEstablishment(
 ): Promise<void> {
   const etabId = etablissementId.trim();
   if (!etabId) return;
+
+  await bumpDashboardSignalsBundleGeneration(etabId);
 
   await Promise.all([
     valkeyDeleteByPrefix(valkeyPrefixDashboardSignalsEtab(etabId)),

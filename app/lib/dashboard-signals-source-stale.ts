@@ -2,6 +2,7 @@ import "server-only";
 
 import type { DashboardSignalSourceId } from "@/app/lib/dashboard-signals-parallel";
 import type { SourceStaleAdapter } from "@/app/lib/dashboard-signals-parallel";
+import { getDashboardSignalsBundleGeneration } from "@/app/lib/dashboard-signals-bundle-generation-server";
 import { valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
 import { VALKEY_TTL } from "@/app/lib/valkey-keys";
 
@@ -22,17 +23,21 @@ export function resolveDashboardSignalsSourceBundleTtlSec(): number {
 export function valkeyKeyDashboardSignalSourceBundle(
   etablissementId: string,
   authUserId: string,
+  rolesHash: string,
   sourceId: DashboardSignalSourceId,
 ): string {
-  return `${NS}:dash:sig-bundle:${etablissementId.trim()}:${authUserId.trim()}:${sourceId}`;
+  const roles = rolesHash.trim() || "_";
+  return `${NS}:dash:sig-bundle:${etablissementId.trim()}:${authUserId.trim()}:${roles}:${sourceId}`;
 }
 
 export function buildDashboardSourceStaleAdapters(
   etablissementId: string,
   authUserId: string,
+  rolesHash: string,
 ): Partial<Record<DashboardSignalSourceId, SourceStaleAdapter<unknown>>> {
   const etab = etablissementId.trim() || "default";
   const user = authUserId.trim();
+  const roles = rolesHash.trim() || "_";
   if (!user) return {};
 
   const adapters: Partial<Record<DashboardSignalSourceId, SourceStaleAdapter<unknown>>> = {};
@@ -45,10 +50,15 @@ export function buildDashboardSourceStaleAdapters(
     "stages",
     "others",
   ] as DashboardSignalSourceId[]) {
-    const key = valkeyKeyDashboardSignalSourceBundle(etab, user, sourceId);
+    const key = valkeyKeyDashboardSignalSourceBundle(etab, user, roles, sourceId);
     adapters[sourceId] = {
       readStale: async () => valkeyGetJson<unknown>(key),
-      writeFresh: async (value: unknown) => {
+      beginLoad: () => getDashboardSignalsBundleGeneration(etab),
+      writeFresh: async (value: unknown, loadGeneration?: number) => {
+        if (loadGeneration !== undefined) {
+          const current = await getDashboardSignalsBundleGeneration(etab);
+          if (current !== loadGeneration) return;
+        }
         await valkeySetJson(key, value, resolveDashboardSignalsSourceBundleTtlSec());
       },
     };

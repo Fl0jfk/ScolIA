@@ -3,6 +3,11 @@ import test from "node:test";
 import { isDashboardSignalsAggregateCacheable } from "@/app/lib/dashboard-signals-aggregate-cache";
 import { runParallelSignalSources } from "@/app/lib/dashboard-signals-parallel";
 import {
+  bumpDashboardSignalsBundleGenerationMemory,
+  getDashboardSignalsBundleGenerationMemory,
+  resetDashboardSignalsBundleGenerationForTests,
+} from "@/app/lib/dashboard-signals-bundle-generation";
+import {
   resetDashboardSignalSourceFlightForTests,
   runDashboardSignalSourceFlight,
 } from "@/app/lib/dashboard-signals-source-flight";
@@ -118,6 +123,36 @@ test("runDashboardSignalSourceFlight — 3 appels concurrents = 1 loader", async
   ]);
   assert.deepEqual(results, ["x", "x", "x"]);
   assert.equal(calls, 1);
+});
+
+test("runParallelSignalSources — writeFresh ignoré si invalidation pendant le load", async () => {
+  const etab = "etab-invalidate-race";
+  resetDashboardSignalsBundleGenerationForTests();
+  let store: number | null = 99;
+  const stale = {
+    readStale: async () => store,
+    beginLoad: () => getDashboardSignalsBundleGenerationMemory(etab),
+    writeFresh: async (v: unknown, loadGeneration?: number) => {
+      const current = getDashboardSignalsBundleGenerationMemory(etab);
+      if (loadGeneration !== undefined && loadGeneration !== current) return;
+      store = v as number;
+    },
+  };
+
+  await runParallelSignalSources(
+    {
+      ...NULL_LOADERS,
+      internat: async () => {
+        await new Promise((r) => setTimeout(r, 120));
+        return 42;
+      },
+    },
+    { timeoutMs: 400, softTimeoutMs: 40, stale: { internat: stale } },
+  );
+
+  bumpDashboardSignalsBundleGenerationMemory(etab);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(store, 99);
 });
 
 test("isDashboardSignalsAggregateCacheable — refuse agrégat si une source stale", () => {

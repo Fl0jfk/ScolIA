@@ -57,7 +57,10 @@ import type { RhPlanningDoc } from "@/app/lib/rh/planning-types";
 import { listUnseenSharedFolderInvites } from "@/app/lib/documents-cloud";
 import { canAccessSstRegistre } from "@/app/lib/sst-registre/access";
 import { isSstEmargementPending } from "@/app/lib/sst-registre/db";
-import { vsModulesScopeHash } from "@/app/lib/dashboard-signals-cache-keys";
+import {
+  dashboardSignalsRolesHash,
+  vsModulesScopeHash,
+} from "@/app/lib/dashboard-signals-cache-keys";
 import {
   runParallelSignalSources,
   unwrapSignalSource,
@@ -968,9 +971,10 @@ export async function loadDashboardSignalSources(ctx: DashboardSignalsLoadContex
   stepsMs: Record<DashboardSignalSourceId, number>;
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus>;
 }> {
-  const stale = buildDashboardSourceStaleAdapters(ctx.signalsEtabId, ctx.user.id);
+  const rolesHash = dashboardSignalsRolesHash(ctx.user.roles);
+  const stale = buildDashboardSourceStaleAdapters(ctx.signalsEtabId, ctx.user.id, rolesHash);
   const flightKey = (sourceId: DashboardSignalSourceId) =>
-    valkeyKeyDashboardSignalSourceBundle(ctx.signalsEtabId, ctx.user.id, sourceId);
+    valkeyKeyDashboardSignalSourceBundle(ctx.signalsEtabId, ctx.user.id, rolesHash, sourceId);
   const withFlight = <T>(sourceId: DashboardSignalSourceId, loader: () => Promise<T>) => () =>
     runDashboardSignalSourceFlightShared(flightKey(sourceId), loader);
 

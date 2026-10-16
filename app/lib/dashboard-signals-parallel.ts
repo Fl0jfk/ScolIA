@@ -75,7 +75,9 @@ export const DASHBOARD_SIGNAL_SOURCE_TIMEOUT_MS = DEFAULT_SOURCE_TIMEOUT_MS;
 
 export type SourceStaleAdapter<T> = {
   readStale: () => Promise<T | null | undefined> | T | null | undefined;
-  writeFresh: (value: T) => Promise<void> | void;
+  /** Génération au démarrage du load (invalidation établissement). */
+  beginLoad?: () => Promise<number> | number;
+  writeFresh: (value: T, loadGeneration?: number) => Promise<void> | void;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -94,16 +96,14 @@ function startSourceLoad<T>(
   stale?: SourceStaleAdapter<T>,
 ): Promise<T> {
   const run = () => (flightKey ? runDashboardSignalSourceFlight(flightKey, loader) : loader());
-  const loadPromise = run();
-  if (stale) {
-    void loadPromise
-      .then(async (value) => {
-        await stale.writeFresh(value);
-      })
-      .catch(() => {
-        /* prochain poll */
-      });
-  }
+  const loadPromise = (async () => {
+    const loadGeneration = stale?.beginLoad ? await stale.beginLoad() : undefined;
+    const value = await run();
+    if (stale) {
+      await stale.writeFresh(value, loadGeneration);
+    }
+    return value;
+  })();
   return loadPromise;
 }
 

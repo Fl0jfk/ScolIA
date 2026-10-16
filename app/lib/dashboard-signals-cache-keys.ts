@@ -9,6 +9,11 @@ export function dashboardSignalsScopeHash(parts: string[]): string {
     .join("|");
 }
 
+/** Hash stable des rôles session (clés bundle stale par utilisateur). */
+export function dashboardSignalsRolesHash(roles: string[]): string {
+  return dashboardSignalsScopeHash(roles);
+}
+
 export function vsModulesScopeHash(accessibleModuleIds: Set<string>): string {
   const vs = [
     "vs-absences",

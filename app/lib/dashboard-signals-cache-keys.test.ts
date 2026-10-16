@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dashboardSignalsScopeHash, vsModulesScopeHash } from "@/app/lib/dashboard-signals-cache-keys";
+import {
+  dashboardSignalsRolesHash,
+  dashboardSignalsScopeHash,
+  vsModulesScopeHash,
+} from "@/app/lib/dashboard-signals-cache-keys";
 import {
   valkeyKeyDashboardSignals,
   valkeyKeyDashboardSignalsAbsenceIndex,
@@ -53,6 +57,14 @@ test("prof vs direction — clés utilisateur et scope VS distincts", () => {
   assert.notEqual(
     valkeyKeyDashboardSignalsStagesPending("etab-1", "auth-prof"),
     valkeyKeyDashboardSignalsRequestsBoard("etab-1", "auth-direction"),
+  );
+});
+
+test("dashboardSignalsRolesHash — stable et distinct par rôles", () => {
+  assert.equal(dashboardSignalsRolesHash(["direction", "enseignant"]), "direction|enseignant");
+  assert.notEqual(
+    dashboardSignalsRolesHash(["direction"]),
+    dashboardSignalsRolesHash(["enseignant"]),
   );
 });
 
