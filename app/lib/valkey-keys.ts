@@ -22,6 +22,16 @@ export const VALKEY_TTL = {
   dashboardLinks: 60,
   /** Signaux dashboard (agrégat lourd) */
   dashboardSignals: 25,
+  /** Compteurs VS (dashboard signals — par scope modules) */
+  dashboardSignalsVsCounts: 18,
+  /** Index absences RH brut (établissement) */
+  dashboardSignalsAbsenceIndex: 15,
+  /** Planning RH « maintenant » (utilisateur) */
+  dashboardSignalsRhPlanningNow: 20,
+  /** Signatures stage en attente (utilisateur) */
+  dashboardSignalsStagesPending: 20,
+  /** File demandes staff (utilisateur) */
+  dashboardSignalsRequestsBoard: 15,
   /** Config app / module-access store */
   appConfig: 45,
   moduleAccessConfig: 30,
@@ -126,6 +136,39 @@ export function valkeyKeyDashboardSignals(
   userId: string,
 ): string {
   return `${NS}:dash:sig:${etablissementId}:${userId}`;
+}
+
+/** Compteurs vie scolaire agrégés (clé inclut hash des modules VS actifs pour l’utilisateur). */
+export function valkeyKeyDashboardSignalsVsCounts(
+  etablissementId: string,
+  vsModulesScopeHash: string,
+): string {
+  return `${NS}:dash:sig-src:vs:${etablissementId}:${vsModulesScopeHash}`;
+}
+
+export function valkeyKeyDashboardSignalsAbsenceIndex(etablissementId: string): string {
+  return `${NS}:dash:sig-src:abs-index:${etablissementId}`;
+}
+
+export function valkeyKeyDashboardSignalsRhPlanningNow(
+  etablissementId: string,
+  authUserId: string,
+): string {
+  return `${NS}:dash:sig-src:rh-now:${etablissementId}:${authUserId}`;
+}
+
+export function valkeyKeyDashboardSignalsStagesPending(
+  etablissementId: string,
+  authUserId: string,
+): string {
+  return `${NS}:dash:sig-src:stages-pend:${etablissementId}:${authUserId}`;
+}
+
+export function valkeyKeyDashboardSignalsRequestsBoard(
+  etablissementId: string,
+  authUserId: string,
+): string {
+  return `${NS}:dash:sig-src:req-board:${etablissementId}:${authUserId}`;
 }
 
 export function valkeyKeyAppConfig(tenantSlug: string): string {

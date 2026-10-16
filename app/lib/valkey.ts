@@ -51,6 +51,7 @@ export function isScopedMemoryCacheKey(key: string): boolean {
   if (!key.startsWith(SCOPED_MEMORY_NS)) return false;
   if (key.includes(":stages:conv-index:")) return true;
   if (key.includes(":stages:roster:")) return true;
+  if (key.includes(":dash:sig-src:")) return true;
   return /:eleves:reg:[^:]+:(all|inscrit)$/.test(key);
 }
 
