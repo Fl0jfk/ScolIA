@@ -195,6 +195,20 @@
   .ent-toast a {
     font-weight: 600;
   }
+  .ent-toast.ent-toast-wide {
+    max-width: min(96vw, 42rem);
+  }
+  .ent-toast .bento {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+  .ent-toast .stat-tile {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.82rem;
+  }
+  .ent-toast .stat-tile strong {
+    font-size: 0.88rem;
+  }
 
   .fac-fam-row-max-reste {
     background: color-mix(in srgb, var(--warn, #c45c26) 10%, transparent);

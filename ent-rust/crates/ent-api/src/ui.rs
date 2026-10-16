@@ -114,9 +114,14 @@ function showEntToast(html, ms) {
     document.body.appendChild(el);
   }
   el.innerHTML = html;
+  if (html.includes('class="bento"')) el.classList.add('ent-toast-wide');
+  else el.classList.remove('ent-toast-wide');
   el.classList.add('ent-toast-visible');
   if (entToastTimer) clearTimeout(entToastTimer);
-  entToastTimer = setTimeout(() => el.classList.remove('ent-toast-visible'), duration);
+  entToastTimer = setTimeout(() => {
+    el.classList.remove('ent-toast-visible');
+    el.classList.remove('ent-toast-wide');
+  }, duration);
 }
 
 function notePeriodeFermeeLabel(p) {
@@ -387,16 +392,26 @@ function toastCommissionCreee(payload) {
 }
 
 function toastCommissionDecidee(d, meta) {
-  const lib = esc((d && d.decision_libelle) || (meta && meta.decision_texte) || 'Décision');
+  const m = meta || {};
+  const lib = esc((d && d.decision_libelle) || m.decision_texte || 'Décision');
   const ptsRaw = d && d.points_retires != null
     ? d.points_retires
-    : (meta && meta.points_retires != null ? meta.points_retires : null);
-  const ptsTxt = ptsRaw != null ? ` · −${esc(String(ptsRaw))} pts` : '';
-  const whoRaw = (d && d.eleve_label) || (meta && meta.eleveLabel) || '';
-  const who = whoRaw ? ` · ${esc(String(whoRaw).trim())}` : '';
+    : (m.points_retires != null ? m.points_retires : null);
+  const pts = ptsRaw != null ? esc(String(ptsRaw)) : '—';
+  const whoRaw = (d && d.eleve_label) || m.eleveLabel || '';
+  const who = whoRaw ? esc(String(whoRaw).trim()) : '—';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${lib}</strong><span>Décision commission</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="warn">−${pts}</strong><span>Points permis VS</span></div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>Élève · registre actualisé</span></div>`;
   showEntToast(
-    `<strong>Commission décidée</strong> — ${lib}${ptsTxt}${who}. Registre discipline et points actualisés.`,
-    9000,
+    `<strong>Commission décidée</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/app/absences">Absences &amp; commissions</a> · `
+    + `<a href="/app/absences#absIncSanPanel">Registre discipline</a></p>`,
+    9500,
   );
 }
 
@@ -685,11 +700,44 @@ function eleveHomeConseilEncouragementHtml(conseils) {
   return eleveConseilEncouragementPanelHtml(enc, { withLinks: true });
 }
 
-function eleveHomeDevoirsAVenirHtml(devoirs, jour) {
+function eleveUpcomingDevoirs(devoirs, jour) {
   const j = jour || today();
-  const upcoming = (devoirs || [])
+  return (devoirs || [])
     .filter(d => d.date_devoir && String(d.date_devoir) >= j)
     .sort((a, b) => String(a.date_devoir).localeCompare(String(b.date_devoir)));
+}
+
+/** Élève cahier / notes — prochain contrôle planifié (bento dense). */
+function eleveProchainDsTipDenseHtml(devoirs, jour) {
+  const j = jour || today();
+  const upcoming = eleveUpcomingDevoirs(devoirs, j);
+  if (!upcoming.length) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-12"><strong class="muted">—</strong><span>Prochain DS · aucun contrôle planifié — le cahier indique le travail quotidien</span></div>
+    </div>`;
+  }
+  const d = upcoming[0];
+  const todayTag = String(d.date_devoir) === j
+    ? ' <span class="pill warn pill-dense">aujourd’hui</span>' : '';
+  const more = upcoming.length - 1;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${esc(d.titre || 'Devoir')}</strong><span>Prochain DS · ${esc(d.matiere_libelle || 'Matière')}${todayTag}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${esc(String(d.date_devoir))}</strong><span>Coef ${esc(String(d.coef ?? '1'))} · /${esc(String(d.sur ?? '20'))}</span></div>
+    <div class="stat-tile bento-span-4"><strong>${more > 0 ? '+' + more : '1'}</strong><span>${more > 0 ? 'Autre(s) contrôle(s) planifié(s)' : 'Contrôle le plus proche'} · <a href="/eleve/notes">Notes</a></span></div>
+  </div>`;
+}
+
+function refreshEleveProchainDsTip(elId, devoirs, jour) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = eleveProchainDsTipDenseHtml(devoirs, jour);
+}
+
+function eleveHomeDevoirsAVenirHtml(devoirs, jour) {
+  const j = jour || today();
+  const upcoming = eleveUpcomingDevoirs(devoirs, j);
   if (!upcoming.length) {
     return `<p class="muted" style="margin:.45rem 0 0;font-size:.8rem;line-height:1.35"><span class="empty-state-hint"><strong>Devoirs à venir</strong> — aucun DS planifié · le cahier indique le travail quotidien · <a href="/eleve/notes">Notes</a></span></p>`;
   }
@@ -758,9 +806,18 @@ function toastDevoirSupprime(d) {
   const titre = esc(String((d && d.titre) || 'Devoir').trim() || 'Devoir');
   const cl = d && d.classe ? ` · ${esc(String(d.classe))}` : '';
   showEntToast(
-    `<strong>Devoir supprimé</strong> — ${titre}${cl}.`,
+    `<strong>Devoir supprimé</strong> — ${titre}${cl}. `
+    + `<a href="#" id="entToastDevListAfterDel">Liste devoirs</a>`,
     6500,
   );
+  const link = document.getElementById('entToastDevListAfterDel');
+  if (link) {
+    link.onclick = (ev) => {
+      ev.preventDefault();
+      const btn = document.getElementById('btnDevList');
+      if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  }
 }
 
 function devoirMoyenneSur20Values(notesByEleve, sur) {
@@ -874,6 +931,42 @@ function toastExportNotanet(filename, opts) {
   );
 }
 
+function toastExportLsun(filename, opts) {
+  const o = opts || {};
+  const cl = o.classe ? ` · ${esc(String(o.classe).trim())}` : '';
+  const pl = o.periodeLabel ? ` · ${esc(String(o.periodeLabel).trim())}` : '';
+  const n = o.nEleves != null && Number(o.nEleves) > 0
+    ? ` · ${Number(o.nEleves)} élève(s)` : '';
+  showEntToast(
+    `<strong>LSUN exporté</strong> — ${esc(String(filename || 'export-lsun.csv'))}${cl}${pl}${n}`,
+    8500,
+  );
+}
+
+/** /app/exports — rappel LSUN (classe · période · effectif). */
+function exportsEnLsunTipDenseHtml(classe, periodeLabel, nEleves) {
+  const cl = esc(String(classe || '').trim() || '—');
+  const pl = periodeLabel ? esc(String(periodeLabel).trim()) : 'Période';
+  const n = Number(nEleves) || 0;
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>LSUN</strong><span>Livret unique · ${pl}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${cl}</strong><span>Classe · préflight effectif</span></div>
+    <div class="stat-tile bento-span-4"><strong>${n || '—'}</strong><span>Élève(s) · bouton LSUN ci-dessous</span></div>
+  </div>`;
+}
+
+function refreshExportsEnLsunTip(nEleves) {
+  const el = document.getElementById('expEnLsunTip');
+  if (!el) return;
+  const c = (document.getElementById('expEnClasse') || {}).value;
+  const perSel = document.getElementById('expEnPeriode');
+  const perLabel = perSel && perSel.selectedOptions && perSel.selectedOptions[0]
+    ? perSel.selectedOptions[0].textContent.trim() : '';
+  el.innerHTML = exportsEnLsunTipDenseHtml(c, perLabel, nEleves);
+}
+
 function entMessageLooksEdtConflit(msg) {
   const m = String(msg || '').toLowerCase();
   return m.includes('conflit edt') || (m.includes('conflit') && m.includes('edt'));
@@ -930,6 +1023,31 @@ function toastDispenseRepasPosee(d, eleveLabel) {
   showEntToast(
     `<strong>Dispense repas posée</strong>${who}${jour} · ${motif}. Passage badge refusé ce jour.`,
     8000,
+  );
+}
+
+function toastSanctionPrononcee(d, opts) {
+  const o = opts || {};
+  const statut = esc(String((d && d.statut) || 'active').trim());
+  const duree = d && d.duree_minutes != null && Number(d.duree_minutes) > 0
+    ? `${Number(d.duree_minutes)} min`
+    : '—';
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  const who = o.eleveLabel
+    ? esc(String(o.eleveLabel).trim())
+    : (eid ? esc(eid.slice(0, 8)) + '…' : 'Élève');
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}">Fiche élève</a> · ` : '';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${statut}</strong><span>Sanction · ${esc(duree)}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>Élève concerné</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">VS</strong><span>Registre discipline · points</span></div>`;
+  showEntToast(
+    `<strong>Sanction prononcée</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}`
+    + `<a href="/app/absences#absIncSanPanel">Registre discipline</a></p>`,
+    9500,
   );
 }
 
@@ -1664,6 +1782,56 @@ function bindAbsJustifsDuJourTipGo(onGo) {
   if (btn) btn.onclick = () => { if (typeof onGo === 'function') onGo(); };
 }
 
+/** File VS du jour — commissions planifiées + dossiers ouverts à décider. */
+function vsComJourTipDenseHtml(snap, jour) {
+  const nComs = snap && snap.coms ? Number(snap.coms) : 0;
+  const nDos = snap && snap.count ? Number(snap.count) : 0;
+  if (!nComs && !nDos) return '';
+  const j = esc(jour || today());
+  const first = snap && snap.first;
+  const href = esc(first
+    ? absencesComDeepLink({ comId: first.comId, dosId: first.dosId, eleveId: first.eleveId })
+    : '/app/absences#absComPanel');
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">${nComs}</strong><span>Commission(s) VS · jour ${j}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="${nDos ? 'warn' : ''}">${nDos}</strong><span>Dossier(s) à décider</span></div>
+    <a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>→</strong><span>Panneau commission · convoquer / décider</span>
+    </a>
+  </div>`;
+}
+
+function ensureAppelSaisies(appelId) {
+  if (!routeState.appelSaisies) routeState.appelSaisies = {};
+  const k = String(appelId);
+  if (!routeState.appelSaisies[k]) routeState.appelSaisies[k] = {};
+  return routeState.appelSaisies[k];
+}
+function markAppelEleveSaisi(appelId, eleveId) {
+  if (!appelId || !eleveId) return;
+  ensureAppelSaisies(appelId)[String(eleveId)] = true;
+}
+function countAppelManquants(appel) {
+  if (!appel || appel.statut === 'clos') return 0;
+  const saisies = ensureAppelSaisies(appel.id);
+  return (appel.lignes || []).filter(l => !saisies[String(l.eleve_id)]).length;
+}
+/** Appel prof — élèves sans clic P/A/R explicite avant clôture. */
+function appelManquantsTipDenseHtml(nManq, total) {
+  const k = Number(nManq) || 0;
+  const tot = Number(total) || 0;
+  if (k <= 0 || tot <= 0) return '';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">${k}</strong><span>Saisie manquante · ${tot} élève(s) au créneau</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="muted">P / A / R</strong><span>Marquer chaque ligne (défaut présent ≠ validé)</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Clôture</strong><span>Seuls les absents alimentent la file VS</span></div>
+  </div>`;
+}
+
 /** Admin — comptes staff sans e-mail (liste non vide). */
 function adminUsersEmailVideTipDenseHtml(users) {
   const list = users || [];
@@ -1866,6 +2034,51 @@ function toastFamJustifDemandeRetiree() {
   showEntToast(
     '<strong>Demande de justificatif retirée</strong> — vous pouvez en déposer une nouvelle si besoin.',
     8000,
+  );
+}
+function toastFamAbsenceDeclaree(opts) {
+  const o = opts || {};
+  const debut = o.debut ? String(o.debut).trim() : '';
+  const fin = o.fin ? String(o.fin).trim() : '';
+  let periode = '';
+  if (debut && fin && debut !== fin) periode = `${esc(debut)} → ${esc(fin)}`;
+  else if (debut) periode = esc(debut);
+  const perPart = periode ? ` · ${periode}` : '';
+  const who = o.prenom ? ` — ${esc(String(o.prenom).trim())}` : '';
+  const motif = o.motif ? ` · ${esc(String(o.motif).trim())}` : '';
+  const eid = o.enfantId ? String(o.enfantId).trim() : '';
+  const absHref = eid
+    ? `/famille/enfants/${esc(eid)}?section=absences`
+    : '/famille/vie-scolaire';
+  showEntToast(
+    `<strong>Absence signalée</strong>${who}${perPart}${motif} — la vie scolaire traitera. `
+    + `<a href="${absHref}">Absences</a> · `
+    + `<a href="/famille/vie-scolaire">Vie scolaire</a>`,
+    8500,
+  );
+}
+function famAbsenceEstOuverte(a) {
+  if (!a) return false;
+  const s = String(a.statut || '').toLowerCase();
+  return s === 'a_traiter' || s === 'signalee' || s === 'declaree'
+    || s === 'ouverte' || s === 'en_cours' || s === 'ouvert';
+}
+function famCountAbsOuvertes(list) {
+  return (list || []).filter(famAbsenceEstOuverte).length;
+}
+function toastFamPaiOrdonnanceJointe(prenom, nomFichier, opts) {
+  const o = opts || {};
+  const who = prenom ? ` — ${esc(String(prenom).trim())}` : '';
+  const nom = nomFichier ? ` · ${esc(String(nomFichier).trim())}` : '';
+  const eid = o.enfantId ? String(o.enfantId).trim() : '';
+  const paiHref = eid
+    ? `/famille/enfants/${esc(eid)}?section=pai`
+    : '/famille/sante';
+  showEntToast(
+    `<strong>Ordonnance PAI jointe</strong>${who}${nom} — transmise à l’infirmerie. `
+    + `<a href="${paiHref}">PAI</a> · `
+    + `<a href="/famille/sante">Santé</a>`,
+    8500,
   );
 }
 function toastFamJustifDepose(opts) {
@@ -2508,6 +2721,8 @@ function normalizeFamEnfantSection(sec) {
   const s = String(sec || '').trim().toLowerCase();
   if (s === 'documents' || s === 'document') return 'docs';
   if (s === 'vs' || s === 'vie-scolaire' || s === 'viescolaire') return 'vs';
+  if (s === 'info-comp' || s === 'infocomp' || s === 'voeux' || s === 'voeu') return 'orientation';
+  if (s === 'orientation' || s === 'orient') return 'orientation';
   return String(sec || '').trim();
 }
 function famApplyEnfantSectionDeepLink(forcedSec) {
@@ -5139,6 +5354,7 @@ function viewEleveNotes() {
       <h3 style="margin-top:1rem">Bulletins téléchargeables</h3>
       <div id="eleveBulletinsList" class="muted">Chargement…</div>
       <div id="eleveNotesOut" class="muted" style="margin-top:.5rem">Chargement…</div>
+      <div id="eleveProchainDsTip"></div>
       <h3 style="margin-top:1rem">Devoirs (classe)</h3>
       <div id="eleveDevOut" class="muted">…</div>
       <h3 style="margin-top:1rem">Moyennes</h3>
@@ -5258,6 +5474,7 @@ async function bindEleveNotes() {
       const noPer = emptyState('Aucune période de notes', 'L’établissement n’a pas encore ouvert de période.');
       const moyTip0 = document.getElementById('eleveMoyGlobaleTip');
       if (moyTip0) moyTip0.innerHTML = '';
+      refreshEleveProchainDsTip('eleveProchainDsTip', [], today());
       if (devOut) devOut.innerHTML = noPer;
       moyOut.innerHTML = noPer;
       appOut.innerHTML = noPer;
@@ -5269,6 +5486,7 @@ async function bindEleveNotes() {
     if (devOut) {
       try {
         const devoirs = await api('/eleves/' + eid + '/devoirs?periode_id=' + encodeURIComponent(p.id));
+        refreshEleveProchainDsTip('eleveProchainDsTip', devoirs, today());
         devOut.innerHTML = !devoirs.length
           ? famEmptyDense('Aucun devoir planifié', [
               `Période ${esc(p.libelle || '')} — les DS et contrôles publiés par vos professeurs s’affichent ici.`,
@@ -6430,7 +6648,7 @@ async function bindFamilleHome() {
       return;
     }
     const jourRepas = today();
-    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists, sepaMandats, rdvLists] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists, sepaMandats, rdvLists, absLists] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
@@ -6442,6 +6660,11 @@ async function bindFamilleHome() {
         + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas)).catch(() => []))),
       api('/facturation/sepa/mandats').catch(() => []),
       Promise.all(list.map(e => api('/psy/rdvs?eleve_id=' + encodeURIComponent(e.id)).catch(() => null))),
+      Promise.all(list.map(e => (
+        famEnfantCanSeeAbsences(e)
+          ? api('/eleves/' + e.id + '/absences').catch(() => [])
+          : Promise.resolve([])
+      ))),
     ]);
     const sepaMandatActif = (sepaMandats || []).find(m => m.statut === 'actif') || null;
     const nRepasJour = (repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
@@ -6586,6 +6809,26 @@ async function bindFamilleHome() {
     const agendaTip = document.getElementById('famHomeAgendaTip');
     if (agendaTip) {
       const tipLines = [];
+      let nAbsOuvertes = 0;
+      const absOuvertParts = [];
+      list.forEach((e, i) => {
+        const nO = famCountAbsOuvertes(absLists[i]);
+        if (nO) {
+          nAbsOuvertes += nO;
+          absOuvertParts.push(`${esc(e.prenom)} (${nO})`);
+        }
+      });
+      if (nAbsOuvertes) {
+        const firstAbsEnfant = list.find((e, i) => famCountAbsOuvertes(absLists[i]) > 0);
+        const absHref = firstAbsEnfant
+          ? `/famille/enfants/${esc(firstAbsEnfant.id)}?section=absences`
+          : '/famille/vie-scolaire';
+        tipLines.push(
+          `Absences ouvertes — <strong class="warn">${nAbsOuvertes}</strong> au total`
+          + (absOuvertParts.length ? ` · ${absOuvertParts.join(', ')}` : '')
+          + ` · <a href="${absHref}">Voir absences</a>`,
+        );
+      }
       if (nDocs) {
         const docParts = list.map((e, i) => {
           const d = (docsLists[i] || []).filter(isFamDocPending).length;
@@ -7183,6 +7426,7 @@ async function bindFamilleEnfant(id) {
                 }),
               });
               msg.innerHTML = `<span class="ok">${esc(d.nom)} joint (${d.taille_octets} o)</span>`;
+              toastFamPaiOrdonnanceJointe(e.prenom || '', d.nom || file.name, { enfantId: id });
               await bindFamilleEnfant(id);
             } catch (err) {
               msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -7290,15 +7534,25 @@ async function bindFamilleEnfant(id) {
       btnPrev.onclick = async () => {
         const msg = document.getElementById('prevMsg');
         try {
+          const prevDebut = document.getElementById('prevDebut').value;
+          const prevFin = document.getElementById('prevFin').value;
+          const prevMotif = document.getElementById('prevMotif').value.trim() || 'maladie';
           await api('/eleves/' + id + '/absences', {
             method: 'POST',
             body: JSON.stringify({
-              debut: document.getElementById('prevDebut').value,
-              fin: document.getElementById('prevFin').value,
-              motif: document.getElementById('prevMotif').value.trim() || 'maladie',
+              debut: prevDebut,
+              fin: prevFin,
+              motif: prevMotif,
             }),
           });
-          msg.innerHTML = `<span class="ok">Absence déclarée — la vie scolaire la traitera.</span>`;
+          msg.innerHTML = '<span class="ok">Absence signalée.</span>';
+          toastFamAbsenceDeclaree({
+            enfantId: id,
+            prenom: e.prenom,
+            debut: prevDebut,
+            fin: prevFin,
+            motif: prevMotif,
+          });
           await bindFamilleEnfant(id);
         } catch (err) {
           msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -8073,6 +8327,9 @@ async function bindFamilleEnfant(id) {
       setTimeout(() => famApplyEnfantSectionDeepLink(enfantDeepSection), 450);
       if (enfantDeepSection === 'vs') {
         setTimeout(() => famApplyEnfantSectionDeepLink('vs'), 900);
+      }
+      if (enfantDeepSection === 'orientation') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('orientation'), 900);
       }
     }
   } catch (e) {
@@ -9647,6 +9904,7 @@ function viewAppel() {
       </div>
       <div class="panel bento-span-7">
         <h2>Appel en cours</h2>
+        <div id="appelManquantsTip"></div>
         <div id="appelOut" class="muted">Choisir un créneau…</div>
         <div id="appelPostCloture" class="muted" style="margin-top:.75rem"></div>
       </div>
@@ -9723,6 +9981,7 @@ async function bindAppel() {
   const preview = document.getElementById('effectifPreview');
   const postBox = document.getElementById('appelPostCloture');
   const stats = document.getElementById('appelStats');
+  const manquantsTip = document.getElementById('appelManquantsTip');
   const names = {};
   let lastEffectif = [];
 
@@ -9761,6 +10020,13 @@ async function bindAppel() {
         <div class="stat-tile bento-span-3"><strong>${nVs}</strong><span>Déjà absents VS</span></div>
         <div class="stat-tile bento-span-3"><strong>${esc(appel.statut)}</strong><span>Statut</span></div>`;
     }
+    const nManq = countAppelManquants(appel);
+    const nLignes = (appel.lignes || []).length;
+    if (manquantsTip) {
+      manquantsTip.innerHTML = appel.statut === 'clos'
+        ? ''
+        : appelManquantsTipDenseHtml(nManq, nLignes);
+    }
     out.innerHTML = renderAppelPanel(appel, names, absentMap);
     if (nAbs > 0 && appel.statut !== 'clos') {
       const toastKey = 'appelAbsJustifToast';
@@ -9776,6 +10042,7 @@ async function bindAppel() {
       btn.onclick = async () => {
         const eleve_id = btn.parentElement.dataset.eleve;
         const etat = btn.dataset.etat;
+        markAppelEleveSaisi(appel.id, eleve_id);
         try {
           await api('/appels/' + appel.id + '/lignes', {
             method: 'POST',
@@ -9990,6 +10257,7 @@ function viewCahier(base) {
         <div id="cdtOut" class="muted">…</div>
       </div>
       ` : eleveFace ? `
+      <div id="cdtProchainDsTip"></div>
       <div class="panel bento-span-12">
         <h2>Mon cahier de texte</h2>
         <p class="muted">Devoirs et consignes publiés par vos professeurs — lecture seule.</p>
@@ -10036,7 +10304,14 @@ async function bindCahier(base) {
         const eid = me && me.eleve_id;
         if (!eid) {
           out.innerHTML = emptyState('Compte élève incomplet', 'Contactez l’établissement.');
+          refreshEleveProchainDsTip('cdtProchainDsTip', [], today());
           return;
+        }
+        try {
+          const devoirsTip = await api('/eleves/' + encodeURIComponent(eid) + '/devoirs');
+          refreshEleveProchainDsTip('cdtProchainDsTip', devoirsTip, today());
+        } catch {
+          refreshEleveProchainDsTip('cdtProchainDsTip', [], today());
         }
         const du = (document.getElementById('cdtDu')?.value || addDaysIso(today(), -14)).trim();
         const au = (document.getElementById('cdtAu')?.value || addDaysIso(today(), 28)).trim();
@@ -14883,6 +15158,7 @@ function viewVsJour() {
         </div>
       </header>
       <div id="vsJourStats" class="bento" style="margin-bottom:1rem"></div>
+      <div id="vsJourComTip"></div>
       <div class="bento">
         <section class="panel bento-span-8">
           <h3>Absences à traiter</h3>
@@ -15040,6 +15316,10 @@ async function bindVsJour() {
       pillStat('grants docs', grants.length, '/app/etab', true),
       pillStat('insc. pièces', insPieces.length, '/app/inscriptions', true),
     ].join('');
+
+    const comSnap = await snapshotComDossiersOuverts(jour).catch(() => ({ count: 0, coms: 0, first: null }));
+    const comTipEl = document.getElementById('vsJourComTip');
+    if (comTipEl) comTipEl.innerHTML = vsComJourTipDenseHtml(comSnap, jour);
 
     // Absences
     if (absRes.status === 'rejected') {
@@ -15631,10 +15911,11 @@ async function bindVsJour() {
             body: JSON.stringify(body),
           });
           if (msg) msg.innerHTML = `<span class="ok">Sanction ${esc(d.statut)} · ${d.duree_minutes || '—'} min</span>`;
-          showEntToast(
-            `<strong>Sanction enregistrée</strong> · ${esc(d.statut)} — `
-            + `<a href="/app/eleves/${esc(id)}">Fiche élève</a>`,
-          );
+          const elSel = document.getElementById('vsIncEleve');
+          const elLab = elSel && elSel.selectedOptions && elSel.selectedOptions[0]
+            ? elSel.selectedOptions[0].textContent.trim()
+            : '';
+          toastSanctionPrononcee(d, { eleveId: id, eleveLabel: elLab });
         } catch (e) {
           if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
         }
@@ -16615,10 +16896,10 @@ async function bindAbsences() {
         body: JSON.stringify(body),
       });
       msg.innerHTML = `<span class="ok">Sanction ${esc(d.statut)} · ${d.duree_minutes || '—'} min</span>`;
-      showEntToast(
-        `<strong>Sanction enregistrée</strong> · ${esc(d.statut)} — `
-        + `<a href="/app/eleves/${esc(id)}">Fiche élève</a>`,
-      );
+      const elOpt = incEleve.selectedOptions && incEleve.selectedOptions[0]
+        ? incEleve.selectedOptions[0].textContent.trim()
+        : '';
+      toastSanctionPrononcee(d, { eleveId: id, eleveLabel: elOpt });
       await loadPoints();
       await loadIncSanHisto();
     } catch (e) {
@@ -19576,6 +19857,7 @@ async function bindNotes() {
 function viewExportsEn() {
   return shell('/app/exports', `
     <div class="bento" id="expEnStats"></div>
+    <div id="expEnLsunTip"></div>
     <div class="panel">
       <h2>Exports EN</h2>
       <p class="muted">CSV locaux pour les ponts nationaux — paramétrer classe / période puis télécharger.</p>
@@ -19631,6 +19913,7 @@ async function bindExportsEn() {
            ${pid ? ' · période ' + esc(perLabel) : ''}
            — ${eleves.map(e => esc(e.prenom) + ' ' + esc(e.nom)).join(', ')}</p>`
         : '<p class="empty">Effectif vide — export refusé.</p>';
+      refreshExportsEnLsunTip(eleves.length);
       return eleves.length;
     } catch (e) {
       box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -19714,6 +19997,14 @@ async function bindExportsEn() {
       a.click();
       URL.revokeObjectURL(a.href);
       msg.innerHTML = `<span class="ok">export-lsun.csv · ${n} élève(s)</span>`;
+      const expPerSel = document.getElementById('expEnPeriode');
+      const periodeLabel = expPerSel && expPerSel.selectedOptions && expPerSel.selectedOptions[0]
+        ? expPerSel.selectedOptions[0].textContent.trim() : '';
+      toastExportLsun('export-lsun.csv', {
+        classe: c,
+        periodeLabel,
+        nEleves: n,
+      });
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
@@ -22446,6 +22737,11 @@ async function bindFamilleSante() {
               }),
             });
             if (msg) msg.innerHTML = `<span class="ok">${esc(d.nom)} joint</span>`;
+            const optPai = sel.selectedOptions && sel.selectedOptions[0];
+            const prenomPai = optPai
+              ? String(optPai.textContent || '').trim().split(/\s+/)[0]
+              : '';
+            toastFamPaiOrdonnanceJointe(prenomPai, d.nom || file.name, { enfantId: id });
             await load();
           } catch (err) {
             if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
