@@ -118,6 +118,8 @@ let notesDevoirsEmptyChoBzRefresh = null;
 let notesDevoirsEmptyChoCeRefresh = null;
 /** Rempli dans bindNotes — repère Cho note CJ-A sur tip « 0 devoir » (audit CJ-D). */
 let notesDevoirsEmptyChoCjRefresh = null;
+/** Rempli dans bindNotes — repère Cho note CO-A sur tip « 0 devoir » (audit CO-D). */
+let notesDevoirsEmptyChoCoRefresh = null;
 /** Rempli dans bindNotes — repère Hermione sur tip « 0 devoir ». */
 let notesDevoirsEmptyHermioneRefresh = null;
 /** Rempli dans bindNotes — repère Hermione note BY-A sur tip « 0 devoir » (audit BY-D). */
@@ -150,6 +152,8 @@ let notesDevoirsEmptySeamusBzRefresh = null;
 let notesDevoirsEmptySeamusCeRefresh = null;
 /** Rempli dans bindNotes — repère Seamus devoir CJ-A sur tip « 0 devoir » (audit CJ-D). */
 let notesDevoirsEmptySeamusCjRefresh = null;
+/** Rempli dans bindNotes — repère Seamus devoir CO-A sur tip « 0 devoir » (audit CO-D). */
+let notesDevoirsEmptySeamusCoRefresh = null;
 /** Rempli dans bindNotes — repère Neville note CF-A sur tip « 0 devoir » (audit CF-D). */
 let notesDevoirsEmptyNevilleCfRefresh = null;
 /** Rempli dans bindNotes — repère Neville note CN-A sur tip « 0 devoir » (audit CN-D). */
@@ -943,6 +947,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyChoBzRefresh === 'function') void notesDevoirsEmptyChoBzRefresh();
     if (typeof notesDevoirsEmptyChoCeRefresh === 'function') void notesDevoirsEmptyChoCeRefresh();
     if (typeof notesDevoirsEmptyChoCjRefresh === 'function') void notesDevoirsEmptyChoCjRefresh();
+    if (typeof notesDevoirsEmptyChoCoRefresh === 'function') void notesDevoirsEmptyChoCoRefresh();
     if (typeof notesDevoirsEmptyHermioneRefresh === 'function') void notesDevoirsEmptyHermioneRefresh();
     if (typeof notesDevoirsEmptyHermioneByRefresh === 'function') void notesDevoirsEmptyHermioneByRefresh();
     if (typeof notesDevoirsEmptyHermioneCdRefresh === 'function') void notesDevoirsEmptyHermioneCdRefresh();
@@ -959,6 +964,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptySeamusBzRefresh === 'function') void notesDevoirsEmptySeamusBzRefresh();
     if (typeof notesDevoirsEmptySeamusCeRefresh === 'function') void notesDevoirsEmptySeamusCeRefresh();
     if (typeof notesDevoirsEmptySeamusCjRefresh === 'function') void notesDevoirsEmptySeamusCjRefresh();
+    if (typeof notesDevoirsEmptySeamusCoRefresh === 'function') void notesDevoirsEmptySeamusCoRefresh();
     if (typeof notesDevoirsEmptyNevilleCfRefresh === 'function') void notesDevoirsEmptyNevilleCfRefresh();
     if (typeof notesDevoirsEmptyNevilleCnRefresh === 'function') void notesDevoirsEmptyNevilleCnRefresh();
     if (typeof notesDevoirsEmptyLunaBxRefresh === 'function') void notesDevoirsEmptyLunaBxRefresh();
@@ -1880,6 +1886,57 @@ function bindNotesSeamusCjDevoirGoTipGo(opts) {
   }
 }
 
+function findSeamusCoDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /seamus/i.test(String(d.titre || '')) && /CO-A/i.test(String(d.titre || '')));
+}
+
+/** /app/notes — repère devoir Seamus CO-A (0 devoir global ou liste filtrée vide). */
+function notesSeamusCoDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.seamusCoDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Seamus CO-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Seamus Finnigan</strong><span>Seed labo · 6A · devoir audit CO-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesSeamusCoDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CO-A · 6A'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesSeamusCoDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 6A</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesSeamusCoDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesSeamusCoDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.seamusCoDevoir && o.seamusCoDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.seamusCoDevoir);
+        return;
+      }
+      notesSeamusDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Seamus CO-A';
+      }
+      if (!o.seamusCoDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesSeamusCoDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesSeamusDevoirGoActions();
+  }
+}
+
 function notesHarryDevoirGoActions() {
   const chip = document.getElementById('notesChip4B');
   if (chip) chip.click();
@@ -2620,6 +2677,30 @@ function notesChoCjSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesChoCjSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasCjNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCjNote ? 'Repère Cho · Français CJ-A' : 'Filtre 5A · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Cho Chang (5A · note Français CO-A · audit CO-D). */
+function notesChoCoSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.choId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '5A').trim());
+  const hasCoNote = !!o.hasCoNote;
+  const noteLbl = o.coNoteLabel
+    ? esc(String(o.coNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CO-A');
+  const noteStrong = hasCoNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Cho Chang</strong><span>Seed labo · ${classe} · audit notes CO-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesChoCoSeedNotesBtn" data-cho-id="${esc(String(o.choId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesChoCoSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasCoNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCoNote ? 'Repère Cho · Français CO-A' : 'Filtre 5A · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -6176,6 +6257,277 @@ function bindHomeStaffCacTipActions(meta) {
       go('/app/messages');
     };
   }
+}
+
+function staffHomeCocPanelShell() {
+  return `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit santé transversal</h3>
+      <p class="muted" style="margin-top:0">PAI · passages infirmerie · RDV psy · fiches élèves — <span class="muted empty-state-hint" style="font-size:.72rem">CO-C</span>.</p>
+      <div id="homeStaffCocTip" class="muted">Chargement…</div>
+    </div>`;
+}
+
+function isStaffHomeCocFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && ['admin', 'direction', 'administratif'].includes(role);
+}
+
+function isStaffElevesCocSanteFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app/eleves' && ['admin', 'direction', 'administratif', 'infirmerie'].includes(role);
+}
+
+/** Accueil direction / admin / administratif — PAI · infirmerie · psy (audit UI CO-C). */
+function homeStaffCocTipDenseHtml(meta) {
+  if (!isStaffHomeCocFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cocLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CO-C</span>';
+  const nPass = Number(o.nPassInf) || 0;
+  const nPai = Number(o.nPaiPending) || 0;
+  const nPsy = Number(o.nRdvPsy) || 0;
+  const psyNext = o.psyNext ? esc(String(o.psyNext).trim().slice(0, 14)) : '—';
+  const passTile = nPass
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCocPassGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nPass}</strong><span>Passage(s) infirmerie · ${jour} · ${cocLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCocPassGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Infirmerie calme · ${jour}</span></button>`;
+  const paiTile = nPai
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCocPaiGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nPai}</strong><span>PAI · signature famille (échantillon 4B)</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCocPaiGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">0</strong><span>PAI · protocoles à jour</span></button>`;
+  const psyTile = nPsy
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCocPsyGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${nPsy}</strong><span>RDV psy · prochain ${psyNext}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCocPsyGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">0</strong><span>Psy · planning du jour</span></button>`;
+  const ficheTile = o.harryHref
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCocFicheGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>Fiche</strong><span>Dossier élève · santé / PAI</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCocFicheGo" style="cursor:pointer;text-align:left">
+        <strong>→</strong><span>Annuaire · fiche santé élève</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>Santé staff · hors CA-C / CB-C</span></div>`;
+  return `<div class="bento" data-ui-audit="CO-C" style="margin:0 0 .55rem">
+    ${passTile}${paiTile}${psyTile}${ficheTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffCocTipActions(meta) {
+  const o = meta || {};
+  const pass = document.getElementById('homeCocPassGo');
+  if (pass) {
+    pass.onclick = () => {
+      toastStaffCocAction('infirmerie', o);
+      go('/app/infirmerie');
+    };
+  }
+  const pai = document.getElementById('homeCocPaiGo');
+  if (pai) {
+    pai.onclick = () => {
+      toastStaffCocAction('pai', o);
+      go('/app/infirmerie#infPaiTip');
+    };
+  }
+  const psy = document.getElementById('homeCocPsyGo');
+  if (psy) {
+    psy.onclick = () => {
+      toastStaffCocAction('psy', o);
+      go('/app/psy');
+    };
+  }
+  const fiche = document.getElementById('homeCocFicheGo');
+  if (fiche) {
+    fiche.onclick = () => {
+      toastStaffCocAction('fiche', o);
+      go(o.harryHref || '/app/eleves');
+    };
+  }
+}
+
+/** /app/eleves — raccourcis santé staff (audit CO-C · complète CI-C annuaire). */
+function elevesStaffCocSanteTipDenseHtml(meta) {
+  if (!isStaffElevesCocSanteFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cocLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CO-C</span>';
+  const nPass = Number(o.nPassInf) || 0;
+  const nPai = Number(o.nPaiPending) || 0;
+  const infTile = `<button type="button" class="stat-tile bento-span-4" id="elvCocInfGo" style="cursor:pointer;text-align:left;border-color:${nPass ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nPass ? 'ok' : 'muted'}">${nPass}</strong><span>Passage(s) · ${jour} · ${cocLbl}</span></button>`;
+  const paiTile = nPai
+    ? `<button type="button" class="stat-tile bento-span-4" id="elvCocPaiGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nPai}</strong><span>PAI non signé(s) · échantillon 4B</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="elvCocPaiGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">0</strong><span>PAI · protocoles OK</span></button>`;
+  const psyTile = `<button type="button" class="stat-tile bento-span-4" id="elvCocPsyGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Psy</strong><span>Planning · entretiens</span></button>`;
+  const dosTile = o.harryHref
+    ? `<button type="button" class="stat-tile bento-span-4" id="elvCocDosGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>Dossier</strong><span>Fiche · allergies · PAI</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="elvCocDosGo" style="cursor:pointer;text-align:left">
+        <strong>→</strong><span>Ouvrir une fiche élève</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>Santé · routes existantes</span></div>`;
+  return `<div class="bento" data-ui-audit="CO-C" style="margin:0 0 .65rem">${infTile}${paiTile}${psyTile}${dosTile}${auditTile}</div>`;
+}
+
+function bindElevesStaffCocSanteTipActions(meta) {
+  const o = meta || {};
+  const inf = document.getElementById('elvCocInfGo');
+  if (inf) {
+    inf.onclick = () => {
+      toastStaffCocAction('infirmerie', o);
+      go('/app/infirmerie');
+    };
+  }
+  const pai = document.getElementById('elvCocPaiGo');
+  if (pai) {
+    pai.onclick = () => {
+      toastStaffCocAction('pai', o);
+      go('/app/infirmerie#infPaiTip');
+    };
+  }
+  const psy = document.getElementById('elvCocPsyGo');
+  if (psy) {
+    psy.onclick = () => {
+      toastStaffCocAction('psy', o);
+      go('/app/psy');
+    };
+  }
+  const dos = document.getElementById('elvCocDosGo');
+  if (dos) {
+    dos.onclick = () => {
+      toastStaffCocAction('fiche', o);
+      go(o.harryHref || '/app/eleves');
+    };
+  }
+}
+
+function refreshElevesStaffCocSanteTip(meta) {
+  const box = document.getElementById('elevesStaffCocTip');
+  if (!box || !isStaffElevesCocSanteFlux()) return;
+  box.innerHTML = elevesStaffCocSanteTipDenseHtml(meta);
+  bindElevesStaffCocSanteTipActions(meta);
+}
+
+async function buildStaffCocSanteMeta(jour) {
+  const j = jour || today();
+  const settle = (p, fallback) => p.then(v => v).catch(() => fallback);
+  const [passList, rdvsPsy, eff4b, harryId] = await Promise.all([
+    settle(api('/infirmerie/passages?jour=' + encodeURIComponent(j)), []),
+    settle(api('/psy/rdvs?jour=' + encodeURIComponent(j)), []),
+    settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(j)), null),
+    settle(resolveHarryPotterEleveId(), ''),
+  ]);
+  const eleves = (eff4b && eff4b.eleves) || [];
+  let nPaiPending = 0;
+  const sampleIds = eleves.slice(0, 20).map(e => e.id).filter(Boolean);
+  if (sampleIds.length) {
+    const paiList = await settle(
+      Promise.all(sampleIds.map(id => api('/eleves/' + encodeURIComponent(id) + '/pai').catch(() => null))),
+      [],
+    );
+    nPaiPending = (paiList || []).filter(p => p && p.actif && !p.signe_famille).length;
+  }
+  const rdvPlan = (rdvsPsy || []).filter(r => String(r.statut || '') === 'planifie');
+  const rdvNextRow = rdvPlan.slice().sort((a, b) =>
+    String(a.heure_debut || '').localeCompare(String(b.heure_debut || '')),
+  )[0];
+  const psyNext = rdvNextRow
+    ? `${rdvNextRow.heure_debut || '—'}–${rdvNextRow.heure_fin || '—'}`
+    : '';
+  const harryHref = harryId ? '/app/eleves/' + encodeURIComponent(String(harryId)) : '';
+  let eleveLabel = '';
+  if (harryId) {
+    await hydrateEleveNames([harryId]);
+    eleveLabel = ELEVE_NAME_CACHE[harryId] || '';
+  }
+  return {
+    jour: j,
+    nPassInf: (passList || []).length,
+    nPaiPending,
+    nRdvPsy: rdvPlan.length,
+    psyNext,
+    harryHref,
+    harryId,
+    eleveLabel,
+    dossierHref: harryHref,
+  };
+}
+
+/** Toast bento — santé transversal staff (routes existantes · audit CO-C). */
+function toastStaffCocAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Santé transversal staff';
+  let href = '/app/infirmerie';
+  let tiles = '';
+  if (k === 'infirmerie') {
+    title = Number(o.nPassInf) ? 'Infirmerie · passages du jour' : 'Infirmerie · module';
+    href = '/app/infirmerie';
+    const nPass = Number(o.nPassInf) || 0;
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nPass ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${nPass ? 'ok' : 'muted'}">${nPass}</strong><span>Passage(s) · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Motif</strong><span>Visible famille si coché</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>GET /infirmerie/passages</span></div>`;
+  } else if (k === 'pai') {
+    title = Number(o.nPaiPending) ? 'PAI · signatures en attente' : 'PAI · protocoles';
+    href = '/app/infirmerie#infPaiTip';
+    const nPai = Number(o.nPaiPending) || 0;
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nPai ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nPai ? 'warn' : 'ok'}">${nPai}</strong><span>Actif(s) sans signature famille</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Fiche</strong><span>GET /eleves/:id/pai</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>Protocole urgence · pièces</span></div>`;
+  } else if (k === 'psy') {
+    title = Number(o.nRdvPsy) ? 'Psy · RDV du jour' : 'Psy · planning';
+    href = '/app/psy';
+    const nPsy = Number(o.nRdvPsy) || 0;
+    const psyNext = o.psyNext ? esc(String(o.psyNext).trim().slice(0, 14)) : '—';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nPsy ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+        <strong>${nPsy || '0'}</strong><span>Planifié(s) · prochain ${psyNext}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Entretiens</strong><span>Compte-rendu confidentiel</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>Route /app/psy</span></div>`;
+  } else if (k === 'fiche') {
+    href = o.harryHref || o.dossierHref || '/app/eleves';
+    const lbl = o.eleveLabel ? esc(String(o.eleveLabel).trim().slice(0, 24)) : 'Dossier élève';
+    title = 'Fiche · santé &amp; PAI';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${lbl}</strong><span>Allergies · fiche santé</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Infirmerie</strong><span>Passages liés · module</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>Bandeau dossier · fiche</span></div>`;
+  } else if (k === 'allergies') {
+    href = o.dossierHref || href;
+    title = 'Fiche santé · allergies';
+    const al = o.allergies ? esc(String(o.allergies).trim().slice(0, 28)) : '—';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${al}</strong><span>Champ fiche · staff only</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">PAI</strong><span>Protocole si actif</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>PUT fiche-sante</span></div>`;
+  } else if (k === 'passages') {
+    href = '/app/infirmerie';
+    title = 'Passages · historique élève';
+    const nPass = Number(o.nPassages) || 0;
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nPass}</strong><span>Enregistré(s) · cet élève</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Module</strong><span>File du jour · enregistrer</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>GET …/passages?eleve_id</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CO-C</p>`,
+    6500,
+  );
 }
 
 function isStaffHomeCbcFlux() {
@@ -12682,6 +13034,198 @@ function maybeToastFamPushPanelCnBDense() {
   bindFamHomeCnBTipGo();
 }
 
+function famCoBAuditTile(spanLabel) {
+  const lbl = spanLabel ? esc(String(spanLabel)) : 'Options · dossier';
+  return `<div class="stat-tile bento-span-4"><strong class="muted">CO-B</strong><span>${lbl}</span></div>`;
+}
+
+function famCoBOptionsHrefForEnfant(enfantId) {
+  const eid = enfantId ? String(enfantId).trim() : '';
+  return eid ? `/famille/enfants/${esc(eid)}?section=options` : '/famille/enfants';
+}
+
+function famCoBCollectOptionsStats(list, optionsLists) {
+  const kids = list || [];
+  let nTotal = 0;
+  let nAcad = 0;
+  let nInterne = 0;
+  let lead = null;
+  let leadOpt = null;
+  kids.forEach((e, i) => {
+    const opts = (optionsLists || [])[i] || [];
+    if (!opts.length) return;
+    if (!lead) lead = e;
+    opts.forEach(o => {
+      if (!o) return;
+      nTotal += 1;
+      const nat = String(o.nature || '').toLowerCase();
+      if (nat === 'academique') nAcad += 1;
+      else if (nat === 'interne') nInterne += 1;
+      if (!leadOpt) leadOpt = o;
+    });
+  });
+  return { nTotal, nAcad, nInterne, lead, leadOpt, hasAny: nTotal > 0 };
+}
+
+/** Accueil famille — options scolaires (bento) — audit UI CO-B. */
+function famHomeOptionsCoBTipDenseHtml(list, optionsLists) {
+  const kids = list || [];
+  if (!kids.length) return '';
+  const st = famCoBCollectOptionsStats(kids, optionsLists);
+  const leadId = st.lead && st.lead.id ? String(st.lead.id).trim() : '';
+  const soleId = kids.length === 1 && kids[0] && kids[0].id ? String(kids[0].id).trim() : '';
+  const ficheHref = famCoBOptionsHrefForEnfant(leadId || soleId);
+  const who = st.lead && st.lead.prenom
+    ? esc(String(st.lead.prenom).trim())
+    : `${kids.length} enfant(s)`;
+  if (st.hasAny) {
+    const codeLbl = st.leadOpt && st.leadOpt.code
+      ? esc(String(st.leadOpt.code).trim().slice(0, 14))
+      : 'LV2 · modules';
+    const countTile = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)" data-fam-co-go="${ficheHref}">
+        <strong class="ok">${st.nTotal}</strong><span>Option(s) · ${who}</span></a>`;
+    const natTile = `<div class="stat-tile bento-span-4"><strong>${st.nAcad || '—'}</strong><span>SIECLE · ${st.nInterne} interne(s)</span></div>`;
+    const actTile = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-co-go="${ficheHref}">
+        <strong>${codeLbl}</strong><span>Fiche · section Options</span></a>`;
+    return `<div class="bento" data-ui-audit="CO-B" style="margin:0 0 .55rem">${countTile}${natTile}${actTile}${famCoBAuditTile('GET dossier.options')}</div>`;
+  }
+  const calmCount = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none" data-fam-co-go="${ficheHref}">
+      <strong class="muted">0</strong><span>Pas d’option publiée · ${who}</span></a>`;
+  const calmMsg = `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none" data-fam-co-go="/famille/messages">
+      <strong>→</strong><span>Contacter la scolarité</span></a>`;
+  const calmList = `<a class="stat-tile bento-span-4" href="/famille/enfants" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-co-go="/famille/enfants">
+      <strong>Mes enfants</strong><span>LV2 · options internes</span></a>`;
+  return `<div class="bento" data-ui-audit="CO-B" style="margin:0 0 .55rem">${calmCount}${calmMsg}${calmList}${famCoBAuditTile('?section=options')}</div>`;
+}
+
+/** Fiche enfant — options scolaires (bento) — audit UI CO-B. */
+function famEnfantOptionsCoBTipDenseHtml(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const list = o.options || [];
+  const nOpts = Number.isFinite(Number(o.nOptions)) ? Number(o.nOptions) : list.length;
+  const first = list[0] || null;
+  const codeLbl = first && first.code ? esc(String(first.code).trim()) : '—';
+  const libLbl = first && first.libelle
+    ? esc(String(first.libelle).trim().slice(0, 28))
+    : 'Modules scolaires';
+  const countTile = nOpts
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)"><strong class="ok">${nOpts}</strong><span>Option(s) · ${who}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Aucune option · ${who}</span></div>`;
+  const detTile = nOpts
+    ? `<div class="stat-tile bento-span-4"><strong>${codeLbl}</strong><span>${libLbl}</span></div>`
+    : `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none" data-fam-co-go="/famille/messages">
+        <strong>Scolarité</strong><span>Demander une option</span></a>`;
+  const actTile = `<a class="stat-tile bento-span-4" href="#fam-sec-options" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-co-go="#fam-sec-options">
+      <strong>↓</strong><span>Tableau ci-dessous</span></a>`;
+  const ficheHref = famCoBOptionsHrefForEnfant(o.enfantId || eid);
+  const auditTile = famCoBAuditTile(eid ? `Route ${ficheHref}` : 'fam-sec-options');
+  return `<div class="bento" data-ui-audit="CO-B" style="margin:0 0 .55rem">${countTile}${detTile}${actTile}${auditTile}</div>`;
+}
+
+/** Fiche enfant — options vides (empty-state densifié) — audit UI CO-B. */
+function famEnfantOptionsEmptyDenseHtml(prenom, enfantId) {
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  const tip = famEnfantOptionsCoBTipDenseHtml({
+    prenom,
+    enfantId,
+    nOptions: 0,
+    options: [],
+    forceShow: true,
+  });
+  return `${tip}${famEmptyDense(`Aucune option — ${who}`, [
+    'Les options académiques (SIECLE) et internes apparaissent quand l’établissement les renseigne.',
+    'Modifications : contacter la vie scolaire — pas de saisie directe parent sur cette section.',
+    'Audit UI CO-B — route ?section=options · GET dossier élève.',
+  ], `<a href="/famille/messages">Messagerie</a> · <a href="/famille/enfants">Mes enfants</a>`)}`;
+}
+
+function bindFamHomeCoBTipGo() {
+  for (const rootId of ['famHomeCoBTip', 'famEnfantOptionsTip', 'entToast']) {
+    const root = document.getElementById(rootId);
+    if (!root) continue;
+    root.querySelectorAll('[data-fam-co-go]').forEach(btn => {
+      if (btn.dataset.famCoBound === '1') return;
+      btn.dataset.famCoBound = '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-co-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  }
+}
+
+const FAM_CO_B_HOME_TOAST_SS = 'ent_fam_options_co_b_home';
+
+/** Accueil famille — toast options CO-B (1× / session). */
+function maybeToastFamOptionsCoBHome(list, optionsLists) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_CO_B_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const tiles = famHomeOptionsCoBTipDenseHtml(list, optionsLists);
+  if (!tiles) return;
+  const st = famCoBCollectOptionsStats(list, optionsLists);
+  showEntToast(
+    (st.hasAny
+      ? `<strong>Options scolaires</strong> — ${st.nTotal} option(s) visible(s) famille`
+      : '<strong>Options scolaires</strong> — consultez le dossier de chaque enfant')
+    + `<div style="margin:.35rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/enfants">Mes enfants</a> · `
+    + `<a href="/famille/messages">Messagerie</a></p>`,
+    st.hasAny ? 7200 : 6500,
+  );
+  try { sessionStorage.setItem(FAM_CO_B_HOME_TOAST_SS, '1'); } catch {}
+  bindFamHomeCoBTipGo();
+}
+
+/** Fiche enfant ?section=options — toast CO-B (1× / session). */
+function maybeToastFamEnfantOptionsCoB(opts) {
+  if (!isParent()) return;
+  if (normalizeFamEnfantSection(opts && opts.deepSection) !== 'options') return;
+  const ssKey = 'ent_fam_enfant_options_co_b_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const tipHtml = famEnfantOptionsCoBTipDenseHtml({
+    prenom: o.prenom,
+    enfantId: o.enfantId,
+    nOptions: o.nOptions,
+    options: o.options || [],
+    forceShow: true,
+  });
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const href = famCoBOptionsHrefForEnfant(o.enfantId);
+  showEntToast(
+    `<strong>Options scolaires</strong> — ${who}`
+    + `<div style="margin:.35rem 0 0">${tipHtml}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${href}">Deep-link options</a> · `
+    + `<a href="/famille/messages">Contacter la scolarité</a></p>`,
+    7600,
+  );
+  bindFamHomeCoBTipGo();
+}
+
 /** Bannière push famille (lab) — tuiles denses. */
 function famPushBannerTipDenseHtml() {
   return `<div class="bento" data-ui-audit="CB-B" style="margin:0;align-items:stretch">
@@ -15310,6 +15854,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyChoBzSlot"></div>
   <div id="notesDevoirsEmptyChoCeSlot"></div>
   <div id="notesDevoirsEmptyChoCjSlot"></div>
+  <div id="notesDevoirsEmptyChoCoSlot"></div>
   <div id="notesDevoirsEmptyHermioneSlot"></div>
   <div id="notesDevoirsEmptyHermioneBySlot"></div>
   <div id="notesDevoirsEmptyHermioneCdSlot"></div>
@@ -15333,6 +15878,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptySeamusBzSlot"></div>
   <div id="notesDevoirsEmptySeamusCeSlot"></div>
   <div id="notesDevoirsEmptySeamusCjSlot"></div>
+  <div id="notesDevoirsEmptySeamusCoSlot"></div>
   <div id="notesDevoirsEmptyLunaBxSlot"></div>
   <div id="notesDevoirsEmptyGinnySlot"></div>
   <div id="notesDevoirsEmptyLunaCcSlot"></div>
@@ -18142,12 +18688,11 @@ function staffCanSeeDossierSanteTip() {
   return ['admin', 'direction', 'administratif', 'infirmerie', 'cpe', 'prof'].includes(role);
 }
 
-/** Dossier élève staff — synthèse santé (fiche · PAI · passages). */
+/** Dossier élève staff — synthèse santé (fiche · PAI · passages · audit CO-C). */
 function staffDossierSanteTipDenseHtml(f, pai, nPassages, opts) {
   if (!staffCanSeeDossierSanteTip()) return '';
   const o = opts || {};
   const eid = o.eleveId ? String(o.eleveId).trim() : '';
-  const infHref = eid ? '/app/infirmerie' : '/app/infirmerie';
   const nPass = Number(nPassages) || 0;
   const allergies = f && f.allergies ? String(f.allergies).trim() : '';
   const alLbl = allergies
@@ -18155,28 +18700,79 @@ function staffDossierSanteTipDenseHtml(f, pai, nPassages, opts) {
     : '—';
   const paiActif = !!(pai && pai.actif) || !!(f && f.pai_actif);
   const paiPending = pai && pai.actif && !pai.signe_famille;
+  const cocLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CO-C</span>';
+  const alTile = `<button type="button" class="stat-tile bento-span-4" id="dosCocAllergieGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${alLbl}</strong><span>Allergies · fiche santé · ${cocLbl}</span></button>`;
   const paiTile = paiActif
     ? (paiPending
-      ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
-          <strong class="warn">PAI</strong><span>Signature famille en attente</span>
-        </div>`
-      : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-          <strong class="ok">PAI</strong><span>${pai && pai.motif ? esc(String(pai.motif).slice(0, 22)) : 'Actif'}</span>
-        </div>`)
-    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de PAI actif</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <div class="stat-tile bento-span-4"><strong>${alLbl}</strong><span>Allergies · fiche santé</span></div>
-    ${paiTile}
-    <a class="stat-tile bento-span-4" href="${infHref}" style="text-decoration:none">
-      <strong>${nPass}</strong><span>Passage(s) · module infirmerie</span>
-    </a>
+      ? `<button type="button" class="stat-tile bento-span-4" id="dosCocPaiGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+          <strong class="warn">PAI</strong><span>Signature famille en attente</span></button>`
+      : `<button type="button" class="stat-tile bento-span-4" id="dosCocPaiGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+          <strong class="ok">PAI</strong><span>${pai && pai.motif ? esc(String(pai.motif).slice(0, 22)) : 'Actif'}</span></button>`)
+    : `<button type="button" class="stat-tile bento-span-4" id="dosCocPaiGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">—</strong><span>Pas de PAI actif</span></button>`;
+  const passTile = `<button type="button" class="stat-tile bento-span-4" id="dosCocPassGo" style="cursor:pointer;text-align:left">
+      <strong>${nPass}</strong><span>Passage(s) · module infirmerie</span></button>`;
+  const psyTile = `<button type="button" class="stat-tile bento-span-4" id="dosCocPsyGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Psy</strong><span>RDV · dossier structuré</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CO-C</strong><span>Dossier · santé staff</span></div>`;
+  return `<div class="bento" data-ui-audit="CO-C" style="margin:0 0 .55rem">
+    ${alTile}${paiTile}${passTile}${psyTile}${auditTile}
   </div>`;
+}
+
+function bindStaffDossierSanteCocTipActions(f, pai, nPassages, opts) {
+  const o = opts || {};
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  const allergies = f && f.allergies ? String(f.allergies).trim() : '';
+  const dossierHref = eid ? '/app/eleves/' + encodeURIComponent(eid) : '/app/eleves';
+  const meta = {
+    jour: o.jour || today(),
+    eleveId: eid,
+    eleveLabel: o.eleveLabel || '',
+    dossierHref,
+    harryHref: dossierHref,
+    nPassInf: 0,
+    nPaiPending: pai && pai.actif && !pai.signe_famille ? 1 : 0,
+    nPassages: Number(nPassages) || 0,
+    allergies,
+  };
+  const al = document.getElementById('dosCocAllergieGo');
+  if (al) {
+    al.onclick = () => {
+      toastStaffCocAction('allergies', meta);
+      const inp = document.querySelector('#dos-fiche input[id*="allerg"], #dos-fiche textarea[id*="allerg"]');
+      if (inp) inp.focus();
+    };
+  }
+  const paiBtn = document.getElementById('dosCocPaiGo');
+  if (paiBtn) {
+    paiBtn.onclick = () => {
+      toastStaffCocAction('pai', meta);
+      go('/app/infirmerie#infPaiTip');
+    };
+  }
+  const pass = document.getElementById('dosCocPassGo');
+  if (pass) {
+    pass.onclick = () => {
+      toastStaffCocAction('passages', meta);
+      go('/app/infirmerie');
+    };
+  }
+  const psy = document.getElementById('dosCocPsyGo');
+  if (psy) {
+    psy.onclick = () => {
+      toastStaffCocAction('psy', meta);
+      go('/app/psy');
+    };
+  }
 }
 
 function refreshStaffDossierSanteTip(f, pai, nPassages, opts) {
   const tip = document.getElementById('staffDossierSanteTip');
   if (!tip) return;
   tip.innerHTML = staffDossierSanteTipDenseHtml(f, pai, nPassages, opts);
+  bindStaffDossierSanteCocTipActions(f, pai, nPassages, opts);
 }
 
 function infirmerieEleveLabel(eid) {
@@ -21715,6 +22311,7 @@ function normalizeFamEnfantSection(sec) {
   if (s === 'psy' || s === 'pap' || s === 'accompagnement') return 'accompagnement';
   if (s === 'note' || s === 'notes' || s === 'bulletin' || s === 'bulletins' || s === 'moyenne' || s === 'moyennes') return 'notes';
   if (s === 'journal' || s === 'modifications' || s === 'journal-modif') return 'journal';
+  if (s === 'option' || s === 'options' || s === 'lv2' || s === 'module' || s === 'modules') return 'options';
   if (s === 'messages' || s === 'message' || s === 'messagerie' || s === 'fil' || s === 'fils') return 'messages';
   if (s === 'edt' || s === 'emploi-du-temps' || s === 'emploi_du_temps' || s === 'horaire' || s === 'horaires') return 'edt';
   return String(sec || '').trim();
@@ -26621,6 +27218,7 @@ function viewHome() {
       <div id="homeDirReinscDense" class="bento muted">Chargement…</div>
     </div>
     ${staffHomeBzcPanelShell()}
+    ${staffHomeCocPanelShell()}
     ${staffHomeBxcPanelShell()}
     ${staffHomeBvcPanelShell()}
     ${staffHomeCncPanelShell()}
@@ -26644,6 +27242,7 @@ function viewHome() {
       <div id="homeStaffCockpitTip" class="muted">Chargement…</div>
     </div>
     ${staffHomeChcPanelShell()}
+    ${staffHomeCocPanelShell()}
     ${staffHomeCfcPanelShell()}
     ${staffHomeBvcPanelShell()}
     ${staffHomeCncPanelShell()}
@@ -26681,6 +27280,7 @@ function viewHome() {
       <div id="homeAdminBootstrapTip" class="bento muted">Chargement…</div>
     </div>
     ${staffHomeBzcPanelShell()}
+    ${staffHomeCocPanelShell()}
     ${staffHomeBxcPanelShell()}
     ${staffHomeBvcPanelShell()}
     ${staffHomeCncPanelShell()}
@@ -27326,6 +27926,12 @@ async function bindHome() {
     staffCbcBox.innerHTML = homeStaffCbcTipDenseHtml(cbcMeta);
     bindHomeStaffCbcTipActions(cbcMeta);
   }
+  const staffCocBox = document.getElementById('homeStaffCocTip');
+  if (staffCocBox && isStaffHomeCocFlux()) {
+    const cocMeta = await buildStaffCocSanteMeta(jour);
+    staffCocBox.innerHTML = homeStaffCocTipDenseHtml(cocMeta);
+    bindHomeStaffCocTipActions(cocMeta);
+  }
   const staffCockpitBox = document.getElementById('homeStaffCockpitTip');
   if (staffCockpitBox && (role === 'prof' || role === 'administratif')) {
     const cockpitMeta = { role, jour };
@@ -27945,6 +28551,7 @@ function viewFamilleHome() {
     <div id="famHomeVsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeCjBTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeCnBTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeCoBTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -28162,11 +28769,13 @@ async function bindFamilleHome() {
       if (orientTip0) { orientTip0.style.display = 'none'; orientTip0.innerHTML = ''; }
       const internatTip0 = document.getElementById('famHomeInternatTip');
       if (internatTip0) { internatTip0.style.display = 'none'; internatTip0.innerHTML = ''; }
+      const coTip0 = document.getElementById('famHomeCoBTip');
+      if (coTip0) { coTip0.style.display = 'none'; coTip0.innerHTML = ''; }
       return;
     }
     const jourRepas = today();
     const orientAnneeHome = '2026-2027';
-    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, dispenseVsLists, comLists, repasJourLists, menusJourHome, sepaMandats, rdvLists, psyDossierLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists, alertesLists, conseilsLists] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, dispenseVsLists, comLists, repasJourLists, menusJourHome, sepaMandats, rdvLists, psyDossierLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists, alertesLists, conseilsLists, optionsLists] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
@@ -28213,6 +28822,7 @@ async function bindFamilleHome() {
           ? api('/eleves/' + e.id + '/conseils').catch(() => [])
           : Promise.resolve([])
       ))),
+      Promise.all(list.map(e => api('/eleves/' + e.id + '/dossier').then(d => (d && d.options) || []).catch(() => []))),
     ]);
     const sepaApiOk = sepaMandats !== null;
     const sepaMandatActif = sepaApiOk
@@ -28703,6 +29313,18 @@ async function bindFamilleHome() {
     }
     bindFamHomeCnBTipGo();
     syncFamPushCnBPanelTip();
+    const coHomeTip = document.getElementById('famHomeCoBTip');
+    if (coHomeTip) {
+      const denseCo = famHomeOptionsCoBTipDenseHtml(list, optionsLists);
+      if (denseCo) {
+        coHomeTip.style.display = '';
+        coHomeTip.innerHTML = denseCo;
+        bindFamHomeCoBTipGo();
+      } else {
+        coHomeTip.style.display = 'none';
+        coHomeTip.innerHTML = '';
+      }
+    }
     if (pulse) {
       pulse.innerHTML = `
         ${resteTile}
@@ -28790,6 +29412,7 @@ async function bindFamilleHome() {
       dismissed: famCnBPushDismissed(),
     });
     maybeToastFamPushPanelCnBDense();
+    maybeToastFamOptionsCoBHome(list, optionsLists);
     const homeDeepMsg = normalizeFamEnfantSection(routeState.famSection);
     if (homeDeepMsg === 'messages') {
       delete routeState.famSection;
@@ -29089,7 +29712,10 @@ async function bindFamilleEnfant(id) {
     html += `</div>`;
     const secOpts = dossier && dossier.sections && dossier.sections.options;
     if (secOpts) {
-      html += `<h3 id="fam-sec-options">Options</h3><div id="optionsFamOut" class="muted">Chargement…</div>`;
+      html += `<div id="fam-sec-options" style="scroll-margin-top:4.5rem">
+        <div id="famEnfantOptionsTip" style="display:none;margin:0 0 .55rem"></div>
+        <h3>Options <span class="muted empty-state-hint" style="font-size:.72rem;font-weight:400">CO-B</span></h3>
+        <div id="optionsFamOut" class="muted">Chargement…</div></div>`;
     }
     html += `<div id="fam-sec-devoirs" style="scroll-margin-top:4.5rem">
       <div id="famEnfantDevoirClBTip" style="display:none;margin:0 0 .55rem"></div>
@@ -30990,17 +31616,56 @@ async function bindFamilleEnfant(id) {
     }
 
     const optsBox = document.getElementById('optionsFamOut');
-    if (optsBox) {
+    const optTip = document.getElementById('famEnfantOptionsTip');
+    const optsSection = enfantDeepSection === 'options';
+    if (optsBox || optTip) {
       const opts = (dossier && dossier.options) || [];
-      optsBox.innerHTML = opts.length
-        ? `<table><thead><tr><th>Nature</th><th>Code</th><th>Libellé</th><th>Début</th></tr></thead>
-           <tbody>${opts.map(o => `<tr>
-             <td><span class="pill">${esc(typeof optionNatureLabel === 'function' ? optionNatureLabel(o.nature) : (o.nature || '—'))}</span></td>
-             <td>${esc(o.code || '—')}</td>
-             <td>${esc(o.libelle || '—')}</td>
-             <td>${esc(o.date_debut || '—')}</td>
-           </tr>`).join('')}</tbody></table>`
-        : '<p class="empty">Aucune option.</p>';
+      if (optTip) {
+        if (opts.length || !optsSection) {
+          const denseOpt = famEnfantOptionsCoBTipDenseHtml({
+            prenom: e.prenom,
+            enfantId: id,
+            nOptions: opts.length,
+            options: opts,
+          });
+          if (denseOpt) {
+            optTip.style.display = '';
+            optTip.innerHTML = denseOpt;
+            bindFamHomeCoBTipGo();
+          } else {
+            optTip.style.display = 'none';
+            optTip.innerHTML = '';
+          }
+        } else {
+          optTip.style.display = 'none';
+          optTip.innerHTML = '';
+        }
+      }
+      if (optsBox) {
+        optsBox.innerHTML = opts.length
+          ? `<table><thead><tr><th>Nature</th><th>Code</th><th>Libellé</th><th>Début</th></tr></thead>
+             <tbody>${opts.map(o => `<tr>
+               <td><span class="pill">${esc(typeof optionNatureLabel === 'function' ? optionNatureLabel(o.nature) : (o.nature || '—'))}</span></td>
+               <td>${esc(o.code || '—')}</td>
+               <td>${esc(o.libelle || '—')}</td>
+               <td>${esc(o.date_debut || '—')}</td>
+             </tr>`).join('')}</tbody></table>`
+          : (optsSection
+            ? famEnfantOptionsEmptyDenseHtml(e.prenom, id)
+            : '<p class="empty">Aucune option.</p>');
+        if (optsSection) bindFamHomeCoBTipGo();
+      }
+      if (optsSection) {
+        maybeToastFamEnfantOptionsCoB({
+          deepSection: enfantDeepSection,
+          prenom: e.prenom,
+          enfantId: id,
+          nOptions: opts.length,
+          options: opts,
+        });
+        famApplyEnfantSectionDeepLink('options');
+        setTimeout(() => famApplyEnfantSectionDeepLink('options'), 200);
+      }
     }
     const btnFamBul = document.getElementById('btnFamBulletin');
     if (btnFamBul) {
@@ -31077,7 +31742,8 @@ async function bindFamilleEnfant(id) {
     }, enfants.length);
     if (enfantDeepSection !== 'orientation' && enfantDeepSection !== 'repas'
       && enfantDeepSection !== 'carnet' && enfantDeepSection !== 'absences'
-      && enfantDeepSection !== 'alertes' && enfantDeepSection !== 'conseil') {
+      && enfantDeepSection !== 'alertes' && enfantDeepSection !== 'conseil'
+      && enfantDeepSection !== 'options') {
       maybeToastFamEnfantOuverte(e, enfantTodoStats, { deepSection: enfantDeepSection });
     }
 
@@ -31153,6 +31819,7 @@ async function bindFamilleEnfant(id) {
 function viewEleves() {
   return shell('/app/eleves', `
     <div id="elevesStaffCicTip"></div>
+    <div id="elevesStaffCocTip"></div>
     <div class="bento" id="elevesStats"></div>
     <div id="eleves4BTip"></div>
     <div id="elevesSearchTip"></div>
@@ -31239,6 +31906,10 @@ async function bindEleves() {
       nSansPhoto,
       jour: today(),
     });
+    if (isStaffElevesCocSanteFlux()) {
+      const cocMeta = await buildStaffCocSanteMeta(today());
+      refreshElevesStaffCocSanteTip(cocMeta);
+    }
   }
 
   function renderList(list, withInvite) {
@@ -32086,7 +32757,11 @@ async function bindDossier(id) {
           api('/infirmerie/passages?eleve_id=' + encodeURIComponent(id)).catch(() => []),
         ]);
         const nPass = Array.isArray(pass) ? pass.length : 0;
-        refreshStaffDossierSanteTip(f || null, pai || null, nPass, { eleveId: id });
+        refreshStaffDossierSanteTip(f || null, pai || null, nPass, {
+          eleveId: id,
+          eleveLabel: dossierEleveLabel,
+          jour: today(),
+        });
       } catch (_) {
         tipEl.innerHTML = '';
       }
@@ -42224,6 +42899,7 @@ function viewNotes() {
     <div id="notesChoBzSeedTip"></div>
     <div id="notesChoCeSeedTip"></div>
     <div id="notesChoCjSeedTip"></div>
+    <div id="notesChoCoSeedTip"></div>
     <div id="notesNevilleSeedTip"></div>
     <div id="notesNevilleCbSeedTip"></div>
     <div id="notesNevilleCfSeedTip"></div>
@@ -42577,6 +43253,7 @@ async function bindNotes() {
       await refreshNotesChoBzSeedTip(devoirsPref);
       await refreshNotesChoCeSeedTip(devoirsPref);
       await refreshNotesChoCjSeedTip(devoirsPref);
+      await refreshNotesChoCoSeedTip(devoirsPref);
       await refreshNotesNevilleSeedTip(devoirsPref);
       await refreshNotesNevilleCbSeedTip(devoirsPref);
       await refreshNotesNevilleCfSeedTip(devoirsPref);
@@ -43470,6 +44147,52 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyChoCjRefresh = refreshNotesDevoirsEmptyChoCjSlot;
+  async function refreshNotesDevoirsEmptyChoCoSlot() {
+    const el = document.getElementById('notesDevoirsEmptyChoCoSlot');
+    if (!el) return;
+    try {
+      const choId = await resolveChoChangEleveId();
+      if (!choId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '5A';
+      try {
+        const eleve = await api('/eleves/' + choId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      const meta = await choCoNoteMetaFromApi(choId);
+      el.innerHTML = notesChoCoSeedTipDenseHtml({
+        choId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesChoCoSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.choId || choId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Cho');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesChoCoSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyChoCoRefresh = refreshNotesDevoirsEmptyChoCoSlot;
   async function refreshNotesDevoirsEmptyHermioneSlot() {
     const el = document.getElementById('notesDevoirsEmptyHermioneSlot');
     if (!el) return;
@@ -44246,6 +44969,31 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptySeamusCjRefresh = refreshNotesDevoirsEmptySeamusCjSlot;
+  async function refreshNotesDevoirsEmptySeamusCoSlot() {
+    const el = document.getElementById('notesDevoirsEmptySeamusCoSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const seamusCoDevoir = findSeamusCoDevoir(devoirs);
+      el.innerHTML = notesSeamusCoDevoirGoTipDenseHtml({ seamusCoDevoir: seamusCoDevoir || null });
+      bindNotesSeamusCoDevoirGoTipGo({
+        seamusCoDevoir: seamusCoDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptySeamusCoRefresh = refreshNotesDevoirsEmptySeamusCoSlot;
   async function refreshNotesDevoirsEmptyLunaBxSlot() {
     const el = document.getElementById('notesDevoirsEmptyLunaBxSlot');
     if (!el) return;
@@ -44601,6 +45349,23 @@ async function bindNotes() {
       nNotes = 0;
     }
     return { nNotes, cjNoteLabel, hasCjNote };
+  }
+  async function choCoNoteMetaFromApi(choId) {
+    let nNotes = 0;
+    let coNoteLabel = '';
+    let hasCoNote = false;
+    try {
+      const notes = await api('/eleves/' + choId + '/notes');
+      nNotes = (notes || []).length;
+      const coNote = (notes || []).find(n => /CO-A/i.test(String(n.libelle || '')));
+      if (coNote) {
+        hasCoNote = true;
+        if (coNote.libelle) coNoteLabel = String(coNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, coNoteLabel, hasCoNote };
   }
   async function hermioneBtNoteMetaFromApi(hermioneId) {
     let nNotes = 0;
@@ -45369,6 +46134,45 @@ async function bindNotes() {
         btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.choId || choId);
       }
       const btnCl = document.getElementById('notesChoCjSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesChoCoSeedTip(_devoirsPref) {
+    const el = document.getElementById('notesChoCoSeedTip');
+    if (!el) return;
+    try {
+      const choId = await resolveChoChangEleveId();
+      if (!choId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '5A';
+      try {
+        const eleve = await api('/eleves/' + choId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      const meta = await choCoNoteMetaFromApi(choId);
+      el.innerHTML = notesChoCoSeedTipDenseHtml({
+        choId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesChoCoSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.choId || choId);
+      }
+      const btnCl = document.getElementById('notesChoCoSeedClasseBtn');
       if (btnCl) {
         btnCl.onclick = () => {
           const chip = document.getElementById('notesChip5A');
