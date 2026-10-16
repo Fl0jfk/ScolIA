@@ -108,6 +108,8 @@ let notesDevoirsEmptyCedricRefresh = null;
 let notesDevoirsEmptyCedricCbRefresh = null;
 /** Rempli dans bindNotes — repère Cedric devoir CF-A sur tip « 0 devoir » (audit CF-D). */
 let notesDevoirsEmptyCedricCfRefresh = null;
+/** Rempli dans bindNotes — repère Cedric devoir CN-A sur tip « 0 devoir » (audit CN-D). */
+let notesDevoirsEmptyCedricCnRefresh = null;
 /** Rempli dans bindNotes — repère Cho sur tip « 0 devoir ». */
 let notesDevoirsEmptyChoRefresh = null;
 /** Rempli dans bindNotes — repère Cho note BZ-A sur tip « 0 devoir » (audit BZ-D). */
@@ -150,6 +152,8 @@ let notesDevoirsEmptySeamusCeRefresh = null;
 let notesDevoirsEmptySeamusCjRefresh = null;
 /** Rempli dans bindNotes — repère Neville note CF-A sur tip « 0 devoir » (audit CF-D). */
 let notesDevoirsEmptyNevilleCfRefresh = null;
+/** Rempli dans bindNotes — repère Neville note CN-A sur tip « 0 devoir » (audit CN-D). */
+let notesDevoirsEmptyNevilleCnRefresh = null;
 /** Rempli dans bindNotes — repère Luna note BX-A sur tip « 0 devoir » (audit BX-D). */
 let notesDevoirsEmptyLunaBxRefresh = null;
 /** Rempli dans bindNotes — repère Ginny devoir BX-A sur tip « 0 devoir » (audit BX-D). */
@@ -934,6 +938,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyCedricRefresh === 'function') void notesDevoirsEmptyCedricRefresh();
     if (typeof notesDevoirsEmptyCedricCbRefresh === 'function') void notesDevoirsEmptyCedricCbRefresh();
     if (typeof notesDevoirsEmptyCedricCfRefresh === 'function') void notesDevoirsEmptyCedricCfRefresh();
+    if (typeof notesDevoirsEmptyCedricCnRefresh === 'function') void notesDevoirsEmptyCedricCnRefresh();
     if (typeof notesDevoirsEmptyChoRefresh === 'function') void notesDevoirsEmptyChoRefresh();
     if (typeof notesDevoirsEmptyChoBzRefresh === 'function') void notesDevoirsEmptyChoBzRefresh();
     if (typeof notesDevoirsEmptyChoCeRefresh === 'function') void notesDevoirsEmptyChoCeRefresh();
@@ -955,6 +960,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptySeamusCeRefresh === 'function') void notesDevoirsEmptySeamusCeRefresh();
     if (typeof notesDevoirsEmptySeamusCjRefresh === 'function') void notesDevoirsEmptySeamusCjRefresh();
     if (typeof notesDevoirsEmptyNevilleCfRefresh === 'function') void notesDevoirsEmptyNevilleCfRefresh();
+    if (typeof notesDevoirsEmptyNevilleCnRefresh === 'function') void notesDevoirsEmptyNevilleCnRefresh();
     if (typeof notesDevoirsEmptyLunaBxRefresh === 'function') void notesDevoirsEmptyLunaBxRefresh();
     if (typeof notesDevoirsEmptyGinnyRefresh === 'function') void notesDevoirsEmptyGinnyRefresh();
     if (typeof notesDevoirsEmptyLunaCcRefresh === 'function') void notesDevoirsEmptyLunaCcRefresh();
@@ -1050,6 +1056,11 @@ function findCedricCbDevoir(devoirs) {
 function findCedricCfDevoir(devoirs) {
   return (devoirs || []).find(d =>
     /cedric/i.test(String(d.titre || '')) && /CF-A/i.test(String(d.titre || '')));
+}
+
+function findCedricCnDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /cedric/i.test(String(d.titre || '')) && /CN-A/i.test(String(d.titre || '')));
 }
 
 function findNevilleCiDevoir(devoirs) {
@@ -1254,6 +1265,52 @@ function bindNotesCedricCfDevoirGoTipGo(opts) {
     };
   }
   const list = document.getElementById('notesCedricCfDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesCedricDevoirGoActions();
+  }
+}
+
+/** /app/notes — repère devoir Cedric CN-A (0 devoir global ou liste filtrée vide). */
+function notesCedricCnDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.cedricCnDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Cedric CN-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Cedric Diggory</strong><span>Seed labo · 3C · devoir audit CN-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesCedricCnDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CN-A · 3C Potions'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesCedricCnDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 3C</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesCedricCnDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesCedricCnDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.cedricCnDevoir && o.cedricCnDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.cedricCnDevoir);
+        return;
+      }
+      notesCedricDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Cedric CN-A';
+      }
+      if (!o.cedricCnDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesCedricCnDevoirListBtn');
   if (list) {
     list.onclick = () => notesCedricDevoirGoActions();
   }
@@ -2840,6 +2897,30 @@ function notesNevilleCfSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesNevilleCfSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasCfNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCfNote ? 'Repère Neville · Histoire-Géo CF-A' : 'Filtre 3C · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Neville Londubat (3C · note Histoire-Géo CN-A · audit CN-D). */
+function notesNevilleCnSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.nevilleId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '3C').trim());
+  const hasCnNote = !!o.hasCnNote;
+  const noteLbl = o.cnNoteLabel
+    ? esc(String(o.cnNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CN-A');
+  const noteStrong = hasCnNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Neville Londubat</strong><span>Seed labo · ${classe} · audit notes CN-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesNevilleCnSeedNotesBtn" data-neville-id="${esc(String(o.nevilleId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesNevilleCnSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasCnNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCnNote ? 'Repère Neville · Histoire-Géo CN-A' : 'Filtre 3C · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -4980,6 +5061,360 @@ function toastStaffBvcAction(kind, meta) {
     `<strong>${title}</strong> · ${jour}`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit BV-C</p>`,
+    6500,
+  );
+}
+
+function staffHomeCncPanelShell() {
+  return `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit bourses &amp; aide sociale</h3>
+      <p class="muted" style="margin-top:0">File à décider · types · lien facturation tarifs — <span class="muted empty-state-hint" style="font-size:.72rem">CN-C</span>.</p>
+      <div id="homeStaffCncTip" class="muted">Chargement…</div>
+    </div>`;
+}
+
+function isStaffHomeCncFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && ['compta', 'direction', 'admin', 'administratif'].includes(role);
+}
+
+function isStaffBoursesPageFlux() {
+  return path() === '/app/bourses';
+}
+
+function bourseStatutDemande(b) {
+  const s = String((b && b.status) || '').toLowerCase();
+  return s === 'demandee' || s === 'demandée';
+}
+
+function bourseStatutAcceptee(b) {
+  const s = String((b && b.status) || '').toLowerCase();
+  return s === 'acceptee' || s === 'acceptée';
+}
+
+async function snapshotStaffCncMeta() {
+  try {
+    const types = await api('/bourses/types');
+    const nTypes = (types || []).length;
+    const eleves = await api('/eleves/search?q=a');
+    const packs = await Promise.all((eleves || []).slice(0, 40).map(async e => {
+      try {
+        const d = await api('/eleves/' + e.id + '/dossier');
+        const bourses = (d && d.bourses) || [];
+        return { e, bourses };
+      } catch {
+        return { e, bourses: [] };
+      }
+    }));
+    let nDem = 0;
+    let nActives = 0;
+    let firstDemHref = '/app/bourses';
+    let firstDemLabel = '';
+    packs.forEach(({ e, bourses }) => {
+      (bourses || []).forEach(b => {
+        if (bourseStatutDemande(b)) {
+          nDem += 1;
+          if (!firstDemLabel && e && e.id) {
+            firstDemLabel = [e.prenom, e.nom].filter(Boolean).join(' ').trim();
+            firstDemHref = '/app/eleves/' + encodeURIComponent(String(e.id)) + '?section=bourses';
+          }
+        } else if (bourseStatutAcceptee(b)) {
+          nActives += 1;
+        }
+      });
+    });
+    return {
+      jour: today(),
+      nDem,
+      nTypes,
+      nActives,
+      nLignes: packs.reduce((s, p) => s + ((p.bourses || []).length), 0),
+      firstDemHref,
+      firstDemLabel,
+    };
+  } catch {
+    return { jour: today(), nDem: 0, nTypes: 0, nActives: 0, nLignes: 0, firstDemHref: '/app/bourses', firstDemLabel: '' };
+  }
+}
+
+function boursesStaffCncMetaFromScan(rows, types, extra) {
+  const o = extra || {};
+  const list = rows || [];
+  const nDem = list.filter(r => bourseStatutDemande(r.b)).length;
+  const nActives = list.filter(r => bourseStatutAcceptee(r.b)).length;
+  let firstDemHref = '/app/bourses';
+  let firstDemLabel = '';
+  for (const r of list) {
+    if (bourseStatutDemande(r.b) && r.e && r.e.id) {
+      firstDemLabel = [r.e.prenom, r.e.nom].filter(Boolean).join(' ').trim();
+      firstDemHref = '/app/eleves/' + encodeURIComponent(String(r.e.id)) + '?section=bourses';
+      break;
+    }
+  }
+  return {
+    jour: o.jour || today(),
+    nDem,
+    nRows: list.length,
+    nTypes: (types || []).length,
+    nActives,
+    firstDemHref,
+    firstDemLabel,
+  };
+}
+
+/** Accueil compta / direction — bourses · types · facturation (audit UI CN-C · hors BV-C). */
+function homeStaffCncTipDenseHtml(meta) {
+  if (!isStaffHomeCncFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cncLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CN-C</span>';
+  const nDem = Number(o.nDem) || 0;
+  const nTypes = Number(o.nTypes) || 0;
+  const nAct = Number(o.nActives) || 0;
+  const demTile = nDem
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCncDemGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nDem}</strong><span>Demande(s) · décider · ${cncLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCncDemGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>File bourses · à jour · ${jour}</span></button>`;
+  const typesTile = nTypes
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCncTypesGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${nTypes}</strong><span>Type(s) · référentiel établ.</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCncTypesGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">0</strong><span>Créer types · facturation</span></button>`;
+  const dossTile = o.firstDemLabel
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCncDossGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${esc(String(o.firstDemLabel).slice(0, 18))}</strong><span>Dossier · section bourses</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCncDossGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">—</strong><span>Scanner · /app/bourses</span></button>`;
+  const actTile = nAct
+    ? `<div class="stat-tile bento-span-4"><strong class="ok">${nAct}</strong><span>Acceptée(s) · déduction repas</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Aucune bourse active</span></div>`;
+  const facTile = `<button type="button" class="stat-tile bento-span-4" id="homeCncFacGo" style="cursor:pointer;text-align:left">
+      <strong>€</strong><span>Facturation · ligne bourse (c)</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>Aide sociale · hors BV-C</span></div>`;
+  return `<div class="bento" data-ui-audit="CN-C" style="margin:0 0 .55rem">
+    ${demTile}${typesTile}${dossTile}${actTile}${facTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffCncTipActions(meta) {
+  const o = meta || {};
+  const dem = document.getElementById('homeCncDemGo');
+  if (dem) {
+    dem.onclick = () => {
+      toastStaffCncAction('file', o);
+      go('/app/bourses');
+    };
+  }
+  const types = document.getElementById('homeCncTypesGo');
+  if (types) {
+    types.onclick = () => {
+      toastStaffCncAction('types', o);
+      go('/app/facturation');
+    };
+  }
+  const doss = document.getElementById('homeCncDossGo');
+  if (doss) {
+    doss.onclick = () => {
+      toastStaffCncAction('dossier', o);
+      go(o.firstDemHref || '/app/bourses');
+    };
+  }
+  const fac = document.getElementById('homeCncFacGo');
+  if (fac) {
+    fac.onclick = () => {
+      toastStaffCncAction('facturation', o);
+      go('/app/facturation');
+    };
+  }
+}
+
+/** Page /app/bourses — synthèse file + affectation (audit UI CN-C). */
+function boursesStaffPageTipDenseHtml(meta) {
+  if (!isStaffBoursesPageFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cncLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CN-C</span>';
+  const nDem = Number(o.nDem) || 0;
+  const nRows = Number(o.nRows) || 0;
+  const nTypes = Number(o.nTypes) || 0;
+  const demTile = `<button type="button" class="stat-tile bento-span-4" id="bourseCncDemGo" style="cursor:pointer;text-align:left;border-color:${nDem ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+      <strong class="${nDem ? 'warn' : 'ok'}">${nDem}</strong><span>À décider · ${nRows} ligne(s) · ${cncLbl}</span></button>`;
+  const scanTile = `<button type="button" class="stat-tile bento-span-4" id="bourseCncScanGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Scan</strong><span>Recherche élève · fil demandées</span></button>`;
+  const affTile = `<button type="button" class="stat-tile bento-span-4" id="bourseCncAffGo" style="cursor:pointer;text-align:left">
+      <strong>+</strong><span>Affecter · type · échelon · ${jour}</span></button>`;
+  const typesTile = `<button type="button" class="stat-tile bento-span-4" id="bourseCncTypesGo" style="cursor:pointer;text-align:left">
+      <strong>${nTypes || '0'}</strong><span>Types · créer dans facturation</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>POST /bourses/…/decider</span></div>`;
+  return `<div class="bento" data-ui-audit="CN-C" style="margin:0 0 .55rem">
+    ${demTile}${scanTile}${affTile}${typesTile}${auditTile}
+  </div>`;
+}
+
+function bindBoursesStaffPageTipActions(meta) {
+  const o = meta || {};
+  const dem = document.getElementById('bourseCncDemGo');
+  if (dem) {
+    dem.onclick = () => {
+      toastStaffCncAction('decider', o);
+      document.getElementById('bourseFileOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const scan = document.getElementById('bourseCncScanGo');
+  if (scan) {
+    scan.onclick = () => {
+      toastStaffCncAction('scan', o);
+      document.getElementById('bourseQ')?.focus();
+      document.getElementById('btnBourseScan')?.click();
+    };
+  }
+  const aff = document.getElementById('bourseCncAffGo');
+  if (aff) {
+    aff.onclick = () => {
+      toastStaffCncAction('affecter', o);
+      document.getElementById('bourseEleveQ')?.focus();
+      document.getElementById('boursePageType')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  }
+  const types = document.getElementById('bourseCncTypesGo');
+  if (types) {
+    types.onclick = () => {
+      toastStaffCncAction('types', o);
+      go('/app/facturation');
+    };
+  }
+}
+
+function refreshBoursesStaffCncTip(meta) {
+  const box = document.getElementById('boursesStaffCncTip');
+  if (!box) return;
+  box.innerHTML = boursesStaffPageTipDenseHtml(meta);
+  bindBoursesStaffPageTipActions(meta);
+}
+
+/** /app/facturation — raccourci bourses (audit CN-C · complète BV-C page tip). */
+function facturationStaffCncCrossTipDenseHtml(meta) {
+  if (!isStaffFacturationFlux()) return '';
+  const o = meta || {};
+  const nDem = Number(o.nDem) || 0;
+  const nTypes = Number(o.nTypes) || 0;
+  const cncLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CN-C</span>';
+  const bourseTile = nDem
+    ? `<button type="button" class="stat-tile bento-span-4" id="facCncBourseGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nDem}</strong><span>Bourse(s) à décider · ${cncLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="facCncBourseGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>File bourses · calme</span></button>`;
+  const typesTile = `<button type="button" class="stat-tile bento-span-4" id="facCncTypesGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${nTypes || '0'}</strong><span>Types bourse · panneau ci-dessous</span></button>`;
+  const fileTile = `<button type="button" class="stat-tile bento-span-4" id="facCncFileGo" style="cursor:pointer;text-align:left">
+      <strong>→</strong><span>Ouvrir /app/bourses · scanner</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>Ligne bourse (c) · facture</span></div>`;
+  return `<div class="bento" data-ui-audit="CN-C" style="margin:0 0 .55rem">
+    ${bourseTile}${typesTile}${fileTile}${auditTile}
+  </div>`;
+}
+
+function bindFacturationStaffCncTipActions(meta) {
+  const o = meta || {};
+  const bourse = document.getElementById('facCncBourseGo');
+  if (bourse) {
+    bourse.onclick = () => {
+      toastStaffCncAction('file', o);
+      go('/app/bourses');
+    };
+  }
+  const types = document.getElementById('facCncTypesGo');
+  if (types) {
+    types.onclick = () => {
+      toastStaffCncAction('types', o);
+      document.getElementById('btCode')?.focus();
+      document.getElementById('btCode')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  }
+  const file = document.getElementById('facCncFileGo');
+  if (file) {
+    file.onclick = () => {
+      toastStaffCncAction('scan', o);
+      go('/app/bourses');
+    };
+  }
+}
+
+async function refreshFacturationStaffCncTip() {
+  const box = document.getElementById('facStaffCncTip');
+  if (!box) return;
+  const meta = await snapshotStaffCncMeta();
+  box.innerHTML = facturationStaffCncCrossTipDenseHtml(meta);
+  bindFacturationStaffCncTipActions(meta);
+}
+
+/** Toast bento — cockpit bourses staff (routes existantes · audit CN-C). */
+function toastStaffCncAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Bourses · aide sociale';
+  let href = '/app/bourses';
+  let tiles = '';
+  if (k === 'file' || k === 'decider') {
+    href = '/app/bourses';
+    const nDem = Number(o.nDem) || 0;
+    title = nDem ? 'File bourses · à décider' : 'Bourses · file calme';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nDem ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nDem ? 'warn' : 'ok'}">${nDem}</strong><span>Demande(s) · accepter / refuser</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Scan</strong><span>40 élèves max · dossier lié</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>Route /app/bourses</span></div>`;
+  } else if (k === 'types') {
+    href = '/app/facturation';
+    const nTypes = Number(o.nTypes) || 0;
+    title = nTypes ? 'Types bourse · référentiel' : 'Créer un type bourse';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nTypes || '0'}</strong><span>Code · libellé · déductible repas</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">GET</strong><span>/bourses/types</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>Pan facturation · types</span></div>`;
+  } else if (k === 'dossier') {
+    href = o.firstDemHref || '/app/bourses';
+    const who = o.firstDemLabel ? esc(String(o.firstDemLabel).slice(0, 22)) : 'Dossier';
+    title = o.firstDemLabel ? 'Dossier élève · bourses' : 'Scanner la file';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${who}</strong><span>?section=bourses · décision</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Procuration</strong><span>À la création · famille</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>PUT dossier · sans wipe</span></div>`;
+  } else if (k === 'facturation') {
+    href = '/app/facturation';
+    title = 'Facturation · déduction bourse';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>− (c)</strong><span>Ligne bourse · brouillon facture</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Cantine</strong><span>Tarif après échelon</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>Hors cockpit BV-C accueil</span></div>`;
+  } else if (k === 'scan') {
+    title = 'Scanner élèves · bourses';
+    tiles = `<div class="stat-tile bento-span-4"><strong class="muted">q=a</strong><span>Recherche large · 40 dossiers</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Filtre</strong><span>Demandées seulement</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>GET dossier · bourses[]</span></div>`;
+  } else if (k === 'affecter') {
+    title = 'Affecter une bourse';
+    tiles = `<div class="stat-tile bento-span-4"><strong>+</strong><span>Élève · type · échelon</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Statut</strong><span>demandée → décision</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>POST /eleves/…/bourses</span></div>`;
+  } else if (k === 'page-open') {
+    title = 'Module bourses staff';
+    tiles = `<div class="stat-tile bento-span-4"><strong class="muted">CN-C</strong><span>File · affectation · types</span></div>
+      <div class="stat-tile bento-span-4"><strong>${jour}</strong><span>Jour · scan auto</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Factu</strong><span>Lien tarifs · ligne (c)</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CN-C</p>`,
     6500,
   );
 }
@@ -12060,6 +12495,193 @@ function maybeToastFamJournalOuverte(opts) {
   toastFamJournalOuverte({ ...(opts || {}), dense: true });
 }
 
+function famCnBAuditTile(spanLabel) {
+  const lbl = spanLabel ? esc(String(spanLabel)) : 'Push · lab';
+  return `<div class="stat-tile bento-span-4"><strong class="muted">CN-B</strong><span>${lbl}</span></div>`;
+}
+
+function famCnBPushRegistered() {
+  try {
+    return localStorage.getItem('ent_fam_push_ok') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function famCnBPushDismissed() {
+  try {
+    return localStorage.getItem('ent_fam_push_dismiss') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function famCnBMessagesHref() {
+  return '/famille/messages';
+}
+
+function famCnBPushPanelAnchor() {
+  return '#famPushPanel';
+}
+
+/** Accueil famille — notifications push (lab) — audit UI CN-B. */
+function famHomePushCnBTipDenseHtml(opts) {
+  const o = opts || {};
+  const registered = o.registered != null ? !!o.registered : famCnBPushRegistered();
+  const dismissed = o.dismissed != null ? !!o.dismissed : famCnBPushDismissed();
+  const pushGo = famCnBPushPanelAnchor();
+  const msgHref = famCnBMessagesHref();
+  const statusTile = registered
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">Actif</strong><span>Token device · compte famille</span>
+      </div>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-cn-go="${esc(pushGo)}" style="cursor:pointer;text-align:left;border-color:${dismissed ? 'var(--line,#e5e5ea)' : 'var(--warn,#b45309)'}">
+        <strong class="${dismissed ? 'muted' : 'warn'}">${dismissed ? 'Plus tard' : 'À activer'}</strong><span>Push carnet · absences · VS</span>
+      </button>`;
+  const canalTile = registered
+    ? `<a class="stat-tile bento-span-4" href="${esc(msgHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-cn-go="${esc(msgHref)}">
+        <strong>→</strong><span>Messagerie · complément push</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${esc(msgHref)}" style="text-decoration:none" data-fam-cn-go="${esc(msgHref)}">
+        <strong>SMS / e-mail</strong><span>Contact école sans push</span>
+      </a>`;
+  const actTile = registered
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-cn-go="${esc(pushGo)}" style="cursor:pointer;text-align:left">
+        <strong>Token</strong><span>Gérer le device lab</span>
+      </button>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-cn-go="${esc(pushGo)}" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>↓</strong><span>Configurer · panneau push</span>
+      </button>`;
+  return `<div class="bento" data-ui-audit="CN-B" style="margin:0 0 .55rem">${statusTile}${canalTile}${actTile}${famCnBAuditTile('Route /famille · push')}</div>`;
+}
+
+/** Panneau #famPushPanel — synthèse (bento) — audit UI CN-B. */
+function famPushPanelCnBTipDenseHtml(opts) {
+  const o = opts || {};
+  const registered = o.registered != null ? !!o.registered : famCnBPushRegistered();
+  const msgHref = famCnBMessagesHref();
+  const plat = o.platform ? esc(String(o.platform).trim()) : 'web';
+  const stateTile = registered
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">Enregistré</strong><span>Plateforme ${plat} · dry-run</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">Inactif</strong><span>Token device · lab famille</span>
+      </div>`;
+  const scopeTile = `<div class="stat-tile bento-span-4"><strong>Alertes</strong><span>Carnet · absences · vie scolaire</span></div>`;
+  const msgTile = `<a class="stat-tile bento-span-4" href="${esc(msgHref)}" style="text-decoration:none" data-fam-cn-go="${esc(msgHref)}">
+      <strong>→</strong><span>Messagerie · fils existants</span>
+    </a>`;
+  return `<div class="bento" data-ui-audit="CN-B" style="margin:0 0 .55rem">${stateTile}${scopeTile}${msgTile}${famCnBAuditTile('#famPushPanel')}</div>`;
+}
+
+/** Panneau push — empty-state densifié si token absent — audit UI CN-B. */
+function famPushPanelCnBEmptyDenseHtml() {
+  const tip = famPushPanelCnBTipDenseHtml({ forceShow: true, registered: false });
+  return `${tip}${famEmptyDense('Notifications push — non enregistrées', [
+    'Le portail peut enregistrer un token device pour simuler les alertes mobile (labo).',
+    'Les flux métier restent disponibles via la messagerie et le journal famille.',
+    'Audit UI CN-B — ancre #famPushPanel · route /famille (accueil).',
+  ], `<a href="${famCnBMessagesHref()}">Messagerie</a> · <a href="${famCnBPushPanelAnchor()}">Formulaire ci-dessous</a>`)}`;
+}
+
+function syncFamPushCnBPanelTip(opts) {
+  const el = document.getElementById('famPushCnBPanelTip');
+  if (!el) return;
+  const platEl = document.getElementById('famPushPlat');
+  const platform = platEl ? platEl.value : 'web';
+  const registered = famCnBPushRegistered();
+  const html = registered
+    ? famPushPanelCnBTipDenseHtml({ ...(opts || {}), registered: true, platform })
+    : famPushPanelCnBEmptyDenseHtml();
+  el.style.display = '';
+  el.innerHTML = html;
+  bindFamHomeCnBTipGo();
+}
+
+function bindFamHomeCnBTipGo() {
+  for (const rootId of ['famHomeCnBTip', 'famPushCnBPanelTip', 'entToast']) {
+    const root = document.getElementById(rootId);
+    if (!root) continue;
+    root.querySelectorAll('[data-fam-cn-go]').forEach(btn => {
+      if (btn.dataset.famCnBound === '1') return;
+      btn.dataset.famCnBound = '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-cn-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  }
+}
+
+const FAM_CN_B_HOME_TOAST_SS = 'ent_fam_push_cn_b_home';
+
+/** Accueil famille — toast push CN-B (1× / session). */
+function maybeToastFamPushCnBHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_CN_B_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const tiles = famHomePushCnBTipDenseHtml({
+    registered: o.registered,
+    dismissed: o.dismissed,
+  });
+  if (!tiles) return;
+  const registered = o.registered != null ? !!o.registered : famCnBPushRegistered();
+  showEntToast(
+    (registered ? '<strong>Notifications push</strong> — device enregistré (lab)'
+      : '<strong>Notifications push</strong> — activer les alertes mobile (lab)')
+    + `<div style="margin:.35rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${famCnBPushPanelAnchor()}">Panneau push</a> · `
+    + `<a href="${famCnBMessagesHref()}">Messagerie</a></p>`,
+    registered ? 7000 : 8200,
+  );
+  try { sessionStorage.setItem(FAM_CN_B_HOME_TOAST_SS, '1'); } catch {}
+  bindFamHomeCnBTipGo();
+}
+
+/** Ancre #famPushPanel — toast ouverture (1× / session). */
+function maybeToastFamPushPanelCnBDense() {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  const hash = (location.hash || '').toLowerCase();
+  if (!hash.includes('fampushpanel')) return;
+  const ssKey = 'ent_fam_push_panel_cn_b_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  const registered = famCnBPushRegistered();
+  const tipHtml = registered
+    ? famPushPanelCnBTipDenseHtml({ registered: true })
+    : famPushPanelCnBEmptyDenseHtml();
+  showEntToast(
+    `<strong>Panneau push famille</strong> — configuration device (lab)`
+    + `<div style="margin:.35rem 0 0">${tipHtml}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${famCnBMessagesHref()}">Messagerie</a> · `
+    + `<a href="/famille">Accueil</a></p>`,
+    7800,
+  );
+  bindFamHomeCnBTipGo();
+}
+
 /** Bannière push famille (lab) — tuiles denses. */
 function famPushBannerTipDenseHtml() {
   return `<div class="bento" data-ui-audit="CB-B" style="margin:0;align-items:stretch">
@@ -14682,6 +15304,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyCedricSlot"></div>
   <div id="notesDevoirsEmptyCedricCbSlot"></div>
   <div id="notesDevoirsEmptyCedricCfSlot"></div>
+  <div id="notesDevoirsEmptyCedricCnSlot"></div>
   <div id="notesDevoirsEmptyCedricCiSlot"></div>
   <div id="notesDevoirsEmptyChoSlot"></div>
   <div id="notesDevoirsEmptyChoBzSlot"></div>
@@ -14692,6 +15315,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyHermioneCdSlot"></div>
   <div id="notesDevoirsEmptyHermioneCmSlot"></div>
   <div id="notesDevoirsEmptyNevilleCfSlot"></div>
+  <div id="notesDevoirsEmptyNevilleCnSlot"></div>
   <div id="notesDevoirsEmptyNevilleCiSlot"></div>
   <div id="notesDevoirsEmptyDracoSlot"></div>
   <div id="notesDevoirsEmptyDracoCaSlot"></div>
@@ -25951,7 +26575,7 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; foyers</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>
       <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Absences agents</span></a>`;
-    homeExtra = staffHomeCfcPanelShell() + staffHomeBxcPanelShell() + staffHomeBvcPanelShell() + staffHomeCjcPanelShell() + staffHomeCmcPanelShell();
+    homeExtra = staffHomeCfcPanelShell() + staffHomeBxcPanelShell() + staffHomeBvcPanelShell() + staffHomeCncPanelShell() + staffHomeCjcPanelShell() + staffHomeCmcPanelShell();
   } else if (role === 'infirmerie') {
     tiles = `
       <a class="stat-tile bento-span-4" href="/app/infirmerie"><strong>Infirmerie</strong><span>Passages, PAI, fiches</span></a>
@@ -25999,6 +26623,7 @@ function viewHome() {
     ${staffHomeBzcPanelShell()}
     ${staffHomeBxcPanelShell()}
     ${staffHomeBvcPanelShell()}
+    ${staffHomeCncPanelShell()}
     ${staffHomeCkcPanelShell()}
     ${staffHomeCmcPanelShell()}`;
   } else if (role === 'administratif') {
@@ -26021,6 +26646,7 @@ function viewHome() {
     ${staffHomeChcPanelShell()}
     ${staffHomeCfcPanelShell()}
     ${staffHomeBvcPanelShell()}
+    ${staffHomeCncPanelShell()}
     ${staffHomeCkcPanelShell()}`;
   } else if (role === 'admin') {
     homeTitle = 'Administration globale';
@@ -26057,6 +26683,7 @@ function viewHome() {
     ${staffHomeBzcPanelShell()}
     ${staffHomeBxcPanelShell()}
     ${staffHomeBvcPanelShell()}
+    ${staffHomeCncPanelShell()}
     ${staffHomeCkcPanelShell()}
     ${staffHomeCmcPanelShell()}`;
   } else if (isAdminish) {
@@ -26836,6 +27463,14 @@ async function bindHome() {
     staffBvcBox.innerHTML = homeStaffBvcTipDenseHtml(bvcMeta);
     bindHomeStaffBvcTipActions(bvcMeta);
   }
+  const staffCncBox = document.getElementById('homeStaffCncTip');
+  if (staffCncBox && isStaffHomeCncFlux()) {
+    const cncMeta = await snapshotStaffCncMeta();
+    staffCncBox.innerHTML = homeStaffCncTipDenseHtml(cncMeta);
+    bindHomeStaffCncTipActions(cncMeta);
+  } else if (staffCncBox) {
+    staffCncBox.innerHTML = '';
+  }
   const staffBxcBox = document.getElementById('homeStaffBxcTip');
   if (staffBxcBox && isStaffHomeBxcFlux()) {
     const [passagesBxc, menusBxc, affsBxc, presBxc, filieresBxc, edVsBxc] = await Promise.all([
@@ -27309,6 +27944,7 @@ function viewFamilleHome() {
     <div id="famHomeInternatTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeVsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeCjBTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeCnBTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -27357,7 +27993,8 @@ function viewFamilleHome() {
       <div id="famTelMsg" class="muted"></div>
     </div>
     <div class="panel" style="margin-top:.75rem" id="famPushPanel">
-      <h3>Notifications push (lab)</h3>
+      <h3>Notifications push (lab) <span class="muted empty-state-hint" style="font-size:.72rem;font-weight:400">CN-B</span></h3>
+      <div id="famPushCnBPanelTip" style="display:none;margin:0 0 .55rem"></div>
       <p class="muted">Enregistre un token device pour ce compte famille (dry-run) — <span class="muted empty-state-hint">CB-B</span>.</p>
       <div class="row">
         <label>Plateforme <select id="famPushPlat"><option value="web">web</option><option value="ios">ios</option><option value="android">android</option></select></label>
@@ -28055,6 +28692,17 @@ async function bindFamilleHome() {
       }
     }
     bindFamHomeBzBTipGo();
+    const cnPushTip = document.getElementById('famHomeCnBTip');
+    if (cnPushTip) {
+      const denseCnPush = famHomePushCnBTipDenseHtml({
+        registered: famCnBPushRegistered(),
+        dismissed: famCnBPushDismissed(),
+      });
+      cnPushTip.style.display = '';
+      cnPushTip.innerHTML = denseCnPush;
+    }
+    bindFamHomeCnBTipGo();
+    syncFamPushCnBPanelTip();
     if (pulse) {
       pulse.innerHTML = `
         ${resteTile}
@@ -28137,6 +28785,11 @@ async function bindFamilleHome() {
       comLists,
     });
     maybeToastFamCarnetHomeDense({ list, resumes });
+    maybeToastFamPushCnBHomeDense({
+      registered: famCnBPushRegistered(),
+      dismissed: famCnBPushDismissed(),
+    });
+    maybeToastFamPushPanelCnBDense();
     const homeDeepMsg = normalizeFamEnfantSection(routeState.famSection);
     if (homeDeepMsg === 'messages') {
       delete routeState.famSection;
@@ -28177,6 +28830,12 @@ async function bindFamilleHome() {
         toastWebPushEnregistre(r, 'ent-famille', {
           platform: (document.getElementById('famPushPlat') || {}).value || 'web',
         });
+        syncFamPushCnBPanelTip({ platform: r.device && r.device.platform ? r.device.platform : 'web' });
+        const cnHomeTip = document.getElementById('famHomeCnBTip');
+        if (cnHomeTip) {
+          cnHomeTip.innerHTML = famHomePushCnBTipDenseHtml({ registered: true, dismissed: false });
+        }
+        bindFamHomeCnBTipGo();
         return r.device;
       } catch (err) {
         if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -35756,6 +36415,7 @@ async function bindComms() {
 
 function viewBourses() {
   return shell('/app/bourses', `
+    <div id="boursesStaffCncTip"></div>
     <div class="bento" id="bourseStats"></div>
     <div class="bento">
       <section class="panel bento-span-7">
@@ -35833,7 +36493,9 @@ async function bindBourses() {
           rows.push({ e, b });
         });
       });
-      const nDem = rows.filter(r => r.b.status === 'demandee' || r.b.status === 'demandée').length;
+      const nDem = rows.filter(r => bourseStatutDemande(r.b)).length;
+      const cncMeta = boursesStaffCncMetaFromScan(rows, types, { jour: today() });
+      refreshBoursesStaffCncTip(cncMeta);
       if (stats) {
         stats.innerHTML = `
           <div class="stat-tile bento-span-4"><strong>${rows.length}</strong><span>Lignes affichées</span></div>
@@ -35913,6 +36575,12 @@ async function bindBourses() {
       }
     };
   }
+  try {
+    if (sessionStorage.getItem('ent_staff_bourses_cnc_open_toast') !== '1') {
+      sessionStorage.setItem('ent_staff_bourses_cnc_open_toast', '1');
+      toastStaffCncAction('page-open', { jour: today() });
+    }
+  } catch { /* ignore */ }
   await scan();
 }
 
@@ -41559,6 +42227,7 @@ function viewNotes() {
     <div id="notesNevilleSeedTip"></div>
     <div id="notesNevilleCbSeedTip"></div>
     <div id="notesNevilleCfSeedTip"></div>
+    <div id="notesNevilleCnSeedTip"></div>
     <div id="notesCedricCiSeedTip"></div>
     <div id="notesDracoCkSeedTip"></div>
     <div id="notesLunaCgSeedTip"></div>
@@ -41911,6 +42580,7 @@ async function bindNotes() {
       await refreshNotesNevilleSeedTip(devoirsPref);
       await refreshNotesNevilleCbSeedTip(devoirsPref);
       await refreshNotesNevilleCfSeedTip(devoirsPref);
+      await refreshNotesNevilleCnSeedTip(devoirsPref);
       await refreshNotesCedricCiSeedTip(devoirsPref);
       await refreshNotesDracoCkSeedTip(devoirsPref);
       await refreshNotesLunaCgSeedTip(devoirsPref);
@@ -42545,6 +43215,31 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyCedricCfRefresh = refreshNotesDevoirsEmptyCedricCfSlot;
+  async function refreshNotesDevoirsEmptyCedricCnSlot() {
+    const el = document.getElementById('notesDevoirsEmptyCedricCnSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const cedricCnDevoir = findCedricCnDevoir(devoirs);
+      el.innerHTML = notesCedricCnDevoirGoTipDenseHtml({ cedricCnDevoir: cedricCnDevoir || null });
+      bindNotesCedricCnDevoirGoTipGo({
+        cedricCnDevoir: cedricCnDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyCedricCnRefresh = refreshNotesDevoirsEmptyCedricCnSlot;
   async function refreshNotesDevoirsEmptyCedricCiSlot() {
     const el = document.getElementById('notesDevoirsEmptyCedricCiSlot');
     if (!el) return;
@@ -43005,6 +43700,52 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyNevilleCfRefresh = refreshNotesDevoirsEmptyNevilleCfSlot;
+  async function refreshNotesDevoirsEmptyNevilleCnSlot() {
+    const el = document.getElementById('notesDevoirsEmptyNevilleCnSlot');
+    if (!el) return;
+    try {
+      const nevilleId = await resolveNevilleLondubatEleveId();
+      if (!nevilleId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '3C';
+      try {
+        const eleve = await api('/eleves/' + nevilleId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 3C */ }
+      const meta = await nevilleCnNoteMetaFromApi(nevilleId);
+      el.innerHTML = notesNevilleCnSeedTipDenseHtml({
+        nevilleId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesNevilleCnSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.nevilleId || nevilleId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Neville');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesNevilleCnSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip3C');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '3C';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyNevilleCnRefresh = refreshNotesDevoirsEmptyNevilleCnSlot;
   async function refreshNotesDevoirsEmptyNevilleCiSlot() {
     const el = document.getElementById('notesDevoirsEmptyNevilleCiSlot');
     if (!el) return;
@@ -44069,6 +44810,23 @@ async function bindNotes() {
     }
     return { nNotes, cfNoteLabel, hasCfNote };
   }
+  async function nevilleCnNoteMetaFromApi(nevilleId) {
+    let nNotes = 0;
+    let cnNoteLabel = '';
+    let hasCnNote = false;
+    try {
+      const notes = await api('/eleves/' + nevilleId + '/notes');
+      nNotes = (notes || []).length;
+      const cnNote = (notes || []).find(n => /CN-A/i.test(String(n.libelle || '')));
+      if (cnNote) {
+        hasCnNote = true;
+        if (cnNote.libelle) cnNoteLabel = String(cnNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, cnNoteLabel, hasCnNote };
+  }
   async function cedricCiNoteMetaFromApi(cedricId) {
     let nNotes = 0;
     let ciNoteLabel = '';
@@ -44887,6 +45645,52 @@ async function bindNotes() {
         };
       }
       const btnCl = document.getElementById('notesNevilleCfSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip3C');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '3C';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesNevilleCnSeedTip(_devoirsPref) {
+    const el = document.getElementById('notesNevilleCnSeedTip');
+    if (!el) return;
+    try {
+      const nevilleId = await resolveNevilleLondubatEleveId();
+      if (!nevilleId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '3C';
+      try {
+        const eleve = await api('/eleves/' + nevilleId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 3C */ }
+      const meta = await nevilleCnNoteMetaFromApi(nevilleId);
+      el.innerHTML = notesNevilleCnSeedTipDenseHtml({
+        nevilleId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesNevilleCnSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.nevilleId || nevilleId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Neville');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesNevilleCnSeedClasseBtn');
       if (btnCl) {
         btnCl.onclick = () => {
           const chip = document.getElementById('notesChip3C');
@@ -46990,6 +47794,7 @@ async function bindFoyerDetail(id) {
 
 function viewFacturationStaff() {
   return shell('/app/facturation', `
+    <div id="facStaffCncTip"></div>
     <div id="facComptaEncJourTip"></div>
     <div id="facPageTip"></div>
     <div id="facHarrySeedTip"></div>
@@ -47150,6 +47955,7 @@ async function bindFacturationStaff() {
   const detail = document.getElementById('facDetail');
   let currentId = null;
   let facRappelsCount = 0;
+  await refreshFacturationStaffCncTip();
 
   function facStaffListStats(list) {
     const items = list || [];
