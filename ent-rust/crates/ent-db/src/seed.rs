@@ -784,6 +784,8 @@ impl PgEnt {
     /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
     /// lot BN (Bot BN-A) : devoir Luna, note Harry (libellé BN), carnet Ginny (famille), photo trombi Draco si vide ;
     /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
+    /// lot BO (Bot BO-A) : note Ron, devoir Hermione, carnet Neville (famille), carnet Cedric (famille) ;
+    /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -8978,6 +8980,369 @@ impl PgEnt {
                             eleve_id: harry.id,
                             motifs: COMMISSION_MOTIFS_BM_RENFORCE.into(),
                             note_interne: "Seed labo BM-A — ré-ensure commission jour J (sans wipe absences)."
+                                .into(),
+                            sanction_id: None,
+                            incident_id: incident_harry,
+                            signale_famille: true,
+                            actor_user_id: cpe.user_id,
+                        },
+                    )
+                    .await;
+            }
+        }
+
+        // --- Bot BN-A lot BN (zone exclusive BN-A) : devoir Luna, note Harry (libellé BN),
+        // carnet Ginny (famille), photo trombi Draco si vide ; ré-ensure abs Harry jour J + commission jour J (sans wipe).
+        if let Some(luna) = labo_eleve_prenom(eleves, "Luna") {
+            const LUNA_DEVOIR_BN_TITRE: &str = "DS Potions lab (Luna BN-A)";
+            let devoirs_luna_bn = self
+                .list_devoirs_for_actor(
+                    etab,
+                    Role::Prof.as_str(),
+                    periode.id,
+                    Some(luna.classe.as_str()),
+                )
+                .await?;
+            if !devoirs_luna_bn
+                .iter()
+                .any(|d| d.titre == LUNA_DEVOIR_BN_TITRE)
+            {
+                self.creer_devoir(CreerDevoir {
+                    etablissement_id: etab,
+                    periode_id: periode.id,
+                    matiere_id: potions.id,
+                    classe: luna.classe.clone(),
+                    titre: LUNA_DEVOIR_BN_TITRE.into(),
+                    date_devoir: jour + Duration::days(15),
+                    coef: 1.0,
+                    sur: 20.0,
+                    actor_user_id: prof_rogue.user_id,
+                })
+                .await?;
+            }
+        }
+
+        const HARRY_NOTE_BN_LIB: &str = "Interro Français lab (Harry BN-A)";
+        if !self
+            .notes_for_eleve(etab, harry.id)
+            .await?
+            .iter()
+            .any(|n| n.libelle.as_deref() == Some(HARRY_NOTE_BN_LIB))
+        {
+            self.saisir_note(SaisirNote {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                matiere_id: _fr.id,
+                valeur: 14.0,
+                sur: 20.0,
+                date_note: jour - Duration::days(1),
+                auteur_user_id: prof_mcg.user_id,
+                libelle: Some(HARRY_NOTE_BN_LIB.into()),
+                devoir_id: None,
+                periode_id: Some(periode.id),
+            })
+            .await?;
+        }
+
+        if let Some(ginny) = labo_eleve_prenom(eleves, "Ginny") {
+            const GINNY_CARNET_BN_TITRE: &str = "AUDIT BN-A: Encouragements Ginny (famille)";
+            let carnet_ginny_bn = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), ginny.id)
+                .await?;
+            if !carnet_ginny_bn
+                .iter()
+                .any(|c| c.titre == GINNY_CARNET_BN_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: GINNY_CARNET_BN_TITRE.into(),
+                    corps: "Seed labo lot BN-A — entrée carnet visible famille pour audit portail Ginny Weasley."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if self
+            .get_eleve(etab, draco.id)
+            .await?
+            .is_some_and(|e| e.photo_key.is_none())
+        {
+            let _ = self
+                .poser_photo_eleve_for_actor(
+                    role_admini,
+                    etab,
+                    draco.id,
+                    administratif.user_id,
+                    "image/png",
+                    LABO_PNG_1X1,
+                )
+                .await;
+        }
+
+        let absence_harry_jour_bn = jour;
+        if !self
+            .eleve_est_absent(etab, harry.id, absence_harry_jour_bn)
+            .await?
+        {
+            let motifs = self.list_motifs_absence(etab).await?;
+            let motif_code = motifs
+                .iter()
+                .find(|m| m.code.eq_ignore_ascii_case("maladie"))
+                .or_else(|| motifs.first())
+                .map(|m| m.code.clone())
+                .unwrap_or_else(|| "maladie".into());
+            self.declare_absence(DeclareAbsence {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                debut: absence_harry_jour_bn,
+                fin: absence_harry_jour_bn,
+                motif: motif_code,
+                actor_user_id: Some(cpe.user_id.to_string()),
+            })
+            .await?;
+        }
+
+        const COMMISSION_MOTIFS_BN_RENFORCE: &str = "Seed labo — commission Harry audit";
+        let role_cpe_commission_bn = Role::Cpe.as_str();
+        let commissions_jour_bn = self
+            .list_commissions_for_actor(etab, role_cpe_commission_bn, jour)
+            .await?;
+        let dossiers_commission_harry_bn = self
+            .list_commissions_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                role_cpe_commission_bn,
+                harry.id,
+            )
+            .await?;
+        let harry_commission_jour_bn = dossiers_commission_harry_bn.iter().any(|d| {
+            commissions_jour_bn
+                .iter()
+                .any(|c| c.id == d.commission_id)
+        });
+        if !harry_commission_jour_bn {
+            let commission_bn_id = if let Some(c) = commissions_jour_bn.first() {
+                c.id
+            } else {
+                self.creer_commission_for_actor(
+                    role_cpe_commission_bn,
+                    CreerCommissionVs {
+                        etablissement_id: etab,
+                        jour,
+                        heure: NaiveTime::from_hms_opt(14, 0, 0).unwrap(),
+                        objet: "Incidents répétés — Harry Potter (BN-A)".into(),
+                        lieu: "Bureau CPE".into(),
+                        actor_user_id: cpe.user_id,
+                    },
+                )
+                .await?
+                .id
+            };
+            if !dossiers_commission_harry_bn
+                .iter()
+                .any(|d| d.commission_id == commission_bn_id)
+            {
+                let _ = self
+                    .convoquer_commission_for_actor(
+                        role_cpe_commission_bn,
+                        ConvoquerCommission {
+                            etablissement_id: etab,
+                            commission_id: commission_bn_id,
+                            eleve_id: harry.id,
+                            motifs: COMMISSION_MOTIFS_BN_RENFORCE.into(),
+                            note_interne: "Seed labo BN-A — ré-ensure commission jour J (sans wipe absences)."
+                                .into(),
+                            sanction_id: None,
+                            incident_id: incident_harry,
+                            signale_famille: true,
+                            actor_user_id: cpe.user_id,
+                        },
+                    )
+                    .await;
+            }
+        }
+
+        // --- Bot BO-A lot BO (zone exclusive BO-A) : note Ron, devoir Hermione,
+        // carnet Neville (famille), carnet Cedric (famille) ; ré-ensure abs Harry jour J + commission jour J (sans wipe).
+        if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
+            const RON_NOTE_BO_LIB: &str = "Interro Mathématiques lab (Ron BO-A)";
+            if !self
+                .notes_for_eleve(etab, ron.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(RON_NOTE_BO_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: ron.id,
+                    matiere_id: math.id,
+                    valeur: 11.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(RON_NOTE_BO_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            const HERMIONE_DEVOIR_BO_TITRE: &str = "DS Français lab (Hermione BO-A)";
+            let devoirs_hermione_bo = self
+                .list_devoirs_for_actor(
+                    etab,
+                    Role::Prof.as_str(),
+                    periode.id,
+                    Some(hermione.classe.as_str()),
+                )
+                .await?;
+            if !devoirs_hermione_bo
+                .iter()
+                .any(|d| d.titre == HERMIONE_DEVOIR_BO_TITRE)
+            {
+                self.creer_devoir(CreerDevoir {
+                    etablissement_id: etab,
+                    periode_id: periode.id,
+                    matiere_id: _fr.id,
+                    classe: hermione.classe.clone(),
+                    titre: HERMIONE_DEVOIR_BO_TITRE.into(),
+                    date_devoir: jour + Duration::days(16),
+                    coef: 1.0,
+                    sur: 20.0,
+                    actor_user_id: prof_mcg.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(neville) = labo_eleve_prenom(eleves, "Neville") {
+            const NEVILLE_CARNET_BO_TITRE: &str = "AUDIT BO-A: Encouragements Neville (famille)";
+            let carnet_neville_bo = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), neville.id)
+                .await?;
+            if !carnet_neville_bo
+                .iter()
+                .any(|c| c.titre == NEVILLE_CARNET_BO_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: neville.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: NEVILLE_CARNET_BO_TITRE.into(),
+                    corps: "Seed labo lot BO-A — entrée carnet visible famille pour audit portail Neville Londubat."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(cedric) = labo_eleve_prenom(eleves, "Cedric") {
+            const CEDRIC_CARNET_BO_TITRE: &str = "AUDIT BO-A: Encouragements Cedric (famille)";
+            let carnet_cedric_bo = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), cedric.id)
+                .await?;
+            if !carnet_cedric_bo
+                .iter()
+                .any(|c| c.titre == CEDRIC_CARNET_BO_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: cedric.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: CEDRIC_CARNET_BO_TITRE.into(),
+                    corps: "Seed labo lot BO-A — entrée carnet visible famille pour audit portail Cedric Diggory."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        let absence_harry_jour_bo = jour;
+        if !self
+            .eleve_est_absent(etab, harry.id, absence_harry_jour_bo)
+            .await?
+        {
+            let motifs = self.list_motifs_absence(etab).await?;
+            let motif_code = motifs
+                .iter()
+                .find(|m| m.code.eq_ignore_ascii_case("maladie"))
+                .or_else(|| motifs.first())
+                .map(|m| m.code.clone())
+                .unwrap_or_else(|| "maladie".into());
+            self.declare_absence(DeclareAbsence {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                debut: absence_harry_jour_bo,
+                fin: absence_harry_jour_bo,
+                motif: motif_code,
+                actor_user_id: Some(cpe.user_id.to_string()),
+            })
+            .await?;
+        }
+
+        const COMMISSION_MOTIFS_BO_RENFORCE: &str = "Seed labo — commission Harry audit";
+        let role_cpe_commission_bo = Role::Cpe.as_str();
+        let commissions_jour_bo = self
+            .list_commissions_for_actor(etab, role_cpe_commission_bo, jour)
+            .await?;
+        let dossiers_commission_harry_bo = self
+            .list_commissions_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                role_cpe_commission_bo,
+                harry.id,
+            )
+            .await?;
+        let harry_commission_jour_bo = dossiers_commission_harry_bo.iter().any(|d| {
+            commissions_jour_bo
+                .iter()
+                .any(|c| c.id == d.commission_id)
+        });
+        if !harry_commission_jour_bo {
+            let commission_bo_id = if let Some(c) = commissions_jour_bo.first() {
+                c.id
+            } else {
+                self.creer_commission_for_actor(
+                    role_cpe_commission_bo,
+                    CreerCommissionVs {
+                        etablissement_id: etab,
+                        jour,
+                        heure: NaiveTime::from_hms_opt(14, 0, 0).unwrap(),
+                        objet: "Incidents répétés — Harry Potter (BO-A)".into(),
+                        lieu: "Bureau CPE".into(),
+                        actor_user_id: cpe.user_id,
+                    },
+                )
+                .await?
+                .id
+            };
+            if !dossiers_commission_harry_bo
+                .iter()
+                .any(|d| d.commission_id == commission_bo_id)
+            {
+                let _ = self
+                    .convoquer_commission_for_actor(
+                        role_cpe_commission_bo,
+                        ConvoquerCommission {
+                            etablissement_id: etab,
+                            commission_id: commission_bo_id,
+                            eleve_id: harry.id,
+                            motifs: COMMISSION_MOTIFS_BO_RENFORCE.into(),
+                            note_interne: "Seed labo BO-A — ré-ensure commission jour J (sans wipe absences)."
                                 .into(),
                             sanction_id: None,
                             incident_id: incident_harry,

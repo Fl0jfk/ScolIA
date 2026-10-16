@@ -104,6 +104,8 @@ async function snapshotOutboxPending() {
 let entToastTimer = null;
 /** Rempli dans bindNotes — repère Cedric sur tip « 0 devoir ». */
 let notesDevoirsEmptyCedricRefresh = null;
+/** Rempli dans bindNotes — repère Cho sur tip « 0 devoir ». */
+let notesDevoirsEmptyChoRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
 let notePeriodePickSuppress = 0;
 let eleveNotePeriodePickReady = false;
@@ -547,12 +549,47 @@ function goAbsencesComDeepLink(params, scrollPanel) {
 function toastNoteSaisie(n, eleveLabel) {
   const val = n && n.valeur != null ? esc(String(n.valeur)) : '—';
   const sur = n && n.sur != null ? esc(String(n.sur)) : '20';
-  const lib = n && n.libelle ? esc(n.libelle) : '';
-  const who = eleveLabel ? ` · ${esc(eleveLabel)}` : '';
-  showEntToast(
-    `<strong>Note enregistrée</strong> — ${val}/${sur}${lib ? ' · ' + lib : ''}${who}`,
+  const libRaw = n && n.libelle ? String(n.libelle).trim() : '';
+  const lib = libRaw ? esc(libRaw.slice(0, 28)) : '—';
+  const mat = n && n.matiere_libelle ? esc(String(n.matiere_libelle).trim().slice(0, 22)) : 'Matière';
+  const whoRaw = eleveLabel ? String(eleveLabel).trim() : '';
+  const who = whoRaw ? esc(whoRaw.slice(0, 24)) : 'Élève';
+  const simple = () => showEntToast(
+    `<strong>Note enregistrée</strong> — ${val}/${sur}${libRaw ? ' · ' + esc(libRaw) : ''}${whoRaw ? ' · ' + esc(whoRaw) : ''}`,
     7000,
   );
+  if (!isStaffNotesFlux()) {
+    simple();
+    return;
+  }
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${val}/${sur}</strong><span>Note enregistrée · période ouverte</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>${mat}${lib !== '—' ? ' · ' + lib : ''}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Moyennes recalculées · grille / liste</span></div>`;
+  showEntToast(
+    `<strong>Note saisie</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="#" id="entToastNoteGrille">Grille classe</a> · `
+    + `<a href="#" id="entToastNoteMoy">Moyennes</a> · `
+    + `<a href="/app/notes">Module Notes</a></p>`,
+    8500,
+  );
+  const gLink = document.getElementById('entToastNoteGrille');
+  if (gLink) {
+    gLink.onclick = (ev) => {
+      ev.preventDefault();
+      document.getElementById('notesGrillePanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const mLink = document.getElementById('entToastNoteMoy');
+  if (mLink) {
+    mLink.onclick = (ev) => {
+      ev.preventDefault();
+      document.getElementById('btnMoyennes')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  }
 }
 
 /** Grille classe — publication batch de notes (sinon repli toastNoteSaisie). */
@@ -818,9 +855,9 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
   bindNotesDevoirsEmptyTipGo();
   const nTot = Number(nTotal) || 0;
   if ((!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations')
-    && Number.isFinite(nMatiere) && nMatiere > 0 && nTot <= 0
-    && typeof notesDevoirsEmptyCedricRefresh === 'function') {
-    void notesDevoirsEmptyCedricRefresh();
+    && Number.isFinite(nMatiere) && nMatiere > 0 && nTot <= 0) {
+    if (typeof notesDevoirsEmptyCedricRefresh === 'function') void notesDevoirsEmptyCedricRefresh();
+    if (typeof notesDevoirsEmptyChoRefresh === 'function') void notesDevoirsEmptyChoRefresh();
   }
 }
 
@@ -925,6 +962,41 @@ async function resolveLunaLovegoodEleveId() {
       && /lovegood/i.test(String(e.nom || '').trim())
     );
     return l && l.id ? String(l.id) : '';
+  } catch {
+    return '';
+  }
+}
+
+/** /app/notes — repère seed labo Cho Chang (5A · note Maths audit). */
+function notesChoSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.choId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '5A').trim());
+  const mathNote = o.mathNoteLabel
+    ? esc(String(o.mathNoteLabel).trim().slice(0, 28))
+    : 'Interro Maths';
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Cho Chang</strong><span>Seed labo · ${classe} · audit notes</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesChoSeedNotesBtn" data-cho-id="${esc(String(o.choId))}" style="cursor:pointer;text-align:left">
+      <strong>${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesChoSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${mathNote}</strong><span>Filtre 5A · devoirs / saisie</span>
+    </button>
+  </div>`;
+}
+
+async function resolveChoChangEleveId() {
+  try {
+    const list = await api('/eleves/search?q=Cho');
+    const c = (list || []).find(e =>
+      /^cho$/i.test(String(e.prenom || '').trim())
+      && /chang/i.test(String(e.nom || '').trim())
+    );
+    return c && c.id ? String(c.id) : '';
   } catch {
     return '';
   }
@@ -2021,6 +2093,58 @@ function refreshEleveHomeClasseTip(classeVal, regimeVal, opts) {
     return;
   }
   el.innerHTML = eleveHomeClasseTipDenseHtml(classeVal, regimeVal, opts);
+}
+
+/** Accueil /eleve — factures (N/A portail élève · famille). */
+function eleveHomeFacturesTipDenseHtml() {
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong class="muted">N/A</strong><span>Factures · espace élève</span></div>
+    <div class="stat-tile bento-span-4"><strong>Famille</strong><span>Paiements · SEPA · quittances</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Vos parents gèrent le règlement</span></div>
+  </div>`;
+}
+
+function refreshEleveHomeFacturesTip() {
+  const el = document.getElementById('eleveHomeFacturesTip');
+  if (!el) return;
+  el.innerHTML = eleveHomeFacturesTipDenseHtml();
+}
+
+/** Accueil /eleve — synthèse notes publiées (bento). */
+function eleveHomeNotesTipDenseHtml(notes, opts) {
+  const o = opts || {};
+  const list = notes || [];
+  const n = list.length;
+  const sorted = list.slice().sort((a, b) =>
+    String(b.date_note || '').localeCompare(String(a.date_note || ''))
+  );
+  const last = sorted[0] || null;
+  const lastLbl = last
+    ? `${esc(String(last.matiere_libelle || 'Matière').slice(0, 18))} · ${esc(String(last.valeur))}/${esc(String(last.sur || 20))}`
+    : '—';
+  const jour = last && last.date_note ? esc(String(last.date_note).slice(0, 10)) : '—';
+  const nSans = Number(o.nDevoirsSansNote) || 0;
+  const sansTile = nSans
+    ? `<a class="stat-tile bento-span-4" href="/eleve/notes" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nSans}</strong><span>Contrôle(s) sans note publiée</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="/eleve/notes" style="text-decoration:none">
+        <strong class="ok">${n}</strong><span>Note(s) visible(s) · à jour</span>
+      </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    ${sansTile}
+    <div class="stat-tile bento-span-4"><strong>${lastLbl}</strong><span>Dernière note · ${jour}</span></div>
+    <a class="stat-tile bento-span-4" href="/eleve/notes" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>→</strong><span>Moyennes · devoirs · bulletin</span>
+    </a>
+  </div>`;
+}
+
+function refreshEleveHomeNotesTip(notes, devoirs, jour) {
+  const el = document.getElementById('eleveHomeNotesTip');
+  if (!el) return;
+  const { nSans } = eleveDevoirsSansNoteCounts(devoirs, notes);
+  el.innerHTML = eleveHomeNotesTipDenseHtml(notes, { nDevoirsSansNote: nSans, jour });
 }
 
 function eleveAlerteCpeOuverte(a) {
@@ -3352,10 +3476,31 @@ function famQuittancesSortedRecent(list) {
   );
 }
 
-/** Accueil famille — dernières quittances (bento). */
-function famHomeQuittancesRecentTipDenseHtml(quittances) {
+/** Accueil famille — quittances récentes + lien factures (bento). */
+function famHomeQuittancesRecentTipDenseHtml(quittances, resteFacturesCent) {
   const sorted = famQuittancesSortedRecent(quittances);
-  if (!sorted.length) return '';
+  const reste = Math.max(0, Number(resteFacturesCent) || 0);
+  const facHref = reste
+    ? '/famille/factures?section=factures'
+    : '/famille/factures';
+  const resteTile = reste
+    ? `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${esc(euros(reste))}</strong><span>Reste factures · à régler</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">Soldé</strong><span>Pas de reste facture</span>
+      </a>`;
+  if (!sorted.length) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
+        <strong class="muted">0</strong><span>Aucun reçu · après encaissement</span>
+      </a>
+      ${resteTile}
+      <a class="stat-tile bento-span-4" href="/famille/factures#famSepaOut" style="text-decoration:none">
+        <strong>SEPA</strong><span>Mandat · prélèvement factures</span>
+      </a>
+    </div>`;
+  }
   const last = sorted[0];
   const num = esc(String(last.numero || 'Quittance').trim().slice(0, 28));
   const dt = esc(famQuittanceEmittedKey(last).slice(0, 10) || '—');
@@ -3366,9 +3511,9 @@ function famHomeQuittancesRecentTipDenseHtml(quittances) {
     <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none;border-color:var(--ok,#16a34a)">
       <strong class="ok">${num}</strong><span>Dernière quittance · ${dt}</span>
     </a>
-    <div class="stat-tile bento-span-4"><strong>${amt}</strong><span>Montant encaissé</span></div>
+    <div class="stat-tile bento-span-4"><strong>${amt}</strong><span>Montant encaissé · ${n} reçu(s)</span></div>
     <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
-      <strong>${n}</strong><span>Reçu(s) · ${esc(euros(total))} au total</span>
+      <strong>${esc(euros(total))}</strong><span>Total quittances · ${reste ? 'reste ' + esc(euros(reste)) : 'factures soldées'}</span>
     </a>
   </div>`;
 }
@@ -3422,6 +3567,42 @@ function famQuittancesFilterLabel(filterKey) {
   if (key === 'sepa') return 'Prélèvement SEPA';
   if (key === 'autres') return 'Autres moyens';
   return 'Toutes';
+}
+
+/** Page /famille/factures — synthèse liste + SEPA (bento). */
+function famFacturesPageTipDenseHtml(listAll, listShown, filterKey, opts) {
+  const o = opts || {};
+  const all = listAll || [];
+  if (!all.length) return '';
+  const shown = listShown || all;
+  const key = String(filterKey || 'all');
+  const label = key === 'emises'
+    ? 'Émises / impayées'
+    : (key === 'soldees' ? 'Soldées' : 'Toutes');
+  const nShown = shown.length;
+  const nAll = all.length;
+  const resteShown = shown.reduce((s, f) => s + facFamResteCentimes(f), 0);
+  const resteAll = all.reduce((s, f) => s + facFamResteCentimes(f), 0);
+  const nImpayShown = shown.filter(facFamImpayee).length;
+  const nImpayAll = all.filter(facFamImpayee).length;
+  const sepaActif = !!o.sepaActif;
+  const sepaTile = sepaActif
+    ? `<a class="stat-tile bento-span-4" href="#famSepaOut" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">SEPA actif</strong><span>${esc(String(o.sepaRum || 'Mandat').slice(0, 28))}</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="#famSepaOut" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>Mandat SEPA</strong><span>Créer le prélèvement</span>
+      </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${esc(label)}</strong><span>${nShown} / ${nAll} facture(s)</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="${nImpayShown ? 'warn' : 'ok'}">${nImpayShown}</strong><span>À régler · ${esc(euros(resteShown))} reste vue</span></div>
+    <a class="stat-tile bento-span-4" href="/famille/quittances" style="text-decoration:none">
+      <strong class="${resteAll ? 'warn' : 'ok'}">${esc(euros(resteAll))}</strong><span>Reste global · ${nImpayAll} impayée(s)</span>
+    </a>
+    ${sepaTile}
+  </div>`;
 }
 
 /** Page quittances — astuce bento (totaux + lien factures). */
@@ -4172,6 +4353,23 @@ function grilleMoyenneLiveTipHtml(vals) {
   return `<span class="ok"><strong>Moyenne live</strong> ${m.toFixed(1)} / 20</span> · ${vals.length} note(s) dans la grille`;
 }
 
+/** /app/notes — moyenne live grille (bento). */
+function grilleMoyenneLiveTipDenseHtml(vals) {
+  if (!vals || !vals.length) {
+    return `<div class="bento" style="margin:.15rem 0 .45rem">
+      <div class="stat-tile bento-span-12"><strong class="muted">—</strong><span>Moyenne live · saisissez des notes — recalcul instantané /20</span></div>
+    </div>`;
+  }
+  const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${m.toFixed(1)}</strong><span>Moyenne live / 20 · grille</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${vals.length}</strong><span>Note(s) saisie(s) · non enregistrées</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">↵</strong><span>Enregistrer la grille · moyennes élèves</span></div>
+  </div>`;
+}
+
 /** /app/notes — aucune période configurée (bento). */
 /** /app/notes — référentiel matières vide (bento). */
 function notesMatieresEmptyTipDenseHtml() {
@@ -4208,7 +4406,8 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
     </button>
     <div class="stat-tile bento-span-4"><strong>→</strong><span>Puis grille · saisie · moyennes</span></div>
   </div>
-  <div id="notesDevoirsEmptyCedricSlot"></div>`;
+  <div id="notesDevoirsEmptyCedricSlot"></div>
+  <div id="notesDevoirsEmptyChoSlot"></div>`;
 }
 
 function bindNotesDevoirsEmptyTipGo() {
@@ -4472,7 +4671,9 @@ function refreshGrilleMoyenneLiveTip(sur) {
     if (!Number.isFinite(v) || v < 0) return;
     vals.push((v / scale) * 20);
   });
-  el.innerHTML = grilleMoyenneLiveTipHtml(vals);
+  el.innerHTML = isStaffNotesFlux()
+    ? grilleMoyenneLiveTipDenseHtml(vals)
+    : grilleMoyenneLiveTipHtml(vals);
 }
 
 function toastNotePeriodeFermee(p) {
@@ -6941,17 +7142,82 @@ function psyRdvKindLabelFromSelect(value) {
 }
 
 /** Compta — journal encaissements du jour (export OGEC même jour). */
-function comptaEncaissementsDuJourTipDenseHtml(n, totalCent, jour) {
+function comptaEncaissementsDuJourTipDenseHtml(n, totalCent, jour, opts) {
+  if (!isStaffFacturationFlux()) return '';
+  const o = opts || {};
   const k = Number(n) || 0;
-  if (k <= 0) return '';
   const j = esc(jour || today());
   const tot = esc(euros(totalCent || 0));
+  const nRapp = Number(o.nRappels) || 0;
+  const encTile = k > 0
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${k}</strong><span>Encaissement(s) · jour ${j}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Recettes · jour ${j}</span></div>`;
+  const recTile = k > 0
+    ? `<div class="stat-tile bento-span-4"><strong>${tot}</strong><span>Recettes du jour · OGEC</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">CSV</strong><span>Export recettes · période ci-dessous</span></div>`;
+  const filTile = nRapp > 0
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nRapp}</strong><span>Rappel(s) échéance · fil messagerie</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">Quittance</strong><span>Auto · PDF détail · portail famille</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${encTile}${recTile}${filTile}</div>`;
+}
+
+function isHarryPotterSeedFacture(f) {
+  if (!f) return false;
+  const num = String(f.numero || '').toUpperCase();
+  const lib = String(f.libelle || '').toLowerCase();
+  return num.includes('LAB-HARRY') || lib.includes('harry');
+}
+
+/** /app/facturation — synthèse file (reste · brouillons · émises). */
+function facturationPageTipDenseHtml(stats) {
+  if (!isStaffFacturationFlux()) return '';
+  const s = stats || {};
+  const n = Number(s.nFactures) || 0;
+  if (!n) return '';
+  const nImp = Number(s.nImpayees) || 0;
+  const reste = Math.max(0, Number(s.resteCent) || 0);
+  const nBrou = Number(s.nBrouillons) || 0;
+  const nEm = Number(s.nEmises) || 0;
+  const resteTile = reste > 0
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${esc(euros(reste))}</strong><span>Reste global · ${nImp} impayée(s)</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">Soldé</strong><span>Aucun reste · ${n} facture(s)</span></div>`;
+  const brouTile = nBrou
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nBrou}</strong><span>Brouillon(s) · émettre</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Émettre · encaisser · SEPA</span></div>`;
   return `<div class="bento" style="margin:0 0 .55rem">
-    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-      <strong class="ok">${k}</strong><span>Encaissement(s) · jour ${j}</span>
-    </div>
-    <div class="stat-tile bento-span-4"><strong>${tot}</strong><span>Recettes du jour</span></div>
-    <div class="stat-tile bento-span-4"><strong class="muted">Quittance</strong><span>Auto · export OGEC / CSV recettes</span></div>
+    <div class="stat-tile bento-span-4"><strong>${n}</strong><span>Factures · ${nEm} émise(s)/part.</span></div>
+    ${resteTile}
+    ${brouTile}
+  </div>`;
+}
+
+/** /app/facturation — repère seed Harry Potter (LAB-HARRY · Lily). */
+function facturationHarrySeedTipDenseHtml(meta) {
+  const o = meta || {};
+  const harryFac = o.harryFactures || [];
+  if (!harryFac.length && !o.harryId) return '';
+  const eid = o.harryId ? esc(String(o.harryId)) : '';
+  const nFac = harryFac.length;
+  const reste = harryFac.reduce((s, f) => s + facFamResteCentimes(f), 0);
+  const top = harryFac.slice().sort((a, b) => facFamResteCentimes(b) - facFamResteCentimes(a))[0];
+  const topId = top && top.id ? String(top.id) : '';
+  const topNum = top ? esc(String(top.numero || 'LAB-HARRY').trim().slice(0, 22)) : '—';
+  const harryTile = eid
+    ? `<a class="stat-tile bento-span-4" href="/app/eleves/${eid}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>Harry Potter</strong><span>Seed labo · 4B · audit facturation</span></a>`
+    : `<div class="stat-tile bento-span-4"><strong>Harry Potter</strong><span>Seed labo · foyer Lily</span></div>`;
+  const facTile = topId
+    ? `<button type="button" class="stat-tile bento-span-4 btnFacHarryOpen" data-id="${esc(topId)}" style="cursor:pointer;text-align:left;border-color:${reste ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${reste ? 'warn' : 'ok'}">${topNum}</strong><span>${reste ? esc(euros(reste)) + ' reste' : 'Soldé'} · ${nFac} facture(s)</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">${nFac}</strong><span>Facture(s) seed · liste ci-dessous</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    ${harryTile}
+    ${facTile}
+    <div class="stat-tile bento-span-4"><strong class="muted">Mandat</strong><span>SEPA Lily · quittance après encaissement</span></div>
   </div>`;
 }
 
@@ -7153,17 +7419,25 @@ function toastFactureEmise(fac, opts) {
   const statut = esc(String(f.statut || 'emise').trim());
   const lib = esc(String(f.libelle || '').trim());
   const libPart = lib ? ` · ${lib}` : '';
-  const repasPart = o.nbRepas != null && Number(o.nbRepas) > 0
-    ? `<div class="stat-tile bento-span-4"><strong>${Number(o.nbRepas)}</strong><span>Repas · cantine badge</span></div>`
-    : `<div class="stat-tile bento-span-4"><strong class="ok">Portail</strong><span>Visible famille · SEPA / CB</span></div>`;
-  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+  const resteRaw = Number(f.reste_centimes);
+  const reste = Number.isFinite(resteRaw)
+    ? Math.max(0, resteRaw)
+    : Math.max(0, Number(f.total_centimes) || 0);
+  const resteTile = reste > 0
+    ? `<div class="stat-tile bento-span-3"><strong class="warn">${esc(euros(reste))}</strong><span>Reste · encaisser / SEPA</span></div>`
+    : `<div class="stat-tile bento-span-3"><strong class="ok">0 €</strong><span>Reste · soldée</span></div>`;
+  const suiteTile = o.nbRepas != null && Number(o.nbRepas) > 0
+    ? `<div class="stat-tile bento-span-3"><strong>${Number(o.nbRepas)}</strong><span>Repas · cantine badge</span></div>`
+    : `<div class="stat-tile bento-span-3"><strong class="ok">Portail</strong><span>Visible famille · SEPA / CB</span></div>`;
+  const tiles = `<div class="stat-tile bento-span-3" style="border-color:var(--ok,#16a34a)">
       <strong class="ok">${numero}</strong><span>Émise${libPart}</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong>${total}</strong><span>Total TTC · ${statut}</span></div>
-    ${repasPart}`;
+    <div class="stat-tile bento-span-3"><strong>${total}</strong><span>Total TTC · ${statut}</span></div>
+    ${resteTile}
+    ${suiteTile}`;
   showEntToast(
     `<strong>Facture émise</strong>`
-    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<div class="bento ent-toast-bento-4" style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="#" id="entToastFacEncaisser">Encaisser</a> · `
     + `<a href="/app/facturation">Facturation</a></p>`,
@@ -7195,22 +7469,35 @@ function toastFactureEncaissée(detail, opts) {
   const quittances = d.quittances || [];
   const lastQ = quittances.length ? quittances[quittances.length - 1] : null;
   const quitNum = lastQ && lastQ.numero ? esc(String(lastQ.numero)) : '—';
+  const quitMont = lastQ && lastQ.montant_centimes != null
+    ? esc(euros(lastQ.montant_centimes))
+    : montant;
   const statusTile = soldee
-    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)"><strong class="ok">Soldée</strong><span>${esc(statut || 'soldee')}</span></div>`
-    : `<div class="stat-tile bento-span-4"><strong class="warn">${esc(euros(reste))}</strong><span>Reste · ${esc(statut || 'partielle')}</span></div>`;
-  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+    ? `<div class="stat-tile bento-span-3" style="border-color:var(--ok,#16a34a)"><strong class="ok">Soldée</strong><span>${esc(statut || 'soldee')}</span></div>`
+    : `<div class="stat-tile bento-span-3"><strong class="warn">${esc(euros(reste))}</strong><span>Reste · ${esc(statut || 'partielle')}</span></div>`;
+  const quitTile = `<div class="stat-tile bento-span-3" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${quitNum}</strong><span>Quittance · ${quitMont} · PDF détail</span></div>`;
+  const tiles = `<div class="stat-tile bento-span-3" style="border-color:var(--ok,#16a34a)">
       <strong class="ok">${montant}</strong><span>${moyen}${refPart}</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong>${encTotal}</strong><span>Encaissé · ${numero}</span></div>
+    ${quitTile}
+    <div class="stat-tile bento-span-3"><strong>${encTotal}</strong><span>Encaissé · ${numero}</span></div>
     ${statusTile}`;
   showEntToast(
     `<strong>Encaissement enregistré</strong>`
-    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<div class="bento ent-toast-bento-4" style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
-    + `Quittance <strong>${quitNum}</strong> · `
-    + `<a href="/app/facturation">Facturation</a> · PDF dans le détail</p>`,
+    + `<a href="/app/facturation">Facturation</a> · `
+    + `<a href="#" id="entToastFacScrollDetail">Voir quittances</a></p>`,
     10000,
   );
+  const scrollLink = document.getElementById('entToastFacScrollDetail');
+  if (scrollLink) {
+    scrollLink.onclick = (ev) => {
+      ev.preventDefault();
+      document.getElementById('facDetail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
 }
 
 /** Foyers staff — annuaire (effectifs + file sans élève). */
@@ -8219,6 +8506,79 @@ function maybeToastFacFamFilterFromUi(prevKey, nextKey, listAll, listShown) {
   if (prevKey === nextKey) return;
   toastFacFamFilterUiDense(nextKey, listAll, listShown);
 }
+/** Facture famille — détail ouvert (toast bento). */
+function toastFamFactureOuverte(detail, opts) {
+  const o = opts || {};
+  const d = detail || {};
+  const fac = d.facture || {};
+  const fid = fac.id ? String(fac.id).trim() : '';
+  const num = esc(fac.numero || fac.libelle || 'Facture');
+  const total = esc(euros(fac.total_centimes || 0));
+  const resteRaw = d.reste_centimes != null ? Number(d.reste_centimes) : facFamResteCentimes(fac);
+  const reste = esc(euros(resteRaw));
+  const enc = esc(euros(d.encaisse_centimes != null ? d.encaisse_centimes : facFamEncaisseCentimes(fac)));
+  const st = esc(String(fac.statut || '—').trim());
+  const imp = facFamImpayee(fac);
+  const nQuit = (d.quittances || []).length;
+  const nEnc = (d.encaissements || []).length;
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="#famMesFactures">Liste factures</a> · `
+    + `<a href="/famille/quittances">Quittances</a>`
+    + (fid ? ` · <a href="/famille/factures?fac=${esc(encodeURIComponent(fid))}">Lien direct</a>` : '')
+    + `</p>`;
+  if (!isFamilleFacturesFlux() && !o.dense) {
+    showEntToast(
+      `<strong>Facture</strong> — ${num} · reste ${reste} · ${st}. `
+      + `<a href="/famille/quittances">Quittances</a>`,
+      8500,
+    );
+    return;
+  }
+  const statTile = imp
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${reste}</strong><span>Reste à payer · ${st}</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${st}</strong><span>Soldée · ${total} TTC</span>
+      </div>`;
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${num}</strong><span>Total ${total}</span>
+    </div>
+    ${statTile}
+    <div class="stat-tile bento-span-4"><strong>${enc}</strong><span>Encaissé · ${nEnc} paiement(s) · ${nQuit} quittance(s)</span></div>`;
+  showEntToast(
+    `<strong>Facture ouverte</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + foot,
+    imp ? 9500 : 8000,
+  );
+}
+/** Deep-link ?section=factures — toast bento (liste mes factures). */
+function toastFacFamSectionDeepDense(listAll, opts) {
+  if (!isFamilleFacturesFlux()) return;
+  const o = opts || {};
+  const all = listAll || [];
+  const nAll = all.length;
+  const nImpay = all.filter(facFamImpayee).length;
+  const reste = all.reduce((s, f) => s + facFamResteCentimes(f), 0);
+  const sepaActif = !!o.sepaActif;
+  const sepaLbl = sepaActif ? 'SEPA actif' : 'Mandat SEPA';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Mes factures</strong><span>${nAll} facture(s) · section liste</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="${nImpay ? 'warn' : 'ok'}">${nImpay}</strong><span>À régler · reste ${esc(euros(reste))}</span></div>
+    <a class="stat-tile bento-span-4" href="#famSepaOut" style="text-decoration:none">
+      <strong>${sepaActif ? 'OK' : '→'}</strong><span>${esc(sepaLbl)} · prélèvement</span>
+    </a>`;
+  showEntToast(
+    `<strong>Factures — liste</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/quittances">Quittances</a> · `
+    + `<a href="#famMesFactures">↓ Liste ci-dessous</a></p>`,
+    nImpay ? 8500 : 7000,
+  );
+}
 /** Quittances famille — toast bento après changement de filtre (chips UI). */
 function toastQuitFamFilterUiDense(filterKey, listAll, listShown) {
   if (!isFamilleQuittancesFlux()) return;
@@ -8967,7 +9327,9 @@ function famEnfantCanSeeAbsences(e) {
 function facFamScrollToListRow(facId) {
   const section = document.getElementById('famMesFactures');
   if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  const row = document.querySelector(`tr[data-fac-id="${facId}"]`);
+  const id = facId ? String(facId).trim() : '';
+  if (!id) return;
+  const row = document.querySelector(`tr[data-fac-id="${id}"]`);
   if (!row) return;
   row.scrollIntoView({ behavior: 'smooth', block: 'center' });
   row.style.outline = '2px solid var(--accent, #2563eb)';
@@ -10676,6 +11038,8 @@ function viewEleveHome() {
   return shell('/eleve', `
     <div class="bento" id="eleveHomeStats"></div>
     <div id="eleveHomeClasseTip"></div>
+    <div id="eleveHomeFacturesTip"></div>
+    <div id="eleveHomeNotesTip"></div>
     <div id="eleveHomeConseilSpot"></div>
     <div id="eleveHomeAbsencesTip"></div>
     <div id="eleveHomeJustifTip"></div>
@@ -10930,11 +11294,6 @@ async function bindEleveHome() {
     }
     refreshEleveHomeOrientTip(orientApiOk, orientMeta);
     refreshEleveHomeProchainCoursTip(edt, jour);
-    refreshEleveHomeClasseTip(
-      classe && classe.valeur,
-      regime && regime.valeur,
-      { nCours: (edt || []).length, nNotes: (notes || []).length },
-    );
     let vol = null;
     try {
       vol = await api('/eleves/' + eid + '/repas/volume?debut=' + debutMois + '&fin=' + jour + '&kind=midi');
@@ -10956,6 +11315,13 @@ async function bindEleveHome() {
     const docsPending = (docs || []).filter(d => !d.signe_at && (d.statut === 'a_signer' || !d.statut));
     const regime = (periodes || []).find(p => p.kind === 'regime' && !p.date_fin);
     const classe = (periodes || []).find(p => p.kind === 'classe' && !p.date_fin);
+    refreshEleveHomeFacturesTip();
+    refreshEleveHomeNotesTip(notes, devoirs, jour);
+    refreshEleveHomeClasseTip(
+      classe && classe.valeur,
+      regime && regime.valeur,
+      { nCours: (edt || []).length, nNotes: (notes || []).length },
+    );
     const bulletinT0 = (eleveDocs || []).find(d =>
       d.accessible && String(d.code || '').trim().toUpperCase() === 'BULLETIN_T0'
     );
@@ -14115,14 +14481,9 @@ async function bindFamilleHome() {
     }
     const quitTip = document.getElementById('famHomeQuittancesTip');
     if (quitTip) {
-      const denseQuit = famHomeQuittancesRecentTipDenseHtml(quittancesFam || []);
-      if (denseQuit) {
-        quitTip.style.display = '';
-        quitTip.innerHTML = denseQuit;
-      } else {
-        quitTip.style.display = 'none';
-        quitTip.innerHTML = '';
-      }
+      const denseQuit = famHomeQuittancesRecentTipDenseHtml(quittancesFam || [], resteFacturesTotal);
+      quitTip.style.display = '';
+      quitTip.innerHTML = denseQuit;
     }
     const reinscTip = document.getElementById('famHomeReinscTip');
     if (reinscTip) {
@@ -26848,6 +27209,7 @@ function viewNotes() {
     <div id="notesHarrySeedTip"></div>
     <div id="notesGinnySeedTip"></div>
     <div id="notesLunaSeedTip"></div>
+    <div id="notesChoSeedTip"></div>
     <div id="notesNevilleSeedTip"></div>
     <div class="panel" id="notesQuickLab" style="margin-bottom:.75rem">
       <div class="row" style="margin:0;align-items:flex-start">
@@ -26936,7 +27298,7 @@ function viewNotes() {
       <div id="notesGrilleEmptyTip"></div>
       <div id="notesGrilleKeyboardTip"></div>
       <div id="grilleCoefTip" class="muted" style="margin:.25rem 0 0;font-size:.85rem"></div>
-      <p id="grilleMoyenneTip" class="muted" style="margin:.35rem 0 0;font-size:.85rem"></p>
+      <div id="grilleMoyenneTip" class="muted" style="margin:.35rem 0 0;font-size:.85rem"></div>
       <div id="grilleOut" class="muted" style="margin-top:.5rem">…</div>
       <div class="row" style="margin-top:.5rem">
         <button type="button" class="primary" id="btnGrilleSave" disabled>Enregistrer la grille</button>
@@ -27172,6 +27534,7 @@ async function bindNotes() {
       await refreshNotesHarrySeedTip(devoirsPref);
       await refreshNotesGinnySeedTip(devoirsPref);
       await refreshNotesLunaSeedTip(devoirsPref);
+      await refreshNotesChoSeedTip(devoirsPref);
       await refreshNotesNevilleSeedTip(devoirsPref);
       box.innerHTML = `
         <div class="stat-tile bento-span-3"><strong>${nPer}</strong><span>Périodes · ${nPart} partielles</span></div>
@@ -27778,6 +28141,64 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyCedricRefresh = refreshNotesDevoirsEmptyCedricSlot;
+  async function refreshNotesDevoirsEmptyChoSlot() {
+    const el = document.getElementById('notesDevoirsEmptyChoSlot');
+    if (!el) return;
+    try {
+      const choId = await resolveChoChangEleveId();
+      if (!choId) {
+        el.innerHTML = '';
+        return;
+      }
+      let nNotes = 0;
+      let classe = '5A';
+      let mathNoteLabel = '';
+      try {
+        const notes = await api('/eleves/' + choId + '/notes');
+        nNotes = (notes || []).length;
+        const mathNote = (notes || []).find(n =>
+          /cho/i.test(String(n.libelle || ''))
+          || /math/i.test(String(n.matiere_libelle || n.matiere || '')));
+        if (mathNote && mathNote.libelle) mathNoteLabel = String(mathNote.libelle);
+      } catch {
+        nNotes = 0;
+      }
+      try {
+        const eleve = await api('/eleves/' + choId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      el.innerHTML = notesChoSeedTipDenseHtml({
+        choId,
+        nNotes,
+        classe,
+        mathNoteLabel,
+      });
+      const btnNotes = document.getElementById('notesChoSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.choId || choId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Cho');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesChoSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyChoRefresh = refreshNotesDevoirsEmptyChoSlot;
   async function refreshNotesHarrySeedTip(devoirsPref) {
     const el = document.getElementById('notesHarrySeedTip');
     if (!el) return;
@@ -27903,6 +28324,57 @@ async function bindNotes() {
           if (chip) chip.click();
           const devCl = document.getElementById('devClasse');
           if (devCl) devCl.value = '6A';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesChoSeedTip(devoirsPref) {
+    const el = document.getElementById('notesChoSeedTip');
+    if (!el) return;
+    try {
+      const choId = await resolveChoChangEleveId();
+      if (!choId) {
+        el.innerHTML = '';
+        return;
+      }
+      let nNotes = 0;
+      let classe = '5A';
+      let mathNoteLabel = '';
+      try {
+        const notes = await api('/eleves/' + choId + '/notes');
+        nNotes = (notes || []).length;
+        const mathNote = (notes || []).find(n =>
+          /cho/i.test(String(n.libelle || ''))
+          || /math/i.test(String(n.matiere_libelle || n.matiere || '')));
+        if (mathNote && mathNote.libelle) mathNoteLabel = String(mathNote.libelle);
+      } catch {
+        nNotes = 0;
+      }
+      try {
+        const eleve = await api('/eleves/' + choId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      el.innerHTML = notesChoSeedTipDenseHtml({
+        choId,
+        nNotes,
+        classe,
+        mathNoteLabel,
+      });
+      const btnNotes = document.getElementById('notesChoSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.choId || choId);
+      }
+      const btnCl = document.getElementById('notesChoSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
           document.getElementById('btnDevList')?.click();
           document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         };
@@ -29956,6 +30428,8 @@ async function bindFoyerDetail(id) {
 function viewFacturationStaff() {
   return shell('/app/facturation', `
     <div id="facComptaEncJourTip"></div>
+    <div id="facPageTip"></div>
+    <div id="facHarrySeedTip"></div>
     <div class="panel">
       <h2>Boucler le mois cantine</h2>
       <p class="muted">Passages badge → brouillon → émission (visible parents). Un geste pour la période choisie.</p>
@@ -30112,19 +30586,69 @@ async function bindFacturationStaff() {
   const out = document.getElementById('facOut');
   const detail = document.getElementById('facDetail');
   let currentId = null;
+  let facRappelsCount = 0;
+
+  function facStaffListStats(list) {
+    const items = list || [];
+    let resteCent = 0;
+    let nImpayees = 0;
+    let nBrouillons = 0;
+    let nEmises = 0;
+    items.forEach(f => {
+      const st = String(f.statut || '').trim();
+      if (st === 'brouillon') nBrouillons += 1;
+      else if (st === 'emise' || st === 'partielle') nEmises += 1;
+      if (facFamImpayee(f)) {
+        nImpayees += 1;
+        resteCent += facFamResteCentimes(f);
+      }
+    });
+    return {
+      nFactures: items.length,
+      nImpayees,
+      resteCent,
+      nBrouillons,
+      nEmises,
+    };
+  }
+
+  function refreshFacPageTips(list) {
+    const pageTip = document.getElementById('facPageTip');
+    const harryTip = document.getElementById('facHarrySeedTip');
+    const stats = facStaffListStats(list);
+    if (pageTip) {
+      pageTip.innerHTML = facturationPageTipDenseHtml(stats);
+    }
+    if (!harryTip) return;
+    const harryFac = (list || []).filter(isHarryPotterSeedFacture);
+    resolveHarryPotterEleveId().then(harryId => {
+      if (!harryTip.isConnected) return;
+      harryTip.innerHTML = facturationHarrySeedTipDenseHtml({ harryId, harryFactures: harryFac });
+      harryTip.querySelectorAll('.btnFacHarryOpen').forEach(btn => {
+        btn.onclick = () => openFac(btn.dataset.id);
+      });
+    }).catch(() => {
+      if (!harryTip.isConnected) return;
+      harryTip.innerHTML = facturationHarrySeedTipDenseHtml({ harryFactures: harryFac });
+      harryTip.querySelectorAll('.btnFacHarryOpen').forEach(btn => {
+        btn.onclick = () => openFac(btn.dataset.id);
+      });
+    });
+  }
 
   async function refreshFacComptaEncJourTip() {
     const box = document.getElementById('facComptaEncJourTip');
     if (!box) return;
     const j = today();
+    const comptaOpts = { nRappels: facRappelsCount };
     try {
       const { text } = await fetchAuthedExport(
         '/facturation/export/ogec?debut=' + encodeURIComponent(j) + '&fin=' + encodeURIComponent(j),
       );
       const { n, totalCent } = parseOgecEncaissementsCsv(text);
-      box.innerHTML = comptaEncaissementsDuJourTipDenseHtml(n, totalCent, j);
+      box.innerHTML = comptaEncaissementsDuJourTipDenseHtml(n, totalCent, j, comptaOpts);
     } catch {
-      box.innerHTML = '';
+      box.innerHTML = comptaEncaissementsDuJourTipDenseHtml(0, 0, j, comptaOpts);
     }
   }
 
@@ -30486,6 +31010,8 @@ async function bindFacturationStaff() {
     const box = document.getElementById('facRappels');
     try {
       const list = await api('/facturation/rappels');
+      facRappelsCount = (list || []).length;
+      await refreshFacComptaEncJourTip();
       if (!list.length) {
         box.innerHTML = `<p class="empty">Aucun rappel envoyé.</p>`;
         return;
@@ -30507,6 +31033,8 @@ async function bindFacturationStaff() {
         };
       });
     } catch (e) {
+      facRappelsCount = 0;
+      await refreshFacComptaEncJourTip();
       box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   }
@@ -30649,19 +31177,12 @@ async function bindFacturationStaff() {
       let list = await api('/facturation/factures');
       const fid = foyerSel && foyerSel.value;
       if (fid) list = list.filter(f => f.foyer_id === fid);
+      refreshFacPageTips(list || []);
       if (!list.length) {
         out.innerHTML = `<p class="empty">Aucune facture${fid ? ' pour ce foyer' : ''}.</p>`;
         return;
       }
-      const nEmises = list.filter(f => f.statut === 'emise' || f.statut === 'partielle').length;
-      const nSoldees = list.filter(f => f.statut === 'soldee').length;
-      const total = list.reduce((s, f) => s + (f.total_centimes || 0), 0);
       out.innerHTML = `
-        <div class="bento" style="margin-bottom:.75rem">
-          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>Factures · ${esc(euros(total))}</span></div>
-          <div class="stat-tile bento-span-4"><strong>${nEmises}</strong><span>Émises / partielles</span></div>
-          <div class="stat-tile bento-span-4"><strong>${nSoldees}</strong><span>Soldées</span></div>
-        </div>
         <table><thead><tr><th>N°</th><th>Libellé</th><th>Nature</th><th>Année</th><th>Statut</th><th>Émise</th><th>Total</th><th></th></tr></thead>
         <tbody>${list.map(f => `<tr>
           <td>${esc(f.numero)}</td>
@@ -30677,6 +31198,7 @@ async function bindFacturationStaff() {
         btn.onclick = () => openFac(btn.dataset.id);
       });
     } catch (e) {
+      refreshFacPageTips([]);
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   }
@@ -32374,6 +32896,7 @@ function viewFacturesFamille() {
   return shell('/famille/factures', `
     <div class="bento" id="facFamStats"></div>
     <div class="bento" id="facFamProgress" style="margin-bottom:.75rem"></div>
+    <div id="facFamPageTip" style="display:none;margin:0 0 .55rem"></div>
     <div id="facFamQuoBandeau" style="margin-bottom:.75rem"></div>
     <div class="panel" style="border-left:3px solid var(--accent,#c45c26)">
       <h2 style="margin-top:0">Payer sans friction</h2>
@@ -32641,6 +33164,20 @@ async function bindFacturesFamille() {
             sepaRum: facFamMandatActif.rum,
           })
         : '';
+    }
+    const pageTip = document.getElementById('facFamPageTip');
+    if (pageTip) {
+      const densePage = famFacturesPageTipDenseHtml(listAll, list, facFamFilter, {
+        sepaActif: !!facFamMandatActif,
+        sepaRum: facFamMandatActif && facFamMandatActif.rum,
+      });
+      if (densePage) {
+        pageTip.style.display = '';
+        pageTip.innerHTML = densePage;
+      } else {
+        pageTip.style.display = 'none';
+        pageTip.innerHTML = '';
+      }
     }
     if (!listAll.length) {
       out.innerHTML = `<p class="empty">Aucune facture émise pour le moment.</p>`;
@@ -32924,6 +33461,7 @@ async function bindFacturesFamille() {
           } catch (e) { alert(e.message); }
         };
       });
+      toastFamFactureOuverte(d, { dense: true });
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -32958,6 +33496,10 @@ async function bindFacturesFamille() {
   }
   if (routeState.famScrollFactures) {
     delete routeState.famScrollFactures;
+    toastFacFamSectionDeepDense(facFamSortedList, {
+      sepaActif: !!facFamMandatActif,
+      sepaRum: facFamMandatActif && facFamMandatActif.rum,
+    });
     requestAnimationFrame(() => {
       requestAnimationFrame(() => facFamScrollToListRow(null));
     });
