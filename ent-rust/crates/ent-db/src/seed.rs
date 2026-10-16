@@ -746,6 +746,8 @@ impl PgEnt {
     /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
     /// lot U (Bot AU-A) : note Cedric, carnet Neville (famille), photo trombi Hermione si vide, devoir Luna ;
     /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
+    /// lot V (Bot AV-A) : devoir Ginny, note Ron, photo trombi Seamus si vide, carnet Cho (famille) ;
+    /// ré-ensure absence Harry jour J + commission Harry jour J (sans wipe).
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -5703,6 +5705,187 @@ impl PgEnt {
                             eleve_id: harry.id,
                             motifs: COMMISSION_MOTIFS_AU_RENFORCE.into(),
                             note_interne: "Seed labo AU-A — ré-ensure commission jour J (sans wipe absences)."
+                                .into(),
+                            sanction_id: None,
+                            incident_id: incident_harry,
+                            signale_famille: true,
+                            actor_user_id: cpe.user_id,
+                        },
+                    )
+                    .await;
+            }
+        }
+
+        // --- Bot AV-A lot V (zone exclusive AV-A) : devoir Ginny, note Ron, photo trombi Seamus si vide,
+        // carnet Cho (famille) ; ré-ensure abs Harry jour J + commission Harry jour J (sans wipe).
+        if let Some(ginny) = labo_eleve_prenom(eleves, "Ginny") {
+            const GINNY_DEVOIR_AV_TITRE: &str = "DS Potions lab (Ginny AV-A)";
+            let devoirs_ginny_av = self
+                .list_devoirs_for_actor(
+                    etab,
+                    Role::Prof.as_str(),
+                    periode.id,
+                    Some(ginny.classe.as_str()),
+                )
+                .await?;
+            if !devoirs_ginny_av
+                .iter()
+                .any(|d| d.titre == GINNY_DEVOIR_AV_TITRE)
+            {
+                self.creer_devoir(CreerDevoir {
+                    etablissement_id: etab,
+                    periode_id: periode.id,
+                    matiere_id: potions.id,
+                    classe: ginny.classe.clone(),
+                    titre: GINNY_DEVOIR_AV_TITRE.into(),
+                    date_devoir: jour + Duration::days(9),
+                    coef: 1.0,
+                    sur: 20.0,
+                    actor_user_id: prof_rogue.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
+            const RON_NOTE_AV_LIB: &str = "Interro Potions lab (Ron AV-A)";
+            if !self
+                .notes_for_eleve(etab, ron.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(RON_NOTE_AV_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: ron.id,
+                    matiere_id: potions.id,
+                    valeur: 11.5,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_rogue.user_id,
+                    libelle: Some(RON_NOTE_AV_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(seamus) = labo_eleve_prenom(eleves, "Seamus") {
+            if self
+                .get_eleve(etab, seamus.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        seamus.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        if let Some(cho) = labo_eleve_prenom(eleves, "Cho") {
+            const CHO_CARNET_AV_TITRE: &str = "AUDIT AV-A: Encouragements Cho (famille)";
+            let carnet_cho_av = self
+                .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), cho.id)
+                .await?;
+            if !carnet_cho_av
+                .iter()
+                .any(|c| c.titre == CHO_CARNET_AV_TITRE)
+            {
+                self.creer_carnet_entree(CreerCarnetEntree {
+                    etablissement_id: etab,
+                    eleve_id: cho.id,
+                    date_entree: jour,
+                    categorie: CarnetCategorie::Information,
+                    titre: CHO_CARNET_AV_TITRE.into(),
+                    corps: "Seed labo lot AV-A — entrée carnet visible famille pour audit portail Cho Chang."
+                        .into(),
+                    visible_famille: true,
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        let absence_harry_jour_av = jour;
+        if !self
+            .eleve_est_absent(etab, harry.id, absence_harry_jour_av)
+            .await?
+        {
+            let motifs = self.list_motifs_absence(etab).await?;
+            let motif_code = motifs
+                .iter()
+                .find(|m| m.code.eq_ignore_ascii_case("maladie"))
+                .or_else(|| motifs.first())
+                .map(|m| m.code.clone())
+                .unwrap_or_else(|| "maladie".into());
+            self.declare_absence(DeclareAbsence {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                debut: absence_harry_jour_av,
+                fin: absence_harry_jour_av,
+                motif: motif_code,
+                actor_user_id: Some(cpe.user_id.to_string()),
+            })
+            .await?;
+        }
+
+        const COMMISSION_MOTIFS_AV_RENFORCE: &str = "Seed labo — commission Harry audit";
+        let role_cpe_commission_av = Role::Cpe.as_str();
+        let commissions_jour_av = self
+            .list_commissions_for_actor(etab, role_cpe_commission_av, jour)
+            .await?;
+        let dossiers_commission_harry_av = self
+            .list_commissions_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                role_cpe_commission_av,
+                harry.id,
+            )
+            .await?;
+        let harry_commission_jour_av = dossiers_commission_harry_av.iter().any(|d| {
+            commissions_jour_av
+                .iter()
+                .any(|c| c.id == d.commission_id)
+        });
+        if !harry_commission_jour_av {
+            let commission_av_id = if let Some(c) = commissions_jour_av.first() {
+                c.id
+            } else {
+                self.creer_commission_for_actor(
+                    role_cpe_commission_av,
+                    CreerCommissionVs {
+                        etablissement_id: etab,
+                        jour,
+                        heure: NaiveTime::from_hms_opt(14, 0, 0).unwrap(),
+                        objet: "Incidents répétés — Harry Potter (AV-A)".into(),
+                        lieu: "Bureau CPE".into(),
+                        actor_user_id: cpe.user_id,
+                    },
+                )
+                .await?
+                .id
+            };
+            if !dossiers_commission_harry_av
+                .iter()
+                .any(|d| d.commission_id == commission_av_id)
+            {
+                let _ = self
+                    .convoquer_commission_for_actor(
+                        role_cpe_commission_av,
+                        ConvoquerCommission {
+                            etablissement_id: etab,
+                            commission_id: commission_av_id,
+                            eleve_id: harry.id,
+                            motifs: COMMISSION_MOTIFS_AV_RENFORCE.into(),
+                            note_interne: "Seed labo AV-A — ré-ensure commission jour J (sans wipe absences)."
                                 .into(),
                             sanction_id: None,
                             incident_id: incident_harry,
