@@ -106,6 +106,8 @@ let entToastTimer = null;
 let notesDevoirsEmptyCedricRefresh = null;
 /** Rempli dans bindNotes — repère Cho sur tip « 0 devoir ». */
 let notesDevoirsEmptyChoRefresh = null;
+/** Rempli dans bindNotes — repère Hermione sur tip « 0 devoir ». */
+let notesDevoirsEmptyHermioneRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
 let notePeriodePickSuppress = 0;
 let eleveNotePeriodePickReady = false;
@@ -858,6 +860,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     && Number.isFinite(nMatiere) && nMatiere > 0 && nTot <= 0) {
     if (typeof notesDevoirsEmptyCedricRefresh === 'function') void notesDevoirsEmptyCedricRefresh();
     if (typeof notesDevoirsEmptyChoRefresh === 'function') void notesDevoirsEmptyChoRefresh();
+    if (typeof notesDevoirsEmptyHermioneRefresh === 'function') void notesDevoirsEmptyHermioneRefresh();
   }
 }
 
@@ -1029,6 +1032,41 @@ async function resolveCedricDiggoryEleveId() {
       && /diggory/i.test(String(e.nom || '').trim())
     );
     return c && c.id ? String(c.id) : '';
+  } catch {
+    return '';
+  }
+}
+
+/** /app/notes — repère seed labo Hermione Granger (4B · note Maths audit). */
+function notesHermioneSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.hermioneId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '4B').trim());
+  const mathNote = o.mathNoteLabel
+    ? esc(String(o.mathNoteLabel).trim().slice(0, 28))
+    : 'Interro Maths';
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Hermione Granger</strong><span>Seed labo · ${classe} · audit notes</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesHermioneSeedNotesBtn" data-hermione-id="${esc(String(o.hermioneId))}" style="cursor:pointer;text-align:left">
+      <strong>${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesHermioneSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${mathNote}</strong><span>Filtre 4B · devoirs / saisie</span>
+    </button>
+  </div>`;
+}
+
+async function resolveHermioneGrangerEleveId() {
+  try {
+    const list = await api('/eleves/search?q=Hermione');
+    const h = (list || []).find(e =>
+      /^hermione$/i.test(String(e.prenom || '').trim())
+      && /granger/i.test(String(e.nom || '').trim())
+    );
+    return h && h.id ? String(h.id) : '';
   } catch {
     return '';
   }
@@ -3153,6 +3191,114 @@ function etabOrientTipDenseHtml(opts) {
   return `<div class="bento" style="margin:0 0 .55rem">${filTile}${voeuxTile}${exportTile}</div>`;
 }
 
+/** /app/etab — référentiel filières (sous le bandeau orientation). */
+function orientEtabFilieresTipDenseHtml(list) {
+  if (!isStaffEtabFlux()) return '';
+  const items = list || [];
+  const n = items.length;
+  if (!n) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Référentiel filières vide</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Créer code · libellé · MEF</span></div>
+      <button type="button" class="stat-tile bento-span-4" id="btnOrientFilList" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>Lister</strong><span>Charger le référentiel</span>
+      </button>
+    </div>`;
+  }
+  let nMef = 0;
+  items.forEach(f => { if (f.mef) nMef += 1; });
+  const codes = items.slice().sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+  const previewRaw = codes.slice(0, 3).map(f => String(f.code || '').trim()).filter(Boolean).join(' · ');
+  const preview = previewRaw.length > 28 ? esc(previewRaw.slice(0, 28)) + '…' : esc(previewRaw || '—');
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${n}</strong><span>Filière(s) · référentiel actif</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${nMef}</strong><span>MEF renseigné(s) · ONISEP</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${preview}</strong><span>Codes publiés</span></div>
+    <button type="button" class="stat-tile bento-span-4" id="btnOrientFilList" style="cursor:pointer;text-align:left">
+      <strong>↓</strong><span>Tableau · Choisir pour vœu</span>
+    </button>
+  </div>`;
+}
+
+function bindOrientEtabFilieresTipActions() {
+  const btn = document.getElementById('btnOrientFilList');
+  if (!btn) return;
+  btn.onclick = () => {
+    document.getElementById('btnFilList')?.click();
+    document.getElementById('filOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+}
+
+/** /app/etab — synthèse liste filières (Lister). */
+function orientFilieresListTipDenseHtml(list) {
+  if (!isStaffEtabFlux()) return '';
+  const items = list || [];
+  if (!items.length) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Aucune filière référentiel</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Créer ci-dessus · code · MEF</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Vœux</strong><span>Poser après référentiel</span></div>
+    </div>`;
+  }
+  let nMef = 0;
+  items.forEach(f => { if (f.mef) nMef += 1; });
+  const sorted = items.slice().sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+  const first = sorted[0];
+  const codeLbl = first && first.code ? esc(String(first.code).trim()) : '—';
+  const libRaw = first && first.libelle ? String(first.libelle).trim() : '';
+  const libLbl = libRaw.length > 22 ? esc(libRaw.slice(0, 22)) + '…' : esc(libRaw || '—');
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${items.length}</strong><span>Filière(s) · référentiel</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${codeLbl}</strong><span>${libLbl} · 1ʳᵉ ligne</span></div>
+    <div class="stat-tile bento-span-4"><strong>${nMef}</strong><span>MEF renseigné(s) · export EN</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Choisir · select vœu</span></div>
+  </div>`;
+}
+
+/** /app/etab — compteur vœux élève (liste staff). */
+function orientVoeuxCountTipDenseHtml(list, opts) {
+  if (!isStaffEtabFlux()) return '';
+  const o = opts || {};
+  const sorted = [...(list || [])].sort((a, b) => (a.rang || 99) - (b.rang || 99));
+  const n = sorted.length;
+  const annee = o.annee ? esc(String(o.annee).trim()) : '—';
+  const who = o.eleveLabel || o.prenom
+    ? esc(String(o.eleveLabel || o.prenom).trim())
+    : 'Élève';
+  if (!n) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Vœu(x) · ${who}</span></div>
+      <div class="stat-tile bento-span-4"><strong>${annee}</strong><span>Année scolaire</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Poser vœu · ci-dessus</span></div>
+    </div>`;
+  }
+  const top = sorted[0];
+  const topRaw = top && (top.filiere_label || top.filiere_code)
+    ? String(top.filiere_label || top.filiere_code).trim()
+    : '';
+  const topLbl = topRaw
+    ? (topRaw.length > 24 ? esc(topRaw.slice(0, 24)) + '…' : esc(topRaw))
+    : '—';
+  const maxRang = sorted.reduce((m, v) => Math.max(m, Number(v.rang) || 0), 0);
+  const rangPart = maxRang > 1 ? ` · rangs 1-${maxRang}` : '';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${n}</strong><span>Vœu(x) · ${who}${rangPart}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${topLbl}</strong><span>Rang 1 · filière</span></div>
+    <div class="stat-tile bento-span-4"><strong>${annee}</strong><span>Année scolaire · Parcoursup</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">↓</strong><span>Supprimer = bouton liste</span></div>
+  </div>`;
+}
+
+function orientStaffVoeuxListTipDenseHtml(list, opts) {
+  return orientVoeuxCountTipDenseHtml(list, opts);
+}
+
 /** Liste vœux (page / fiche) — synthèse bento au-dessus du tableau. */
 function orientVoeuxListTipDenseHtml(list, opts) {
   const o = opts || {};
@@ -3167,9 +3313,7 @@ function orientVoeuxListTipDenseHtml(list, opts) {
     ? (topRaw.length > 26 ? esc(topRaw.slice(0, 26)) + '…' : esc(topRaw))
     : '—';
   const annee = o.annee ? esc(String(o.annee).trim()) : '—';
-  const eid = o.enfantId ? esc(String(o.enfantId)) : '';
-  const pageHref = '/famille/orientation';
-  const ficheHref = eid ? `/famille/enfants/${eid}?section=orientation` : pageHref;
+  const elevePortal = !!o.elevePortal;
   const prenom = o.prenom ? esc(String(o.prenom).trim()) : '';
   const countTile = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
       <strong>${n}</strong><span>Vœu(x) · rang 1 : ${topLbl}</span>
@@ -3177,14 +3321,34 @@ function orientVoeuxListTipDenseHtml(list, opts) {
   const anneeTile = `<div class="stat-tile bento-span-4"><strong>${annee}</strong><span>Année scolaire</span></div>`;
   const actTile = o.allowCancel
     ? `<div class="stat-tile bento-span-4"><strong>↓</strong><span>${prenom ? prenom + ' · ' : ''}Retirer = bouton liste</span></div>`
-    : `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-        <strong>→</strong><span>Page orientation famille</span>
-      </a>`;
+    : elevePortal
+      ? `<div class="stat-tile bento-span-4"><strong>↓</strong><span>Poser un vœu · formulaire ci-dessus</span></div>`
+      : `<a class="stat-tile bento-span-4" href="/famille/orientation" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+          <strong>→</strong><span>Page orientation famille</span>
+        </a>`;
   return `<div class="bento" style="margin:0 0 .55rem">${countTile}${anneeTile}${actTile}</div>`;
 }
 
-/** Accueil famille — vœux / orientation (bento). */
-function famHomeOrientTipDenseHtml(list, voeuxLists) {
+/** Accueil famille — liens orientation (ONISEP / Parcoursup / page). */
+function famHomeOrientTipDenseHtml(list) {
+  const kids = list || [];
+  if (!kids.length) return '';
+  const pageHref = '/famille/orientation';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>→</strong><span>Page orientation · vœux &amp; info-comp</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="https://www.onisep.fr/" target="_blank" rel="noopener" style="text-decoration:none">
+      <strong>ONISEP</strong><span>Métiers &amp; formations</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="https://www.parcoursup.fr/" target="_blank" rel="noopener" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Parcoursup</strong><span>Post-bac &amp; vœux officiels</span>
+    </a>
+  </div>`;
+}
+
+/** Accueil famille — synthèse vœux enregistrés (bento). */
+function famHomeVoeuxTipDenseHtml(list, voeuxLists) {
   const kids = list || [];
   if (!kids.length) return '';
   const annee = '2026-2027';
@@ -3202,10 +3366,10 @@ function famHomeOrientTipDenseHtml(list, voeuxLists) {
         <strong>—</strong><span>Aucun vœu · ${esc(annee)}</span>
       </a>
       <a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-        <strong>Parcoursup</strong><span>Poser ou modifier les vœux</span>
+        <strong>Poser</strong><span>Vœu · filière &amp; rang</span>
       </a>
-      <a class="stat-tile bento-span-4" href="https://www.onisep.fr/" target="_blank" rel="noopener" style="text-decoration:none">
-        <strong>ONISEP</strong><span>Métiers &amp; formations</span>
+      <a class="stat-tile bento-span-4" href="https://www.parcoursup.fr/" target="_blank" rel="noopener" style="text-decoration:none">
+        <strong>Parcoursup</strong><span>Compléter sur le portail national</span>
       </a>
     </div>`;
   }
@@ -3228,7 +3392,27 @@ function famHomeOrientTipDenseHtml(list, voeuxLists) {
       <strong>${prenom}</strong><span>${best.n} vœu(x) · ${moreKids > 1 ? moreKids + ' enfant(s)' : esc(annee)}</span>
     </a>
     <a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none">
-      <strong>→</strong><span>Orientation · ONISEP / Parcoursup</span>
+      <strong>↓</strong><span>Modifier · page orientation</span>
+    </a>
+  </div>`;
+}
+
+/** Page / fiche orientation — liens Parcoursup &amp; ONISEP (bento). */
+function famOrientParcoursupTipDenseHtml(opts) {
+  const o = opts || {};
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const who = o.prenom ? esc(String(o.prenom).trim()) : '';
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=orientation` : '/famille/orientation';
+  const whoSub = who ? `${who} · fiche` : 'Fiche enfant · vœux';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <a class="stat-tile bento-span-4" href="https://www.parcoursup.fr/" target="_blank" rel="noopener" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Parcoursup</strong><span>Post-bac · vœux officiels</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="https://www.onisep.fr/" target="_blank" rel="noopener" style="text-decoration:none">
+      <strong>ONISEP</strong><span>Métiers &amp; filières</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+      <strong>Messages</strong><span>CPE · Psy-EN · ${whoSub}</span>
     </a>
   </div>`;
 }
@@ -4493,7 +4677,8 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
     <div class="stat-tile bento-span-4"><strong>→</strong><span>Puis grille · saisie · moyennes</span></div>
   </div>
   <div id="notesDevoirsEmptyCedricSlot"></div>
-  <div id="notesDevoirsEmptyChoSlot"></div>`;
+  <div id="notesDevoirsEmptyChoSlot"></div>
+  <div id="notesDevoirsEmptyHermioneSlot"></div>`;
 }
 
 function bindNotesDevoirsEmptyTipGo() {
@@ -5009,7 +5194,23 @@ function exportsEnPontsTipDenseHtml(opts) {
       <strong>LSL · LSUN</strong><span>${pl} · Notanet</span>
     </div>
     <div class="stat-tile bento-span-4"><strong>${cl}</strong><span>${perHint} · préflight</span></div>
-    <div class="stat-tile bento-span-4"><strong>${n || '—'}</strong><span>Élève(s) · Parcoursup · ONDE</span></div>
+    <div class="stat-tile bento-span-4"><strong>${n || '—'}</strong><span>Élève(s) · LSL · ONDE</span></div>
+  </div>`;
+}
+
+/** /app/exports — pont Parcoursup (classe · année scolaire · effectif). */
+function exportsEnParcoursupTipDenseHtml(opts) {
+  if (!isStaffExportsEnFlux()) return '';
+  const o = opts || {};
+  const cl = esc(String(o.classe || '').trim() || '—');
+  const annee = o.annee ? esc(String(o.annee).trim()) : '2026-2027';
+  const n = Number(o.nEleves) || 0;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Parcoursup</strong><span>Export orientation · vœux</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${cl}</strong><span>Classe · ${annee}</span></div>
+    <div class="stat-tile bento-span-4"><strong>${n || '—'}</strong><span>Élève(s) · préflight CSV</span></div>
   </div>`;
 }
 
@@ -5115,6 +5316,14 @@ function refreshExportsEnLsunTip(nEleves) {
     nPeriodes: exportsEnPeriodesMeta.nPeriodes,
     nFermees: exportsEnPeriodesMeta.nFermees,
   });
+}
+
+function refreshExportsEnParcoursupTip(nEleves) {
+  const el = document.getElementById('expEnParcoursupTip');
+  if (!el) return;
+  const c = (document.getElementById('expEnClasse') || {}).value;
+  const annee = (document.getElementById('expEnAnnee') || {}).value;
+  el.innerHTML = exportsEnParcoursupTipDenseHtml({ classe: c, annee, nEleves });
 }
 
 function entMessageLooksEdtConflit(msg) {
@@ -9152,17 +9361,22 @@ function toastStaffVoeuSupprime(v, opts) {
     simple();
     return;
   }
+  const nRest = Number(o.nRestant);
+  const countTile = Number.isFinite(nRest) && nRest >= 0
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nRest}</strong><span>Vœu(x) restant(s)${whoPart}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong>${annee}</strong><span>Année scolaire · Parcoursup</span></div>`;
   const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--muted,#64748b)">
-      <strong class="muted">Retiré</strong><span>Dossier orientation</span>
+      <strong class="muted">Retiré</strong><span>Dossier orientation · rang ${rang}</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong>${rang}</strong><span>${fil || 'Filière'}${whoPart}</span></div>
-    <div class="stat-tile bento-span-4"><strong>${annee}</strong><span>Année scolaire · Parcoursup</span></div>`;
+    <div class="stat-tile bento-span-4"><strong>${fil || 'Filière'}</strong><span>Rang ${rang}${whoPart}</span></div>
+    ${countTile}`;
   showEntToast(
     `<strong>Vœu supprimé</strong>`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="#" id="entToastVoeList">Vœux élève</a> · `
-    + `<a href="/app/exports">Exports LSUN</a></p>`,
+    + `<a href="/app/exports">Exports Parcoursup</a></p>`,
     8500,
   );
   const listLink = document.getElementById('entToastVoeList');
@@ -9741,7 +9955,8 @@ function normalizeFamEnfantSection(sec) {
   if (s === 'pai' || s === 'protocole' || s === 'protocole-infirmierie' || s === 'infirmerie-pai') return 'pai';
   if (s === 'vs' || s === 'vie-scolaire' || s === 'viescolaire') return 'vs';
   if (s === 'info-comp' || s === 'infocomp' || s === 'voeux' || s === 'voeu') return 'orientation';
-  if (s === 'orientation' || s === 'orient') return 'orientation';
+  if (s === 'orientation' || s === 'orient' || s === 'parcoursup' || s === 'post-bac' || s === 'postbac') return 'orientation';
+  if (s === 'onisep') return 'orientation';
   if (s === 'sante' || s === 'infirmerie' || s === 'fiche-sante' || s === 'fiche_sante' || s === 'health') return 'sante';
   if (s === 'cantine' || s === 'passages' || s === 'repas-midi' || s === 'repas') return 'repas';
   if (s === 'bourse' || s === 'bourses') return 'bourses';
@@ -9806,6 +10021,17 @@ function famApplyEnfantSectionDeepLink(forcedSec) {
           saveBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           saveBtn.style.outline = '2px solid var(--warn, #b45309)';
           setTimeout(() => { saveBtn.style.outline = ''; }, 2200);
+        }, 280);
+      }
+    }
+    if (sec === 'orientation') {
+      const poseBtn = document.getElementById('btnFamVoePose');
+      const poseTarget = poseBtn || document.getElementById('famEnfantOrientTip');
+      if (poseTarget) {
+        setTimeout(() => {
+          poseTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          poseTarget.style.outline = '2px solid var(--accent, #2563eb)';
+          setTimeout(() => { poseTarget.style.outline = ''; }, 2200);
         }, 280);
       }
     }
@@ -9985,6 +10211,114 @@ function maybeToastFamSanteOuverte(f, pai, passages, enfantId, prenom) {
     return;
   }
   toastFamSanteOuverte(f, pai, passages, id, prenom, { dense: true });
+}
+
+/** Toast bento — page /famille/orientation ouverte (enfant sélectionné). */
+function toastFamOrientationOuverte(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const annee = esc(String(o.annee || '2026-2027').trim());
+  const voeux = (o.voeux || []).slice().sort((a, b) => (a.rang || 99) - (b.rang || 99));
+  const nVoeux = voeux.length;
+  const nIc = Number(o.nIcRenseignes) || 0;
+  const nIcTot = Number(o.nIcTotal) || 0;
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=orientation` : '/famille/orientation';
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/orientation">Page orientation</a> · `
+    + `<a href="${ficheHref}">Fiche enfant</a> · `
+    + `<a href="https://www.parcoursup.fr/" target="_blank" rel="noopener">Parcoursup</a></p>`;
+  if (!isFamilleOrientationFlux() && !o.dense) {
+    showEntToast(
+      `<strong>Orientation</strong> — ${who}. `
+      + `<a href="/famille/orientation">Vœux &amp; info-comp</a>`,
+      6500,
+    );
+    return;
+  }
+  const top = voeux[0];
+  const topRaw = top && (top.filiere_label || top.filiere_code)
+    ? String(top.filiere_label || top.filiere_code).trim()
+    : '';
+  const topLbl = topRaw
+    ? (topRaw.length > 24 ? esc(topRaw.slice(0, 24)) + '…' : esc(topRaw))
+    : '—';
+  const voeuxTile = nVoeux
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nVoeux}</strong><span>Vœu(x) · rang 1 : ${topLbl}</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucun vœu · ${annee}</span></div>`;
+  const icTile = nIcTot
+    ? `<div class="stat-tile bento-span-4"><strong>${nIc}/${nIcTot}</strong><span>Info-comp renseignés</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Info-comp non publiés</span></div>`;
+  const whoTile = `<div class="stat-tile bento-span-4"><strong>${who}</strong><span>Orientation · ${annee}</span></div>`;
+  showEntToast(
+    `<strong>Page Orientation</strong> — ${who}`
+    + `<div class="bento" style="margin:.4rem 0 0">${voeuxTile}${icTile}${whoTile}</div>`
+    + foot,
+    nVoeux || nIcTot ? 9000 : 7500,
+  );
+}
+
+function maybeToastFamOrientationOuverte(opts) {
+  if (!isParent() || !isFamilleOrientationFlux()) return;
+  const o = opts || {};
+  const id = o.enfantId ? String(o.enfantId).trim() : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_orient_page_open_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamOrientationOuverte({ ...o, enfantId: id, dense: true });
+}
+
+/** Deep-link fiche ?section=orientation — toast bento (vœux + Parcoursup). */
+function toastFamOrientSectionDeepDense(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const pageHref = '/famille/orientation';
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=orientation` : pageHref;
+  const tipHtml = famOrientTipDenseHtml({
+    voeux: o.voeux || [],
+    nIcRenseignes: o.nIcRenseignes,
+    nIcTotal: o.nIcTotal,
+    prenom: o.prenom,
+    annee: o.annee || '2026-2027',
+    enfantId: o.enfantId,
+  });
+  const psHtml = famOrientParcoursupTipDenseHtml({
+    prenom: o.prenom,
+    enfantId: o.enfantId,
+  });
+  showEntToast(
+    `<strong>Orientation</strong> — ${who} · section vœux`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + (psHtml ? `<div style="margin:.25rem 0 0">${psHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Page orientation</a> · `
+    + `<a href="${ficheHref}">↓ Section ci-dessous</a></p>`,
+    9500,
+  );
+}
+
+function maybeToastFamOrientSectionDeep(opts) {
+  if (!isParent() || !isFamilleEnfantFlux()) return;
+  const o = opts || {};
+  if (normalizeFamEnfantSection(o.deepSection) !== 'orientation') return;
+  const id = o.enfantId ? String(o.enfantId).trim() : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_orient_sec_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamOrientSectionDeepDense(o);
 }
 
 function famSanteStatsBentoHtml(f, pai, passages) {
@@ -12244,10 +12578,16 @@ async function bindEleveOrientation() {
   } catch (e) {
     if (voeuxOut) voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
-  function renderVoeuxTable(list) {
+  function renderVoeuxTable(list, annee) {
     const sorted = [...(list || [])].sort((a, b) => (a.rang || 99) - (b.rang || 99));
     if (!sorted.length) return '<p class="empty">Aucun vœu pour cette année. Utilisez le formulaire ci-dessus.</p>';
-    return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+    const prenom = me && me.prenom ? String(me.prenom).trim() : '';
+    const listTip = orientVoeuxListTipDenseHtml(sorted, {
+      annee: annee || '2026-2027',
+      prenom,
+      elevePortal: true,
+    });
+    return `${listTip}<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead><tr>
         <th style="text-align:left;width:4rem">Rang</th>
         <th style="text-align:left">Filière visée</th>
@@ -12287,7 +12627,7 @@ async function bindEleveOrientation() {
           annee: annee || '2026-2027',
         });
       }
-      voeuxOut.innerHTML = renderVoeuxTable(sorted);
+      voeuxOut.innerHTML = renderVoeuxTable(sorted, annee || '2026-2027');
     } catch (e) {
       if (statsOut) statsOut.innerHTML = '';
       voeuxOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -14169,6 +14509,7 @@ function viewFamilleHome() {
     <div id="famHomeReinscDocsManqTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeEnfantsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeOrientTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeVoeuxTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -14693,13 +15034,24 @@ async function bindFamilleHome() {
     }
     const orientHomeTip = document.getElementById('famHomeOrientTip');
     if (orientHomeTip) {
-      const denseOrient = famHomeOrientTipDenseHtml(list, voeuxLists);
+      const denseOrient = famHomeOrientTipDenseHtml(list);
       if (denseOrient) {
         orientHomeTip.style.display = '';
         orientHomeTip.innerHTML = denseOrient;
       } else {
         orientHomeTip.style.display = 'none';
         orientHomeTip.innerHTML = '';
+      }
+    }
+    const voeuxHomeTip = document.getElementById('famHomeVoeuxTip');
+    if (voeuxHomeTip) {
+      const denseVoeux = famHomeVoeuxTipDenseHtml(list, voeuxLists);
+      if (denseVoeux) {
+        voeuxHomeTip.style.display = '';
+        voeuxHomeTip.innerHTML = denseVoeux;
+      } else {
+        voeuxHomeTip.style.display = 'none';
+        voeuxHomeTip.innerHTML = '';
       }
     }
     if (pulse) {
@@ -15068,6 +15420,7 @@ async function bindFamilleEnfant(id) {
       <div id="docsTiroirFam" class="muted" style="margin-top:.5rem">Chargement…</div>`;
     html += `<div id="fam-sec-orientation" style="scroll-margin-top:4.5rem">
       <div id="famEnfantOrientTip" style="display:none;margin:0 0 .55rem"></div>
+      <div id="famEnfantOrientParcoursupTip" style="display:none;margin:0 0 .55rem"></div>
       <h3>Orientation · vœux</h3>
       <p class="muted" style="margin:0 0 .5rem">Parcoursup / ONISEP — même données que la page <a href="/famille/orientation">Orientation</a>.</p>
       <div class="row">
@@ -16389,6 +16742,7 @@ async function bindFamilleEnfant(id) {
         });
         bindFamVoeuxRetirerButtons(box, id, e.prenom, loadFamVoeux);
         const orientTip = document.getElementById('famEnfantOrientTip');
+        const orientPsTip = document.getElementById('famEnfantOrientParcoursupTip');
         if (orientTip && orientSection) {
           let nIcRenseignes = 0;
           let nIcTotal = 0;
@@ -16411,13 +16765,35 @@ async function bindFamilleEnfant(id) {
             annee: annee || '2026-2027',
             enfantId: id,
           });
+          if (orientPsTip) {
+            orientPsTip.style.display = '';
+            orientPsTip.innerHTML = famOrientParcoursupTipDenseHtml({
+              prenom: e.prenom,
+              enfantId: id,
+            });
+          }
+          maybeToastFamOrientSectionDeep({
+            deepSection: 'orientation',
+            enfantId: id,
+            prenom: e.prenom,
+            voeux: list,
+            nIcRenseignes,
+            nIcTotal,
+            annee: annee || '2026-2027',
+          });
           if (orientSection) {
             famApplyEnfantSectionDeepLink('orientation');
             setTimeout(() => famApplyEnfantSectionDeepLink('orientation'), 200);
           }
-        } else if (orientTip) {
-          orientTip.style.display = 'none';
-          orientTip.innerHTML = '';
+        } else {
+          if (orientTip) {
+            orientTip.style.display = 'none';
+            orientTip.innerHTML = '';
+          }
+          if (orientPsTip) {
+            orientPsTip.style.display = 'none';
+            orientPsTip.innerHTML = '';
+          }
         }
       }
       await loadFamVoeux();
@@ -16592,7 +16968,9 @@ async function bindFamilleEnfant(id) {
       prevPrenom: prevEnfant && prevEnfant.prenom,
       deepSection: enfantDeepSection,
     }, enfants.length);
-    maybeToastFamEnfantOuverte(e, enfantTodoStats, { deepSection: enfantDeepSection });
+    if (enfantDeepSection !== 'orientation') {
+      maybeToastFamEnfantOuverte(e, enfantTodoStats, { deepSection: enfantDeepSection });
+    }
 
     famApplyEnfantSectionDeepLink(enfantDeepSection);
     if (enfantDeepSection) {
@@ -20453,6 +20831,7 @@ function viewEtab() {
     <div class="panel">
       <h2>Filières / vœux</h2>
       <div id="etabOrientTip"></div>
+      <div id="orientFilieresTip"></div>
       <div class="row">
         <label>Code <input id="filCode" value="STI2D" style="width:5rem"/></label>
         <label>Libellé <input id="filLib" value="STI2D"/></label>
@@ -20469,6 +20848,7 @@ function viewEtab() {
         <button type="button" id="btnVoeList">Vœux élève</button>
       </div>
       <div id="filMsg" class="muted"></div>
+      <div id="filListTip"></div>
       <div id="filOut" class="muted" style="margin-top:.5rem">…</div>
     </div>
     <div class="panel">
@@ -20750,6 +21130,13 @@ async function bindEtab() {
     if (!el || !el.selectedOptions || !el.selectedOptions[0]) return '';
     return el.selectedOptions[0].textContent.trim();
   }
+  function refreshOrientEtabFilieresTip() {
+    const el = document.getElementById('orientFilieresTip');
+    if (!el) return;
+    const list = Object.values(filiereById);
+    el.innerHTML = orientEtabFilieresTipDenseHtml(list);
+    bindOrientEtabFilieresTipActions();
+  }
   function refreshEtabOrientTip(extra) {
     if (!etabOrientTipEl) return;
     const o = extra || {};
@@ -20761,6 +21148,7 @@ async function bindEtab() {
       annee: o.annee || (document.getElementById('voeAnnee') || {}).value || '',
       eleveLabel: o.eleveLabel || voeEleveLabelFromPicker(),
     });
+    refreshOrientEtabFilieresTip();
   }
   function bindStaffVoeuxDelButtons(eid) {
     if (!filOut || !eid) return;
@@ -20773,10 +21161,15 @@ async function bindEtab() {
         const fil = btn.dataset.fil || '';
         const rang = btn.dataset.rang || '';
         if (!confirm(`Supprimer le vœu rang ${rang}${fil ? ' · ' + fil : ''} ?`)) return;
+        const nAvant = filOut.querySelectorAll('.btnStaffVoeuDel').length;
+        const nRestant = Math.max(0, nAvant - 1);
         btn.disabled = true;
         try {
           await api('/eleves/' + encodeURIComponent(eid) + '/voeux/' + vid, { method: 'DELETE' });
-          toastStaffVoeuSupprime({ rang, filiere_label: fil, annee_scolaire: annee }, { eleveLabel: who });
+          toastStaffVoeuSupprime(
+            { rang, filiere_label: fil, annee_scolaire: annee },
+            { eleveLabel: who, nRestant },
+          );
           await document.getElementById('btnVoeList').onclick();
         } catch (err) {
           alert(err.message);
@@ -20798,6 +21191,8 @@ async function bindEtab() {
         ).join('');
         if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
       }
+      const filListTipEl = document.getElementById('filListTip');
+      if (filListTipEl) filListTipEl.innerHTML = orientFilieresListTipDenseHtml(list || []);
       filOut.innerHTML = !list.length
         ? '<p class="empty">Aucune filière.</p>'
         : `<table><thead><tr><th>Code</th><th>Libellé</th><th>MEF</th><th></th></tr></thead>
@@ -20870,7 +21265,9 @@ async function bindEtab() {
         ], '<a href="/app/exports">Exports EN</a>');
         return;
       }
-      filOut.innerHTML = (orientVoeuxListTipDenseHtml(list, { annee, prenom: who, allowCancel: true }) || '')
+      const filListTipEl = document.getElementById('filListTip');
+      if (filListTipEl) filListTipEl.innerHTML = '';
+      filOut.innerHTML = orientStaffVoeuxListTipDenseHtml(list, { annee, prenom: who, eleveLabel: who })
         + `<table><thead><tr><th>Rang</th><th>Filière</th><th>Année</th><th></th></tr></thead>
            <tbody>${list.map(v => {
              const f = filiereById[v.filiere_id];
@@ -28372,6 +28769,64 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyChoRefresh = refreshNotesDevoirsEmptyChoSlot;
+  async function refreshNotesDevoirsEmptyHermioneSlot() {
+    const el = document.getElementById('notesDevoirsEmptyHermioneSlot');
+    if (!el) return;
+    try {
+      const hermioneId = await resolveHermioneGrangerEleveId();
+      if (!hermioneId) {
+        el.innerHTML = '';
+        return;
+      }
+      let nNotes = 0;
+      let classe = '4B';
+      let mathNoteLabel = '';
+      try {
+        const notes = await api('/eleves/' + hermioneId + '/notes');
+        nNotes = (notes || []).length;
+        const mathNote = (notes || []).find(n =>
+          /hermione/i.test(String(n.libelle || ''))
+          || /math/i.test(String(n.matiere_libelle || n.matiere || '')));
+        if (mathNote && mathNote.libelle) mathNoteLabel = String(mathNote.libelle);
+      } catch {
+        nNotes = 0;
+      }
+      try {
+        const eleve = await api('/eleves/' + hermioneId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 4B */ }
+      el.innerHTML = notesHermioneSeedTipDenseHtml({
+        hermioneId,
+        nNotes,
+        classe,
+        mathNoteLabel,
+      });
+      const btnNotes = document.getElementById('notesHermioneSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.hermioneId || hermioneId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Hermione');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesHermioneSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip4B');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '4B';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyHermioneRefresh = refreshNotesDevoirsEmptyHermioneSlot;
   async function refreshNotesHarrySeedTip(devoirsPref) {
     const el = document.getElementById('notesHarrySeedTip');
     if (!el) return;
@@ -29245,6 +29700,7 @@ function viewExportsEn() {
   return shell('/app/exports', `
     <div class="bento" id="expEnStats"></div>
     <div id="expEnLsunTip"></div>
+    <div id="expEnParcoursupTip"></div>
     <div id="expEnLsunPreflightTip"></div>
     <div class="panel">
       <h2>Exports EN</h2>
@@ -29284,6 +29740,7 @@ async function bindExportsEn() {
         <div class="stat-tile bento-span-4"><strong>${fermees}</strong><span>Fermées (bulletins OK)</span></div>
         <div class="stat-tile bento-span-4"><strong>5</strong><span>Ponts EN</span></div>`;
       refreshExportsEnLsunTip(0);
+      refreshExportsEnParcoursupTip(0);
       refreshExportsEnLsunPreflightTip({
         ...lsunPreflightTipMeta(
           (document.getElementById('expEnClasse') || {}).value,
@@ -29312,6 +29769,7 @@ async function bindExportsEn() {
            — ${eleves.map(e => esc(e.prenom) + ' ' + esc(e.nom)).join(', ')}</p>`
         : '<p class="empty">Effectif vide — export refusé.</p>';
       refreshExportsEnLsunTip(eleves.length);
+      refreshExportsEnParcoursupTip(eleves.length);
       refreshExportsEnLsunPreflightTip({
         ...lsunPreflightTipMeta(c, pid, eleves.length),
         phase: eleves.length ? 'idle' : 'empty',
@@ -29326,6 +29784,15 @@ async function bindExportsEn() {
   document.getElementById('expEnClasse').onchange = previewEffectif;
   const expEnPeriodeEl = document.getElementById('expEnPeriode');
   if (expEnPeriodeEl) expEnPeriodeEl.onchange = previewEffectif;
+  const expEnAnneeEl = document.getElementById('expEnAnnee');
+  if (expEnAnneeEl) {
+    expEnAnneeEl.onchange = () => {
+      const box = document.getElementById('expEnEffectif');
+      const m = box && box.textContent ? box.textContent.match(/(\d+)\s*élève/) : null;
+      const n = m ? Number(m[1]) : 0;
+      refreshExportsEnParcoursupTip(n);
+    };
+  }
   async function downloadCsv(path, filename) {
     const n = await previewEffectif();
     if (!n) {
@@ -32854,9 +33321,8 @@ function viewFamilleOrientation() {
     <div class="bento" id="famOrientStats"></div>
     <div id="famOrientBar" style="margin-bottom:.65rem"></div>
     <div id="famOrientPageTip" style="display:none;margin-bottom:.65rem"></div>
+    <div id="famOrientParcoursupTip" style="display:none;margin-bottom:.65rem"></div>
     <div class="bento">
-      <a class="stat-tile bento-span-4" href="https://www.onisep.fr/" target="_blank" rel="noopener"><strong>ONISEP</strong><span>Métiers &amp; formations</span></a>
-      <a class="stat-tile bento-span-4" href="https://www.parcoursup.fr/" target="_blank" rel="noopener"><strong>Parcoursup</strong><span>Post-bac &amp; vœux</span></a>
       <a class="stat-tile bento-span-4" href="/famille/messages"><strong>Messages</strong><span>Contacter le CPE / Psy-EN</span></a>
     </div>
     <div class="panel">
@@ -32890,6 +33356,7 @@ async function bindFamilleOrientation() {
   const icOut = document.getElementById('orientIcOut');
   const statsOut = document.getElementById('famOrientStats');
   const pageTip = document.getElementById('famOrientPageTip');
+  const parcoursupTip = document.getElementById('famOrientParcoursupTip');
   const bar = document.getElementById('famOrientBar');
   let enfants = [];
   try {
@@ -32901,6 +33368,7 @@ async function bindFamilleOrientation() {
     if (!enfants.length) {
       if (statsOut) statsOut.innerHTML = '';
       if (pageTip) { pageTip.style.display = 'none'; pageTip.innerHTML = ''; }
+      if (parcoursupTip) { parcoursupTip.style.display = 'none'; parcoursupTip.innerHTML = ''; }
       if (voeuxOut) {
         voeuxOut.innerHTML = famEmptyDense('Aucun enfant lié', [
           'Connectez-vous avec un compte parent rattaché à un élève.',
@@ -33022,6 +33490,25 @@ async function bindFamilleOrientation() {
         enfantId: id,
       });
     }
+    if (parcoursupTip) {
+      const optPs = sel.options[sel.selectedIndex];
+      const prenomPs = optPs ? optPs.textContent.trim().split(/\s/)[0] : '';
+      parcoursupTip.style.display = '';
+      parcoursupTip.innerHTML = famOrientParcoursupTipDenseHtml({
+        prenom: prenomPs,
+        enfantId: id,
+      });
+    }
+    maybeToastFamOrientationOuverte({
+      enfantId: id,
+      prenom: (sel.options[sel.selectedIndex] || {}).textContent
+        ? sel.options[sel.selectedIndex].textContent.trim().split(/\s/)[0]
+        : '',
+      voeux: voeuxList,
+      nIcRenseignes,
+      nIcTotal,
+      annee: annee || '2026-2027',
+    });
   }
   const btn = document.getElementById('btnOrientVoe');
   if (btn) {
