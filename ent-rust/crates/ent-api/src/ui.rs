@@ -897,6 +897,67 @@ function findRonBtDevoir(devoirs) {
     && (/BT-A/i.test(String(d.titre || '')) || /fran/i.test(String(d.matiere_libelle || d.matiere || ''))));
 }
 
+function findDracoBvDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /draco/i.test(String(d.titre || ''))
+    && (/BV-A/i.test(String(d.titre || '')) || /potions/i.test(String(d.matiere_libelle || d.matiere || ''))));
+}
+
+function notesDracoDevoirGoActions() {
+  const chip = document.getElementById('notesChip5A');
+  if (chip) chip.click();
+  const devCl = document.getElementById('devClasse');
+  if (devCl) devCl.value = '5A';
+  document.getElementById('btnDevList')?.click();
+  document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** /app/notes — repère devoir Draco BV-A (0 devoir global ou liste filtrée vide). */
+function notesDracoDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.dracoBvDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'DS Potions lab (Draco BV-A)';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Draco Malefoy</strong><span>Seed labo · 5A · devoir audit BV-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesDracoDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir BV-A · 5A'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesDracoDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 5A</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesDracoDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesDracoDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.dracoBvDevoir && o.dracoBvDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.dracoBvDevoir);
+        return;
+      }
+      notesDracoDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'DS Potions lab (Draco BV-A)';
+      }
+      if (!o.dracoBvDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesDracoDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesDracoDevoirGoActions();
+  }
+}
+
 function notesRonDevoirGoActions() {
   const chip = document.getElementById('notesChip5A');
   if (chip) chip.click();
@@ -1068,28 +1129,26 @@ function bindNotesHarryDevoirGoTipGo(opts) {
   }
 }
 
-/** /app/notes — repère seed labo Harry Potter (4B · Potions). */
+/** /app/notes — repère seed labo Harry Potter (4B · note Potions BV-A · audit BV-D). */
 function notesHarrySeedTipDenseHtml(meta) {
   const o = meta || {};
   if (!o.harryId) return '';
   const nNotes = Number(o.nNotes) || 0;
   const classe = esc(String(o.classe || '4B').trim());
-  const hasBsDevoir = !!o.harryBsDevoir;
-  const devoirLbl = o.harryBsDevoir && o.harryBsDevoir.titre
-    ? esc(String(o.harryBsDevoir.titre).trim().slice(0, 28))
-    : 'DS Potions BS-A';
-  const potions = hasBsDevoir
-    ? `<span class="pill ok pill-dense">Potions</span> `
-    : '';
+  const hasBvNote = !!o.hasBvNote;
+  const noteLbl = o.bvNoteLabel
+    ? esc(String(o.bvNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · BV-A');
+  const noteStrong = hasBvNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
   return `<div class="bento" style="margin:.15rem 0 .55rem">
     <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
-      <strong>Harry Potter</strong><span>Seed labo · ${classe} · ${potions}grille audit</span>
+      <strong>Harry Potter</strong><span>Seed labo · ${classe} · audit notes BV-D</span>
     </div>
     <button type="button" class="stat-tile bento-span-4" id="notesHarrySeedNotesBtn" data-harry-id="${esc(String(o.harryId))}" style="cursor:pointer;text-align:left">
-      <strong>${nNotes}</strong><span>Note(s) enregistrée(s) · voir fiche élève</span>
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
     </button>
-    <button type="button" class="stat-tile bento-span-4" id="notesHarrySeedDevoirBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
-      <strong class="${hasBsDevoir ? 'ok' : 'muted'}">${devoirLbl}</strong><span>${hasBsDevoir ? 'Devoir seed · grille / liste' : 'Aller devoirs · 4B'}</span>
+    <button type="button" class="stat-tile bento-span-4" id="notesHarrySeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasBvNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBvNote ? 'Repère Harry · Potions BV-A' : 'Filtre 4B · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -2369,6 +2428,205 @@ function toastStaffCockpitAction(kind, meta) {
   );
 }
 
+function staffHomeBvcPanelShell() {
+  return `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit back-office</h3>
+      <p class="muted" style="margin-top:0">Facturation · inscriptions · entretien · grants · calendrier — <span class="muted empty-state-hint" style="font-size:.72rem">BV-C</span>.</p>
+      <div id="homeStaffBvcTip" class="muted">Chargement…</div>
+    </div>`;
+}
+
+function isStaffHomeBvcFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && ['compta', 'direction', 'administratif', 'admin'].includes(role);
+}
+
+/** Accueil compta / direction / admin — factu · inscriptions · grants · calendrier (audit UI BV-C). */
+function homeStaffBvcTipDenseHtml(meta) {
+  if (!isStaffHomeBvcFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const bvcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">BV-C</span>';
+  const nImp = Number(o.nImp) || 0;
+  const resteFac = Math.max(0, Number(o.resteFac) || 0);
+  const nBrou = Number(o.nBrou) || 0;
+  const nFac = Number(o.nFac) || 0;
+  const facTile = nImp || nBrou
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeBvcFacGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nImp || nBrou}</strong><span>Facturation · ${resteFac ? esc(euros(resteFac)) + ' reste' : 'file active'} · ${bvcLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeBvcFacGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nFac || '0'}</strong><span>Facturation · soldé · ${bvcLbl}</span></button>`;
+  const nPieces = Number(o.nPieces) || 0;
+  const nEntretien = Number(o.nEntretien) || 0;
+  const nIns = Number(o.nIns) || 0;
+  const inscHref = nEntretien
+    ? '/app/inscriptions?etape=entretien'
+    : (nPieces ? '/app/inscriptions?etape=pieces' : '/app/inscriptions');
+  const inscStrong = nEntretien
+    ? String(nEntretien)
+    : (nPieces ? String(nPieces) : String(nIns || '0'));
+  const inscSpan = nEntretien
+    ? `Entretien / RDV · ${nIns} dossier(s)`
+    : (nPieces ? `Pièces · ${nIns} actif(s)` : `Board inscriptions · ${nIns}`);
+  const inscTile = nIns || nPieces || nEntretien
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeBvcInscGo" style="cursor:pointer;text-align:left;border-color:${nEntretien || nPieces ? 'var(--warn,#b45309)' : 'var(--accent,#0071e3)'}">
+        <strong class="${nEntretien || nPieces ? 'warn' : ''}">${inscStrong}</strong><span>${esc(inscSpan)}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeBvcInscGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">0</strong><span>Inscriptions · calme</span></button>`;
+  const nGrants = Number(o.nGrants) || 0;
+  const grantsTile = nGrants
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeBvcGrantsGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nGrants}</strong><span>Grant(s) document · comptes</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeBvcGrantsGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Grants · file à jour</span></button>`;
+  const jourFerme = !!o.jourFerme;
+  const nVac = Number(o.nVac) || 0;
+  const calTile = jourFerme
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeBvcCalGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">Fermé</strong><span>${jour} · vacances / férié · ${nVac} période(s)</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeBvcCalGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong class="ok">Ouvert</strong><span>Calendrier établ. · ${nVac} période(s)</span></button>`;
+  const campOuverte = !!o.campOuverte;
+  const campLabel = o.campLabel ? esc(String(o.campLabel)) : 'N+1';
+  const reinscTile = `<button type="button" class="stat-tile bento-span-4" id="homeBvcReinscGo" style="cursor:pointer;text-align:left;border-color:${campOuverte ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${campOuverte ? 'warn' : ''}">${campOuverte ? 'Ouverte' : 'Fermée'}</strong><span>Réinscription · campagne ${campLabel}</span></button>`;
+  const foyersTile = `<button type="button" class="stat-tile bento-span-4" id="homeBvcFoyersGo" style="cursor:pointer;text-align:left">
+      <strong>→</strong><span>Foyers · payeurs &amp; droits famille</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BV-C</strong><span>Back-office · hors VS / EDT</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-C" style="margin:0 0 .55rem">
+    ${facTile}${inscTile}${grantsTile}${calTile}${reinscTile}${foyersTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffBvcTipActions(meta) {
+  const o = meta || {};
+  const fac = document.getElementById('homeBvcFacGo');
+  if (fac) {
+    fac.onclick = () => {
+      toastStaffBvcAction('facturation', o);
+      go('/app/facturation');
+    };
+  }
+  const insc = document.getElementById('homeBvcInscGo');
+  if (insc) {
+    insc.onclick = () => {
+      toastStaffBvcAction('inscriptions', o);
+      const href = Number(o.nEntretien)
+        ? '/app/inscriptions?etape=entretien'
+        : (Number(o.nPieces) ? '/app/inscriptions?etape=pieces' : '/app/inscriptions');
+      go(href);
+    };
+  }
+  const grants = document.getElementById('homeBvcGrantsGo');
+  if (grants) {
+    grants.onclick = () => {
+      toastStaffBvcAction('grants', o);
+      go('/app/etab');
+    };
+  }
+  const cal = document.getElementById('homeBvcCalGo');
+  if (cal) {
+    cal.onclick = () => {
+      toastStaffBvcAction('calendrier', o);
+      go('/app/etab');
+    };
+  }
+  const reinsc = document.getElementById('homeBvcReinscGo');
+  if (reinsc) {
+    reinsc.onclick = () => {
+      toastStaffBvcAction('reinscription', o);
+      go('/app/reinscription');
+    };
+  }
+  const foyers = document.getElementById('homeBvcFoyersGo');
+  if (foyers) {
+    foyers.onclick = () => {
+      toastStaffBvcAction('foyers', o);
+      go('/app/foyers');
+    };
+  }
+}
+
+/** Toast bento — action cockpit back-office (routes existantes · audit BV-C). */
+function toastStaffBvcAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Cockpit back-office';
+  let href = '/app';
+  let tiles = '';
+  if (k === 'facturation') {
+    href = '/app/facturation';
+    const nImp = Number(o.nImp) || 0;
+    const reste = Math.max(0, Number(o.resteFac) || 0);
+    const nBrou = Number(o.nBrou) || 0;
+    title = nImp || nBrou ? 'Facturation · file active' : 'Facturation · calme';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nImp ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nImp ? 'warn' : 'ok'}">${nImp || '0'}</strong><span>Impayée(s) · ${esc(euros(reste))} reste</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${nBrou || '0'}</strong><span>Brouillon(s) · émettre</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BV-C</strong><span>SEPA · quittances · cantine</span></div>`;
+  } else if (k === 'inscriptions') {
+    const nEnt = Number(o.nEntretien) || 0;
+    const nPieces = Number(o.nPieces) || 0;
+    href = nEnt
+      ? '/app/inscriptions?etape=entretien'
+      : (nPieces ? '/app/inscriptions?etape=pieces' : '/app/inscriptions');
+    title = nEnt ? 'Inscriptions · entretien / RDV' : (nPieces ? 'Inscriptions · pièces' : 'Board inscriptions');
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nEnt || nPieces ? 'var(--warn,#b45309)' : 'var(--accent,#0071e3)'}">
+        <strong>${Number(o.nIns) || 0}</strong><span>Dossier(s) actif(s) · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="${nEnt ? 'warn' : ''}">${nEnt}</strong><span>Entretien · ${nPieces} pièce(s)</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BV-C</strong><span>Pipeline · décision · paiement</span></div>`;
+  } else if (k === 'grants') {
+    href = '/app/etab';
+    const nGrants = Number(o.nGrants) || 0;
+    title = nGrants ? 'Grants document · file' : 'Grants · à jour';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nGrants ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nGrants ? 'warn' : 'ok'}">${nGrants}</strong><span>Demande(s) en attente</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Docs</strong><span>Accorder · refuser · durée</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BV-C</strong><span>Comptes · tiroirs restreints</span></div>`;
+  } else if (k === 'calendrier') {
+    href = '/app/etab';
+    const ferme = !!o.jourFerme;
+    const nVac = Number(o.nVac) || 0;
+    title = ferme ? 'Calendrier · jour fermé' : 'Calendrier établissement';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${ferme ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${ferme ? 'warn' : 'ok'}">${ferme ? 'Fermé' : 'Ouvert'}</strong><span>${jour} · cours / vacances</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${nVac}</strong><span>Période(s) publiée(s)</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BV-C</strong><span>EDT · cantine · appel</span></div>`;
+  } else if (k === 'reinscription') {
+    href = '/app/reinscription';
+    const ouverte = !!o.campOuverte;
+    const campLabel = o.campLabel ? esc(String(o.campLabel)) : 'N+1';
+    title = ouverte ? 'Réinscription · campagne ouverte' : 'Réinscription N+1';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${ouverte ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${ouverte ? 'warn' : ''}">${ouverte ? 'Ouverte' : 'Fermée'}</strong><span>Campagne ${campLabel}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Montée</strong><span>4e → 3e · acompte N+1</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BV-C</strong><span>Exigences · confirmations</span></div>`;
+  } else if (k === 'foyers') {
+    href = '/app/foyers';
+    title = 'Foyers · comptes famille';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>→</strong><span>Liens parent · payeur · parts</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Droits</strong><span>Notes · VS · justificatifs</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">BV-C</strong><span>Grants · facturation foyer</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit BV-C</p>`,
+    6500,
+  );
+}
+
 /** /app/docs-signer — synthèse dense file + publier (audit BT-C). */
 function staffDocsSignerPageTipDenseHtml(list, counts) {
   if (!isStaffDocsSignerFlux()) return '';
@@ -2453,7 +2711,11 @@ function messagesPageUnreadTipDenseHtml(fils, opts) {
       </div>`
     : composeTile;
   const composeHint = nonLus ? composeTile : '';
-  return `<div class="bento" style="margin:0 0 .55rem">${unreadTile}${prioTile}${filTile}${actTile}${composeHint}</div>`;
+  const auditFam = isFamMessagesFlux()
+    ? `<div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>Messagerie · fils famille</span></div>`
+    : '';
+  const auditAttr = isFamMessagesFlux() ? ' data-ui-audit="BV-B"' : '';
+  return `<div class="bento"${auditAttr} style="margin:0 0 .55rem">${unreadTile}${prioTile}${filTile}${actTile}${composeHint}${auditFam}</div>`;
 }
 
 function portalMsgDenseHtml(fils, nonLus, opts) {
@@ -2482,7 +2744,38 @@ function portalMsgDenseHtml(fils, nonLus, opts) {
   return `<ul class="eleve-hub-list eleve-hub-list-dense">${preview}</ul>${foot}`;
 }
 
-/** Accueil famille — messages non lus (bento). */
+/** Accueil famille — messagerie calme (0 non lu) — audit UI BV-B. */
+function famHomeMsgCalmeTipDenseHtml(fils) {
+  const filsList = (fils || []).slice().sort((a, b) =>
+    String(b.last_message_at || b.dernier_message_at || b.updated_at || '').localeCompare(
+      String(a.last_message_at || a.dernier_message_at || a.updated_at || ''),
+    ),
+  );
+  const nFil = filsList.length;
+  const top = filsList[0] || null;
+  const subjectRaw = top ? String(top.sujet || top.titre || 'Fil').trim() : '—';
+  const subject = subjectRaw.length > 28 ? esc(subjectRaw.slice(0, 28)) + '…' : esc(subjectRaw);
+  const filHref = top && top.id
+    ? `/famille/messages?fil=${encodeURIComponent(String(top.id))}`
+    : '/famille/messages';
+  const okTile = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">0</strong><span>Non lu · messagerie à jour</span>
+    </div>`;
+  const filTile = nFil
+    ? `<a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${subject}</strong><span>${nFil} fil(s) · dernier échange</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>—</strong><span>Aucun fil · contacter l’école</span>
+      </a>`;
+  const actTile = `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+      <strong>→</strong><span>Ouvrir la messagerie</span>
+    </a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>Route /famille/messages</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0">${okTile}${filTile}${actTile}${auditTile}</div>`;
+}
+
+/** Accueil famille — messages non lus (bento) — audit UI BV-B. */
 function famHomeMsgTipDenseHtml(fils, nonLus) {
   const n = Number(nonLus) || 0;
   if (!n) return '';
@@ -2521,20 +2814,27 @@ function famHomeMsgTipDenseHtml(fils, nonLus) {
         <strong>↓</strong><span>Ouvrir la messagerie</span>
       </a>`
     : filTile;
-  return `<div class="bento" style="margin:0">
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>Fil · ouvrir = lu</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0">
     <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none;border-color:var(--warn,#b45309)">
       <strong class="warn">${n}</strong><span>Message(s) non lu(s)</span>
     </a>
     ${prioTile}
     ${nHaute ? filTile : ''}
     ${openTile}
+    ${auditTile}
   </div>`;
 }
 
+/** Accueil famille — synthèse messagerie (non lus ou calme) — audit UI BV-B. */
+function famHomeMsgFamilleDenseHtml(fils, nonLus) {
+  const n = Number(nonLus) || 0;
+  if (n) return famHomeMsgTipDenseHtml(fils, nonLus);
+  return famHomeMsgCalmeTipDenseHtml(fils);
+}
+
 function famHomeMsgDenseHtml(fils, nonLus) {
-  const dense = famHomeMsgTipDenseHtml(fils, nonLus);
-  if (dense) return dense;
-  return portalMsgDenseHtml(fils, nonLus, { messagesHref: '/famille/messages' });
+  return famHomeMsgFamilleDenseHtml(fils, nonLus);
 }
 
 /** Accueil famille — carnet VS (à signer ou calme) — audit UI BS-B. */
@@ -3738,37 +4038,96 @@ function famHomeProchainDevoirTipDenseHtml(picks) {
 }
 
 /** Accueil famille — PAI actifs (protocoles infirmerie, bento). */
-/** Accueil famille — repas badge du jour (API passages OK). */
-function famHomeRepasTipDenseHtml(list, repasJourLists, repasApiOk) {
-  if (repasApiOk === false) return '';
+function famHomeRepasWhoLabel(list) {
+  const kids = list || [];
+  const sole = kids.length === 1 && kids[0] && kids[0].id;
+  if (sole && kids[0].prenom) return esc(String(kids[0].prenom).trim());
+  return `${kids.length} enfant(s)`;
+}
+
+function famHomeRepasFicheHref(list) {
+  const kids = list || [];
+  const sole = kids.length === 1 && kids[0] && kids[0].id;
+  return sole
+    ? `/famille/enfants/${esc(String(kids[0].id))}?section=repas`
+    : '/famille/repas';
+}
+
+/** Accueil famille — repas actifs (badge du jour) — audit UI BV-B. */
+function famHomeRepasActifTipDenseHtml(list, repasJourLists, menuPlat) {
   const kids = list || [];
   if (!kids.length) return '';
-  const jour = today();
   const nJour = (repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
+  if (!nJour) return '';
   const repasPageHref = '/famille/repas';
+  const who = famHomeRepasWhoLabel(kids);
+  const ficheHref = famHomeRepasFicheHref(kids);
   const sole = kids.length === 1 && kids[0] && kids[0].id;
-  const ficheHref = sole
-    ? `/famille/enfants/${esc(String(kids[0].id))}?section=repas`
-    : repasPageHref;
-  const who = sole && kids[0].prenom
-    ? esc(String(kids[0].prenom).trim())
-    : `${kids.length} enfant(s)`;
-  const jourTile = nJour
-    ? `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
-        <strong class="ok">${nJour}</strong><span>Repas aujourd’hui · ${who}</span>
-      </a>`
+  const plat = menuPlat ? esc(String(menuPlat).trim().slice(0, 28)) : '';
+  const jourTile = `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+      <strong class="ok">${nJour}</strong><span>Repas aujourd’hui · ${who}</span>
+    </a>`;
+  const menuTile = plat
+    ? `<div class="stat-tile bento-span-4"><strong>${plat}</strong><span>Menu midi · cantine</span></div>`
     : `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none">
-        <strong>0</strong><span>Pas de badge · ${jour.slice(5)}</span>
+        <strong>Menus</strong><span>Semaine · page Repas</span>
       </a>`;
   const ficheTile = sole
     ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-        <strong>Cantine</strong><span>Fiche · passages &amp; menus</span>
+        <strong>Cantine</strong><span>Fiche · passages</span>
       </a>`
     : `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
         <strong>Repas</strong><span>Passages multi-enfants</span>
       </a>`;
-  const prevTile = `<div class="stat-tile bento-span-4"><strong class="muted">Badge</strong><span>Pointage cantine · facturation</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${jourTile}${ficheTile}${prevTile}</div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>Route /famille/repas</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0 0 .55rem">${jourTile}${menuTile}${ficheTile}${auditTile}</div>`;
+}
+
+/** Accueil famille — repas calmes (0 badge · menu) — audit UI BV-B. */
+function famHomeRepasCalmeTipDenseHtml(list, menuPlat) {
+  const kids = list || [];
+  if (!kids.length) return '';
+  const jour = today();
+  const repasPageHref = '/famille/repas';
+  const who = famHomeRepasWhoLabel(kids);
+  const ficheHref = famHomeRepasFicheHref(kids);
+  const sole = kids.length === 1 && kids[0] && kids[0].id;
+  const plat = menuPlat ? esc(String(menuPlat).trim().slice(0, 28)) : '';
+  const jourTile = `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none">
+      <strong>0</strong><span>Pas de badge · ${jour.slice(5)} · ${who}</span>
+    </a>`;
+  const menuTile = plat
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${plat}</strong><span>Menu du jour · cantine</span>
+      </div>`
+    : `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>Menus</strong><span>Publiés · page Repas</span>
+      </a>`;
+  const prevTile = sole
+    ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none">
+        <strong>Prévenance</strong><span>Dispense · fiche repas</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none">
+        <strong>Badge</strong><span>Pointage · facturation</span>
+      </a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>Cantine · menus</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0 0 .55rem">${jourTile}${menuTile}${prevTile}${auditTile}</div>`;
+}
+
+/** Accueil famille — synthèse cantine / repas — audit UI BV-B. */
+function famHomeRepasFamilleDenseHtml(list, repasJourLists, repasApiOk, opts) {
+  if (repasApiOk === false) return '';
+  const kids = list || [];
+  if (!kids.length) return '';
+  const o = opts || {};
+  const menuPlat = o.menuPlat || '';
+  const nJour = (repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
+  if (nJour) return famHomeRepasActifTipDenseHtml(kids, repasJourLists, menuPlat);
+  return famHomeRepasCalmeTipDenseHtml(kids, menuPlat);
+}
+
+function famHomeRepasTipDenseHtml(list, repasJourLists, repasApiOk, opts) {
+  return famHomeRepasFamilleDenseHtml(list, repasJourLists, repasApiOk, opts);
 }
 
 function famHomePaiActifsTipDenseHtml(list, paiList) {
@@ -5198,7 +5557,7 @@ function famEnfantsListTipEmptyDenseHtml(kids) {
   </div>`;
 }
 
-/** Fiche enfant — fils messagerie (bento, deep-link ?section=messages). */
+/** Fiche enfant — fils messagerie (bento, deep-link ?section=messages) — audit UI BV-B. */
 function famEnfantMessagesTipDenseHtml(fils, enfantId) {
   const eid = enfantId ? String(enfantId) : '';
   const mine = (fils || []).filter(f => eid && String(f.eleve_id) === eid);
@@ -5229,7 +5588,8 @@ function famEnfantMessagesTipDenseHtml(fils, enfantId) {
   const actTile = `<a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
       <strong>↓</strong><span>Ouvrir la messagerie</span>
     </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${unreadTile}${filTile}${actTile}</div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>?section=messages</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0 0 .55rem">${unreadTile}${filTile}${actTile}${auditTile}</div>`;
 }
 
 /** Page /famille/vie-scolaire — synthèse enfant sélectionné (bento). */
@@ -12418,8 +12778,11 @@ function famRepasMenusDenseHtml(menus, highlightJour) {
   const publies = menus || [];
   const hi = String(highlightJour || today()).slice(0, 10);
   if (!publies.length) {
-    return `<p class="empty" style="margin:0">Aucun menu publié sur la période.</p>
-      <p class="muted" style="margin:.35rem 0 0">Les menus publiés par l’établissement s’affichent ici jour par jour.</p>`;
+    return famEmptyDense('Aucun menu publié sur la période', [
+      'Les menus publiés par l’établissement s’affichent ici jour par jour (entrée, plat, dessert).',
+      'Élargissez la période « Du / Au » ou revenez après publication par la cantine (BV-B).',
+      '<a href="/famille/repas">Page Repas</a> — passages badge et prévenance.',
+    ], '<a href="/famille/repas">Repas / cantine</a>');
   }
   return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(10.5rem,1fr));gap:.4rem">
     ${publies.map(m => {
@@ -12584,20 +12947,47 @@ async function refreshNavCountBadgeFor(href, roleGuard, countPromise) {
 async function refreshFamilleNavDocsBadge() {
   await refreshNavCountBadgeFor('/famille/docs-signer', isParent, countFamDocsPendingNav());
 }
-function famRepasPassagesEmptyHtml(prenom, debut, fin) {
+/** Page /famille/repas — liste vide (bento menus + prévenance) — audit UI BV-B. */
+function famRepasPageEmptyTipDenseHtml(opts) {
+  const o = opts || {};
+  const plat = o.menuPlat ? esc(String(o.menuPlat).trim().slice(0, 28)) : '';
+  const menuTile = plat
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${plat}</strong><span>Menu du jour · cantine</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">Menus</strong><span>Publiés ci-dessous</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong>0</strong><span>Passage badge · période</span></div>
+    ${menuTile}
+    <a class="stat-tile bento-span-4" href="#repasDispOut" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Prévenance</strong><span>Dispense cantine · formulaire</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>/famille/repas</span></div>
+  </div>`;
+}
+
+function famRepasPassagesEmptyHtml(prenom, debut, fin, opts) {
+  const o = opts || {};
   const d0 = (debut || '').slice(5);
   const d1 = (fin || '').slice(5);
-  return `<div class="panel" style="padding:.6rem .75rem;margin:0;border-left:3px solid var(--line)">
-    <p class="empty" style="margin:0">Aucun passage badge${prenom ? ' pour <strong>' + esc(prenom) + '</strong>' : ''}${d0 && d1 ? ' (' + esc(d0) + ' → ' + esc(d1) + ')' : ''}.</p>
-    <p class="muted" style="margin:.4rem 0 0">Chaque scan à la cantine (badge) apparaît ici — utile avant la facture mensuelle.</p>
-  </div>`;
+  const who = prenom ? esc(String(prenom).trim()) : '';
+  const period = d0 && d1 ? ` (${d0} → ${d1})` : '';
+  const tip = famRepasPageEmptyTipDenseHtml({ menuPlat: o.menuPlat, prenom: who });
+  const title = who
+    ? `Aucun passage badge pour ${who}${period}`
+    : `Aucun passage badge${period}`;
+  return `${tip}${famEmptyDense(title, [
+    'Chaque scan à la cantine (badge) apparaît ici — utile avant la facture mensuelle.',
+    'Prévenance : dispense un jour sans badge via la section « Prévenance cantine » (BV-B).',
+    '<a href="/famille/repas">Page Repas</a> — menus publiés et volume facturable.',
+  ], '<a href="/famille/repas">Passages cantine</a> · <a href="#repasDispOut">Dispenser un repas</a>')}`;
 }
 
 function isFamilleRepasFlux() {
   return path() === '/famille/repas';
 }
 
-/** Page /famille/repas — synthèse passages & cantine (bento). */
+/** Page /famille/repas — synthèse passages & cantine (bento) — audit UI BV-B. */
 function famRepasPageTipDenseHtml(opts) {
   const o = opts || {};
   const j = today();
@@ -12619,10 +13009,11 @@ function famRepasPageTipDenseHtml(opts) {
     : (menuPlat
       ? `<div class="stat-tile bento-span-4"><strong>${menuPlat}</strong><span>Menu du jour</span></div>`
       : `<div class="stat-tile bento-span-4"><strong class="muted">Menus</strong><span>Publiés ci-dessous</span></div>`);
-  return `<div class="bento" style="margin:0 0 .55rem">${jourTile}${perTile}${dispTile}</div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>Cantine · repas</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0 0 .55rem">${jourTile}${perTile}${dispTile}${auditTile}</div>`;
 }
 
-/** Fiche enfant ?section=repas — synthèse cantine (bento). */
+/** Fiche enfant ?section=repas — synthèse cantine (bento) — audit UI BV-B. */
 function famEnfantRepasTipDenseHtml(opts) {
   const o = opts || {};
   const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
@@ -12651,10 +13042,11 @@ function famEnfantRepasTipDenseHtml(opts) {
   const linkTile = `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
       <strong>Repas</strong><span>Passages &amp; prévenance</span>
     </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${jourTile}${perTile}${dispTile}${linkTile}</div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>?section=repas</span></div>`;
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0 0 .55rem">${jourTile}${perTile}${dispTile}${linkTile}${auditTile}</div>`;
 }
 
-/** Toast bento — page /famille/repas ouverte. */
+/** Toast bento — page /famille/repas ouverte — audit UI BV-B. */
 function toastFamRepasOuverte(opts) {
   const o = opts || {};
   const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant(s)';
@@ -12861,6 +13253,151 @@ function maybeToastFamAbsJustifHomeDense(opts) {
     st.hasAction ? 9000 : 7000,
   );
   try { sessionStorage.setItem(FAM_ABS_HOME_TOAST_SS, '1'); } catch {}
+}
+
+const FAM_REPAS_HOME_TOAST_SS = 'ent_fam_repas_home_bv_b';
+const FAM_MSG_HOME_TOAST_SS = 'ent_fam_msg_home_bv_b';
+
+/** Accueil famille — toast cantine / repas (1× / session) — audit UI BV-B. */
+function maybeToastFamRepasHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_REPAS_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  if (!o.repasApiOk) return;
+  const list = o.list || [];
+  if (!list.length) return;
+  const tiles = famHomeRepasFamilleDenseHtml(list, o.repasJourLists, true, { menuPlat: o.menuPlat });
+  if (!tiles) return;
+  const nJour = (o.repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
+  const lead = nJour
+    ? `<strong>Repas cantine · aujourd’hui</strong>`
+    : `<strong>Cantine · pas de badge</strong>`;
+  showEntToast(
+    lead
+    + `<div style="margin:.35rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/repas">Page Repas</a> · `
+    + `<a href="/famille/repas#repasDispOut">Prévenance</a></p>`,
+    nJour ? 8500 : 7000,
+  );
+  try { sessionStorage.setItem(FAM_REPAS_HOME_TOAST_SS, '1'); } catch {}
+}
+
+/** Accueil famille — toast messagerie (1× / session) — audit UI BV-B. */
+function maybeToastFamMessagesHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_MSG_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const fils = o.fils || [];
+  const nMsg = Number(o.nonLus) || 0;
+  const tiles = famHomeMsgFamilleDenseHtml(fils, nMsg);
+  if (!tiles) return;
+  const lead = nMsg
+    ? `<strong>Messages non lus</strong>`
+    : `<strong>Messagerie à jour</strong>`;
+  const topHref = nMsg && fils.length
+    ? (() => {
+      const sorted = fils.slice().sort((a, b) => (Number(b.nb_non_lus) || 0) - (Number(a.nb_non_lus) || 0));
+      const top = sorted.find(f => (Number(f.nb_non_lus) || 0) > 0) || sorted[0];
+      return top && top.id
+        ? '/famille/messages?fil=' + encodeURIComponent(String(top.id))
+        : '/famille/messages';
+    })()
+    : '/famille/messages';
+  showEntToast(
+    lead
+    + `<div style="margin:.35rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${topHref}">Ouvrir la messagerie</a></p>`,
+    nMsg ? 9000 : 6500,
+  );
+  try { sessionStorage.setItem(FAM_MSG_HOME_TOAST_SS, '1'); } catch {}
+}
+
+/** Page /famille/messages — toast bento à l’ouverture — audit UI BV-B. */
+function toastFamMessagesOuverte(fils, opts) {
+  const o = opts || {};
+  const list = fils || [];
+  const nonLus = list.reduce((s, f) => s + (Number(f.nb_non_lus) || 0), 0);
+  const tipHtml = messagesPageUnreadTipDenseHtml(list, { messagesHref: '/famille/messages' });
+  const lead = nonLus
+    ? `<strong>Messagerie</strong> — ${nonLus} non lu(s)`
+    : `<strong>Messagerie</strong> — à jour`;
+  showEntToast(
+    lead
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="#btnOuvrirFil">Nouveau fil</a> · `
+    + `<a href="/famille">Accueil</a></p>`,
+    nonLus ? 9000 : 7000,
+  );
+}
+
+function maybeToastFamMessagesOuverte(fils) {
+  if (!isParent() || !isFamMessagesFlux()) return;
+  const ssKey = 'ent_fam_messages_page_open_bv_b';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamMessagesOuverte(fils, { dense: true });
+}
+
+/** Deep-link fiche ?section=messages — toast actionnable (BV-B). */
+function toastFamMessagesSectionDeepDense(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=messages` : '/famille/messages';
+  const tipHtml = famEnfantMessagesTipDenseHtml(o.fils || [], o.enfantId);
+  showEntToast(
+    `<strong>Messagerie</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/messages">Messagerie</a> · `
+    + `<a href="${ficheHref}">↓ Section ci-dessous</a></p>`,
+    8500,
+  );
+}
+
+function maybeToastFamMessagesSectionDeep(opts) {
+  if (!isParent() || !isFamilleEnfantFlux()) return;
+  const o = opts || {};
+  if (normalizeFamEnfantSection(o.deepSection) !== 'messages') return;
+  const id = o.enfantId ? String(o.enfantId).trim() : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_messages_sec_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamMessagesSectionDeepDense(o);
+}
+
+/** Page /famille/messages — liste vide (bento) — audit UI BV-B. */
+function famMessagesPageEmptyTipDenseHtml() {
+  return `<div class="bento" data-ui-audit="BV-B" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Fil · démarrer un échange</span></div>
+    <a class="stat-tile bento-span-4" href="#btnOuvrirFil" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>CPE</strong><span>Nouveau fil · formulaire</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/famille" style="text-decoration:none">
+      <strong>Accueil</strong><span>Autres dossiers famille</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong class="muted">BV-B</strong><span>/famille/messages</span></div>
+  </div>`;
 }
 
 function famAccEmptyDenseHtml(prenom, opts) {
@@ -15920,6 +16457,7 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; foyers</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils</span></a>
       <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Absences agents</span></a>`;
+    homeExtra = staffHomeBvcPanelShell();
   } else if (role === 'infirmerie') {
     tiles = `
       <a class="stat-tile bento-span-6" href="/app/infirmerie"><strong>Infirmerie</strong><span>Passages, PAI, fiches</span></a>
@@ -15950,7 +16488,8 @@ function viewHome() {
       <h3>Réinscription N+1</h3>
       <p class="muted" style="margin-top:0">Campagne, acompte, montée 4e→3e et pièces exigées.</p>
       <div id="homeDirReinscDense" class="bento muted">Chargement…</div>
-    </div>`;
+    </div>
+    ${staffHomeBvcPanelShell()}`;
   } else if (role === 'administratif') {
     homeTitle = 'Exécution administrative';
     homeLead = 'Élèves, inscriptions, foyers, documents et réinscription — file opérationnelle.';
@@ -15967,7 +16506,8 @@ function viewHome() {
       <h3>Cockpit administratif</h3>
       <p class="muted" style="margin-top:0">Docs à signer · annuaire · orientation · inscriptions — <span class="muted empty-state-hint" style="font-size:.72rem">BT-C</span>.</p>
       <div id="homeStaffCockpitTip" class="muted">Chargement…</div>
-    </div>`;
+    </div>
+    ${staffHomeBvcPanelShell()}`;
   } else if (role === 'admin') {
     homeTitle = 'Administration globale';
     homeLead = 'Vue transversale établissement — tous modules (droits admin).';
@@ -15999,7 +16539,8 @@ function viewHome() {
       <h3>Labo · dernier bootstrap</h3>
       <p class="muted" style="margin-top:0">Cast en mémoire locale — comptes démo après « Créer l’école labo ».</p>
       <div id="homeAdminBootstrapTip" class="bento muted">Chargement…</div>
-    </div>`;
+    </div>
+    ${staffHomeBvcPanelShell()}`;
   } else if (isAdminish) {
     tiles = `
       <a class="stat-tile bento-span-4" href="/app/eleves"><strong>Élèves</strong><span>Fiches &amp; foyers</span></a>
@@ -16450,6 +16991,56 @@ async function bindHome() {
     }
     staffCockpitBox.innerHTML = homeStaffCockpitTipDenseHtml(cockpitMeta);
     bindHomeStaffCockpitTipActions(cockpitMeta);
+  }
+  const staffBvcBox = document.getElementById('homeStaffBvcTip');
+  if (staffBvcBox && isStaffHomeBvcFlux()) {
+    const [facList, vacList, jourFermeSnap] = await Promise.all([
+      settle(api('/facturation/factures'), []),
+      settle(api('/vacances'), []),
+      settle(api('/vacances/jour-ferme?jour=' + encodeURIComponent(jour)), { ferme: false }),
+    ]);
+    let nPiecesBvc = 0;
+    let nEntretienBvc = 0;
+    let nInsBvc = nIns;
+    if (role === 'compta') {
+      const etapesBvc = await Promise.all(INSC_HOME.map(et =>
+        settle(api('/inscriptions/par-etape?etape=' + encodeURIComponent(et)), [])
+      ));
+      nPiecesBvc = (etapesBvc[INSC_HOME.indexOf('pieces')] || []).length;
+      nEntretienBvc = (etapesBvc[INSC_HOME.indexOf('entretien')] || []).length;
+      nInsBvc = INSC_HOME.reduce((s, _, i) => s + ((etapesBvc[i] || []).length), 0);
+    } else if (wantInsc) {
+      nPiecesBvc = (insByEtape[INSC_HOME.indexOf('pieces')] || []).length;
+      nEntretienBvc = (insByEtape[INSC_HOME.indexOf('entretien')] || []).length;
+    }
+    let nGrantsBvc = nGrants;
+    if (role === 'compta') {
+      const gList = await settle(api('/documents/grants/pending'), []);
+      nGrantsBvc = (gList || []).length;
+    }
+    const nImpBvc = (facList || []).filter(f => facFamImpayee(f)).length;
+    const resteFacBvc = (facList || []).reduce((s, f) => s + facFamResteCentimes(f), 0);
+    const nBrouBvc = (facList || []).filter(f =>
+      String(f.statut || '').toLowerCase() === 'brouillon'
+    ).length;
+    const bvcMeta = {
+      jour,
+      role,
+      nImp: nImpBvc,
+      resteFac: resteFacBvc,
+      nBrou: nBrouBvc,
+      nFac: (facList || []).length,
+      nIns: nInsBvc,
+      nPieces: nPiecesBvc,
+      nEntretien: nEntretienBvc,
+      nGrants: nGrantsBvc,
+      nVac: (vacList || []).length,
+      jourFerme: !!(jourFermeSnap && jourFermeSnap.ferme),
+      campOuverte,
+      campLabel,
+    };
+    staffBvcBox.innerHTML = homeStaffBvcTipDenseHtml(bvcMeta);
+    bindHomeStaffBvcTipActions(bvcMeta);
   }
   if (todo) {
     const lines = [];
@@ -16975,7 +17566,7 @@ async function bindFamilleHome() {
     }
     const jourRepas = today();
     const orientAnneeHome = '2026-2027';
-    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, comLists, repasJourLists, sepaMandats, rdvLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, comLists, repasJourLists, menusJourHome, sepaMandats, rdvLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
@@ -16988,6 +17579,7 @@ async function bindFamilleHome() {
         + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas))
         .then(data => ({ ok: true, data: data || [] }))
         .catch(() => ({ ok: false, data: [] })))),
+      api('/menus-cantine?debut=' + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas)).catch(() => []),
       api('/facturation/sepa/mandats').catch(() => null),
       Promise.all(list.map(e => api('/psy/rdvs?eleve_id=' + encodeURIComponent(e.id)).catch(() => null))),
       Promise.all(list.map(e => (
@@ -17013,6 +17605,12 @@ async function bindFamilleHome() {
     const repasApiOk = (repasJourLists || []).some(p => p && p.ok);
     const repasJourFlat = (repasJourLists || []).map(p => (p && p.data) || []);
     const nRepasJour = repasJourFlat.reduce((s, p) => s + (p || []).length, 0);
+    const menuTodayHome = (menusJourHome || []).find(m =>
+      m.publie !== false && String(m.jour || '').slice(0, 10) === jourRepas,
+    );
+    const menuPlatHome = menuTodayHome && menuTodayHome.plat
+      ? String(menuTodayHome.plat)
+      : (menuTodayHome && menuTodayHome.entree ? String(menuTodayHome.entree) : '');
     const impayees = (facs || []).filter(facFamImpayee)
       .sort((a, b) => facFamResteCentimes(b) - facFamResteCentimes(a));
     const nImpayees = impayees.length;
@@ -17070,12 +17668,18 @@ async function bindFamilleHome() {
     const msgBody = document.getElementById('famHomeMsgBody');
     const msgBadge = document.getElementById('famHomeMsgBadge');
     if (msgPanel && msgBody) {
-      if (nMsg > 0 && (fils || []).length) {
+      const msgDense = famHomeMsgFamilleDenseHtml(fils, nMsg);
+      if (msgDense) {
         msgPanel.style.display = '';
-        msgBody.innerHTML = famHomeMsgDenseHtml(fils, nMsg);
+        msgBody.innerHTML = msgDense;
         if (msgBadge) {
-          msgBadge.style.display = 'inline-block';
-          msgBadge.textContent = String(nMsg);
+          if (nMsg > 0) {
+            msgBadge.style.display = 'inline-block';
+            msgBadge.textContent = String(nMsg);
+          } else {
+            msgBadge.style.display = 'none';
+            msgBadge.textContent = '';
+          }
         }
       } else {
         msgPanel.style.display = 'none';
@@ -17351,7 +17955,7 @@ async function bindFamilleHome() {
     }
     const repasHomeTip = document.getElementById('famHomeRepasTip');
     if (repasHomeTip) {
-      const denseRepas = famHomeRepasTipDenseHtml(list, repasJourFlat, repasApiOk);
+      const denseRepas = famHomeRepasFamilleDenseHtml(list, repasJourFlat, repasApiOk, { menuPlat: menuPlatHome });
       if (denseRepas) {
         repasHomeTip.style.display = '';
         repasHomeTip.innerHTML = denseRepas;
@@ -17422,6 +18026,13 @@ async function bindFamilleHome() {
       sepaActif: !!sepaMandatActif,
     });
     maybeToastFamAbsJustifHomeDense({ list, resumes, absLists });
+    maybeToastFamRepasHomeDense({
+      list,
+      repasJourLists: repasJourFlat,
+      repasApiOk,
+      menuPlat: menuPlatHome,
+    });
+    maybeToastFamMessagesHomeDense({ fils, nonLus: nMsg });
     const homeDeepMsg = normalizeFamEnfantSection(routeState.famSection);
     if (homeDeepMsg === 'messages') {
       delete routeState.famSection;
@@ -17875,6 +18486,12 @@ async function bindFamilleEnfant(id) {
             msgTipEl.style.display = '';
             msgTipEl.innerHTML = denseMsg || famEnfantMessagesTipDenseHtml([], id);
             if (enfantDeepSection === 'messages') {
+              maybeToastFamMessagesSectionDeep({
+                enfantId: id,
+                prenom: e.prenom,
+                fils: allFils,
+                deepSection: enfantDeepSection,
+              });
               famApplyEnfantSectionDeepLink('messages');
               setTimeout(() => famApplyEnfantSectionDeepLink('messages'), 200);
             }
@@ -17885,12 +18502,14 @@ async function bindFamilleEnfant(id) {
         }
         if (msgOutEl) {
           if (!mine.length) {
-            msgOutEl.innerHTML = `<p class="empty">Aucun fil pour ${esc(e.prenom || 'cet enfant')}.</p>
-              <p class="row" style="gap:.75rem;margin:.45rem 0 0;flex-wrap:wrap">
-                <a href="/famille/messages">Ouvrir la messagerie</a>
-                <button type="button" class="primary" id="btnFamEnfantNewFil">Contacter l’école</button>
-              </p>
-              <div id="famEnfantNewFilMsg" class="muted"></div>`;
+            const who = esc(e.prenom || 'cet enfant');
+            msgOutEl.innerHTML = famMessagesPageEmptyTipDenseHtml()
+              + famEmptyDense(`Aucun fil pour ${who}`, [
+                'Ouvrez un fil depuis le bouton ci-dessous ou la messagerie globale (BV-B).',
+                'Les échanges CPE, vie scolaire et équipe pédagogique passent par la même messagerie.',
+              ], `<a href="/famille/messages">Messagerie</a> · `
+                + `<button type="button" class="primary" id="btnFamEnfantNewFil" style="margin-left:.35rem">Contacter l’école</button>`)
+              + `<div id="famEnfantNewFilMsg" class="muted" style="margin-top:.35rem"></div>`;
             const btnNew = document.getElementById('btnFamEnfantNewFil');
             if (btnNew) {
               btnNew.onclick = async () => {
@@ -17961,6 +18580,7 @@ async function bindFamilleEnfant(id) {
       d0.setDate(d0.getDate() - 14);
       repasDebut.value = d0.toISOString().slice(0, 10);
       const deepRepas = enfantDeepSection === 'repas';
+      let famEnfantMenuPlat = '';
       async function refreshFamEnfantRepasTipFromList(list, repasApiOk) {
         const tipEl = document.getElementById('famEnfantRepasTip');
         if (!tipEl) return;
@@ -17983,6 +18603,7 @@ async function bindFamilleEnfant(id) {
             nDispensesActives = (disps || []).filter(d => !d.annulee).length;
             const menuToday = (menusJour || []).find(m => m.publie && String(m.jour || '').slice(0, 10) === jRepas);
             if (menuToday && menuToday.plat) menuPlat = String(menuToday.plat);
+            famEnfantMenuPlat = menuPlat;
           } catch { /* noop */ }
         }
         const repasTipOpts = {
@@ -18017,7 +18638,9 @@ async function bindFamilleEnfant(id) {
             + '&fin=' + encodeURIComponent(repasFin.value));
           await refreshFamEnfantRepasTipFromList(list, true);
           if (!list.length) {
-            box.innerHTML = famRepasPassagesEmptyHtml(e.prenom || '', repasDebut.value, repasFin.value);
+            box.innerHTML = famRepasPassagesEmptyHtml(e.prenom || '', repasDebut.value, repasFin.value, {
+              menuPlat: famEnfantMenuPlat,
+            });
             return;
           }
           box.innerHTML = `<table><thead><tr><th>Jour</th><th>Badge</th><th>Source</th></tr></thead>
@@ -31281,55 +31904,22 @@ async function bindNotes() {
     const el = document.getElementById('notesDevoirsEmptyDracoSlot');
     if (!el) return;
     try {
-      const dracoId = await resolveDracoMalefoyEleveId();
-      if (!dracoId) {
-        el.innerHTML = '';
-        return;
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
       }
-      let nNotes = 0;
-      let classe = '5A';
-      let frNoteLabel = '';
-      try {
-        const notes = await api('/eleves/' + dracoId + '/notes');
-        nNotes = (notes || []).length;
-        const frNote = (notes || []).find(n =>
-          /draco/i.test(String(n.libelle || ''))
-          || /fran/i.test(String(n.matiere_libelle || n.matiere || '')));
-        if (frNote && frNote.libelle) frNoteLabel = String(frNote.libelle);
-      } catch {
-        nNotes = 0;
-      }
-      try {
-        const eleve = await api('/eleves/' + dracoId);
-        if (eleve && eleve.classe) classe = eleve.classe;
-      } catch { /* défaut 5A */ }
-      el.innerHTML = notesDracoSeedTipDenseHtml({
-        dracoId,
-        nNotes,
-        classe,
-        frNoteLabel,
+      const dracoBvDevoir = findDracoBvDevoir(devoirs);
+      el.innerHTML = notesDracoDevoirGoTipDenseHtml({ dracoBvDevoir: dracoBvDevoir || null });
+      bindNotesDracoDevoirGoTipGo({
+        dracoBvDevoir: dracoBvDevoir || null,
+        openGrille: (d) => openGrille(d),
       });
-      const btnNotes = document.getElementById('notesDracoSeedNotesBtn');
-      if (btnNotes) {
-        btnNotes.onclick = async () => {
-          const cid = btnNotes.dataset.dracoId || dracoId;
-          const sel = document.getElementById('noteEleve');
-          if (sel && ![...sel.options].some(o => o.value === cid)) {
-            await fillElevesNotes('Draco');
-          }
-          await voirNotesEleve(cid);
-        };
-      }
-      const btnCl = document.getElementById('notesDracoSeedClasseBtn');
-      if (btnCl) {
-        btnCl.onclick = () => {
-          const chip = document.getElementById('notesChip5A');
-          if (chip) chip.click();
-          const devCl = document.getElementById('devClasse');
-          if (devCl) devCl.value = '5A';
-          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        };
-      }
     } catch {
       el.innerHTML = '';
     }
@@ -31506,6 +32096,25 @@ async function bindNotes() {
     }
     return { nNotes, btNoteLabel, hasBtNote };
   }
+  async function harryBvNoteMetaFromApi(harryId) {
+    let nNotes = 0;
+    let bvNoteLabel = '';
+    let hasBvNote = false;
+    try {
+      const notes = await api('/eleves/' + harryId + '/notes');
+      nNotes = (notes || []).length;
+      const bvNote = (notes || []).find(n =>
+        /BV-A/i.test(String(n.libelle || ''))
+        || (/harry/i.test(String(n.libelle || '')) && /potions/i.test(String(n.matiere_libelle || n.matiere || ''))));
+      if (bvNote) {
+        hasBvNote = /BV-A/i.test(String(bvNote.libelle || ''));
+        if (bvNote.libelle) bvNoteLabel = String(bvNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, bvNoteLabel, hasBvNote };
+  }
   async function lunaBsNoteMetaFromApi(lunaId) {
     let nNotes = 0;
     let bsNoteLabel = '';
@@ -31552,45 +32161,46 @@ async function bindNotes() {
     }
   }
   notesEvalSansNoteLunaRefresh = refreshNotesEvalSansNoteLunaSlot;
-  async function refreshNotesHarrySeedTip(devoirsPref) {
+  async function refreshNotesHarrySeedTip(_devoirsPref) {
     const el = document.getElementById('notesHarrySeedTip');
     if (!el) return;
     try {
-      const list = await api('/eleves/search?q=Harry');
-      const h = (list || []).find(e =>
-        /^harry$/i.test(String(e.prenom || '').trim())
-        && /potter/i.test(String(e.nom || '')));
-      if (!h || !h.id) {
+      const harryId = await resolveHarryPotterEleveId();
+      if (!harryId) {
         el.innerHTML = '';
         return;
       }
-      let nNotes = 0;
+      let classe = '4B';
       try {
-        const notes = await api('/eleves/' + h.id + '/notes');
-        nNotes = (notes || []).length;
-      } catch {
-        nNotes = 0;
-      }
-      const devoirs = devoirsPref || [];
-      const harryBsDevoir = findHarryBsDevoir(devoirs);
+        const eleve = await api('/eleves/' + harryId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 4B */ }
+      const meta = await harryBvNoteMetaFromApi(harryId);
       el.innerHTML = notesHarrySeedTipDenseHtml({
-        harryId: h.id,
-        nNotes,
-        classe: h.classe || '4B',
-        harryBsDevoir: harryBsDevoir || null,
+        harryId,
+        classe,
+        ...meta,
       });
       const btnNotes = document.getElementById('notesHarrySeedNotesBtn');
       if (btnNotes) {
-        btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.harryId || h.id);
-      }
-      const btnDevoir = document.getElementById('notesHarrySeedDevoirBtn');
-      if (btnDevoir) {
-        btnDevoir.onclick = async () => {
-          if (harryBsDevoir && harryBsDevoir.id) {
-            await openGrille(harryBsDevoir);
-            return;
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.harryId || harryId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Harry');
           }
-          notesHarryDevoirGoActions();
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesHarrySeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip4B');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '4B';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         };
       }
     } catch {
@@ -35033,7 +35643,7 @@ async function bindFamilleRepas() {
         }
       }
       if (!list.length) {
-        out.innerHTML = famRepasPassagesEmptyHtml(prenomLabel, debut.value, fin.value);
+        out.innerHTML = famRepasPassagesEmptyHtml(prenomLabel, debut.value, fin.value, { menuPlat });
       } else {
         const multi = eid === '__all__';
         const foot = multi
@@ -37070,10 +37680,12 @@ async function bindMessages(base) {
             };
           }
         } else if (portalFam) {
-          filsOut.innerHTML = famEmptyDense('Aucun échange pour le moment', [
-            'Les fils regroupent vos échanges avec l’établissement, par enfant (vie scolaire, santé, scolarité…).',
-            'Pour une question au CPE ou à l’équipe éducative : ouvrez un fil depuis le formulaire ci-dessus.',
-          ], '<button type="button" class="primary" id="btnFamMsgEmptyCta">Contacter le CPE</button>');
+          filsOut.innerHTML = famMessagesPageEmptyTipDenseHtml()
+            + famEmptyDense('Aucun échange pour le moment', [
+              'Les fils regroupent vos échanges avec l’établissement, par enfant (vie scolaire, santé, scolarité…).',
+              'Pour une question au CPE ou à l’équipe éducative : ouvrez un fil depuis le formulaire ci-dessus (BV-B).',
+              '<a href="/famille/repas">Repas / cantine</a> — autre entrée fréquente du portail.',
+            ], '<button type="button" class="primary" id="btnFamMsgEmptyCta">Contacter le CPE</button>');
           const cta = document.getElementById('btnFamMsgEmptyCta');
           if (cta) {
             cta.onclick = () => {
@@ -37418,6 +38030,7 @@ async function bindMessages(base) {
     })();
   }
   await loadFils();
+  if (portalFam) maybeToastFamMessagesOuverte(msgFilsSnapshot);
   if (routeState.pendingFilId) {
     const pending = routeState.pendingFilId;
     delete routeState.pendingFilId;
