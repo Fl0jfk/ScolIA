@@ -158,6 +158,10 @@ let notesDevoirsEmptyGinnyCgRefresh = null;
 let notesDevoirsEmptyHarryChRefresh = null;
 /** Rempli dans bindNotes — repère Draco devoir CH-A sur tip « 0 devoir » (audit CH-D). */
 let notesDevoirsEmptyDracoChRefresh = null;
+/** Rempli dans bindNotes — repère Cedric note CI-A sur tip « 0 devoir » (audit CI-D). */
+let notesDevoirsEmptyCedricCiRefresh = null;
+/** Rempli dans bindNotes — repère Neville devoir CI-A sur tip « 0 devoir » (audit CI-D). */
+let notesDevoirsEmptyNevilleCiRefresh = null;
 /** Rempli dans bindNotes — repère Luna BS-D sur tip « éval sans note ». */
 let notesEvalSansNoteLunaRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
@@ -939,6 +943,8 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyGinnyCgRefresh === 'function') void notesDevoirsEmptyGinnyCgRefresh();
     if (typeof notesDevoirsEmptyHarryChRefresh === 'function') void notesDevoirsEmptyHarryChRefresh();
     if (typeof notesDevoirsEmptyDracoChRefresh === 'function') void notesDevoirsEmptyDracoChRefresh();
+    if (typeof notesDevoirsEmptyCedricCiRefresh === 'function') void notesDevoirsEmptyCedricCiRefresh();
+    if (typeof notesDevoirsEmptyNevilleCiRefresh === 'function') void notesDevoirsEmptyNevilleCiRefresh();
   } else if ((!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations')
     && Number.isFinite(nMatiere) && nMatiere > 0 && nTot > 0) {
     if (typeof notesEvalSansNoteLunaRefresh === 'function') void notesEvalSansNoteLunaRefresh();
@@ -1007,6 +1013,66 @@ function findCedricCbDevoir(devoirs) {
 function findCedricCfDevoir(devoirs) {
   return (devoirs || []).find(d =>
     /cedric/i.test(String(d.titre || '')) && /CF-A/i.test(String(d.titre || '')));
+}
+
+function findNevilleCiDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /neville/i.test(String(d.titre || '')) && /CI-A/i.test(String(d.titre || '')));
+}
+
+function notesNevilleCiDevoirGoActions() {
+  const chip = document.getElementById('notesChip3C');
+  if (chip) chip.click();
+  const devCl = document.getElementById('devClasse');
+  if (devCl) devCl.value = '3C';
+  document.getElementById('btnDevList')?.click();
+  document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** /app/notes — repère devoir Neville CI-A (0 devoir global ou liste filtrée vide). */
+function notesNevilleCiDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.nevilleCiDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Neville CI-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Neville Londubat</strong><span>Seed labo · 3C · devoir audit CI-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesNevilleCiDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CI-A · 3C'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesNevilleCiDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 3C</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesNevilleCiDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesNevilleCiDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.nevilleCiDevoir && o.nevilleCiDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.nevilleCiDevoir);
+        return;
+      }
+      notesNevilleCiDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Neville CI-A';
+      }
+      if (!o.nevilleCiDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesNevilleCiDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesNevilleCiDevoirGoActions();
+  }
 }
 
 function notesCedricDevoirGoActions() {
@@ -1911,6 +1977,30 @@ function notesHarryChSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesHarryChSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasChNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasChNote ? 'Repère Harry · Potions CH-A' : 'Filtre 4B · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Cedric Diggory (3C · note Français CI-A · audit CI-D). */
+function notesCedricCiSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.cedricId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '3C').trim());
+  const hasCiNote = !!o.hasCiNote;
+  const noteLbl = o.ciNoteLabel
+    ? esc(String(o.ciNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CI-A');
+  const noteStrong = hasCiNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Cedric Diggory</strong><span>Seed labo · ${classe} · audit notes CI-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesCedricCiSeedNotesBtn" data-cedric-id="${esc(String(o.cedricId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesCedricCiSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasCiNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCiNote ? 'Repère Cedric · Français CI-A' : 'Filtre 3C · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -6309,6 +6399,343 @@ function toastStaffCccAction(kind, meta) {
   );
 }
 
+function isStaffHomeCicFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && !!role;
+}
+
+/** Accueil staff — annuaire · trombi · comptes · dossier (audit UI CI-C · hors BT–CH-C). */
+function homeStaffCicTipDenseHtml(meta) {
+  if (!isStaffHomeCicFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cicLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CI-C</span>';
+  const nEff = Number(o.nEff4b) || 0;
+  const nSans = Number(o.nSansCompte) || 0;
+  const nSansPhoto = Number(o.nSansPhoto) || 0;
+  const annTile = `<button type="button" class="stat-tile bento-span-4" id="homeCicAnnGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${nEff || '→'}</strong><span>Annuaire · 4B · ${jour} · ${cicLbl}</span></button>`;
+  const trombiTile = nSansPhoto
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCicTrombiGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nSansPhoto}</strong><span>Sans photo · trombi 4B</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCicTrombiGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">OK</strong><span>Trombi 4B · photos à jour</span></button>`;
+  const compteTile = nSans
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCicCompteGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nSans}</strong><span>Sans compte · inviter /eleve</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCicCompteGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Comptes élèves · à jour</span></button>`;
+  const dossLabel = o.dossierLabel ? esc(String(o.dossierLabel).trim().slice(0, 22)) : 'Dossier';
+  const dossTile = o.dossierHref
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCicDossGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${dossLabel}</strong><span>Fiche · famille · documents</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCicDossGo" style="cursor:pointer;text-align:left">
+        <strong>→</strong><span>Ouvrir un dossier · recherche</span></button>`;
+  const expTile = o.showExports
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCicExportsGo" style="cursor:pointer;text-align:left">
+        <strong>EN</strong><span>LSL · LSUN · effectifs classe</span></button>`
+    : '';
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Dossiers · hors comms BY-C</span></div>`;
+  return `<div class="bento" data-ui-audit="CI-C" style="margin:0 0 .55rem">
+    ${annTile}${trombiTile}${compteTile}${dossTile}${expTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffCicTipActions(meta) {
+  const o = meta || {};
+  const ann = document.getElementById('homeCicAnnGo');
+  if (ann) {
+    ann.onclick = () => {
+      toastStaffCicAction('annuaire', o);
+      go('/app/eleves');
+    };
+  }
+  const trombi = document.getElementById('homeCicTrombiGo');
+  if (trombi) {
+    trombi.onclick = () => {
+      toastStaffCicAction('trombi', o);
+      go('/app/eleves?trombi=4B');
+    };
+  }
+  const compte = document.getElementById('homeCicCompteGo');
+  if (compte) {
+    compte.onclick = () => {
+      toastStaffCicAction('comptes', o);
+      go('/app/eleves');
+    };
+  }
+  const doss = document.getElementById('homeCicDossGo');
+  if (doss) {
+    doss.onclick = () => {
+      toastStaffCicAction('dossier', o);
+      go(o.dossierHref || '/app/eleves?q=Harry');
+    };
+  }
+  const exp = document.getElementById('homeCicExportsGo');
+  if (exp) {
+    exp.onclick = () => {
+      toastStaffCicAction('exports', o);
+      go('/app/exports');
+    };
+  }
+}
+
+function isStaffElevesPageCicFlux() {
+  return path() === '/app/eleves';
+}
+
+/** Page /app/eleves — annuaire · trombi · comptes (audit UI CI-C). */
+function elevesStaffPageTipDenseHtml(meta) {
+  if (!isStaffElevesPageCicFlux()) return '';
+  const o = meta || {};
+  const cicLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CI-C</span>';
+  const nList = Number(o.nList) || 0;
+  const nSans = Number(o.nSans) || 0;
+  const nSansPhoto = Number(o.nSansPhoto) || 0;
+  const listTile = `<button type="button" class="stat-tile bento-span-4" id="elevesCicListGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${nList}</strong><span>Liste courante · GET search · ${cicLbl}</span></button>`;
+  const trombiTile = `<button type="button" class="stat-tile bento-span-4" id="elevesCicTrombiGo" style="cursor:pointer;text-align:left;border-color:${nSansPhoto ? 'var(--warn,#b45309)' : 'var(--accent,#0071e3)'}">
+      <strong class="${nSansPhoto ? 'warn' : ''}">${nSansPhoto || '0'}</strong><span>Sans photo · panneau trombi</span></button>`;
+  const compteTile = nSans
+    ? `<button type="button" class="stat-tile bento-span-4" id="elevesCicCompteGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nSans}</strong><span>Sans compte · filtrer liste</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Comptes portail · OK</span></div>`;
+  const homTile = `<button type="button" class="stat-tile bento-span-4" id="elevesCicHomGo" style="cursor:pointer;text-align:left">
+      <strong>Potter</strong><span>Homonymes · seed labo</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Route /app/eleves</span></div>`;
+  return `<div class="bento" data-ui-audit="CI-C" style="margin:0 0 .55rem">
+    ${listTile}${trombiTile}${compteTile}${homTile}${auditTile}
+  </div>`;
+}
+
+function bindElevesStaffPageTipActions(meta) {
+  const o = meta || {};
+  const list = document.getElementById('elevesCicListGo');
+  if (list) {
+    list.onclick = () => {
+      toastStaffCicAction('annuaire', o);
+      document.getElementById('q')?.focus();
+    };
+  }
+  const trombi = document.getElementById('elevesCicTrombiGo');
+  if (trombi) {
+    trombi.onclick = () => {
+      toastStaffCicAction('trombi', o);
+      document.getElementById('panelTrombi')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('btnTrombi')?.click();
+    };
+  }
+  const compte = document.getElementById('elevesCicCompteGo');
+  if (compte) {
+    compte.onclick = () => {
+      toastStaffCicAction('comptes', o);
+      document.getElementById('btnSansCompte')?.click();
+    };
+  }
+  const hom = document.getElementById('elevesCicHomGo');
+  if (hom) {
+    hom.onclick = () => {
+      toastStaffCicAction('homonymes', o);
+      document.getElementById('homNom')?.focus();
+      document.getElementById('panelTrombi')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+}
+
+function refreshElevesStaffCicTip(meta) {
+  const box = document.getElementById('elevesStaffCicTip');
+  if (!box || !isStaffElevesPageCicFlux()) return;
+  box.innerHTML = elevesStaffPageTipDenseHtml(meta);
+  bindElevesStaffPageTipActions(meta);
+}
+
+function isStaffDossierEleveFlux() {
+  return /^\/app\/eleves\/[0-9a-f-]{36}$/i.test(path());
+}
+
+/** Fiche /app/eleves/:id — photo · famille · documents (audit UI CI-C). */
+function dossierStaffPageTipDenseHtml(meta) {
+  if (!isStaffDossierEleveFlux()) return '';
+  const o = meta || {};
+  const cicLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CI-C</span>';
+  const nom = o.nomLabel ? esc(String(o.nomLabel).trim().slice(0, 24)) : 'Élève';
+  const cl = o.classe ? esc(String(o.classe).trim()) : '—';
+  const photoTile = o.hasPhoto
+    ? `<div class="stat-tile bento-span-4"><strong class="ok">Photo</strong><span>Trombi · PNG déposée</span></div>`
+    : `<button type="button" class="stat-tile bento-span-4" id="dosCicPhotoGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">—</strong><span>Poser photo · bandeau dossier</span></button>`;
+  const famTile = o.foyerHref
+    ? `<button type="button" class="stat-tile bento-span-4" id="dosCicFamGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>Foyer</strong><span>Responsables · parts payeurs</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de foyer lié</span></div>`;
+  const docTile = o.hasDocuments
+    ? `<button type="button" class="stat-tile bento-span-4" id="dosCicDocGo" style="cursor:pointer;text-align:left">
+        <strong>${Number(o.nDocs) || '→'}</strong><span>Documents · tiroirs · grants</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Section documents masquée</span></div>`;
+  const retTile = `<button type="button" class="stat-tile bento-span-4" id="dosCicAnnGo" style="cursor:pointer;text-align:left">
+      <strong>${nom}</strong><span>${cl} · ${cicLbl}</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>GET /eleves/:id/dossier</span></div>`;
+  return `<div class="bento" data-ui-audit="CI-C" style="margin:0 0 .55rem">
+    ${retTile}${photoTile}${famTile}${docTile}${auditTile}
+  </div>`;
+}
+
+function bindDossierStaffPageTipActions(meta) {
+  const o = meta || {};
+  const photo = document.getElementById('dosCicPhotoGo');
+  if (photo) {
+    photo.onclick = () => {
+      toastStaffCicAction('photo', o);
+      document.getElementById('photoFile')?.focus();
+    };
+  }
+  const fam = document.getElementById('dosCicFamGo');
+  if (fam && o.foyerHref) {
+    fam.onclick = () => {
+      toastStaffCicAction('foyer', o);
+      go(o.foyerHref);
+    };
+  }
+  const doc = document.getElementById('dosCicDocGo');
+  if (doc) {
+    doc.onclick = () => {
+      toastStaffCicAction('documents', o);
+      const tab = document.querySelector('[data-dos-tab="documents"], #dossierNav a[data-sec="documents"]');
+      if (tab) tab.click();
+      else document.getElementById('staffEleveDocsTip')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const ann = document.getElementById('dosCicAnnGo');
+  if (ann) {
+    ann.onclick = () => {
+      toastStaffCicAction('dossier', o);
+      go('/app/eleves');
+    };
+  }
+}
+
+function dossierStaffCicMetaFromDossier(d, extra) {
+  const o = extra || {};
+  const e = (d && d.eleve) || {};
+  const s = (d && d.sections) || {};
+  const foyer = (d && d.liens || []).find(l => l && l.foyer_id);
+  const prenom = String(e.prenom || '').trim();
+  const nom = String(e.nom || '').trim();
+  return {
+    eleveId: e.id,
+    nomLabel: [prenom, nom].filter(Boolean).join(' ') || 'Élève',
+    classe: e.classe,
+    hasPhoto: !!(e.photo_url || e.photo_path || o.hasPhoto),
+    foyerHref: foyer ? '/app/foyers/' + encodeURIComponent(String(foyer.foyer_id)) : '',
+    hasDocuments: !!s.documents,
+    nDocs: o.nDocs,
+    jour: o.jour || today(),
+    nEff4b: o.nEff4b,
+    nSansCompte: o.nSansCompte,
+    nSansPhoto: o.nSansPhoto,
+  };
+}
+
+function refreshDossierStaffCicTip(d, extra) {
+  const box = document.getElementById('dossierStaffCicTip');
+  if (!box || !isStaffDossierEleveFlux()) return;
+  const meta = dossierStaffCicMetaFromDossier(d, extra);
+  box.innerHTML = dossierStaffPageTipDenseHtml(meta);
+  bindDossierStaffPageTipActions(meta);
+}
+
+/** Toast bento — annuaire & dossiers élèves (routes existantes · audit CI-C). */
+function toastStaffCicAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Annuaire &amp; dossiers';
+  let href = '/app/eleves';
+  let tiles = '';
+  const nEff = Number(o.nEff4b) || 0;
+  const nSans = Number(o.nSansCompte ?? o.nSans) || 0;
+  const nSansPhoto = Number(o.nSansPhoto) || 0;
+  if (k === 'annuaire') {
+    title = 'Annuaire élèves';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nEff || '→'}</strong><span>Effectif 4B · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">GET</strong><span>/eleves/search?q=…</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Route /app/eleves</span></div>`;
+  } else if (k === 'trombi') {
+    href = '/app/eleves?trombi=4B';
+    title = nSansPhoto ? 'Trombi · photos manquantes' : 'Trombinoscope 4B';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nSansPhoto ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nSansPhoto ? 'warn' : 'ok'}">${nSansPhoto || '0'}</strong><span>Sans photo · classe 4B</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Lazy</strong><span>Charger grille · dossier élève</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Poser PNG · bandeau</span></div>`;
+  } else if (k === 'comptes') {
+    title = nSans ? 'Comptes · à inviter' : 'Comptes portail · OK';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nSans ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nSans ? 'warn' : 'ok'}">${nSans}</strong><span>Sans compte /eleve</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">POST</strong><span>…/compte/inviter</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Provisionner le lot</span></div>`;
+  } else if (k === 'dossier') {
+    href = o.dossierHref || (o.eleveId ? '/app/eleves/' + encodeURIComponent(String(o.eleveId)) : '/app/eleves');
+    const lbl = o.nomLabel ? esc(String(o.nomLabel).trim().slice(0, 28)) : 'Fiche élève';
+    title = 'Dossier · fiche complète';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${lbl}</strong><span>${esc(String(o.classe || '—'))} · identité</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Famille</strong><span>Foyer · documents · repas</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>GET /eleves/:id/dossier</span></div>`;
+  } else if (k === 'exports') {
+    href = '/app/exports';
+    title = 'Exports EN · effectifs';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>LSL</strong><span>LSUN · Parcoursup · ONDE</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Classe</strong><span>4B · période notes</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Pont nomenclatures</span></div>`;
+  } else if (k === 'homonymes') {
+    title = 'Homonymes · dédoublonnage';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>Potter</strong><span>Seed Harry · labo</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">GET</strong><span>/eleves/homonymes</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Naissance · prénom</span></div>`;
+  } else if (k === 'photo') {
+    href = o.eleveId ? '/app/eleves/' + encodeURIComponent(String(o.eleveId)) : href;
+    title = 'Photo élève · trombi';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">PNG</strong><span>Déposer · photo démo</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Trombi</strong><span>Classe · lazy load</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Bandeau dossier</span></div>`;
+  } else if (k === 'foyer') {
+    href = o.foyerHref || '/app/foyers';
+    title = 'Foyer · responsables';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>→</strong><span>Parts payeurs · droits famille</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Factu</strong><span>Gérée au foyer</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Route /app/foyers/:id</span></div>`;
+  } else if (k === 'documents') {
+    href = o.eleveId ? '/app/eleves/' + encodeURIComponent(String(o.eleveId)) : href;
+    title = 'Documents élève';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${Number(o.nDocs) || '→'}</strong><span>Tiroirs · confidences</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Grants</strong><span>Accès famille · staff</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CI-C</strong><span>Onglet documents</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir</a> · audit CI-C</p>`,
+    6500,
+  );
+}
+
 /** Toast bento — cockpit santé staff / labo (routes existantes · audit CA-C). */
 function toastStaffCacAction(kind, meta) {
   const o = meta || {};
@@ -7696,6 +8123,182 @@ function famCollectProchainCommissions(list, comLists) {
   return picks;
 }
 
+function famCiBCommissionPageHref() {
+  return '/famille/vie-scolaire';
+}
+
+function famCiBFicheVsHref(enfantId) {
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  return eid ? `/famille/enfants/${eid}?section=vs` : famCiBCommissionPageHref();
+}
+
+function famCiBAuditTile(label) {
+  return `<div class="stat-tile bento-span-4"><strong class="muted">CI-B</strong><span>${label}</span></div>`;
+}
+
+function famCommissionCiBCollectStats(list, comLists) {
+  let nOpen = 0;
+  let nKidsVs = 0;
+  (list || []).forEach((e, i) => {
+    if (e && e.peut_voir_vs === false) return;
+    nKidsVs += 1;
+    nOpen += (comLists[i] || []).filter(famCommissionEnAttenteFamille).length;
+  });
+  return { nOpen, nKidsVs };
+}
+
+/** Accueil famille — commissions VS calme (bento) — audit UI CI-B. */
+function famHomeCommissionCiBCalmeTipDenseHtml(list, comLists) {
+  const st = famCommissionCiBCollectStats(list, comLists);
+  if (!st.nKidsVs || st.nOpen) return '';
+  const pageHref = famCiBCommissionPageHref();
+  const listHref = '/famille/enfants';
+  return `<div class="bento" data-ui-audit="CI-B" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">0</strong><span>Commission ouverte · ${st.nKidsVs} enfant(s) VS</span>
+    </div>
+    <a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-ci-go="${pageHref}">
+      <strong>VS</strong><span>Permis · sanctions · historique</span>
+    </a>
+    <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none" data-fam-ci-go="/famille/messages">
+      <strong>CPE</strong><span>Question discipline</span>
+    </a>
+    ${famCiBAuditTile('Accueil · commissions calmes')}
+  </div>`;
+}
+
+/** Page /famille/vie-scolaire — focus commission (bento) — audit UI CI-B. */
+function famVsPageCommissionCiBTipDenseHtml(opts) {
+  const o = opts || {};
+  if (!isFamilleVieScolaireFlux() && !o.forceShow) return '';
+  const pageHref = famCiBCommissionPageHref();
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const ficheHref = famCiBFicheVsHref(o.enfantId);
+  const nOpen = Math.max(0, Number(o.nComOpen) || 0);
+  const nVis = Math.max(0, Number(o.nComVisible) || 0);
+  const next = o.nextCommission || null;
+  const openTile = nOpen
+    ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-ci-go="${ficheHref}">
+        <strong class="warn">${nOpen}</strong><span>Commission(s) · décision en attente · ${who}</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Pas de commission ouverte · ${who}</span>
+      </div>`;
+  let detailTile;
+  if (next && (next.motifs || next.objet || next.commission_jour)) {
+    const jour = next.commission_jour ? esc(String(next.commission_jour).slice(0, 10)) : '—';
+    const heure = next.commission_heure || next.heure;
+    const horaire = heure ? `${jour} · ${esc(String(heure).slice(0, 5))}` : jour;
+    const motif = esc(String(next.motifs || next.objet || 'Commission VS').trim().slice(0, 28));
+    detailTile = `<div class="stat-tile bento-span-4"><strong>${horaire}</strong><span>${motif}</span></div>`;
+  } else {
+    detailTile = `<div class="stat-tile bento-span-4"><strong class="muted">${nVis}</strong><span>Commission(s) signalée(s) famille</span></div>`;
+  }
+  const msgTile = `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-ci-go="/famille/messages">
+      <strong>→</strong><span>Contacter le CPE · convocation</span>
+    </a>`;
+  const auditTile = famCiBAuditTile(`Route ${pageHref}${eid ? ' · fiche VS' : ''}`);
+  return `<div class="bento" data-ui-audit="CI-B" style="margin:0 0 .55rem">${openTile}${detailTile}${msgTile}${auditTile}</div>`;
+}
+
+function bindFamHomeCiBTipGo() {
+  ['famHomeComTip', 'famVsPageCiBComTip', 'entToast'].forEach(rootId => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('[data-fam-ci-go]').forEach(btn => {
+      if (btn.dataset.famCiBound === '1') return;
+      btn.dataset.famCiBound = '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-ci-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  });
+}
+
+const FAM_COM_CI_B_HOME_TOAST_SS = 'ent_fam_com_ci_b_home';
+
+/** Toast bento — commissions VS accueil (1× / session) — audit UI CI-B. */
+function maybeToastFamCommissionCiBHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_COM_CI_B_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const picks = o.picks || [];
+  const st = famCommissionCiBCollectStats(o.list, o.comLists);
+  if (!st.nKidsVs) return;
+  const tipHtml = picks.length
+    ? famHomeProchainCommissionTipDenseHtml(picks)
+    : famHomeCommissionCiBCalmeTipDenseHtml(o.list, o.comLists);
+  if (!tipHtml) return;
+  const who = picks.length && picks[0].enfant
+    ? esc(String(picks[0].enfant.prenom || 'Enfant').trim())
+    : 'Foyer';
+  const pageHref = famCiBCommissionPageHref();
+  showEntToast(
+    (st.nOpen ? '<strong>Commission(s) VS</strong>' : '<strong>Commissions · registre calme</strong>')
+    + ` — ${who}`
+    + `<div style="margin:.35rem 0 0">${tipHtml}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Vie scolaire</a> · `
+    + `<a href="/famille/messages">Messagerie CPE</a></p>`,
+    st.nOpen ? 9000 : 7200,
+  );
+  try { sessionStorage.setItem(FAM_COM_CI_B_HOME_TOAST_SS, '1'); } catch {}
+  bindFamHomeCiBTipGo();
+}
+
+/** Toast bento — page /famille/vie-scolaire (commissions) — audit UI CI-B. */
+function toastFamVsCommissionCiBOuverte(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const tipHtml = famVsPageCommissionCiBTipDenseHtml({ ...o, forceShow: true });
+  const pageHref = famCiBCommissionPageHref();
+  const ficheHref = famCiBFicheVsHref(o.enfantId);
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Vie scolaire</a> · `
+    + `<a href="${ficheHref}">Fiche VS</a> · `
+    + `<a href="/famille/messages">Contacter le CPE</a></p>`;
+  if (!isFamilleVieScolaireFlux() && !o.dense) {
+    showEntToast(`<strong>Commissions VS</strong> — ${who}. <a href="${pageHref}">Registre famille</a>`, 6500);
+    return;
+  }
+  showEntToast(
+    `<strong>Commissions vie scolaire</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + foot,
+    o.nComOpen ? 8500 : 7500,
+  );
+  bindFamHomeCiBTipGo();
+}
+
+function maybeToastFamVsCommissionCiBPage(opts) {
+  if (!isParent() || !isFamilleVieScolaireFlux()) return;
+  const ssKey = 'ent_fam_vs_com_ci_b_page_open';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamVsCommissionCiBOuverte({ ...(opts || {}), dense: true });
+}
+
 function famCollectProchainRdvPsy(list, rdvLists) {
   const picks = [];
   (list || []).forEach((e, i) => {
@@ -7872,7 +8475,7 @@ function famAccPageTipDenseHtml(opts) {
   return `<div class="bento" data-ui-audit="CA-B" style="margin:0 0 .55rem">${suiviTile}${rdvTile}${actTile}${msgTile}${auditTile}</div>`;
 }
 
-/** Accueil famille — prochaine commission signalée (bento). */
+/** Accueil famille — prochaine commission signalée (bento) — audit UI CI-B. */
 function famHomeProchainCommissionTipDenseHtml(picks) {
   const sorted = picks || [];
   if (!sorted.length) return '';
@@ -7880,7 +8483,8 @@ function famHomeProchainCommissionTipDenseHtml(picks) {
   const e = first.enfant;
   const c = first.commission;
   const eid = e && e.id ? esc(String(e.id).trim()) : '';
-  const ficheHref = eid ? `/famille/enfants/${eid}?section=vs` : '/famille/vie-scolaire';
+  const ficheHref = famCiBFicheVsHref(e.id);
+  const pageHref = famCiBCommissionPageHref();
   const jour = c.commission_jour ? esc(String(c.commission_jour).slice(0, 10)) : '—';
   const heure = c.commission_heure || c.heure;
   const horaire = heure ? `${jour} · ${esc(String(heure).slice(0, 5))}` : jour;
@@ -7889,14 +8493,16 @@ function famHomeProchainCommissionTipDenseHtml(picks) {
   const extra = sorted.slice(1, 3).map(p =>
     `${esc(p.enfant.prenom || 'Enfant')} · ${esc(String(p.commission.commission_jour || '').slice(0, 10))}`,
   ).join(' · ');
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+  const lieu = c.lieu ? esc(String(c.lieu).trim().slice(0, 22)) : 'Convocation VS';
+  return `<div class="bento" data-ui-audit="CI-B" style="margin:0 0 .55rem">
+    <a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-ci-go="${ficheHref}">
       <strong class="warn">${motif}</strong><span>Commission · ${esc(e.prenom || 'Enfant')}</span>
     </a>
-    <div class="stat-tile bento-span-4"><strong>${horaire}</strong><span>${esc(c.decision_libelle || 'Décision en attente')}</span></div>
-    <a class="stat-tile bento-span-4" href="/famille/vie-scolaire" style="text-decoration:none">
-      <strong>${more > 0 ? '+' + more : '1'}</strong><span>${more > 0 && extra ? esc(extra) + ' · ' : ''}Vie scolaire</span>
+    <div class="stat-tile bento-span-4"><strong>${horaire}</strong><span>${lieu} · ${esc(c.decision_libelle || 'Décision en attente')}</span></div>
+    <a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-ci-go="${pageHref}">
+      <strong>${more > 0 ? '+' + more : '→'}</strong><span>${more > 0 && extra ? esc(extra) + ' · ' : ''}Vie scolaire · registre</span>
     </a>
+    ${famCiBAuditTile('GET …/commissions · signale_famille')}
   </div>`;
 }
 
@@ -11613,6 +12219,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyCedricSlot"></div>
   <div id="notesDevoirsEmptyCedricCbSlot"></div>
   <div id="notesDevoirsEmptyCedricCfSlot"></div>
+  <div id="notesDevoirsEmptyCedricCiSlot"></div>
   <div id="notesDevoirsEmptyChoSlot"></div>
   <div id="notesDevoirsEmptyChoBzSlot"></div>
   <div id="notesDevoirsEmptyChoCeSlot"></div>
@@ -11620,6 +12227,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyHermioneBySlot"></div>
   <div id="notesDevoirsEmptyHermioneCdSlot"></div>
   <div id="notesDevoirsEmptyNevilleCfSlot"></div>
+  <div id="notesDevoirsEmptyNevilleCiSlot"></div>
   <div id="notesDevoirsEmptyDracoSlot"></div>
   <div id="notesDevoirsEmptyDracoCaSlot"></div>
   <div id="notesDevoirsEmptyDracoChSlot"></div>
@@ -22932,6 +23540,11 @@ function viewHome() {
       <p class="muted" style="margin-top:0">Messagerie · notifications outbox · trombi photo · exports EN — <span class="muted empty-state-hint" style="font-size:.72rem">BY-C</span>.</p>
       <div id="homeMsgTip" class="muted">Chargement…</div>
     </div>
+    <div class="panel" style="margin-bottom:.75rem">
+      <h3 style="margin-top:0;font-size:1rem">Annuaire &amp; dossiers élèves</h3>
+      <p class="muted" style="margin-top:0">Recherche · trombi · comptes portail · fiche dossier — <span class="muted empty-state-hint" style="font-size:.72rem">CI-C</span>.</p>
+      <div id="homeStaffCicTip" class="muted">Chargement…</div>
+    </div>
     <div class="bento">
       <section class="panel bento-span-12">
         <h2>${homeTitle}</h2>
@@ -23088,6 +23701,47 @@ async function bindHome() {
     bindHomeStaffBycTipActions(bycMeta);
   } else if (homeMsgTip) {
     homeMsgTip.innerHTML = '';
+  }
+  const staffCicBox = document.getElementById('homeStaffCicTip');
+  if (staffCicBox && isStaffHomeCicFlux()) {
+    const wantCicExports = ['direction', 'admin', 'administratif'].includes(role);
+    const [sansCic, trombiCic, effCic, harryCic] = await Promise.all([
+      settle(api('/eleves/sans-compte'), []),
+      settle(api('/classes/4B/trombi'), []),
+      nEff4b ? Promise.resolve(nEff4b) : settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(jour)), null),
+      settle(api('/eleves/search?q=Harry'), []),
+    ]);
+    const trombiRowsCic = trombiCic || [];
+    const nSansPhotoCic = trombiRowsCic.filter(t => !(t && (t.photo_url || t.photo_path || t.has_photo))).length;
+    const nSansCompteCic = (sansCic || []).length;
+    const nEffCic = typeof effCic === 'number'
+      ? effCic
+      : ((effCic && Array.isArray(effCic.eleves)) ? effCic.eleves.length : ((effCic && effCic.effectif) || 0));
+    const harryRow = (harryCic || []).find(e => /potter/i.test(String(e.nom || '')))
+      || (harryCic || [])[0]
+      || null;
+    const dossierHref = harryRow && harryRow.id
+      ? '/app/eleves/' + encodeURIComponent(String(harryRow.id))
+      : '';
+    const dossierLabel = harryRow
+      ? [harryRow.prenom, harryRow.nom].filter(Boolean).join(' ').trim() || 'Harry'
+      : '';
+    const cicMeta = {
+      jour,
+      nEff4b: nEffCic,
+      nSansCompte: nSansCompteCic,
+      nSansPhoto: nSansPhotoCic,
+      dossierHref,
+      dossierLabel,
+      showExports: wantCicExports,
+      nomLabel: dossierLabel,
+      eleveId: harryRow && harryRow.id,
+      classe: harryRow && harryRow.classe,
+    };
+    staffCicBox.innerHTML = homeStaffCicTipDenseHtml(cicMeta);
+    bindHomeStaffCicTipActions(cicMeta);
+  } else if (staffCicBox) {
+    staffCicBox.innerHTML = '';
   }
   if (pulse) {
     if (role === 'prof') {
@@ -24561,7 +25215,8 @@ async function bindFamilleHome() {
     const comTip = document.getElementById('famHomeComTip');
     if (comTip) {
       const comPicks = famCollectProchainCommissions(list, comLists);
-      const denseCom = famHomeProchainCommissionTipDenseHtml(comPicks);
+      const denseCom = famHomeProchainCommissionTipDenseHtml(comPicks)
+        || famHomeCommissionCiBCalmeTipDenseHtml(list, comLists);
       if (denseCom) {
         comTip.style.display = '';
         comTip.innerHTML = denseCom;
@@ -24569,6 +25224,8 @@ async function bindFamilleHome() {
         comTip.style.display = 'none';
         comTip.innerHTML = '';
       }
+      bindFamHomeCiBTipGo();
+      maybeToastFamCommissionCiBHomeDense({ list, comLists, picks: comPicks });
     }
     const sepaTip = document.getElementById('famHomeSepaTip');
     if (sepaTip) {
@@ -26977,6 +27634,7 @@ async function bindFamilleEnfant(id) {
 /* ---------- Élèves ---------- */
 function viewEleves() {
   return shell('/app/eleves', `
+    <div id="elevesStaffCicTip"></div>
     <div class="bento" id="elevesStats"></div>
     <div id="eleves4BTip"></div>
     <div id="elevesSearchTip"></div>
@@ -27052,6 +27710,17 @@ async function bindEleves() {
       nSans,
     }, { mode: tipMode });
     bindElevesPageTipActions();
+    let nSansPhoto = 0;
+    try {
+      const trombi = await api('/classes/4B/trombi');
+      nSansPhoto = (trombi || []).filter(t => !(t && (t.photo_url || t.photo_path || t.has_photo))).length;
+    } catch (_) { /* hors droits */ }
+    refreshElevesStaffCicTip({
+      nList: (list || []).length,
+      nSans,
+      nSansPhoto,
+      jour: today(),
+    });
   }
 
   function renderList(list, withInvite) {
@@ -27389,6 +28058,7 @@ function viewDossier(id) {
   return shell('/app/eleves', `
     <div class="dossier">
       <p class="muted" style="margin:0 0 .5rem"><a href="/app/eleves">← Annuaire élèves</a></p>
+      <div id="dossierStaffCicTip"></div>
       <div id="dossierOut" class="muted">Chargement de la fiche…</div>
     </div>`);
 }
@@ -27886,6 +28556,7 @@ async function bindDossier(id) {
     out.innerHTML = renderDossier(d);
     const e0 = (d && d.eleve) || {};
     const dossierEleveLabel = [e0.prenom, e0.nom].filter(Boolean).join(' ').trim();
+    refreshDossierStaffCicTip(d, { jour: today() });
 
     async function loadStaffDossierSanteTipBlock() {
       const tipEl = document.getElementById('staffDossierSanteTip');
@@ -37934,6 +38605,7 @@ function viewNotes() {
     <div id="notesNevilleSeedTip"></div>
     <div id="notesNevilleCbSeedTip"></div>
     <div id="notesNevilleCfSeedTip"></div>
+    <div id="notesCedricCiSeedTip"></div>
     <div id="notesLunaCgSeedTip"></div>
     <div class="panel" id="notesQuickLab" style="margin-bottom:.75rem">
       <div class="row" style="margin:0;align-items:flex-start">
@@ -38281,6 +38953,7 @@ async function bindNotes() {
       await refreshNotesNevilleSeedTip(devoirsPref);
       await refreshNotesNevilleCbSeedTip(devoirsPref);
       await refreshNotesNevilleCfSeedTip(devoirsPref);
+      await refreshNotesCedricCiSeedTip(devoirsPref);
       await refreshNotesLunaCgSeedTip(devoirsPref);
       box.innerHTML = `
         <div class="stat-tile bento-span-3"><strong>${nPer}</strong><span>Périodes · ${nPart} partielles</span></div>
@@ -38911,6 +39584,52 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyCedricCfRefresh = refreshNotesDevoirsEmptyCedricCfSlot;
+  async function refreshNotesDevoirsEmptyCedricCiSlot() {
+    const el = document.getElementById('notesDevoirsEmptyCedricCiSlot');
+    if (!el) return;
+    try {
+      const cedricId = await resolveCedricDiggoryEleveId();
+      if (!cedricId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '3C';
+      try {
+        const eleve = await api('/eleves/' + cedricId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 3C */ }
+      const meta = await cedricCiNoteMetaFromApi(cedricId);
+      el.innerHTML = notesCedricCiSeedTipDenseHtml({
+        cedricId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesCedricCiSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.cedricId || cedricId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Cedric');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesCedricCiSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip3C');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '3C';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyCedricCiRefresh = refreshNotesDevoirsEmptyCedricCiSlot;
   async function refreshNotesDevoirsEmptyChoSlot() {
     const el = document.getElementById('notesDevoirsEmptyChoSlot');
     if (!el) return;
@@ -39233,6 +39952,31 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyNevilleCfRefresh = refreshNotesDevoirsEmptyNevilleCfSlot;
+  async function refreshNotesDevoirsEmptyNevilleCiSlot() {
+    const el = document.getElementById('notesDevoirsEmptyNevilleCiSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const nevilleCiDevoir = findNevilleCiDevoir(devoirs);
+      el.innerHTML = notesNevilleCiDevoirGoTipDenseHtml({ nevilleCiDevoir: nevilleCiDevoir || null });
+      bindNotesNevilleCiDevoirGoTipGo({
+        nevilleCiDevoir: nevilleCiDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyNevilleCiRefresh = refreshNotesDevoirsEmptyNevilleCiSlot;
   async function refreshNotesDevoirsEmptyDracoSlot() {
     const el = document.getElementById('notesDevoirsEmptyDracoSlot');
     if (!el) return;
@@ -40029,6 +40773,23 @@ async function bindNotes() {
     }
     return { nNotes, cfNoteLabel, hasCfNote };
   }
+  async function cedricCiNoteMetaFromApi(cedricId) {
+    let nNotes = 0;
+    let ciNoteLabel = '';
+    let hasCiNote = false;
+    try {
+      const notes = await api('/eleves/' + cedricId + '/notes');
+      nNotes = (notes || []).length;
+      const ciNote = (notes || []).find(n => /CI-A/i.test(String(n.libelle || '')));
+      if (ciNote) {
+        hasCiNote = true;
+        if (ciNote.libelle) ciNoteLabel = String(ciNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, ciNoteLabel, hasCiNote };
+  }
   async function lunaBsNoteMetaFromApi(lunaId) {
     let nNotes = 0;
     let bsNoteLabel = '';
@@ -40636,6 +41397,52 @@ async function bindNotes() {
         };
       }
       const btnCl = document.getElementById('notesNevilleCfSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip3C');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '3C';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesCedricCiSeedTip(_devoirsPref) {
+    const el = document.getElementById('notesCedricCiSeedTip');
+    if (!el) return;
+    try {
+      const cedricId = await resolveCedricDiggoryEleveId();
+      if (!cedricId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '3C';
+      try {
+        const eleve = await api('/eleves/' + cedricId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 3C */ }
+      const meta = await cedricCiNoteMetaFromApi(cedricId);
+      el.innerHTML = notesCedricCiSeedTipDenseHtml({
+        cedricId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesCedricCiSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.cedricId || cedricId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Cedric');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesCedricCiSeedClasseBtn');
       if (btnCl) {
         btnCl.onclick = () => {
           const chip = document.getElementById('notesChip3C');
@@ -44067,9 +44874,10 @@ function viewFamilleVieScolaire() {
     <div id="famVsPaiBanner"></div>
     <div id="famVsBar" style="margin-bottom:.65rem"></div>
     <div id="famVsPageTip" style="display:none;margin-bottom:.65rem"></div>
+    <div id="famVsPageCiBComTip" style="display:none;margin-bottom:.65rem"></div>
     <div class="panel">
       <h2>Vie scolaire</h2>
-      <p class="muted">Sanctions, incidents, commissions, permis à points et alertes CPE — par enfant · <span class="muted empty-state-hint">CB-B</span>.</p>
+      <p class="muted">Sanctions, incidents, commissions, permis à points et alertes CPE — par enfant · <span class="muted empty-state-hint">CB-B</span> · commissions <span class="muted empty-state-hint">CI-B</span>.</p>
       <div class="row">
         <label>Enfant <select id="famVsEnfant" style="min-width:14rem"></select></label>
         <button type="button" class="primary" id="btnFamVsLoad">Actualiser</button>
@@ -44101,6 +44909,8 @@ async function bindFamilleVieScolaire() {
     const id = sel.value;
     if (!id) {
       if (pageTip) { pageTip.style.display = 'none'; pageTip.innerHTML = ''; }
+      const ciBComTipEmpty = document.getElementById('famVsPageCiBComTip');
+      if (ciBComTipEmpty) { ciBComTipEmpty.style.display = 'none'; ciBComTipEmpty.innerHTML = ''; }
       out.innerHTML = famVsSectionEmptyHtml('Aucun enfant lié', [
         'Sélectionnez un enfant dans la liste lorsque le foyer est rattaché.',
       ]);
@@ -44160,6 +44970,26 @@ async function bindFamilleVieScolaire() {
           });
         bindFamHomeCbBTipGo();
       }
+      const ciBComTip = document.getElementById('famVsPageCiBComTip');
+      if (ciBComTip) {
+        const nextCom = famPickNextCommissionFamille(comOpen);
+        const ciBHtml = famVsPageCommissionCiBTipDenseHtml({
+          forceShow: true,
+          enfantId: id,
+          prenom: prenomVs,
+          nComOpen: comOpen.length,
+          nComVisible: comVis.length,
+          nextCommission: nextCom,
+        });
+        if (ciBHtml) {
+          ciBComTip.style.display = '';
+          ciBComTip.innerHTML = ciBHtml;
+        } else {
+          ciBComTip.style.display = 'none';
+          ciBComTip.innerHTML = '';
+        }
+        bindFamHomeCiBTipGo();
+      }
       if (vsLoadCount === 0) {
         maybeToastFamVieScolaireOuverte({
           enfantId: id,
@@ -44169,6 +44999,13 @@ async function bindFamilleVieScolaire() {
           pointsVsObj: points,
           nDocsPending: docsPending.length,
           nCarPending: carPending.length,
+        });
+        maybeToastFamVsCommissionCiBPage({
+          enfantId: id,
+          prenom: prenomVs,
+          nComOpen: comOpen.length,
+          nComVisible: comVis.length,
+          nextCommission: famPickNextCommissionFamille(comOpen),
         });
       }
       if (vsLoadCount > 0 && enfantsVs.length >= 2) {
