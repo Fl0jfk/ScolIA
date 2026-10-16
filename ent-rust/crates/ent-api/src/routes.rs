@@ -410,6 +410,7 @@ pub fn router() -> Router<AppState> {
             "/eleves/{id}/voeux",
             get(list_voeux_eleve).post(poser_voeu),
         )
+        .route("/eleves/{id}/voeux/{voeu_id}", delete(retirer_voeu))
         .route("/mails", get(list_mails))
         .route("/sms", get(list_sms))
         .route(
@@ -4244,6 +4245,25 @@ async fn list_voeux_eleve(
         )
         .await?,
     ))
+}
+
+async fn retirer_voeu(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((eleve_id, voeu_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .ent
+        .retirer_voeu_for_actor(
+            &session.role,
+            session.etablissement_id,
+            session.user_id,
+            eleve_id,
+            voeu_id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn poser_voeu(

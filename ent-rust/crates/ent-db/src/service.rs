@@ -9262,6 +9262,52 @@ impl PgEnt {
             .await?)
     }
 
+    pub async fn retirer_voeu_for_actor(
+        &self,
+        role: &str,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        eleve_id: Uuid,
+        voeu_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        let staff = parsed.can_manage_eleves() || parsed.can_manage_continuum();
+        let parent = matches!(parsed, Role::Parent);
+        let eleve = matches!(parsed, Role::Eleve);
+        if !staff && !parent && !eleve {
+            return Err(EntDbError::Forbidden);
+        }
+        if parent
+            && self
+                .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await?
+                .is_none()
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        if eleve {
+            let linked = self
+                .eleve_comptes
+                .eleve_id_for_user(etablissement_id, actor_user_id)
+                .await?;
+            if linked != Some(eleve_id) {
+                return Err(EntDbError::Forbidden);
+            }
+        }
+        self.eleves
+            .get(etablissement_id, eleve_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let deleted = self
+            .filieres
+            .delete_voeu(etablissement_id, eleve_id, voeu_id)
+            .await?;
+        if !deleted {
+            return Err(DomainError::NotFound.into());
+        }
+        Ok(())
+    }
+
     pub async fn upsert_inscription_suivi_for_actor(
         &self,
         role: &str,

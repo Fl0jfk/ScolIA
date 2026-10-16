@@ -146,6 +146,27 @@ impl PgFiliereRepo {
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(VoeuRow::into_voeu).collect())
     }
+
+    pub async fn delete_voeu(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        voeu_id: Uuid,
+    ) -> Result<bool, DomainError> {
+        let r = sqlx::query(
+            r#"
+            DELETE FROM ent_voeu_inscription
+            WHERE etablissement_id = $1 AND eleve_id = $2 AND id = $3
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(voeu_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(r.rows_affected() > 0)
+    }
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
