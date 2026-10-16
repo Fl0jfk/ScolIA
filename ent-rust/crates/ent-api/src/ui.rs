@@ -110,6 +110,8 @@ let notesDevoirsEmptyChoRefresh = null;
 let notesDevoirsEmptyHermioneRefresh = null;
 /** Rempli dans bindNotes — repère Draco sur tip « 0 devoir ». */
 let notesDevoirsEmptyDracoRefresh = null;
+/** Rempli dans bindNotes — repère Ron sur tip « 0 devoir ». */
+let notesDevoirsEmptyRonRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
 let notePeriodePickSuppress = 0;
 let eleveNotePeriodePickReady = false;
@@ -864,6 +866,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyChoRefresh === 'function') void notesDevoirsEmptyChoRefresh();
     if (typeof notesDevoirsEmptyHermioneRefresh === 'function') void notesDevoirsEmptyHermioneRefresh();
     if (typeof notesDevoirsEmptyDracoRefresh === 'function') void notesDevoirsEmptyDracoRefresh();
+    if (typeof notesDevoirsEmptyRonRefresh === 'function') void notesDevoirsEmptyRonRefresh();
   }
 }
 
@@ -1105,6 +1108,41 @@ async function resolveDracoMalefoyEleveId() {
       && /malefoy/i.test(String(e.nom || '').trim())
     );
     return d && d.id ? String(d.id) : '';
+  } catch {
+    return '';
+  }
+}
+
+/** /app/notes — repère seed labo Ron Weasley (5A · note Potions audit BR-D). */
+function notesRonSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.ronId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '5A').trim());
+  const potNote = o.potNoteLabel
+    ? esc(String(o.potNoteLabel).trim().slice(0, 28))
+    : 'Interro Potions';
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Ron Weasley</strong><span>Seed labo · ${classe} · audit notes BR-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesRonSeedNotesBtn" data-ron-id="${esc(String(o.ronId))}" style="cursor:pointer;text-align:left">
+      <strong>${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesRonSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${potNote}</strong><span>Filtre 5A · devoirs / saisie</span>
+    </button>
+  </div>`;
+}
+
+async function resolveRonWeasleyEleveId() {
+  try {
+    const list = await api('/eleves/search?q=Ron');
+    const r = (list || []).find(e =>
+      /^ron$/i.test(String(e.prenom || '').trim())
+      && /weasley/i.test(String(e.nom || '').trim())
+    );
+    return r && r.id ? String(r.id) : '';
   } catch {
     return '';
   }
@@ -2346,6 +2384,45 @@ function refreshEleveHomeRegimeTip(regimeVal, opts) {
   el.innerHTML = eleveHomeRegimeTipDenseHtml(regimeVal, opts);
 }
 
+/** Accueil /eleve — menu cantine du jour (GET /menus-cantine si autorisé). */
+function eleveHomeCantineTipDenseHtml(menus, dispenses, jour, menusApiOk) {
+  if (!menusApiOk) return '';
+  const j = jour || today();
+  const menuToday = (menus || []).find(m => String(m.jour || '').slice(0, 10) === j);
+  const disToday = (dispenses || []).filter(x => String(x.jour || '').slice(0, 10) === j && !x.annulee);
+  const repasHref = '/eleve/repas';
+  const platRaw = menuToday
+    ? String(menuToday.plat || menuToday.entree || menuToday.dessert || '').trim()
+    : '';
+  const plat = platRaw ? esc(platRaw.slice(0, 32)) : '—';
+  const menuTile = menuToday && (menuToday.publie !== false)
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${plat}</strong><span>Menu midi · cantine</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de menu publié · ${esc(j.slice(5))}</span></div>`;
+  const repasTile = disToday.length
+    ? `<a class="stat-tile bento-span-4" href="${repasHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${disToday.length}</strong><span>Prévenance · pas de repas aujourd’hui</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${repasHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">Inscrit</strong><span>Repas midi · badge cantine</span>
+      </a>`;
+  const linkTile = `<a class="stat-tile bento-span-4" href="${repasHref}" style="text-decoration:none">
+      <strong>→</strong><span>Repas · passages & prévenance</span>
+    </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${menuTile}${repasTile}${linkTile}</div>`;
+}
+
+function refreshEleveHomeCantineTip(menus, dispenses, jour, menusApiOk) {
+  const el = document.getElementById('eleveHomeCantineTip');
+  if (!el) return;
+  if (!menusApiOk) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = eleveHomeCantineTipDenseHtml(menus, dispenses, jour, menusApiOk);
+}
+
 /** Accueil /eleve — factures (N/A portail élève · famille). */
 function eleveHomeFacturesTipDenseHtml() {
   return `<div class="bento" style="margin:0 0 .55rem">
@@ -2472,6 +2549,10 @@ function isEleveOrientFlux() {
 
 function isEleveSanteFlux() {
   return path() === '/eleve/sante';
+}
+
+function isEleveRepasFlux() {
+  return path() === '/eleve/repas';
 }
 
 function isMonEdtFlux() {
@@ -2985,6 +3066,39 @@ function famHomeProchainDevoirTipDenseHtml(picks) {
 }
 
 /** Accueil famille — PAI actifs (protocoles infirmerie, bento). */
+/** Accueil famille — repas badge du jour (API passages OK). */
+function famHomeRepasTipDenseHtml(list, repasJourLists, repasApiOk) {
+  if (repasApiOk === false) return '';
+  const kids = list || [];
+  if (!kids.length) return '';
+  const jour = today();
+  const nJour = (repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
+  const repasPageHref = '/famille/repas';
+  const sole = kids.length === 1 && kids[0] && kids[0].id;
+  const ficheHref = sole
+    ? `/famille/enfants/${esc(String(kids[0].id))}?section=repas`
+    : repasPageHref;
+  const who = sole && kids[0].prenom
+    ? esc(String(kids[0].prenom).trim())
+    : `${kids.length} enfant(s)`;
+  const jourTile = nJour
+    ? `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nJour}</strong><span>Repas aujourd’hui · ${who}</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none">
+        <strong>0</strong><span>Pas de badge · ${jour.slice(5)}</span>
+      </a>`;
+  const ficheTile = sole
+    ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>Cantine</strong><span>Fiche · passages &amp; menus</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${repasPageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>Repas</strong><span>Passages multi-enfants</span>
+      </a>`;
+  const prevTile = `<div class="stat-tile bento-span-4"><strong class="muted">Badge</strong><span>Pointage cantine · facturation</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${jourTile}${ficheTile}${prevTile}</div>`;
+}
+
 function famHomePaiActifsTipDenseHtml(list, paiList) {
   const kids = list || [];
   const actifs = [];
@@ -4892,7 +5006,8 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyCedricSlot"></div>
   <div id="notesDevoirsEmptyChoSlot"></div>
   <div id="notesDevoirsEmptyHermioneSlot"></div>
-  <div id="notesDevoirsEmptyDracoSlot"></div>`;
+  <div id="notesDevoirsEmptyDracoSlot"></div>
+  <div id="notesDevoirsEmptyRonSlot"></div>`;
 }
 
 function bindNotesDevoirsEmptyTipGo() {
@@ -5875,14 +5990,50 @@ function toastRepasScanFail(message, badge) {
   );
 }
 
-function toastDispenseRepasPosee(d, eleveLabel) {
+function toastDispenseRepasPosee(d, eleveLabel, opts) {
+  const o = opts || {};
   const motif = esc((d && d.motif) || 'prévenance');
-  const jour = d && d.jour ? ` · ${esc(String(d.jour))}` : '';
-  const who = eleveLabel ? ` — ${esc(eleveLabel)}` : '';
-  showEntToast(
-    `<strong>Dispense repas posée</strong>${who}${jour} · ${motif}. Passage badge refusé ce jour.`,
+  const jourRaw = d && d.jour ? String(d.jour).slice(0, 10) : '';
+  const jour = jourRaw ? esc(jourRaw) : '—';
+  const who = eleveLabel ? esc(String(eleveLabel).trim()) : 'Élève';
+  const onFlux = isStaffCantineFlux() || isEleveRepasFlux() || isFamilleRepasFlux() || o.dense;
+  const simple = () => showEntToast(
+    `<strong>Dispense repas posée</strong> — ${who} · ${jour} · ${motif}. Passage badge refusé ce jour.`,
     8000,
   );
+  if (!onFlux) {
+    simple();
+    return;
+  }
+  const staffFoot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/app/cantine">Cantine</a> · `
+    + `<a href="#" id="entToastRepasDispRefresh">Actualiser dispenses</a></p>`;
+  const eleveFoot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/eleve/repas">Mes repas</a> · `
+    + `<a href="/eleve">Accueil</a></p>`;
+  const famFoot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/repas">Repas / passages</a> · `
+    + `<a href="/famille">Accueil famille</a></p>`;
+  const foot = isStaffCantineFlux() ? staffFoot : (isFamilleRepasFlux() ? famFoot : eleveFoot);
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">Enregistrée</strong><span>Jour non facturé · badge refusé</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>Élève · dispense repas</span></div>
+    <div class="stat-tile bento-span-4"><strong>${jour}</strong><span>${motif}</span></div>`;
+  showEntToast(
+    `<strong>Prévenance cantine</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + foot,
+    9500,
+  );
+  const refreshBtn = document.getElementById('entToastRepasDispRefresh');
+  if (refreshBtn) {
+    refreshBtn.onclick = (ev) => {
+      ev.preventDefault();
+      document.getElementById('btnCantDispRefresh')?.click();
+      document.getElementById('cantDispOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
 }
 
 function toastSanctionPrononcee(d, opts) {
@@ -7863,6 +8014,72 @@ function cantinePageTipDenseHtml(stats) {
   </div>`;
 }
 
+/** Cantine staff — synthèse scan badge (bandeau persistant sous le panneau scan). */
+function cantineScanStatsTipDenseHtml(stats) {
+  if (!isStaffCantineFlux()) return '';
+  const s = stats || {};
+  const jour = esc(String(s.jour || today()).slice(0, 10));
+  const nPass = Number(s.nPassages) || 0;
+  const nDisp = Number(s.nDispenses) || 0;
+  const lastWho = s.lastScanWho ? esc(String(s.lastScanWho).trim().slice(0, 28)) : '—';
+  const okTile = nPass
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nPass}</strong><span>OK badge · ${jour}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Aucun passage · ${jour}</span></div>`;
+  const dispTile = nDisp
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nDisp}</strong><span>Dispense(s) actives</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">Grille</strong><span>Scan = facturation midi</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    ${okTile}
+    ${dispTile}
+    <div class="stat-tile bento-span-4"><strong>${lastWho}</strong><span>Dernier scan OK · session</span></div>
+  </div>`;
+}
+
+/** Cantine staff — refus scan badge (session · dernier motif). */
+function cantineRefusTipDenseHtml(stats) {
+  if (!isStaffCantineFlux()) return '';
+  const s = stats || {};
+  const nRef = Number(s.nRefus) || 0;
+  const badge = s.lastRefusBadge
+    ? esc(String(s.lastRefusBadge).trim().slice(0, 16))
+    : '—';
+  const msg = s.lastRefusMsg
+    ? esc(String(s.lastRefusMsg).trim().slice(0, 42))
+    : 'Dispense · doublon · badge inconnu';
+  const refTile = nRef
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nRef}</strong><span>Refus · cette session</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Refus scan · session</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    ${refTile}
+    <div class="stat-tile bento-span-4"><strong>${badge}</strong><span>Dernier badge refusé</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${msg}</strong><span>Motif API</span></div>
+  </div>`;
+}
+
+/** Cantine staff — menu du jour + publication (bandeau panneau menus). */
+function cantineMenuTipDenseHtml(stats) {
+  if (!isStaffCantineFlux()) return '';
+  const s = stats || {};
+  const jour = esc(String(s.menuJour || s.jour || today()).slice(0, 10));
+  const plat = s.menuPlat ? esc(String(s.menuPlat).trim().slice(0, 32)) : '';
+  const nPub = Number(s.nMenusPublies);
+  const nBro = Number(s.nMenusBrouillon);
+  const pubLbl = Number.isFinite(nPub) ? String(nPub) : '—';
+  const broLbl = Number.isFinite(nBro) ? String(nBro) : '—';
+  const platTile = plat
+    ? `<div class="stat-tile bento-span-4" style="border-color:${s.menuPublie ? 'var(--ok,#16a34a)' : 'var(--warn,#b45309)'}">
+        <strong>${plat}</strong><span>Menu · ${jour}${s.menuPublie ? '' : ' · brouillon'}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de menu · ${jour}</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    ${platTile}
+    <div class="stat-tile bento-span-4"><strong class="ok">${esc(pubLbl)}</strong><span>Publié(s) · fenêtre liste</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${esc(broLbl)}</strong><span>Brouillon(s) · famille invisible</span></div>
+  </div>`;
+}
+
 /** Établissement — file grants documents en attente. */
 function grantsPageTipDenseHtml(nPending, opts) {
   if (!isStaffEtabFlux()) return '';
@@ -9812,15 +10029,34 @@ function toastStaffVoeuSupprime(v, opts) {
 function toastFamCantineDispense(d, opts) {
   const o = opts || {};
   const motif = esc((d && d.motif) || 'prévenance');
-  const jour = d && d.jour ? ` · ${esc(String(d.jour))}` : '';
-  const who = o.prenom ? ` — ${esc(String(o.prenom).trim())}` : '';
+  const jourRaw = (d && d.jour) || o.jour || '';
+  const jour = jourRaw ? esc(String(jourRaw).slice(0, 10)) : '—';
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
   const regimeRaw = String(o.regime || '').trim();
-  const regimePart = regimeRaw ? ` · régime ${esc(regimeLabel(regimeRaw))}` : '';
-  showEntToast(
-    `<strong>Prévenance cantine</strong>${who}${jour} · ${motif}${regimePart}. `
+  const regimeLbl = regimeRaw ? esc(regimeLabel(regimeRaw)) : '—';
+  const onFlux = isFamilleRepasFlux() || isFamilleEnfantFlux() || o.dense;
+  const simple = () => showEntToast(
+    `<strong>Prévenance cantine</strong> — ${who} · ${jour} · ${motif}. `
     + 'Jour non facturé · badge refusé ce jour. '
     + '<a href="/famille/repas">Repas / passages</a>',
     8500,
+  );
+  if (!onFlux) {
+    simple();
+    return;
+  }
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">Enregistrée</strong><span>Prévenance · jour non facturé</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>Enfant · dispense repas</span></div>
+    <div class="stat-tile bento-span-4"><strong>${jour}</strong><span>${motif} · ${regimeLbl}</span></div>`;
+  showEntToast(
+    `<strong>Prévenance cantine</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/repas">Repas / passages</a> · `
+    + `<a href="/famille">Accueil famille</a></p>`,
+    9500,
   );
 }
 function toastFamSortieAutorisation(prenom, creneaux, opts) {
@@ -10453,6 +10689,18 @@ function famApplyEnfantSectionDeepLink(forcedSec) {
           poseTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           poseTarget.style.outline = '2px solid var(--accent, #2563eb)';
           setTimeout(() => { poseTarget.style.outline = ''; }, 2200);
+        }, 280);
+      }
+    }
+    if (sec === 'repas') {
+      const repasTarget = document.getElementById('famEnfantRepasTip')
+        || document.getElementById('btnFamRepas')
+        || document.getElementById('btnDispense');
+      if (repasTarget) {
+        setTimeout(() => {
+          repasTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          repasTarget.style.outline = '2px solid var(--accent, #2563eb)';
+          setTimeout(() => { repasTarget.style.outline = ''; }, 2200);
         }, 280);
       }
     }
@@ -11138,6 +11386,115 @@ function famRepasPageTipDenseHtml(opts) {
       ? `<div class="stat-tile bento-span-4"><strong>${menuPlat}</strong><span>Menu du jour</span></div>`
       : `<div class="stat-tile bento-span-4"><strong class="muted">Menus</strong><span>Publiés ci-dessous</span></div>`);
   return `<div class="bento" style="margin:0 0 .55rem">${jourTile}${perTile}${dispTile}</div>`;
+}
+
+/** Fiche enfant ?section=repas — synthèse cantine (bento). */
+function famEnfantRepasTipDenseHtml(opts) {
+  const o = opts || {};
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const pageHref = '/famille/repas';
+  const j = today();
+  const nJour = Number(o.nPassagesJour) || 0;
+  const nPeriode = Number(o.nPassagesPeriode) || 0;
+  const nDisp = Number(o.nDispensesActives) || 0;
+  const menuPlat = o.menuPlat ? esc(String(o.menuPlat).trim().slice(0, 36)) : '';
+  const jourTile = nJour
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nJour}</strong><span>Repas aujourd’hui · ${who}</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong>0</strong><span>Aucun badge · ${j.slice(5)}</span></div>`;
+  const perTile = `<div class="stat-tile bento-span-4"><strong>${nPeriode}</strong><span>Passage(s) · période</span></div>`;
+  const dispTile = nDisp
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nDisp}</strong><span>Dispense(s) active(s)</span>
+      </div>`
+    : (menuPlat
+      ? `<div class="stat-tile bento-span-4"><strong>${menuPlat}</strong><span>Menu du jour</span></div>`
+      : `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none">
+          <strong class="muted">Menus</strong><span>Page Repas · semaine</span>
+        </a>`);
+  const linkTile = `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Repas</strong><span>Passages &amp; prévenance</span>
+    </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${jourTile}${perTile}${dispTile}${linkTile}</div>`;
+}
+
+/** Toast bento — page /famille/repas ouverte. */
+function toastFamRepasOuverte(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant(s)';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=repas` : '/famille/repas';
+  const tipHtml = famRepasPageTipDenseHtml({
+    nPassagesJour: o.nPassagesJour,
+    nPassagesPeriode: o.nPassagesPeriode,
+    nDispensesActives: o.nDispensesActives,
+    menuPlat: o.menuPlat,
+    prenom: o.prenom,
+  });
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/repas">Page Repas</a>`
+    + (eid ? ` · <a href="${ficheHref}">Fiche enfant</a>` : '')
+    + ` · <a href="/famille">Accueil</a></p>`;
+  if (!isFamilleRepasFlux() && !o.dense) {
+    showEntToast(`<strong>Repas</strong> — ${who}. <a href="/famille/repas">Passages cantine</a>`, 6500);
+    return;
+  }
+  showEntToast(
+    `<strong>Page Repas</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + foot,
+    Number(o.nPassagesJour) || Number(o.nDispensesActives) ? 9000 : 7500,
+  );
+}
+
+function maybeToastFamRepasOuverte(opts) {
+  if (!isParent() || !isFamilleRepasFlux()) return;
+  const o = opts || {};
+  const id = o.enfantId ? String(o.enfantId).trim() : '_page';
+  const ssKey = 'ent_fam_repas_page_open_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamRepasOuverte({ ...o, dense: true });
+}
+
+/** Deep-link fiche ?section=repas — toast bento. */
+function toastFamRepasSectionDeepDense(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
+  const pageHref = '/famille/repas';
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=repas` : pageHref;
+  const tipHtml = famEnfantRepasTipDenseHtml(o);
+  showEntToast(
+    `<strong>Repas</strong> — ${who} · section cantine`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Page Repas</a> · `
+    + `<a href="${ficheHref}">↓ Section ci-dessous</a></p>`,
+    9000,
+  );
+}
+
+function maybeToastFamRepasSectionDeep(opts) {
+  if (!isParent() || !isFamilleEnfantFlux()) return;
+  const o = opts || {};
+  if (normalizeFamEnfantSection(o.deepSection) !== 'repas') return;
+  const id = o.enfantId ? String(o.enfantId).trim() : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_repas_sec_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamRepasSectionDeepDense(o);
 }
 
 function famAccEmptyDenseHtml(prenom, opts) {
@@ -11967,6 +12324,7 @@ function viewEleveHome() {
     <div class="bento" id="eleveHomeStats"></div>
     <div id="eleveHomeClasseTip"></div>
     <div id="eleveHomeRegimeTip"></div>
+    <div id="eleveHomeCantineTip"></div>
     <div id="eleveHomeFacturesTip"></div>
     <div id="eleveHomeNotesTip"></div>
     <div id="eleveHomeConseilSpot"></div>
@@ -12100,7 +12458,10 @@ async function bindEleveHome() {
       abs = [];
       absencesApiOk = false;
     }
-    const [notes, edt, fils, carnet, periodes, docs, devoirs, dispenses, menus, cahier, eleveDocs, conseils] = await Promise.all([
+    const menusCantineReq = api('/menus-cantine?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour))
+      .then(m => ({ ok: true, m }))
+      .catch(() => ({ ok: false, m: [] }));
+    const [notes, edt, fils, carnet, periodes, docs, devoirs, dispenses, menusPack, cahier, eleveDocs, conseils] = await Promise.all([
       api('/eleves/' + eid + '/notes').catch(() => []),
       api('/eleves/' + eid + '/edt?jour=' + encodeURIComponent(jour)).catch(() => []),
       api('/messages/fils').catch(() => []),
@@ -12109,11 +12470,13 @@ async function bindEleveHome() {
       api('/eleves/' + eid + '/docs-a-signer').catch(() => []),
       api('/eleves/' + eid + '/devoirs').catch(() => []),
       api('/eleves/' + eid + '/repas/dispenses').catch(() => []),
-      api('/menus-cantine?debut=' + encodeURIComponent(jour) + '&fin=' + encodeURIComponent(jour)).catch(() => []),
+      menusCantineReq,
       api('/cahier-texte?eleve_id=' + encodeURIComponent(eid) + '&from=' + encodeURIComponent(jour) + '&to=' + encodeURIComponent(jour)).catch(() => []),
       api('/eleves/' + eid + '/documents').catch(() => []),
       api('/eleves/' + eid + '/conseils').catch(() => []),
     ]);
+    const menus = menusPack && menusPack.m ? menusPack.m : [];
+    const menusApiOk = !!(menusPack && menusPack.ok);
     const conseilSpot = document.getElementById('eleveHomeConseilSpot');
     if (conseilSpot) {
       conseilSpot.innerHTML = eleveHomeConseilEncouragementHtml(conseils);
@@ -12254,6 +12617,7 @@ async function bindEleveHome() {
       regime && regime.valeur,
       { repasMidiMois: vol && vol.jours_facturables != null ? vol.jours_facturables : undefined },
     );
+    refreshEleveHomeCantineTip(menus, dispenses, jour, menusApiOk);
     const bulletinT0 = (eleveDocs || []).find(d =>
       d.accessible && String(d.code || '').trim().toUpperCase() === 'BULLETIN_T0'
     );
@@ -13617,15 +13981,22 @@ async function bindEleveRepas() {
         return;
       }
       try {
-        await api('/eleves/' + eid + '/repas/dispenses', {
+        const jourDisp = (document.getElementById('eleveDispJour') || {}).value || today();
+        const motifDisp = ((document.getElementById('eleveDispMotif') || {}).value || '').trim() || 'prévenance';
+        const d = await api('/eleves/' + eid + '/repas/dispenses', {
           method: 'POST',
           body: JSON.stringify({
             activite_id: aid,
-            jour: (document.getElementById('eleveDispJour') || {}).value || today(),
-            motif: ((document.getElementById('eleveDispMotif') || {}).value || '').trim() || 'prévenance',
+            jour: jourDisp,
+            motif: motifDisp,
           }),
         });
         if (msg) msg.innerHTML = '<span class="ok">Dispense enregistrée</span>';
+        toastDispenseRepasPosee(
+          { ...(d || {}), jour: (d && d.jour) || jourDisp, motif: (d && d.motif) || motifDisp },
+          (me && me.email) || 'Moi',
+          { dense: true },
+        );
         await loadEleveDispenses();
       } catch (e) {
         if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -14935,6 +15306,7 @@ function viewFamilleHome() {
     <div id="famHomeEnfantsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeOrientTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeVoeuxTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeRepasTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -15137,7 +15509,9 @@ async function bindFamilleHome() {
       Promise.all(list.map(e => api('/eleves/' + e.id + '/fiche-sante').catch(() => null))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/commissions').catch(() => []))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/repas/passages?debut='
-        + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas)).catch(() => []))),
+        + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas))
+        .then(data => ({ ok: true, data: data || [] }))
+        .catch(() => ({ ok: false, data: [] })))),
       api('/facturation/sepa/mandats').catch(() => null),
       Promise.all(list.map(e => api('/psy/rdvs?eleve_id=' + encodeURIComponent(e.id)).catch(() => null))),
       Promise.all(list.map(e => (
@@ -15160,7 +15534,9 @@ async function bindFamilleHome() {
     const sepaMandatActif = sepaApiOk
       ? ((sepaMandats || []).find(m => m.statut === 'actif') || null)
       : null;
-    const nRepasJour = (repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
+    const repasApiOk = (repasJourLists || []).some(p => p && p.ok);
+    const repasJourFlat = (repasJourLists || []).map(p => (p && p.data) || []);
+    const nRepasJour = repasJourFlat.reduce((s, p) => s + (p || []).length, 0);
     const impayees = (facs || []).filter(facFamImpayee)
       .sort((a, b) => facFamResteCentimes(b) - facFamResteCentimes(a));
     const nImpayees = impayees.length;
@@ -15497,6 +15873,17 @@ async function bindFamilleHome() {
         voeuxHomeTip.innerHTML = '';
       }
     }
+    const repasHomeTip = document.getElementById('famHomeRepasTip');
+    if (repasHomeTip) {
+      const denseRepas = famHomeRepasTipDenseHtml(list, repasJourFlat, repasApiOk);
+      if (denseRepas) {
+        repasHomeTip.style.display = '';
+        repasHomeTip.innerHTML = denseRepas;
+      } else {
+        repasHomeTip.style.display = 'none';
+        repasHomeTip.innerHTML = '';
+      }
+    }
     if (pulse) {
       pulse.innerHTML = `
         ${resteTile}
@@ -15778,6 +16165,7 @@ async function bindFamilleEnfant(id) {
     }
 
     html += `<div id="fam-sec-repas" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantRepasTip" style="display:none;margin:0 0 .55rem"></div>
       <h3>Repas pointés (badge)</h3>
       <div class="row">
         <label>Du <input id="famRepasDebut" type="date"/></label>
@@ -16066,6 +16454,54 @@ async function bindFamilleEnfant(id) {
       const d0 = new Date();
       d0.setDate(d0.getDate() - 14);
       repasDebut.value = d0.toISOString().slice(0, 10);
+      const deepRepas = enfantDeepSection === 'repas';
+      async function refreshFamEnfantRepasTipFromList(list, repasApiOk) {
+        const tipEl = document.getElementById('famEnfantRepasTip');
+        if (!tipEl) return;
+        if (repasApiOk === false && !deepRepas) {
+          tipEl.style.display = 'none';
+          tipEl.innerHTML = '';
+          return;
+        }
+        const jRepas = today();
+        const nPassagesJour = (list || []).filter(p => String(p.jour || '').slice(0, 10) === jRepas).length;
+        let nDispensesActives = 0;
+        let menuPlat = '';
+        if (repasApiOk !== false) {
+          try {
+            const [menusJour, disps] = await Promise.all([
+              api('/menus-cantine?debut=' + encodeURIComponent(jRepas)
+                + '&fin=' + encodeURIComponent(jRepas)).catch(() => []),
+              api('/eleves/' + id + '/repas/dispenses').catch(() => []),
+            ]);
+            nDispensesActives = (disps || []).filter(d => !d.annulee).length;
+            const menuToday = (menusJour || []).find(m => m.publie && String(m.jour || '').slice(0, 10) === jRepas);
+            if (menuToday && menuToday.plat) menuPlat = String(menuToday.plat);
+          } catch { /* noop */ }
+        }
+        const repasTipOpts = {
+          enfantId: id,
+          prenom: e.prenom,
+          nPassagesJour,
+          nPassagesPeriode: (list || []).length,
+          nDispensesActives,
+          menuPlat,
+          deepSection: deepRepas ? 'repas' : '',
+        };
+        const dense = famEnfantRepasTipDenseHtml(repasTipOpts);
+        if (dense || deepRepas) {
+          tipEl.style.display = '';
+          tipEl.innerHTML = dense || famEnfantRepasTipDenseHtml({ enfantId: id, prenom: e.prenom });
+        } else {
+          tipEl.style.display = 'none';
+          tipEl.innerHTML = '';
+        }
+        if (deepRepas) {
+          maybeToastFamRepasSectionDeep(repasTipOpts);
+          famApplyEnfantSectionDeepLink('repas');
+          setTimeout(() => famApplyEnfantSectionDeepLink('repas'), 200);
+        }
+      }
       async function loadFamRepas() {
         const box = document.getElementById('famRepasOut');
         box.textContent = 'Chargement…';
@@ -16073,8 +16509,9 @@ async function bindFamilleEnfant(id) {
           const list = await api('/eleves/' + id + '/repas/passages?debut='
             + encodeURIComponent(repasDebut.value)
             + '&fin=' + encodeURIComponent(repasFin.value));
+          await refreshFamEnfantRepasTipFromList(list, true);
           if (!list.length) {
-            box.innerHTML = '<p class="empty">Aucun passage badge sur cette période.</p>';
+            box.innerHTML = famRepasPassagesEmptyHtml(e.prenom || '', repasDebut.value, repasFin.value);
             return;
           }
           box.innerHTML = `<table><thead><tr><th>Jour</th><th>Badge</th><th>Source</th></tr></thead>
@@ -16083,8 +16520,9 @@ async function bindFamilleEnfant(id) {
               <td>${esc(p.badge_lu || '—')}</td>
               <td><span class="pill">${esc(p.source || '—')}</span></td>
             </tr>`).join('')}</tbody></table>
-            <p class="muted">${list.length} passage(s)</p>`;
+            <p class="muted">${list.length} passage(s) · <a href="/famille/repas">Page Repas</a></p>`;
         } catch (err) {
+          await refreshFamEnfantRepasTipFromList([], false);
           box.innerHTML = `<div class="errbox">${esc(err.message)}</div>`;
         }
       }
@@ -17047,11 +17485,7 @@ async function bindFamilleEnfant(id) {
       const list = await api('/menus-cantine?debut=' + encodeURIComponent(fin) + '&fin=' + encodeURIComponent(finSem));
       const box = document.getElementById('menusFamOut');
       const pubs = (list || []).filter(m => m.publie !== false);
-      box.innerHTML = pubs.length
-        ? `<ul>${pubs.map(m =>
-            `<li>${esc(m.jour)} — ${esc(m.plat || m.entree || 'menu')}</li>`
-          ).join('')}</ul>`
-        : '<p class="empty">Aucun menu publié.</p>';
+      box.innerHTML = famRepasMenusDenseHtml(pubs, fin);
     } catch (err) {
       const box = document.getElementById('menusFamOut');
       if (box) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
@@ -17399,7 +17833,7 @@ async function bindFamilleEnfant(id) {
       prevPrenom: prevEnfant && prevEnfant.prenom,
       deepSection: enfantDeepSection,
     }, enfants.length);
-    if (enfantDeepSection !== 'orientation') {
+    if (enfantDeepSection !== 'orientation' && enfantDeepSection !== 'repas') {
       maybeToastFamEnfantOuverte(e, enfantTodoStats, { deepSection: enfantDeepSection });
     }
 
@@ -17440,6 +17874,7 @@ async function bindFamilleEnfant(id) {
       }
       if (enfantDeepSection === 'repas') {
         setTimeout(() => famApplyEnfantSectionDeepLink('repas'), 900);
+        setTimeout(() => famApplyEnfantSectionDeepLink('repas'), 1400);
       }
       if (enfantDeepSection === 'bourses') {
         setTimeout(() => famApplyEnfantSectionDeepLink('bourses'), 900);
@@ -22802,6 +23237,8 @@ function viewCantine() {
     <div class="panel">
       <h2>Cantine — passage badge</h2>
       <p class="muted">Scan badge → pointage midi (grille − prévenance). Doublon et dispense refusés.</p>
+      <div id="cantScanStatsTip"></div>
+      <div id="cantRefusTip"></div>
       <div class="row">
         <label>Badge <input id="scanBadge" placeholder="B…" autofocus style="min-width:10rem"/></label>
         <label>Jour <input id="scanJour" type="date" value="${today()}"/></label>
@@ -22839,6 +23276,7 @@ function viewCantine() {
     <div class="panel">
       <h2>Menus de la semaine</h2>
       <p class="muted">Publication famille (seul le plat publié est visible). Brouillon = non publié.</p>
+      <div id="cantMenuTip"></div>
       <div class="row">
         <label>Jour <input id="menuJour" type="date" value="${today()}"/></label>
         <label>Entrée <input id="menuEntree" placeholder="Entrée"/></label>
@@ -22888,10 +23326,29 @@ async function bindCantine() {
   const histOut = document.getElementById('histPassOut');
   const histFin = document.getElementById('histFin');
   const histDebut = document.getElementById('histDebut');
-  const cantineTipMeta = { jour: today(), nPassages: 0, nDispenses: 0 };
-  function paintCantinePageTip() {
-    const el = document.getElementById('cantPageTip');
-    if (el) el.innerHTML = cantinePageTipDenseHtml(cantineTipMeta);
+  const cantineTipMeta = {
+    jour: today(),
+    nPassages: 0,
+    nDispenses: 0,
+    nRefus: 0,
+    lastRefusMsg: '',
+    lastRefusBadge: '',
+    lastScanWho: '',
+    menuJour: today(),
+    menuPlat: '',
+    menuPublie: false,
+    nMenusPublies: 0,
+    nMenusBrouillon: 0,
+  };
+  function paintCantineTips() {
+    const pageEl = document.getElementById('cantPageTip');
+    if (pageEl) pageEl.innerHTML = cantinePageTipDenseHtml(cantineTipMeta);
+    const scanEl = document.getElementById('cantScanStatsTip');
+    if (scanEl) scanEl.innerHTML = cantineScanStatsTipDenseHtml(cantineTipMeta);
+    const refEl = document.getElementById('cantRefusTip');
+    if (refEl) refEl.innerHTML = cantineRefusTipDenseHtml(cantineTipMeta);
+    const menuEl = document.getElementById('cantMenuTip');
+    if (menuEl) menuEl.innerHTML = cantineMenuTipDenseHtml(cantineTipMeta);
   }
   await bindElevePickers('histEleve', 'histEleveQ', 'btnHistEleveSearch');
   if (histFin.value && !histDebut.value) {
@@ -23008,7 +23465,7 @@ async function bindCantine() {
       cantineTipMeta.nPassages = (list || []).length;
       if (!list.length) {
         out.innerHTML = '<p class="empty">Aucun passage.</p>';
-        paintCantinePageTip();
+        paintCantineTips();
         return;
       }
       out.innerHTML = `<table><thead><tr><th>Badge</th><th>Élève</th><th>Source</th></tr></thead>
@@ -23020,7 +23477,7 @@ async function bindCantine() {
           <td><span class="pill">${esc(p.source)}</span></td>
         </tr>`;
         }).join('')}</tbody></table>`;
-      paintCantinePageTip();
+      paintCantineTips();
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -23035,19 +23492,32 @@ async function bindCantine() {
         body: JSON.stringify({ badge, kind: 'midi', jour }),
       });
       msg.innerHTML = `<span class="ok">OK — ${esc(p.eleve_prenom || '')} ${esc(p.eleve_nom || '')} (${esc(p.badge_lu)})</span>`;
+      cantineTipMeta.lastScanWho = [p.eleve_prenom, p.eleve_nom].filter(Boolean).join(' ').trim()
+        || String(p.badge_lu || '').trim();
       toastRepasScanOk(p);
       document.getElementById('scanBadge').value = '';
       document.getElementById('scanBadge').focus();
       await loadPassages();
+      paintCantineTips();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      cantineTipMeta.nRefus = (Number(cantineTipMeta.nRefus) || 0) + 1;
+      cantineTipMeta.lastRefusMsg = String(e.message || 'Passage refusé');
+      cantineTipMeta.lastRefusBadge = badge;
       toastRepasScanFail(e.message, badge);
+      paintCantineTips();
     }
   };
   document.getElementById('scanBadge').onkeydown = (ev) => {
     if (ev.key === 'Enter') document.getElementById('btnScan').click();
   };
-  document.getElementById('scanJour').onchange = loadPassages;
+  document.getElementById('scanJour').onchange = () => {
+    cantineTipMeta.nRefus = 0;
+    cantineTipMeta.lastRefusMsg = '';
+    cantineTipMeta.lastRefusBadge = '';
+    cantineTipMeta.lastScanWho = '';
+    void loadPassages();
+  };
   async function loadHistPass() {
     const id = document.getElementById('histEleve').value.trim();
     const debut = histDebut.value;
@@ -23086,12 +23556,27 @@ async function bindCantine() {
     const fmt = (x) => x.toISOString().slice(0, 10);
     try {
       const list = await api('/menus-cantine?debut=' + fmt(debut) + '&fin=' + fmt(fin));
-      if (!list.length) {
+      const rows = list || [];
+      const nPub = rows.filter(m => m.publie).length;
+      const nBro = rows.length - nPub;
+      const todayMenu = rows.find(m => String(m.jour || '').slice(0, 10) === jour.slice(0, 10));
+      cantineTipMeta.menuJour = jour;
+      cantineTipMeta.nMenusPublies = nPub;
+      cantineTipMeta.nMenusBrouillon = nBro;
+      if (todayMenu) {
+        cantineTipMeta.menuPlat = String(todayMenu.plat || '').trim();
+        cantineTipMeta.menuPublie = !!todayMenu.publie;
+      } else {
+        cantineTipMeta.menuPlat = '';
+        cantineTipMeta.menuPublie = false;
+      }
+      paintCantineTips();
+      if (!rows.length) {
         menuOut.innerHTML = '<p class="empty">Aucun menu sur la période.</p>';
         return;
       }
       menuOut.innerHTML = `<table><thead><tr><th>Jour</th><th>Plat</th><th>État</th></tr></thead>
-        <tbody>${list.map(m => `<tr>
+        <tbody>${rows.map(m => `<tr>
           <td>${esc(m.jour)}</td>
           <td>${esc(m.plat)}${m.entree ? ' <span class="muted">(' + esc(m.entree) + ')</span>' : ''}</td>
           <td><span class="pill">${m.publie ? 'publié' : 'brouillon'}</span></td>
@@ -23237,7 +23722,7 @@ async function bindCantine() {
       if (String(jour) === String(scanJour)) {
         cantineTipMeta.nDispenses = rows.length;
         cantineTipMeta.jour = jour;
-        paintCantinePageTip();
+        paintCantineTips();
       }
       if (!rows.length) {
         cantDispOut.innerHTML = `<p class="empty">Aucune dispense active le ${esc(jour)}${eid ? ' pour cet élève' : ''}.</p>`;
@@ -23300,6 +23785,7 @@ async function bindCantine() {
   await loadPassages();
   await loadMenus();
   await loadTarifs();
+  paintCantineTips();
 }
 
 /* ---------- Internat ---------- */
@@ -29350,6 +29836,64 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyDracoRefresh = refreshNotesDevoirsEmptyDracoSlot;
+  async function refreshNotesDevoirsEmptyRonSlot() {
+    const el = document.getElementById('notesDevoirsEmptyRonSlot');
+    if (!el) return;
+    try {
+      const ronId = await resolveRonWeasleyEleveId();
+      if (!ronId) {
+        el.innerHTML = '';
+        return;
+      }
+      let nNotes = 0;
+      let classe = '5A';
+      let potNoteLabel = '';
+      try {
+        const notes = await api('/eleves/' + ronId + '/notes');
+        nNotes = (notes || []).length;
+        const potNote = (notes || []).find(n =>
+          /ron/i.test(String(n.libelle || ''))
+          || /potions/i.test(String(n.matiere_libelle || n.matiere || '')));
+        if (potNote && potNote.libelle) potNoteLabel = String(potNote.libelle);
+      } catch {
+        nNotes = 0;
+      }
+      try {
+        const eleve = await api('/eleves/' + ronId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      el.innerHTML = notesRonSeedTipDenseHtml({
+        ronId,
+        nNotes,
+        classe,
+        potNoteLabel,
+      });
+      const btnNotes = document.getElementById('notesRonSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.ronId || ronId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Ron');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesRonSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyRonRefresh = refreshNotesDevoirsEmptyRonSlot;
   async function refreshNotesHarrySeedTip(devoirsPref) {
     const el = document.getElementById('notesHarrySeedTip');
     if (!el) return;
@@ -32714,6 +33258,7 @@ async function bindFamilleRepas() {
   debut.value = d0.toISOString().slice(0, 10);
   let enfants = [];
   const regimeByEnfant = {};
+  let repasOpenToastDone = false;
   try {
     enfants = await api('/famille/enfants');
     const opts = (enfants || []).map(e =>
@@ -32814,6 +33359,17 @@ async function bindFamilleRepas() {
           nDispensesActives,
           menuPlat,
           prenom: eid === '__all__' ? 'Tous' : prenomLabel,
+        });
+      }
+      if (!repasOpenToastDone) {
+        repasOpenToastDone = true;
+        maybeToastFamRepasOuverte({
+          enfantId: eid === '__all__' ? '' : eid,
+          prenom: eid === '__all__' ? 'Tous' : prenomLabel,
+          nPassagesJour,
+          nPassagesPeriode: list.length,
+          nDispensesActives,
+          menuPlat,
         });
       }
       const regimeTile = (eid && eid !== '__all__' && regimeByEnfant[eid])
