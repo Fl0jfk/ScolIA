@@ -151,6 +151,12 @@
   .empty {
     @apply py-4 text-ent-muted;
   }
+  .empty-state {
+    @apply rounded-bento-sm border border-dashed border-ent-line bg-white/55 px-4 py-3 text-center;
+  }
+  .empty-state-hint {
+    @apply mt-1 block text-[0.85rem] leading-snug;
+  }
 
   .login-wrap {
     @apply grid min-h-screen place-items-center p-6;
@@ -173,18 +179,21 @@
     position: fixed;
     inset: 0 0 auto 0;
     z-index: 200;
-    padding: 0.55rem 1rem;
-    font-size: 0.88rem;
-    line-height: 1.35;
+    padding: 0.65rem 1rem 0.7rem;
+    font-size: 0.92rem;
+    line-height: 1.45;
     color: #fff;
-    background: var(--color-ent-warn);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+    background: #9a3412;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.22);
   }
   .offline-banner strong {
-    font-weight: 700;
+    font-weight: 800;
+    letter-spacing: 0.01em;
   }
   html.ent-offline body {
-    padding-top: 2.85rem;
+    padding-top: 3.1rem;
   }
 
   /* Shell = left bar fixe (comme IntranetShell Next.js) */

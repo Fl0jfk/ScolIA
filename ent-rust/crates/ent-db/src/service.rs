@@ -4504,6 +4504,18 @@ impl PgEnt {
         Ok(self.documents.list_grants_pending(etablissement_id).await?)
     }
 
+    pub async fn latest_grant_etat_for_actor_doc(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        document_id: Uuid,
+    ) -> Result<Option<String>, EntDbError> {
+        Ok(self
+            .documents
+            .latest_grant_status_for_user_doc(etablissement_id, document_id, actor_user_id)
+            .await?)
+    }
+
     /// Métadonnées documents : tous les docs du dossier + flag `accessible` (staff / parent / élève).
     pub async fn list_documents_meta_eleve_for_actor(
         &self,

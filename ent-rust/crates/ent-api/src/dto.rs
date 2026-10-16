@@ -3022,6 +3022,9 @@ pub struct DocumentMetaDto {
     pub source: String,
     pub code: Option<String>,
     pub accessible: bool,
+    /// Dernière demande d'accès (grant) de l'utilisateur courant sur un doc verrouillé.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grant_etat: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1098,20 +1098,35 @@ async fn list_documents_meta_eleve(
         )
         .await
         .map_err(map_db)?;
-    Ok(Json(
-        list.into_iter()
-            .map(|(d, accessible)| DocumentMetaDto {
-                id: d.id,
-                eleve_id: d.eleve_id,
-                titre: d.titre,
-                tiroir: d.tiroir.as_str().to_string(),
-                confidentialite: d.confidentialite.as_str().to_string(),
-                source: d.source,
-                code: d.code,
-                accessible,
-            })
-            .collect(),
-    ))
+    let mut out = Vec::with_capacity(list.len());
+    for (d, accessible) in list {
+        let grant_etat = if accessible {
+            None
+        } else {
+            state
+                .ent
+                .latest_grant_etat_for_actor_doc(
+                    session.etablissement_id,
+                    session.user_id,
+                    d.id,
+                )
+                .await
+                .ok()
+                .flatten()
+        };
+        out.push(DocumentMetaDto {
+            id: d.id,
+            eleve_id: d.eleve_id,
+            titre: d.titre,
+            tiroir: d.tiroir.as_str().to_string(),
+            confidentialite: d.confidentialite.as_str().to_string(),
+            source: d.source,
+            code: d.code,
+            accessible,
+            grant_etat,
+        });
+    }
+    Ok(Json(out))
 }
 
 async fn deposer_document_eleve(
@@ -1170,6 +1185,7 @@ async fn deposer_document_eleve(
             source: doc.source,
             code: doc.code,
             accessible: true,
+            grant_etat: None,
         }),
     ))
 }
@@ -5250,6 +5266,7 @@ async fn publier_bulletin(
             source: doc.source,
             code: doc.code,
             accessible: true,
+            grant_etat: None,
         }),
     ))
 }

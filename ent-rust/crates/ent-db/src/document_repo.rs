@@ -217,6 +217,32 @@ impl PgDocumentRepo {
         Ok(rows.into_iter().filter_map(GrantRow::into_grant).collect())
     }
 
+    pub async fn latest_grant_status_for_user_doc(
+        &self,
+        etablissement_id: Uuid,
+        document_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<String>, DomainError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT status
+            FROM ent_document_grant
+            WHERE etablissement_id = $1
+              AND document_id = $2
+              AND grantee_user_id = $3
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(document_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(|(s,)| s))
+    }
+
     pub async fn list_grants_pending(
         &self,
         etablissement_id: Uuid,

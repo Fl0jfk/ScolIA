@@ -12,13 +12,14 @@ use chrono::{Datelike, Duration, NaiveDate, NaiveTime};
 use domain_eleve::{
     annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
     CreerAlerteCpe, CreerCarnetEntree, CreerDevoir, CreerNotePeriode, CreerPassageInfirmerie,
-    AbsenceStatut, CarnetCategorie, ChoisirOptionN1, ConvoquerCommission, CreerCommissionVs,
-    CreerFacture, CreerInfoCompChamp, DeclarerIncident, DeclareAbsence, DemanderGrant,
-    DocConfidentialite, DocTiroir, EncaisserFacture, FactureStatut, LigneFactureCmd, MonteeRapide,
-    MoyenPaiement,
-    OptionAnneeStatut, OptionNature, OuvrirCampagneReinscription, PassageInfirmerieMotif,
-    PrononcerSanction, PublierDocASigner, RepasActiviteKind, SaisirAppreciation, UpsertFicheSante,
-    UpsertInfoCompValeur, UpsertMenuCantine, UpsertPai,
+    AbsenceStatut, AffecterEleveInternat, CarnetCategorie, ChangeRegime, ChoisirOptionN1,
+    ConvoquerCommission, CreerChambreInternat, CreerCommissionVs, CreerFacture, CreerInfoCompChamp,
+    CreerRdvPsy, CreerSuiviInternat, DeclarerIncident, DeclareAbsence, DemanderGrant,
+    DocConfidentialite, DocTiroir, EncaisserFacture, EntretienPsyKind, FactureStatut,
+    LigneFactureCmd, MonteeRapide, MoyenPaiement, OptionAnneeStatut, OptionNature,
+    OuvrirCampagneReinscription, OuvrirFil, PassageInfirmerieMotif, PointerPresenceInternat,
+    PrononcerSanction, PublierDocASigner, RepasActiviteKind, SaisirAppreciation, UpsertDossierPsy,
+    UpsertFicheSante, UpsertInfoCompValeur, UpsertMenuCantine, UpsertPai, UpsertQuotientFoyer,
 };
 use domain_eleve::Devoir;
 use ent_auth::{AuthError, Role};
@@ -592,9 +593,11 @@ impl PgEnt {
             etab,
             lea,
             tom,
+            &eleves,
             &profs,
             &cpes,
             &infirmieres,
+            &psys,
             &admin,
             &comptas[0],
             &administratifs[0],
@@ -663,14 +666,19 @@ impl PgEnt {
     }
 
     /// Matières, notes, réinscription, santé, VS — journée non vide pour bots post-bootstrap.
+    ///
+    /// Lots audit W-A (idempotents) : parent multi-enfants Weasley, quotient/quittance Harry,
+    /// internat Neville (INT requis), psy Harry, fil CPE→parent ; docs/PAI/carnet laissés non signés.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
         harry: &LaboEleve,
         draco: &LaboEleve,
+        eleves: &[LaboEleve],
         profs: &[LaboPersona],
         cpes: &[LaboPersona],
         infirmieres: &[LaboPersona],
+        psys: &[LaboPersona],
         admin: &LaboPersona,
         compta: &LaboPersona,
         administratif: &LaboPersona,
@@ -1191,6 +1199,52 @@ impl PgEnt {
                 )
                 .await?;
         }
+        let (_, _, _, encaisse_harry, _, quittances_facture, _) = self
+            .get_facture_for_actor(etab, compta.user_id, role_compta, facture_harry.id)
+            .await?;
+        if encaisse_harry > 0 && quittances_facture.is_empty() {
+            let reste = facture_harry.total_centimes.saturating_sub(encaisse_harry);
+            if reste > 0 {
+                let _ = self
+                    .encaisser_facture_for_actor(
+                        role_compta,
+                        EncaisserFacture {
+                            etablissement_id: etab,
+                            facture_id: facture_harry.id,
+                            montant_centimes: reste,
+                            moyen: MoyenPaiement::Virement,
+                            reference: Some("SEED-HARRY-AUDIT-Q".into()),
+                            actor_user_id: compta.user_id,
+                        },
+                    )
+                    .await?;
+            }
+        }
+        let annee_quotient = annee_scolaire_de(jour);
+        if self
+            .get_quotient_foyer_for_actor(
+                etab,
+                compta.user_id,
+                role_compta,
+                harry.foyer_id,
+                &annee_quotient,
+            )
+            .await?
+            .is_none()
+        {
+            self.upsert_quotient_foyer_for_actor(
+                role_compta,
+                UpsertQuotientFoyer {
+                    etablissement_id: etab,
+                    foyer_id: harry.foyer_id,
+                    annee_scolaire: annee_quotient,
+                    quotient_centimes: 850_50,
+                    parts_x100: 250,
+                    actor_user_id: compta.user_id,
+                },
+            )
+            .await?;
+        }
 
         // --- Menus cantine publiés (semaine lun–ven) + passages badge midi Harry
         let debut_sem = debut_semaine_lundi(jour);
@@ -1549,6 +1603,240 @@ impl PgEnt {
             .await?;
         }
 
+        // --- Parent multi-enfants : Ron + Ginny → même compte Molly (foyer Weasley)
+        let role_admin = Role::Admin.as_str();
+        if let (Some(ron), Some(ginny)) = (
+            labo_eleve_prenom(eleves, "Ron"),
+            labo_eleve_prenom(eleves, "Ginny"),
+        ) {
+            let molly_user = ron.parent.user_id;
+            let molly_foyer = ron.foyer_id;
+            let deja = self
+                .lien_parent_eleve(etab, molly_user, ginny.id)
+                .await?;
+            if deja.is_none() {
+                if ginny.parent.user_id != molly_user {
+                    if let Some(old) = self
+                        .lien_parent_eleve(etab, ginny.parent.user_id, ginny.id)
+                        .await?
+                    {
+                        self.delete_lien_eleve_for_actor(
+                            role_admin,
+                            etab,
+                            Some(ginny.id),
+                            old.id,
+                            admin.user_id,
+                        )
+                        .await?;
+                    }
+                }
+                self.link_parent(CreateLien {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    user_id: molly_user,
+                    foyer_id: Some(molly_foyer),
+                    lien: "mère".into(),
+                    peut_voir_notes: ginny.peut_voir_notes,
+                    peut_voir_vs: ginny.peut_voir_vs,
+                    peut_justifier_absence: ginny.peut_justifier,
+                    peut_autoriser_sorties: ginny.peut_justifier,
+                    est_payeur: true,
+                    part_paiement: Some(100),
+                })
+                .await?;
+            }
+        }
+
+        // --- Internat Neville (seed DP → INT : affectation exige régime INT)
+        const CHAMBRE_NEVILLE_CODE: &str = "LAB-NEV-AUDIT";
+        const SUIVI_NEVILLE: &str = "Seed audit — bonne soirée étude";
+        if let Some(neville) = labo_eleve_prenom(eleves, "Neville") {
+            let role_cpe = Role::Cpe.as_str();
+            let regime = self
+                .get_eleve(etab, neville.id)
+                .await?
+                .and_then(|e| e.regime);
+            let regime_norm = regime
+                .as_deref()
+                .map(|r| r.trim().to_ascii_uppercase())
+                .unwrap_or_default();
+            if regime_norm != "INT" {
+                self.change_regime(ChangeRegime {
+                    etablissement_id: etab,
+                    eleve_id: neville.id,
+                    nouveau_regime: "INT".into(),
+                    date_effet: jour,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+            let chambre = {
+                let existantes = self
+                    .list_chambres_internat_for_actor(etab, role_cpe)
+                    .await?;
+                if let Some(c) = existantes
+                    .iter()
+                    .find(|c| c.code.eq_ignore_ascii_case(CHAMBRE_NEVILLE_CODE))
+                {
+                    c.clone()
+                } else {
+                    self.creer_chambre_internat_for_actor(
+                        role_cpe,
+                        CreerChambreInternat {
+                            etablissement_id: etab,
+                            batiment: "Tour Nord".into(),
+                            etage: 1,
+                            code: CHAMBRE_NEVILLE_CODE.into(),
+                            capacite: 2,
+                            genre: "garcons".into(),
+                            actor_user_id: cpe.user_id,
+                        },
+                    )
+                    .await?
+                }
+            };
+            let affectations = self
+                .list_affectations_internat_jour_for_actor(etab, role_cpe, jour)
+                .await?;
+            if !affectations
+                .iter()
+                .any(|a| a.eleve_id == neville.id && a.chambre_id == chambre.id)
+            {
+                let _ = self
+                    .affecter_eleve_internat_for_actor(
+                        role_cpe,
+                        AffecterEleveInternat {
+                            etablissement_id: etab,
+                            eleve_id: neville.id,
+                            chambre_id: chambre.id,
+                            lit: Some("A".into()),
+                            debut: jour,
+                            actor_user_id: cpe.user_id,
+                        },
+                    )
+                    .await;
+            }
+            let presences = self
+                .list_presences_internat_jour_for_actor(etab, role_cpe, jour)
+                .await?;
+            if !presences.iter().any(|p| p.eleve_id == neville.id) {
+                let _ = self
+                    .pointer_presence_internat_for_actor(
+                        role_cpe,
+                        PointerPresenceInternat {
+                            etablissement_id: etab,
+                            eleve_id: neville.id,
+                            jour,
+                            statut: "present".into(),
+                            note: "Seed audit internat".into(),
+                            actor_user_id: cpe.user_id,
+                        },
+                    )
+                    .await;
+            }
+            let recap = self
+                .get_recap_internat_for_actor(
+                    etab,
+                    cpe.user_id,
+                    role_cpe,
+                    neville.id,
+                    jour,
+                )
+                .await?;
+            if !recap
+                .suivis_famille
+                .iter()
+                .any(|s| s.texte.contains(SUIVI_NEVILLE))
+            {
+                let _ = self
+                    .creer_suivi_internat_for_actor(
+                        role_cpe,
+                        CreerSuiviInternat {
+                            etablissement_id: etab,
+                            eleve_id: neville.id,
+                            jour,
+                            texte: SUIVI_NEVILLE.into(),
+                            visible_famille: true,
+                            actor_user_id: cpe.user_id,
+                        },
+                    )
+                    .await;
+            }
+        }
+
+        // --- Psy Harry : dossier + RDV signalé famille (non signé côté docs)
+        if let Some(psy) = psys.first() {
+            let role_psy = Role::Psy.as_str();
+            if self
+                .get_dossier_psy_for_actor(etab, psy.user_id, role_psy, harry.id)
+                .await?
+                .is_none()
+            {
+                self.upsert_dossier_psy_for_actor(
+                    role_psy,
+                    UpsertDossierPsy {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        axes_suivi: "Anxiété scolaire légère — suivi T1".into(),
+                        contacts_externes: "CAMSP — Mme Dubois".into(),
+                        note_confidentielle: "Seed audit — note interne psy".into(),
+                        suivi_actif: true,
+                        signale_famille: true,
+                        actor_user_id: psy.user_id,
+                    },
+                )
+                .await?;
+            }
+            const RDV_PSY_AUDIT: &str = "Seed audit — entretien de suivi Harry";
+            let rdvs = self
+                .list_rdvs_psy_for_actor(etab, psy.user_id, role_psy, Some(harry.id), None)
+                .await?;
+            if !rdvs
+                .iter()
+                .any(|r| r.motif == RDV_PSY_AUDIT && r.signale_famille)
+            {
+                self.creer_rdv_psy_for_actor(
+                    role_psy,
+                    CreerRdvPsy {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        jour: jour + Duration::days(5),
+                        heure_debut: NaiveTime::from_hms_opt(10, 0, 0).unwrap(),
+                        heure_fin: NaiveTime::from_hms_opt(10, 45, 0).unwrap(),
+                        kind: EntretienPsyKind::Individuel,
+                        motif: RDV_PSY_AUDIT.into(),
+                        note_interne: "Préparer retour post-incident Potions".into(),
+                        signale_famille: true,
+                        actor_user_id: psy.user_id,
+                    },
+                )
+                .await?;
+            }
+        }
+
+        // --- Messagerie CPE → parent Harry (1 fil, 1 message) — sans signature docs
+        const FIL_CPE_AUDIT_SUJET: &str = "AUDIT: Point conduite Harry";
+        let role_cpe = Role::Cpe.as_str();
+        let fils_harry = self
+            .list_fils_for_actor(etab, cpe.user_id, role_cpe, Some(harry.id), false, None)
+            .await?;
+        if !fils_harry
+            .iter()
+            .any(|f| f.sujet == FIL_CPE_AUDIT_SUJET)
+        {
+            self.ouvrir_fil_for_actor(
+                role_cpe,
+                OuvrirFil {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    sujet: FIL_CPE_AUDIT_SUJET.into(),
+                    premier_message: "Bonjour, nous souhaitons échanger avec vous sur le comportement de Harry cette semaine.".into(),
+                    actor_user_id: cpe.user_id,
+                },
+            )
+            .await?;
+        }
+
         Ok(())
     }
 
@@ -1639,6 +1927,10 @@ impl PgEnt {
             .await?;
         Ok((d, true))
     }
+}
+
+fn labo_eleve_prenom<'a>(eleves: &'a [LaboEleve], prenom: &str) -> Option<&'a LaboEleve> {
+    eleves.iter().find(|e| e.prenom.eq_ignore_ascii_case(prenom))
 }
 
 /// Lundi de la semaine calendaire du jour (ISO).
