@@ -226,14 +226,26 @@ function toastAlerteCpeCreee(meta) {
 }
 
 function toastGrantDecide(accepter, meta) {
-  const doc = esc((meta && meta.document_titre) || 'Document');
-  const who = esc((meta && meta.grantee_label) || 'demandeur');
-  const etab = '<a href="/app/etab">Établissement</a>';
-  if (accepter) {
-    showEntToast(`<strong>Accès accordé</strong> — ${doc} · ${who}. ${etab} · file actualisée.`);
-  } else {
-    showEntToast(`<strong>Accès refusé</strong> — ${doc} · ${who}. ${etab}.`);
-  }
+  const m = meta || {};
+  const doc = esc(String(m.document_titre || 'Document').trim());
+  const who = esc(String(m.grantee_label || 'demandeur').trim());
+  const duree = m.duration_days != null && Number(m.duration_days) > 0
+    ? `${Number(m.duration_days)} j`
+    : '—';
+  const ok = !!accepter;
+  const verdict = ok ? 'Accordé' : 'Refusé';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:${ok ? 'var(--ok,#16a34a)' : 'var(--warn,#b45309)'}">
+      <strong class="${ok ? 'ok' : 'warn'}">${verdict}</strong><span>Grant · tiroir restreint</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${doc}</strong><span>Document</span></div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>Durée ${esc(duree)}</span></div>`;
+  showEntToast(
+    `<strong>${ok ? 'Accès accordé' : 'Accès refusé'}</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/app/etab">Établissement</a> · file actualisée</p>`,
+    8500,
+  );
 }
 
 /** États vides staff (internat, infirmerie…) — même densité que famille, sans toucher famEmptyDense. */
@@ -649,11 +661,45 @@ function bindNotesHomeTipGo() {
   }
 }
 
-function refreshNotesHomeTip(nSans, nTotal, periodeLabel) {
+function bindNotesHomeTipBulGo() {
+  const btn = document.getElementById('notesHomeTipBulBtn');
+  if (btn) {
+    btn.onclick = () => {
+      const panel = document.getElementById('notesBulletinsPanel');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+}
+
+/** /app/notes — période fermée (saisie verrouillée, publication bulletins). */
+function notesPeriodeFermeeTipDenseHtml(periode) {
+  if (!periode || periode.statut !== 'fermee') return '';
+  const label = esc(notePeriodeFermeeLabel(periode));
+  const dates = periode.date_debut && periode.date_fin
+    ? `${esc(String(periode.date_debut))} → ${esc(String(periode.date_fin))}`
+    : '—';
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">Fermée</strong><span>Période ${label} ${notePeriodeStatutBadge('fermee')}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${dates}</strong><span>Saisie notes verrouillée</span></div>
+    <button type="button" class="stat-tile bento-span-4" id="notesHomeTipBulBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>PDF</strong><span>Publier bulletins · section ci-dessous</span>
+    </button>
+  </div>`;
+}
+
+function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode) {
   const el = document.getElementById('notesHomeTip');
   if (!el) return;
-  el.innerHTML = notesEvalSansNoteTipDenseHtml(nSans, nTotal, periodeLabel);
+  const p = prefPeriode || null;
+  let html = notesPeriodeFermeeTipDenseHtml(p);
+  if (!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations') {
+    html += notesEvalSansNoteTipDenseHtml(nSans, nTotal, periodeLabel);
+  }
+  el.innerHTML = html;
   bindNotesHomeTipGo();
+  bindNotesHomeTipBulGo();
 }
 
 /** /app/notes — repère seed labo Harry Potter (4B · Potions). */
@@ -726,11 +772,69 @@ function toastAppreciationPubliee(a, eleveLabel) {
   );
 }
 
-function toastBulletinTelecharge(titre) {
-  showEntToast(
-    `<strong>Bulletin téléchargé</strong> — ${esc(String(titre || 'PDF').trim())}`,
-    8000,
-  );
+function isEleveNotesFlux() {
+  return path() === '/eleve/notes';
+}
+
+function isEleveDocsFlux() {
+  return path() === '/eleve/docs';
+}
+
+function isStaffNotesFlux() {
+  return path() === '/app/notes';
+}
+
+function isBulletinDownloadFlux() {
+  const p = path();
+  return isEleveNotesFlux()
+    || isEleveDocsFlux()
+    || isStaffNotesFlux()
+    || isFamilleDocsSignerFlux()
+    || isFamilleEnfantFlux()
+    || p === '/famille/docs-signer';
+}
+
+function toastBulletinTelecharge(titre, opts) {
+  const o = opts || {};
+  const raw = String(titre || 'PDF').trim();
+  const t = esc(raw);
+  const tShort = raw.length > 40 ? esc(raw.slice(0, 40)) + '…' : t;
+  const code = o.code ? esc(String(o.code).trim().slice(0, 24)) : '—';
+  if (isBulletinDownloadFlux() || o.dense) {
+    const eleveFoot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+      + `<a href="/eleve/notes">Notes</a> · `
+      + `<a href="/eleve/docs">Docs &amp; bulletins</a></p>`;
+    const famFoot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+      + `<a href="/famille/enfants">Mes enfants</a> · `
+      + `<a href="/famille/docs-signer">Docs à signer</a></p>`;
+    const staffFoot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+      + `<a href="#" id="entToastBulNotesPanel">Bulletin PDF</a> · `
+      + `<a href="/app/notes">Module Notes</a></p>`;
+    const foot = isStaffNotesFlux()
+      ? staffFoot
+      : (path().startsWith('/famille') ? famFoot : eleveFoot);
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">PDF</strong><span>Enregistré localement</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${tShort}</strong><span>Bulletin · ${code}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Famille</strong><span>Document publié par l’établissement</span></div>`;
+    showEntToast(
+      `<strong>Bulletin téléchargé</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + foot,
+      9500,
+    );
+    const link = document.getElementById('entToastBulNotesPanel');
+    if (link) {
+      link.onclick = (ev) => {
+        ev.preventDefault();
+        const panel = document.getElementById('notesBulletinsPanel');
+        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    }
+    return;
+  }
+  showEntToast(`<strong>Bulletin téléchargé</strong> — ${t}`, 8000);
 }
 
 function isFamilleQuittancesFlux() {
@@ -1038,6 +1142,82 @@ function famHomeProchainDevoirTipDenseHtml(picks) {
   </div>`;
 }
 
+/** Accueil famille — PAI actifs (protocoles infirmerie, bento). */
+function famHomePaiActifsTipDenseHtml(list, paiList) {
+  const kids = list || [];
+  const actifs = [];
+  kids.forEach((e, i) => {
+    const pai = paiList[i];
+    if (pai) actifs.push({ e, pai });
+  });
+  if (!actifs.length) return '';
+  const nPending = actifs.filter(x => !x.pai.signe_famille).length;
+  const nSigned = actifs.length - nPending;
+  const firstPending = actifs.find(x => !x.pai.signe_famille);
+  const first = firstPending || actifs[0];
+  const eid = esc(String(first.e.id));
+  const motif = esc(String((first.pai.motif || 'protocole').trim()).slice(0, 28));
+  const pendingTile = nPending
+    ? `<a class="stat-tile bento-span-4" href="/famille/enfants/${eid}?section=pai" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nPending}</strong><span>PAI à signer · ${motif}</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${nSigned}</strong><span>PAI actif(s) · signé(s)</span>
+      </div>`;
+  const signedTile = nSigned
+    ? `<div class="stat-tile bento-span-4"><strong class="ok">${nSigned}</strong><span>Prise de connaissance OK</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong>${actifs.length}</strong><span>Enfant(s) avec PAI</span></div>`;
+  const santeTile = `<a class="stat-tile bento-span-4" href="/famille/sante" style="text-decoration:none">
+      <strong>Santé</strong><span>Fiche · passages infirmerie</span>
+    </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${pendingTile}${signedTile}${santeTile}</div>`;
+}
+
+/** Fiche enfant famille — carnet à signer (bento). */
+function famEnfantCarnetTipDenseHtml(opts) {
+  const o = opts || {};
+  const carnet = o.carnet || [];
+  const pending = carnet.filter(c => c && !c.signe_at);
+  const carASigner = pending.length;
+  const force = !!(o.forceShow || o.deepLink);
+  if (!carASigner && !force) return '';
+  const eid = o.enfantId ? esc(String(o.enfantId)) : '';
+  const href = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
+  const last = pending[0] || carnet[0] || null;
+  const lastTitle = last && last.titre ? String(last.titre).trim() : '';
+  const lastShort = lastTitle.length > 28 ? esc(lastTitle.slice(0, 28)) + '…' : esc(lastTitle || '—');
+  const signTile = carASigner
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${carASigner}</strong><span>Entrée(s) carnet à signer</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">OK</strong><span>Carnet signé à jour</span>
+      </div>`;
+  const detailTile = last
+    ? `<div class="stat-tile bento-span-4"><strong>${lastShort}</strong><span>${esc(last.categorie || 'carnet')}${last.signe_at ? ' · signée' : ''}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucune entrée en attente</span></div>`;
+  const vsTile = `<a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none">
+      <strong>VS</strong><span>Carnet · sanctions · commissions</span>
+    </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${signTile}${detailTile}${vsTile}</div>`;
+}
+
+/** Bannière push famille (lab) — tuiles denses. */
+function famPushBannerTipDenseHtml() {
+  return `<div class="bento" style="margin:0;align-items:stretch">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#c45c26)">
+      <strong>Notifications</strong><span>Carnet · absences · vie scolaire</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>Lab</strong><span>Token device · dry-run</span></div>
+    <div class="stat-tile bento-span-4" style="display:flex;flex-direction:column;gap:.35rem;justify-content:center">
+      <div class="row" style="gap:.35rem;flex-wrap:wrap">
+        <button type="button" class="primary" id="btnFamPushBannerGo">Activer</button>
+        <button type="button" id="btnFamPushBannerDismiss">Plus tard</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 /** Accueil famille — mandat SEPA (bento, si API mandats OK). */
 function famHomeSepaMandatTipDenseHtml(sepaMandatActif, allMandats) {
   const list = allMandats || [];
@@ -1243,9 +1423,29 @@ function eleveNotePeriodeOuverteTipDenseHtml(periode) {
   </div>`;
 }
 
+/** Élève /eleve/notes — période fermée (bulletin publiable). */
+function eleveNotePeriodeFermeeTipDenseHtml(periode) {
+  if (!periode || periode.statut !== 'fermee') return '';
+  const label = esc(notePeriodeFermeeLabel(periode));
+  const dates = periode.date_debut && periode.date_fin
+    ? `${esc(String(periode.date_debut))} → ${esc(String(periode.date_fin))}`
+    : '—';
+  return `<div class="bento" style="margin:0 0 .65rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">Fermée</strong><span>Période ${label} ${notePeriodeStatutBadge('fermee')}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${dates}</strong><span>Notes figées · moyennes finalisées</span></div>
+    <div class="stat-tile bento-span-4"><strong>PDF</strong><span>Bulletin ci-dessous si publié par l’établissement</span></div>
+  </div>`;
+}
+
 function refreshEleveNotePeriodeTip(periode) {
   const el = document.getElementById('eleveNotePeriodeTip');
   if (!el) return;
+  if (periode && periode.statut === 'fermee') {
+    el.innerHTML = eleveNotePeriodeFermeeTipDenseHtml(periode);
+    return;
+  }
   el.innerHTML = eleveNotePeriodeOuverteTipDenseHtml(periode);
 }
 
@@ -1400,6 +1600,27 @@ function eleveEdtTipDenseHtml(opts) {
   </div>`;
 }
 
+/** Accueil /eleve — prochain cours (bento dense, EDT du jour). */
+function eleveHomeProchainCoursTipDenseHtml(edt, jour) {
+  const j = jour || today();
+  const list = edt || [];
+  if (!list.length) return '';
+  const { current, next } = eleveEdtPickCurrentAndNext([list], [j]);
+  return eleveEdtTipDenseHtml({
+    mode: 'jour',
+    jour: j,
+    nCours: list.length,
+    current,
+    next,
+  });
+}
+
+function refreshEleveHomeProchainCoursTip(edt, jour) {
+  const el = document.getElementById('eleveHomeProchainCoursTip');
+  if (!el) return;
+  el.innerHTML = eleveHomeProchainCoursTipDenseHtml(edt, jour);
+}
+
 function eleveHomeDevoirsAVenirHtml(devoirs, jour) {
   const j = jour || today();
   const upcoming = eleveUpcomingDevoirs(devoirs, j);
@@ -1529,10 +1750,30 @@ function refreshGrilleMoyenneLiveTip(sur) {
 
 function toastNotePeriodeFermee(p) {
   const label = esc(notePeriodeFermeeLabel(p));
-  showEntToast(
-    `<strong>Période « ${label} » fermée</strong> ${notePeriodeStatutBadge('fermee')} — saisie verrouillée. `
-    + `<a href="#" id="entToastNotesBul">Publier les bulletins</a>`,
-  );
+  const dates = p && p.date_debut && p.date_fin
+    ? `${esc(String(p.date_debut))} → ${esc(String(p.date_fin))}`
+    : '—';
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="#" id="entToastNotesBul">Publier les bulletins</a> · `
+    + `<a href="/app/notes">Module Notes</a></p>`;
+  if (isStaffNotesFlux()) {
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">Fermée</strong><span>Saisie verrouillée</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${label}</strong><span>${notePeriodeStatutBadge('fermee')}</span></div>
+      <div class="stat-tile bento-span-4"><strong>${dates}</strong><span>Publication PDF famille</span></div>`;
+    showEntToast(
+      `<strong>Période fermée</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + foot,
+      9500,
+    );
+  } else {
+    showEntToast(
+      `<strong>Période « ${label} » fermée</strong> ${notePeriodeStatutBadge('fermee')} — saisie verrouillée. `
+      + `<a href="#" id="entToastNotesBul">Publier les bulletins</a>`,
+    );
+  }
   const link = document.getElementById('entToastNotesBul');
   if (link) {
     link.onclick = (ev) => {
@@ -1692,19 +1933,40 @@ function toastSalleCreee(s) {
 }
 
 function toastRepasScanOk(p) {
-  const who = [p.eleve_prenom, p.eleve_nom].filter(Boolean).join(' ').trim() || 'Élève';
+  const pay = p || {};
+  const who = [pay.eleve_prenom, pay.eleve_nom].filter(Boolean).join(' ').trim() || 'Élève';
+  const badge = esc(String(pay.badge_lu || '—').trim());
+  const src = esc(String(pay.source || 'badge').trim());
+  const jour = pay.jour ? esc(String(pay.jour)) : esc(today());
+  const eid = pay.eleve_id ? String(pay.eleve_id).trim() : '';
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}">Fiche élève</a> · ` : '';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${esc(who)}</strong><span>Passage midi · ${jour}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${badge}</strong><span>Badge lu</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${src}</strong><span>Facturation · grille</span></div>`;
   showEntToast(
-    `<strong>Passage cantine</strong> — ${esc(who)} · badge ${esc(p.badge_lu || '—')}`,
-    6500,
+    `<strong>Passage cantine enregistré</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}`
+    + `<a href="/app/cantine">Cantine</a> · liste du jour</p>`,
+    8000,
   );
 }
 
 function toastRepasScanFail(message, badge) {
   const b = esc(String(badge || '').trim() || '—');
   const m = esc(String(message || 'Passage refusé').trim());
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">Refusé</strong><span>Scan badge cantine</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${b}</strong><span>Badge</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>${m}</span></div>`;
   showEntToast(
-    `<strong>Scan badge refusé</strong> — ${b} · ${m}. `
-    + 'Dispense, doublon du jour ou badge inconnu — vérifier la fiche élève.',
+    `<strong>Passage non enregistré</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">Dispense, doublon du jour ou badge inconnu — `
+    + `<a href="/app/cantine">Cantine</a></p>`,
     9500,
   );
 }
@@ -2639,6 +2901,18 @@ function isStaffPsyFlux() {
   return path() === '/app/psy';
 }
 
+function isStaffCantineFlux() {
+  return path() === '/app/cantine';
+}
+
+function isStaffInscriptionsFlux() {
+  return path() === '/app/inscriptions';
+}
+
+function isStaffEtabFlux() {
+  return path() === '/app/etab';
+}
+
 /** EDT staff — synthèse contraintes soft (solveur greedy). */
 function edtContraintesTipDenseHtml(list) {
   const items = list || [];
@@ -2724,6 +2998,73 @@ function inscriptionsPageTipDenseHtml(counts, opts) {
     </div>
     <div class="stat-tile bento-span-4"><strong>${nEnt}</strong><span>Entretien · ${nDec} décision</span></div>
     ${cedricHint}
+  </div>`;
+}
+
+function toastInscriptionSuiviEnregistree(s, opts) {
+  if (!isStaffInscriptionsFlux()) return;
+  const suivi = s || {};
+  const o = opts || {};
+  const etape = esc(String(suivi.etape || 'dossier').trim());
+  const annee = esc(String(suivi.annee_scolaire || o.annee || '—').trim());
+  const motif = suivi.motif_code ? esc(String(suivi.motif_code).trim()) : '—';
+  const eid = suivi.eleve_id ? String(suivi.eleve_id).trim() : (o.eleveId ? String(o.eleveId).trim() : '');
+  const who = o.eleveLabel
+    ? esc(String(o.eleveLabel).trim())
+    : (eid ? esc(eid.slice(0, 8)) + '…' : 'Élève');
+  const fromPart = o.fromEtape ? ` · ${esc(String(o.fromEtape))} → ${etape}` : '';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${etape}</strong><span>Inscription${fromPart}</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>${annee}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">${motif}</strong><span>Motif · board</span></div>`;
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}">Dossier élève</a> · ` : '';
+  showEntToast(
+    `<strong>Inscription enregistrée</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}`
+    + `<a href="/app/inscriptions">Board inscriptions</a></p>`,
+    8500,
+  );
+}
+
+/** Cantine staff — passages du jour + rappel grille / dispense. */
+function cantinePageTipDenseHtml(stats) {
+  if (!isStaffCantineFlux()) return '';
+  const s = stats || {};
+  const jour = esc(String(s.jour || today()).slice(0, 10));
+  const nPass = Number(s.nPassages) || 0;
+  const nDisp = Number(s.nDispenses) || 0;
+  const dispTile = nDisp > 0
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nDisp}</strong><span>Dispense(s) · ${jour}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Grille lun→dim · scan badge</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:${nPass ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${nPass ? 'ok' : ''}">${nPass}</strong><span>Passage(s) badge · ${jour}</span>
+    </div>
+    ${dispTile}
+    <div class="stat-tile bento-span-4"><strong class="muted">Doublon</strong><span>Refusé · prévenance non facturée</span></div>
+  </div>`;
+}
+
+/** Établissement — file grants documents en attente. */
+function grantsPageTipDenseHtml(nPending) {
+  if (!isStaffEtabFlux()) return '';
+  const n = Number(nPending) || 0;
+  if (n <= 0) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="ok">0</strong><span>Grant en attente</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">→</strong><span>Tiroir restreint · demande parent / staff</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Décision</strong><span>Accorder ou refuser ci-dessous</span></div>
+    </div>`;
+  }
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">${n}</strong><span>Demande(s) d’accès document</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Admin</strong><span>Sans ouvrir chaque dossier</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Durée</strong><span>Jours · motif demandeur</span></div>
   </div>`;
 }
 
@@ -3107,6 +3448,9 @@ function isFamilleAbsenceFlux() {
 }
 function isFamilleDocsSignerFlux() {
   return path() === '/famille/docs-signer';
+}
+function isFamilleReinscriptionFlux() {
+  return path() === '/famille/reinscription';
 }
 function isFamilleEnfantFlux() {
   return /^\/famille\/enfants\/[0-9a-f-]{36}$/i.test(path());
@@ -4018,6 +4362,7 @@ function famEnfantsListDenseGridHtml(list, resumes, docsLists, paiList, absLists
 function normalizeFamEnfantSection(sec) {
   const s = String(sec || '').trim().toLowerCase();
   if (s === 'documents' || s === 'document') return 'docs';
+  if (s === 'carnet' || s === 'discipline' || s === 'registre') return 'carnet';
   if (s === 'vs' || s === 'vie-scolaire' || s === 'viescolaire') return 'vs';
   if (s === 'info-comp' || s === 'infocomp' || s === 'voeux' || s === 'voeu') return 'orientation';
   if (s === 'orientation' || s === 'orient') return 'orientation';
@@ -4089,10 +4434,42 @@ function famSanteStatsBentoHtml(f, pai, passages) {
     <div class="stat-tile bento-span-4"><strong>${nPass}</strong><span>Passage(s) infirmerie</span></div>
   </div>`;
 }
-function toastReinscConfirmeeFamille(prenom, annee) {
+function toastReinscConfirmeeFamille(prenom, annee, opts) {
+  const o = opts || {};
   const who = esc(String(prenom || '').trim() || 'Enfant');
-  const a = annee ? ` · ${esc(String(annee).trim())}` : '';
-  showEntToast(`<strong>Réinscription confirmée</strong> — ${who}${a}. Dossier enregistré pour l’année suivante.`, 9000);
+  const aRaw = annee ? String(annee).trim() : '';
+  const a = aRaw ? esc(aRaw) : 'N+1';
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/reinscription">Suivi réinscription</a> · `
+    + `<a href="/famille">Accueil famille</a></p>`;
+  if (isFamilleReinscriptionFlux() || o.dense) {
+    const nManq = Number(o.nDocsManq);
+    const manqLbl = Number.isFinite(nManq) && nManq > 0
+      ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+          <strong class="warn">${nManq}</strong><span>Doc(s) encore manquant(s)</span>
+        </div>`
+      : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+          <strong class="ok">OK</strong><span>Dossier N+1 enregistré</span>
+        </div>`;
+    const acompteTile = o.acompteRequis
+      ? `<div class="stat-tile bento-span-4"><strong>${o.acompteOk ? '<span class="ok">Acompte OK</span>' : '<span class="warn">Acompte</span>'}</strong><span>${esc(String(o.acompteLbl || 'À régler en compta'))}</span></div>`
+      : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas d’acompte requis</span></div>`;
+    showEntToast(
+      `<strong>Réinscription confirmée</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">`
+      + `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+          <strong class="ok">${who}</strong><span>Année ${a}</span>
+        </div>`
+      + manqLbl
+      + acompteTile
+      + `</div>`
+      + foot,
+      9500,
+    );
+    return;
+  }
+  const aInline = aRaw ? ` · ${a}` : '';
+  showEntToast(`<strong>Réinscription confirmée</strong> — ${who}${aInline}. Dossier enregistré pour l’année suivante.`, 9000);
 }
 function isFamDocPending(d) {
   if (!d) return false;
@@ -5172,6 +5549,7 @@ function viewEleveHome() {
     <div class="bento" id="eleveHomeStats"></div>
     <div id="eleveHomeConseilSpot"></div>
     <div id="eleveHomeSanctionsTip"></div>
+    <div id="eleveHomeProchainCoursTip"></div>
     <div class="bento" id="eleveHomeHub" style="margin-bottom:.75rem">
       <a class="panel bento-span-3 eleve-hub-tile" href="/eleve/edt">
         <h2 class="eleve-hub-title">EDT</h2>
@@ -5314,6 +5692,7 @@ async function bindEleveHome() {
       pointsVs = null;
     }
     refreshEleveHomeSanctionsTip(sanctionsList, pointsVs, sanctionsApiOk);
+    refreshEleveHomeProchainCoursTip(edt, jour);
     let vol = null;
     try {
       vol = await api('/eleves/' + eid + '/repas/volume?debut=' + debutMois + '&fin=' + jour + '&kind=midi');
@@ -6475,7 +6854,7 @@ async function bindEleveDocs() {
           btn.onclick = async () => {
             try {
               await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'bulletin.pdf');
-              toastBulletinTelecharge(btn.dataset.titre || 'PDF');
+              toastBulletinTelecharge(btn.dataset.titre || 'PDF', { code: btn.dataset.titre || 'PDF' });
             } catch (err) { alert(err.message); }
           };
         });
@@ -6757,7 +7136,7 @@ async function bindEleveNotes() {
           const msg = document.getElementById('eleveBulletinMsg');
           try {
             await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'bulletin.pdf');
-            toastBulletinTelecharge(btn.dataset.titre || 'Bulletin');
+            toastBulletinTelecharge(btn.dataset.titre || 'Bulletin', { code: btn.dataset.titre || 'Bulletin' });
             if (msg) msg.innerHTML = `<span class="ok">${esc(btn.dataset.titre || 'Bulletin')}</span>`;
           } catch (err) {
             if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -6947,7 +7326,7 @@ async function bindEleveNotes() {
           if (hit) doc = hit;
         }
         await downloadFile('/documents/' + doc.id + '/fichier', doc.titre || 'bulletin.pdf');
-        toastBulletinTelecharge(doc.titre || 'Bulletin');
+        toastBulletinTelecharge(doc.titre || 'Bulletin', { code: bulletinDocCode(doc) || doc.titre || 'Bulletin' });
         if (msg) msg.innerHTML = `<span class="ok">${esc(doc.titre)}</span>`;
       } catch (err) {
         if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -7802,7 +8181,7 @@ async function bindFamilleDocsSigner() {
             btn.onclick = async () => {
               try {
                 await downloadFile('/documents/' + btn.dataset.id + '/fichier', btn.dataset.titre || 'bulletin.pdf');
-                showEntToast(`<strong>Bulletin téléchargé</strong> — ${esc(btn.dataset.titre || 'PDF')}`);
+                toastBulletinTelecharge(btn.dataset.titre || 'PDF', { code: btn.dataset.titre || 'PDF' });
               } catch (err) { alert(err.message); }
             };
           });
@@ -7847,21 +8226,14 @@ async function bindFamilleDocsSigner() {
 
 function viewFamilleHome() {
   return shell('/famille', `
-    <div id="famPushBanner" class="panel" style="display:none;margin-bottom:.75rem;border-left:3px solid var(--accent,#c45c26)">
-      <div class="row" style="align-items:center;justify-content:space-between;gap:.75rem">
-        <p style="margin:0">Activez les notifications push (lab) pour recevoir les alertes vie scolaire sur cet appareil.</p>
-        <div class="row" style="gap:.35rem">
-          <button type="button" class="primary" id="btnFamPushBannerGo">Activer</button>
-          <button type="button" id="btnFamPushBannerDismiss">Plus tard</button>
-        </div>
-      </div>
-    </div>
+    <div id="famPushBanner" class="panel" style="display:none;margin-bottom:.75rem;border-left:3px solid var(--accent,#c45c26);padding:.65rem .85rem"></div>
     <div id="famDocsCta" style="display:none"></div>
     <div class="bento" id="famPulse"></div>
     <p id="famFacMaxResteTip" class="muted" style="display:none;margin:-.25rem 0 .65rem;font-size:.88rem"></p>
     <p id="famHomeAgendaTip" class="muted" style="display:none;margin:-.25rem 0 .65rem;font-size:.88rem"></p>
     <div id="famHomeDevoirTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeSepaTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomePaiTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeQuittancesTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeReinscTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
@@ -8008,6 +8380,8 @@ async function bindFamilleHome() {
       if (devoirTip0) { devoirTip0.style.display = 'none'; devoirTip0.innerHTML = ''; }
       const sepaTip0 = document.getElementById('famHomeSepaTip');
       if (sepaTip0) { sepaTip0.style.display = 'none'; sepaTip0.innerHTML = ''; }
+      const paiTip0 = document.getElementById('famHomePaiTip');
+      if (paiTip0) { paiTip0.style.display = 'none'; paiTip0.innerHTML = ''; }
       const quitTip0 = document.getElementById('famHomeQuittancesTip');
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
       const reinscTip0 = document.getElementById('famHomeReinscTip');
@@ -8272,6 +8646,17 @@ async function bindFamilleHome() {
         sepaTip.innerHTML = '';
       }
     }
+    const paiTip = document.getElementById('famHomePaiTip');
+    if (paiTip) {
+      const densePai = famHomePaiActifsTipDenseHtml(list, paiList);
+      if (densePai) {
+        paiTip.style.display = '';
+        paiTip.innerHTML = densePai;
+      } else {
+        paiTip.style.display = 'none';
+        paiTip.innerHTML = '';
+      }
+    }
     const quitTip = document.getElementById('famHomeQuittancesTip');
     if (quitTip) {
       const denseQuit = famHomeQuittancesRecentTipDenseHtml(quittancesFam || []);
@@ -8371,6 +8756,7 @@ async function bindFamilleHome() {
     let pushDismissed = false;
     try { pushDismissed = localStorage.getItem('ent_fam_push_ok') === '1' || localStorage.getItem('ent_fam_push_dismiss') === '1'; } catch {}
     if (banner && !pushDismissed) {
+      banner.innerHTML = famPushBannerTipDenseHtml();
       banner.style.display = '';
       const go = document.getElementById('btnFamPushBannerGo');
       if (go) {
@@ -8547,8 +8933,11 @@ async function bindFamilleEnfant(id) {
       </div>
       <div id="famRepasOut" class="muted">…</div></div>`;
 
-    // Carnet (à signer + historique) — ancre ?section=vs
-    html += `<div id="fam-sec-vs" style="scroll-margin-top:4.5rem"><h3 id="fam-sec-carnet">Carnet · vie scolaire</h3>`;
+    // Carnet (à signer + historique) — ancre ?section=carnet ou ?section=vs
+    html += `<div id="fam-sec-vs" style="scroll-margin-top:4.5rem">
+      <div id="fam-sec-carnet" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantCarnetTip" style="display:none;margin:0 0 .55rem"></div>
+      <h3>Carnet · vie scolaire</h3>`;
     const carnet = resume.carnet_a_signer || [];
     if (!e.peut_voir_vs) {
       html += `<p class="empty">Carnet non visible — vie scolaire non autorisée pour ce lien parent.</p>`;
@@ -8564,7 +8953,8 @@ async function bindFamilleEnfant(id) {
         </tr>`).join('')}
       </tbody></table>`;
     }
-    html += `<div id="carnetHistoFam" class="muted" style="margin-top:.5rem">Chargement historique…</div></div>`;
+    html += `<div id="carnetHistoFam" class="muted" style="margin-top:.5rem">Chargement historique…</div>
+      </div></div>`;
 
     // Notes (période sélectionnable)
     html += `<h3>Notes</h3>`;
@@ -8668,6 +9058,24 @@ async function bindFamilleEnfant(id) {
     }
 
     out.innerHTML = html;
+
+    const carTipEl = document.getElementById('famEnfantCarnetTip');
+    if (carTipEl) {
+      const deepCarnet = enfantDeepSection === 'carnet' || enfantDeepSection === 'vs';
+      const denseCarTip = famEnfantCarnetTipDenseHtml({
+        carnet,
+        enfantId: id,
+        deepLink: deepCarnet,
+        forceShow: deepCarnet,
+      });
+      if (denseCarTip) {
+        carTipEl.style.display = '';
+        carTipEl.innerHTML = denseCarTip;
+      } else {
+        carTipEl.style.display = 'none';
+        carTipEl.innerHTML = '';
+      }
+    }
 
     const btnFamEdtIcal = document.getElementById('btnFamEdtIcal');
     if (btnFamEdtIcal) {
@@ -9733,6 +10141,7 @@ async function bindFamilleEnfant(id) {
             return;
           }
           await downloadFile('/documents/' + bulletins[0].id + '/fichier', bulletins[0].titre || 'bulletin.pdf');
+          toastBulletinTelecharge(bulletins[0].titre || 'Bulletin', { code: bulletins[0].code || bulletins[0].titre || 'Bulletin' });
           if (msg) msg.innerHTML = `<span class="ok">${esc(bulletins[0].titre)}</span>`;
         } catch (err) {
           if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -9783,6 +10192,9 @@ async function bindFamilleEnfant(id) {
       setTimeout(() => famApplyEnfantSectionDeepLink(enfantDeepSection), 450);
       if (enfantDeepSection === 'vs') {
         setTimeout(() => famApplyEnfantSectionDeepLink('vs'), 900);
+      }
+      if (enfantDeepSection === 'carnet') {
+        setTimeout(() => famApplyEnfantSectionDeepLink('carnet'), 900);
       }
       if (enfantDeepSection === 'orientation') {
         setTimeout(() => famApplyEnfantSectionDeepLink('orientation'), 900);
@@ -13441,6 +13853,7 @@ function viewEtab() {
     <div class="panel">
       <h2>Demandes d’accès documents</h2>
       <p class="muted">Grants en attente (tiroir restreint) — décision admin sans ouvrir chaque dossier.</p>
+      <div id="etabGrantsPageTip"></div>
       <div class="row">
         <button type="button" class="primary" id="btnGrantsPending">Actualiser</button>
       </div>
@@ -13866,6 +14279,8 @@ async function bindEtab() {
     if (!grantsOut) return;
     try {
       const list = await api('/documents/grants/pending');
+      const grantsTip = document.getElementById('etabGrantsPageTip');
+      if (grantsTip) grantsTip.innerHTML = grantsPageTipDenseHtml((list || []).length);
       if (!list.length) {
         grantsOut.innerHTML = '<p class="empty">Aucune demande en attente.</p>';
         return;
@@ -13878,9 +14293,11 @@ async function bindEtab() {
           <td class="muted">${esc(g.note || '—')}</td>
           <td>
             <button type="button" class="primary btnEgOk" data-id="${esc(g.id)}"
-              data-doc="${esc(g.document_titre || '')}" data-who="${esc(g.grantee_label || '')}">Accorder</button>
+              data-doc="${esc(g.document_titre || '')}" data-who="${esc(g.grantee_label || '')}"
+              data-dur="${g.duration_days != null ? esc(String(g.duration_days)) : ''}">Accorder</button>
             <button type="button" class="btnEgNo" data-id="${esc(g.id)}"
-              data-doc="${esc(g.document_titre || '')}" data-who="${esc(g.grantee_label || '')}">Refuser</button>
+              data-doc="${esc(g.document_titre || '')}" data-who="${esc(g.grantee_label || '')}"
+              data-dur="${g.duration_days != null ? esc(String(g.duration_days)) : ''}">Refuser</button>
           </td>
         </tr>`).join('')}</tbody></table>`;
       grantsOut.querySelectorAll('.btnEgOk').forEach(btn => {
@@ -13889,7 +14306,11 @@ async function bindEtab() {
             await api('/documents/grants/' + btn.dataset.id + '/decider', {
               method: 'POST', body: JSON.stringify({ accepter: true, note: 'accès accordé' }),
             });
-            toastGrantDecide(true, { document_titre: btn.dataset.doc, grantee_label: btn.dataset.who });
+            toastGrantDecide(true, {
+              document_titre: btn.dataset.doc,
+              grantee_label: btn.dataset.who,
+              duration_days: btn.dataset.dur ? Number(btn.dataset.dur) : null,
+            });
             await loadEtabGrants();
           } catch (e) { alert(e.message); }
         };
@@ -13900,7 +14321,11 @@ async function bindEtab() {
             await api('/documents/grants/' + btn.dataset.id + '/decider', {
               method: 'POST', body: JSON.stringify({ accepter: false, note: 'refusé' }),
             });
-            toastGrantDecide(false, { document_titre: btn.dataset.doc, grantee_label: btn.dataset.who });
+            toastGrantDecide(false, {
+              document_titre: btn.dataset.doc,
+              grantee_label: btn.dataset.who,
+              duration_days: btn.dataset.dur ? Number(btn.dataset.dur) : null,
+            });
             await loadEtabGrants();
           } catch (e) { alert(e.message); }
           };
@@ -14017,6 +14442,10 @@ async function bindInscriptions() {
         }),
       });
       insMsg.innerHTML = `<span class="ok">${esc(fromEtape)} → ${esc(s.etape)}</span>`;
+      const insSel = document.getElementById('insEleve');
+      const insLab = insSel && insSel.selectedOptions && insSel.selectedOptions[0]
+        ? insSel.selectedOptions[0].textContent.trim() : '';
+      toastInscriptionSuiviEnregistree(s, { eleveId: eid, eleveLabel: insLab, fromEtape });
       await loadBoard();
     } catch (e) {
       insMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -14026,6 +14455,9 @@ async function bindInscriptions() {
   document.getElementById('btnInsSave').onclick = async () => {
     const eid = document.getElementById('insEleve').value.trim();
     if (!eid) { insMsg.innerHTML = '<span class="bad">Élève requis</span>'; return; }
+    const insSel = document.getElementById('insEleve');
+    const insLab = insSel && insSel.selectedOptions && insSel.selectedOptions[0]
+      ? insSel.selectedOptions[0].textContent.trim() : '';
     try {
       const s = await api('/eleves/' + encodeURIComponent(eid) + '/inscription-suivi', {
         method: 'PUT',
@@ -14037,6 +14469,7 @@ async function bindInscriptions() {
         }),
       });
       insMsg.innerHTML = `<span class="ok">Étape ${esc(s.etape)}</span>`;
+      toastInscriptionSuiviEnregistree(s, { eleveId: eid, eleveLabel: insLab });
       await loadBoard();
     } catch (e) {
       insMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -14703,6 +15136,7 @@ async function bindBourses() {
 
 function viewCantine() {
   return shell('/app/cantine', `
+    <div id="cantPageTip"></div>
     <div class="panel">
       <h2>Activités repas</h2>
       <p class="muted">Référentiel midi / soir / étude… utilisé par les grilles élèves.</p>
@@ -14832,6 +15266,11 @@ async function bindCantine() {
   const histOut = document.getElementById('histPassOut');
   const histFin = document.getElementById('histFin');
   const histDebut = document.getElementById('histDebut');
+  const cantineTipMeta = { jour: today(), nPassages: 0, nDispenses: 0 };
+  function paintCantinePageTip() {
+    const el = document.getElementById('cantPageTip');
+    if (el) el.innerHTML = cantinePageTipDenseHtml(cantineTipMeta);
+  }
   await bindElevePickers('histEleve', 'histEleveQ', 'btnHistEleveSearch');
   if (histFin.value && !histDebut.value) {
     const d = new Date(histFin.value + 'T12:00:00');
@@ -14943,8 +15382,11 @@ async function bindCantine() {
     const jour = document.getElementById('scanJour').value || today();
     try {
       const list = await api('/repas/passages?jour=' + encodeURIComponent(jour));
+      cantineTipMeta.jour = jour;
+      cantineTipMeta.nPassages = (list || []).length;
       if (!list.length) {
         out.innerHTML = '<p class="empty">Aucun passage.</p>';
+        paintCantinePageTip();
         return;
       }
       out.innerHTML = `<table><thead><tr><th>Badge</th><th>Élève</th><th>Source</th></tr></thead>
@@ -14956,6 +15398,7 @@ async function bindCantine() {
           <td><span class="pill">${esc(p.source)}</span></td>
         </tr>`;
         }).join('')}</tbody></table>`;
+      paintCantinePageTip();
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
@@ -15168,6 +15611,12 @@ async function bindCantine() {
           (list || []).filter(d => !d.annulee && d.jour === jour).forEach(d => rows.push(d));
         } catch (_) { /* skip */ }
       }));
+      const scanJour = (document.getElementById('scanJour') || {}).value || today();
+      if (String(jour) === String(scanJour)) {
+        cantineTipMeta.nDispenses = rows.length;
+        cantineTipMeta.jour = jour;
+        paintCantinePageTip();
+      }
       if (!rows.length) {
         cantDispOut.innerHTML = `<p class="empty">Aucune dispense active le ${esc(jour)}${eid ? ' pour cet élève' : ''}.</p>`;
         return;
@@ -20228,7 +20677,7 @@ async function bindNotes() {
       const prefLabel = pref
         ? (pref.code ? `${pref.code} — ${pref.libelle || ''}` : (pref.libelle || ''))
         : '';
-      refreshNotesHomeTip(nDevSansNote, nDev, prefLabel);
+      refreshNotesHomeTip(nDevSansNote, nDev, prefLabel, pref);
       await refreshNotesHarrySeedTip(devoirsPref);
       box.innerHTML = `
         <div class="stat-tile bento-span-3"><strong>${nPer}</strong><span>Périodes · ${nPart} partielles</span></div>
@@ -21970,11 +22419,22 @@ async function bindReinscriptionFamille() {
           );
           const prenom = row && row.enfant ? row.enfant.prenom : '';
           const annee = row && row.projection_n1 ? row.projection_n1.annee_scolaire : '';
+          const nDocsManq = row ? (row.documents_manquants || []).length : 0;
+          const acompteRequis = !!(row && row.acompte_requis_centimes > 0);
+          const acompteOk = !!(row && row.acompte_ok);
+          const acompteLbl = row && acompteRequis
+            ? `${row.acompte_encaisse_centimes || 0} / ${row.acompte_requis_centimes} c`
+            : '';
           try {
             await api('/reinscription/famille/' + eleveId + '/confirmer', {
               method: 'POST', body: '{}',
             });
-            toastReinscConfirmeeFamille(prenom, annee);
+            toastReinscConfirmeeFamille(prenom, annee, {
+              nDocsManq,
+              acompteRequis,
+              acompteOk,
+              acompteLbl,
+            });
             await load();
           } catch (err) { alert(err.message); }
         };
