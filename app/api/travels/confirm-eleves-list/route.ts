@@ -22,6 +22,7 @@ import {
   buildTravelsParentsTripIcs,
   calendarHasDepotAndRecuperation,
   parentHorairesRequiredForTrip,
+  computeParentCalendarNotifyHash,
   sanitizeParentCalendar,
 } from "@/app/lib/travels-parent-calendar";
 import type {
@@ -41,7 +42,9 @@ import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
 import { travelsDbReady } from "@/app/lib/travel-db";
 import {
   mergeNotifiedParentEmails,
+  parentCalendarNotifiedEmailsForHash,
   remainingParentEmailsToNotify,
+  smtpErrorForLog,
   sendParentEmailsInBatches,
 } from "@/app/lib/travels-parent-email-batch";
 
@@ -377,10 +380,13 @@ export async function POST(req: Request) {
             </div>
           `;
 
-            const pendingEmails = remainingParentEmailsToNotify(
-              parentEmails,
+            const calendarNotifyHash = computeParentCalendarNotifyHash(data, parentCalendar);
+            const notifiedForCalendar = parentCalendarNotifiedEmailsForHash(
               data.parentCalendarNotifiedEmails,
+              data.parentCalendarNotifyContentHash,
+              calendarNotifyHash,
             );
+            const pendingEmails = remainingParentEmailsToNotify(parentEmails, notifiedForCalendar);
             const alreadyNotifiedCount = parentEmails.length - pendingEmails.length;
             const sendResult = await sendParentEmailsInBatches(
               pendingEmails,
@@ -409,9 +415,10 @@ export async function POST(req: Request) {
 
             if (sendResult.sentEmails.length > 0) {
               data.parentCalendarNotifiedEmails = mergeNotifiedParentEmails(
-                data.parentCalendarNotifiedEmails,
+                notifiedForCalendar,
                 sendResult.sentEmails,
               );
+              data.parentCalendarNotifyContentHash = calendarNotifyHash;
             }
 
             parentsNotified = sendResult.sentCount;
@@ -440,14 +447,12 @@ export async function POST(req: Request) {
                 sentCount: sendResult.sentCount,
                 pendingTotal: pendingEmails.length,
                 alreadyNotifiedCount,
-                error: sendResult.error,
+                error: smtpErrorForLog(sendResult.error),
               });
               parentsSkippedReason =
                 sendResult.sentCount > 0
                   ? `Calendrier parents : ${sendResult.sentCount}/${pendingEmails.length} e-mail(s) envoyé(s) avant échec (${errMsg}). ${alreadyNotifiedCount > 0 ? `${alreadyNotifiedCount} déjà notifié(s) auparavant — ` : ""}Les parents déjà servis ne seront pas renvoyés à une prochaine confirmation.`
-                  : errMsg
-                    ? `Calendrier parents non envoyé (${errMsg}) — liste tout de même confirmée.`
-                    : "Calendrier parents non envoyé — liste tout de même confirmée.";
+                  : `Calendrier parents non envoyé (${errMsg}) — liste tout de même confirmée.`;
               icsAttached = sendResult.sentCount > 0;
             } else if (pendingEmails.length === 0 && parentEmails.length > 0) {
               parentsSkippedReason =
@@ -457,11 +462,9 @@ export async function POST(req: Request) {
             }
           }
         } catch (mailErr) {
-          console.error("[confirm-eleves-list] parents calendar mail", mailErr);
-          parentsSkippedReason =
-            mailErr instanceof Error
-              ? `Calendrier parents non envoyé (${mailErr.message}) — liste tout de même confirmée.`
-              : "Calendrier parents non envoyé — liste tout de même confirmée.";
+          const logged = smtpErrorForLog(mailErr);
+          console.error("[confirm-eleves-list] parents calendar mail", logged);
+          parentsSkippedReason = `Calendrier parents non envoyé (${logged.message}) — liste tout de même confirmée.`;
           icsAttached = false;
           parentsNotified = 0;
         }

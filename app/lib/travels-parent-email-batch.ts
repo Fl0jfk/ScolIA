@@ -6,6 +6,16 @@ export type BatchedEmailSendResult = {
   error?: unknown;
 };
 
+/** Log SMTP sans adresses rejetées (objet brut nodemailer). */
+export function smtpErrorForLog(error: unknown): { message: string; code?: string } {
+  if (error instanceof Error) {
+    const rawCode = (error as unknown as { code?: unknown }).code;
+    const code = typeof rawCode === "string" ? rawCode : undefined;
+    return code ? { message: error.message, code } : { message: error.message };
+  }
+  return { message: String(error) };
+}
+
 /** Parents déjà notifiés (calendrier .ics) — évite les doublons après échec partiel. */
 export function remainingParentEmailsToNotify(
   allEmails: string[],
@@ -13,6 +23,16 @@ export function remainingParentEmailsToNotify(
 ): string[] {
   const sent = new Set((alreadyNotified || []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   return allEmails.filter((e) => !sent.has(e.trim().toLowerCase()));
+}
+
+/** Liste notifiée effective : réinitialisée si le calendrier a changé depuis le dernier envoi. */
+export function parentCalendarNotifiedEmailsForHash(
+  storedEmails: string[] | undefined,
+  storedHash: string | undefined,
+  currentHash: string,
+): string[] {
+  if (!storedHash || storedHash !== currentHash) return [];
+  return storedEmails || [];
 }
 
 export function mergeNotifiedParentEmails(

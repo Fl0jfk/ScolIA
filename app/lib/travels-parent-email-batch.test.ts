@@ -4,6 +4,7 @@ import {
   mergeNotifiedParentEmails,
   remainingParentEmailsToNotify,
   sendParentEmailsInBatches,
+  smtpErrorForLog,
 } from "@/app/lib/travels-parent-email-batch";
 
 describe("travels-parent-email-batch", () => {
@@ -18,6 +19,17 @@ describe("travels-parent-email-batch", () => {
     assert.equal(merged.length, 3);
     assert.ok(merged.includes("a@x.fr"));
     assert.ok(merged.some((e) => e.toLowerCase() === "b@x.fr"));
+  });
+
+  it("n’expose pas l’objet SMTP brut dans le log", () => {
+    const err = Object.assign(new Error("timeout"), {
+      code: "ETIMEDOUT",
+      rejected: ["secret@parent.fr"],
+    });
+    const logged = smtpErrorForLog(err);
+    assert.equal(logged.message, "timeout");
+    assert.equal(logged.code, "ETIMEDOUT");
+    assert.equal("rejected" in logged, false);
   });
 
   it("conserve le décompte après échec au milieu des lots", async () => {
