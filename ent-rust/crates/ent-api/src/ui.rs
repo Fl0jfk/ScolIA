@@ -166,6 +166,19 @@ function toastAlerteCpeCloturee(note) {
   showEntToast(`<strong>Alerte clôturée</strong> — ${n}. La file ouverte a été actualisée.`);
 }
 
+function toastAlerteCpeCreee(meta) {
+  const m = meta || {};
+  const titre = esc(String(m.titre || 'Alerte').trim() || 'Alerte');
+  const sev = String(m.severite || '').trim();
+  const sevLbl = sev ? ` · ${esc(sev)}` : '';
+  const who = m.eleveLabel ? ` · ${esc(String(m.eleveLabel).trim())}` : '';
+  showEntToast(
+    `<strong>Alerte CPE créée</strong> — ${titre}${who}${sevLbl}. `
+    + `<a href="/app/alertes">File ouverte</a>`,
+    9000,
+  );
+}
+
 function toastGrantDecide(accepter, meta) {
   const doc = esc((meta && meta.document_titre) || 'Document');
   const who = esc((meta && meta.grantee_label) || 'demandeur');
@@ -357,6 +370,20 @@ function toastNoteSaisie(n, eleveLabel) {
   );
 }
 
+function toastAppreciationPubliee(a, eleveLabel) {
+  const matRaw = a && (a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'));
+  const mat = matRaw ? esc(String(matRaw).trim()) : 'Générale';
+  const txt = a && a.texte ? String(a.texte).trim() : '';
+  const excerpt = txt
+    ? esc(txt.slice(0, 72)) + (txt.length > 72 ? '…' : '')
+    : '';
+  const who = eleveLabel ? ` · ${esc(eleveLabel)}` : '';
+  showEntToast(
+    `<strong>Appréciation publiée</strong> — ${mat}${who}${excerpt ? ` · « ${excerpt} »` : ''}`,
+    7500,
+  );
+}
+
 function toastBulletinTelecharge(titre) {
   showEntToast(
     `<strong>Bulletin téléchargé</strong> — ${esc(String(titre || 'PDF').trim())}`,
@@ -480,6 +507,17 @@ function entMessageLooksEdtConflit(msg) {
 function toastEdtConflit(detail) {
   const d = detail ? esc(detail) : 'Prof, salle ou classe déjà occupé(e) sur ce créneau.';
   showEntToast(`<strong>Conflit EDT</strong> — ${d}`, 10000);
+}
+
+function toastEdtImportOk(r) {
+  if (!r) return;
+  const fmt = esc(String(r.format || 'csv'));
+  const dry = r.dry_run ? ' · simulation (dry-run)' : '';
+  const link = r.dry_run ? '' : ' · <a href="/app/edt">Voir l’EDT</a>';
+  showEntToast(
+    `<strong>Import EDT</strong> — ${fmt} · ${r.lines} ligne(s) · ${r.ok_count} OK · ${r.conflicts} conflit(s)${dry}${link}`,
+    r.dry_run ? 8000 : 10000,
+  );
 }
 
 function toastSalleCreee(s) {
@@ -1335,6 +1373,11 @@ function facFamImpayee(f) {
   if (Number.isFinite(reste)) return reste > 0;
   return f.statut !== 'soldee';
 }
+function facFamStatutEmise(f) {
+  if (!f) return false;
+  const s = String(f.statut || '').toLowerCase();
+  return s === 'emise' || s === 'partielle';
+}
 function facFamResteCentimes(f) {
   if (!f) return 0;
   const reste = Number(f.reste_centimes);
@@ -1446,6 +1489,10 @@ function toastFilOuvert(sujet, opts) {
   const s = esc(String(sujet || 'Fil').trim());
   const arch = o.archive ? ' · archivé' : '';
   showEntToast(`<strong>Fil ouvert</strong> — ${s}${arch}. Lecture enregistrée.`, 6500);
+}
+function toastFilCree(sujet) {
+  const s = esc(String(sujet || 'Fil').trim());
+  showEntToast(`<strong>Fil créé</strong> — ${s}. Vous pouvez poursuivre la conversation ci-dessous.`, 7000);
 }
 function toastFilReponseEnvoyee() {
   showEntToast('<strong>Message envoyé</strong> — Votre réponse a été ajoutée au fil.', 5500);
@@ -1580,6 +1627,7 @@ function famEnfantDenseCardHtml(e, stats) {
       <a href="/famille/enfants/${eid}?section=docs">Docs</a>
       <a href="/famille/enfants/${eid}?section=pai">PAI</a>
       <a href="/famille/enfants/${eid}?section=sorties">Sorties</a>
+      <a href="/famille/enfants/${eid}?section=orientation">Orientation</a>
     </p>
   </article>`;
 }
@@ -1827,6 +1875,19 @@ function maybeToastFamDailySummary(lines, nPending) {
   showEntToast(`${body} <a href="/famille">Accueil</a>`, n ? 11000 : 6500);
   try { sessionStorage.setItem('ent_fam_daily_summary_session', '1'); } catch {}
 }
+
+const NOTES_CLASSE_SS_KEY = 'ent_notes_last_classe';
+function readNotesLastClasse() {
+  try { return sessionStorage.getItem(NOTES_CLASSE_SS_KEY) || ''; } catch { return ''; }
+}
+function writeNotesLastClasse(classe) {
+  try {
+    const cl = (classe || '').trim();
+    if (cl) sessionStorage.setItem(NOTES_CLASSE_SS_KEY, cl);
+    else sessionStorage.removeItem(NOTES_CLASSE_SS_KEY);
+  } catch {}
+}
+
 async function countFamDocsPendingNav() {
   try {
     const enfants = await fetchFamEnfants(false);
@@ -4860,11 +4921,14 @@ async function bindHome() {
       <a class="stat-tile bento-span-3" href="/app/alertes?sev=urgent"><strong class="${nAlertUrgent ? 'warn' : ''}">${nAlertUrgent}</strong><span>Alertes urgentes</span></a>
       <a class="stat-tile bento-span-3" href="/app/alertes"><strong class="${nAlert ? 'warn' : ''}">${nAlert}</strong><span>Alertes CPE ouvertes</span></a>
       ${lsunPer
-        ? `<button type="button" class="stat-tile bento-span-3" id="homeDirLsun4b"><strong>LSUN 4B</strong><span>Export · période ${lsunPerCode}</span></button>`
+        ? `<a href="#" class="stat-tile bento-span-3" id="homeDirLsun4b" title="Exporter LSUN — classe 4B"><strong>LSUN 4B</strong><span>Export · période ${lsunPerCode}</span></a>`
         : `<div class="stat-tile bento-span-3" id="homeDirLsun4bNone" title="Créez ou ouvrez T1 dans Notes → périodes"><strong>LSUN 4B</strong><span class="bad">Période notes manquante — ouvrir T1 dans Notes</span></div>`}`;
     const homeDirLsun4b = document.getElementById('homeDirLsun4b');
     if (homeDirLsun4b && lsunPer) {
-      homeDirLsun4b.onclick = () => downloadLsun('4B', lsunPer.id, { msgEl: null });
+      homeDirLsun4b.onclick = (ev) => {
+        ev.preventDefault();
+        downloadLsun('4B', lsunPer.id, { msgEl: null });
+      };
     }
   }
   if (todo) {
@@ -5653,7 +5717,7 @@ async function bindFamilleEnfant(id) {
       </div>
       <div id="famDocMsg" class="muted"></div>
       <div id="docsTiroirFam" class="muted" style="margin-top:.5rem">Chargement…</div>`;
-    html += `<h3>Orientation (info-comp)</h3><div id="infoCompFamOut" class="muted">Chargement…</div>`;
+    html += `<h3 id="fam-sec-orientation" style="scroll-margin-top:4.5rem">Orientation (info-comp)</h3><div id="infoCompFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Sanctions</h3><div id="sanFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Incidents</h3><div id="incFamOut" class="muted">Chargement…</div>`;
     html += `<h3>Commissions VS</h3><div id="comFamOut" class="muted">Chargement…</div>`;
@@ -6991,7 +7055,7 @@ async function bindEleves() {
       const missHint = sansPhoto && highlightMissing
         ? ` · <span class="warn">${sansPhoto} sans photo</span>`
         : (sansPhoto ? ` · ${sansPhoto} sans photo` : '');
-      trombiOut.innerHTML = `<p class="muted" style="margin:0 0 .5rem">${list.length} élève(s) · ${avecPhoto} photo(s)${missHint}</p>
+      trombiOut.innerHTML = `<p class="muted" style="margin:0 0 .5rem" data-trombi-summary>${list.length} élève(s) · ${avecPhoto} photo(s) en base · chargement…${missHint}</p>
         <div id="trombiGrid" style="display:flex;flex-wrap:wrap;gap:.75rem">${ordered.map(t => {
         const missing = !t.photo_key;
         const boxStyle = missing
@@ -7005,6 +7069,7 @@ async function bindEleves() {
       }).join('')}</div>`;
       const headers = {};
       if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
+      let photosLoaded = 0;
       for (const box of trombiOut.querySelectorAll('[data-photo]')) {
         const eid = box.getAttribute('data-photo');
         if (!eid) continue;
@@ -7014,7 +7079,15 @@ async function bindEleves() {
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
           box.innerHTML = `<img src="${url}" alt="" style="width:72px;height:72px;object-fit:cover"/>`;
+          photosLoaded += 1;
         } catch {}
+      }
+      const summaryEl = trombiOut.querySelector('[data-trombi-summary]');
+      if (summaryEl) {
+        const loadHint = avecPhoto
+          ? ` · ${photosLoaded}/${avecPhoto} photo(s) chargée(s)`
+          : '';
+        summaryEl.innerHTML = `${list.length} élève(s) · ${avecPhoto} photo(s) en base${loadHint}${missHint}`;
       }
     } catch (e) {
       trombiOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
@@ -8804,27 +8877,43 @@ async function bindCahier(base) {
               <td class="muted">${esc((e.cree_le || e.created_at || '').toString().slice(0, 16).replace('T', ' ') || '—')}</td>
             </tr>`;
         }
+        function cahierEleveDayBadge(d) {
+          if (d === todayIso) return ' <span class="pill warn pill-dense">aujourd’hui</span>';
+          if (d && d < todayIso) return ' <span class="pill bad pill-dense">en retard</span>';
+          return '';
+        }
         function cahierEleveCardHtml(e) {
           const pl = e.pour_le || '';
-          const badges = pl === todayIso
-            ? ' <span class="pill warn">aujourd’hui</span>'
-            : (pl && pl < todayIso ? ' <span class="pill bad">date dépassée</span>' : '');
-          return `<article style="border:1px solid var(--line);border-radius:12px;padding:.75rem .85rem;margin-bottom:.55rem">
-            <div class="row" style="justify-content:space-between;align-items:flex-start;gap:.5rem;flex-wrap:wrap;margin:0">
+          const overdue = !!(pl && pl < todayIso);
+          const badges = cahierEleveDayBadge(pl);
+          return `<article class="cahier-eleve-card${overdue ? ' cahier-eleve-card-overdue' : ''}">
+            <div class="row cahier-eleve-card-head">
               <span class="pill">${esc(e.matiere_libelle || 'Matière')}</span>
-              <span class="muted" style="font-size:.88rem">Pour le <strong>${esc(pl || '—')}</strong>${badges}</span>
+              <span class="muted cahier-eleve-card-date">Pour le <strong>${esc(pl || '—')}</strong>${badges}</span>
             </div>
-            <h3 style="margin:.4rem 0 .25rem;font-size:1rem">${esc(e.titre)}</h3>
-            <p style="margin:0;white-space:pre-wrap;line-height:1.45">${esc(e.consigne)}</p>
-            <p class="muted" style="margin:.45rem 0 0;font-size:.82rem">Publié ${esc((e.cree_le || e.created_at || '').toString().slice(0, 10) || '—')}${e.classe ? ` · ${esc(e.classe)}` : ''}</p>
+            <h3 class="cahier-eleve-card-title">${esc(e.titre)}</h3>
+            <p class="cahier-eleve-card-body">${esc(e.consigne)}</p>
+            <p class="muted cahier-eleve-card-meta">Publié ${esc((e.cree_le || e.created_at || '').toString().slice(0, 10) || '—')}${e.classe ? ` · ${esc(e.classe)}` : ''}</p>
           </article>`;
         }
-        cahierHtml = days.map(d => {
+        if (eleveFace && enRetard) {
+          const overdueItems = list
+            .filter(e => e.pour_le && e.pour_le < todayIso)
+            .sort((a, b) => String(b.pour_le).localeCompare(String(a.pour_le)));
+          cahierHtml += `<div class="cahier-overdue-dense">
+            <p class="cahier-overdue-dense-title"><span class="pill bad pill-dense">en retard</span> <strong>${overdueItems.length}</strong> devoir(s) à rattraper</p>
+            <ul class="eleve-hub-list eleve-hub-list-dense">${overdueItems.slice(0, 6).map(e =>
+              `<li><strong>${esc(e.titre)}</strong> <span class="muted">${esc(e.matiere_libelle || '')} · ${esc(e.pour_le)}</span></li>`
+            ).join('')}${overdueItems.length > 6 ? `<li class="muted">+ ${overdueItems.length - 6} autre(s) ci-dessous</li>` : ''}</ul>
+          </div>`;
+        }
+        cahierHtml += days.map(d => {
           const items = byDay[d];
-          const soon = d === todayIso ? ' <span class="pill warn">aujourd’hui</span>' : (d < todayIso ? ' <span class="muted">passé</span>' : '');
+          const soon = cahierEleveDayBadge(d);
+          const sectionCls = eleveFace && d < todayIso ? 'cahier-eleve-section cahier-eleve-section-overdue' : 'cahier-eleve-section';
           if (eleveFace) {
-            return `<section style="margin-bottom:1.15rem">
-            <h3 style="margin:0 0 .5rem;font-size:1rem">${esc(d)}${soon} · ${items.length} devoir(s)</h3>
+            return `<section class="${sectionCls}">
+            <h3 class="cahier-eleve-section-title">${esc(d)}${soon} · ${items.length} devoir(s)</h3>
             ${items.map(cahierEleveCardHtml).join('')}
           </section>`;
           }
@@ -9607,9 +9696,11 @@ async function bindEdt() {
         }),
       });
       box.innerHTML = `<span class="ok">${esc(r.format)} · lignes ${r.lines} · ok ${r.ok_count} · conflits ${r.conflicts}${r.dry_run ? ' (dry-run)' : ''}</span>`;
+      toastEdtImportOk(r);
       if (!r.dry_run) await loadJour();
     } catch (e) {
       box.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      if (entMessageLooksEdtConflit(e.message)) toastEdtConflit(e.message);
     }
   };
   document.getElementById('btnEdtSolve').onclick = async () => {
@@ -16268,8 +16359,15 @@ async function bindAlertesCpe() {
       msg.innerHTML = `<span class="ok">Alerte créée — ${esc(a.titre)}</span>`;
       document.getElementById('alTitre').value = '';
       document.getElementById('alDetail').value = '';
+      await hydrateEleveNames([id]);
+      toastAlerteCpeCreee({
+        titre: a.titre,
+        severite: a.severite,
+        eleveLabel: ELEVE_NAME_CACHE[id] || '',
+      });
       await load();
       await loadHistoEleve();
+      await refreshHomePulseIfNeeded();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
@@ -17653,7 +17751,13 @@ async function bindNotes() {
   document.getElementById('btnDevList').onclick = loadDevoirs;
   const devClasseEl = document.getElementById('devClasse');
   const devPeriodeEl = document.getElementById('devPeriode');
-  if (devClasseEl) devClasseEl.onchange = loadDevoirs;
+  if (devClasseEl) {
+    devClasseEl.onchange = () => {
+      writeNotesLastClasse(devClasseEl.value.trim());
+      syncNotesClasseChips(devClasseEl.value.trim());
+      loadDevoirs();
+    };
+  }
   if (devPeriodeEl) devPeriodeEl.onchange = loadDevoirs;
   document.querySelectorAll('.notes-devoir-date-chip').forEach(chip => {
     chip.onclick = async () => {
@@ -17688,6 +17792,7 @@ async function bindNotes() {
         if (el) el.value = cl;
       });
     }
+    writeNotesLastClasse(cl);
     syncNotesClasseChips(cl);
   }
   document.querySelectorAll('.notes-classe-chip').forEach(chip => {
@@ -17706,8 +17811,18 @@ async function bindNotes() {
       }
     };
   });
-  if (devClasseEl) {
-    devClasseEl.addEventListener('change', () => syncNotesClasseChips());
+  let notesClasseRestored = false;
+  const savedNotesClasse = readNotesLastClasse();
+  if (savedNotesClasse) {
+    const chipKnown = [...document.querySelectorAll('.notes-classe-chip')].some(
+      chip => (chip.dataset.classe || '') === savedNotesClasse,
+    );
+    if (chipKnown) {
+      applyNotesClasseFilter(savedNotesClasse);
+      notesClasseRestored = true;
+    }
+  }
+  if (devClasseEl && !notesClasseRestored) {
     syncNotesClasseChips(devClasseEl.value.trim() || '4B');
   }
   document.getElementById('btnDevCreer').onclick = async () => {
@@ -17768,6 +17883,9 @@ async function bindNotes() {
           texte: document.getElementById('appTexte').value,
         }),
       });
+      const selAppEl = document.getElementById('appEleve');
+      const appOpt = selAppEl && selAppEl.selectedOptions && selAppEl.selectedOptions[0];
+      toastAppreciationPubliee(a, appOpt ? appOpt.textContent.trim() : '');
       out.innerHTML = `<span class="ok">OK</span> ${esc(a.matiere_libelle || (a.matiere_id ? 'Matière' : 'Générale'))} — ${esc(a.texte.slice(0, 80))}`;
     } catch (e) {
       out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -21514,6 +21632,11 @@ function viewFacturesFamille() {
     <div class="panel" id="famMesFactures">
       <h2>Mes factures</h2>
       <p class="muted">Factures émises pour votre foyer (brouillons compta invisibles). Reçus de paiement : <a href="/famille/quittances">mes quittances</a>.</p>
+      <div class="row fac-fam-filter-chips" style="margin:.35rem 0 .5rem;flex-wrap:wrap;gap:.35rem;align-items:center">
+        <span class="muted" style="font-size:.85rem">Afficher</span>
+        <button type="button" class="pill fac-fam-chip primary" id="facFamChipAll">Toutes</button>
+        <button type="button" class="pill fac-fam-chip" id="facFamChipEmises">Émises seulement</button>
+      </div>
       <div id="facFamOut" class="muted">Chargement…</div>
     </div>
     <div class="panel" id="facFamDetail" style="display:none">
@@ -21587,6 +21710,119 @@ async function bindFacturesFamille() {
   const out = document.getElementById('facFamOut');
   const detail = document.getElementById('facFamDetail');
   let facQuoCache = null;
+  let facFamSortedList = [];
+  let facFamMandatActif = null;
+  let facFamEmisesOnly = false;
+  function syncFacFamChipUi() {
+    const chipAll = document.getElementById('facFamChipAll');
+    const chipEm = document.getElementById('facFamChipEmises');
+    if (chipAll) chipAll.classList.toggle('primary', !facFamEmisesOnly);
+    if (chipEm) chipEm.classList.toggle('primary', !!facFamEmisesOnly);
+  }
+  function paintFacFamList() {
+    syncFacFamChipUi();
+    const listAll = facFamSortedList;
+    const list = facFamEmisesOnly ? listAll.filter(facFamStatutEmise) : listAll;
+    const stats = document.getElementById('facFamStats');
+    const progress = document.getElementById('facFamProgress');
+    const total = (listAll || []).reduce((s, f) => s + (f.total_centimes || 0), 0);
+    const impayeesAll = (listAll || []).filter(facFamImpayee);
+    const resteTotal = (listAll || []).reduce((s, f) => s + facFamResteCentimes(f), 0);
+    const encaisseTotal = (listAll || []).reduce((s, f) => s + facFamEncaisseCentimes(f), 0);
+    const nSoldees = (listAll || []).filter(f => f.statut === 'soldee').length;
+    if (stats) {
+      const quoTile = facQuoCache
+        ? `<div class="stat-tile bento-span-12"><strong>${esc(euros(facQuoCache.quotient_centimes))}</strong><span>Quotient · ${esc(famQuotientPartsLabel(facQuoCache))} part(s)</span></div>`
+        : '';
+      stats.innerHTML = `
+        <div class="stat-tile bento-span-3"><strong>${listAll.length}</strong><span>Factures</span></div>
+        <div class="stat-tile bento-span-3"><strong class="${impayeesAll.length ? 'warn' : ''}">${impayeesAll.length}</strong><span>À régler</span></div>
+        <div class="stat-tile bento-span-3"><strong class="${resteTotal ? 'warn' : ''}">${esc(euros(resteTotal))}</strong><span>Reste à payer</span></div>
+        <a class="stat-tile bento-span-3" href="/famille/quittances"><strong>${nSoldees}</strong><span>Quittances · ${esc(euros(total))} facturé</span></a>
+        ${quoTile}`;
+    }
+    if (progress) {
+      progress.innerHTML = (listAll.length && facFamMandatActif)
+        ? facFamProgressPanelHtml(encaisseTotal, total, resteTotal, {
+            sepaActif: true,
+            sepaRum: facFamMandatActif.rum,
+          })
+        : '';
+    }
+    if (!listAll.length) {
+      out.innerHTML = `<p class="empty">Aucune facture émise pour le moment.</p>`;
+      return;
+    }
+    if (!list.length) {
+      out.innerHTML = `<p class="empty">Aucune facture émise ou partielle avec ce filtre.</p>`;
+      return;
+    }
+    const impayees = list.filter(facFamImpayee);
+    const quoFoot = facQuoCache
+      ? `<p class="muted" style="margin:.65rem 0 0">Tarification foyer : ${famQuotientSummaryHtml(facQuoCache, (document.getElementById('facQuoAnnee') || {}).value)}</p>`
+      : '';
+    const maxResteCent = impayees.length
+      ? impayees.reduce((m, f) => Math.max(m, facFamResteCentimes(f)), 0)
+      : 0;
+    out.innerHTML = `<table><thead><tr><th>N°</th><th>Libellé</th><th>Statut</th><th>Total</th><th>Reste</th><th></th></tr></thead>
+      <tbody>${list.map(f => {
+        const reste = facFamResteCentimes(f);
+        const imp = facFamImpayee(f);
+        const isMaxReste = imp && reste > 0 && reste === maxResteCent;
+        const resteCell = imp
+          ? `<span class="pill-unread">reste ${esc(euros(reste))}</span>`
+          : `<span class="ok">${reste ? esc(euros(reste)) : '—'}</span>`;
+        const trCls = isMaxReste ? ' class="fac-fam-row-max-reste"' : '';
+        return `<tr${trCls} data-fac-id="${esc(f.id)}" style="${imp ? 'font-weight:600' : ''}">
+        <td>${esc(f.numero)}</td>
+        <td>${esc(f.libelle)}</td>
+        <td>${imp ? '<span class="pill-unread">impayée</span>' : `<span class="pill">${esc(f.statut)}</span>`}</td>
+        <td>${esc(euros(f.total_centimes))}</td>
+        <td>${resteCell}</td>
+        <td><button type="button" class="btnOpenFacFam" data-id="${esc(f.id)}">Voir</button></td>
+      </tr>`;
+      }).join('')}</tbody></table>${quoFoot}`;
+    out.querySelectorAll('.btnOpenFacFam').forEach(btn => {
+      btn.onclick = () => openFac(btn.dataset.id);
+    });
+    const simSel = document.getElementById('facSimulSelect');
+    if (simSel) {
+      simSel.innerHTML = '<option value="">— choisir —</option>' + impayeesAll.map(f =>
+        `<option value="${esc(f.id)}" data-reste="${facFamResteCentimes(f)}">${esc(f.numero || f.libelle || 'Facture')} · reste ${esc(euros(facFamResteCentimes(f)))}</option>`
+      ).join('');
+    }
+    const btnSim = document.getElementById('btnFacSimulPayer');
+    if (btnSim) {
+      btnSim.onclick = () => {
+        const opt = simSel && simSel.selectedOptions && simSel.selectedOptions[0];
+        if (!opt || !opt.value) {
+          showEntToast('<span class="bad">Choisissez une facture impayée</span>', 6000);
+          return;
+        }
+        const reste = Number(opt.dataset.reste) || 0;
+        showEntToast(
+          `<strong>Paiement simulé</strong> — ${esc(euros(reste))} par carte (labo). Aucun débit : la compta confirmera l’encaissement réel · <a href="/famille/quittances">quittances</a>`,
+          11000
+        );
+      };
+    }
+  }
+  function wireFacFamChips() {
+    const chipAll = document.getElementById('facFamChipAll');
+    const chipEm = document.getElementById('facFamChipEmises');
+    if (chipAll) {
+      chipAll.onclick = () => {
+        facFamEmisesOnly = false;
+        paintFacFamList();
+      };
+    }
+    if (chipEm) {
+      chipEm.onclick = () => {
+        facFamEmisesOnly = true;
+        paintFacFamList();
+      };
+    }
+  }
   async function resolveFoyerId() {
     const enfants = await api('/famille/enfants').catch(() => []);
     for (const e of (enfants || [])) {
@@ -21764,95 +22000,19 @@ async function bindFacturesFamille() {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   }
+  wireFacFamChips();
   try {
     const [rawList, , mandatsList] = await Promise.all([
       api('/facturation/famille'),
       loadFacQuotient(),
       api('/facturation/sepa/mandats').catch(() => []),
     ]);
-    const mandatActif = (mandatsList || []).find(m => m.statut === 'actif');
-    const list = (rawList || []).slice().sort((a, b) =>
+    facFamMandatActif = (mandatsList || []).find(m => m.statut === 'actif') || null;
+    facFamSortedList = (rawList || []).slice().sort((a, b) =>
       facFamResteCentimes(b) - facFamResteCentimes(a)
       || String(b.emise_at || '').localeCompare(String(a.emise_at || ''))
     );
-    const stats = document.getElementById('facFamStats');
-    const progress = document.getElementById('facFamProgress');
-    const total = (list || []).reduce((s, f) => s + (f.total_centimes || 0), 0);
-    const impayees = (list || []).filter(facFamImpayee);
-    const resteTotal = (list || []).reduce((s, f) => s + facFamResteCentimes(f), 0);
-    const encaisseTotal = (list || []).reduce((s, f) => s + facFamEncaisseCentimes(f), 0);
-    const nSoldees = (list || []).filter(f => f.statut === 'soldee').length;
-    if (stats) {
-      const quoTile = facQuoCache
-        ? `<div class="stat-tile bento-span-12"><strong>${esc(euros(facQuoCache.quotient_centimes))}</strong><span>Quotient · ${esc(famQuotientPartsLabel(facQuoCache))} part(s)</span></div>`
-        : '';
-      stats.innerHTML = `
-        <div class="stat-tile bento-span-3"><strong>${list.length}</strong><span>Factures</span></div>
-        <div class="stat-tile bento-span-3"><strong class="${impayees.length ? 'warn' : ''}">${impayees.length}</strong><span>À régler</span></div>
-        <div class="stat-tile bento-span-3"><strong class="${resteTotal ? 'warn' : ''}">${esc(euros(resteTotal))}</strong><span>Reste à payer</span></div>
-        <a class="stat-tile bento-span-3" href="/famille/quittances"><strong>${nSoldees}</strong><span>Quittances · ${esc(euros(total))} facturé</span></a>
-        ${quoTile}`;
-    }
-    if (progress) {
-      progress.innerHTML = (list.length && mandatActif)
-        ? facFamProgressPanelHtml(encaisseTotal, total, resteTotal, {
-            sepaActif: true,
-            sepaRum: mandatActif.rum,
-          })
-        : '';
-    }
-    if (!list.length) {
-      out.innerHTML = `<p class="empty">Aucune facture émise pour le moment.</p>`;
-      return;
-    }
-    const quoFoot = facQuoCache
-      ? `<p class="muted" style="margin:.65rem 0 0">Tarification foyer : ${famQuotientSummaryHtml(facQuoCache, (document.getElementById('facQuoAnnee') || {}).value)}</p>`
-      : '';
-    const maxResteCent = impayees.length
-      ? impayees.reduce((m, f) => Math.max(m, facFamResteCentimes(f)), 0)
-      : 0;
-    out.innerHTML = `<table><thead><tr><th>N°</th><th>Libellé</th><th>Statut</th><th>Total</th><th>Reste</th><th></th></tr></thead>
-      <tbody>${list.map(f => {
-        const reste = facFamResteCentimes(f);
-        const imp = facFamImpayee(f);
-        const isMaxReste = imp && reste > 0 && reste === maxResteCent;
-        const resteCell = imp
-          ? `<span class="pill-unread">reste ${esc(euros(reste))}</span>`
-          : `<span class="ok">${reste ? esc(euros(reste)) : '—'}</span>`;
-        const trCls = isMaxReste ? ' class="fac-fam-row-max-reste"' : '';
-        return `<tr${trCls} data-fac-id="${esc(f.id)}" style="${imp ? 'font-weight:600' : ''}">
-        <td>${esc(f.numero)}</td>
-        <td>${esc(f.libelle)}</td>
-        <td>${imp ? '<span class="pill-unread">impayée</span>' : `<span class="pill">${esc(f.statut)}</span>`}</td>
-        <td>${esc(euros(f.total_centimes))}</td>
-        <td>${resteCell}</td>
-        <td><button type="button" class="btnOpenFacFam" data-id="${esc(f.id)}">Voir</button></td>
-      </tr>`;
-      }).join('')}</tbody></table>${quoFoot}`;
-    out.querySelectorAll('.btnOpenFacFam').forEach(btn => {
-      btn.onclick = () => openFac(btn.dataset.id);
-    });
-    const simSel = document.getElementById('facSimulSelect');
-    if (simSel) {
-      simSel.innerHTML = '<option value="">— choisir —</option>' + impayees.map(f =>
-        `<option value="${esc(f.id)}" data-reste="${facFamResteCentimes(f)}">${esc(f.numero || f.libelle || 'Facture')} · reste ${esc(euros(facFamResteCentimes(f)))}</option>`
-      ).join('');
-    }
-    const btnSim = document.getElementById('btnFacSimulPayer');
-    if (btnSim) {
-      btnSim.onclick = () => {
-        const opt = simSel && simSel.selectedOptions && simSel.selectedOptions[0];
-        if (!opt || !opt.value) {
-          showEntToast('<span class="bad">Choisissez une facture impayée</span>', 6000);
-          return;
-        }
-        const reste = Number(opt.dataset.reste) || 0;
-        showEntToast(
-          `<strong>Paiement simulé</strong> — ${esc(euros(reste))} par carte (labo). Aucun débit : la compta confirmera l’encaissement réel · <a href="/famille/quittances">quittances</a>`,
-          11000
-        );
-      };
-    }
+    paintFacFamList();
   } catch (e) {
     out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
@@ -22021,20 +22181,20 @@ async function bindMessages(base) {
             };
           }
         } else if (portalFam) {
-          filsOut.innerHTML = `<p class="empty">Aucun échange pour le moment.</p>
-            <p class="muted" style="margin-top:.5rem">Utilisez le formulaire ci-dessus ou le bouton ci-dessous pour contacter l’établissement (vie scolaire, santé, scolarité…).</p>
-            <button type="button" class="primary" id="btnFamMsgEmptyCta" style="margin-top:.5rem">Ouvrir un fil avec l’école</button>`;
+          filsOut.innerHTML = famEmptyDense('Aucun échange pour le moment', [
+            'Les fils regroupent vos échanges avec l’établissement, par enfant (vie scolaire, santé, scolarité…).',
+            'Pour une question au CPE ou à l’équipe éducative : ouvrez un fil depuis le formulaire ci-dessus.',
+          ], '<button type="button" class="primary" id="btnFamMsgEmptyCta">Contacter le CPE</button>');
           const cta = document.getElementById('btnFamMsgEmptyCta');
           if (cta) {
             cta.onclick = () => {
               const btn = document.getElementById('btnOuvrirFil');
               if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
               const sujet = document.getElementById('newFilSujet');
-              if (sujet && !sujet.value.trim()) sujet.value = 'Question famille';
+              if (sujet) sujet.value = 'Question au CPE';
               const msg = document.getElementById('newFilMsg');
-              if (msg && msg.value === 'Bonjour,') {
-                msg.value = 'Bonjour, nous souhaitons échanger avec l’établissement.';
-              }
+              if (msg) msg.value = 'Bonjour, nous souhaitons contacter le CPE.';
+              if (btn) btn.focus({ preventScroll: true });
             };
           }
         } else {
@@ -22165,11 +22325,12 @@ async function bindMessages(base) {
         const el = document.getElementById('newFilEleve');
         const eleveId = (el.value || '').trim();
         if (!eleveId) { alert('Choisir un élève'); return; }
+        const sujetFil = document.getElementById('newFilSujet').value.trim() || 'Information';
         const d = await api('/messages/fils', {
           method: 'POST',
           body: JSON.stringify({
             eleve_id: eleveId,
-            sujet: document.getElementById('newFilSujet').value.trim() || 'Information',
+            sujet: sujetFil,
             message: document.getElementById('newFilMsg').value.trim() || 'Bonjour',
           }),
         });
@@ -22179,8 +22340,9 @@ async function bindMessages(base) {
           await attachPiece(firstMsgId, fileInp.files[0]);
           fileInp.value = '';
         }
-        await loadFils();
-        await openFil(d.fil.id);
+        toastFilCree(d.fil && d.fil.sujet ? d.fil.sujet : sujetFil);
+        await loadFils(true);
+        await openFil(d.fil.id, { quiet: true });
       } catch (e) { alert(e.message); }
     };
   }
