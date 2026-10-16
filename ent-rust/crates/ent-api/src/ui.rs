@@ -359,18 +359,27 @@ async function snapshotPermisBasEleves(eleveIds) {
 }
 
 function toastCommissionCreee(payload) {
+  const p = payload || {};
   const href = absencesComDeepLink({
-    comId: payload && payload.comId,
-    dosId: payload && payload.dosId,
-    eleveId: payload && payload.eleveId,
+    comId: p.comId,
+    dosId: p.dosId,
+    eleveId: p.eleveId,
   });
-  const who = payload && payload.eleveLabel
-    ? esc(payload.eleveLabel)
-    : (payload && payload.dosId ? 'Dossier convoqué' : 'Commission planifiée');
-  const link = payload && payload.dosId
-    ? `<a href="${esc(href)}">Ouvrir le dossier</a>`
-    : `<a href="${esc(href || '/app/absences')}">Absences &amp; commissions</a>`;
-  showEntToast(`<strong>Commission créée</strong> — ${who}. ${link}`, 11000);
+  const who = p.eleveLabel
+    ? esc(p.eleveLabel)
+    : (p.dosId ? 'Dossier convoqué' : 'Commission planifiée');
+  const jour = p.jour ? ` · ${esc(String(p.jour))}` : '';
+  const heure = p.heure ? ` · ${esc(String(p.heure))}` : '';
+  const objet = p.objet && !p.eleveLabel ? ` · ${esc(String(p.objet).trim())}` : '';
+  const ref = p.comId ? ` · ${esc(String(p.comId).slice(0, 8))}` : '';
+  const links = [];
+  if (p.dosId) links.push(`<a href="${esc(href)}">Ouvrir le dossier</a>`);
+  links.push(`<a href="${esc(href || '/app/absences')}">Absences &amp; commissions</a>`);
+  links.push('<a href="/app/absences#absComPanel">Panneau commission</a>');
+  showEntToast(
+    `<strong>Commission créée</strong> — ${who}${jour}${heure}${objet}${ref}. ${links.join(' · ')}`,
+    11000,
+  );
 }
 
 function toastCommissionDecidee(d, meta) {
@@ -523,6 +532,23 @@ function eleveHomeConseilEncouragementHtml(conseils) {
   return eleveConseilEncouragementPanelHtml(enc, { withLinks: true });
 }
 
+function eleveHomeDevoirsAVenirHtml(devoirs, jour) {
+  const j = jour || today();
+  const upcoming = (devoirs || [])
+    .filter(d => d.date_devoir && String(d.date_devoir) >= j)
+    .sort((a, b) => String(a.date_devoir).localeCompare(String(b.date_devoir)));
+  if (!upcoming.length) {
+    return `<p class="muted" style="margin:.45rem 0 0;font-size:.8rem;line-height:1.35"><span class="empty-state-hint"><strong>Devoirs à venir</strong> — aucun DS planifié · le cahier indique le travail quotidien · <a href="/eleve/notes">Notes</a></span></p>`;
+  }
+  const rows = upcoming.slice(0, 5).map(d => {
+    const todayBadge = String(d.date_devoir) === j ? ' <span class="pill warn pill-dense">aujourd’hui</span>' : '';
+    return `<li><strong>${esc(d.titre || 'Devoir')}</strong> <span class="muted">${esc(d.matiere_libelle || '')} · ${esc(d.date_devoir)} · coef ${esc(String(d.coef ?? '1'))}${todayBadge}</span></li>`;
+  }).join('');
+  const foot = `<p class="muted eleve-hub-msg-foot">${upcoming.length} à venir · <a href="/eleve/notes">Notes &amp; devoirs</a></p>`;
+  return `<p class="muted" style="margin:.5rem 0 .15rem;font-size:.78rem;line-height:1.35"><span class="empty-state-hint"><strong>Devoirs à venir</strong> — contrôles planifiés (coef pris en compte dans les moyennes).</span></p>
+    <ul class="eleve-hub-list eleve-hub-list-dense">${rows}</ul>${foot}`;
+}
+
 function eleveNotesEncouragementsHtml(conseils) {
   const list = eleveConseilEncouragementsVisibles(conseils);
   if (!list.length) return '';
@@ -635,11 +661,26 @@ function toastNotePeriodePartielle(p) {
 function toastNotePeriodeCreee(p) {
   const label = esc(notePeriodeFermeeLabel(p));
   const statut = p && p.statut ? notePeriodeStatutBadge(p.statut) : notePeriodeStatutBadge('ouverte');
+  const dates = p && p.date_debut && p.date_fin
+    ? ` · ${esc(String(p.date_debut))} → ${esc(String(p.date_fin))}`
+    : '';
   showEntToast(
-    `<strong>Période créée</strong> — ${label} ${statut}. `
-    + 'Disponible pour devoirs, saisie et exports.',
-    8500,
+    `<strong>Période créée</strong> — ${label} ${statut}${dates}. `
+    + 'Devoirs, saisie grille et exports disponibles. '
+    + '<a href="#" id="entToastNotesDev">Créer un devoir</a>',
+    9000,
   );
+  const link = document.getElementById('entToastNotesDev');
+  if (link) {
+    link.onclick = (ev) => {
+      ev.preventDefault();
+      go('/app/notes');
+      setTimeout(() => {
+        const btn = document.getElementById('btnDevCreer');
+        if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 400);
+    };
+  }
 }
 
 function toastExportLsl(filename, opts) {
@@ -996,7 +1037,12 @@ function seedRouteFromQuery() {
   if (qp.get('etape')) { routeState.insEtape = qp.get('etape'); qp.delete('etape'); dirty = true; }
   if (qp.get('fac')) { routeState.openFacId = qp.get('fac'); qp.delete('fac'); dirty = true; }
   if (qp.get('section')) {
-    routeState.famSection = normalizeFamEnfantSection(qp.get('section'));
+    const secRaw = String(qp.get('section') || '').trim().toLowerCase();
+    if (secRaw === 'factures' || secRaw === 'facture') {
+      routeState.famScrollFactures = true;
+    } else {
+      routeState.famSection = normalizeFamEnfantSection(qp.get('section'));
+    }
     qp.delete('section');
     dirty = true;
   }
@@ -1425,6 +1471,48 @@ function flashAbsFileMsg(html) {
   const el = document.getElementById('absFileMsg');
   if (el) el.innerHTML = html || '';
 }
+
+/** Tip bento — justificatifs parent à trancher sur la file du jour J. */
+function absJustifsDuJourTipDenseHtml(n, jour) {
+  const k = Number(n) || 0;
+  if (k <= 0) return '';
+  const j = esc(jour || today());
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">${k}</strong><span>Justif(s) parent · jour ${j}</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="absJustifsDuJourGoDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>→</strong><span>Trancher · accepter / refuser</span>
+    </button>
+    <div class="stat-tile bento-span-4"><strong class="muted">CPE</strong><span>Pièce parent · badge PJ si dépôt famille</span></div>
+  </div>`;
+}
+
+function bindAbsJustifsDuJourTipGo(onGo) {
+  const btn = document.getElementById('absJustifsDuJourGoDense');
+  if (btn) btn.onclick = () => { if (typeof onGo === 'function') onGo(); };
+}
+
+/** Admin — comptes staff sans e-mail (liste non vide). */
+function adminUsersEmailVideTipDenseHtml(users) {
+  const list = users || [];
+  if (!list.length) return '';
+  const vides = list.filter(u => !String(u.email || '').trim());
+  if (!vides.length) return '';
+  const n = vides.length;
+  const preview = vides.slice(0, 5).map(u => {
+    const lab = String(u.label || '').trim();
+    const role = u.role ? ` (${esc(roleAdulteLabel(u.role))})` : '';
+    return lab ? `${esc(lab)}${role}` : esc(String(u.user_id || '').slice(0, 8) || '—');
+  }).join(', ');
+  return `<div class="bento" style="margin:0 0 .65rem">
+    <div class="stat-tile bento-span-6" style="border-color:var(--warn,#b45309)">
+      <strong class="warn">${n}</strong><span>Compte(s) sans e-mail — connexion / notifs</span>
+    </div>
+    <div class="stat-tile bento-span-6"><strong style="font-size:.82rem;font-weight:600">${preview}${n > 5 ? '…' : ''}</strong><span>Compléter sur la fiche adulte</span></div>
+  </div>`;
+}
+
 /** Recharge les tuiles accueil staff si l’utilisateur est sur /app (après décision VS). */
 async function refreshHomePulseIfNeeded() {
   if (path() !== '/app') return;
@@ -1607,6 +1695,20 @@ function toastFamJustifDemandeRetiree() {
   showEntToast(
     '<strong>Demande de justificatif retirée</strong> — vous pouvez en déposer une nouvelle si besoin.',
     8000,
+  );
+}
+function toastFamJustifDepose(opts) {
+  const o = opts || {};
+  const pj = o.pj ? ' · pièce jointe enregistrée' : '';
+  const eid = o.enfantId ? String(o.enfantId).trim() : '';
+  const absHref = eid
+    ? `/famille/enfants/${esc(eid)}?section=absences`
+    : '/famille';
+  showEntToast(
+    `<strong>Justificatif déposé</strong>${pj} — la vie scolaire traitera votre demande. `
+    + `<a href="${absHref}">Absences</a> · `
+    + `<a href="/famille/vie-scolaire">Vie scolaire</a>`,
+    9500,
   );
 }
 function bindFamAnnulJustifButtons(root, reload) {
@@ -1799,6 +1901,75 @@ function facFamEncaisseCentimes(f) {
   const total = Number(f.total_centimes) || 0;
   return Math.max(0, total - facFamResteCentimes(f));
 }
+function toastFamPaiementSimule(f, montantCent) {
+  const fac = f || {};
+  const amt = esc(euros(Number(montantCent) || facFamResteCentimes(fac)));
+  const fid = fac.id ? String(fac.id).trim() : '';
+  const num = esc(fac.numero || fac.libelle || 'Facture');
+  const facHref = fid
+    ? '/famille/factures?fac=' + encodeURIComponent(fid)
+    : '/famille/factures';
+  const partial = String(fac.statut || '').toLowerCase() === 'partielle'
+    || facFamEncaisseCentimes(fac) > 0;
+  if (partial) {
+    const enc = facFamEncaisseCentimes(fac);
+    const reste = facFamResteCentimes(fac);
+    showEntToast(
+      `<strong>Paiement partiel simulé</strong> — ${amt} par carte (labo). `
+      + `Déjà ${esc(euros(enc))} · reste ${esc(euros(reste))} sur ${num} · `
+      + `<a href="${facHref}">Facture</a> · `
+      + `<a href="/famille/quittances">Quittances</a>`,
+      11000,
+    );
+    return;
+  }
+  showEntToast(
+    `<strong>Paiement simulé</strong> — ${amt} par carte (labo). Aucun débit : la compta confirmera l’encaissement réel · `
+    + `<a href="/famille/quittances">quittances</a>`,
+    11000,
+  );
+}
+function famIsoDateKey(jour) {
+  const j = String(jour || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(j) ? j : '';
+}
+function famPickNextRdvPsyFamille(rdvs) {
+  const todayKey = today();
+  let best = null;
+  let bestKey = '';
+  for (const r of (rdvs || [])) {
+    if (!r || !r.signale_famille) continue;
+    const st = String(r.statut || '').toLowerCase();
+    if (st && st !== 'planifie') continue;
+    const dk = famIsoDateKey(r.jour);
+    if (!dk || dk < todayKey) continue;
+    const sortKey = dk + String(r.heure_debut || '');
+    if (!best || sortKey < bestKey) {
+      best = r;
+      bestKey = sortKey;
+    }
+  }
+  return best;
+}
+function famPickNextCommissionFamille(dossiers) {
+  const todayKey = today();
+  let best = null;
+  let bestKey = '';
+  let fallback = null;
+  for (const d of (dossiers || [])) {
+    if (!d || !d.signale_famille) continue;
+    if (d.decision || d.decided_at) continue;
+    fallback = fallback || d;
+    const dk = famIsoDateKey(d.commission_jour);
+    if (!dk) continue;
+    const sortKey = dk + String(d.commission_heure || d.heure || '');
+    if (dk >= todayKey && (!best || sortKey < bestKey)) {
+      best = d;
+      bestKey = sortKey;
+    }
+  }
+  return best || fallback;
+}
 function facFamProgressPanelHtml(encaisseCent, totalCent, resteCent, opts) {
   const o = opts || {};
   const total = Math.max(0, Number(totalCent) || 0);
@@ -1950,6 +2121,20 @@ function toastJustifRefuse(meta) {
     `<strong>Justificatif refusé</strong> — ${who}${note}. `
     + 'Le parent peut déposer un nouveau justificatif · '
     + '<a href="/app/absences?filtre=justifs-trancher">File VS</a>',
+    9500,
+  );
+}
+
+function toastJustifAccepte(meta) {
+  const o = meta || {};
+  const who = o.eleveLabel ? esc(String(o.eleveLabel).trim()) : 'élève';
+  const note = o.note ? ` · ${esc(String(o.note).trim())}` : '';
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}">Fiche élève</a> · ` : '';
+  showEntToast(
+    `<strong>Justificatif accepté</strong> — ${who}${note}. `
+    + `${fiche}<a href="/app/absences?filtre=justifs-trancher">File VS</a> · `
+    + '<a href="/app/vs">File du jour</a>',
     9500,
   );
 }
@@ -2404,16 +2589,24 @@ function refreshNotesLastSaveTip() {
   }
 }
 
-function notesCoefTipHtml(coef, devoirTitre) {
+function notesCoefTipHtml(coef, devoirTitre, opts) {
+  const o = opts || {};
+  const forGrille = o.grille === true;
   const c = Number(coef);
   if (!Number.isFinite(c) || c <= 0) {
-    return '<span class="empty-state-hint">Coefficient : sélectionnez un devoir — il pondère la moyenne (ex. coef 2 compte double).</span>';
+    if (forGrille) {
+      return '<span class="empty-state-hint"><strong>Coef saisie (grille)</strong> — ouvrez un devoir : chaque note est pondérée (×1 standard, ×2 compte double dans la moyenne matière).</span>';
+    }
+    return '<span class="empty-state-hint"><strong>Coefficient</strong> — sélectionnez un devoir : il pondère la moyenne (ex. coef 2 = double poids).</span>';
   }
   const titre = devoirTitre ? ` « ${esc(String(devoirTitre).trim())} »` : '';
   const weight = c === 1
     ? 'poids standard (×1)'
     : `poids ×${esc(String(c))} dans la moyenne`;
-  return `<span class="empty-state-hint">Devoir${titre} — coefficient <strong>${esc(String(c))}</strong> : ${weight}.</span>`;
+  const grilleFoot = forGrille
+    ? ' · enregistrez la grille pour recalculer les moyennes élèves.'
+    : '';
+  return `<span class="empty-state-hint">Devoir${titre} — coef <strong>${esc(String(c))}</strong> : ${weight}${grilleFoot}</span>`;
 }
 
 function refreshNotesCoefTip() {
@@ -3522,11 +3715,12 @@ async function bindEleveHome() {
     if (cahierHub) {
       const ctToday = (cahier || []).filter(x => String(x.pour_le) === jour || String(x.cree_le) === jour);
       const ctList = ctToday.length ? ctToday : (cahier || []).slice(0, 4);
-      cahierHub.innerHTML = !ctList.length
+      const cahierMain = !ctList.length
         ? emptyState('Rien à faire pour l’instant', 'Les consignes du prof apparaissent ici dès publication.')
         : `<ul class="eleve-hub-list">${ctList.slice(0, 5).map(ct =>
             `<li><strong>${esc(ct.titre)}</strong> <span class="muted">${esc(ct.matiere_libelle || '')}${ct.pour_le ? ' · pour le ' + esc(ct.pour_le) : ''}</span></li>`
           ).join('')}</ul>`;
+      cahierHub.innerHTML = cahierMain + eleveHomeDevoirsAVenirHtml(devoirs, jour);
     }
     const docsTileEl = document.getElementById('eleveHomeDocsTile');
     const docsBadge = document.getElementById('eleveHomeDocsBadge');
@@ -5897,6 +6091,7 @@ function viewFamilleHome() {
     <div id="famDocsCta" style="display:none"></div>
     <div class="bento" id="famPulse"></div>
     <p id="famFacMaxResteTip" class="muted" style="display:none;margin:-.25rem 0 .65rem;font-size:.88rem"></p>
+    <p id="famHomeAgendaTip" class="muted" style="display:none;margin:-.25rem 0 .65rem;font-size:.88rem"></p>
     <div class="panel" id="famHomeMsgPanel" style="display:none;margin-top:.75rem;padding:.55rem .75rem">
       <h3 style="margin:0 0 .35rem">Messages <span id="famHomeMsgBadge" class="pill-unread" style="display:none;font-size:.72rem;vertical-align:middle"></span></h3>
       <div id="famHomeMsgBody" class="muted">…</div>
@@ -6022,10 +6217,12 @@ async function bindFamilleHome() {
       if (docsCta0) { docsCta0.innerHTML = ''; docsCta0.style.display = 'none'; }
       const tip0 = document.getElementById('famFacMaxResteTip');
       if (tip0) { tip0.style.display = 'none'; tip0.innerHTML = ''; }
+      const agendaTip0 = document.getElementById('famHomeAgendaTip');
+      if (agendaTip0) { agendaTip0.style.display = 'none'; agendaTip0.innerHTML = ''; }
       return;
     }
     const jourRepas = today();
-    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists, sepaMandats] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists, sepaMandats, rdvLists] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
@@ -6036,6 +6233,7 @@ async function bindFamilleHome() {
       Promise.all(list.map(e => api('/eleves/' + e.id + '/repas/passages?debut='
         + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas)).catch(() => []))),
       api('/facturation/sepa/mandats').catch(() => []),
+      Promise.all(list.map(e => api('/psy/rdvs?eleve_id=' + encodeURIComponent(e.id)).catch(() => null))),
     ]);
     const sepaMandatActif = (sepaMandats || []).find(m => m.statut === 'actif') || null;
     const nRepasJour = (repasJourLists || []).reduce((s, p) => s + (p || []).length, 0);
@@ -6175,6 +6373,40 @@ async function bindFamilleHome() {
       } else {
         facMaxResteTip.style.display = 'none';
         facMaxResteTip.innerHTML = '';
+      }
+    }
+    const agendaTip = document.getElementById('famHomeAgendaTip');
+    if (agendaTip) {
+      const tipLines = [];
+      list.forEach((e, i) => {
+        const rdvRaw = rdvLists[i];
+        if (rdvRaw !== null) {
+          const nextRdv = famPickNextRdvPsyFamille(rdvRaw);
+          if (nextRdv) {
+            const horaire = [nextRdv.jour, nextRdv.heure_debut].filter(Boolean).join(' ');
+            tipLines.push(
+              `Prochain RDV psy — <strong>${esc(e.prenom)}</strong> · ${esc(horaire)} · `
+              + '<a href="/famille/accompagnement">Accompagnement</a>',
+            );
+          }
+        }
+        const nextCom = famPickNextCommissionFamille(comLists[i]);
+        if (nextCom) {
+          const when = nextCom.commission_jour
+            ? ` · ${esc(String(nextCom.commission_jour).slice(0, 10))}`
+            : '';
+          tipLines.push(
+            `Commission en cours — <strong>${esc(e.prenom)}</strong>${when} · `
+            + '<a href="/famille/vie-scolaire">Vie scolaire</a>',
+          );
+        }
+      });
+      if (tipLines.length) {
+        agendaTip.style.display = '';
+        agendaTip.innerHTML = tipLines.join('<br/>');
+      } else {
+        agendaTip.style.display = 'none';
+        agendaTip.innerHTML = '';
       }
     }
     if (pulse) {
@@ -6791,8 +7023,7 @@ async function bindFamilleEnfant(id) {
               }),
             });
           }
-          const pj = file ? ' · pièce jointe enregistrée' : '';
-          showEntToast(`<strong>Justificatif déposé</strong>${pj} — la vie scolaire traitera votre demande.`, 9000);
+          toastFamJustifDepose({ enfantId: id, pj: !!file });
           await bindFamilleEnfant(id);
         } catch (err) { alert(err.message); }
         finally { btn.disabled = false; }
@@ -14623,12 +14854,20 @@ async function bindVsJour() {
       });
       absBox.querySelectorAll('.btnVsAbsOk').forEach(btn => {
         btn.onclick = async () => {
+          const note = noteVs('ok (file du jour)');
+          const row = btn.closest('tr');
+          const linkEl = row && row.querySelector('td a');
+          const eleveLabel = linkEl ? linkEl.textContent.trim() : '';
+          const href = linkEl ? (linkEl.getAttribute('href') || '') : '';
+          const eleveId = href.replace(/^.*\/eleves\//, '').split(/[?#]/)[0] || '';
           try {
             await api('/absences/' + btn.dataset.id + '/accepter-justificatif', {
               method: 'POST',
-              body: JSON.stringify({ note: noteVs('ok (file du jour)') }),
+              body: JSON.stringify({ note }),
             });
+            toastJustifAccepte({ eleveLabel, note, eleveId });
             await load();
+            await refreshHomePulseIfNeeded();
           } catch (e) { alert(e.message); }
         };
       });
@@ -14730,7 +14969,11 @@ async function bindVsJour() {
               eleveLabel = await nameOf(eleveId);
               seedEleveLabel(eleveId, eleveLabel);
             }
-            toastCommissionCreee({ comId, dosId, eleveId, eleveLabel });
+            const com = d.commission || {};
+            toastCommissionCreee({
+              comId, dosId, eleveId, eleveLabel,
+              jour: com.jour, heure: com.heure, objet: com.objet,
+            });
             goAbsencesComDeepLink({ comId, dosId, eleveId });
           } catch (e) { alert(e.message); }
         };
@@ -15394,11 +15637,11 @@ async function bindAbsences() {
         if (btnAll) btnAll.onclick = () => { absViewFiltre = 'all'; load(); };
         if (btnJ) btnJ.onclick = () => { absViewFiltre = 'justifs-trancher'; load(); };
       }
-      if (absViewFiltre !== 'justifs-trancher' && nJustifsTrancher > 0) {
-        flashAbsFileMsg(`<span class="warn"><strong>${nJustifsTrancher} justificatif(s) du jour</strong> — pièce parent à trancher (accepter / refuser).
-          <button type="button" id="absJustifsDuJourGo">Voir les justifs à trancher</button></span>`);
-        const goJustifs = document.getElementById('absJustifsDuJourGo');
-        if (goJustifs) goJustifs.onclick = () => { absViewFiltre = 'justifs-trancher'; load(); };
+      if (absViewFiltre === 'justifs-trancher' && nJustifsTrancher > 0) {
+        flashAbsFileMsg(`<span class="muted empty-state-hint">Filtre actif · <strong>${nJustifsTrancher}</strong> justificatif(s) à trancher le ${esc(jour || today())}.</span>`);
+      } else if (absViewFiltre !== 'justifs-trancher' && nJustifsTrancher > 0) {
+        flashAbsFileMsg(absJustifsDuJourTipDenseHtml(nJustifsTrancher, jour));
+        bindAbsJustifsDuJourTipGo(() => { absViewFiltre = 'justifs-trancher'; load(); });
       } else if (absViewFiltre !== 'justifs-trancher') {
         flashAbsFileMsg('');
       }
@@ -15482,13 +15725,16 @@ async function bindAbsences() {
         btn.onclick = async () => {
           const note = fieldValue('vsNote', btn.dataset.id);
           const row = btn.closest('tr');
-          const nom = row && row.querySelector('td a') ? row.querySelector('td a').textContent.trim() : 'élève';
+          const linkEl = row && row.querySelector('td a');
+          const nom = linkEl ? linkEl.textContent.trim() : 'élève';
+          const href = linkEl ? (linkEl.getAttribute('href') || '') : '';
+          const eleveId = href.replace(/^.*\/eleves\//, '').split(/[?#]/)[0] || '';
           try {
             await api('/absences/' + btn.dataset.id + '/accepter-justificatif', {
               method: 'POST',
               body: JSON.stringify({ note: note || null }),
             });
-            flashAbsFileMsg(`<span class="ok"><strong>Justificatif accepté</strong> — ${esc(nom)}${note ? ' · ' + esc(note) : ''}</span>`);
+            toastJustifAccepte({ eleveLabel: nom, note, eleveId });
             await load();
             await refreshHomePulseIfNeeded();
           } catch (e) {
@@ -15630,7 +15876,11 @@ async function bindAbsences() {
             const eleveId = d.dossier && d.dossier.eleve_id;
             let eleveLabel = '';
             if (eleveId) eleveLabel = await nameOf(eleveId);
-            toastCommissionCreee({ comId, dosId, eleveId, eleveLabel });
+            const com = d.commission || {};
+            toastCommissionCreee({
+              comId, dosId, eleveId, eleveLabel,
+              jour: com.jour, heure: com.heure, objet: com.objet,
+            });
             comMsg.innerHTML = '<span class="ok">Commission créée depuis le signal — dossier ouvert ci-dessous</span>';
             if (comId && dosId) {
               scrollToAbsComPanel();
@@ -15853,7 +16103,10 @@ async function bindAbsences() {
       document.getElementById('comId').value = d.id;
       const lab = document.getElementById('comIdLabel');
       if (lab) lab.textContent = 'Commission : ' + d.id.slice(0, 8) + '… · ' + (d.objet || '');
-      toastCommissionCreee({ comId: d.id, dosId: null, eleveId: null, eleveLabel: d.objet || '' });
+      toastCommissionCreee({
+        comId: d.id, dosId: null, eleveId: null, eleveLabel: d.objet || '',
+        jour: d.jour, heure: d.heure, objet: d.objet,
+      });
       comMsg.innerHTML = `<span class="ok">Commission créée ${esc(d.objet)}</span>`;
       scrollToAbsComPanel();
       await loadCommissions();
@@ -17716,6 +17969,7 @@ function viewNotes() {
       <h3>Grille classe (devoir)</h3>
       <p class="muted">Ouvrir depuis la liste des devoirs — effectif du jour + notes déjà saisies.</p>
       <div id="grilleMeta" class="muted">Choisir un devoir…</div>
+      <p id="grilleCoefTip" class="muted" style="margin:.25rem 0 0;font-size:.85rem"></p>
       <p id="grilleMoyenneTip" class="muted" style="margin:.35rem 0 0;font-size:.85rem"></p>
       <div id="grilleOut" class="muted" style="margin-top:.5rem">…</div>
       <div class="row" style="margin-top:.5rem">
@@ -18065,9 +18319,9 @@ async function bindNotes() {
           date_fin: y + '-12-20',
         }),
       });
+      toastNotePeriodeCreee(p);
       await loadPeriodes();
       syncPeriodeSelects(await api('/note-periodes'), p.id);
-      toastNotePeriodeCreee(p);
     } catch (e) { alert(e.message); }
   };
   async function loadNotesEleve() {
@@ -18270,6 +18524,16 @@ async function bindNotes() {
     }
   };
   let grilleCtx = null;
+  function refreshGrilleCoefTip(devoir) {
+    const el = document.getElementById('grilleCoefTip');
+    if (!el) return;
+    const d = devoir || grilleCtx;
+    if (d && d.coef != null) {
+      el.innerHTML = notesCoefTipHtml(d.coef, d.titre, { grille: true });
+      return;
+    }
+    el.innerHTML = notesCoefTipHtml('', '', { grille: true });
+  }
   function grilleEleveLabelFromInput(inp) {
     const tr = inp && inp.closest('tr');
     return tr && tr.cells && tr.cells[0] ? String(tr.cells[0].textContent || '').trim() : '';
@@ -18349,6 +18613,7 @@ async function bindNotes() {
     msg.textContent = '';
     meta.innerHTML = `<strong>${esc(devoir.titre)}</strong> · ${esc(devoir.classe)} · ${esc(devoir.date_devoir)} · /${esc(String(devoir.sur))} · coef ${esc(String(devoir.coef))}`
       + devoirMoyenneClasseHtml({}, devoir.sur);
+    refreshGrilleCoefTip(devoir);
     refreshGrilleMoyenneLiveTip(devoir.sur);
     box.textContent = 'Chargement effectif…';
     btnSave.disabled = true;
@@ -18402,6 +18667,7 @@ async function bindNotes() {
         }).join('')}</tbody></table>`;
       meta.innerHTML = `<strong>${esc(devoir.titre)}</strong> · ${esc(devoir.classe)} · ${esc(devoir.date_devoir)} · /${esc(String(devoir.sur))} · coef ${esc(String(devoir.coef))}`
         + devoirMoyenneClasseHtml(notesByEleve, devoir.sur);
+      refreshGrilleCoefTip(devoir);
       btnSave.disabled = false;
       bindGrilleNoteEnterNav(box);
       focusGrillePanel(true);
@@ -18582,6 +18848,7 @@ async function bindNotes() {
                 if (meta) meta.innerHTML = 'Choisir un devoir…';
                 if (box) box.innerHTML = '<p class="empty">Devoir supprimé.</p>';
                 if (btnSave) btnSave.disabled = true;
+                refreshGrilleCoefTip(null);
               }
               await loadDevoirs();
             } catch (e) {
@@ -18899,6 +19166,7 @@ async function bindNotes() {
   } catch {}
   refreshNotesLastSaveTip();
   refreshNotesCoefTip();
+  refreshGrilleCoefTip(null);
   const devCoefTipEl = document.getElementById('devCoef');
   const devTitreTipEl = document.getElementById('devTitre');
   if (devCoefTipEl) devCoefTipEl.oninput = refreshNotesCoefTip;
@@ -19616,6 +19884,7 @@ function euros(centimes) {
 function viewAdultes() {
   return shell('/app/adultes', `
     <div class="bento" id="adulteStats"></div>
+    <div id="adulteEmailTip"></div>
     <div class="bento">
       <section class="panel bento-span-8">
         <h2>Adultes</h2>
@@ -19698,6 +19967,13 @@ async function bindAdultes() {
           ).join('')}`;
       }
       if (roleFlt) list = list.filter(p => p.role === roleFlt);
+      const emailTipEl = document.getElementById('adulteEmailTip');
+      const isAdmin = me && String(me.role || '').trim() === 'admin';
+      if (emailTipEl) {
+        emailTipEl.innerHTML = (isAdmin && list.length)
+          ? adminUsersEmailVideTipDenseHtml(list)
+          : '';
+      }
       if (!list.length) {
         out.innerHTML = '<p class="empty">Aucun adulte.</p>';
         return;
@@ -22734,10 +23010,8 @@ async function bindFacturesFamille() {
           return;
         }
         const reste = Number(opt.dataset.reste) || 0;
-        showEntToast(
-          `<strong>Paiement simulé</strong> — ${esc(euros(reste))} par carte (labo). Aucun débit : la compta confirmera l’encaissement réel · <a href="/famille/quittances">quittances</a>`,
-          11000
-        );
+        const fac = (facFamSortedList || []).find(x => String(x.id) === String(opt.value)) || null;
+        toastFamPaiementSimule(fac, reste);
       };
     }
   }
@@ -22969,6 +23243,12 @@ async function bindFacturesFamille() {
         panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     } catch (_) { /* facture absente ou accès refusé */ }
+  }
+  if (routeState.famScrollFactures) {
+    delete routeState.famScrollFactures;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => facFamScrollToListRow(null));
+    });
   }
 }
 
@@ -23512,8 +23792,12 @@ function bindShell() {
 async function render() {
   syncOfflineBanner();
   const root = document.getElementById('root');
-  const p = path();
+  let p = path();
   seedRouteFromQuery();
+  if (routeState.famScrollFactures && (p === '/famille' || p === '/famille/')) {
+    history.replaceState(null, '', '/famille/factures');
+    p = '/famille/factures';
+  }
 
   if (p === '/' || p === '/login') {
     if (STORE.token && await ensureMe()) {

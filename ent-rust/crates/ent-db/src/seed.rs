@@ -738,6 +738,8 @@ impl PgEnt {
     /// photo trombi Luna (Lovegood), ré-ensure bulletin T0 publié Harry, ré-ensure mandat SEPA foyer Harry.
     /// lot Q (Bot AQ-A) : note Draco, carnet Ron (famille), photo trombi Cho, alerte CPE urgente Harry,
     /// ré-ensure facture LAB-HARRY* (reste à payer > 0 sur au moins une).
+    /// lot R (Bot AR-A) : devoir Hermione (titre AR), note Ginny, dispense ou PAI tip Neville,
+    /// photo trombi Cedric, ré-ensure commission VS jour J (sans absence jour J supplémentaire).
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -4976,6 +4978,196 @@ impl PgEnt {
             reste_lab_harry_aq > 0 || facture_harry.total_centimes == 0,
             "LAB-HARRY seed audit AQ-A : reste à payer attendu > 0 sur au moins une facture"
         );
+
+        // --- Bot AR-A lot R (zone exclusive AR-A) : devoir Hermione, note Ginny, dispense ou PAI tip
+        // Neville, photo trombi Cedric, ré-ensure au moins 1 commission le jour J (sans déclarer d’absence jour J).
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            const HERMIONE_DEVOIR_AR_TITRE: &str = "DS Mathématiques lab (Hermione AR-A)";
+            let devoirs_hermione_ar = self
+                .list_devoirs_for_actor(
+                    etab,
+                    Role::Prof.as_str(),
+                    periode.id,
+                    Some(hermione.classe.as_str()),
+                )
+                .await?;
+            if !devoirs_hermione_ar
+                .iter()
+                .any(|d| d.titre == HERMIONE_DEVOIR_AR_TITRE)
+            {
+                self.creer_devoir(CreerDevoir {
+                    etablissement_id: etab,
+                    periode_id: periode.id,
+                    matiere_id: math.id,
+                    classe: hermione.classe.clone(),
+                    titre: HERMIONE_DEVOIR_AR_TITRE.into(),
+                    date_devoir: jour + Duration::days(10),
+                    coef: 1.0,
+                    sur: 20.0,
+                    actor_user_id: prof_mcg.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let Some(ginny) = labo_eleve_prenom(eleves, "Ginny") {
+            const GINNY_NOTE_AR_LIB: &str = "Interro Mathématiques lab (Ginny AR-A)";
+            if !self
+                .notes_for_eleve(etab, ginny.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(GINNY_NOTE_AR_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    matiere_id: math.id,
+                    valeur: 14.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(2),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(GINNY_NOTE_AR_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(neville) = labo_eleve_prenom(eleves, "Neville") {
+            const NEVILLE_PAI_AR_MOTIF: &str = "Allergie pollen (tip seed AR-A)";
+            let fin_as_pai_ar = NaiveDate::from_ymd_opt(debut_as.year() + 1, 7, 5)
+                .unwrap_or_else(|| debut_as + Duration::days(300));
+            if self
+                .get_pai_for_actor(
+                    etab,
+                    inf.user_id,
+                    Role::Infirmerie.as_str(),
+                    neville.id,
+                )
+                .await?
+                .is_none()
+            {
+                self.upsert_pai_for_actor(
+                    Role::Infirmerie.as_str(),
+                    UpsertPai {
+                        etablissement_id: etab,
+                        eleve_id: neville.id,
+                        motif: NEVILLE_PAI_AR_MOTIF.into(),
+                        mesures_accueil: "Antihistaminique à l’infirmerie si symptômes".into(),
+                        protocole_urgence: "Contacter les secours si détresse respiratoire".into(),
+                        note_interne: "Seed labo lot AR-A — PAI tip internat Neville.".into(),
+                        date_debut: debut_as,
+                        date_fin: Some(fin_as_pai_ar),
+                        actif: true,
+                        actor_user_id: inf.user_id,
+                    },
+                )
+                .await?;
+            } else {
+                const NEVILLE_DISPENSE_AR_COMMENT: &str =
+                    "Seed labo AR-A — dispense EPS (certificat médical tip).";
+                let dispenses_neville_ar = self
+                    .list_dispenses_vs_eleve_for_actor(
+                        etab,
+                        cpe.user_id,
+                        Role::Cpe.as_str(),
+                        neville.id,
+                        true,
+                    )
+                    .await?;
+                if !dispenses_neville_ar.iter().any(|d| {
+                    d.commentaire == NEVILLE_DISPENSE_AR_COMMENT
+                        && d.statut == DispenseVsStatut::Active
+                }) {
+                    self.poser_dispense_vs_for_actor(
+                        Role::Cpe.as_str(),
+                        PoserDispenseVs {
+                            etablissement_id: etab,
+                            eleve_id: neville.id,
+                            motif: "eps".into(),
+                            debut: debut_as,
+                            fin: fin_as_pai_ar,
+                            commentaire: NEVILLE_DISPENSE_AR_COMMENT.into(),
+                            actor_user_id: cpe.user_id,
+                        },
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        if let Some(cedric) = labo_eleve_prenom(eleves, "Cedric") {
+            if self
+                .get_eleve(etab, cedric.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        cedric.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        const COMMISSION_MOTIFS_AR: &str = "Seed labo AR-A — commission jour J audit";
+        let role_cpe_commission_ar = Role::Cpe.as_str();
+        let commissions_jour_ar = self
+            .list_commissions_for_actor(etab, role_cpe_commission_ar, jour)
+            .await?;
+        if commissions_jour_ar.is_empty() {
+            let commission_ar = self
+                .creer_commission_for_actor(
+                    role_cpe_commission_ar,
+                    CreerCommissionVs {
+                        etablissement_id: etab,
+                        jour,
+                        heure: NaiveTime::from_hms_opt(16, 0, 0).unwrap(),
+                        objet: "Suivi conduite — seed audit AR-A (jour J)".into(),
+                        lieu: "Bureau CPE".into(),
+                        actor_user_id: cpe.user_id,
+                    },
+                )
+                .await?;
+            if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+                let dossiers_hermione_ar = self
+                    .list_commissions_eleve_for_actor(
+                        etab,
+                        cpe.user_id,
+                        role_cpe_commission_ar,
+                        hermione.id,
+                    )
+                    .await?;
+                if !dossiers_hermione_ar
+                    .iter()
+                    .any(|d| d.motifs.contains(COMMISSION_MOTIFS_AR))
+                {
+                    let _ = self
+                        .convoquer_commission_for_actor(
+                            role_cpe_commission_ar,
+                            ConvoquerCommission {
+                                etablissement_id: etab,
+                                commission_id: commission_ar.id,
+                                eleve_id: hermione.id,
+                                motifs: COMMISSION_MOTIFS_AR.into(),
+                                note_interne: "Seed labo AR-A — dossier commission jour J (sans toucher absences jour J)."
+                                    .into(),
+                                sanction_id: None,
+                                incident_id: None,
+                                signale_famille: true,
+                                actor_user_id: cpe.user_id,
+                            },
+                        )
+                        .await;
+                }
+            }
+        }
 
         Ok(())
     }
