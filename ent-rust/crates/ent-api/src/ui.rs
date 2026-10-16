@@ -895,6 +895,41 @@ async function resolveGinnyWeasleyEleveId() {
   }
 }
 
+/** /app/notes — repère seed labo Luna Lovegood (6A · note Français audit). */
+function notesLunaSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.lunaId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '6A').trim());
+  const frNote = o.frNoteLabel
+    ? esc(String(o.frNoteLabel).trim().slice(0, 28))
+    : 'Interro Français';
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Luna Lovegood</strong><span>Seed labo · ${classe} · audit notes</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesLunaSeedNotesBtn" data-luna-id="${esc(String(o.lunaId))}" style="cursor:pointer;text-align:left">
+      <strong>${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesLunaSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${frNote}</strong><span>Filtre 6A · devoirs / saisie</span>
+    </button>
+  </div>`;
+}
+
+async function resolveLunaLovegoodEleveId() {
+  try {
+    const list = await api('/eleves/search?q=Luna');
+    const l = (list || []).find(e =>
+      /^luna$/i.test(String(e.prenom || '').trim())
+      && /lovegood/i.test(String(e.nom || '').trim())
+    );
+    return l && l.id ? String(l.id) : '';
+  } catch {
+    return '';
+  }
+}
+
 /** /app/notes — repère seed labo Cedric Diggory (3C · note Potions BH-A). */
 function notesCedricSeedTipDenseHtml(meta) {
   const o = meta || {};
@@ -2060,8 +2095,108 @@ function isEleveOrientFlux() {
   return path() === '/eleve/orientation';
 }
 
+function isEleveSanteFlux() {
+  return path() === '/eleve/sante';
+}
+
 function isMonEdtFlux() {
   return path() === '/app/mon-edt';
+}
+
+/** /eleve — fiche santé + infirmerie (bento, distinct du tip PAI). */
+function eleveSanteTipDenseHtml(meta) {
+  const o = meta || {};
+  const ficheOk = o.ficheApiOk !== false;
+  const passagesOk = o.passagesApiOk !== false;
+  if (!ficheOk && !passagesOk) return '';
+  const santeHref = '/eleve/sante';
+  const infHref = `${santeHref}#eleve-sec-infirmerie`;
+  const f = o.fiche || null;
+  const nPass = Number(o.nPassages) || 0;
+  const allergies = f && String(f.allergies || '').trim();
+  const allergTile = allergies
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">Allergies</strong><span>${esc(allergies.slice(0, 34))}${allergies.length > 34 ? '…' : ''}</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">OK</strong><span>Pas d’allergie signalée</span></div>`;
+  const urgence = f && String(f.urgence_tel || '').trim();
+  const urgenceTile = urgence
+    ? `<div class="stat-tile bento-span-4"><strong>${esc(urgence.slice(0, 16))}</strong><span>Contact urgence</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Tél. urgence · via famille</span></div>`;
+  const passTile = nPass
+    ? `<a class="stat-tile bento-span-4" href="${infHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${nPass}</strong><span>Passage(s) infirmerie</span></a>`
+    : `<a class="stat-tile bento-span-4" href="${infHref}" style="text-decoration:none">
+        <strong>0</strong><span>Passage infirmerie visible</span></a>`;
+  const nDisp = Number(o.nDispActive) || 0;
+  const extraRow = o.onPage
+    ? `<div class="bento" style="margin:.35rem 0 0">
+        <a class="stat-tile bento-span-4" href="#eleve-sec-dispenses" style="text-decoration:none;border-color:${nDisp ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+          <strong>${nDisp}</strong><span>Dispense(s) EPS active(s)</span></a>
+        <a class="stat-tile bento-span-4" href="#eleve-sec-pai" style="text-decoration:none">
+          <strong>PAI</strong><span>Protocole · ordonnances</span></a>
+        <div class="stat-tile bento-span-4"><strong class="muted">VS</strong><span>Décision après demande</span></div>
+      </div>`
+    : `<div class="bento" style="margin:.35rem 0 0">
+        <a class="stat-tile bento-span-4" href="${santeHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+          <strong>Fiche</strong><span>Santé · dispenses · PDF</span></a>
+        <a class="stat-tile bento-span-4" href="${santeHref}#eleve-sec-dispenses" style="text-decoration:none">
+          <strong>EPS</strong><span>Demander une dispense sport</span></a>
+        <a class="stat-tile bento-span-4" href="/eleve/messages" style="text-decoration:none">
+          <strong>→</strong><span>Infirmerie · messages</span></a>
+      </div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${allergTile}${urgenceTile}${passTile}</div>${extraRow}`;
+}
+
+function refreshEleveHomeSanteTip(meta) {
+  const el = document.getElementById('eleveHomeSanteTip');
+  if (!el) return;
+  el.innerHTML = eleveSanteTipDenseHtml({ ...(meta || {}), onPage: false });
+}
+
+function refreshEleveSantePageTip(meta) {
+  const el = document.getElementById('eleveSantePageTip');
+  if (!el) return;
+  el.innerHTML = eleveSanteTipDenseHtml({ ...(meta || {}), onPage: true });
+}
+
+/** Portail /eleve/sante — demande dispense EPS (toast bento sur le flux). */
+function toastEleveDispenseDemandee(d, opts) {
+  const o = opts || {};
+  const motifRaw = (d && (d.commentaire || d.motif)) || 'EPS';
+  const motif = esc(String(motifRaw).trim().slice(0, 32));
+  const debRaw = d && d.debut ? String(d.debut).slice(0, 10) : '';
+  const finRaw = d && d.fin ? String(d.fin).slice(0, 10) : debRaw;
+  const deb = debRaw ? esc(debRaw) : '—';
+  const fin = finRaw ? esc(finRaw) : deb;
+  let periode = deb;
+  if (debRaw && finRaw && debRaw !== finRaw) periode = `${deb} → ${fin}`;
+  const st = esc(String((d && d.statut) || 'demandee').trim());
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/eleve/sante#eleve-sec-dispenses">Historique dispenses</a> · `
+    + `<a href="/eleve/vie-scolaire">Vie scolaire</a> · `
+    + `<a href="/eleve">Accueil</a></p>`;
+  const simple = () => showEntToast(
+    `<strong>Dispense demandée</strong> — ${motif} · ${periode}. `
+    + 'La vie scolaire traitera votre demande. '
+    + `<a href="/eleve/sante">Suivi santé</a>`,
+    8500,
+  );
+  if (!isEleveSanteFlux() && !o.dense) {
+    simple();
+    return;
+  }
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">Envoyée</strong><span>Statut ${st} · file VS</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${motif}</strong><span>Motif · dispense sport</span></div>
+    <div class="stat-tile bento-span-4"><strong>${periode}</strong><span>Période demandée</span></div>`;
+  showEntToast(
+    `<strong>Dispense EPS demandée</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `${foot}<p class="muted" style="margin:.25rem 0 0;font-size:.82rem">Réponse vie scolaire · pas de modification directe.</p>`,
+    9500,
+  );
 }
 
 /** Accueil /eleve — PAI actif (GET /eleves/:id/pai si autorisé). */
@@ -2499,10 +2634,54 @@ function famHomePaiActifsTipDenseHtml(list, paiList) {
   const signedTile = nSigned
     ? `<div class="stat-tile bento-span-4"><strong class="ok">${nSigned}</strong><span>Prise de connaissance OK</span></div>`
     : `<div class="stat-tile bento-span-4"><strong>${actifs.length}</strong><span>Enfant(s) avec PAI</span></div>`;
-  const santeTile = `<a class="stat-tile bento-span-4" href="/famille/sante" style="text-decoration:none">
-      <strong>Santé</strong><span>Fiche · passages infirmerie</span>
+  return `<div class="bento" style="margin:0 0 .55rem">${pendingTile}${signedTile}</div>`;
+}
+
+/** Accueil famille — allergies & fiches santé (bento, distinct du tip PAI). */
+function famHomeAllergiesTipDenseHtml(list, ficheList) {
+  const kids = list || [];
+  if (!kids.length) return '';
+  let nManq = 0;
+  let firstManq = null;
+  let firstFill = null;
+  kids.forEach((e, i) => {
+    const f = (ficheList || [])[i];
+    const al = famSanteAllergieResume(f && f.allergies, 999);
+    if (al.empty) {
+      nManq += 1;
+      if (!firstManq) firstManq = e;
+    } else if (!firstFill) {
+      firstFill = { e, al };
+    }
+  });
+  const pri = firstManq || (firstFill && firstFill.e) || kids[0];
+  const eid = pri && pri.id ? esc(String(pri.id)) : '';
+  const prenom = pri && pri.prenom ? esc(String(pri.prenom).trim()) : 'Enfant';
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=sante` : '/famille/sante';
+  const pageHref = '/famille/sante';
+  const manqTile = nManq
+    ? `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nManq}</strong><span>Allergie(s) non renseignée(s)</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">OK</strong><span>Fiches allergies à jour</span>
+      </div>`;
+  let detailTile;
+  if (firstFill && !firstManq) {
+    detailTile = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none">
+        <strong>${prenom}</strong><span>${firstFill.al.html} · fiche</span>
+      </a>`;
+  } else if (firstManq) {
+    detailTile = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong>${prenom}</strong><span>Compléter allergies · fiche</span>
+      </a>`;
+  } else {
+    detailTile = `<div class="stat-tile bento-span-4"><strong>${kids.length}</strong><span>Enfant(s) · fiche santé</span></div>`;
+  }
+  const santeTile = `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Santé</strong><span>PAI · passages infirmerie</span>
     </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${pendingTile}${signedTile}${santeTile}</div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${manqTile}${detailTile}${santeTile}</div>`;
 }
 
 /** Fiche enfant — PAI actif (deep-link ?section=pai). */
@@ -6248,6 +6427,220 @@ function infirmeriePassagesTipDenseHtml(opts) {
   </div>`;
 }
 
+/** Infirmerie — brouillon passage (visible famille). */
+function infirmeriePassageDraftTipDenseHtml(opts) {
+  if (!isStaffInfirmerieFlux()) return '';
+  const o = opts || {};
+  const on = o.visibleFamille !== undefined ? !!o.visibleFamille : true;
+  const who = o.eleveLabel ? esc(String(o.eleveLabel).trim()) : 'Élève';
+  const verdict = on ? 'Visible famille' : 'Interne staff';
+  const detail = on
+    ? 'Parent voit le motif · pas la note soins'
+    : 'Motif et note restent staff only';
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:${on ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${on ? 'ok' : 'muted'}">${esc(verdict)}</strong><span>Prochain passage</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>${esc(detail)}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Enregistrer</strong><span>Clôturer la visite · liste du jour</span></div>
+  </div>`;
+}
+
+function refreshInfirmeriePassageDraftTip(opts) {
+  const tip = document.getElementById('infPassageDraftTip');
+  if (!tip) return;
+  tip.innerHTML = infirmeriePassageDraftTipDenseHtml(opts);
+}
+
+/** Infirmerie — fiche santé élève (allergies · PAI · confidentiel). */
+function infirmerieFicheSanteTipDenseHtml(f, pai, opts) {
+  if (!isStaffInfirmerieFlux()) return '';
+  const o = opts || {};
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  if (!eid) return '';
+  const who = o.eleveLabel ? esc(String(o.eleveLabel).trim()) : 'Élève';
+  const allergies = f && f.allergies ? String(f.allergies).trim() : '';
+  const alShort = allergies
+    ? esc(allergies.length > 28 ? allergies.slice(0, 28) + '…' : allergies)
+    : '—';
+  const hasFiche = !!f;
+  const paiActif = !!(pai && pai.actif) || !!(f && f.pai_actif);
+  const paiSign = pai && pai.signe_famille;
+  const paiPending = pai && pai.actif && !pai.signe_famille;
+  const paiTile = pai
+    ? (paiPending
+      ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+          <strong class="warn">À signer</strong><span>PAI · ${esc(String(pai.motif || 'protocole').slice(0, 24))}</span>
+        </div>`
+      : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+          <strong class="ok">${paiSign ? 'Signé' : 'Actif'}</strong><span>PAI · ${esc(String(pai.motif || 'protocole').slice(0, 24))}</span>
+        </div>`)
+    : (paiActif
+      ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+          <strong class="warn">PAI</strong><span>Flag fiche · protocole à charger</span>
+        </div>`
+      : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de PAI actif</span></div>`);
+  const ficheTile = hasFiche
+    ? `<div class="stat-tile bento-span-4"><strong>${alShort}</strong><span>Allergies · ${who}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Fiche à créer · ${who}</span></div>`;
+  const confTile = `<div class="stat-tile bento-span-4"><strong class="muted">Note</strong><span>Confidentielle — jamais portail</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${ficheTile}${paiTile}${confTile}</div>`;
+}
+
+function refreshInfirmerieFicheSanteTip(f, pai, opts) {
+  const tip = document.getElementById('infFicheSanteTip');
+  if (!tip) return;
+  tip.innerHTML = infirmerieFicheSanteTipDenseHtml(f, pai, opts);
+}
+
+/** Infirmerie — PAI structuré (protocole · signature · pièces). */
+function infirmeriePaiTipDenseHtml(pai, nPieces, opts) {
+  if (!isStaffInfirmerieFlux()) return '';
+  const o = opts || {};
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  if (!eid) return '';
+  const nOrdo = Number(nPieces) || 0;
+  const draftActif = o.draftActif !== undefined ? !!o.draftActif : true;
+  if (!pai) {
+    return `<div class="bento" style="margin:0 0 .55rem">
+      <div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucun PAI · saisir ci-dessous</span></div>
+      <div class="stat-tile bento-span-4"><strong class="${draftActif ? 'ok' : 'muted'}">${draftActif ? 'Actif' : 'Inactif'}</strong><span>Brouillon formulaire</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Famille</strong><span>Signature après enregistrement</span></div>
+    </div>`;
+  }
+  const motif = esc(String(pai.motif || 'protocole').trim().slice(0, 26));
+  const signe = !!pai.signe_famille;
+  const actif = !!pai.actif;
+  const fin = pai.date_fin ? esc(String(pai.date_fin).slice(0, 10)) : '—';
+  const signTile = !actif
+    ? `<div class="stat-tile bento-span-4"><strong class="muted">Clôturé</strong><span>PAI inactif · fin ${fin}</span></div>`
+    : (signe
+      ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+          <strong class="ok">Signé</strong><span>Famille · ${motif}</span>
+        </div>`
+      : `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+          <strong class="warn">À signer</strong><span>Famille · ${motif}</span>
+        </div>`);
+  const protoTile = pai.protocole_urgence
+    ? `<div class="stat-tile bento-span-4"><strong>Urgence</strong><span>${esc(String(pai.protocole_urgence).trim().slice(0, 28))}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong>${nOrdo}</strong><span>Ordonnance(s) jointe(s)</span></div>`;
+  const majTile = `<div class="stat-tile bento-span-4"><strong class="muted">Maj</strong><span>${esc(String(pai.updated_at || '').slice(0, 10) || '—')} · staff remet signature</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${signTile}${protoTile}${majTile}</div>`;
+}
+
+function refreshInfirmeriePaiTip(pai, nPieces, opts) {
+  const tip = document.getElementById('infPaiTip');
+  if (!tip) return;
+  tip.innerHTML = infirmeriePaiTipDenseHtml(pai, nPieces, opts);
+}
+
+function staffCanSeeDossierSanteTip() {
+  if (!isStaffEleveDossierFlux()) return false;
+  const role = (me && me.role) || '';
+  return ['admin', 'direction', 'administratif', 'infirmerie', 'cpe', 'prof'].includes(role);
+}
+
+/** Dossier élève staff — synthèse santé (fiche · PAI · passages). */
+function staffDossierSanteTipDenseHtml(f, pai, nPassages, opts) {
+  if (!staffCanSeeDossierSanteTip()) return '';
+  const o = opts || {};
+  const eid = o.eleveId ? String(o.eleveId).trim() : '';
+  const infHref = eid ? '/app/infirmerie' : '/app/infirmerie';
+  const nPass = Number(nPassages) || 0;
+  const allergies = f && f.allergies ? String(f.allergies).trim() : '';
+  const alLbl = allergies
+    ? esc(allergies.length > 24 ? allergies.slice(0, 24) + '…' : allergies)
+    : '—';
+  const paiActif = !!(pai && pai.actif) || !!(f && f.pai_actif);
+  const paiPending = pai && pai.actif && !pai.signe_famille;
+  const paiTile = paiActif
+    ? (paiPending
+      ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+          <strong class="warn">PAI</strong><span>Signature famille en attente</span>
+        </div>`
+      : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+          <strong class="ok">PAI</strong><span>${pai && pai.motif ? esc(String(pai.motif).slice(0, 22)) : 'Actif'}</span>
+        </div>`)
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de PAI actif</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4"><strong>${alLbl}</strong><span>Allergies · fiche santé</span></div>
+    ${paiTile}
+    <a class="stat-tile bento-span-4" href="${infHref}" style="text-decoration:none">
+      <strong>${nPass}</strong><span>Passage(s) · module infirmerie</span>
+    </a>
+  </div>`;
+}
+
+function refreshStaffDossierSanteTip(f, pai, nPassages, opts) {
+  const tip = document.getElementById('staffDossierSanteTip');
+  if (!tip) return;
+  tip.innerHTML = staffDossierSanteTipDenseHtml(f, pai, nPassages, opts);
+}
+
+function infirmerieEleveLabel(eid) {
+  if (!eid) return 'Élève';
+  return ELEVE_NAME_CACHE[eid] || String(eid).slice(0, 8);
+}
+
+/** Toast — passage infirmerie enregistré (/app/infirmerie). */
+function toastPassageInfirmerieCreee(d, opts) {
+  const p = d || {};
+  const o = opts || {};
+  const motif = esc(String(p.motif_libelle || p.motif || 'Passage').trim());
+  const jour = p.jour ? esc(String(p.jour).slice(0, 10)) : esc(today());
+  const fam = !!p.visible_famille;
+  const famLbl = fam ? 'oui' : 'non';
+  const eid = p.eleve_id ? String(p.eleve_id).trim() : (o.eleveId ? String(o.eleveId).trim() : '');
+  const who = o.eleveLabel
+    ? esc(String(o.eleveLabel).trim())
+    : esc(infirmerieEleveLabel(eid));
+  const fiche = eid ? `<a href="/app/eleves/${esc(eid)}">Fiche élève</a> · ` : '';
+  const noteHint = p.note_soins && String(p.note_soins).trim()
+    ? ' · note soins enregistrée'
+    : '';
+  if (isStaffInfirmerieFlux()) {
+    const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${motif}</strong><span>Passage · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${who}</strong><span>Visite clôturée${noteHint}</span></div>
+      <div class="stat-tile bento-span-4"><strong class="${fam ? 'ok' : 'muted'}">${esc(famLbl)}</strong><span>Visible portail famille</span></div>`;
+    showEntToast(
+      `<strong>Passage enregistré</strong>`
+      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + `<p style="margin:.35rem 0 0;font-size:.85rem">${fiche}`
+      + `<a href="/app/infirmerie">Infirmerie</a> · liste du jour</p>`,
+      9000,
+    );
+    return;
+  }
+  showEntToast(
+    `<strong>Passage enregistré</strong> — ${motif} · ${who} · ${jour} · famille ${esc(famLbl)}.`,
+    7500,
+  );
+}
+
+/** Brouillon passage — bascule visible famille. */
+function toastPassageInfirmerieVisFamDraft(checked, opts) {
+  if (!isStaffInfirmerieFlux()) return;
+  const o = opts || {};
+  const on = !!checked;
+  const who = o.eleveLabel ? esc(String(o.eleveLabel).trim()) : 'Élève';
+  const verdict = on ? 'Visible famille' : 'Interne staff';
+  const detail = on
+    ? 'Parent voit le motif au portail'
+    : 'Motif caché · note soins jamais famille';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:${on ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${on ? 'ok' : 'muted'}">${esc(verdict)}</strong><span>Prochain passage</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>${esc(detail)}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Enregistrer</strong><span>Clôturer la visite</span></div>`;
+  showEntToast(
+    `<strong>Visible famille — passage</strong>`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`,
+    6500,
+  );
+}
+
 function isStaffFacturationFlux() {
   return path() === '/app/facturation';
 }
@@ -8800,6 +9193,7 @@ function famEnfantDenseCardHtml(e, stats) {
       <a href="/famille/enfants/${eid}?section=messages">Messages</a>
       <a href="/famille/enfants/${eid}?section=docs">Docs</a>
       <a href="/famille/enfants/${eid}?section=pai">PAI</a>
+      <a href="/famille/enfants/${eid}?section=sante">Santé</a>
       <a href="/famille/enfants/${eid}?section=sorties">Sorties</a>
       <a href="/famille/enfants/${eid}?section=repas">Repas</a>
       <a href="/famille/enfants/${eid}?section=orientation">Orientation</a>
@@ -8870,6 +9264,16 @@ function famApplyEnfantSectionDeepLink(forcedSec) {
         }, 280);
       }
     }
+    if (sec === 'sante') {
+      const saveBtn = document.querySelector('#fam-sec-sante #btnSanteFamSave');
+      if (saveBtn) {
+        setTimeout(() => {
+          saveBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          saveBtn.style.outline = '2px solid var(--warn, #b45309)';
+          setTimeout(() => { saveBtn.style.outline = ''; }, 2200);
+        }, 280);
+      }
+    }
     return true;
   }
   if (!tryScroll()) {
@@ -8901,7 +9305,6 @@ function famSantePageTipDenseHtml(f, pai, passages, enfantId, prenom) {
   const eid = enfantId ? esc(String(enfantId).trim()) : '';
   const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
   const al = famSanteAllergieResume(f && f.allergies, 28);
-  const nPass = (passages || []).length;
   const ficheHref = eid ? `/famille/enfants/${eid}?section=sante` : '/famille/sante';
   const paiHref = eid ? `/famille/enfants/${eid}?section=pai` : '/famille/sante';
   let paiTile;
@@ -8922,13 +9325,131 @@ function famSantePageTipDenseHtml(f, pai, passages, enfantId, prenom) {
   } else {
     paiTile = `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de PAI actif</span></div>`;
   }
+  const alBorder = al.empty ? 'border-color:var(--warn,#b45309);' : '';
   return `<div class="bento" style="margin:0 0 .55rem">
     <a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>${who}</strong><span>Fiche santé · allergies</span>
+      <strong>${who}</strong><span>Fiche santé · deep-link</span>
     </a>
-    <div class="stat-tile bento-span-4"><strong>${al.html}</strong><span>Allergies · ${nPass} passage(s)</span></div>
+    <div class="stat-tile bento-span-4" style="${alBorder}"><strong>${al.html}</strong><span>Allergies · fiche</span></div>
     ${paiTile}
   </div>`;
+}
+
+/** Page /famille/sante — passages infirmerie (bento). */
+function famSantePassagesTipDenseHtml(passages, enfantId, prenom) {
+  if (!isFamilleSanteFlux()) return '';
+  const list = (passages || []).slice().sort((a, b) =>
+    String(b.jour || '').localeCompare(String(a.jour || ''))
+  );
+  const nPass = list.length;
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=sante` : '/famille/sante';
+  const last = list[0];
+  const lastLbl = last
+    ? `${esc(String(last.jour || '').slice(0, 10))} · ${esc(String(last.motif_libelle || last.motif || 'Passage').slice(0, 22))}`
+    : 'Aucun passage visible';
+  const nTile = nPass
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nPass}</strong><span>Passage(s) infirmerie · ${who}</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong>0</strong><span>Aucun passage · ${who}</span></div>`;
+  const lastTile = nPass
+    ? `<div class="stat-tile bento-span-4"><strong>${lastLbl}</strong><span>Dernier passage</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Historique vide</span></div>`;
+  const linkTile = `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none">
+      <strong>→</strong><span>Fiche enfant · section santé</span>
+    </a>`;
+  return `<div class="bento" style="margin:0 0 .55rem">${nTile}${lastTile}${linkTile}</div>`;
+}
+
+/** Fiche enfant — santé (deep-link ?section=sante). */
+function famEnfantSanteTipDenseHtml(f, pai, passages, enfantId, prenom) {
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  const al = famSanteAllergieResume(f && f.allergies, 28);
+  const nPass = (passages || []).length;
+  const pageHref = '/famille/sante';
+  const paiHref = eid ? `/famille/enfants/${eid}?section=pai` : pageHref;
+  const alBorder = al.empty ? 'border-color:var(--warn,#b45309);' : '';
+  let paiTile;
+  if (pai && !pai.signe_famille) {
+    paiTile = `<a class="stat-tile bento-span-4" href="${paiHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">PAI</strong><span>À signer · protocole</span>
+      </a>`;
+  } else if (pai) {
+    paiTile = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">PAI OK</strong><span>Prise de connaissance</span>
+      </div>`;
+  } else {
+    paiTile = `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none">
+        <strong class="muted">—</strong><span>Pas de PAI · page Santé</span>
+      </a>`;
+  }
+  const passTile = nPass
+    ? `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${nPass}</strong><span>Passage(s) infirmerie</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4"><strong>0</strong><span>Passage infirmerie</span></div>`;
+  return `<div class="bento" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="${alBorder}"><strong>${al.html}</strong><span>Allergies · ${who}</span></div>
+    ${passTile}${paiTile}
+  </div>`;
+}
+
+/** Toast bento — page /famille/sante ouverte (enfant sélectionné). */
+function toastFamSanteOuverte(f, pai, passages, enfantId, prenom, opts) {
+  const o = opts || {};
+  const who = prenom ? esc(String(prenom).trim()) : 'Enfant';
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  const al = famSanteAllergieResume(f && f.allergies, 24);
+  const nPass = (passages || []).length;
+  const ficheHref = eid ? `/famille/enfants/${eid}?section=sante` : '/famille/sante';
+  const paiHref = eid ? `/famille/enfants/${eid}?section=pai` : '/famille/sante';
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${ficheHref}">Fiche santé</a> · `
+    + `<a href="${paiHref}">PAI</a> · `
+    + `<a href="/famille/messages">Infirmerie</a></p>`;
+  if (!isFamilleSanteFlux() && !o.dense) {
+    showEntToast(`<strong>Santé</strong> — ${who}. <a href="/famille/sante">Page Santé</a>`, 6500);
+    return;
+  }
+  let paiTile;
+  if (pai && !pai.signe_famille) {
+    paiTile = `<a class="stat-tile bento-span-4" href="${paiHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">PAI</strong><span>Signature en attente</span>
+      </a>`;
+  } else if (pai) {
+    paiTile = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">PAI</strong><span>Protocole à jour</span>
+      </div>`;
+  } else {
+    paiTile = `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de PAI actif</span></div>`;
+  }
+  const passTile = `<div class="stat-tile bento-span-4"><strong>${nPass}</strong><span>Passage(s) infirmerie</span></div>`;
+  const alTile = `<div class="stat-tile bento-span-4" style="${al.empty ? 'border-color:var(--warn,#b45309);' : ''}">
+      <strong>${al.html}</strong><span>Allergies · ${who}</span>
+    </div>`;
+  showEntToast(
+    `<strong>Page Santé</strong> — ${who}`
+    + `<div class="bento" style="margin:.4rem 0 0">${alTile}${passTile}${paiTile}</div>`
+    + foot,
+    (pai && !pai.signe_famille) || al.empty ? 9500 : 7500,
+  );
+}
+
+function maybeToastFamSanteOuverte(f, pai, passages, enfantId, prenom) {
+  if (!isParent() || !isFamilleSanteFlux()) return;
+  const id = enfantId ? String(enfantId).trim() : '';
+  if (!id) return;
+  const ssKey = 'ent_fam_sante_open_toast_' + id;
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamSanteOuverte(f, pai, passages, id, prenom, { dense: true });
 }
 
 function famSanteStatsBentoHtml(f, pai, passages) {
@@ -10159,6 +10680,7 @@ function viewEleveHome() {
     <div id="eleveHomeAbsencesTip"></div>
     <div id="eleveHomeJustifTip"></div>
     <div id="eleveHomeDispensesTip"></div>
+    <div id="eleveHomeSanteTip"></div>
     <div id="eleveHomePaiTip"></div>
     <div id="eleveHomeSanctionsTip"></div>
     <div id="eleveHomeCommissionsTip"></div>
@@ -10329,6 +10851,33 @@ async function bindEleveHome() {
       dispVsApiOk = false;
     }
     refreshEleveHomeDispensesTip(dispVsList, dispVsApiOk, dispenses, jour);
+    let ficheApiOk = false;
+    let ficheSante = null;
+    let passagesApiOk = false;
+    let nPassages = 0;
+    try {
+      ficheSante = await api('/eleves/' + eid + '/fiche-sante');
+      ficheApiOk = true;
+    } catch {
+      ficheSante = null;
+      ficheApiOk = false;
+    }
+    try {
+      const passages = await api('/infirmerie/passages?eleve_id=' + encodeURIComponent(eid));
+      passagesApiOk = true;
+      nPassages = (passages || []).length;
+    } catch {
+      passagesApiOk = false;
+      nPassages = 0;
+    }
+    const nDispActive = (dispVsList || []).filter(eleveDispenseVsActive).length;
+    refreshEleveHomeSanteTip({
+      fiche: ficheSante,
+      ficheApiOk,
+      nPassages,
+      passagesApiOk,
+      nDispActive,
+    });
     let paiApiOk = false;
     let paiActif = null;
     try {
@@ -11281,16 +11830,17 @@ async function bindEleveOrientation() {
 
 function viewEleveSante() {
   return shell('/eleve/sante', `
+    <div id="eleveSantePageTip"></div>
     <div class="panel">
       <h2>Fiche santé</h2>
       <p class="muted">Consultation (sans note confidentielle). Mise à jour par la famille / l’infirmerie.</p>
       <div id="eleveSanteOut" class="muted">Chargement…</div>
     </div>
-    <div class="panel">
+    <div class="panel" id="eleve-sec-pai">
       <h2>PAI</h2>
       <div id="elevePaiOut" class="muted">Chargement…</div>
     </div>
-    <div class="panel">
+    <div class="panel" id="eleve-sec-dispenses">
       <h2>Dispenses EPS</h2>
       <p class="muted">Demander une dispense (sport) — traitée par la vie scolaire.</p>
       <div class="row">
@@ -11303,7 +11853,7 @@ function viewEleveSante() {
       <div id="eleveDvMsg" class="muted"></div>
       <div id="eleveDispVsOut" class="muted" style="margin-top:.5rem">Chargement…</div>
     </div>
-    <div class="panel">
+    <div class="panel" id="eleve-sec-infirmerie">
       <h2>Passages infirmière</h2>
       <div id="eleveInfOut" class="muted">Chargement…</div>
     </div>`);
@@ -11317,8 +11867,15 @@ async function bindEleveSante() {
     if (santeOut) santeOut.innerHTML = '<p class="empty">eleve_id manquant</p>';
     return;
   }
+  let ficheForTip = null;
+  let ficheApiOk = false;
+  let nPassagesTip = 0;
+  let passagesApiOk = false;
+  let nDispActiveTip = 0;
   try {
     const f = await api('/eleves/' + eid + '/fiche-sante');
+    ficheForTip = f;
+    ficheApiOk = true;
     if (!f) {
       santeOut.innerHTML = '<p class="empty">Aucune fiche santé.</p>';
     } else {
@@ -11340,6 +11897,7 @@ async function bindEleveSante() {
       }
     }
   } catch (e) {
+    ficheApiOk = false;
     santeOut.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   }
   try {
@@ -11381,6 +11939,14 @@ async function bindEleveSante() {
     try {
       const list = await api('/eleves/' + eid + '/dispenses-vs');
       const actives = (list || []).filter(d => d.statut === 'active' || d.statut === 'ouverte');
+      nDispActiveTip = actives.length;
+      refreshEleveSantePageTip({
+        fiche: ficheForTip,
+        ficheApiOk,
+        nPassages: nPassagesTip,
+        passagesApiOk,
+        nDispActive: nDispActiveTip,
+      });
       dispOut.innerHTML = !(list || []).length
         ? '<p class="empty">Aucune dispense EPS.</p>'
         : `<table><thead><tr><th>Début</th><th>Fin</th><th>Motif</th><th>État</th></tr></thead>
@@ -11411,6 +11977,7 @@ async function bindEleveSante() {
           }),
         });
         if (msg) msg.innerHTML = `<span class="ok">Dispense ${esc(d.motif)} demandée</span>`;
+        toastEleveDispenseDemandee(d, { dense: true });
         await loadEleveDispVs();
       } catch (err) {
         if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
@@ -11421,6 +11988,15 @@ async function bindEleveSante() {
   if (infOut) {
     try {
       const list = await api('/infirmerie/passages?eleve_id=' + encodeURIComponent(eid));
+      nPassagesTip = (list || []).length;
+      passagesApiOk = true;
+      refreshEleveSantePageTip({
+        fiche: ficheForTip,
+        ficheApiOk,
+        nPassages: nPassagesTip,
+        passagesApiOk,
+        nDispActive: nDispActiveTip,
+      });
       infOut.innerHTML = !(list || []).length
         ? '<p class="empty">Aucun passage visible.</p>'
         : `<ul>${list.map(p =>
@@ -13048,6 +13624,7 @@ function viewFamilleHome() {
     <div id="famHomeComTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeSepaTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomePaiTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeAllergieTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeQuittancesTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeReinscTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeReinscDocsManqTip" style="display:none;margin:-.25rem 0 .65rem"></div>
@@ -13211,6 +13788,8 @@ async function bindFamilleHome() {
       if (sepaTip0) { sepaTip0.style.display = 'none'; sepaTip0.innerHTML = ''; }
       const paiTip0 = document.getElementById('famHomePaiTip');
       if (paiTip0) { paiTip0.style.display = 'none'; paiTip0.innerHTML = ''; }
+      const allergieTip0 = document.getElementById('famHomeAllergieTip');
+      if (allergieTip0) { allergieTip0.style.display = 'none'; allergieTip0.innerHTML = ''; }
       const quitTip0 = document.getElementById('famHomeQuittancesTip');
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
       const reinscTip0 = document.getElementById('famHomeReinscTip');
@@ -13225,13 +13804,14 @@ async function bindFamilleHome() {
     }
     const jourRepas = today();
     const orientAnneeHome = '2026-2027';
-    const [resumes, docsLists, fils, reinsc, facs, paiList, comLists, repasJourLists, sepaMandats, rdvLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists] = await Promise.all([
+    const [resumes, docsLists, fils, reinsc, facs, paiList, ficheSanteList, comLists, repasJourLists, sepaMandats, rdvLists, absLists, devoirLists, edtJourLists, quittancesFam, voeuxLists] = await Promise.all([
       Promise.all(list.map(e => api('/famille/enfants/' + e.id + '/resume').catch(() => ({})))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/docs-a-signer').catch(() => []))),
       api('/messages/fils').catch(() => []),
       api('/reinscription/famille').catch(() => null),
       api('/facturation/famille').catch(() => []),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/pai').catch(() => null))),
+      Promise.all(list.map(e => api('/eleves/' + e.id + '/fiche-sante').catch(() => null))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/commissions').catch(() => []))),
       Promise.all(list.map(e => api('/eleves/' + e.id + '/repas/passages?debut='
         + encodeURIComponent(jourRepas) + '&fin=' + encodeURIComponent(jourRepas)).catch(() => []))),
@@ -13520,6 +14100,17 @@ async function bindFamilleHome() {
       } else {
         paiTip.style.display = 'none';
         paiTip.innerHTML = '';
+      }
+    }
+    const allergieTip = document.getElementById('famHomeAllergieTip');
+    if (allergieTip) {
+      const denseAl = famHomeAllergiesTipDenseHtml(list, ficheSanteList);
+      if (denseAl) {
+        allergieTip.style.display = '';
+        allergieTip.innerHTML = denseAl;
+      } else {
+        allergieTip.style.display = 'none';
+        allergieTip.innerHTML = '';
       }
     }
     const quitTip = document.getElementById('famHomeQuittancesTip');
@@ -13927,7 +14518,9 @@ async function bindFamilleEnfant(id) {
     html += `<div id="fam-sec-pai" style="scroll-margin-top:4.5rem">
       <div id="famEnfantPaiTip" style="display:none;margin:0 0 .55rem"></div>
       <h3>PAI</h3><div id="paiFamOut" class="muted">Chargement…</div></div>`;
-    html += `<div id="fam-sec-sante" style="scroll-margin-top:4.5rem"><h3>Fiche santé</h3><div id="santeFamOut" class="muted">Chargement…</div></div>`;
+    html += `<div id="fam-sec-sante" style="scroll-margin-top:4.5rem">
+      <div id="famEnfantSanteTip" style="display:none;margin:0 0 .55rem"></div>
+      <h3>Fiche santé</h3><div id="santeFamOut" class="muted">Chargement…</div></div>`;
 
     html += `<div id="fam-sec-docs" style="scroll-margin-top:4.5rem"><h3>Documents à signer</h3><div id="docsFamOut" class="muted">Chargement…</div></div>`;
     html += `<h3>Documents / bulletins</h3>
@@ -14198,9 +14791,35 @@ async function bindFamilleEnfant(id) {
 
     try {
       const santeBox = document.getElementById('santeFamOut');
-      if (santeBox) {
+      const santeTipEl = document.getElementById('famEnfantSanteTip');
+      const deepSante = enfantDeepSection === 'sante';
+      if (santeBox || santeTipEl) {
         try {
-          const f = await api('/eleves/' + id + '/fiche-sante');
+          const [f, paiSante, passagesSante] = await Promise.all([
+            api('/eleves/' + id + '/fiche-sante').catch(() => null),
+            api('/eleves/' + id + '/pai').catch(() => null),
+            api('/infirmerie/passages?eleve_id=' + encodeURIComponent(id)).catch(() => []),
+          ]);
+          if (santeTipEl) {
+            if (deepSante || f || (passagesSante || []).length) {
+              const denseSanteTip = famEnfantSanteTipDenseHtml(f, paiSante, passagesSante, id, e.prenom);
+              if (denseSanteTip) {
+                santeTipEl.style.display = '';
+                santeTipEl.innerHTML = denseSanteTip;
+                if (deepSante) {
+                  famApplyEnfantSectionDeepLink('sante');
+                  setTimeout(() => famApplyEnfantSectionDeepLink('sante'), 200);
+                }
+              } else {
+                santeTipEl.style.display = 'none';
+                santeTipEl.innerHTML = '';
+              }
+            } else {
+              santeTipEl.style.display = 'none';
+              santeTipEl.innerHTML = '';
+            }
+          }
+          if (santeBox) {
           santeBox.innerHTML = `
             <p class="muted">Allergies, traitements, contacts — le PAI clinique reste géré par l’infirmerie.</p>
             <div class="row">
@@ -14251,8 +14870,9 @@ async function bindFamilleEnfant(id) {
               } catch (err) { alert(err.message); }
             };
           }
+          }
         } catch (err) {
-          santeBox.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+          if (santeBox) santeBox.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
         }
       }
     } catch (_) { /* ignore */ }
@@ -15469,6 +16089,7 @@ async function bindFamilleEnfant(id) {
       }
       if (enfantDeepSection === 'sante') {
         setTimeout(() => famApplyEnfantSectionDeepLink('sante'), 900);
+        setTimeout(() => famApplyEnfantSectionDeepLink('sante'), 1400);
       }
       if (enfantDeepSection === 'absences') {
         setTimeout(() => famApplyEnfantSectionDeepLink('absences'), 900);
@@ -15990,6 +16611,7 @@ function renderDossier(d) {
     html += `<section class="panel dossier-section" id="dos-fiche">
       <h3>Fiche administrative</h3>
       <p class="dossier-help">Tout se règle ici · une date d’effet pour les mouvements scolaires · audit sur chaque enregistrement.</p>
+      <div id="staffDossierSanteTip"></div>
       <div class="row" style="flex-wrap:wrap;gap:.65rem">
         <label><span class="label-fr">Nom</span><input id="idNom" value="${esc(e.nom || '')}"/></label>
         <label><span class="label-fr">Prénom</span><input id="idPrenom" value="${esc(e.prenom || '')}"/></label>
@@ -16377,6 +16999,23 @@ async function bindDossier(id) {
     out.innerHTML = renderDossier(d);
     const e0 = (d && d.eleve) || {};
     const dossierEleveLabel = [e0.prenom, e0.nom].filter(Boolean).join(' ').trim();
+
+    async function loadStaffDossierSanteTipBlock() {
+      const tipEl = document.getElementById('staffDossierSanteTip');
+      if (!tipEl || !staffCanSeeDossierSanteTip()) return;
+      try {
+        const [f, pai, pass] = await Promise.all([
+          api('/eleves/' + id + '/fiche-sante').catch(() => null),
+          api('/eleves/' + id + '/pai').catch(() => null),
+          api('/infirmerie/passages?eleve_id=' + encodeURIComponent(id)).catch(() => []),
+        ]);
+        const nPass = Array.isArray(pass) ? pass.length : 0;
+        refreshStaffDossierSanteTip(f || null, pai || null, nPass, { eleveId: id });
+      } catch (_) {
+        tipEl.innerHTML = '';
+      }
+    }
+    void loadStaffDossierSanteTipBlock();
 
     let lastDocsList = [];
 
@@ -21721,6 +22360,7 @@ function viewInfirmerie() {
     <div class="panel">
       <h2>Infirmerie — passages</h2>
       <p class="muted">Note de soins confidentielle. Si « visible famille », le parent voit le motif sans la note.</p>
+      <div id="infPassageDraftTip"></div>
       <div class="row">
         ${elevePickerRow('infEleve', 'infEleveQ', 'btnInfEleveSearch')}
         <label>Jour <input id="infJour" type="date" value="${today()}"/></label>
@@ -21744,6 +22384,7 @@ function viewInfirmerie() {
     <div class="panel">
       <h2>Fiche santé</h2>
       <p class="muted">Une fiche par élève. La famille voit allergies / traitements / PAI — jamais la note confidentielle.</p>
+      <div id="infFicheSanteTip"></div>
       <div class="row">
         <label>Élève <select id="fsEleve" style="min-width:12rem"></select></label>
         <label><input type="checkbox" id="fsPai"/> PAI actif</label>
@@ -21768,6 +22409,7 @@ function viewInfirmerie() {
     <div class="panel">
       <h2>PAI structuré</h2>
       <p class="muted">Mesures d'accueil + protocole. La famille signe pour accuser lecture. Une maj staff remet la signature à zéro.</p>
+      <div id="infPaiTip"></div>
       <div class="row">
         <label>Élève <select id="paiEleve" style="min-width:12rem"></select></label>
         <label>Début <input id="paiDebut" type="date" value="${today()}"/></label>
@@ -21808,6 +22450,44 @@ async function bindInfirmerie() {
   if (pageTip) pageTip.innerHTML = infirmeriePageTipDenseHtml();
   await bindElevePickers(['infEleve', 'fsEleve', 'paiEleve'], 'infEleveQ', 'btnInfEleveSearch');
 
+  let lastInfirmeriePaiForTip = null;
+  let lastInfirmeriePaiPieces = 0;
+
+  function infirmeriePassageDraftMeta() {
+    const eid = (document.getElementById('infEleve') && document.getElementById('infEleve').value.trim()) || '';
+    const vis = document.getElementById('infVisFam');
+    return {
+      eleveId: eid,
+      eleveLabel: infirmerieEleveLabel(eid),
+      visibleFamille: vis ? vis.checked : true,
+    };
+  }
+
+  function syncInfirmeriePassageDraftTip() {
+    refreshInfirmeriePassageDraftTip(infirmeriePassageDraftMeta());
+  }
+
+  function paiTipOpts(eid) {
+    const paiActifEl = document.getElementById('paiActif');
+    return {
+      eleveId: eid,
+      eleveLabel: infirmerieEleveLabel(eid),
+      draftActif: paiActifEl ? paiActifEl.checked : true,
+    };
+  }
+
+  async function refreshInfirmerieFicheSanteTipForEid(eid, f) {
+    if (!eid) return;
+    let pai = null;
+    try {
+      pai = await api('/eleves/' + eid + '/pai');
+    } catch (_) {}
+    refreshInfirmerieFicheSanteTip(f || null, pai || null, {
+      eleveId: eid,
+      eleveLabel: infirmerieEleveLabel(eid),
+    });
+  }
+
   function infirmeriePassagesEmptyHtml(jour, filtered) {
     const j = esc(jour || today());
     return staffEmptyDense(
@@ -21835,6 +22515,7 @@ async function bindInfirmerie() {
       btnAll.onclick = () => {
         const infEl = document.getElementById('infEleve');
         if (infEl) infEl.value = '';
+        syncInfirmeriePassageDraftTip();
         loadJour();
       };
     }
@@ -21908,6 +22589,7 @@ async function bindInfirmerie() {
             }
             paiEl.value = eid;
           }
+          syncInfirmeriePassageDraftTip();
           await loadJour();
           await loadFiche();
           if (typeof loadPai === 'function') await loadPai();
@@ -21933,6 +22615,7 @@ async function bindInfirmerie() {
         document.getElementById('fsUrgence').value = '';
         document.getElementById('fsNote').value = '';
         fsMsg.innerHTML = '<span class="muted">Aucune fiche — saisir puis enregistrer.</span>';
+        await refreshInfirmerieFicheSanteTipForEid(eid, null);
         return;
       }
       document.getElementById('fsAllergies').value = f.allergies || '';
@@ -21943,6 +22626,7 @@ async function bindInfirmerie() {
       document.getElementById('fsUrgence').value = f.urgence_tel || '';
       document.getElementById('fsNote').value = f.note_confidentielle || '';
       fsMsg.innerHTML = `<span class="ok">Fiche chargée${f.pai_actif ? ' · PAI' : ''}</span>`;
+      await refreshInfirmerieFicheSanteTipForEid(eid, f);
     } catch (e) {
       fsMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
     }
@@ -21963,6 +22647,9 @@ async function bindInfirmerie() {
       });
       msg.innerHTML = `<span class="ok">Passage ${esc(d.motif_libelle)} enregistré</span>`;
       document.getElementById('infNote').value = '';
+      const infEid = document.getElementById('infEleve').value.trim();
+      toastPassageInfirmerieCreee(d, { eleveId: infEid, eleveLabel: infirmerieEleveLabel(infEid) });
+      syncInfirmeriePassageDraftTip();
       await loadJour();
     } catch (e) {
       msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -21973,6 +22660,8 @@ async function bindInfirmerie() {
     const box = document.getElementById('paiPieces');
     try {
       const list = await api('/eleves/' + eid + '/pai/pieces');
+      lastInfirmeriePaiPieces = Array.isArray(list) ? list.length : 0;
+      refreshInfirmeriePaiTip(lastInfirmeriePaiForTip, lastInfirmeriePaiPieces, paiTipOpts(eid));
       if (!list.length) { box.innerHTML = '<p class="empty">Aucune ordonnance jointe.</p>'; return; }
       box.innerHTML = `<table><thead><tr><th>Fichier</th><th>Type</th><th>Taille</th><th>Ajouté</th><th></th></tr></thead>
         <tbody>${list.map(x => `<tr>
@@ -21989,20 +22678,32 @@ async function bindInfirmerie() {
       });
     } catch (e) {
       box.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+      lastInfirmeriePaiPieces = 0;
+      refreshInfirmeriePaiTip(lastInfirmeriePaiForTip, 0, paiTipOpts(eid));
     }
   }
 
   async function loadPai() {
     const eid = document.getElementById('paiEleve').value.trim();
-    if (!eid) { paiOut.innerHTML = '<p class="empty">Élève requis.</p>'; return; }
+    if (!eid) {
+      paiOut.innerHTML = '<p class="empty">Élève requis.</p>';
+      lastInfirmeriePaiForTip = null;
+      lastInfirmeriePaiPieces = 0;
+      refreshInfirmeriePaiTip(null, 0, paiTipOpts(''));
+      return;
+    }
     paiOut.textContent = 'Chargement…';
     try {
       const p = await api('/eleves/' + eid + '/pai');
       if (!p) {
+        lastInfirmeriePaiForTip = null;
+        lastInfirmeriePaiPieces = 0;
+        refreshInfirmeriePaiTip(null, 0, paiTipOpts(eid));
         paiOut.innerHTML = '<p class="empty">Aucun PAI — saisir puis enregistrer.</p>';
         document.getElementById('paiPieces').innerHTML = '';
         return;
       }
+      lastInfirmeriePaiForTip = p;
       document.getElementById('paiMotif').value = p.motif || '';
       document.getElementById('paiMesures').value = p.mesures_accueil || '';
       document.getElementById('paiProto').value = p.protocole_urgence || '';
@@ -22105,7 +22806,28 @@ async function bindInfirmerie() {
   };
   document.getElementById('infJour').onchange = loadJour;
   const infEleveEl = document.getElementById('infEleve');
-  if (infEleveEl) infEleveEl.onchange = loadJour;
+  if (infEleveEl) {
+    infEleveEl.onchange = async () => {
+      syncInfirmeriePassageDraftTip();
+      await loadJour();
+    };
+  }
+  const infVisFamEl = document.getElementById('infVisFam');
+  if (infVisFamEl) {
+    infVisFamEl.onchange = () => {
+      const meta = infirmeriePassageDraftMeta();
+      syncInfirmeriePassageDraftTip();
+      toastPassageInfirmerieVisFamDraft(infVisFamEl.checked, meta);
+    };
+  }
+  const paiActifEl = document.getElementById('paiActif');
+  if (paiActifEl) {
+    paiActifEl.onchange = () => {
+      const eid = document.getElementById('paiEleve').value.trim();
+      refreshInfirmeriePaiTip(lastInfirmeriePaiForTip, lastInfirmeriePaiPieces, paiTipOpts(eid));
+    };
+  }
+  syncInfirmeriePassageDraftTip();
   await loadJour();
   await loadFiche();
   await loadPai();
@@ -26125,6 +26847,7 @@ function viewNotes() {
     <div id="notesHomeTip"></div>
     <div id="notesHarrySeedTip"></div>
     <div id="notesGinnySeedTip"></div>
+    <div id="notesLunaSeedTip"></div>
     <div id="notesNevilleSeedTip"></div>
     <div class="panel" id="notesQuickLab" style="margin-bottom:.75rem">
       <div class="row" style="margin:0;align-items:flex-start">
@@ -26448,6 +27171,7 @@ async function bindNotes() {
       refreshNotesHomeTip(nDevSansNote, nDev, prefLabel, pref, nMat);
       await refreshNotesHarrySeedTip(devoirsPref);
       await refreshNotesGinnySeedTip(devoirsPref);
+      await refreshNotesLunaSeedTip(devoirsPref);
       await refreshNotesNevilleSeedTip(devoirsPref);
       box.innerHTML = `
         <div class="stat-tile bento-span-3"><strong>${nPer}</strong><span>Périodes · ${nPart} partielles</span></div>
@@ -27131,6 +27855,57 @@ async function bindNotes() {
       const btnNotes = document.getElementById('notesGinnySeedNotesBtn');
       if (btnNotes) {
         btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.ginnyId || g.id);
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesLunaSeedTip(devoirsPref) {
+    const el = document.getElementById('notesLunaSeedTip');
+    if (!el) return;
+    try {
+      const lunaId = await resolveLunaLovegoodEleveId();
+      if (!lunaId) {
+        el.innerHTML = '';
+        return;
+      }
+      let nNotes = 0;
+      let classe = '6A';
+      let frNoteLabel = '';
+      try {
+        const notes = await api('/eleves/' + lunaId + '/notes');
+        nNotes = (notes || []).length;
+        const frNote = (notes || []).find(n =>
+          /luna/i.test(String(n.libelle || ''))
+          || /français|francais/i.test(String(n.matiere_libelle || n.matiere || '')));
+        if (frNote && frNote.libelle) frNoteLabel = String(frNote.libelle);
+      } catch {
+        nNotes = 0;
+      }
+      try {
+        const eleve = await api('/eleves/' + lunaId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 6A */ }
+      el.innerHTML = notesLunaSeedTipDenseHtml({
+        lunaId,
+        nNotes,
+        classe,
+        frNoteLabel,
+      });
+      const btnNotes = document.getElementById('notesLunaSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.lunaId || lunaId);
+      }
+      const btnCl = document.getElementById('notesLunaSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip6A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '6A';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
       }
     } catch {
       el.innerHTML = '';
@@ -30697,6 +31472,7 @@ function viewFamilleSante() {
   return shell('/famille/sante', `
     <div id="famSantePaiBanner"></div>
     <div id="famSantePageTip" style="display:none;margin:0 0 .65rem"></div>
+    <div id="famSantePassagesTip" style="display:none;margin:0 0 .65rem"></div>
     <div class="panel">
       <h2>Santé</h2>
       <p class="muted">Fiche santé, PAI et passages infirmière — par enfant.</p>
@@ -30745,6 +31521,18 @@ async function bindFamilleSante() {
           pageTipEl.innerHTML = '';
         }
       }
+      const passTipEl = document.getElementById('famSantePassagesTip');
+      if (passTipEl) {
+        const densePass = famSantePassagesTipDenseHtml(passages, id, prenomSel);
+        if (densePass) {
+          passTipEl.style.display = '';
+          passTipEl.innerHTML = densePass;
+        } else {
+          passTipEl.style.display = 'none';
+          passTipEl.innerHTML = '';
+        }
+      }
+      maybeToastFamSanteOuverte(f, pai, passages, id, prenomSel);
       const alResume = famSanteAllergieResume(f && f.allergies, 999);
       const densePanel = 'padding:.65rem .75rem;margin:.45rem 0;font-size:.88rem;line-height:1.35';
       const alWarn = !alResume.empty || (pai && !pai.signe_famille)
