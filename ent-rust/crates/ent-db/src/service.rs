@@ -65,7 +65,8 @@ use domain_eleve::{
     plan_choisir_option_n1, plan_configurer_acompte_campagne, plan_create, plan_creer_bourse_type,
     plan_creer_repas_activite, plan_cutover,     plan_decider_bourse, plan_decider_grant, plan_enregistrer_passage_badge,
     plan_declare_absence, plan_demander_grant, plan_deposer_document,
-    plan_confirmer_reinscription_parent, plan_enregistrer_scolarite_annee, plan_justifier_absence,
+    plan_annuler_soumission_justificatif, plan_confirmer_reinscription_parent,
+    plan_enregistrer_scolarite_annee, plan_justifier_absence,
     plan_montee_rapide, plan_ouvrir_campagne, plan_poser_dispense_repas, plan_poser_exigence_doc,
     plan_poser_grille_repas, plan_refuser_justificatif, plan_sortir, plan_update_identite,
     today_utc, Absence, AbsenceStatut,
@@ -1554,6 +1555,23 @@ impl PgEnt {
         Ok(absence)
     }
 
+    pub async fn annuler_soumission_justificatif(
+        &self,
+        cmd: JustifierAbsence,
+    ) -> Result<Absence, EntDbError> {
+        let current = self
+            .absences
+            .get(cmd.etablissement_id, cmd.absence_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let planned = plan_annuler_soumission_justificatif(&current, cmd)?;
+        self.absences.upsert(&planned.absence).await?;
+        if let Some(event) = planned.event {
+            self.events.publish(event).await?;
+        }
+        Ok(planned.absence)
+    }
+
     /// Authz + justif : charge l'absence, vérifie le droit sur l'élève, applique.
     pub async fn justifier_absence_for_actor(
         &self,
@@ -1583,6 +1601,38 @@ impl PgEnt {
             etablissement_id,
             absence_id,
             motif_justif,
+            actor_user_id,
+        })
+        .await
+    }
+
+    pub async fn annuler_soumission_justificatif_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        absence_id: Uuid,
+    ) -> Result<Absence, EntDbError> {
+        let current = self
+            .absences
+            .get(etablissement_id, absence_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let allowed = self
+            .actor_can_justifier_absence(
+                etablissement_id,
+                actor_user_id,
+                role,
+                current.eleve_id,
+            )
+            .await?;
+        if !allowed {
+            return Err(EntDbError::Forbidden);
+        }
+        self.annuler_soumission_justificatif(JustifierAbsence {
+            etablissement_id,
+            absence_id,
+            motif_justif: String::new(),
             actor_user_id,
         })
         .await

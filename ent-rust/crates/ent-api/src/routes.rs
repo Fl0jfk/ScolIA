@@ -192,6 +192,10 @@ pub fn router() -> Router<AppState> {
         .route("/eleves/{id}/absent", get(eleve_absent))
         .route("/absences/{id}/justifier", post(justifier_absence))
         .route(
+            "/absences/{id}/annuler-justificatif",
+            post(annuler_soumission_justificatif),
+        )
+        .route(
             "/absences/{id}/accepter-justificatif",
             post(accepter_justificatif),
         )
@@ -1814,6 +1818,24 @@ async fn justifier_absence(
             &session.role,
             id,
             body.motif_justif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AbsenceDto::from(&absence)))
+}
+
+async fn annuler_soumission_justificatif(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AbsenceDto>, (StatusCode, String)> {
+    let absence = state
+        .ent
+        .annuler_soumission_justificatif_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
         )
         .await
         .map_err(map_db)?;

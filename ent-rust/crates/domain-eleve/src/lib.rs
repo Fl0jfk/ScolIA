@@ -66,7 +66,8 @@ mod lsun_export;
 pub use absence::{
     annee_scolaire_de, corps_alerte_seuil, debut_annee_scolaire, module_absences_voit_absent,
     module_cantine_voit_absent, plan_accepter_justificatif, plan_annuler_vers_present,
-    plan_clore_signal_absence, plan_declare_absence, plan_justifier_absence,
+    plan_annuler_soumission_justificatif, plan_clore_signal_absence, plan_declare_absence,
+    plan_justifier_absence,
     plan_prendre_en_charge_signal, plan_refuser_justificatif, sujet_alerte_seuil, today_utc,
     Absence, AbsenceRepository, AbsenceStatut, CloreSignalAbsence, DecisionAbsence, DeclareAbsence,
     InMemoryAbsenceRepo, JustifierAbsence, PlannedAbsence, PrendreEnChargeSignal, SignalAbsence,

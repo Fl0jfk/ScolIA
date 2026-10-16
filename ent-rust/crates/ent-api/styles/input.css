@@ -608,6 +608,14 @@
   .edt-slot {
     @apply mb-1.5 rounded-xl border border-ent-line bg-white/90 px-2.5 py-1.5 text-[0.82rem] leading-snug;
   }
+  .edt-slot-now {
+    border-color: var(--accent, #2563eb);
+    background: color-mix(in srgb, var(--accent, #2563eb) 12%, white);
+    box-shadow: inset 3px 0 0 var(--accent, #2563eb);
+  }
+  ul .edt-slot-now {
+    @apply list-none rounded-xl border px-2.5 py-1.5;
+  }
   .edt-slot:last-child {
     @apply mb-0;
   }
