@@ -18,6 +18,14 @@ test("isDashboardSignalsAggregateCacheable — ok si toutes les sources ok", () 
   assert.equal(isDashboardSignalsAggregateCacheable(allOk()), true);
 });
 
+test("isDashboardSignalsAggregateCacheable — accepte stale", () => {
+  const staleMix: Record<DashboardSignalSourceId, SignalSourceStatus> = {
+    ...allOk(),
+    others: "stale",
+  };
+  assert.equal(isDashboardSignalsAggregateCacheable(staleMix), true);
+});
+
 test("isDashboardSignalsAggregateCacheable — refuse timeout ou error", () => {
   const partial: Record<DashboardSignalSourceId, SignalSourceStatus> = {
     ...allOk(),

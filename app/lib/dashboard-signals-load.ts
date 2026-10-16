@@ -64,6 +64,7 @@ import {
   type DashboardSignalSourceId,
   type SignalSourceStatus,
 } from "@/app/lib/dashboard-signals-parallel";
+import { buildDashboardSourceStaleAdapters } from "@/app/lib/dashboard-signals-source-stale";
 import { valkeyCached } from "@/app/lib/valkey";
 import {
   VALKEY_TTL,
@@ -963,6 +964,7 @@ export async function loadDashboardSignalSources(ctx: DashboardSignalsLoadContex
   stepsMs: Record<DashboardSignalSourceId, number>;
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus>;
 }> {
+  const stale = buildDashboardSourceStaleAdapters(ctx.signalsEtabId, ctx.user.id);
   const { outcomes, stepsMs, sourceStatus } = await runParallelSignalSources<DashboardSignalSourcesBundle>({
     internat: () => loadInternatSource(ctx),
     rh: () => loadRhSource(ctx),
@@ -971,7 +973,7 @@ export async function loadDashboardSignalSources(ctx: DashboardSignalsLoadContex
     documents: () => loadDocumentsSource(ctx),
     stages: () => loadStagesSource(ctx),
     others: () => loadOthersSource(ctx),
-  });
+  }, { stale });
 
   const bundle: DashboardSignalSourcesBundle = {
     internat: unwrapSignalSource(outcomes.internat, EMPTY_INTERNAT),

@@ -9,5 +9,7 @@ export function isDashboardSignalsAggregateCacheable(
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
 ): boolean {
   if (!sourceStatus) return false;
-  return DASHBOARD_SIGNAL_SOURCES.every((id) => sourceStatus[id] === "ok");
+  return DASHBOARD_SIGNAL_SOURCES.every(
+    (id) => sourceStatus[id] === "ok" || sourceStatus[id] === "stale",
+  );
 }

@@ -23,6 +23,7 @@ export async function invalidateDashboardSignalsForEstablishment(
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:rh-now:${etabId}:`),
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:stages-pend:${etabId}:`),
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:req-board:${etabId}:`),
+    valkeyDeleteByPrefix(`${NS}:dash:sig-bundle:${etabId}:`),
     valkeyDel(valkeyKeyDashboardSignalsAbsenceIndex(etabId)),
   ]);
 }
