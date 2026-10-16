@@ -569,6 +569,13 @@
     @apply mb-0.5 block text-[0.78rem] text-ent-muted;
   }
 
+  .edt-toolbar {
+    @apply flex flex-wrap items-end gap-2;
+  }
+  .edt-ical-btn {
+    @apply ml-auto shrink-0 font-semibold;
+  }
+
   .edt-week {
     @apply grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5;
   }

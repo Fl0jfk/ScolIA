@@ -18,7 +18,8 @@ use domain_eleve::{
     DemanderGrant, DocConfidentialite, DocTiroir, EncaisserFacture, EntretienPsyKind, FactureStatut,
     AlerteCpeStatut, DispenseVsMotif, DispenseVsStatut, PoserDispenseVs, UpsertAutorisationSortie,
     LigneFactureCmd, MonteeRapide, MoyenPaiement, OptionAnneeStatut, OptionNature,
-    OuvrirCampagneReinscription, OuvrirFil, PassageInfirmerieMotif, PointerPresenceInternat,
+    NotePeriodeStatut, OuvrirCampagneReinscription, OuvrirFil, PassageInfirmerieMotif,
+    PointerPresenceInternat,
     PrononcerSanction, PublierDocASigner, RepasActiviteKind, SaisirAppreciation, UpsertDossierPsy,
     UpsertFicheSante, UpsertInfoCompValeur, UpsertMenuCantine, UpsertPai, UpsertQuotientFoyer,
 };
@@ -301,6 +302,8 @@ impl PgEnt {
             .await?;
 
         let mut eleves = Vec::with_capacity(ELEVES_SEED.len());
+        // Molly Weasley — un compte parent + un foyer pour Ron et Ginny (cast Weasley).
+        let mut weasley_parent_foyer: Option<(LaboPersona, Uuid)> = None;
 
         for (idx, (prenom, nom, classe, peut_justifier, peut_voir_notes, peut_voir_vs)) in
             ELEVES_SEED.iter().enumerate()
@@ -317,21 +320,29 @@ impl PgEnt {
                 "Seamus" => "Parent Finnigan",
                 _ => "Parent",
             };
-            let parent = self
-                .register_login(
-                    &format!("parent{idx}-{short}@ent.lab"),
-                    Role::Parent,
-                    parent_display,
-                    etab,
-                )
-                .await?;
-            // Mobile lab (SMS dry-run) — unique par parent.
-            let _ = self
-                .set_user_telephone(
-                    parent.user_id,
-                    &format!("06{:08}", 12_000_000 + idx as i32),
-                )
-                .await;
+            let parent = if *prenom == "Ginny" {
+                weasley_parent_foyer
+                    .as_ref()
+                    .map(|(p, _)| p.clone())
+                    .expect("Ron seedé avant Ginny dans ELEVES_SEED")
+            } else {
+                let email = if *prenom == "Ron" {
+                    format!("weasley-{short}@ent.lab")
+                } else {
+                    format!("parent{idx}-{short}@ent.lab")
+                };
+                let p = self
+                    .register_login(&email, Role::Parent, parent_display, etab)
+                    .await?;
+                // Mobile lab (SMS dry-run) — unique par parent.
+                let _ = self
+                    .set_user_telephone(
+                        p.user_id,
+                        &format!("06{:08}", 12_000_000 + idx as i32),
+                    )
+                    .await;
+                p
+            };
 
             let naissance = NaiveDate::from_ymd_opt(2012 + (idx as i32 % 4), 3 + (idx as u32), 10)
                 .unwrap_or_else(|| NaiveDate::from_ymd_opt(2013, 5, 1).unwrap());
@@ -403,9 +414,23 @@ impl PgEnt {
                 .await?;
             }
 
-            let foyer = self
-                .create_foyer(etab, Some(&format!("Foyer {nom}")))
-                .await?;
+            let foyer = if *prenom == "Ginny" {
+                weasley_parent_foyer
+                    .as_ref()
+                    .map(|(_, f)| *f)
+                    .expect("foyer Weasley")
+            } else {
+                let f = if *prenom == "Ron" {
+                    self.create_foyer(etab, Some("Foyer Weasley")).await?
+                } else {
+                    self.create_foyer(etab, Some(&format!("Foyer {nom}")))
+                        .await?
+                };
+                if *prenom == "Ron" {
+                    weasley_parent_foyer = Some((parent.clone(), f));
+                }
+                f
+            };
 
             self.link_parent(CreateLien {
                 etablissement_id: etab,
@@ -610,7 +635,9 @@ impl PgEnt {
         )
         .await?;
 
-        let parent_weasley = labo_eleve_prenom(&eleves, "Ron").map(|r| r.parent.clone());
+        let parent_weasley = weasley_parent_foyer
+            .map(|(p, _)| p)
+            .or_else(|| labo_eleve_prenom(&eleves, "Ron").map(|r| r.parent.clone()));
         let eleve_ron_id = labo_eleve_prenom(&eleves, "Ron").map(|r| r.id);
         let eleve_ginny_id = labo_eleve_prenom(&eleves, "Ginny").map(|r| r.id);
 
@@ -1598,6 +1625,24 @@ impl PgEnt {
                 )
                 .await;
         }
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            if self
+                .get_eleve(etab, hermione.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        hermione.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
         let champs_ic = self
             .list_info_comp_champs_for_actor(etab, role_admini)
             .await?;
@@ -1969,6 +2014,102 @@ impl PgEnt {
             }
         }
 
+        // --- Outbox mail/SMS dry-run (carnet visible famille → notify_parents_* si mailer prêt)
+        const CARNET_OUTBOX_AUDIT_TITRE: &str = "AUDIT: Outbox dry-run Harry";
+        let carnet_outbox = self
+            .list_carnet_for_actor(etab, cpe.user_id, Role::Cpe.as_str(), harry.id)
+            .await?;
+        if !carnet_outbox
+            .iter()
+            .any(|c| c.titre == CARNET_OUTBOX_AUDIT_TITRE)
+        {
+            self.creer_carnet_entree(CreerCarnetEntree {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                date_entree: jour,
+                categorie: CarnetCategorie::Information,
+                titre: CARNET_OUTBOX_AUDIT_TITRE.into(),
+                corps: "Seed labo — entrée carnet déclenchant mail + SMS outbox (dry-run) vers Lily Potter."
+                    .into(),
+                visible_famille: true,
+                actor_user_id: cpe.user_id,
+            })
+            .await?;
+        }
+
+        // --- Bulletin démo : période T0 fermée (T1 reste ouverte pour la saisie)
+        const T0_NOTE_LIB: &str = "Contrôle T0 démo bulletin";
+        let fin_t0 = debut_as - Duration::days(1);
+        let debut_t0 = fin_t0 - Duration::days(90);
+        let periode_t0 = self
+            .ensure_note_periode_lab(
+                etab,
+                "T0",
+                "Trimestre 0 (démo)",
+                debut_t0,
+                fin_t0,
+                &actor_admin,
+            )
+            .await?;
+        if periode_t0.statut.autorise_saisie_notes()
+            && !self
+                .notes_for_eleve(etab, harry.id)
+                .await?
+                .iter()
+                .any(|n| {
+                    n.periode_id == Some(periode_t0.id)
+                        && n.libelle.as_deref() == Some(T0_NOTE_LIB)
+                })
+        {
+            self.saisir_note(SaisirNote {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                matiere_id: potions.id,
+                valeur: 15.0,
+                sur: 20.0,
+                date_note: fin_t0 - Duration::days(14),
+                auteur_user_id: prof_rogue.user_id,
+                libelle: Some(T0_NOTE_LIB.into()),
+                devoir_id: None,
+                periode_id: Some(periode_t0.id),
+            })
+            .await?;
+        }
+        let periode_t0 = if periode_t0.statut != NotePeriodeStatut::Fermee {
+            self.set_note_periode_statut(
+                etab,
+                periode_t0.id,
+                NotePeriodeStatut::Fermee,
+                Some(actor_admin.clone()),
+            )
+            .await?
+        } else {
+            periode_t0
+        };
+        let docs_harry_bul = self
+            .list_documents_meta_eleve_for_actor(
+                etab,
+                administratif.user_id,
+                role_admini,
+                harry.id,
+            )
+            .await?;
+        let bulletin_t0_code = format!("BULLETIN_{}", periode_t0.code);
+        if !docs_harry_bul
+            .iter()
+            .any(|(d, _)| d.code.as_deref() == Some(bulletin_t0_code.as_str()))
+        {
+            let _ = self
+                .publier_bulletin_for_actor(
+                    Role::Direction.as_str(),
+                    etab,
+                    harry.id,
+                    periode_t0.id,
+                    admin.user_id,
+                )
+                .await;
+        }
+
         // --- Messagerie CPE → parent Harry (1 fil, 1 message) — sans signature docs
         const FIL_CPE_AUDIT_SUJET: &str = "AUDIT: Point conduite Harry";
         let role_cpe = Role::Cpe.as_str();
@@ -2030,18 +2171,31 @@ impl PgEnt {
         date_fin: NaiveDate,
         actor_user_id: &str,
     ) -> Result<domain_eleve::NotePeriode, EntDbError> {
+        self.ensure_note_periode_lab(etab, "T1", "Trimestre 1", date_debut, date_fin, actor_user_id)
+            .await
+    }
+
+    async fn ensure_note_periode_lab(
+        &self,
+        etab: Uuid,
+        code: &str,
+        libelle: &str,
+        date_debut: NaiveDate,
+        date_fin: NaiveDate,
+        actor_user_id: &str,
+    ) -> Result<domain_eleve::NotePeriode, EntDbError> {
         if let Some(p) = self
             .list_note_periodes(etab)
             .await?
             .into_iter()
-            .find(|p| p.code.eq_ignore_ascii_case("T1"))
+            .find(|p| p.code.eq_ignore_ascii_case(code))
         {
             return Ok(p);
         }
         self.creer_note_periode(CreerNotePeriode {
             etablissement_id: etab,
-            code: "T1".into(),
-            libelle: "Trimestre 1".into(),
+            code: code.into(),
+            libelle: libelle.into(),
             date_debut,
             date_fin,
             actor_user_id: Some(actor_user_id.to_string()),

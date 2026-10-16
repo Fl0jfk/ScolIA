@@ -661,6 +661,13 @@ struct LaboBootstrapDto {
     personnel: Vec<LaboPersonnelDto>,
     foyer_lea_id: Uuid,
     foyer_tom_id: Uuid,
+    /// Molly Weasley — parent commun Ron + Ginny (seed audit).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_weasley: Option<LaboPersonaDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    eleve_ron_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    eleve_ginny_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -724,6 +731,13 @@ async fn labo_bootstrap(
             role: cast.parent_tom.role.as_str().into(),
         },
     ];
+    if let Some(ref molly) = cast.parent_weasley {
+        personas.push(LaboPersonaDto {
+            label: "Parent - Molly Weasley (Ron + Ginny)".into(),
+            email: molly.email.clone(),
+            role: molly.role.as_str().into(),
+        });
+    }
     if let Some(inf) = cast.infirmieres.first() {
         personas.push(LaboPersonaDto {
             label: "Infirmerie - Poppy Pomfresh".into(),
@@ -785,6 +799,12 @@ async fn labo_bootstrap(
         push_pers(p, &format!("Psy {}", i + 1));
     }
 
+    let parent_weasley = cast.parent_weasley.as_ref().map(|p| LaboPersonaDto {
+        label: "Parent - Molly Weasley (Ron + Ginny)".into(),
+        email: p.email.clone(),
+        role: p.role.as_str().into(),
+    });
+
     Ok(Json(LaboBootstrapDto {
         etablissement_id: cast.etablissement_id,
         password: LABO_PASSWORD.to_string(),
@@ -793,6 +813,9 @@ async fn labo_bootstrap(
         personnel,
         foyer_lea_id: cast.foyer_lea_id,
         foyer_tom_id: cast.foyer_tom_id,
+        parent_weasley,
+        eleve_ron_id: cast.eleve_ron_id,
+        eleve_ginny_id: cast.eleve_ginny_id,
     }))
 }
 
