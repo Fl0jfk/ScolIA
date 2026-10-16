@@ -262,6 +262,8 @@ export type TravelsTripData = {
   parentComLogs?: TravelsParentComLog[];
   /** E-mails parents ayant reçu le calendrier .ics (reprise après échec partiel d’envoi). */
   parentCalendarNotifiedEmails?: string[];
+  /** Empreinte du calendrier au moment du dernier envoi (dates / horaires / lieux). */
+  parentCalendarNotifyContentHash?: string;
   /** Heure / lieu de rendez-vous parents (legacy — un créneau). */
   parentMeeting?: TravelsParentMeeting;
   /** Calendrier parents multi-points (séjour + dépôt + récupération…). */
