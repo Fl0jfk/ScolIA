@@ -127,16 +127,8 @@ export function resolveHomeMainTasks(opts: ResolveOpts): HomeMainTask[] {
     });
   }
 
-  // Professeur → planning (notes plus tard)
+  // Professeur → gestes quotidiens (salles, photocopies, HSE, sorties)
   if (hasRole(roles, "professeur")) {
-    push({
-      id: "task-mon-planning",
-      moduleId: "mon-planning",
-      label: "Mon planning",
-      detail: "Emploi du temps",
-      href: moduleHref("mon-planning"),
-      emoji: MODULE_EMOJI["mon-planning"] || "🗓️",
-    });
     push({
       id: "task-prof-room",
       moduleId: "prof-room",
@@ -144,6 +136,44 @@ export function resolveHomeMainTasks(opts: ResolveOpts): HomeMainTask[] {
       detail: "Réserver une salle",
       href: moduleHref("prof-room"),
       emoji: MODULE_EMOJI["prof-room"] || "🚪",
+    });
+    push({
+      id: "task-photocopies",
+      moduleId: "photocopies-couleur",
+      label: "Photocopies",
+      detail: "Demander une impression",
+      href: moduleHref("photocopies-couleur"),
+      emoji: MODULE_EMOJI["photocopies-couleur"] || "🖨️",
+    });
+    // HSE absorbé dans RH : accessible via demandes-hse ou hub rh
+    if (canAccess(opts, "demandes-hse") || canAccess(opts, "rh")) {
+      if (!seen.has("demandes-hse")) {
+        seen.add("demandes-hse");
+        out.push({
+          id: "task-hse",
+          moduleId: "demandes-hse",
+          label: "Demande HSE",
+          detail: "Heures supplémentaires",
+          href: "/rh?tab=dashboard&section=hse",
+          emoji: MODULE_EMOJI["demandes-hse"] || "⏱️",
+        });
+      }
+    }
+    push({
+      id: "task-travels-prof",
+      moduleId: "travels",
+      label: "Sorties scolaires",
+      detail: "Déclarer ou suivre une sortie",
+      href: moduleHref("travels"),
+      emoji: MODULE_EMOJI.travels || "🚌",
+    });
+    push({
+      id: "task-mon-planning",
+      moduleId: "mon-planning",
+      label: "Mon planning",
+      detail: "Emploi du temps",
+      href: moduleHref("mon-planning"),
+      emoji: MODULE_EMOJI["mon-planning"] || "🗓️",
     });
   }
 
