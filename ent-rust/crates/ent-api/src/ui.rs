@@ -1445,19 +1445,63 @@ function isStaffMessagesFlux() {
   return path() === '/app/messages';
 }
 
+function msgStaffFilsStats(fils) {
+  const filsList = fils || [];
+  const nonLus = filsList.reduce((s, f) => s + (Number(f.nb_non_lus) || 0), 0);
+  const nFilUnread = filsList.filter(f => (Number(f.nb_non_lus) || 0) > 0).length;
+  const nHaute = filsList.filter(f => f.priorite === 'haute' && !f.archive).length;
+  const nHauteUnread = filsList.filter(f =>
+    f.priorite === 'haute' && !f.archive && (Number(f.nb_non_lus) || 0) > 0
+  ).length;
+  const nArch = filsList.filter(f => f.archive).length;
+  const nActifs = filsList.filter(f => !f.archive).length;
+  return { filsList, nonLus, nFilUnread, nHaute, nHauteUnread, nArch, nActifs };
+}
+
+/** /app/messages staff — tuile non lus (bandeau page). */
+function messagesPageStaffUnreadTipDenseHtml(fils) {
+  const { nonLus, nFilUnread, nActifs } = msgStaffFilsStats(fils);
+  if (nonLus) {
+    return `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nonLus}</strong><span>Non lu(s) · ${nFilUnread} fil(s)</span>
+      </div>`;
+  }
+  return `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">0</strong><span>Boîte à jour · ${nActifs} fil(s) actif(s)</span>
+    </div>`;
+}
+
+/** /app/messages staff — tuile priorité haute (bandeau page). */
+function messagesPageStaffPrioTipDenseHtml(fils) {
+  const { nHaute, nHauteUnread } = msgStaffFilsStats(fils);
+  if (nHaute) {
+    const unreadLbl = nHauteUnread ? ` · ${nHauteUnread} non lu(s)` : '';
+    return `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nHaute}</strong><span>Priorité haute · à traiter${unreadLbl}</span>
+      </div>`;
+  }
+  return `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucune priorité haute</span></div>`;
+}
+
+/** Accueil staff — compteurs fils actifs / archivés / non lus. */
+function homeStaffMsgCountTipDenseHtml(fils, nMsg) {
+  const n = Number(nMsg) || 0;
+  const { nActifs, nArch, nFilUnread } = msgStaffFilsStats(fils);
+  const archPart = nArch ? ` · ${nArch} archivé(s)` : '';
+  const filPart = nFilUnread ? ` · ${nFilUnread} fil(s) à lire` : '';
+  return `<a class="stat-tile bento-span-4" href="/app/messages" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>${nActifs}</strong><span>Fil(s) actif(s)${archPart} · ${n} msg non lu(s)${filPart}</span>
+    </a>`;
+}
+
 /** /app/messages staff — synthèse boîte (non lus, priorité, archives, dossier). */
 function messagesPageStaffTipDenseHtml(fils, opts) {
   if (!isStaffMessagesFlux()) return '';
   const o = opts || {};
-  const filsList = fils || [];
+  const { filsList, nonLus, nArch, nActifs } = msgStaffFilsStats(fils);
   const showArchives = !!o.showArchives;
   const dossierRaw = o.dossierFilter ? String(o.dossierFilter).trim() : '';
   const dossierLbl = dossierRaw ? esc(dossierRaw) : '';
-  const nonLus = filsList.reduce((s, f) => s + (Number(f.nb_non_lus) || 0), 0);
-  const nFilUnread = filsList.filter(f => (Number(f.nb_non_lus) || 0) > 0).length;
-  const nHaute = filsList.filter(f => f.priorite === 'haute' && !f.archive).length;
-  const nArch = filsList.filter(f => f.archive).length;
-  const nActifs = filsList.filter(f => !f.archive).length;
   const sorted = filsList.slice().sort((a, b) =>
     (Number(b.nb_non_lus) || 0) - (Number(a.nb_non_lus) || 0)
     || String(b.last_message_at || b.created_at || '').localeCompare(String(a.last_message_at || a.created_at || ''))
@@ -1465,18 +1509,8 @@ function messagesPageStaffTipDenseHtml(fils, opts) {
   const top = sorted.find(f => (Number(f.nb_non_lus) || 0) > 0) || sorted[0] || null;
   const subjRaw = top ? String(top.sujet || 'Fil').trim() : '';
   const subj = subjRaw.length > 26 ? esc(subjRaw.slice(0, 26)) + '…' : esc(subjRaw || '—');
-  const unreadTile = nonLus
-    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
-        <strong class="warn">${nonLus}</strong><span>Non lu(s) · ${nFilUnread} fil(s)</span>
-      </div>`
-    : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-        <strong class="ok">0</strong><span>Boîte à jour · ${nActifs} fil(s) actif(s)</span>
-      </div>`;
-  const prioTile = nHaute
-    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
-        <strong class="warn">${nHaute}</strong><span>Priorité haute · à traiter</span>
-      </div>`
-    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucune priorité haute</span></div>`;
+  const unreadTile = messagesPageStaffUnreadTipDenseHtml(filsList);
+  const prioTile = messagesPageStaffPrioTipDenseHtml(filsList);
   const archTile = showArchives
     ? `<div class="stat-tile bento-span-4" style="border-color:var(--muted,#64748b)">
         <strong>${nArch}</strong><span>Archivé(s) affiché(s)${dossierLbl ? ' · dossier ' + dossierLbl : ''}</span>
@@ -1538,10 +1572,7 @@ function homeStaffMsgTipDenseHtml(fils, nMsg) {
     : `<a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
         <strong>${subject}</strong><span>${topN ? topN + ' non lu(s) · ' : ''}Dernier fil</span>
       </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${unreadTile}${prioTile}
-    <a class="stat-tile bento-span-4" href="/app/messages" style="text-decoration:none">
-      <strong>→</strong><span>Ouvrir la messagerie</span>
-    </a>
+  return `<div class="bento" style="margin:0 0 .55rem">${unreadTile}${prioTile}${homeStaffMsgCountTipDenseHtml(filsList, n)}
   </div>`;
 }
 
@@ -1559,6 +1590,10 @@ function messagesPageUnreadTipDenseHtml(fils, opts) {
   );
   const top = sorted.find(f => (Number(f.nb_non_lus) || 0) > 0) || sorted[0] || null;
   const subj = top ? esc(String(top.sujet || 'Fil').trim().slice(0, 26)) : '—';
+  const nHaute = filsList.filter(f => f.priorite === 'haute' && !f.archive).length;
+  const nHauteUnread = filsList.filter(f =>
+    f.priorite === 'haute' && !f.archive && (Number(f.nb_non_lus) || 0) > 0
+  ).length;
   const unreadTile = nonLus
     ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
         <strong class="warn">${nonLus}</strong><span>Message(s) non lu(s) · ${nFilUnread} fil(s)</span>
@@ -1566,17 +1601,24 @@ function messagesPageUnreadTipDenseHtml(fils, opts) {
     : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
         <strong class="ok">0</strong><span>Messagerie à jour</span>
       </div>`;
+  const prioTile = nHaute
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--warn,#b45309)">
+        <strong class="warn">${nHauteUnread || nHaute}</strong><span>Priorité haute${nHauteUnread ? ' · non lu(s)' : ''}</span>
+      </div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Pas de priorité haute</span></div>`;
   const filTile = top
     ? `<div class="stat-tile bento-span-4"><strong>${subj}</strong><span>Dernier fil · ouvrir = lu</span></div>`
     : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucun fil pour le moment</span></div>`;
+  const composeTile = `<a class="stat-tile bento-span-4" href="#btnOuvrirFil" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Sujet</strong><span>Nouveau fil · formulaire ci-dessus</span>
+    </a>`;
   const actTile = nonLus
     ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
         <strong>↓</strong><span>Ouvrir un fil ci-dessous</span>
       </div>`
-    : `<a class="stat-tile bento-span-4" href="${esc(href)}" style="text-decoration:none">
-        <strong>+</strong><span>Nouveau fil · contacter l’établissement</span>
-      </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${unreadTile}${filTile}${actTile}</div>`;
+    : composeTile;
+  const composeHint = nonLus ? composeTile : '';
+  return `<div class="bento" style="margin:0 0 .55rem">${unreadTile}${prioTile}${filTile}${actTile}${composeHint}</div>`;
 }
 
 function portalMsgDenseHtml(fils, nonLus, opts) {
@@ -1622,16 +1664,35 @@ function famHomeMsgTipDenseHtml(fils, nonLus) {
   const filHref = top && top.id
     ? `/famille/messages?fil=${encodeURIComponent(String(top.id))}`
     : '/famille/messages';
+  const nHaute = (fils || []).filter(f =>
+    f.priorite === 'haute' && (Number(f.nb_non_lus) || 0) > 0,
+  ).length;
+  const prioTile = nHaute
+    ? `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nHaute}</strong><span>Priorité haute · à lire</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${subject}</strong><span>${topN ? topN + ' non lu(s) · ' : ''}Dernier fil</span>
+      </a>`;
+  const filTile = nHaute
+    ? `<a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>${subject}</strong><span>${topN ? topN + ' non lu(s) · ' : ''}${nFil} fil(s)</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+        <strong>→</strong><span>Ouvrir la messagerie</span>
+      </a>`;
+  const openTile = nHaute
+    ? `<a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+        <strong>↓</strong><span>Ouvrir la messagerie</span>
+      </a>`
+    : filTile;
   return `<div class="bento" style="margin:0">
     <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none;border-color:var(--warn,#b45309)">
       <strong class="warn">${n}</strong><span>Message(s) non lu(s)</span>
     </a>
-    <a class="stat-tile bento-span-4" href="${esc(filHref)}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>${subject}</strong><span>${topN ? topN + ' non lu(s) · ' : ''}${nFil} fil(s)</span>
-    </a>
-    <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
-      <strong>↓</strong><span>Ouvrir la messagerie</span>
-    </a>
+    ${prioTile}
+    ${nHaute ? filTile : ''}
+    ${openTile}
   </div>`;
 }
 
@@ -3982,6 +4043,26 @@ function bindEleveNotePeriodePrintTip() {
   };
 }
 
+function isLabSeamusEleveSession() {
+  if (!me || !isEleve()) return false;
+  return /^seamus$/i.test(String(me.prenom || '').trim())
+    && /finnigan/i.test(String(me.nom || '').trim());
+}
+
+/** Élève /eleve/notes — liste vide · repère seed labo Seamus Finnigan (6A). */
+function eleveNotesSeamusSeedTipDenseHtml(classe) {
+  const cl = esc(String(classe || '6A').trim());
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Seamus Finnigan</strong><span>Seed labo · ${cl} · audit portail notes</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Potions</strong><span>Interro lab · après publication prof</span></div>
+    <a class="stat-tile bento-span-4" href="/eleve/cahier" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+      <strong>Cahier</strong><span>Devoirs quotidiens · en attendant</span>
+    </a>
+  </div>`;
+}
+
 function eleveNotesListEmptyTipDenseHtml(periode) {
   if (!periode) return '';
   const label = esc(notePeriodeFermeeLabel(periode));
@@ -4013,7 +4094,12 @@ function refreshEleveNotesListEmptyTip(periode, notes) {
     el.innerHTML = '';
     return;
   }
-  el.innerHTML = eleveNotesListEmptyTipDenseHtml(periode);
+  let html = eleveNotesListEmptyTipDenseHtml(periode);
+  if (isLabSeamusEleveSession()) {
+    const cl = (me && me.classe) ? String(me.classe) : '6A';
+    html += eleveNotesSeamusSeedTipDenseHtml(cl);
+  }
+  el.innerHTML = html;
   bindEleveNotesListEmptyPrintTip();
 }
 
@@ -9116,6 +9202,28 @@ function toastFamSortieAutorisation(prenom, creneaux, opts) {
     : 'Sortie permanente mise à jour.';
   showEntToast(`<strong>Autorisation enregistrée</strong> — ${who}${detail}. ${fin}`, 8000);
 }
+function toastFilArchiveRestoreTipDenseHtml() {
+  return `<button type="button" class="stat-tile bento-span-4" id="entToastFilRestoreDense" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>↩</strong><span>Réafficher · cocher Archives · fil ouvert</span>
+    </button>`;
+}
+
+function bindFilArchiveRestoreTipGo() {
+  const btn = document.getElementById('entToastFilRestoreDense');
+  if (!btn) return;
+  btn.onclick = () => {
+    const toastChk = document.getElementById('entToastFilArchivesChk');
+    const chk = document.getElementById('chkArchives');
+    if (chk && !chk.checked) {
+      chk.checked = true;
+      chk.dispatchEvent(new Event('change'));
+    }
+    if (toastChk) toastChk.checked = true;
+    document.getElementById('filsOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('filPanel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+}
+
 function toastFilArchiver(sujet, opts) {
   const o = opts || {};
   const s = esc(String(sujet || 'Fil').trim());
@@ -9129,12 +9237,10 @@ function toastFilArchiver(sujet, opts) {
   const okTile = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
       <strong class="ok">OK</strong><span>Consultable dans les archives</span>
     </div>`;
-  const archivesTipTile = `<a class="stat-tile bento-span-4" href="#filsOut" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>↓</strong><span>Boîte · archives affichées</span>
-    </a>`;
+  const restoreTipTile = toastFilArchiveRestoreTipDenseHtml();
   showEntToast(
     `<strong>Fil archivé</strong>`
-    + `<div class="bento" style="margin:.4rem 0 0">${archTile}${subjTile}${okTile}${archivesTipTile}</div>`
+    + `<div class="bento" style="margin:.4rem 0 0">${archTile}${subjTile}${okTile}${restoreTipTile}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="${esc(msgHref)}">Messagerie</a>`
     + ' · <label style="font-size:.85rem;cursor:pointer"><input type="checkbox" id="entToastFilArchivesChk" checked> Afficher les archives</label></p>`,
@@ -9150,12 +9256,17 @@ function toastFilArchiver(sujet, opts) {
       }
     };
   }
+  bindFilArchiveRestoreTipGo();
 }
 function toastFilOuvert(sujet, opts) {
   const o = opts || {};
   const s = esc(String(sujet || 'Fil').trim());
   const archived = !!o.archive;
   const n = Number(o.nbNonLus) || 0;
+  const restNonLus = Number(o.restNonLus);
+  const restOk = !Number.isNaN(restNonLus) && restNonLus >= 0;
+  const rest = restOk ? restNonLus : null;
+  const nFilRest = Number(o.nFilUnreadRest) || 0;
   const msgHref = o.messagesHref || (path().startsWith('/eleve') ? '/eleve/messages' : '/famille/messages');
   const luTile = n > 0
     ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
@@ -9174,15 +9285,43 @@ function toastFilOuvert(sujet, opts) {
   const subjTile = `<a class="stat-tile bento-span-4" href="#filPanel" style="text-decoration:none;border-color:var(--accent,#0071e3)">
       <strong>${s}</strong><span>Sujet du fil${archived ? ' · archivé' : ''}</span>
     </a>`;
+  const inboxUnreadTile = rest != null
+    ? (rest > 0
+      ? `<a class="stat-tile bento-span-4" href="#filsOut" style="text-decoration:none;border-color:var(--warn,#b45309)">
+          <strong class="warn">${rest}</strong><span>Autre(s) non lu(s)${nFilRest ? ' · ' + nFilRest + ' fil(s)' : ''}</span>
+        </a>`
+      : `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+          <strong class="ok">0</strong><span>Boîte à jour · plus de non lu</span>
+        </div>`)
+    : '';
+  const portalMsg = path().startsWith('/eleve') || path().startsWith('/famille');
+  const replyTile = portalMsg
+    ? `<a class="stat-tile bento-span-4" href="#reponse" id="entToastFilReplyLink" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>↩</strong><span>Répondre · saisie ci-dessous</span>
+      </a>`
+    : '';
   const archFoot = archived
     ? ' · <label style="font-size:.85rem;cursor:pointer"><input type="checkbox" id="entToastFilArchivesChk" checked> Afficher les archives</label>'
     : '';
   showEntToast(
     `<strong>Fil ouvert</strong>`
-    + `<div class="bento" style="margin:.4rem 0 0">${luTile}${midTile}${subjTile}</div>`
+    + `<div class="bento" style="margin:.4rem 0 0">${luTile}${midTile}${subjTile}${inboxUnreadTile}${replyTile}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(msgHref)}">Messagerie</a>${archFoot}</p>`,
     archived ? 8000 : 7500,
   );
+  const replyLink = document.getElementById('entToastFilReplyLink');
+  if (replyLink) {
+    replyLink.onclick = (ev) => {
+      ev.preventDefault();
+      const inp = document.getElementById('reponse');
+      if (inp) {
+        inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        inp.focus({ preventScroll: true });
+      } else {
+        document.getElementById('filPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    };
+  }
   const archChk = document.getElementById('entToastFilArchivesChk');
   if (archChk) {
     archChk.onchange = () => {
@@ -9297,12 +9436,37 @@ function toastJustifAccepte(meta) {
     9500,
   );
 }
+function toastFilReponseUnreadTipDenseHtml(fils, opts) {
+  const o = opts || {};
+  const staff = !!o.staff || path().startsWith('/app');
+  if (!staff) return '';
+  const { nonLus, nFilUnread } = msgStaffFilsStats(fils);
+  if (!nonLus) {
+    return `<a class="stat-tile bento-span-4" href="${esc(o.messagesHref || '/app/messages')}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>Boîte à jour · aucun non lu</span>
+      </a>`;
+  }
+  return `<a class="stat-tile bento-span-4" href="#filsOut" style="text-decoration:none;border-color:var(--warn,#b45309)">
+      <strong class="warn">${nonLus}</strong><span>Reste · ${nFilUnread} fil(s) non lu(s)</span>
+    </a>`;
+}
+
 function toastFilReponseEnvoyee(meta) {
   const o = typeof meta === 'string' ? { sujet: meta } : (meta || {});
   const sujet = esc(String(o.sujet || 'Fil').trim());
   const pjLabel = o.withPiece ? 'Pièce jointe' : '—';
   const pjDetail = o.withPiece ? 'Fichier attaché au message' : 'Réponse texte seule';
   const msgHref = o.messagesHref || (path().startsWith('/eleve') ? '/eleve/messages' : '/famille/messages');
+  const staff = !!o.staff || path().startsWith('/app');
+  const unreadTip = staff ? toastFilReponseUnreadTipDenseHtml(o.fils || [], { ...o, staff: true, messagesHref: msgHref }) : '';
+  const actTile = unreadTip
+    ? unreadTip
+    : `<a class="stat-tile bento-span-4" href="#filPanel" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+        <strong>↓</strong><span>Poursuivre la conversation</span>
+      </a>`;
+  const footPoursuivre = staff && unreadTip
+    ? `<a href="#filPanel">Poursuivre</a> · `
+    : '';
   const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
       <strong class="ok">Envoyé</strong><span>Réponse ajoutée au fil</span>
     </div>
@@ -9310,13 +9474,11 @@ function toastFilReponseEnvoyee(meta) {
     <div class="stat-tile bento-span-4" style="border-color:${o.withPiece ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
       <strong class="${o.withPiece ? 'ok' : 'muted'}">${esc(pjLabel)}</strong><span>${esc(pjDetail)}</span>
     </div>
-    <a class="stat-tile bento-span-4" href="#filPanel" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>↓</strong><span>Poursuivre la conversation</span>
-    </a>`;
+    ${actTile}`;
   showEntToast(
     `<strong>Message envoyé</strong>`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
-    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(msgHref)}">Messagerie</a></p>`,
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">${footPoursuivre}<a href="${esc(msgHref)}">Messagerie</a></p>`,
     8000,
   );
 }
@@ -9623,6 +9785,17 @@ function famApplyEnfantSectionDeepLink(forcedSec) {
           justBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           justBtn.style.outline = '2px solid var(--warn, #b45309)';
           setTimeout(() => { justBtn.style.outline = ''; }, 2200);
+        }, 280);
+      }
+    }
+    if (sec === 'messages') {
+      const msgBtn = document.getElementById('btnFamEnfantNewFil');
+      const msgTarget = msgBtn || document.getElementById('famEnfantMessagesTip');
+      if (msgTarget) {
+        setTimeout(() => {
+          msgTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          msgTarget.style.outline = '2px solid var(--accent, #2563eb)';
+          setTimeout(() => { msgTarget.style.outline = ''; }, 2200);
         }, 280);
       }
     }
@@ -33811,9 +33984,17 @@ async function bindMessages(base) {
       });
       if (!o.quiet) {
         const msgHref = portalEleve ? '/eleve/messages' : (portalFam ? '/famille/messages' : '');
+        const totalNonLus = msgFilsSnapshot.reduce((s, f) => s + (Number(f.nb_non_lus) || 0), 0);
+        const restNonLus = Math.max(0, totalNonLus - nbNonLus);
+        const nFilUnreadRest = msgFilsSnapshot.filter(f => {
+          if (String(f.id) === String(id)) return false;
+          return (Number(f.nb_non_lus) || 0) > 0;
+        }).length;
         toastFilOuvert(d.fil.sujet, {
           archive: !!d.fil.archive,
           nbNonLus,
+          restNonLus,
+          nFilUnreadRest,
           messagesHref: msgHref || undefined,
         });
         filPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -33998,6 +34179,8 @@ async function bindMessages(base) {
       toastFilReponseEnvoyee({
         sujet: currentFilSujet,
         withPiece: hadPiece,
+        staff,
+        fils: msgFilsSnapshot,
         messagesHref: portalFam ? '/famille/messages' : (portalEleve ? '/eleve/messages' : '/app/messages'),
       });
     } catch (e) {
@@ -34023,6 +34206,22 @@ async function bindMessages(base) {
     const pending = routeState.pendingFilId;
     delete routeState.pendingFilId;
     await openFil(pending);
+  }
+  const msgDeepSec = normalizeFamEnfantSection(routeState.famSection);
+  if (msgDeepSec === 'messages' && (portalFam || portalEleve)) {
+    delete routeState.famSection;
+    const scrollMsgCompose = () => {
+      const target = document.getElementById('messagesComposeTip')
+        || document.getElementById('btnOuvrirFil');
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      target.style.outline = '2px solid var(--accent, #2563eb)';
+      setTimeout(() => { target.style.outline = ''; }, 1800);
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollMsgCompose);
+    });
+    setTimeout(scrollMsgCompose, 450);
   }
 }
 
