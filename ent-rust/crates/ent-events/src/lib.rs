@@ -27,6 +27,7 @@ pub mod types {
     /// Fait d'absence sur l'élève (une vérité pour absences, cantine, appel…).
     pub const ELEVE_ABSENCE_DECLARED: &str = "eleve.absence_declared";
     pub const ELEVE_ABSENCE_JUSTIF_SOUMIS: &str = "eleve.absence_justif_soumis";
+    pub const ELEVE_ABSENCE_JUSTIF_RETRAIT: &str = "eleve.absence_justif_retrait";
     pub const ELEVE_ABSENCE_JUSTIFIED: &str = "eleve.absence_justified";
     pub const ELEVE_ABSENCE_REFUSED: &str = "eleve.absence_refused";
     pub const ELEVE_ABSENCE_ANNULEE_PRESENT: &str = "eleve.absence_annulee_present";

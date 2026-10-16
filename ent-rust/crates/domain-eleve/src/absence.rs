@@ -177,6 +177,47 @@ pub fn plan_justifier_absence(
     })
 }
 
+/// Parent retire une soumission en attente (statut reste `a_traiter`, motif effacé).
+pub fn plan_annuler_soumission_justificatif(
+    current: &Absence,
+    cmd: JustifierAbsence,
+) -> Result<PlannedAbsence, DomainError> {
+    if current.etablissement_id != cmd.etablissement_id || current.id != cmd.absence_id {
+        return Err(DomainError::NotFound);
+    }
+    if current.statut != AbsenceStatut::ATraiter {
+        return Err(DomainError::InvalidAbsencePeriod);
+    }
+    let had = current
+        .motif_justif
+        .as_ref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if !had {
+        return Err(DomainError::InvalidAbsencePeriod);
+    }
+
+    let mut absence = current.clone();
+    absence.motif_justif = None;
+    absence.justifie_par_user_id = None;
+
+    let event = MetierEventDraft {
+        etablissement_id: absence.etablissement_id,
+        type_name: types::ELEVE_ABSENCE_JUSTIF_RETRAIT.to_string(),
+        aggregate: AggregateKind::Absence,
+        aggregate_id: absence.id,
+        eleve_id: Some(absence.eleve_id),
+        payload: json!({
+            "statut": absence.statut.as_str(),
+        }),
+        actor_user_id: Some(cmd.actor_user_id.to_string()),
+    };
+    Ok(PlannedAbsence {
+        absence,
+        event: Some(event),
+    })
+}
+
 pub fn plan_accepter_justificatif(
     current: &Absence,
     cmd: DecisionAbsence,
