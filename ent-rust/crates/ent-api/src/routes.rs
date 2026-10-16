@@ -69,7 +69,7 @@ use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use chrono::{NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
@@ -448,6 +448,7 @@ pub fn router() -> Router<AppState> {
         .route("/note-periodes", get(list_note_periodes).post(creer_note_periode))
         .route("/note-periodes/{id}/statut", post(set_note_periode_statut))
         .route("/devoirs", get(list_devoirs).post(creer_devoir))
+        .route("/devoirs/{id}", delete(supprimer_devoir))
         .route("/classes/{classe}/effectif", get(effectif_classe))
         .route("/matieres", get(list_matieres).post(create_matiere))
         .route("/appels", post(ouvrir_appel))
@@ -5517,6 +5518,20 @@ async fn creer_devoir(
             .await?,
         ),
     ))
+}
+
+async fn supprimer_devoir(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    session.require_saisir_notes()?;
+    state
+        .ent
+        .supprimer_devoir_for_actor(session.etablissement_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_edt_creneaux(

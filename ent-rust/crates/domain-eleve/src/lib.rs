@@ -498,6 +498,8 @@ pub enum DomainError {
     NoteAppreciationTropLongue,
     #[error("devoir introuvable")]
     DevoirIntrouvable,
+    #[error("devoir : des notes sont déjà rattachées — suppression impossible")]
+    DevoirNotesLiees,
     #[error("sujet ou message vide")]
     MessageVide,
     #[error("modèle de message invalide")]

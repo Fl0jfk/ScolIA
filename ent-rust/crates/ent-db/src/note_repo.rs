@@ -215,6 +215,45 @@ impl PgNoteRepo {
         Ok(rows.into_iter().map(DevoirRow::into_devoir).collect())
     }
 
+    pub async fn count_notes_devoir(
+        &self,
+        etablissement_id: Uuid,
+        devoir_id: Uuid,
+    ) -> Result<i64, DomainError> {
+        let row: (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM ent_note
+            WHERE etablissement_id = $1 AND devoir_id = $2
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(devoir_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.0)
+    }
+
+    pub async fn delete_devoir(
+        &self,
+        etablissement_id: Uuid,
+        devoir_id: Uuid,
+    ) -> Result<bool, DomainError> {
+        let r = sqlx::query(
+            r#"
+            DELETE FROM ent_devoir
+            WHERE etablissement_id = $1 AND id = $2
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(devoir_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(r.rows_affected() > 0)
+    }
+
     pub async fn insert(&self, n: &Note) -> Result<(), DomainError> {
         sqlx::query(
             r#"

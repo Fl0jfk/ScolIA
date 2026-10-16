@@ -80,6 +80,7 @@ pub mod types {
     pub const NOTE_PERIODE_STATUT: &str = "note.periode_statut";
     pub const NOTE_BULLETIN_PUBLIE: &str = "note.bulletin_publie";
     pub const DEVOIR_CREATED: &str = "devoir.created";
+    pub const DEVOIR_DELETED: &str = "devoir.deleted";
     pub const MSG_FIL_OUVERT: &str = "msg.fil_ouvert";
     pub const MSG_MODELE: &str = "msg.modele";
     pub const MSG_FIL_ARCHIVE: &str = "msg.fil_archive";

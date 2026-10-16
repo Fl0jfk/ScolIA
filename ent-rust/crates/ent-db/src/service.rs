@@ -2539,6 +2539,70 @@ impl PgEnt {
         Ok(devoir)
     }
 
+    pub async fn supprimer_devoir(
+        &self,
+        etablissement_id: Uuid,
+        devoir_id: Uuid,
+    ) -> Result<Devoir, EntDbError> {
+        let devoir = self
+            .notes
+            .get_devoir(etablissement_id, devoir_id)
+            .await?
+            .ok_or(DomainError::DevoirIntrouvable)?;
+        let periode = self
+            .notes
+            .get_periode(etablissement_id, devoir.periode_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        if !periode.statut.autorise_saisie_notes() {
+            return Err(DomainError::NotePeriodeFermee.into());
+        }
+        let n_notes = self
+            .notes
+            .count_notes_devoir(etablissement_id, devoir_id)
+            .await?;
+        if n_notes > 0 {
+            return Err(DomainError::DevoirNotesLiees.into());
+        }
+        let deleted = self
+            .notes
+            .delete_devoir(etablissement_id, devoir_id)
+            .await?;
+        if !deleted {
+            return Err(DomainError::DevoirIntrouvable.into());
+        }
+        self.events
+            .publish(MetierEventDraft {
+                etablissement_id,
+                type_name: types::DEVOIR_DELETED.to_string(),
+                aggregate: AggregateKind::Devoir,
+                aggregate_id: devoir.id,
+                eleve_id: None,
+                payload: json!({
+                    "periode_id": devoir.periode_id,
+                    "matiere_id": devoir.matiere_id,
+                    "classe": devoir.classe,
+                    "titre": devoir.titre,
+                }),
+                actor_user_id: devoir.created_by_user_id.map(|u| u.to_string()),
+            })
+            .await?;
+        Ok(devoir)
+    }
+
+    pub async fn supprimer_devoir_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        role: &str,
+        devoir_id: Uuid,
+    ) -> Result<Devoir, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        if !parsed.can_saisir_notes() {
+            return Err(EntDbError::Forbidden);
+        }
+        self.supprimer_devoir(etablissement_id, devoir_id).await
+    }
+
     pub async fn get_devoir(
         &self,
         etablissement_id: Uuid,

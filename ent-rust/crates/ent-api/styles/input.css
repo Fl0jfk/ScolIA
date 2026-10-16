@@ -240,6 +240,31 @@
   .eleve-hub-tile .empty-state-hint {
     font-size: 0.8rem;
   }
+  .eleve-hub-tile-unread {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc, #0071e3) 35%, transparent);
+  }
+  .eleve-hub-list-dense {
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+  .eleve-hub-list-dense li {
+    padding: 0.18rem 0;
+  }
+  .eleve-hub-msg-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+  }
+  .eleve-hub-msg-row .pill-unread {
+    flex-shrink: 0;
+    min-width: 1.35rem;
+    text-align: center;
+    margin-right: 0;
+  }
+  .eleve-hub-msg-foot {
+    margin: 0.3rem 0 0;
+    font-size: 0.8rem;
+  }
 
   .login-wrap {
     @apply grid min-h-screen place-items-center p-6;

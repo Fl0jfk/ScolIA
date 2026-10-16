@@ -23,6 +23,7 @@ use domain_eleve::{
     UpsertAutorisationSortie,
     LigneFactureCmd, MonteeRapide, MoyenPaiement, OptionAnneeStatut, OptionNature,
     NotePeriodeStatut, OuvrirCampagneReinscription, OuvrirFil, PassageInfirmerieMotif,
+    RepondreFil,
     SortieCreneau,
     PointerPresenceInternat, PoserEcheancier,
     PrononcerSanction, PublierDocASigner, RepasActiviteKind, SaisirAppreciation, UpsertDossierPsy,
@@ -726,7 +727,8 @@ impl PgEnt {
     /// lot G (Bot AG-A) : absence NJ Seamus, note Cedric, RDV psy Harry J+10, carnet Draco, ré-ensure CHARTE_LAB + REGLEMENT_LAB ;
     /// lot H (Bot AH-A) : carnet Hermione (famille), absence NJ Neville, rappel SMS dry-run Harry si API, photo trombi Ginny, Molly mes_enfants Ron+Ginny ;
     /// lot I (Bot AI-A) : absence NJ Cho, carnet Luna (si pas déjà AH-A), renfort justif Harry jour J a_traiter, note Cedric (autre matière), photo trombi Seamus ;
-    /// lot J (Bot AJ-A) : absence NJ Ginny (staff / Molly sans VS Ginny), note Ron (staff / Molly sans notes Ron), ré-ensure dispense EPS Harry, photo trombi Cedric, ré-ensure facture Draco.
+    /// lot J (Bot AJ-A) : absence NJ Ginny (staff / Molly sans VS Ginny), note Ron (staff / Molly sans notes Ron), ré-ensure dispense EPS Harry, photo trombi Cedric, ré-ensure facture Draco ;
+    /// lot K (Bot AK-A) : ré-ensure lot J Ginny/Ron, note Hermione (autre matière), photo trombi Cho, 2ᵉ message fil CPE Harry, ré-ensure facture LAB-HARRY-2 (reste > 0).
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -3837,27 +3839,163 @@ impl PgEnt {
                 .await?;
         }
 
-        // --- Messagerie CPE → parent Harry (1 fil, 1 message) — sans signature docs
+        // --- Bot AK-A lot K : ré-ensure lot J Ginny/Ron, note Hermione (Potions), photo trombi Cho,
+        // 2ᵉ message fil CPE Harry, ré-ensure facture LAB-HARRY-2 (reste à payer > 0).
+        if let Some(ginny) = labo_eleve_prenom(eleves, "Ginny") {
+            let absences_ginny_ak = self.list_absences_eleve(etab, ginny.id).await?;
+            let ginny_a_absence_nj = absences_ginny_ak
+                .iter()
+                .any(|a| a.statut == AbsenceStatut::ATraiter);
+            if !ginny_a_absence_nj {
+                let absence_ginny_ak = jour - Duration::days(4);
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: ginny.id,
+                    debut: absence_ginny_ak,
+                    fin: absence_ginny_ak,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(ron) = labo_eleve_prenom(eleves, "Ron") {
+            const RON_NOTE_AJ_LIB: &str = "Interro Mathématiques lab (Ron AJ-A)";
+            if !self
+                .notes_for_eleve(etab, ron.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(RON_NOTE_AJ_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: ron.id,
+                    matiere_id: math.id,
+                    valeur: 11.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(1),
+                    auteur_user_id: prof_mcg.user_id,
+                    libelle: Some(RON_NOTE_AJ_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(hermione) = labo_eleve_prenom(eleves, "Hermione") {
+            const HERMIONE_NOTE_AK_LIB: &str = "Interro Potions lab (Hermione AK-A)";
+            if !self
+                .notes_for_eleve(etab, hermione.id)
+                .await?
+                .iter()
+                .any(|n| n.libelle.as_deref() == Some(HERMIONE_NOTE_AK_LIB))
+            {
+                self.saisir_note(SaisirNote {
+                    etablissement_id: etab,
+                    eleve_id: hermione.id,
+                    matiere_id: potions.id,
+                    valeur: 19.0,
+                    sur: 20.0,
+                    date_note: jour - Duration::days(2),
+                    auteur_user_id: prof_rogue.user_id,
+                    libelle: Some(HERMIONE_NOTE_AK_LIB.into()),
+                    devoir_id: None,
+                    periode_id: Some(periode.id),
+                })
+                .await?;
+            }
+        }
+
+        if let Some(cho) = labo_eleve_prenom(eleves, "Cho") {
+            if self
+                .get_eleve(etab, cho.id)
+                .await?
+                .is_some_and(|e| e.photo_key.is_none())
+            {
+                let _ = self
+                    .poser_photo_eleve_for_actor(
+                        role_admini,
+                        etab,
+                        cho.id,
+                        administratif.user_id,
+                        "image/png",
+                        LABO_PNG_1X1,
+                    )
+                    .await;
+            }
+        }
+
+        let (mut facture_h2_ak, _, _, enc_h2_ak, _, _, _) = self
+            .get_facture_for_actor(etab, compta.user_id, role_compta, facture_harry_2_id)
+            .await?;
+        if facture_h2_ak.statut == FactureStatut::Brouillon {
+            facture_h2_ak = self
+                .emettre_facture_for_actor(etab, facture_harry_2_id, compta.user_id, role_compta)
+                .await?;
+        }
+        let reste_h2_ak = facture_h2_ak
+            .total_centimes
+            .saturating_sub(enc_h2_ak);
+        debug_assert!(
+            reste_h2_ak > 0 || facture_h2_ak.total_centimes == 0,
+            "LAB-HARRY-2 seed audit : reste à payer attendu > 0"
+        );
+
+        // --- Messagerie CPE → parent Harry (fil audit + 2 messages si API) — sans signature docs
         const FIL_CPE_AUDIT_SUJET: &str = "AUDIT: Point conduite Harry";
+        const FIL_CPE_AK_MSG2: &str =
+            "Merci de nous indiquer vos disponibilités pour un entretien téléphonique la semaine prochaine.";
         let role_cpe = Role::Cpe.as_str();
         let fils_harry = self
             .list_fils_for_actor(etab, cpe.user_id, role_cpe, Some(harry.id), false, None)
             .await?;
-        if !fils_harry
+        let fil_cpe_audit_id = if let Some(f) = fils_harry
             .iter()
-            .any(|f| f.sujet == FIL_CPE_AUDIT_SUJET)
+            .find(|f| f.sujet == FIL_CPE_AUDIT_SUJET)
         {
-            self.ouvrir_fil_for_actor(
-                role_cpe,
-                OuvrirFil {
-                    etablissement_id: etab,
-                    eleve_id: harry.id,
-                    sujet: FIL_CPE_AUDIT_SUJET.into(),
-                    premier_message: "Bonjour, nous souhaitons échanger avec vous sur le comportement de Harry cette semaine.".into(),
-                    actor_user_id: cpe.user_id,
-                },
-            )
+            f.id
+        } else {
+            let (fil, _msg) = self
+                .ouvrir_fil_for_actor(
+                    role_cpe,
+                    OuvrirFil {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        sujet: FIL_CPE_AUDIT_SUJET.into(),
+                        premier_message: "Bonjour, nous souhaitons échanger avec vous sur le comportement de Harry cette semaine.".into(),
+                        actor_user_id: cpe.user_id,
+                    },
+                )
+                .await?;
+            fil.id
+        };
+        let (fil_cpe_audit, msgs_cpe_audit) = self
+            .list_messages_for_actor(etab, cpe.user_id, role_cpe, fil_cpe_audit_id)
             .await?;
+        let deja_msg2 = msgs_cpe_audit
+            .iter()
+            .any(|m| m.message.corps == FIL_CPE_AK_MSG2);
+        if !deja_msg2 && msgs_cpe_audit.len() < 2 {
+            let _ = self
+                .repondre_fil_for_actor(
+                    role_cpe,
+                    RepondreFil {
+                        etablissement_id: etab,
+                        fil_id: fil_cpe_audit.id,
+                        corps: FIL_CPE_AK_MSG2.into(),
+                        actor_user_id: cpe.user_id,
+                    },
+                )
+                .await;
         }
 
         Ok(())
