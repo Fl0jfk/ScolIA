@@ -1,11 +1,12 @@
 /* ENT labo — cache assets statiques + shell HTML hors ligne (pas de Web Push). */
-const CACHE = 'ent-offline-v8';
+const CACHE = 'ent-offline-v9';
 
 const PRECACHE = [
   '/',
   '/login',
   '/app',
   '/app/notes',
+  '/app/psy',
   '/app/alertes',
   '/app/editions',
   '/app/inscriptions',
@@ -17,6 +18,7 @@ const PRECACHE = [
   '/eleve/edt',
   '/famille',
   '/famille/cahier',
+  '/famille/sorties',
   '/famille/factures',
   '/famille/reinscription',
   '/static/css/app.css',

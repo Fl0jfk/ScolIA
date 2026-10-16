@@ -1689,7 +1689,15 @@ impl PgEnt {
             )
             .await?;
         if solde_harry == POINTS_VS_DEPART {
-            if let Some(dossier) = dossiers_vs
+            let dossiers_harry_pts = self
+                .list_commissions_eleve_for_actor(
+                    etab,
+                    cpe.user_id,
+                    Role::Cpe.as_str(),
+                    harry.id,
+                )
+                .await?;
+            if let Some(dossier) = dossiers_harry_pts
                 .iter()
                 .find(|d| d.motifs.contains(COMMISSION_MOTIFS) && d.decision.is_none())
             {
@@ -2238,6 +2246,29 @@ impl PgEnt {
                         actor_user_id: administratif.user_id,
                     },
                 )
+                .await?;
+            }
+
+            let absence_cedric_j1 = jour - Duration::days(1);
+            if !self
+                .eleve_est_absent(etab, cedric.id, absence_cedric_j1)
+                .await?
+            {
+                let motifs = self.list_motifs_absence(etab).await?;
+                let motif_code = motifs
+                    .iter()
+                    .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                    .or_else(|| motifs.first())
+                    .map(|m| m.code.clone())
+                    .unwrap_or_else(|| "defaut".into());
+                self.declare_absence(DeclareAbsence {
+                    etablissement_id: etab,
+                    eleve_id: cedric.id,
+                    debut: absence_cedric_j1,
+                    fin: absence_cedric_j1,
+                    motif: motif_code,
+                    actor_user_id: Some(cpe.user_id.to_string()),
+                })
                 .await?;
             }
         }
