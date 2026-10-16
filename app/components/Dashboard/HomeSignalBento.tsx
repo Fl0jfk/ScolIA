@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import { HOME_SIGNAL_TILE_LINK_CLASS } from "@/app/components/Dashboard/home-signal-tile-link";
 import {
   notificationCountForShortcut,
   type DashboardNotification,
@@ -138,6 +140,13 @@ function dedupeFaces(faces: Face[]): Face[] {
   return out;
 }
 
+function unavailableHintClass(tone: DashboardShortcutTone): string {
+  if (tone === "warn") return "text-amber-100";
+  if (tone === "info") return "text-white";
+  if (tone === "action") return "text-[var(--dash-ink)]";
+  return "text-neutral-600";
+}
+
 function tileShell(tone: DashboardShortcutTone): string {
   if (tone === "warn") {
     return "bg-[#1a1208] text-amber-50 ring-1 ring-amber-400/30";
@@ -173,6 +182,17 @@ function HomeSignalCard({
   const active = faces[slideIdx] ?? faces[0]!;
 
   const faceUnavailable = active.unavailable;
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetry = async () => {
+    if (!onRetry || retrying) return;
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <div
@@ -180,8 +200,15 @@ function HomeSignalCard({
         tile.tone,
       )}`}
     >
+      <Link
+        href={active.href}
+        className={HOME_SIGNAL_TILE_LINK_CLASS}
+        aria-label={`Ouvrir ${active.label}`}
+      >
+        <span className="sr-only">Ouvrir {active.label}</span>
+      </Link>
       <div
-        className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-40 blur-2xl transition group-hover:opacity-70"
+        className="pointer-events-none absolute -right-8 -top-8 z-[1] h-28 w-28 rounded-full opacity-40 blur-2xl transition group-hover:opacity-70"
         style={{
           background:
             tile.tone === "action"
@@ -193,7 +220,7 @@ function HomeSignalCard({
         aria-hidden
       />
 
-      <div className="relative flex items-start justify-between gap-3">
+      <div className="relative z-[1] flex items-start justify-between gap-3 pointer-events-none">
         <div className="min-w-0">
           <p
             className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${
@@ -225,7 +252,7 @@ function HomeSignalCard({
         </span>
       </div>
 
-      <div className="relative mt-3 min-h-[5.75rem] flex-1">
+      <div className="relative z-[1] mt-3 min-h-[5.75rem] flex-1 pointer-events-none">
         {faces.map((face, i) => {
           const visible = i === slideIdx;
           const faceCount = face.count ?? 0;
@@ -249,7 +276,9 @@ function HomeSignalCard({
               {face.unavailable ? (
                 <>
                   <p className="text-4xl font-black leading-none tracking-tight sm:text-5xl">—</p>
-                  <p className="mt-2 text-sm font-medium leading-snug text-[var(--dash-mid)]">
+                  <p
+                    className={`mt-2 text-sm font-medium leading-snug ${unavailableHintClass(tile.tone)}`}
+                  >
                     Compteur momentanément indisponible. Nouvelle tentative automatique sous 60 s.
                   </p>
                 </>
@@ -298,7 +327,7 @@ function HomeSignalCard({
         })}
       </div>
 
-      <div className="relative mt-3 flex items-center justify-between gap-2">
+      <div className="relative z-10 mt-3 flex items-center justify-between gap-2">
         {multi ? (
           <div className="flex items-center gap-1.5" aria-hidden>
             {faces.map((f, i) => (
@@ -341,17 +370,21 @@ function HomeSignalCard({
         )}
         <div className="flex items-center gap-2">
           {faceUnavailable && onRetry ? (
-            <button
+            <ModuleButton
               type="button"
-              onClick={() => onRetry()}
-              className="rounded-full border border-black/10 bg-white/80 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-ink)] shadow-sm transition hover:bg-white"
+              variant="secondary"
+              disabled={retrying}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleRetry();
+              }}
+              className="!px-3 !py-1.5 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)] focus-visible:ring-offset-2"
             >
-              Réessayer
-            </button>
+              {retrying ? "Actualisation…" : "Réessayer"}
+            </ModuleButton>
           ) : null}
-          <Link
-            href={active.href}
-            className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-lg transition hover:translate-x-0.5 ${
+          <span
+            className={`pointer-events-none inline-flex h-9 w-9 items-center justify-center rounded-full text-lg ${
               tile.tone === "action"
                 ? "bg-[var(--dash-ink)] text-white"
                 : tile.tone === "warn"
@@ -360,10 +393,10 @@ function HomeSignalCard({
                     ? "bg-[color:var(--dash-lime)] text-[var(--dash-ink)]"
                     : "bg-[var(--dash-ink)] text-white"
             }`}
-            aria-label={`Ouvrir ${active.label}`}
+            aria-hidden
           >
             →
-          </Link>
+          </span>
         </div>
       </div>
     </div>
@@ -375,7 +408,7 @@ type Props = {
   notifications: DashboardNotification[];
   sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   loading?: boolean;
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<unknown>;
 };
 
 /**

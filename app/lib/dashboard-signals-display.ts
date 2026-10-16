@@ -30,6 +30,16 @@ export function isDashboardSignalSourceUnavailable(
   return st === "timeout" || st === "error";
 }
 
+/** Au moins une source parallèle en échec (même sans notification count > 0). */
+export function hasAnyDashboardSourceFailure(
+  sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,
+): boolean {
+  if (!sourceStatus) return false;
+  return (Object.values(sourceStatus) as SignalSourceStatus[]).some(
+    (st) => st === "timeout" || st === "error",
+  );
+}
+
 export function isDashboardNotificationUnavailable(
   item: DashboardSignalCountable,
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus> | undefined,

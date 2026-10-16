@@ -10,6 +10,7 @@ import NotificationCountBadge, {
 import type { DashboardNotification } from "@/app/lib/dashboard-signals";
 import {
   dashboardNotificationBadgeProps,
+  hasAnyDashboardSourceFailure,
   isDashboardNotificationUnavailable,
   sumAvailableNotificationCounts,
 } from "@/app/lib/dashboard-signals-display";
@@ -41,9 +42,9 @@ export default function DashboardGlobalNotifications({
   panelPlacement = "bottom",
 }: Props) {
   const total = sumAvailableNotificationCounts(items, sourceStatus);
-  const hasUnavailable = items.some((item) =>
-    isDashboardNotificationUnavailable(item, sourceStatus),
-  );
+  const hasUnavailable =
+    hasAnyDashboardSourceFailure(sourceStatus) ||
+    items.some((item) => isDashboardNotificationUnavailable(item, sourceStatus));
   const panelId = useId();
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -91,7 +91,7 @@ export default function Home() {
                 notifications={notifications}
                 sourceStatus={sourceStatus}
                 loading={loadingSignals}
-                onRetry={() => void refreshSignals()}
+                onRetry={() => refreshSignals()}
               />
             </>
           )}

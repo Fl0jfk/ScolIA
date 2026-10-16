@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   dashboardNotificationBadgeProps,
   dashboardPillarBadgeProps,
+  hasAnyDashboardSourceFailure,
   isDashboardNotificationUnavailable,
 } from "@/app/lib/dashboard-signals-display";
 import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
@@ -83,6 +84,12 @@ test("dashboardNotificationBadgeProps — null si 0 et source ok", () => {
     dashboardNotificationBadgeProps(0, { id: "x", moduleId: "stages", signalSourceId: "stages" }, OK),
     null,
   );
+});
+
+test("hasAnyDashboardSourceFailure — source KO sans notification", () => {
+  const status = { ...OK, absences: "timeout" as SignalSourceStatus };
+  assert.equal(hasAnyDashboardSourceFailure(status), true);
+  assert.equal(hasAnyDashboardSourceFailure(OK), false);
 });
 
 test("dashboardPillarBadgeProps — partialUnavailable si un signal KO et compteurs OK", () => {
