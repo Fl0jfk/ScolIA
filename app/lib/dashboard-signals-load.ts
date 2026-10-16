@@ -59,6 +59,7 @@ import { canAccessSstRegistre } from "@/app/lib/sst-registre/access";
 import { isSstEmargementPending } from "@/app/lib/sst-registre/db";
 import {
   dashboardSignalsRolesHash,
+  dashboardSignalsSubCacheKey,
   vsModulesScopeHash,
 } from "@/app/lib/dashboard-signals-cache-keys";
 import {
@@ -195,6 +196,8 @@ export type DashboardSignalsViewUser = {
 
 export type DashboardSignalsLoadContext = {
   signalsEtabId: string;
+  /** Génération bundle au début de la requête (invalidation établissement). */
+  signalsBundleGeneration: number;
   user: DashboardSignalsViewUser;
   isOrgAdmin: boolean;
   accessibleModuleIds: Set<string>;
@@ -612,7 +615,10 @@ async function loadVsCounts(
   }
   const scopeHash = vsModulesScopeHash(accessibleModuleIds);
   return valkeyCached({
-    key: valkeyKeyDashboardSignalsVsCounts(signalsEtabId, scopeHash),
+    key: dashboardSignalsSubCacheKey(
+      valkeyKeyDashboardSignalsVsCounts(signalsEtabId, scopeHash),
+      ctx.signalsBundleGeneration,
+    ),
     ttlSeconds: VALKEY_TTL.dashboardSignalsVsCounts,
     loader: async () => {
       const etabId = signalsEtabId.trim();
@@ -664,7 +670,10 @@ async function loadAbsencesSource(ctx: DashboardSignalsLoadContext): Promise<Abs
   let absencesRaw: AbsenceRecord[] = [];
   if (accessibleModuleIds.has("rh")) {
     absencesRaw = await valkeyCached({
-      key: valkeyKeyDashboardSignalsAbsenceIndex(signalsEtabId),
+      key: dashboardSignalsSubCacheKey(
+        valkeyKeyDashboardSignalsAbsenceIndex(signalsEtabId),
+        ctx.signalsBundleGeneration,
+      ),
       ttlSeconds: VALKEY_TTL.dashboardSignalsAbsenceIndex,
       loader: () => getAbsenceIndex().catch(() => [] as AbsenceRecord[]),
     });
@@ -1012,6 +1021,7 @@ export function buildLoadContextFromViewUser(
   viewUser: DashboardSignalsViewUser,
   opts: {
     signalsEtabId: string;
+    signalsBundleGeneration: number;
     isOrgAdmin: boolean;
     accessibleModuleIds: Set<string>;
     moduleAccess: ModuleAccessConfig;
@@ -1024,6 +1034,7 @@ export function buildLoadContextFromViewUser(
 ): DashboardSignalsLoadContext {
   return {
     signalsEtabId: opts.signalsEtabId,
+    signalsBundleGeneration: opts.signalsBundleGeneration,
     user: viewUser,
     isOrgAdmin: opts.isOrgAdmin,
     accessibleModuleIds: opts.accessibleModuleIds,

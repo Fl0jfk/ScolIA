@@ -11,7 +11,8 @@ import {
   loadDashboardSignalSources,
   type DashboardSignalsViewUser,
 } from "@/app/lib/dashboard-signals-load";
-import { isDashboardSignalsAggregateCacheable } from "@/app/lib/dashboard-signals-aggregate-cache";
+import { shouldWriteDashboardSignalsAggregateCache } from "@/app/lib/dashboard-signals-aggregate-cache";
+import { getDashboardSignalsBundleGeneration } from "@/app/lib/dashboard-signals-bundle-generation-server";
 import { DASHBOARD_SIGNAL_SOURCES } from "@/app/lib/dashboard-signals-parallel";
 
 const EMPTY_SIGNALS = {
@@ -136,8 +137,11 @@ export async function GET() {
       platformAdmin: user.platformAdmin,
     };
 
+    const bundleGenerationAtRequestStart = await getDashboardSignalsBundleGeneration(signalsEtabId);
+
     const loadCtx = buildLoadContextFromViewUser(view, {
       signalsEtabId,
+      signalsBundleGeneration: bundleGenerationAtRequestStart,
       isOrgAdmin,
       accessibleModuleIds,
       moduleAccess,
@@ -207,7 +211,14 @@ export async function GET() {
           sourceStatus,
         },
       };
-      if (isDashboardSignalsAggregateCacheable(sourceStatus)) {
+      const bundleGenerationNow = await getDashboardSignalsBundleGeneration(signalsEtabId);
+      if (
+        shouldWriteDashboardSignalsAggregateCache(
+          sourceStatus,
+          bundleGenerationAtRequestStart,
+          bundleGenerationNow,
+        )
+      ) {
         void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
       }
       return NextResponse.json(payload);

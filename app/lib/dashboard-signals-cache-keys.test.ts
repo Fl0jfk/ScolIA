@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   dashboardSignalsRolesHash,
   dashboardSignalsScopeHash,
+  dashboardSignalsSubCacheKey,
   vsModulesScopeHash,
 } from "@/app/lib/dashboard-signals-cache-keys";
 import {
@@ -58,6 +59,12 @@ test("prof vs direction — clés utilisateur et scope VS distincts", () => {
     valkeyKeyDashboardSignalsStagesPending("etab-1", "auth-prof"),
     valkeyKeyDashboardSignalsRequestsBoard("etab-1", "auth-direction"),
   );
+});
+
+test("dashboardSignalsSubCacheKey — inclut génération invalidation", () => {
+  const base = valkeyKeyDashboardSignalsAbsenceIndex("etab-1");
+  assert.notEqual(dashboardSignalsSubCacheKey(base, 0), dashboardSignalsSubCacheKey(base, 1));
+  assert.match(dashboardSignalsSubCacheKey(base, 3), /:g3$/);
 });
 
 test("dashboardSignalsRolesHash — stable et distinct par rôles", () => {

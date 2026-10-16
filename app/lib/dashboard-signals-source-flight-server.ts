@@ -27,9 +27,9 @@ async function releaseValkeyFlightLock(flightKey: string): Promise<void> {
 }
 
 /**
- * Single-flight process + tentative de verrou Valkey (évite doublons inter-instances).
- * Si le verrou est pris ailleurs, on attend toujours le même promise in-memory local ;
- * les autres instances chargent en parallèle (acceptable) — le lock réduit la pression DB.
+ * Single-flight process + verrou Valkey **consultatif** (best effort).
+ * Ne bloque pas les autres instances : si NX échoue, le loader tourne quand même ;
+ * le verrou limite seulement les doublons quand une instance tient le lock.
  */
 export function runDashboardSignalSourceFlightShared<T>(
   flightKey: string,
