@@ -65,6 +65,7 @@ function seedRouteFromQuery() {
   if (qp.get('etape')) { routeState.insEtape = qp.get('etape'); qp.delete('etape'); dirty = true; }
   if (qp.get('fac')) { routeState.openFacId = qp.get('fac'); qp.delete('fac'); dirty = true; }
   if (qp.get('section')) { routeState.famSection = qp.get('section'); qp.delete('section'); dirty = true; }
+  if (qp.get('filtre')) { routeState.absFiltre = qp.get('filtre'); qp.delete('filtre'); dirty = true; }
   if (dirty) {
     const q = qp.toString();
     history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + (location.hash || ''));
@@ -301,6 +302,22 @@ function matchJustifAbsenceDoc(doc, absenceId) {
 }
 function findJustifAbsenceDoc(docs, absenceId) {
   return (docs || []).find(d => matchJustifAbsenceDoc(d, absenceId)) || null;
+}
+function hasMotifJustifAbsence(a) {
+  return !!(a && a.motif_justif && String(a.motif_justif).trim());
+}
+function isJustifATranche(a) {
+  return !!(a && a.statut === 'a_traiter' && hasMotifJustifAbsence(a));
+}
+function justifPjBadgeHtml(doc) {
+  if (!doc || !doc.id) return '';
+  return '<span class="pill" title="Pièce jointe déposée">PJ</span> ';
+}
+function isFamJustifImageFile(file) {
+  if (!file) return false;
+  const mime = String(file.type || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  return /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(String(file.name || ''));
 }
 async function loadJustifDocsByEleve(eleveIds) {
   const map = {};
@@ -2416,7 +2433,7 @@ function viewHome() {
       <a class="stat-tile bento-span-4" href="/app/appel"><strong>Appel</strong><span>Mes créneaux du jour</span></a>
       <a class="stat-tile bento-span-4" href="/app/mon-edt"><strong>Mon EDT</strong><span>Semaine + ouvrir appel</span></a>
       <a class="stat-tile bento-span-4" href="/app/cahier"><strong>Cahier</strong><span>Publier le travail</span></a>
-      <a class="stat-tile bento-span-4" href="/app/notes"><strong>Notes</strong><span>Saisie &amp; moyennes</span></a>
+      <a class="stat-tile bento-span-4" href="/app/notes"><strong>Saisir notes</strong><span>Grille classe &amp; devoirs</span></a>
       <a class="stat-tile bento-span-4" href="/app/messages"><strong>Messages</strong><span>Fils familles</span></a>
       <a class="stat-tile bento-span-4" href="/app/rh"><strong>RH</strong><span>Déclarer une absence</span></a>`;
   } else if (role === 'cpe') {
@@ -2548,6 +2565,7 @@ async function bindHome() {
       ? INSC_HOME.map(et => settle(api('/inscriptions/par-etape?etape=' + encodeURIComponent(et)), []))
       : INSC_HOME.map(() => Promise.resolve([]))),
   ]);
+  const nJustifTrancher = (abs || []).filter(isJustifATranche).length;
   const nAbs = (abs || []).filter(a => a.statut === 'a_traiter' || a.statut === 'signalee').length;
   const nSig = (sig || []).filter(s => s.statut === 'ouvert' || s.statut === 'en_cours').length;
   const nDocs = (docs || []).filter(d => d.statut === 'a_signer').length;
@@ -2583,6 +2601,7 @@ async function bindHome() {
     } else if (role === 'cpe') {
       pulse.innerHTML = `
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nAbs}</strong><span>Absences VS</span></a>
+        <a class="stat-tile bento-span-2" href="/app/absences?filtre=justifs-trancher"><strong class="${nJustifTrancher ? 'warn' : ''}">${nJustifTrancher}</strong><span>Justifs à trancher</span></a>
         <a class="stat-tile bento-span-2" href="/app/alertes"><strong>${nAlert}</strong><span>Alertes CPE</span></a>
         <a class="stat-tile bento-span-2" href="/app/absences"><strong>${nSig}</strong><span>Signaux ouverts</span></a>
         <a class="stat-tile bento-span-2" href="/app/eleves"><strong>·</strong><span>Annuaire élèves</span></a>
@@ -2672,7 +2691,9 @@ async function bindHome() {
       if (nMsg) lines.push(`<li><a href="/app/messages">${nMsg} message(s) non lu(s)</a></li>`);
       lines.push('<li><a href="/app/appel">Faire l’appel du jour</a></li>');
       lines.push('<li><a href="/app/mon-edt">Voir mon EDT</a></li>');
+      lines.push('<li><a href="/app/notes">Saisir notes (grille classe)</a></li>');
     } else if (role === 'cpe') {
+      if (nJustifTrancher) lines.push(`<li><a href="/app/absences?filtre=justifs-trancher">${nJustifTrancher} justificatif(s) à trancher</a></li>`);
       if (nAbs) lines.push(`<li><a href="/app/absences">${nAbs} absence(s) à traiter</a></li>`);
       if (nAlert) lines.push(`<li><a href="/app/alertes">${nAlert} alerte(s) CPE</a></li>`);
       if (nSig) lines.push(`<li><a href="/app/absences">${nSig} signal(aux) ouvert(s)</a></li>`);
@@ -2980,6 +3001,7 @@ async function bindFamilleEnfant(id) {
                 </select>
                 <input class="famJustifNote" data-for="${esc(a.id)}" placeholder="Précision (optionnel)" style="min-width:10rem"/>
                 <input type="file" class="famJustifFile" data-for="${esc(a.id)}" accept=".pdf,image/jpeg,image/png,image/webp"/>
+                <p class="muted famJustifOcrHint" data-for="${esc(a.id)}" style="display:none;margin:.25rem 0 0;width:100%">OCR bientôt — la pièce est déjà jointe pour le CPE</p>
               </div>`
             : '—'}</td>
           <td>${e.peut_justifier_absence
@@ -3356,6 +3378,14 @@ async function bindFamilleEnfant(id) {
       ).join('') || motifOptsFam;
     } catch { /* défaut maladie */ }
     out.querySelectorAll('.famJustifMotif').forEach(sel => { sel.innerHTML = motifOptsFam; });
+    out.querySelectorAll('.famJustifFile').forEach(inp => {
+      const hint = out.querySelector('.famJustifOcrHint[data-for="' + inp.dataset.for + '"]');
+      inp.onchange = () => {
+        if (!hint) return;
+        const f = inp.files && inp.files[0];
+        hint.style.display = isFamJustifImageFile(f) ? 'block' : 'none';
+      };
+    });
     out.querySelectorAll('.btnJustifFam').forEach(btn => {
       btn.onclick = async () => {
         const sel = out.querySelector('.famJustifMotif[data-for="' + btn.dataset.id + '"]');
@@ -6039,7 +6069,7 @@ async function bindCahier(base) {
     btnCreer.onclick = async () => {
       msg.textContent = '';
       try {
-        await api('/cahier-texte', {
+        const created = await api('/cahier-texte', {
           method: 'POST',
           body: JSON.stringify({
             classe: document.getElementById('cdtClasse').value.trim(),
@@ -6049,7 +6079,24 @@ async function bindCahier(base) {
             pour_le: document.getElementById('cdtPourLe').value,
           }),
         });
-        msg.innerHTML = '<span class="ok">Publié</span>';
+        let publishedMsg = '<span class="ok">Publié — les familles voient le cahier</span>';
+        const entryId = created && created.id;
+        if (entryId) {
+          try {
+            await api('/cahier-texte/' + encodeURIComponent(entryId) + '/notify-parents', {
+              method: 'POST',
+              body: '{}',
+            });
+            publishedMsg = '<span class="ok">Publié — les familles ont été notifiées</span>';
+          } catch (notifyErr) {
+            const st = notifyErr && notifyErr.status;
+            if (st !== 404 && st !== 405 && st !== 501) {
+              publishedMsg = `<span class="ok">Publié — les familles voient le cahier</span>`
+                + ` <span class="muted">(${esc(notifyErr.message || 'notification indisponible')})</span>`;
+            }
+          }
+        }
+        msg.innerHTML = publishedMsg;
         document.getElementById('cdtConsigne').value = '';
         await load();
       } catch (e) {
@@ -10358,12 +10405,13 @@ async function bindVsJour() {
       const absSlice = absTodo.slice(0, 40);
       const [ptsMap, justifDocsMap] = await Promise.all([
         loadPointsVsByEleve(absSlice.map(a => a.eleve_id)),
-        loadJustifDocsByEleve(absSlice.filter(a => a.motif_justif && String(a.motif_justif).trim()).map(a => a.eleve_id)),
+        loadJustifDocsByEleve(absSlice.filter(hasMotifJustifAbsence).map(a => a.eleve_id)),
       ]);
       absBox.innerHTML = `<table><thead><tr><th>Élève</th><th>Période</th><th>Statut</th><th>Pts</th><th>Justif</th><th></th></tr></thead>
         <tbody>${absSlice.map(a => {
-          const hasJustif = !!(a.motif_justif && String(a.motif_justif).trim());
+          const hasJustif = hasMotifJustifAbsence(a);
           const justifDoc = hasJustif ? findJustifAbsenceDoc(justifDocsMap[a.eleve_id], a.id) : null;
+          const pjBadge = justifPjBadgeHtml(justifDoc);
           const pieceBtn = hasJustif ? voirPieceJustifHtml(justifDoc) : '';
           let actions = `<button type="button" class="btnVsAbsPresent" data-id="${esc(a.id)}">→ présent</button>`;
           if (hasJustif) {
@@ -10380,7 +10428,7 @@ async function bindVsJour() {
             <td>${esc(a.debut)} → ${esc(a.fin)}</td>
             <td><span class="pill">${esc(a.statut)}</span></td>
             <td>${formatPtsVsCell(ptsMap[a.eleve_id])}</td>
-            <td>${esc(a.motif_justif || '—')}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
+            <td>${pjBadge}${esc(a.motif_justif || '—')}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
             <td>${actions}</td>
           </tr>`;
         }).join('')}</tbody></table>`;
@@ -11031,6 +11079,11 @@ function viewAbsences() {
 async function bindAbsences() {
   const out = document.getElementById('vsOut');
   const nameOf = eleveNameOf;
+  let absViewFiltre = 'all';
+  if (routeState.absFiltre === 'justifs-trancher') {
+    absViewFiltre = 'justifs-trancher';
+    delete routeState.absFiltre;
+  }
 
   async function refreshAbsPermisTile() {
     const tile = document.getElementById('absPermisTile');
@@ -11111,17 +11164,30 @@ async function bindAbsences() {
     const stats = document.getElementById('absStats');
     try {
       const jour = document.getElementById('jourVs').value;
-      const list = await api('/vs/absences?jour=' + jour);
-      const nJustif = list.filter(a => a.motif_justif && String(a.motif_justif).trim()).length;
-      const nTraiter = list.filter(a => a.statut === 'a_traiter' || a.statut === 'signalee').length;
+      const rawList = await api('/vs/absences?jour=' + jour);
+      const nJustifsTrancher = rawList.filter(isJustifATranche).length;
+      const nTraiter = rawList.filter(a => a.statut === 'a_traiter' || a.statut === 'signalee').length;
+      const list = absViewFiltre === 'justifs-trancher'
+        ? rawList.filter(isJustifATranche)
+        : rawList;
       if (stats) {
+        const filtreActif = absViewFiltre === 'justifs-trancher';
         stats.innerHTML = `
-          <div class="stat-tile bento-span-4"><strong>${list.length}</strong><span>File du jour</span></div>
-          <div class="stat-tile bento-span-4"><strong>${nTraiter}</strong><span>À traiter</span></div>
-          <div class="stat-tile bento-span-4"><strong>${nJustif}</strong><span>Avec justif</span></div>`;
+          <button type="button" class="stat-tile bento-span-3" id="absFiltAll" style="cursor:pointer;text-align:left${filtreActif ? '' : ';border-color:var(--accent,#0071e3)'}">
+            <strong>${rawList.length}</strong><span>File du jour</span></button>
+          <button type="button" class="stat-tile bento-span-3" id="absFiltJustifsTrancher" style="cursor:pointer;text-align:left${filtreActif ? ';border-color:var(--accent,#0071e3)' : ''}">
+            <strong class="${nJustifsTrancher ? 'warn' : ''}">${nJustifsTrancher}</strong><span>Justifs à trancher</span></button>
+          <div class="stat-tile bento-span-3"><strong>${nTraiter}</strong><span>À traiter (tous statuts)</span></div>
+          <div class="stat-tile bento-span-3"><strong>${filtreActif ? list.length : '—'}</strong><span>${filtreActif ? 'Lignes filtrées' : 'Filtre : toute la file'}</span></div>`;
+        const btnAll = document.getElementById('absFiltAll');
+        const btnJ = document.getElementById('absFiltJustifsTrancher');
+        if (btnAll) btnAll.onclick = () => { absViewFiltre = 'all'; load(); };
+        if (btnJ) btnJ.onclick = () => { absViewFiltre = 'justifs-trancher'; load(); };
       }
       if (!list.length) {
-        out.innerHTML = '<p class="empty">Aucune absence à traiter pour ce jour. Fais un appel et marque des absents, puis clôture.</p>';
+        out.innerHTML = absViewFiltre === 'justifs-trancher'
+          ? '<p class="empty">Aucun justificatif à trancher pour ce jour (motif parent + statut à traiter).</p>'
+          : '<p class="empty">Aucune absence à traiter pour ce jour. Fais un appel et marque des absents, puis clôture.</p>';
         const permTile = document.getElementById('absPermisTile');
         if (permTile) permTile.innerHTML = '';
         return;
@@ -11129,14 +11195,15 @@ async function bindAbsences() {
       const eleveIdsList = list.map(a => a.eleve_id);
       const [ptsMap, justifDocsMap] = await Promise.all([
         loadPointsVsByEleve(eleveIdsList),
-        loadJustifDocsByEleve(list.filter(a => a.motif_justif && String(a.motif_justif).trim()).map(a => a.eleve_id)),
+        loadJustifDocsByEleve(list.filter(hasMotifJustifAbsence).map(a => a.eleve_id)),
       ]);
       const rows = [];
       for (const a of list) {
         if (a.eleve_label) seedEleveLabel(a.eleve_id, a.eleve_label);
         const nom = a.eleve_label || await nameOf(a.eleve_id);
-        const hasJustif = !!(a.motif_justif && String(a.motif_justif).trim());
+        const hasJustif = hasMotifJustifAbsence(a);
         const justifDoc = hasJustif ? findJustifAbsenceDoc(justifDocsMap[a.eleve_id], a.id) : null;
+        const pjBadge = justifPjBadgeHtml(justifDoc);
         const pieceBtn = hasJustif ? voirPieceJustifHtml(justifDoc) : '';
         let actions = '';
         if (a.statut === 'a_traiter' || a.statut === 'signalee') {
@@ -11157,7 +11224,7 @@ async function bindAbsences() {
           <td>${esc(a.motif)}</td>
           <td><span class="pill">${esc(a.statut)}</span></td>
           <td>${formatPtsVsCell(ptsMap[a.eleve_id])}</td>
-          <td>${esc(a.motif_justif || '—')}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
+          <td>${pjBadge}${esc(a.motif_justif || '—')}${pieceBtn ? '<br/>' + pieceBtn : ''}</td>
           <td class="muted">${esc(a.decision_note || '—')}</td>
           <td>${actions}</td>
         </tr>`);
@@ -13709,7 +13776,9 @@ async function bindNotes() {
         + '/effectif?jour=' + encodeURIComponent(jour));
       const eleves = eff.eleves || [];
       if (!eleves.length) {
-        box.innerHTML = '<p class="empty">Aucun élève dans l’effectif.</p>';
+        const cl = esc(devoir.classe || '4B');
+        box.innerHTML = `<p class="empty">Ouvrir un appel ou vérifier classe ${cl}.</p>
+          <p class="muted">Effectif vide pour le ${esc(jour)} — l’appel du jour alimente la liste.</p>`;
         return;
       }
       const notesByEleve = {};
@@ -13762,10 +13831,14 @@ async function bindNotes() {
         ok += 1;
       } catch (_) { err += 1; }
     }
+    const nLabel = ok === 1 ? '1 note enregistrée' : `${ok} notes enregistrées`;
     const summary = err
-      ? `<span class="ok">${ok} ok</span> · <span class="bad">${err} échec(s)</span>`
-      : `<span class="ok">${ok} note(s) enregistrée(s)</span>`;
-    await openGrille(grilleCtx);
+      ? `<span class="ok">${esc(nLabel)}</span> · <span class="bad">${err} échec(s)</span>`
+      : `<span class="ok">${esc(nLabel)}</span>`;
+    await Promise.all([
+      openGrille(grilleCtx),
+      loadDevoirs(),
+    ]);
     document.getElementById('grilleMsg').innerHTML = summary;
   };
 
@@ -18344,6 +18417,11 @@ async function render() {
 }
 
 window.addEventListener('popstate', () => render());
+window.addEventListener('load', () => {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js', { scope: '/' }).catch(() => {});
+  }
+});
 render();
 </script>
 </body>

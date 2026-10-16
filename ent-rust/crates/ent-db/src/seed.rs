@@ -11,8 +11,9 @@ use crate::service::{EntDbError, PgEnt};
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime};
 use domain_eleve::{
     annee_scolaire_de, annees_continuum, debut_annee_scolaire, today_utc, CreateEleve,
-    CreerAlerteCpe, CreerDevoir, CreerNotePeriode, CreerPassageInfirmerie, DeclareAbsence,
-    OuvrirCampagneReinscription, PassageInfirmerieMotif, PrononcerSanction, PublierDocASigner,
+    CreerAlerteCpe, CreerCarnetEntree, CreerDevoir, CreerNotePeriode, CreerPassageInfirmerie,
+    CarnetCategorie, DeclarerIncident, DeclareAbsence, OuvrirCampagneReinscription,
+    PassageInfirmerieMotif, PrononcerSanction, PublierDocASigner,
     SaisirAppreciation, UpsertFicheSante, UpsertPai,
 };
 use domain_eleve::Devoir;
@@ -586,6 +587,7 @@ impl PgEnt {
         self.seed_labo_journee_audit(
             etab,
             lea,
+            tom,
             &profs,
             &cpes,
             &infirmieres,
@@ -659,6 +661,7 @@ impl PgEnt {
         &self,
         etab: Uuid,
         harry: &LaboEleve,
+        draco: &LaboEleve,
         profs: &[LaboPersona],
         cpes: &[LaboPersona],
         infirmieres: &[LaboPersona],
@@ -667,6 +670,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         let actor_admin = admin.user_id.to_string();
         let prof_rogue = &profs[0];
+        let prof_mcg = &profs[1];
         let cpe = &cpes[0];
         let inf = &infirmieres[0];
 
@@ -679,7 +683,7 @@ impl PgEnt {
                 &actor_admin,
             )
             .await?;
-        let _math = self
+        let math = self
             .ensure_matiere_lab(
                 etab,
                 "MATH",
@@ -755,6 +759,48 @@ impl PgEnt {
             .await?;
         }
 
+        const DRACO_NOTE_LIB: &str = "Interro Transfiguration lab";
+        if !self
+            .notes_for_eleve(etab, draco.id)
+            .await?
+            .iter()
+            .any(|n| n.libelle.as_deref() == Some(DRACO_NOTE_LIB))
+        {
+            self.saisir_note(SaisirNote {
+                etablissement_id: etab,
+                eleve_id: draco.id,
+                matiere_id: math.id,
+                valeur: 11.0,
+                sur: 20.0,
+                date_note: jour - Duration::days(1),
+                auteur_user_id: prof_mcg.user_id,
+                libelle: Some(DRACO_NOTE_LIB.into()),
+                devoir_id: None,
+                periode_id: Some(periode.id),
+            })
+            .await?;
+        }
+
+        let absence_draco = jour - Duration::days(2);
+        if !self.eleve_est_absent(etab, draco.id, absence_draco).await? {
+            let motifs = self.list_motifs_absence(etab).await?;
+            let motif_code = motifs
+                .iter()
+                .find(|m| m.code.eq_ignore_ascii_case("defaut"))
+                .or_else(|| motifs.first())
+                .map(|m| m.code.clone())
+                .unwrap_or_else(|| "defaut".into());
+            self.declare_absence(DeclareAbsence {
+                etablissement_id: etab,
+                eleve_id: draco.id,
+                debut: absence_draco,
+                fin: absence_draco,
+                motif: motif_code,
+                actor_user_id: Some(cpe.user_id.to_string()),
+            })
+            .await?;
+        }
+
         let passages = self
             .list_passages_infirmerie_for_actor(
                 etab,
@@ -784,6 +830,7 @@ impl PgEnt {
             .await?;
         }
 
+        let incident_types = self.list_incident_types(etab).await?;
         let sanction_types = self.list_sanction_types(etab).await?;
         let sanction_motifs = self.list_sanction_motifs(etab).await?;
         let sanctions_existantes = self
@@ -794,11 +841,50 @@ impl PgEnt {
                 harry.id,
             )
             .await?;
-        if sanctions_existantes.is_empty() {
+        const INCIDENT_DESC: &str = "Seed labo — perturbation en Potions.";
+        let incidents_harry = self
+            .list_incidents_eleve_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+            )
+            .await?;
+        let incident_harry = if let Some(i) = incidents_harry
+            .iter()
+            .find(|i| i.description.as_deref() == Some(INCIDENT_DESC))
+        {
+            Some(i.id)
+        } else if let Some(typ) = incident_types
+            .iter()
+            .find(|t| t.code.eq_ignore_ascii_case("perturbation"))
+            .or(incident_types.first())
+        {
+            let inc = self
+                .declarer_incident_for_actor(
+                    Role::Prof.as_str(),
+                    DeclarerIncident {
+                        etablissement_id: etab,
+                        eleve_id: harry.id,
+                        type_id: typ.id,
+                        jour: jour - Duration::days(1),
+                        description: Some(INCIDENT_DESC.into()),
+                        actor_user_id: prof_rogue.user_id,
+                    },
+                )
+                .await?;
+            Some(inc.id)
+        } else {
+            None
+        };
+
+        if !sanctions_existantes
+            .iter()
+            .any(|s| sanction_types.iter().any(|t| t.id == s.type_id && t.code.eq_ignore_ascii_case("avertissement")))
+        {
             if let Some(typ) = sanction_types
                 .iter()
                 .find(|t| t.code.eq_ignore_ascii_case("avertissement"))
-                .or(sanction_types.first())
             {
                 let motif_id = sanction_motifs
                     .iter()
@@ -813,6 +899,31 @@ impl PgEnt {
                     jour: jour - Duration::days(1),
                     duree_minutes: None,
                     note: Some("Seed labo — avertissement après perturbation en Potions.".into()),
+                    actor_user_id: cpe.user_id,
+                })
+                .await?;
+            }
+        }
+
+        if let (Some(incident_id), Some(retenue)) = (
+            incident_harry,
+            sanction_types
+                .iter()
+                .find(|t| t.code.eq_ignore_ascii_case("retenue")),
+        ) {
+            if !sanctions_existantes
+                .iter()
+                .any(|s| s.type_id == retenue.id)
+            {
+                self.prononcer_sanction(PrononcerSanction {
+                    etablissement_id: etab,
+                    eleve_id: harry.id,
+                    type_id: retenue.id,
+                    motif_id: None,
+                    incident_id: Some(incident_id),
+                    jour: jour - Duration::days(1),
+                    duree_minutes: Some(60),
+                    note: Some("Seed labo — retenue liée à l'incident Potions.".into()),
                     actor_user_id: cpe.user_id,
                 })
                 .await?;
@@ -968,6 +1079,30 @@ impl PgEnt {
                     actor_user_id: cpe.user_id,
                 },
             )
+            .await?;
+        }
+
+        const CARNET_AUDIT_TITRE: &str = "AUDIT: Rappel conduite";
+        let carnet_harry = self
+            .list_carnet_for_actor(
+                etab,
+                cpe.user_id,
+                Role::Cpe.as_str(),
+                harry.id,
+            )
+            .await?;
+        if !carnet_harry.iter().any(|c| c.titre == CARNET_AUDIT_TITRE) {
+            self.creer_carnet_entree(CreerCarnetEntree {
+                etablissement_id: etab,
+                eleve_id: harry.id,
+                date_entree: jour,
+                categorie: CarnetCategorie::Information,
+                titre: CARNET_AUDIT_TITRE.into(),
+                corps: "Merci de rappeler à Harry les règles de courtoisie en classe — signature parent attendue."
+                    .into(),
+                visible_famille: true,
+                actor_user_id: cpe.user_id,
+            })
             .await?;
         }
 
