@@ -154,6 +154,10 @@ let notesDevoirsEmptyGinnyCcRefresh = null;
 let notesDevoirsEmptyLunaCgRefresh = null;
 /** Rempli dans bindNotes — repère Ginny devoir CG-A sur tip « 0 devoir » (audit CG-D). */
 let notesDevoirsEmptyGinnyCgRefresh = null;
+/** Rempli dans bindNotes — repère Harry note CH-A sur tip « 0 devoir » (audit CH-D). */
+let notesDevoirsEmptyHarryChRefresh = null;
+/** Rempli dans bindNotes — repère Draco devoir CH-A sur tip « 0 devoir » (audit CH-D). */
+let notesDevoirsEmptyDracoChRefresh = null;
 /** Rempli dans bindNotes — repère Luna BS-D sur tip « éval sans note ». */
 let notesEvalSansNoteLunaRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
@@ -933,6 +937,8 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyGinnyCcRefresh === 'function') void notesDevoirsEmptyGinnyCcRefresh();
     if (typeof notesDevoirsEmptyLunaCgRefresh === 'function') void notesDevoirsEmptyLunaCgRefresh();
     if (typeof notesDevoirsEmptyGinnyCgRefresh === 'function') void notesDevoirsEmptyGinnyCgRefresh();
+    if (typeof notesDevoirsEmptyHarryChRefresh === 'function') void notesDevoirsEmptyHarryChRefresh();
+    if (typeof notesDevoirsEmptyDracoChRefresh === 'function') void notesDevoirsEmptyDracoChRefresh();
   } else if ((!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations')
     && Number.isFinite(nMatiere) && nMatiere > 0 && nTot > 0) {
     if (typeof notesEvalSansNoteLunaRefresh === 'function') void notesEvalSansNoteLunaRefresh();
@@ -970,7 +976,7 @@ function findRonCdDevoir(devoirs) {
 function findDracoBvDevoir(devoirs) {
   return (devoirs || []).find(d => {
     const t = String(d.titre || '');
-    if (!/draco/i.test(t) || /CA-A/i.test(t)) return false;
+    if (!/draco/i.test(t) || /CA-A/i.test(t) || /CH-A/i.test(t)) return false;
     return /BV-A/i.test(t) || /potions/i.test(String(d.matiere_libelle || d.matiere || ''));
   });
 }
@@ -978,6 +984,11 @@ function findDracoBvDevoir(devoirs) {
 function findDracoCaDevoir(devoirs) {
   return (devoirs || []).find(d =>
     /draco/i.test(String(d.titre || '')) && /CA-A/i.test(String(d.titre || '')));
+}
+
+function findDracoChDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /draco/i.test(String(d.titre || '')) && /CH-A/i.test(String(d.titre || '')));
 }
 
 function findCedricBwDevoir(devoirs) {
@@ -1250,6 +1261,52 @@ function bindNotesDracoCaDevoirGoTipGo(opts) {
     };
   }
   const list = document.getElementById('notesDracoCaDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesDracoCaDevoirGoActions();
+  }
+}
+
+/** /app/notes — repère devoir Draco CH-A (0 devoir global ou liste filtrée vide). */
+function notesDracoChDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.dracoChDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Draco CH-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Draco Malefoy</strong><span>Seed labo · 5A · devoir audit CH-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesDracoChDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CH-A · 5A'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesDracoChDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 5A</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesDracoChDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesDracoChDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.dracoChDevoir && o.dracoChDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.dracoChDevoir);
+        return;
+      }
+      notesDracoCaDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Draco CH-A';
+      }
+      if (!o.dracoChDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesDracoChDevoirListBtn');
   if (list) {
     list.onclick = () => notesDracoCaDevoirGoActions();
   }
@@ -1830,6 +1887,30 @@ function notesHarryCaSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesHarryCaSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasCaNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCaNote ? 'Repère Harry · Potions CA-A' : 'Filtre 4B · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Harry Potter (4B · note Potions CH-A · audit CH-D). */
+function notesHarryChSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.harryId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '4B').trim());
+  const hasChNote = !!o.hasChNote;
+  const noteLbl = o.chNoteLabel
+    ? esc(String(o.chNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CH-A');
+  const noteStrong = hasChNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Harry Potter</strong><span>Seed labo · ${classe} · audit notes CH-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesHarryChSeedNotesBtn" data-harry-id="${esc(String(o.harryId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesHarryChSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasChNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasChNote ? 'Repère Harry · Potions CH-A' : 'Filtre 4B · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -4477,6 +4558,390 @@ function toastStaffBvcAction(kind, meta) {
   );
 }
 
+function staffHomeChcPanelShell() {
+  return `
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit admissions &amp; dossiers</h3>
+      <p class="muted" style="margin-top:0">Inscriptions · entretien / RDV · réinscription · foyers — <span class="muted empty-state-hint" style="font-size:.72rem">CH-C</span>.</p>
+      <div id="homeStaffChcTip" class="muted">Chargement…</div>
+    </div>`;
+}
+
+function isStaffChcAdmissionsFlux() {
+  const role = (me && me.role) || '';
+  return role === 'administratif';
+}
+
+function isStaffHomeChcFlux() {
+  return path() === '/app' && isStaffChcAdmissionsFlux();
+}
+
+function isStaffInscriptionsPageChcFlux() {
+  return path() === '/app/inscriptions' && isStaffChcAdmissionsFlux();
+}
+
+function isStaffReinscriptionPageChcFlux() {
+  return path() === '/app/reinscription' && isStaffChcAdmissionsFlux();
+}
+
+function staffChcMetaFromParts(o) {
+  const x = o || {};
+  return {
+    jour: String(x.jour || today()).slice(0, 10),
+    nIns: Number(x.nIns) || 0,
+    nDossier: Number(x.nDossier) || 0,
+    nPieces: Number(x.nPieces) || 0,
+    nEntretien: Number(x.nEntretien) || 0,
+    nDecision: Number(x.nDecision) || 0,
+    campOuverte: !!x.campOuverte,
+    campLabel: x.campLabel ? String(x.campLabel) : 'N+1',
+    nCand: Number(x.nCand) || 0,
+    nConfirm: Number(x.nConfirm) || 0,
+    nExig: Number(x.nExig) || 0,
+  };
+}
+
+function staffChcMetaFromHome(jour, insByEtape, campOuverte, campLabel, nInsTotal) {
+  const INSC = ['dossier', 'pieces', 'entretien', 'decision', 'paiement'];
+  const idx = et => INSC.indexOf(et);
+  const lists = insByEtape || [];
+  return staffChcMetaFromParts({
+    jour,
+    nIns: nInsTotal,
+    nDossier: (lists[idx('dossier')] || []).length,
+    nPieces: (lists[idx('pieces')] || []).length,
+    nEntretien: (lists[idx('entretien')] || []).length,
+    nDecision: (lists[idx('decision')] || []).length,
+    campOuverte,
+    campLabel,
+  });
+}
+
+function staffChcMetaFromBoardCounts(counts, extra) {
+  const c = counts || {};
+  const etapes = ['dossier', 'pieces', 'entretien', 'decision', 'paiement', 'finalise'];
+  const nIns = etapes.reduce((s, et) => s + (Number(c[et]) || 0), 0);
+  const x = extra || {};
+  return staffChcMetaFromParts({
+    jour: x.jour,
+    nIns,
+    nDossier: Number(c.dossier) || 0,
+    nPieces: Number(c.pieces) || 0,
+    nEntretien: Number(c.entretien) || 0,
+    nDecision: Number(c.decision) || 0,
+    campOuverte: x.campOuverte,
+    campLabel: x.campLabel,
+  });
+}
+
+/** Accueil administratif — pipeline inscriptions · RDV · réinscription (audit UI CH-C). */
+function homeStaffChcTipDenseHtml(meta) {
+  if (!isStaffHomeChcFlux()) return '';
+  const o = staffChcMetaFromParts(meta);
+  const jour = esc(o.jour);
+  const chcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CH-C</span>';
+  const piecesTile = o.nPieces
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeChcPiecesGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${o.nPieces}</strong><span>File pièces · contrôle dossier · ${chcLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeChcPiecesGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">0</strong><span>Pièces · calme · ${jour}</span></button>`;
+  const entTile = o.nEntretien
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeChcEntGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong class="warn">${o.nEntretien}</strong><span>Entretien / RDV · ${o.nIns} dossier(s)</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeChcEntGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">0</strong><span>Entretien · planifier RDV direction</span></button>`;
+  const decTile = o.nDecision
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeChcDecGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">${o.nDecision}</strong><span>Décision · admission / refus</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeChcDecGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">—</strong><span>Décision · après entretien</span></button>`;
+  const reinscTile = `<button type="button" class="stat-tile bento-span-4" id="homeChcReinscGo" style="cursor:pointer;text-align:left;border-color:${o.campOuverte ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${o.campOuverte ? 'warn' : ''}">${o.campOuverte ? 'Ouverte' : 'Fermée'}</strong><span>Réinscription · campagne ${esc(o.campLabel)}</span></button>`;
+  const foyersTile = `<button type="button" class="stat-tile bento-span-4" id="homeChcFoyersGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>Foyers</strong><span>Contacts · payeurs · droits famille</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>Admissions staff · hors BV-C factu</span></div>`;
+  return `<div class="bento" data-ui-audit="CH-C" style="margin:0 0 .55rem">
+    ${piecesTile}${entTile}${decTile}${reinscTile}${foyersTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffChcTipActions(meta) {
+  const o = staffChcMetaFromParts(meta);
+  const pieces = document.getElementById('homeChcPiecesGo');
+  if (pieces) {
+    pieces.onclick = () => {
+      toastStaffChcAction('pieces', o);
+      go('/app/inscriptions?etape=pieces');
+    };
+  }
+  const ent = document.getElementById('homeChcEntGo');
+  if (ent) {
+    ent.onclick = () => {
+      toastStaffChcAction('entretien', o);
+      go('/app/inscriptions?etape=entretien');
+    };
+  }
+  const dec = document.getElementById('homeChcDecGo');
+  if (dec) {
+    dec.onclick = () => {
+      toastStaffChcAction('decision', o);
+      go('/app/inscriptions?etape=decision');
+    };
+  }
+  const reinsc = document.getElementById('homeChcReinscGo');
+  if (reinsc) {
+    reinsc.onclick = () => {
+      toastStaffChcAction('reinscription', o);
+      go('/app/reinscription');
+    };
+  }
+  const foyers = document.getElementById('homeChcFoyersGo');
+  if (foyers) {
+    foyers.onclick = () => {
+      toastStaffChcAction('foyers', o);
+      go('/app/foyers');
+    };
+  }
+}
+
+/** Page /app/inscriptions — raccourcis pipeline (audit UI CH-C). */
+function inscriptionsStaffChcPageTipDenseHtml(meta) {
+  if (!isStaffInscriptionsPageChcFlux()) return '';
+  const o = staffChcMetaFromParts(meta);
+  const chcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CH-C</span>';
+  const piecesTile = `<button type="button" class="stat-tile bento-span-4" id="insChcPiecesGo" style="cursor:pointer;text-align:left;border-color:${o.nPieces ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${o.nPieces ? 'warn' : 'muted'}">${o.nPieces}</strong><span>Pièces · ${chcLbl}</span></button>`;
+  const entTile = `<button type="button" class="stat-tile bento-span-4" id="insChcEntGo" style="cursor:pointer;text-align:left;border-color:${o.nEntretien ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${o.nEntretien ? 'warn' : 'muted'}">${o.nEntretien}</strong><span>Entretien / RDV</span></button>`;
+  const decTile = `<button type="button" class="stat-tile bento-span-4" id="insChcDecGo" style="cursor:pointer;text-align:left;border-color:${o.nDecision ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${o.nDecision ? 'ok' : 'muted'}">${o.nDecision}</strong><span>Décision · ${o.nIns} actif(s)</span></button>`;
+  const reinscTile = `<button type="button" class="stat-tile bento-span-4" id="insChcReinscGo" style="cursor:pointer;text-align:left">
+      <strong class="${o.campOuverte ? 'warn' : 'muted'}">${o.campOuverte ? 'N+1' : '—'}</strong><span>Réinscription · campagne</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>GET /inscriptions/par-etape</span></div>`;
+  return `<div class="bento" data-ui-audit="CH-C" style="margin:0 0 .55rem">
+    ${piecesTile}${entTile}${decTile}${reinscTile}${auditTile}
+  </div>`;
+}
+
+function bindInscriptionsStaffChcPageTipActions(meta) {
+  const o = staffChcMetaFromParts(meta);
+  const setEtape = et => {
+    const sel = document.getElementById('insEtape');
+    if (sel) sel.value = et;
+    document.getElementById('btnInsFile')?.click();
+  };
+  const pieces = document.getElementById('insChcPiecesGo');
+  if (pieces) {
+    pieces.onclick = () => {
+      toastStaffChcAction('pieces', o);
+      setEtape('pieces');
+    };
+  }
+  const ent = document.getElementById('insChcEntGo');
+  if (ent) {
+    ent.onclick = () => {
+      toastStaffChcAction('entretien', o);
+      setEtape('entretien');
+    };
+  }
+  const dec = document.getElementById('insChcDecGo');
+  if (dec) {
+    dec.onclick = () => {
+      toastStaffChcAction('decision', o);
+      setEtape('decision');
+    };
+  }
+  const reinsc = document.getElementById('insChcReinscGo');
+  if (reinsc) {
+    reinsc.onclick = () => {
+      toastStaffChcAction('reinscription', o);
+      go('/app/reinscription');
+    };
+  }
+}
+
+function refreshInscriptionsStaffChcTip(counts, extra) {
+  const box = document.getElementById('inscriptionsStaffChcTip');
+  if (!box) return;
+  const meta = staffChcMetaFromBoardCounts(counts, extra);
+  box.innerHTML = inscriptionsStaffChcPageTipDenseHtml(meta);
+  bindInscriptionsStaffChcPageTipActions(meta);
+}
+
+function maybeToastStaffInscriptionsPageOpen(meta) {
+  if (!isStaffInscriptionsPageChcFlux()) return;
+  const ssKey = 'ent_staff_insc_chc_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastStaffChcAction('page-inscriptions', meta);
+}
+
+/** Page /app/reinscription — campagne · montée · exigences (audit UI CH-C). */
+function reinscriptionStaffChcPageTipDenseHtml(meta) {
+  if (!isStaffReinscriptionPageChcFlux()) return '';
+  const o = staffChcMetaFromParts(meta);
+  const chcLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CH-C</span>';
+  const campTile = `<button type="button" class="stat-tile bento-span-4" id="reinsChcCampGo" style="cursor:pointer;text-align:left;border-color:${o.campOuverte ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+      <strong class="${o.campOuverte ? 'warn' : ''}">${o.campOuverte ? 'Ouverte' : 'Fermée'}</strong><span>Campagne ${esc(o.campLabel)} · ${chcLbl}</span></button>`;
+  const monteeTile = `<button type="button" class="stat-tile bento-span-4" id="reinsChcMonteeGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${o.nCand || '—'}</strong><span>Candidat(s) montée · ${o.nConfirm} confirmé(s)</span></button>`;
+  const exigTile = `<button type="button" class="stat-tile bento-span-4" id="reinsChcExigGo" style="cursor:pointer;text-align:left">
+      <strong>${o.nExig}</strong><span>Document(s) exigé(s) N+1</span></button>`;
+  const insTile = `<button type="button" class="stat-tile bento-span-4" id="reinsChcInsGo" style="cursor:pointer;text-align:left">
+      <strong>→</strong><span>Board inscriptions · nouvelles arrivées</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>GET /reinscription/campagne</span></div>`;
+  return `<div class="bento" data-ui-audit="CH-C" style="margin:0 0 .55rem">
+    ${campTile}${monteeTile}${exigTile}${insTile}${auditTile}
+  </div>`;
+}
+
+function bindReinscriptionStaffChcPageTipActions(meta) {
+  const o = staffChcMetaFromParts(meta);
+  const camp = document.getElementById('reinsChcCampGo');
+  if (camp) {
+    camp.onclick = () => {
+      toastStaffChcAction('reinscription', o);
+      document.getElementById('btnCampagne')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const montee = document.getElementById('reinsChcMonteeGo');
+  if (montee) {
+    montee.onclick = () => {
+      toastStaffChcAction('montee', o);
+      document.getElementById('monteeEleve')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const exig = document.getElementById('reinsChcExigGo');
+  if (exig) {
+    exig.onclick = () => {
+      toastStaffChcAction('exigences', o);
+      document.getElementById('reinsExigences')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const ins = document.getElementById('reinsChcInsGo');
+  if (ins) {
+    ins.onclick = () => {
+      toastStaffChcAction('page-inscriptions', o);
+      go('/app/inscriptions');
+    };
+  }
+}
+
+function refreshReinscriptionStaffChcTip(meta) {
+  const box = document.getElementById('reinscriptionStaffChcTip');
+  if (!box) return;
+  const o = staffChcMetaFromParts(meta);
+  box.innerHTML = reinscriptionStaffChcPageTipDenseHtml(o);
+  bindReinscriptionStaffChcPageTipActions(o);
+}
+
+function maybeToastStaffReinscriptionPageOpen(meta) {
+  if (!isStaffReinscriptionPageChcFlux()) return;
+  const ssKey = 'ent_staff_reins_chc_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastStaffChcAction('page-reinscription', meta);
+}
+
+/** Toast bento — admissions staff (routes existantes · audit CH-C). */
+function toastStaffChcAction(kind, meta) {
+  const o = staffChcMetaFromParts(meta);
+  const k = String(kind || '').trim();
+  const jour = esc(o.jour);
+  let title = 'Admissions · staff';
+  let href = '/app/inscriptions';
+  let tiles = '';
+  if (k === 'pieces') {
+    href = '/app/inscriptions?etape=pieces';
+    title = o.nPieces ? 'File pièces · contrôle' : 'Inscriptions · pièces';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${o.nPieces ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${o.nPieces ? 'warn' : 'muted'}">${o.nPieces}</strong><span>Dossier(s) · motif incomplet</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">${o.nDossier}</strong><span>Étape dossier · amont</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>Route /app/inscriptions?etape=pieces</span></div>`;
+  } else if (k === 'entretien') {
+    href = '/app/inscriptions?etape=entretien';
+    title = o.nEntretien ? 'Entretien / RDV · file' : 'Planifier entretien';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${o.nEntretien ? 'var(--accent,#0071e3)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${o.nEntretien ? 'warn' : 'muted'}">${o.nEntretien}</strong><span>RDV direction · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Pipeline</strong><span>Après pièces · avant décision</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>Route /app/inscriptions?etape=entretien</span></div>`;
+  } else if (k === 'decision') {
+    href = '/app/inscriptions?etape=decision';
+    title = o.nDecision ? 'Décision · admission' : 'Décision · en attente';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${o.nDecision ? 'var(--ok,#16a34a)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${o.nDecision ? 'ok' : 'muted'}">${o.nDecision}</strong><span>À trancher · ${o.nIns} actif(s)</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Paiement</strong><span>Étape suivante · acompte</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>Route /app/inscriptions?etape=decision</span></div>`;
+  } else if (k === 'reinscription') {
+    href = '/app/reinscription';
+    title = o.campOuverte ? 'Réinscription · campagne ouverte' : 'Réinscription N+1';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${o.campOuverte ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${o.campOuverte ? 'warn' : ''}">${o.campOuverte ? 'Ouverte' : 'Fermée'}</strong><span>Campagne ${esc(o.campLabel)}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${o.nConfirm}</strong><span>Confirmé(s) · ${o.nCand} candidat(s)</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>Route /app/reinscription</span></div>`;
+  } else if (k === 'montee') {
+    href = '/app/reinscription';
+    title = 'Montée de niveau N+1';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${o.nCand || '—'}</strong><span>Candidat(s) · lot ou unitaire</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="ok">${o.nConfirm}</strong><span>Réinscriptions confirmées</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>GET /reinscription/montee/candidats</span></div>`;
+  } else if (k === 'exigences') {
+    href = '/app/reinscription';
+    title = 'Exigences documentaires N+1';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${o.nExig}</strong><span>Code · libellé · acompte</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Famille</strong><span>Portail · pièces campagne</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>GET /reinscription/exigences</span></div>`;
+  } else if (k === 'foyers') {
+    href = '/app/foyers';
+    title = 'Foyers · contacts admission';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>Foyers</strong><span>Payeur · responsables légaux</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Élèves</strong><span>Lien dossier · classe</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>Route /app/foyers</span></div>`;
+  } else if (k === 'page-inscriptions') {
+    href = '/app/inscriptions';
+    title = 'Board inscriptions staff';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${o.nPieces || o.nEntretien ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong>${o.nIns}</strong><span>Actif(s) · ${o.nPieces} pièce(s) · ${o.nEntretien} RDV</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Étapes</strong><span>Dossier → finalisé</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>Page /app/inscriptions</span></div>`;
+  } else if (k === 'page-reinscription') {
+    href = '/app/reinscription';
+    title = 'Module réinscription staff';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${o.campOuverte ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${o.campOuverte ? 'warn' : ''}">${o.campOuverte ? 'Ouverte' : 'Fermée'}</strong><span>Campagne ${esc(o.campLabel)}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${o.nExig}</strong><span>Exigence(s) · montée</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CH-C</strong><span>Page /app/reinscription</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CH-C</p>`,
+    6500,
+  );
+}
+
 function staffHomeBxcPanelShell() {
   return `
     <div class="panel" style="margin-top:.75rem">
@@ -6175,67 +6640,81 @@ function famHomeMsgDenseHtml(fils, nonLus) {
   return famHomeMsgFamilleDenseHtml(fils, nonLus);
 }
 
-/** Accueil famille — carnet VS (à signer ou calme) — audit UI BS-B. */
-function famHomeCarnetFamilleDenseHtml(list, resumes) {
-  const pending = famHomeCarnetTipDenseHtml(list, resumes);
-  if (pending) return pending;
-  const kids = (list || []).filter(e => e && e.peut_voir_vs !== false);
-  if (!kids.length) return '';
-  const first = kids[0];
-  const eid = first && first.id ? esc(String(first.id)) : '';
-  const carHref = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
-  const prenoms = kids.slice(0, 2).map(e => esc(String(e.prenom || '').trim())).join(' · ');
-  const extra = kids.length > 2 ? ` · +${kids.length - 2}` : '';
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
-      <strong class="ok">OK</strong><span>Carnet famille · rien à signer</span>
-    </div>
-    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>${prenoms}${extra}</strong><span>Ouvrir le carnet · VS</span>
-    </a>
-    <a class="stat-tile bento-span-4" href="/famille/docs-signer" style="text-decoration:none">
-      <strong>Docs</strong><span>Charte · autorisations</span>
-    </a>
-  </div>`;
+function famChBCarnetHrefForEnfant(enfantId) {
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  return eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
 }
 
-/** Accueil famille — entrées carnet à signer (bento). */
-function famHomeCarnetTipDenseHtml(list, resumes) {
-  const kids = list || [];
-  let nCar = 0;
-  let firstCar = null;
+function famChBCarnetCollectStats(list, resumes) {
+  const kids = (list || []).filter(e => e && e.peut_voir_vs !== false);
+  let nPending = 0;
+  let lead = null;
   let firstEntry = null;
   kids.forEach((e, i) => {
     const pending = ((resumes || [])[i] || {}).carnet_a_signer || [];
     const n = pending.length;
     if (!n) return;
-    nCar += n;
-    if (!firstCar) {
-      firstCar = e;
+    nPending += n;
+    if (!lead) {
+      lead = e;
       firstEntry = pending[0] || null;
     }
   });
-  if (!nCar) return '';
-  const eid = firstCar && firstCar.id ? esc(String(firstCar.id)) : '';
-  const prenom = firstCar && firstCar.prenom ? esc(String(firstCar.prenom).trim()) : 'Enfant';
-  const carHref = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
-  const titreRaw = firstEntry && firstEntry.titre ? String(firstEntry.titre).trim() : 'Entrée';
-  const titre = titreRaw.length > 28 ? esc(titreRaw.slice(0, 28)) + '…' : esc(titreRaw);
-  const cat = firstEntry && firstEntry.categorie ? esc(String(firstEntry.categorie).trim()) : 'carnet';
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
-      <strong class="warn">${nCar}</strong><span>Entrée(s) carnet à signer</span>
-    </a>
-    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none">
-      <strong>${prenom}</strong><span>${cat} · ${titre}</span>
-    </a>
-    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
-      <strong>↓</strong><span>Signer sur la fiche enfant</span>
-    </a>
+  return { kids, nCanSee: kids.length, nPending, lead, firstEntry };
+}
+
+/** Accueil famille — carnet VS (à signer ou calme) — audit UI CH-B. */
+function famHomeCarnetFamilleDenseHtml(list, resumes) {
+  const pending = famHomeCarnetTipDenseHtml(list, resumes);
+  if (pending) return pending;
+  const st = famChBCarnetCollectStats(list, resumes);
+  if (!st.nCanSee) return '';
+  const leadId = st.lead && st.lead.id ? String(st.lead.id).trim() : (st.kids[0] && st.kids[0].id ? String(st.kids[0].id).trim() : '');
+  const carHref = famChBCarnetHrefForEnfant(leadId);
+  const prenoms = st.kids.slice(0, 2).map(e => esc(String(e.prenom || '').trim())).join(' · ');
+  const extra = st.kids.length > 2 ? ` · +${st.kids.length - 2}` : '';
+  const vsHref = '/famille/vie-scolaire';
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CH-B</strong><span>GET …/resume · carnet_a_signer</span></div>`;
+  return `<div class="bento" data-ui-audit="CH-B" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">OK</strong><span>Carnet famille · rien à signer</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(carHref)}" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${prenoms}${extra}</strong><span>Ouvrir le carnet · VS</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(vsHref)}" style="cursor:pointer;text-align:left">
+      <strong>Registre</strong><span>Vie scolaire · commissions</span>
+    </button>
+    ${auditTile}
   </div>`;
 }
 
-/** Accueil famille — carnet multi-enfants / volume (bento prioritaire). */
+/** Accueil famille — entrées carnet à signer (bento) — audit UI CH-B. */
+function famHomeCarnetTipDenseHtml(list, resumes) {
+  const st = famChBCarnetCollectStats(list, resumes);
+  if (!st.nPending) return '';
+  const eid = st.lead && st.lead.id ? String(st.lead.id).trim() : '';
+  const prenom = st.lead && st.lead.prenom ? esc(String(st.lead.prenom).trim()) : 'Enfant';
+  const carHref = famChBCarnetHrefForEnfant(eid);
+  const titreRaw = st.firstEntry && st.firstEntry.titre ? String(st.firstEntry.titre).trim() : 'Entrée';
+  const titre = titreRaw.length > 28 ? esc(titreRaw.slice(0, 28)) + '…' : esc(titreRaw);
+  const cat = st.firstEntry && st.firstEntry.categorie ? esc(String(st.firstEntry.categorie).trim()) : 'carnet';
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CH-B</strong><span>${esc(carHref)}</span></div>`;
+  return `<div class="bento" data-ui-audit="CH-B" style="margin:0 0 .55rem">
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(carHref)}" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+      <strong class="warn">${st.nPending}</strong><span>Entrée(s) carnet à signer</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(carHref)}" style="cursor:pointer;text-align:left">
+      <strong>${prenom}</strong><span>${cat} · ${titre}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(carHref)}" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>↓</strong><span>Signer sur la fiche enfant</span>
+    </button>
+    ${auditTile}
+  </div>`;
+}
+
+/** Accueil famille — carnet multi-enfants / volume (bento prioritaire) — audit UI CH-B. */
 function famHomeCarnetUrgentTipDenseHtml(list, resumes) {
   const withCar = [];
   (list || []).forEach((e, i) => {
@@ -6246,25 +6725,27 @@ function famHomeCarnetUrgentTipDenseHtml(list, resumes) {
   const nTotal = withCar.reduce((a, x) => a + x.n, 0);
   if (nTotal <= 1 && withCar.length <= 1) return '';
   const top = withCar.slice().sort((a, b) => b.n - a.n)[0];
-  const eid = top && top.e && top.e.id ? esc(String(top.e.id)) : '';
+  const eid = top && top.e && top.e.id ? String(top.e.id).trim() : '';
   const prenom = top && top.e && top.e.prenom ? esc(String(top.e.prenom).trim()) : 'Enfant';
   const first = top.pending[0] || null;
   const titreRaw = first && first.titre ? String(first.titre).trim() : 'Entrée';
   const titre = titreRaw.length > 22 ? esc(titreRaw.slice(0, 22)) + '…' : esc(titreRaw);
-  const carHref = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
+  const carHref = famChBCarnetHrefForEnfant(eid);
   const multiLbl = withCar.length > 1
     ? `${withCar.length} enfant(s) · ${nTotal} entrée(s)`
     : `${nTotal} entrée(s) · ${prenom}`;
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CH-B</strong><span>Multi-enfants · carnet</span></div>`;
+  return `<div class="bento" data-ui-audit="CH-B" style="margin:0 0 .55rem">
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(carHref)}" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
       <strong class="warn">Prioritaire</strong><span>Carnet · ${esc(multiLbl)}</span>
-    </a>
-    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none">
+    </button>
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(carHref)}" style="cursor:pointer;text-align:left">
       <strong>${prenom}</strong><span>${titre} · à signer en premier</span>
-    </a>
-    <a class="stat-tile bento-span-4" href="${carHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+    </button>
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(carHref)}" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong>↓</strong><span>Ouvrir le carnet</span>
-    </a>
+    </button>
+    ${auditTile}
   </div>`;
 }
 
@@ -8218,6 +8699,51 @@ function bindFamHomeAbsJustifTipGo() {
   });
 }
 
+function toastFamChBCarnetNavDense(href, label) {
+  const h = href ? String(href).trim() : '';
+  if (!h) return;
+  const lbl = label ? esc(String(label).trim().slice(0, 40)) : 'Carnet VS';
+  if (h.startsWith('#')) {
+    showEntToast(`<strong>Carnet VS</strong> — ${lbl} · ancre ${esc(h)}`, 4200);
+    return;
+  }
+  showEntToast(`<strong>Carnet VS</strong> — ${lbl} · <a href="${esc(h)}">${esc(h)}</a>`, 4800);
+}
+
+function bindFamHomeChBTipGo() {
+  [
+    'famHomeCarnetTip',
+    'famHomeAgendaTip',
+    'famEnfantCarnetTip',
+    'enfantsOut',
+    'entToast',
+  ].forEach(rootId => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('[data-fam-ch-go]').forEach(btn => {
+      if (btn.dataset.famChBound === '1') return;
+      btn.dataset.famChBound = '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-ch-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          toastFamChBCarnetNavDense(href, btn.textContent || 'Carnet');
+          return;
+        }
+        toastFamChBCarnetNavDense(href, btn.textContent || 'Carnet');
+        go(href);
+      };
+    });
+  });
+}
+
 function famCdBOrientPageHref() {
   return '/famille/orientation';
 }
@@ -8632,23 +9158,37 @@ function refreshEleveHomeOrientTip(orientApiOk, orientMeta) {
   el.innerHTML = eleveOrientTipDenseHtml(orientMeta || {});
 }
 
-/** Section carnet fiche enfant — empty-state dense (BS-B). */
+/** Section carnet fiche enfant — empty-state dense (audit UI CH-B). */
 function famEnfantCarnetEmptyDenseHtml(e, enfantId) {
   const who = e && e.prenom ? esc(String(e.prenom).trim()) : 'Enfant';
   const eid = enfantId ? esc(String(enfantId)) : '';
+  const vsHref = '/famille/vie-scolaire';
+  const carHref = famChBCarnetHrefForEnfant(enfantId);
+  const tip = `<div class="bento" data-ui-audit="CH-B" style="margin:0 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">OK</strong><span>Carnet · ${who} · rien à signer</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(vsHref)}" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>VS</strong><span>Registre vie scolaire</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(carHref)}" style="cursor:pointer;text-align:left">
+      <strong>Historique</strong><span>Section carnet · fiche</span>
+    </button>
+    <div class="stat-tile bento-span-4"><strong class="muted">CH-B</strong><span>Empty · resume.carnet_a_signer</span></div>
+  </div>`;
   const actions = eid
     ? `<a href="/famille/enfants/${eid}?section=docs">Documents</a> · `
       + `<a href="/famille/vie-scolaire">Vie scolaire</a> · `
       + `<a href="#fam-sec-carnet">Historique carnet</a>`
     : '<a href="/famille/vie-scolaire">Vie scolaire</a>';
-  return famEmptyDense(`Carnet à jour — ${who}`, [
+  return tip + famEmptyDense(`Carnet à jour — ${who}`, [
     'Aucune entrée en attente de signature sur ce dossier.',
     'Les prises de connaissance déjà signées restent dans l’historique ci-dessous.',
-    'Labo seed BS-A : entrées « AUDIT BS-A: Draco / Ginny (famille) » selon le foyer parent (Molly / Narcissa).',
+    'Audit UI <span class="muted empty-state-hint">CH-B</span> — signature carnet VS · deep-link ?section=carnet.',
   ], actions);
 }
 
-/** Fiche enfant famille — carnet à signer (bento). */
+/** Fiche enfant famille — carnet à signer (bento) — audit UI CH-B. */
 function famEnfantCarnetTipDenseHtml(opts) {
   const o = opts || {};
   const carnet = o.carnet || [];
@@ -8656,8 +9196,9 @@ function famEnfantCarnetTipDenseHtml(opts) {
   const carASigner = pending.length;
   const force = !!(o.forceShow || o.deepLink);
   if (!carASigner && !force) return '';
-  const eid = o.enfantId ? esc(String(o.enfantId)) : '';
-  const href = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
+  const eid = o.enfantId ? String(o.enfantId).trim() : '';
+  const href = famChBCarnetHrefForEnfant(eid);
+  const vsHref = '/famille/vie-scolaire';
   const last = pending[0] || carnet[0] || null;
   const lastTitle = last && last.titre ? String(last.titre).trim() : '';
   const lastShort = lastTitle.length > 28 ? esc(lastTitle.slice(0, 28)) + '…' : esc(lastTitle || '—');
@@ -8672,13 +9213,14 @@ function famEnfantCarnetTipDenseHtml(opts) {
     ? `<div class="stat-tile bento-span-4"><strong>${lastShort}</strong><span>${esc(last.categorie || 'carnet')}${last.signe_at ? ' · signée' : ''}</span></div>`
     : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Aucune entrée en attente</span></div>`;
   const actTile = carASigner
-    ? `<a class="stat-tile bento-span-4" href="#fam-sec-carnet" style="text-decoration:none;border-color:var(--accent,#0071e3)">
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-ch-go="#fam-sec-carnet" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
         <strong>↓</strong><span>Signer ci-dessous</span>
-      </a>`
-    : `<a class="stat-tile bento-span-4" href="${href}" style="text-decoration:none">
+      </button>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-ch-go="${esc(vsHref)}" style="cursor:pointer;text-align:left">
         <strong>VS</strong><span>Carnet · sanctions · commissions</span>
-      </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">${signTile}${detailTile}${actTile}</div>`;
+      </button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CH-B</strong><span>${esc(href)}</span></div>`;
+  return `<div class="bento" data-ui-audit="CH-B" style="margin:0 0 .55rem">${signTile}${detailTile}${actTile}${auditTile}</div>`;
 }
 
 const FAM_LAST_ENFANT_SS = 'ent_fam_last_enfant_id';
@@ -11080,8 +11622,10 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyNevilleCfSlot"></div>
   <div id="notesDevoirsEmptyDracoSlot"></div>
   <div id="notesDevoirsEmptyDracoCaSlot"></div>
+  <div id="notesDevoirsEmptyDracoChSlot"></div>
   <div id="notesDevoirsEmptyRonSlot"></div>
   <div id="notesDevoirsEmptyHarrySlot"></div>
+  <div id="notesDevoirsEmptyHarryChSlot"></div>
   <div id="notesDevoirsEmptyRonBtSlot"></div>
   <div id="notesDevoirsEmptyRonBySlot"></div>
   <div id="notesDevoirsEmptyRonCdSlot"></div>
@@ -18467,13 +19011,13 @@ function maybeToastFamRepasSectionDeep(opts) {
   toastFamRepasSectionDeepDense(o);
 }
 
-/** Deep-link fiche ?section=carnet — toast actionnable (BS-B). */
+/** Deep-link fiche ?section=carnet — toast actionnable (audit UI CH-B). */
 function toastFamCarnetSectionDeepDense(opts) {
   const o = opts || {};
   const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
-  const eid = o.enfantId ? esc(String(o.enfantId).trim()) : '';
   const carnet = o.carnet || [];
-  const ficheHref = eid ? `/famille/enfants/${eid}?section=carnet` : '/famille/vie-scolaire';
+  const ficheHref = famChBCarnetHrefForEnfant(o.enfantId);
+  const vsHref = '/famille/vie-scolaire';
   const tipHtml = famEnfantCarnetTipDenseHtml({
     carnet,
     enfantId: o.enfantId,
@@ -18486,13 +19030,15 @@ function toastFamCarnetSectionDeepDense(opts) {
     + (nPending
       ? ` · <span class="warn">${nPending} à signer</span>`
       : ' · <span class="ok">à jour</span>')
+    + ` · <span class="muted empty-state-hint">CH-B</span>`
     + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="${ficheHref}">Ouvrir le carnet</a> · `
     + `<a href="#fam-sec-carnet">↓ Section ci-dessous</a> · `
-    + `<a href="/famille/docs-signer">Docs</a></p>`,
+    + `<a href="${vsHref}">Vie scolaire</a></p>`,
     nPending ? 9500 : 7500,
   );
+  bindFamHomeChBTipGo();
 }
 
 function maybeToastFamCarnetSectionDeep(opts) {
@@ -18597,6 +19143,41 @@ function maybeToastFamAbsJustifHomeDense(opts) {
     st.hasAction ? 9000 : 7000,
   );
   try { sessionStorage.setItem(FAM_ABS_HOME_TOAST_SS, '1'); } catch {}
+}
+
+const FAM_CARNET_HOME_TOAST_SS = 'ent_fam_carnet_home_ch_b';
+
+/** Accueil famille — toast carnet VS (1× / session) — audit UI CH-B. */
+function maybeToastFamCarnetHomeDense(opts) {
+  if (!isParent() || !isFamilleHomeFlux()) return;
+  try {
+    if (sessionStorage.getItem(FAM_CARNET_HOME_TOAST_SS) === '1') return;
+  } catch {
+    return;
+  }
+  const o = opts || {};
+  const list = o.list || [];
+  const resumes = o.resumes || [];
+  const st = famChBCarnetCollectStats(list, resumes);
+  if (!st.nCanSee) return;
+  const tiles = famHomeCarnetFamilleDenseHtml(list, resumes);
+  if (!tiles) return;
+  const leadId = st.lead && st.lead.id ? String(st.lead.id).trim() : '';
+  const carHref = famChBCarnetHrefForEnfant(leadId || (st.kids[0] && st.kids[0].id));
+  const lead = st.nPending
+    ? '<strong>Carnet · signature requise</strong>'
+    : '<strong>Carnet VS au calme</strong>';
+  showEntToast(
+    lead
+    + `<div style="margin:.35rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${carHref}">Ouvrir le carnet</a> · `
+    + `<a href="/famille/vie-scolaire">Vie scolaire</a> · `
+    + `<a href="/famille/enfants">Mes enfants</a></p>`,
+    st.nPending ? 9000 : 7000,
+  );
+  try { sessionStorage.setItem(FAM_CARNET_HOME_TOAST_SS, '1'); } catch {}
+  bindFamHomeChBTipGo();
 }
 
 const FAM_REPAS_HOME_TOAST_SS = 'ent_fam_repas_home_bv_b';
@@ -22297,6 +22878,7 @@ function viewHome() {
       <p class="muted" style="margin-top:0">Docs à signer · annuaire · orientation · inscriptions — <span class="muted empty-state-hint" style="font-size:.72rem">BT-C</span>.</p>
       <div id="homeStaffCockpitTip" class="muted">Chargement…</div>
     </div>
+    ${staffHomeChcPanelShell()}
     ${staffHomeCfcPanelShell()}
     ${staffHomeBvcPanelShell()}`;
   } else if (role === 'admin') {
@@ -22962,6 +23544,12 @@ async function bindHome() {
     };
     staffCfcBox.innerHTML = homeStaffCfcTipDenseHtml(cfcMeta);
     bindHomeStaffCfcTipActions(cfcMeta);
+  }
+  const staffChcBox = document.getElementById('homeStaffChcTip');
+  if (staffChcBox && isStaffHomeChcFlux()) {
+    const chcMeta = staffChcMetaFromHome(jour, insByEtape, campOuverte, campLabel, nIns);
+    staffChcBox.innerHTML = homeStaffChcTipDenseHtml(chcMeta);
+    bindHomeStaffChcTipActions(chcMeta);
   }
   const staffBvcBox = document.getElementById('homeStaffBvcTip');
   if (staffBvcBox && isStaffHomeBvcFlux()) {
@@ -23852,6 +24440,7 @@ async function bindFamilleHome() {
       if (denseCar) {
         carnetTip.style.display = '';
         carnetTip.innerHTML = denseCar;
+        bindFamHomeChBTipGo();
       } else {
         carnetTip.style.display = 'none';
         carnetTip.innerHTML = '';
@@ -23904,6 +24493,7 @@ async function bindFamilleHome() {
       if (tipParts.length) {
         agendaTip.style.display = '';
         agendaTip.innerHTML = tipParts.join('');
+        bindFamHomeChBTipGo();
       } else {
         agendaTip.style.display = 'none';
         agendaTip.innerHTML = '';
@@ -24199,6 +24789,7 @@ async function bindFamilleHome() {
       pointsMap: pointsMapHome,
       comLists,
     });
+    maybeToastFamCarnetHomeDense({ list, resumes });
     const homeDeepMsg = normalizeFamEnfantSection(routeState.famSection);
     if (homeDeepMsg === 'messages') {
       delete routeState.famSection;
@@ -24455,7 +25046,7 @@ async function bindFamilleEnfant(id) {
     html += `<div id="fam-sec-vs" style="scroll-margin-top:4.5rem">
       <div id="fam-sec-carnet" style="scroll-margin-top:4.5rem">
       <div id="famEnfantCarnetTip" style="display:none;margin:0 0 .55rem"></div>
-      <h3>Carnet · vie scolaire</h3>`;
+      <h3>Carnet · vie scolaire <span class="muted empty-state-hint" style="font-size:.72rem;font-weight:400">CH-B</span></h3>`;
     const carnet = resume.carnet_a_signer || [];
     if (!e.peut_voir_vs) {
       html += `<p class="empty">Carnet non visible — vie scolaire non autorisée pour ce lien parent.</p>`;
@@ -24632,11 +25223,13 @@ async function bindFamilleEnfant(id) {
       if (denseCarTip) {
         carTipEl.style.display = '';
         carTipEl.innerHTML = denseCarTip;
+        bindFamHomeChBTipGo();
       } else {
         carTipEl.style.display = 'none';
         carTipEl.innerHTML = '';
       }
     }
+    bindFamHomeChBTipGo();
     if (enfantDeepSection === 'carnet') {
       maybeToastFamCarnetSectionDeep({
         enfantId: id,
@@ -30939,6 +31532,7 @@ async function bindEtab() {
 function viewInscriptions() {
   return shell('/app/inscriptions', `
     <div class="bento" id="insStats"></div>
+    <div id="inscriptionsStaffChcTip"></div>
     <div id="insPageTip"></div>
     <div class="panel">
       <h2>Suivi d’inscription</h2>
@@ -31291,6 +31885,21 @@ async function bindInscriptions() {
           return lab.includes('diggory') || lab.includes('cedric');
         });
         pageTip.innerHTML = inscriptionsPageTipDenseHtml(counts, { cedricPieces });
+      }
+      if (isStaffInscriptionsPageChcFlux()) {
+        let campSnap = null;
+        try {
+          campSnap = await api('/reinscription/campagne');
+        } catch {
+          campSnap = null;
+        }
+        const chcExtra = {
+          jour: today(),
+          campOuverte: !!(campSnap && campSnap.ouverte),
+          campLabel: campSnap && campSnap.annee_cible ? campSnap.annee_cible : 'N+1',
+        };
+        refreshInscriptionsStaffChcTip(counts, chcExtra);
+        maybeToastStaffInscriptionsPageOpen(staffChcMetaFromBoardCounts(counts, chcExtra));
       }
       insBoard.innerHTML = nInsTotal === 0
         ? emptyState(
@@ -37316,6 +37925,7 @@ function viewNotes() {
     <div id="notesHomeTip"></div>
     <div id="notesHarrySeedTip"></div>
     <div id="notesHarryCaSeedTip"></div>
+    <div id="notesHarryChSeedTip"></div>
     <div id="notesGinnySeedTip"></div>
     <div id="notesLunaSeedTip"></div>
     <div id="notesChoSeedTip"></div>
@@ -37662,6 +38272,7 @@ async function bindNotes() {
       }
       await refreshNotesHarrySeedTip(devoirsPref);
       await refreshNotesHarryCaSeedTip(devoirsPref);
+      await refreshNotesHarryChSeedTip(devoirsPref);
       await refreshNotesGinnySeedTip(devoirsPref);
       await refreshNotesLunaSeedTip(devoirsPref);
       await refreshNotesChoSeedTip(devoirsPref);
@@ -38672,6 +39283,31 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyDracoCaRefresh = refreshNotesDevoirsEmptyDracoCaSlot;
+  async function refreshNotesDevoirsEmptyDracoChSlot() {
+    const el = document.getElementById('notesDevoirsEmptyDracoChSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const dracoChDevoir = findDracoChDevoir(devoirs);
+      el.innerHTML = notesDracoChDevoirGoTipDenseHtml({ dracoChDevoir: dracoChDevoir || null });
+      bindNotesDracoChDevoirGoTipGo({
+        dracoChDevoir: dracoChDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyDracoChRefresh = refreshNotesDevoirsEmptyDracoChSlot;
   async function refreshNotesDevoirsEmptyRonSlot() {
     const el = document.getElementById('notesDevoirsEmptyRonSlot');
     if (!el) return;
@@ -38755,6 +39391,52 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyHarryRefresh = refreshNotesDevoirsEmptyHarrySlot;
+  async function refreshNotesDevoirsEmptyHarryChSlot() {
+    const el = document.getElementById('notesDevoirsEmptyHarryChSlot');
+    if (!el) return;
+    try {
+      const harryId = await resolveHarryPotterEleveId();
+      if (!harryId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '4B';
+      try {
+        const eleve = await api('/eleves/' + harryId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 4B */ }
+      const meta = await harryChNoteMetaFromApi(harryId);
+      el.innerHTML = notesHarryChSeedTipDenseHtml({
+        harryId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesHarryChSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.harryId || harryId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Harry');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesHarryChSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip4B');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '4B';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyHarryChRefresh = refreshNotesDevoirsEmptyHarryChSlot;
   async function refreshNotesDevoirsEmptyRonBtSlot() {
     const el = document.getElementById('notesDevoirsEmptyRonBtSlot');
     if (!el) return;
@@ -39240,7 +39922,7 @@ async function bindNotes() {
       nNotes = (notes || []).length;
       const bvNote = (notes || []).find(n => {
         const lib = String(n.libelle || '');
-        if (/CA-A/i.test(lib)) return false;
+        if (/CA-A/i.test(lib) || /CH-A/i.test(lib)) return false;
         return /BV-A/i.test(lib)
           || (/harry/i.test(lib) && /potions/i.test(String(n.matiere_libelle || n.matiere || '')));
       });
@@ -39271,6 +39953,23 @@ async function bindNotes() {
       nNotes = 0;
     }
     return { nNotes, caNoteLabel, hasCaNote };
+  }
+  async function harryChNoteMetaFromApi(harryId) {
+    let nNotes = 0;
+    let chNoteLabel = '';
+    let hasChNote = false;
+    try {
+      const notes = await api('/eleves/' + harryId + '/notes');
+      nNotes = (notes || []).length;
+      const chNote = (notes || []).find(n => /CH-A/i.test(String(n.libelle || '')));
+      if (chNote) {
+        hasChNote = true;
+        if (chNote.libelle) chNoteLabel = String(chNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, chNoteLabel, hasChNote };
   }
   async function nevilleBwNoteMetaFromApi(nevilleId) {
     let nNotes = 0;
@@ -39512,6 +40211,52 @@ async function bindNotes() {
         };
       }
       const btnCl = document.getElementById('notesHarryCaSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip4B');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '4B';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesHarryChSeedTip(_devoirsPref) {
+    const el = document.getElementById('notesHarryChSeedTip');
+    if (!el) return;
+    try {
+      const harryId = await resolveHarryPotterEleveId();
+      if (!harryId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '4B';
+      try {
+        const eleve = await api('/eleves/' + harryId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 4B */ }
+      const meta = await harryChNoteMetaFromApi(harryId);
+      el.innerHTML = notesHarryChSeedTipDenseHtml({
+        harryId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesHarryChSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.harryId || harryId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Harry');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesHarryChSeedClasseBtn');
       if (btnCl) {
         btnCl.onclick = () => {
           const chip = document.getElementById('notesChip4B');
@@ -40715,6 +41460,7 @@ async function bindExportsEn() {
 /* ---------- Réinscription ---------- */
 function viewReinscriptionStaff() {
   return shell('/app/reinscription', `
+    <div id="reinscriptionStaffChcTip"></div>
     <div id="reinsStaffPageTip"></div>
     <div class="bento" id="reinsCampStats"></div>
     <div class="panel">
@@ -40779,6 +41525,19 @@ async function bindReinscriptionStaff() {
         api('/reinscription/exigences?annee_cible=' + encodeURIComponent(anneeN1())).catch(() => []),
       ]);
       el.innerHTML = reinsStaffPageTipDenseHtml(camp, montee, exig);
+      const cands = (montee && montee.candidats) || [];
+      const nCand = montee && montee.count != null ? montee.count : cands.length;
+      const nConfirm = cands.filter(x => String(x.statut || '') === 'reinscription').length;
+      const chcMeta = staffChcMetaFromParts({
+        jour: today(),
+        campOuverte: !!(camp && camp.ouverte),
+        campLabel: camp && camp.annee_cible ? camp.annee_cible : 'N+1',
+        nCand,
+        nConfirm,
+        nExig: (exig || []).length,
+      });
+      refreshReinscriptionStaffChcTip(chcMeta);
+      maybeToastStaffReinscriptionPageOpen(chcMeta);
     } catch {
       el.innerHTML = '';
     }
