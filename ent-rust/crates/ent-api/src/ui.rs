@@ -110,6 +110,8 @@ let notesDevoirsEmptyCedricCbRefresh = null;
 let notesDevoirsEmptyChoRefresh = null;
 /** Rempli dans bindNotes — repère Cho note BZ-A sur tip « 0 devoir » (audit BZ-D). */
 let notesDevoirsEmptyChoBzRefresh = null;
+/** Rempli dans bindNotes — repère Cho note CE-A sur tip « 0 devoir » (audit CE-D). */
+let notesDevoirsEmptyChoCeRefresh = null;
 /** Rempli dans bindNotes — repère Hermione sur tip « 0 devoir ». */
 let notesDevoirsEmptyHermioneRefresh = null;
 /** Rempli dans bindNotes — repère Hermione note BY-A sur tip « 0 devoir » (audit BY-D). */
@@ -134,6 +136,8 @@ let notesDevoirsEmptyRonCdRefresh = null;
 let notesDevoirsEmptySeamusRefresh = null;
 /** Rempli dans bindNotes — repère Seamus devoir BZ-A sur tip « 0 devoir » (audit BZ-D). */
 let notesDevoirsEmptySeamusBzRefresh = null;
+/** Rempli dans bindNotes — repère Seamus devoir CE-A sur tip « 0 devoir » (audit CE-D). */
+let notesDevoirsEmptySeamusCeRefresh = null;
 /** Rempli dans bindNotes — repère Luna note BX-A sur tip « 0 devoir » (audit BX-D). */
 let notesDevoirsEmptyLunaBxRefresh = null;
 /** Rempli dans bindNotes — repère Ginny devoir BX-A sur tip « 0 devoir » (audit BX-D). */
@@ -899,6 +903,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyCedricCbRefresh === 'function') void notesDevoirsEmptyCedricCbRefresh();
     if (typeof notesDevoirsEmptyChoRefresh === 'function') void notesDevoirsEmptyChoRefresh();
     if (typeof notesDevoirsEmptyChoBzRefresh === 'function') void notesDevoirsEmptyChoBzRefresh();
+    if (typeof notesDevoirsEmptyChoCeRefresh === 'function') void notesDevoirsEmptyChoCeRefresh();
     if (typeof notesDevoirsEmptyHermioneRefresh === 'function') void notesDevoirsEmptyHermioneRefresh();
     if (typeof notesDevoirsEmptyHermioneByRefresh === 'function') void notesDevoirsEmptyHermioneByRefresh();
     if (typeof notesDevoirsEmptyHermioneCdRefresh === 'function') void notesDevoirsEmptyHermioneCdRefresh();
@@ -911,6 +916,7 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptyRonCdRefresh === 'function') void notesDevoirsEmptyRonCdRefresh();
     if (typeof notesDevoirsEmptySeamusRefresh === 'function') void notesDevoirsEmptySeamusRefresh();
     if (typeof notesDevoirsEmptySeamusBzRefresh === 'function') void notesDevoirsEmptySeamusBzRefresh();
+    if (typeof notesDevoirsEmptySeamusCeRefresh === 'function') void notesDevoirsEmptySeamusCeRefresh();
     if (typeof notesDevoirsEmptyLunaBxRefresh === 'function') void notesDevoirsEmptyLunaBxRefresh();
     if (typeof notesDevoirsEmptyGinnyRefresh === 'function') void notesDevoirsEmptyGinnyRefresh();
     if (typeof notesDevoirsEmptyLunaCcRefresh === 'function') void notesDevoirsEmptyLunaCcRefresh();
@@ -1446,6 +1452,57 @@ function bindNotesSeamusBzDevoirGoTipGo(opts) {
   }
 }
 
+function findSeamusCeDevoir(devoirs) {
+  return (devoirs || []).find(d =>
+    /seamus/i.test(String(d.titre || '')) && /CE-A/i.test(String(d.titre || '')));
+}
+
+/** /app/notes — repère devoir Seamus CE-A (0 devoir global ou liste filtrée vide). */
+function notesSeamusCeDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.seamusCeDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Seamus CE-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Seamus Finnigan</strong><span>Seed labo · 6A · devoir audit CE-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesSeamusCeDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CE-A · 6A'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesSeamusCeDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 6A</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesSeamusCeDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesSeamusCeDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.seamusCeDevoir && o.seamusCeDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.seamusCeDevoir);
+        return;
+      }
+      notesSeamusDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Seamus CE-A';
+      }
+      if (!o.seamusCeDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesSeamusCeDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesSeamusDevoirGoActions();
+  }
+}
+
 function notesHarryDevoirGoActions() {
   const chip = document.getElementById('notesChip4B');
   if (chip) chip.click();
@@ -1861,6 +1918,30 @@ function notesChoBzSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesChoBzSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasBzNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBzNote ? 'Repère Cho · Mathématiques BZ-A' : 'Filtre 5A · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Cho Chang (5A · note Français CE-A · audit CE-D). */
+function notesChoCeSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.choId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '5A').trim());
+  const hasCeNote = !!o.hasCeNote;
+  const noteLbl = o.ceNoteLabel
+    ? esc(String(o.ceNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CE-A');
+  const noteStrong = hasCeNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Cho Chang</strong><span>Seed labo · ${classe} · audit notes CE-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesChoCeSeedNotesBtn" data-cho-id="${esc(String(o.choId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesChoCeSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasCeNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCeNote ? 'Repère Cho · Français CE-A' : 'Filtre 5A · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -2516,17 +2597,23 @@ function toastQuittanceTelechargee(numero, opts) {
     + (isFamilleFacturesFlux() ? ` · <a href="/famille/factures">Factures</a>` : '')
     + `</p>`;
   if (isFamilleQuittancesFlux() || isFamilleFacturesFlux() || o.dense) {
+    const onQuitPage = isFamilleQuittancesFlux();
+    const auditAttr = onQuitPage ? ' data-ui-audit="CE-B"' : '';
+    const auditTile = onQuitPage
+      ? `<div class="stat-tile bento-span-4"><strong class="muted">CE-B</strong><span>PDF · ${famCeBQuittancesPageHref()}</span></div>`
+      : `<div class="stat-tile bento-span-4"><strong>${dt}</strong><span>Date d’émission</span></div>`;
     const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
         <strong class="ok">${n}</strong><span>PDF enregistré</span>
       </div>
       <div class="stat-tile bento-span-4"><strong>${amt}</strong><span>Montant · ${moyen}</span></div>
-      <div class="stat-tile bento-span-4"><strong>${dt}</strong><span>Date d’émission</span></div>`;
+      ${auditTile}`;
     showEntToast(
       `<strong>Quittance téléchargée</strong>`
-      + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+      + `<div class="bento"${auditAttr} style="margin:.4rem 0 0">${tiles}</div>`
       + foot,
       9500,
     );
+    if (onQuitPage) bindFamHomeCeBTipGo();
     return;
   }
   showEntToast(`<strong>Quittance téléchargée</strong> — ${n} (PDF).`, 8000);
@@ -3275,6 +3362,293 @@ function toastStaffCdcAction(kind, meta) {
     `<strong>${title}</strong>`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CD-C</p>`,
+    6500,
+  );
+}
+
+function isStaffHomeCecFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && role === 'prof';
+}
+
+function isStaffConseilsPageFlux() {
+  return path() === '/app/conseils' && !isParent() && !isEleve();
+}
+
+function isStaffStagesPageFlux() {
+  return path() === '/app/stages' && !isParent() && !isEleve();
+}
+
+async function snapshotStaffCecMeta(jour) {
+  const j = jour || today();
+  const [entreprises, conseils4b, periodes, eff4b] = await Promise.all([
+    settle(api('/entreprises'), []),
+    settle(api('/conseils-classe?classe=4B'), []),
+    settle(api('/note-periodes'), []),
+    settle(api('/classes/4B/effectif?jour=' + encodeURIComponent(j)), null),
+  ]);
+  const ccList = conseils4b || [];
+  const nCcPlan = ccList.filter(c => String(c.statut || '') !== 'tenu').length;
+  const nCcTenu = ccList.filter(c => String(c.statut || '') === 'tenu').length;
+  const nextCc = ccList
+    .filter(c => String(c.statut || '') !== 'tenu')
+    .sort((a, b) => String(a.jour || '').localeCompare(String(b.jour || '')))[0];
+  const pref = (periodes || []).find(p => p.statut === 'ouverte') || (periodes || [])[0];
+  const nFerm = (periodes || []).filter(p => p.statut === 'fermee').length;
+  const nPer = (periodes || []).length;
+  const nEff = (eff4b && Array.isArray(eff4b.eleves))
+    ? eff4b.eleves.length
+    : ((eff4b && eff4b.effectif) || 0);
+  return {
+    jour: j,
+    nEnt: (entreprises || []).length,
+    nCcPlan,
+    nCcTenu,
+    nCcTotal: ccList.length,
+    nextCcJour: nextCc ? String(nextCc.jour || '').slice(0, 10) : '',
+    nextCcHeure: nextCc ? String(nextCc.heure || '').trim() : '',
+    prefLabel: pref ? notePeriodeFermeeLabel(pref) : '',
+    prefStatut: pref ? String(pref.statut || '') : '',
+    nFerm,
+    nPer,
+    nEff4b: nEff,
+  };
+}
+
+/** Accueil prof — stages · conseils · exports EN (audit UI CE-C · hors BT-C / CD-C). */
+function homeStaffCecTipDenseHtml(meta) {
+  if (!isStaffHomeCecFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cecLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CE-C</span>';
+  const nEnt = Number(o.nEnt) || 0;
+  const nPlan = Number(o.nCcPlan) || 0;
+  const nTenu = Number(o.nCcTenu) || 0;
+  const nFerm = Number(o.nFerm) || 0;
+  const nPer = Number(o.nPer) || 0;
+  const nEff = Number(o.nEff4b) || 0;
+  const nextJ = o.nextCcJour ? esc(String(o.nextCcJour).slice(0, 10)) : '';
+  const ccTile = nPlan
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCecConseilsGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nPlan}</strong><span>Conseil(s) 4B à tenir · ${nextJ || jour} · ${cecLbl}</span></button>`
+    : (nTenu
+      ? `<button type="button" class="stat-tile bento-span-4" id="homeCecConseilsGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+          <strong class="ok">${nTenu}</strong><span>Conseil(s) tenus · planifier le suivant</span></button>`
+      : `<button type="button" class="stat-tile bento-span-4" id="homeCecConseilsGo" style="cursor:pointer;text-align:left">
+          <strong class="muted">0</strong><span>Conseils 4B · planifier · ${cecLbl}</span></button>`);
+  const stTile = nEnt
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCecStagesGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${nEnt}</strong><span>Entreprise(s) stage · conventions</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCecStagesGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">0</strong><span>Stages · créer référentiel</span></button>`;
+  const expTile = nFerm
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCecExportsGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+        <strong>${nFerm}</strong><span>Exports EN · ${nFerm}/${nPer || '—'} période(s) fermée(s)</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCecExportsGo" style="cursor:pointer;text-align:left">
+        <strong class="muted">LSUN</strong><span>Exports · fermer période notes</span></button>`;
+  const effTile = `<a class="stat-tile bento-span-4" href="/app/conseils" style="text-decoration:none">
+      <strong>${nEff || '4B'}</strong><span>Effectif · dossiers conseil &amp; mentions</span></a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CE-C</strong><span>Stages · conseils · exports · hors BT/CD-C</span></div>`;
+  return `<div class="bento" data-ui-audit="CE-C" style="margin:0 0 .55rem">
+    ${ccTile}${stTile}${expTile}${effTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffCecTipActions(meta) {
+  const o = meta || {};
+  const cc = document.getElementById('homeCecConseilsGo');
+  if (cc) {
+    cc.onclick = () => {
+      toastStaffCecAction('conseils', o);
+      go('/app/conseils');
+    };
+  }
+  const st = document.getElementById('homeCecStagesGo');
+  if (st) {
+    st.onclick = () => {
+      toastStaffCecAction('stages', o);
+      go('/app/stages');
+    };
+  }
+  const exp = document.getElementById('homeCecExportsGo');
+  if (exp) {
+    exp.onclick = () => {
+      toastStaffCecAction('exports', o);
+      go('/app/exports');
+    };
+  }
+}
+
+/** Page /app/conseils — synthèse classe · période · dossiers (audit UI CE-C). */
+function conseilsStaffPageTipDenseHtml(meta) {
+  if (!isStaffConseilsPageFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cecLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CE-C</span>';
+  const nPlan = Number(o.nCcPlan) || 0;
+  const nTenu = Number(o.nCcTenu) || 0;
+  const pl = o.prefLabel ? esc(String(o.prefLabel).trim().slice(0, 16)) : 'Période';
+  const ccTile = `<button type="button" class="stat-tile bento-span-4" id="conseilsCecListGo" style="cursor:pointer;text-align:left;border-color:${nPlan ? 'var(--warn,#b45309)' : 'var(--accent,#0071e3)'}">
+      <strong class="${nPlan ? 'warn' : ''}">${nPlan || nTenu || '→'}</strong><span>4B · ${nPlan ? 'à tenir' : 'planifiés / tenus'} · ${cecLbl}</span></button>`;
+  const perTile = `<button type="button" class="stat-tile bento-span-4" id="conseilsCecPerGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${pl}</strong><span>Période notes · mentions &amp; décisions</span></button>`;
+  const stTile = `<button type="button" class="stat-tile bento-span-4" id="conseilsCecStagesGo" style="cursor:pointer;text-align:left">
+      <strong>${Number(o.nEnt) || 0}</strong><span>Stages · /app/stages</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CE-C</strong><span>GET /conseils-classe · ${jour}</span></div>`;
+  return `<div class="bento" data-ui-audit="CE-C" style="margin:0 0 .55rem">
+    ${ccTile}${perTile}${stTile}${auditTile}
+  </div>`;
+}
+
+function bindConseilsStaffPageTipActions(meta) {
+  const o = meta || {};
+  const list = document.getElementById('conseilsCecListGo');
+  if (list) {
+    list.onclick = () => {
+      toastStaffCecAction('conseils', o);
+      document.getElementById('ccOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const per = document.getElementById('conseilsCecPerGo');
+  if (per) {
+    per.onclick = () => {
+      toastStaffCecAction('periode-conseil', o);
+      document.getElementById('ccPeriode')?.focus();
+    };
+  }
+  const st = document.getElementById('conseilsCecStagesGo');
+  if (st) {
+    st.onclick = () => {
+      toastStaffCecAction('stages', o);
+      go('/app/stages');
+    };
+  }
+}
+
+function refreshConseilsStaffCecTip(meta) {
+  const box = document.getElementById('conseilsStaffCecTip');
+  if (!box || !isStaffConseilsPageFlux()) return;
+  box.innerHTML = conseilsStaffPageTipDenseHtml(meta);
+  bindConseilsStaffPageTipActions(meta);
+}
+
+function maybeToastStaffConseilsPageOpen(meta) {
+  if (!isStaffConseilsPageFlux()) return;
+  const ssKey = 'ent_staff_conseils_cec_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastStaffCecAction('page-open', meta);
+}
+
+/** Page /app/stages — pont entreprises · conseils (audit UI CE-C). */
+function stagesStaffPageTipDenseHtml(meta) {
+  if (!isStaffStagesPageFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cecLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CE-C</span>';
+  const nEnt = Number(o.nEnt) || 0;
+  const nPlan = Number(o.nCcPlan) || 0;
+  const entTile = `<button type="button" class="stat-tile bento-span-4" id="stagesCecEntGo" style="cursor:pointer;text-align:left;border-color:${nEnt ? 'var(--accent,#0071e3)' : 'var(--warn,#b45309)'}">
+      <strong class="${nEnt ? '' : 'warn'}">${nEnt || '0'}</strong><span>Entreprise(s) · POST /entreprises · ${cecLbl}</span></button>`;
+  const ccTile = `<button type="button" class="stat-tile bento-span-4" id="stagesCecConseilsGo" style="cursor:pointer;text-align:left">
+      <strong>${nPlan || '→'}</strong><span>Conseil(s) 4B · /app/conseils</span></button>`;
+  const expTile = `<button type="button" class="stat-tile bento-span-4" id="stagesCecExportsGo" style="cursor:pointer;text-align:left">
+      <strong>${Number(o.nFerm) || 0}</strong><span>Exports EN · périodes fermées</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CE-C</strong><span>Route /app/stages · ${jour}</span></div>`;
+  return `<div class="bento" data-ui-audit="CE-C" style="margin:0 0 .55rem">
+    ${entTile}${ccTile}${expTile}${auditTile}
+  </div>`;
+}
+
+function bindStagesStaffPageTipActions(meta) {
+  const o = meta || {};
+  const ent = document.getElementById('stagesCecEntGo');
+  if (ent) {
+    ent.onclick = () => {
+      toastStaffCecAction('stages', o);
+      document.getElementById('stRaison')?.focus();
+    };
+  }
+  const cc = document.getElementById('stagesCecConseilsGo');
+  if (cc) {
+    cc.onclick = () => {
+      toastStaffCecAction('conseils', o);
+      go('/app/conseils');
+    };
+  }
+  const exp = document.getElementById('stagesCecExportsGo');
+  if (exp) {
+    exp.onclick = () => {
+      toastStaffCecAction('exports', o);
+      go('/app/exports');
+    };
+  }
+}
+
+function refreshStagesStaffCecTip(meta) {
+  const box = document.getElementById('stagesStaffCecTip');
+  if (!box || !isStaffStagesPageFlux()) return;
+  box.innerHTML = stagesStaffPageTipDenseHtml(meta);
+  bindStagesStaffPageTipActions(meta);
+}
+
+/** Toast bento — cockpit stages · conseils · exports (routes existantes · audit CE-C). */
+function toastStaffCecAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Orientation &amp; exports · staff';
+  let href = '/app/conseils';
+  let tiles = '';
+  const nEnt = Number(o.nEnt) || 0;
+  const nPlan = Number(o.nCcPlan) || 0;
+  const nTenu = Number(o.nCcTenu) || 0;
+  const nFerm = Number(o.nFerm) || 0;
+  const nPer = Number(o.nPer) || 0;
+  const nEff = Number(o.nEff4b) || 0;
+  const pl = o.prefLabel ? esc(String(o.prefLabel).trim()) : 'Période notes';
+  if (k === 'conseils' || k === 'page-open') {
+    href = '/app/conseils';
+    title = k === 'page-open' ? 'Module Conseils de classe' : 'Conseils 4B';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nPlan ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nPlan ? 'warn' : 'ok'}">${nPlan || nTenu}</strong><span>${nPlan ? 'À tenir' : 'Tenus / planifier'} · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${nEff || '4B'}</strong><span>Effectif · dossiers élèves</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CE-C</strong><span>GET /conseils-classe · abs=1/com=1 OK</span></div>`;
+  } else if (k === 'stages') {
+    href = '/app/stages';
+    title = nEnt ? 'Stages · référentiel entreprises' : 'Stages · à peupler';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nEnt ? 'var(--accent,#0071e3)' : 'var(--warn,#b45309)'}">
+        <strong class="${nEnt ? '' : 'warn'}">${nEnt}</strong><span>Entreprise(s) labo</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>→</strong><span>POST /conventions-stage</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CE-C</strong><span>Route /app/stages</span></div>`;
+  } else if (k === 'exports') {
+    href = '/app/exports';
+    title = nFerm ? 'Exports EN · périodes fermées' : 'Exports EN · préparer LSUN';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nFerm ? 'var(--accent,#0071e3)' : 'var(--warn,#b45309)'}">
+        <strong>${nFerm}</strong><span>Fermée(s) / ${nPer || '—'} période(s)</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>LSL · LSUN</strong><span>Classe 4B · préflight CSV</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CE-C</strong><span>Route /app/exports</span></div>`;
+  } else if (k === 'periode-conseil') {
+    title = 'Période · mentions conseil';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${pl.slice(0, 18)}</strong><span>${esc(String(o.prefStatut || '—'))} · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${nPlan}</strong><span>Conseil(s) à tenir · 4B</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CE-C</strong><span>Importer effectif · décider</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CE-C</p>`,
     6500,
   );
 }
@@ -8103,10 +8477,98 @@ function famFacturesPageTipDenseHtml(listAll, listShown, filterKey, opts) {
   </div>`;
 }
 
-/** Page quittances — astuce bento (totaux + lien factures). */
-function famQuittancesPageTipDenseHtml(listAll, listShown, filterKey, resteFacturesCent) {
+function famCeBQuittancesPageHref() {
+  return '/famille/quittances';
+}
+
+function bindFamHomeCeBTipGo() {
+  ['quitStats', 'quitPageTip', 'famHomeQuittancesCeBTip', 'entToast'].forEach(rootId => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('[data-fam-ce-go]').forEach(btn => {
+      if (btn.dataset.famCeBound === '1') return;
+      btn.dataset.famCeBound = '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-ce-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  });
+}
+
+/** Accueil famille — lien Mes quittances (bento) — audit UI CE-B (hors zone BT-B factures). */
+function famHomeQuittancesCeBTipDenseHtml(quittances, resteFacturesCent) {
+  const pageHref = famCeBQuittancesPageHref();
+  const all = quittances || [];
+  const n = all.length;
+  const total = all.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+  const last = famQuittancesSortedRecent(all)[0] || null;
+  const lastNum = last ? esc(String(last.numero || '—').trim().slice(0, 20)) : '—';
+  const reste = Math.max(0, Number(resteFacturesCent) || 0);
+  const facHref = reste ? '/famille/factures?section=factures' : '/famille/factures';
+  const countTile = n
+    ? `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)" data-fam-ce-go="${pageHref}">
+        <strong class="ok">${n}</strong><span>Reçu(s) · ${esc(euros(total))}</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none" data-fam-ce-go="${pageHref}">
+        <strong class="muted">0</strong><span>Pas encore de quittance</span>
+      </a>`;
+  const lastTile = n
+    ? `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none" data-fam-ce-go="${pageHref}">
+        <strong>${lastNum}</strong><span>Dernière émission</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none" data-fam-ce-go="${facHref}">
+        <strong>Factures</strong><span>Encaissement → reçu auto</span>
+      </a>`;
+  const facTile = reste
+    ? `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-ce-go="${facHref}">
+        <strong class="warn">${esc(euros(reste))}</strong><span>Reste · factures</span>
+      </a>`
+    : `<div class="stat-tile bento-span-4"><strong class="ok">OK</strong><span>Factures soldées</span></div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CE-B</strong><span>Route ${pageHref}</span></div>`;
+  return `<div class="bento" data-ui-audit="CE-B" style="margin:0 0 .55rem">${countTile}${lastTile}${facTile}${auditTile}</div>`;
+}
+
+/** Page /famille/quittances — bandeau stats (bento) — audit UI CE-B. */
+function famQuittancesStatsCeBDenseHtml(listAll, listShown, filterKey, resteFacturesCent) {
   const all = listAll || [];
-  if (!all.length) return '';
+  const shown = listShown || all;
+  const totalShown = shown.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+  const totalAll = all.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
+  const lbl = esc(famQuittancesFilterLabel(filterKey));
+  const reste = Math.max(0, Number(resteFacturesCent) || 0);
+  const facHref = reste ? '/famille/factures?section=factures' : '/famille/factures';
+  const countTile = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>${all.length}</strong><span>Quittance(s) · vue ${lbl.toLowerCase()}</span>
+    </div>`;
+  const totalTile = `<div class="stat-tile bento-span-4"><strong>${esc(euros(totalShown))}</strong><span>Total filtré · ${esc(euros(totalAll))} global</span></div>`;
+  const facTile = reste
+    ? `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-ce-go="${facHref}">
+        <strong class="warn">${esc(euros(reste))}</strong><span>Reste factures</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)" data-fam-ce-go="${facHref}">
+        <strong class="ok">Soldé</strong><span>Mes factures</span>
+      </a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CE-B</strong><span>GET …/quittances</span></div>`;
+  return `<div class="bento" data-ui-audit="CE-B" style="margin:0 0 .55rem">${countTile}${totalTile}${facTile}${auditTile}</div>`;
+}
+
+/** Page quittances — astuce bento (totaux + lien factures) — audit UI CE-B. */
+function famQuittancesPageTipDenseHtml(listAll, listShown, filterKey, resteFacturesCent, opts) {
+  const o = opts || {};
+  const all = listAll || [];
+  if (!all.length && !o.forceShow) return '';
   const shown = listShown || all;
   const totalShown = shown.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
   const totalAll = all.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
@@ -8118,20 +8580,108 @@ function famQuittancesPageTipDenseHtml(listAll, listShown, filterKey, resteFactu
   const facHref = reste
     ? '/famille/factures?section=factures'
     : '/famille/factures';
+  const pageHref = famCeBQuittancesPageHref();
   const resteTile = reste
-    ? `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)">
+    ? `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--warn,#b45309)" data-fam-ce-go="${facHref}">
         <strong class="warn">${esc(euros(reste))}</strong><span>Reste factures · à régler</span>
       </a>`
-    : `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)">
+    : `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none;border-color:var(--ok,#16a34a)" data-fam-ce-go="${facHref}">
         <strong class="ok">Soldé</strong><span>Pas de reste facture</span>
       </a>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
-    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
-      <strong>${lbl}</strong><span>${shown.length} / ${all.length} · ${esc(euros(totalShown))}</span>
-    </div>
-    ${resteTile}
-    <div class="stat-tile bento-span-4"><strong>${lastNum}</strong><span>Dernière · ${nSepa} SEPA · ${esc(euros(totalAll))} total</span></div>
-  </div>`;
+  const filtTile = all.length
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${lbl}</strong><span>${shown.length} / ${all.length} · ${esc(euros(totalShown))}</span>
+      </div>`
+    : `<a class="stat-tile bento-span-4" href="${facHref}" style="text-decoration:none" data-fam-ce-go="${facHref}">
+        <strong class="muted">0</strong><span>Reçu après encaissement</span>
+      </a>`;
+  const histTile = all.length
+    ? `<a class="stat-tile bento-span-4" href="#quitOut" style="text-decoration:none" data-fam-ce-go="#quitOut">
+        <strong>${lastNum}</strong><span>Dernière · ${nSepa} SEPA · ${esc(euros(totalAll))}</span>
+      </a>`
+    : `<a class="stat-tile bento-span-4" href="${facHref}#famSepaOut" style="text-decoration:none" data-fam-ce-go="${facHref}#famSepaOut">
+        <strong>SEPA</strong><span>Mandat · prélèvement</span>
+      </a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CE-B</strong><span>Route ${pageHref}</span></div>`;
+  return `<div class="bento" data-ui-audit="CE-B" style="margin:0 0 .55rem">${filtTile}${resteTile}${histTile}${auditTile}</div>`;
+}
+
+/** Page /famille/quittances — empty-state (famEmptyDense + tip) — audit UI CE-B. */
+function famQuittancesPageEmptyDenseHtml(resteFacturesCent) {
+  const reste = Math.max(0, Number(resteFacturesCent) || 0);
+  const tip = famQuittancesPageTipDenseHtml([], [], 'all', reste, { forceShow: true });
+  const resteLbl = reste
+    ? `Reste à régler : <strong class="warn">${esc(euros(reste))}</strong> — les quittances apparaissent au fur et à mesure des encaissements.`
+    : 'Dès qu’un paiement est enregistré (virement, SEPA, chèque…), le reçu PDF est disponible ici.';
+  return `${tip}${famEmptyDense('Aucune quittance pour le moment', [
+    resteLbl,
+    'Le mandat SEPA et le détail des échéances restent sur Mes factures (zone BT-B — distincte).',
+    'Audit UI CE-B — route /famille/quittances · GET /facturation/famille/quittances.',
+  ], '<a href="/famille/factures?section=factures">Mes factures</a> · <a href="/famille/factures#famSepaOut">Mandat SEPA</a> · <a href="/famille">Accueil</a>')}`;
+}
+
+/** Page quittances — liste filtrée vide (chips SEPA / autres). */
+function famQuittancesFilterEmptyDenseHtml(filterKey, listAll, resteFacturesCent) {
+  const key = String(filterKey || 'all');
+  const lbl = famQuittancesFilterLabel(key);
+  const nAll = (listAll || []).length;
+  const tip = famQuittancesPageTipDenseHtml(listAll, [], key, resteFacturesCent, { forceShow: true });
+  const emptyTitle = key === 'sepa'
+    ? 'Aucune quittance SEPA avec ce filtre'
+    : (key === 'autres'
+      ? 'Aucune quittance « autres moyens » avec ce filtre'
+      : 'Aucune quittance avec ce filtre');
+  return `${tip}${famEmptyDense(emptyTitle, [
+    `Filtre actif : ${esc(lbl)} — ${nAll} quittance(s) au total dans le foyer.`,
+    'Changez de puce (Toutes / SEPA / Autres) ou téléchargez un PDF depuis une ligne existante.',
+    'Audit UI CE-B — chips quit-fam-filter · route /famille/quittances.',
+  ], '<a href="#quitFamChipAll">Toutes les quittances</a> · <a href="/famille/factures">Factures</a>')}`;
+}
+
+/** Toast bento — page /famille/quittances ouverte — audit UI CE-B. */
+function toastFamQuittancesOuverte(opts) {
+  const o = opts || {};
+  const pageHref = famCeBQuittancesPageHref();
+  const nAll = Number(o.nQuittances) || 0;
+  const reste = Math.max(0, Number(o.resteFacturesCent) || 0);
+  const facHref = reste ? '/famille/factures?section=factures' : '/famille/factures';
+  const tipHtml = famQuittancesPageTipDenseHtml(
+    o.listAll || [],
+    o.listShown || o.listAll || [],
+    o.filterKey || 'all',
+    reste,
+    { forceShow: true },
+  );
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Mes quittances</a> · `
+    + `<a href="${facHref}">Factures</a> · `
+    + `<a href="#quitOut">Liste</a></p>`;
+  if (!isFamilleQuittancesFlux() && !o.dense) {
+    showEntToast(
+      `<strong>Mes quittances</strong> — ${nAll} reçu(s). <a href="${pageHref}">Ouvrir</a>`,
+      6500,
+    );
+    return;
+  }
+  showEntToast(
+    `<strong>Mes quittances</strong> — ${nAll} reçu(s) enregistré(s)`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + foot,
+    nAll ? 8500 : 7500,
+  );
+  bindFamHomeCeBTipGo();
+}
+
+function maybeToastFamQuittancesOuverte(opts) {
+  if (!isParent() || !isFamilleQuittancesFlux()) return;
+  const ssKey = 'ent_fam_quittances_page_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamQuittancesOuverte({ ...(opts || {}), dense: true });
 }
 
 function famReinscHref() {
@@ -9637,6 +10187,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyCedricCbSlot"></div>
   <div id="notesDevoirsEmptyChoSlot"></div>
   <div id="notesDevoirsEmptyChoBzSlot"></div>
+  <div id="notesDevoirsEmptyChoCeSlot"></div>
   <div id="notesDevoirsEmptyHermioneSlot"></div>
   <div id="notesDevoirsEmptyHermioneBySlot"></div>
   <div id="notesDevoirsEmptyHermioneCdSlot"></div>
@@ -9649,6 +10200,7 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptyRonCdSlot"></div>
   <div id="notesDevoirsEmptySeamusSlot"></div>
   <div id="notesDevoirsEmptySeamusBzSlot"></div>
+  <div id="notesDevoirsEmptySeamusCeSlot"></div>
   <div id="notesDevoirsEmptyLunaBxSlot"></div>
   <div id="notesDevoirsEmptyGinnySlot"></div>
   <div id="notesDevoirsEmptyLunaCcSlot"></div>
@@ -14633,19 +15185,22 @@ function toastQuitFamFilterUiDense(filterKey, listAll, listShown) {
   const totalAll = all.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
   const last = famQuittancesSortedRecent(shown)[0] || famQuittancesSortedRecent(all)[0] || null;
   const lastNum = last ? esc(String(last.numero || '—').trim().slice(0, 22)) : '—';
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CE-B</strong><span>Filtre · ${famCeBQuittancesPageHref()}</span></div>`;
   const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
       <strong>${label}</strong><span>${nShown} / ${nAll} quittance(s)</span>
     </div>
     <div class="stat-tile bento-span-4"><strong>${esc(euros(totalShown))}</strong><span>Total filtré · ${esc(euros(totalAll))} global</span></div>
-    <div class="stat-tile bento-span-4"><strong>${lastNum}</strong><span>Plus récente dans la vue</span></div>`;
+    <div class="stat-tile bento-span-4"><strong>${lastNum}</strong><span>Plus récente dans la vue</span></div>
+    ${auditTile}`;
   showEntToast(
     `<strong>Filtre quittances</strong>`
-    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<div class="bento" data-ui-audit="CE-B" style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="/famille/factures?section=factures">Factures</a> · `
     + `<a href="#quitOut">Liste</a></p>`,
     nShown ? 7500 : 6000,
   );
+  bindFamHomeCeBTipGo();
 }
 function maybeToastQuitFamFilterFromUi(prevKey, nextKey, listAll, listShown) {
   if (prevKey === nextKey) return;
@@ -20536,6 +21091,11 @@ function viewHome() {
       <h3>Cockpit notes &amp; pédagogie</h3>
       <p class="muted" style="margin-top:0">Périodes · devoirs · bulletins · stages · cahier — <span class="muted empty-state-hint" style="font-size:.72rem">CD-C</span>.</p>
       <div id="homeStaffCdcTip" class="muted">Chargement…</div>
+    </div>
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit stages &amp; conseils</h3>
+      <p class="muted" style="margin-top:0">Conseils 4B · conventions stage · exports EN — <span class="muted empty-state-hint" style="font-size:.72rem">CE-C</span>.</p>
+      <div id="homeStaffCecTip" class="muted">Chargement…</div>
     </div>`;
   } else if (role === 'cpe') {
     homeTitle = 'Vie scolaire &amp; accompagnement';
@@ -21278,6 +21838,12 @@ async function bindHome() {
     staffCdcBox.innerHTML = homeStaffCdcTipDenseHtml(cdcMeta);
     bindHomeStaffCdcTipActions(cdcMeta);
   }
+  const staffCecBox = document.getElementById('homeStaffCecTip');
+  if (staffCecBox && role === 'prof') {
+    const cecMeta = await snapshotStaffCecMeta(jour);
+    staffCecBox.innerHTML = homeStaffCecTipDenseHtml(cecMeta);
+    bindHomeStaffCecTipActions(cecMeta);
+  }
   const staffBvcBox = document.getElementById('homeStaffBvcTip');
   if (staffBvcBox && isStaffHomeBvcFlux()) {
     const [facList, vacList, jourFermeSnap] = await Promise.all([
@@ -21731,6 +22297,7 @@ function viewFamilleHome() {
     <div id="famHomePaiTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeAllergieTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeQuittancesTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famHomeQuittancesCeBTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeReinscTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeReinscDocsManqTip" style="display:none;margin:-.25rem 0 .65rem"></div>
     <div id="famHomeEnfantsTip" style="display:none;margin:-.25rem 0 .65rem"></div>
@@ -21928,6 +22495,8 @@ async function bindFamilleHome() {
       if (vsTip0) { vsTip0.style.display = 'none'; vsTip0.innerHTML = ''; }
       const quitTip0 = document.getElementById('famHomeQuittancesTip');
       if (quitTip0) { quitTip0.style.display = 'none'; quitTip0.innerHTML = ''; }
+      const quitCeBTip0 = document.getElementById('famHomeQuittancesCeBTip');
+      if (quitCeBTip0) { quitCeBTip0.style.display = 'none'; quitCeBTip0.innerHTML = ''; }
       const reinscTip0 = document.getElementById('famHomeReinscTip');
       if (reinscTip0) { reinscTip0.style.display = 'none'; reinscTip0.innerHTML = ''; }
       const reinscDocsManqTip0 = document.getElementById('famHomeReinscDocsManqTip');
@@ -22305,6 +22874,12 @@ async function bindFamilleHome() {
       const denseQuit = famHomeQuittancesRecentTipDenseHtml(quittancesFam || [], resteFacturesTotal);
       quitTip.style.display = '';
       quitTip.innerHTML = denseQuit;
+    }
+    const quitCeBTip = document.getElementById('famHomeQuittancesCeBTip');
+    if (quitCeBTip) {
+      quitCeBTip.style.display = '';
+      quitCeBTip.innerHTML = famHomeQuittancesCeBTipDenseHtml(quittancesFam || [], resteFacturesTotal);
+      bindFamHomeCeBTipGo();
     }
     const reinscTip = document.getElementById('famHomeReinscTip');
     if (reinscTip) {
@@ -28263,6 +28838,7 @@ async function bindEditionsVs() {
 /* ---------- Stages ---------- */
 function viewStages() {
   return shell('/app/stages', `
+    <div id="stagesStaffCecTip"></div>
     <div class="bento" id="stStats"></div>
     <div class="bento">
       <div class="panel bento-span-5">
@@ -28440,6 +29016,9 @@ async function bindStages() {
   btnAll.onclick = loadAllConventions;
   await refreshEnt();
   await loadAllConventions();
+  try {
+    refreshStagesStaffCecTip(await snapshotStaffCecMeta(today()));
+  } catch {}
 }
 
 /* ---------- Établissement (vacances / params / salles) ---------- */
@@ -35149,6 +35728,7 @@ async function bindAlertesCpe() {
 /* ---------- Conseils de classe ---------- */
 function viewConseils() {
   return shell('/app/conseils', `
+    <div id="conseilsStaffCecTip"></div>
     <div class="bento" id="ccStats"></div>
     <div class="panel">
       <h2>Conseil de classe</h2>
@@ -35279,8 +35859,7 @@ async function bindConseils() {
           'Planifiez un conseil (classe, période, jour, lieu) via le formulaire ci-dessus.',
           'Les conseils à tenir et tenus s’affichent ici ; ouvrez-en un pour les dossiers élèves.',
         ], '');
-        return;
-      }
+      } else {
       out.innerHTML = `<table><thead><tr><th>Jour</th><th>Période</th><th>Lieu</th><th>Statut</th><th></th></tr></thead>
         <tbody>${list.map(c => `<tr>
           <td>${esc(c.jour)} ${esc(c.heure)}</td>
@@ -35301,9 +35880,13 @@ async function bindConseils() {
         setConseilActif(aTenir);
         await loadDos();
       }
+      }
     } catch (e) {
       out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
+    try {
+      refreshConseilsStaffCecTip(await snapshotStaffCecMeta(today()));
+    } catch {}
   }
 
   async function loadHistoConseilEleve() {
@@ -35551,6 +36134,8 @@ async function bindConseils() {
   await loadNotePeriodes();
   await loadList();
   await loadHistoConseilEleve();
+  const cecOpenMeta = await snapshotStaffCecMeta(today());
+  maybeToastStaffConseilsPageOpen(cecOpenMeta);
 }
 
 /* ---------- Notes ---------- */
@@ -35565,6 +36150,7 @@ function viewNotes() {
     <div id="notesLunaSeedTip"></div>
     <div id="notesChoSeedTip"></div>
     <div id="notesChoBzSeedTip"></div>
+    <div id="notesChoCeSeedTip"></div>
     <div id="notesNevilleSeedTip"></div>
     <div id="notesNevilleCbSeedTip"></div>
     <div class="panel" id="notesQuickLab" style="margin-bottom:.75rem">
@@ -35908,6 +36494,7 @@ async function bindNotes() {
       await refreshNotesLunaSeedTip(devoirsPref);
       await refreshNotesChoSeedTip(devoirsPref);
       await refreshNotesChoBzSeedTip(devoirsPref);
+      await refreshNotesChoCeSeedTip(devoirsPref);
       await refreshNotesNevilleSeedTip(devoirsPref);
       await refreshNotesNevilleCbSeedTip(devoirsPref);
       box.innerHTML = `
@@ -36606,6 +37193,52 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyChoBzRefresh = refreshNotesDevoirsEmptyChoBzSlot;
+  async function refreshNotesDevoirsEmptyChoCeSlot() {
+    const el = document.getElementById('notesDevoirsEmptyChoCeSlot');
+    if (!el) return;
+    try {
+      const choId = await resolveChoChangEleveId();
+      if (!choId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '5A';
+      try {
+        const eleve = await api('/eleves/' + choId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      const meta = await choCeNoteMetaFromApi(choId);
+      el.innerHTML = notesChoCeSeedTipDenseHtml({
+        choId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesChoCeSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.choId || choId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Cho');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesChoCeSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyChoCeRefresh = refreshNotesDevoirsEmptyChoCeSlot;
   async function refreshNotesDevoirsEmptyHermioneSlot() {
     const el = document.getElementById('notesDevoirsEmptyHermioneSlot');
     if (!el) return;
@@ -37002,6 +37635,31 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptySeamusBzRefresh = refreshNotesDevoirsEmptySeamusBzSlot;
+  async function refreshNotesDevoirsEmptySeamusCeSlot() {
+    const el = document.getElementById('notesDevoirsEmptySeamusCeSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const seamusCeDevoir = findSeamusCeDevoir(devoirs);
+      el.innerHTML = notesSeamusCeDevoirGoTipDenseHtml({ seamusCeDevoir: seamusCeDevoir || null });
+      bindNotesSeamusCeDevoirGoTipGo({
+        seamusCeDevoir: seamusCeDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptySeamusCeRefresh = refreshNotesDevoirsEmptySeamusCeSlot;
   async function refreshNotesDevoirsEmptyLunaBxSlot() {
     const el = document.getElementById('notesDevoirsEmptyLunaBxSlot');
     if (!el) return;
@@ -37181,6 +37839,23 @@ async function bindNotes() {
       nNotes = 0;
     }
     return { nNotes, bzNoteLabel, hasBzNote };
+  }
+  async function choCeNoteMetaFromApi(choId) {
+    let nNotes = 0;
+    let ceNoteLabel = '';
+    let hasCeNote = false;
+    try {
+      const notes = await api('/eleves/' + choId + '/notes');
+      nNotes = (notes || []).length;
+      const ceNote = (notes || []).find(n => /CE-A/i.test(String(n.libelle || '')));
+      if (ceNote) {
+        hasCeNote = true;
+        if (ceNote.libelle) ceNoteLabel = String(ceNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, ceNoteLabel, hasCeNote };
   }
   async function hermioneBtNoteMetaFromApi(hermioneId) {
     let nNotes = 0;
@@ -37640,6 +38315,45 @@ async function bindNotes() {
         btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.choId || choId);
       }
       const btnCl = document.getElementById('notesChoBzSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip5A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '5A';
+          document.getElementById('btnDevList')?.click();
+          document.getElementById('devOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  async function refreshNotesChoCeSeedTip(_devoirsPref) {
+    const el = document.getElementById('notesChoCeSeedTip');
+    if (!el) return;
+    try {
+      const choId = await resolveChoChangEleveId();
+      if (!choId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '5A';
+      try {
+        const eleve = await api('/eleves/' + choId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 5A */ }
+      const meta = await choCeNoteMetaFromApi(choId);
+      el.innerHTML = notesChoCeSeedTipDenseHtml({
+        choId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesChoCeSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = () => voirNotesEleve(btnNotes.dataset.choId || choId);
+      }
+      const btnCl = document.getElementById('notesChoCeSeedClasseBtn');
       if (btnCl) {
         btnCl.onclick = () => {
           const chip = document.getElementById('notesChip5A');
@@ -42455,7 +43169,7 @@ function viewQuittancesFamille() {
     <div id="quitPageTip" style="display:none;margin:0 0 .55rem"></div>
     <div class="panel">
       <h2>Mes quittances</h2>
-      <p class="muted">Reçus émis automatiquement à chaque paiement enregistré par la compta. Factures impayées : <a href="/famille/factures?section=factures">mes factures</a>.</p>
+      <p class="muted">Reçus émis automatiquement à chaque paiement enregistré par la compta. Factures impayées : <a href="/famille/factures?section=factures">mes factures</a>. <span class="muted empty-state-hint" style="font-size:.72rem">CE-B</span></p>
       <div class="row quit-fam-filter-chips" style="margin:.35rem 0 .5rem;flex-wrap:wrap;gap:.35rem;align-items:center">
         <span class="muted" style="font-size:.85rem">Afficher</span>
         <button type="button" class="pill quit-fam-chip primary" id="quitFamChipAll">Toutes</button>
@@ -42526,15 +43240,12 @@ async function bindQuittancesFamille() {
     const totalAll = (listAll || []).reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
     const totalShown = list.reduce((s, q) => s + (Number(q.montant_centimes) || 0), 0);
     if (stats) {
-      stats.innerHTML = `
-        <div class="stat-tile bento-span-4"><strong>${listAll.length}</strong><span>Quittances</span></div>
-        <div class="stat-tile bento-span-4"><strong>${esc(euros(totalShown))}</strong><span>Total vue · ${esc(euros(totalAll))}</span></div>
-        <a class="stat-tile bento-span-4" href="/famille/factures?section=factures" style="text-decoration:none">
-          <strong class="${quitFamResteFactures ? 'warn' : 'ok'}">${esc(euros(quitFamResteFactures))}</strong><span>Reste factures</span>
-        </a>`;
+      stats.innerHTML = famQuittancesStatsCeBDenseHtml(listAll, list, quitFamFilter, quitFamResteFactures);
     }
     if (pageTip) {
-      const dense = famQuittancesPageTipDenseHtml(listAll, list, quitFamFilter, quitFamResteFactures);
+      const dense = famQuittancesPageTipDenseHtml(listAll, list, quitFamFilter, quitFamResteFactures, {
+        forceShow: !listAll.length,
+      });
       if (dense) {
         pageTip.style.display = '';
         pageTip.innerHTML = dense;
@@ -42543,24 +43254,13 @@ async function bindQuittancesFamille() {
         pageTip.innerHTML = '';
       }
     }
+    bindFamHomeCeBTipGo();
     if (!listAll.length) {
-      const resteLbl = quitFamResteFactures
-        ? `Reste à régler sur vos factures : <strong class="warn">${esc(euros(quitFamResteFactures))}</strong>.`
-        : 'Si une facture est encore ouverte, elle apparaît sur Mes factures.';
-      out.innerHTML = famEmptyDense('Aucune quittance pour le moment', [
-        'Un reçu est émis automatiquement à chaque paiement enregistré par la compta (virement, prélèvement SEPA, chèque…).',
-        resteLbl,
-        'Le mandat SEPA et le détail des échéances sont sur la page Factures.',
-      ], '<a href="/famille/factures?section=factures">Mes factures</a> · <a href="/famille/factures#famSepaOut">Mandat SEPA</a>');
+      out.innerHTML = famQuittancesPageEmptyDenseHtml(quitFamResteFactures);
       return;
     }
     if (!list.length) {
-      const emptyLbl = quitFamFilter === 'sepa'
-        ? 'Aucune quittance SEPA avec ce filtre.'
-        : (quitFamFilter === 'autres'
-          ? 'Aucune quittance « autres moyens » avec ce filtre.'
-          : 'Aucune quittance avec ce filtre.');
-      out.innerHTML = `<p class="empty">${emptyLbl}</p>`;
+      out.innerHTML = famQuittancesFilterEmptyDenseHtml(quitFamFilter, listAll, quitFamResteFactures);
       return;
     }
     wireQuitTable(list);
@@ -42603,6 +43303,13 @@ async function bindQuittancesFamille() {
     quitFamResteFactures = (facs || []).reduce((s, f) => s + facFamResteCentimes(f), 0);
     quitFamSortedList = famQuittancesSortedRecent(rawList || []);
     paintQuitFamList();
+    maybeToastFamQuittancesOuverte({
+      nQuittances: quitFamSortedList.length,
+      listAll: quitFamSortedList,
+      listShown: famQuittancesFilteredList(quitFamSortedList, quitFamFilter),
+      filterKey: quitFamFilter,
+      resteFacturesCent: quitFamResteFactures,
+    });
   } catch (e) {
     if (stats) stats.innerHTML = '';
     if (pageTip) { pageTip.style.display = 'none'; pageTip.innerHTML = ''; }
