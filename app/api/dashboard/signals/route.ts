@@ -11,6 +11,7 @@ import {
   loadDashboardSignalSources,
   type DashboardSignalsViewUser,
 } from "@/app/lib/dashboard-signals-load";
+import { DASHBOARD_SIGNAL_SOURCES } from "@/app/lib/dashboard-signals-parallel";
 
 const EMPTY_SIGNALS = {
   shortcuts: [] as unknown[],
@@ -142,7 +143,7 @@ export async function GET() {
       absenceNotifications: appBundle?.notifications ?? null,
     });
 
-    const { bundle, stepsMs: sourceStepsMs } = await loadDashboardSignalSources(loadCtx);
+    const { bundle, stepsMs: sourceStepsMs, sourceStatus } = await loadDashboardSignalSources(loadCtx);
     perf.mark("sources");
 
     const { internat, rh, demandes, absences, documents, stages, others } = bundle;
@@ -198,6 +199,7 @@ export async function GET() {
             ...sourceStepsMs,
             aggregate: snap.totalMs,
           },
+          sourceStatus,
         },
       };
       void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
@@ -208,7 +210,7 @@ export async function GET() {
       return NextResponse.json({
         ...EMPTY_SIGNALS,
         anneeScolaireLabel: others.anneeScolaireLabel,
-        perf: { ...snap, stepsMs: { ...snap.stepsMs, ...sourceStepsMs } },
+        perf: { ...snap, stepsMs: { ...snap.stepsMs, ...sourceStepsMs }, sourceStatus },
       });
     }
   } catch (e) {

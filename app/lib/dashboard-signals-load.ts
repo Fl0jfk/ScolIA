@@ -62,6 +62,7 @@ import {
   runParallelSignalSources,
   unwrapSignalSource,
   type DashboardSignalSourceId,
+  type SignalSourceStatus,
 } from "@/app/lib/dashboard-signals-parallel";
 import { valkeyCached } from "@/app/lib/valkey";
 import {
@@ -744,10 +745,9 @@ async function loadStagesSource(ctx: DashboardSignalsLoadContext): Promise<Stage
 }
 
 async function loadOthersSource(ctx: DashboardSignalsLoadContext): Promise<OthersSourceValue> {
-  const { accessibleModuleIds, user, establishments, isOrgAdmin, signalsEtabId } = ctx;
+  const { accessibleModuleIds, user, establishments, isOrgAdmin } = ctx;
   const roles = user.roles;
   const businessUserId = user.businessUserId;
-  const email = user.email ?? "";
 
   const [tripsRaw, roomsRaw, reservationsRaw, profRoomRaw, weekSheet] = await Promise.all([
     accessibleModuleIds.has("travels")
@@ -778,119 +778,129 @@ async function loadOthersSource(ctx: DashboardSignalsLoadContext): Promise<Other
     roomSubjectColors = withDefaultProfRoomSubjects(defaultProfRoomModule()).subjectColors;
   }
 
-  let vsSanctionsAujourdhui = 0;
-  let vsCarnetNonSignees = 0;
-  if (
-    accessibleModuleIds.has("vs-sanctions") ||
-    accessibleModuleIds.has("vs-carnet")
-  ) {
+  const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+
+  const loadVsSanctionsCarnet = async (): Promise<{
+    vsSanctionsAujourdhui: number;
+    vsCarnetNonSignees: number;
+  }> => {
+    if (
+      !etabId ||
+      (!accessibleModuleIds.has("vs-sanctions") && !accessibleModuleIds.has("vs-carnet"))
+    ) {
+      return { vsSanctionsAujourdhui: 0, vsCarnetNonSignees: 0 };
+    }
     try {
-      const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
       const { countSanctionsAujourdhui } = await import("@/app/lib/vs-sanctions-db");
       const { countCarnetNonSignees } = await import("@/app/lib/vs-carnet-db");
       const { parisDateKey } = await import("@/app/lib/paris-time");
-      const etabId = await resolveCurrentEtablissementId();
-      if (etabId) {
-        const tasks: Promise<void>[] = [];
-        if (accessibleModuleIds.has("vs-sanctions")) {
-          tasks.push(
-            countSanctionsAujourdhui(etabId, parisDateKey(new Date())).then((n) => {
-              vsSanctionsAujourdhui = n;
-            }),
-          );
-        }
-        if (accessibleModuleIds.has("vs-carnet")) {
-          tasks.push(
-            countCarnetNonSignees(etabId).then((n) => {
-              vsCarnetNonSignees = n;
-            }),
-          );
-        }
-        await Promise.all(tasks);
+      let vsSanctionsAujourdhui = 0;
+      let vsCarnetNonSignees = 0;
+      const tasks: Promise<void>[] = [];
+      if (accessibleModuleIds.has("vs-sanctions")) {
+        tasks.push(
+          countSanctionsAujourdhui(etabId, parisDateKey(new Date())).then((n) => {
+            vsSanctionsAujourdhui = n;
+          }),
+        );
       }
+      if (accessibleModuleIds.has("vs-carnet")) {
+        tasks.push(
+          countCarnetNonSignees(etabId).then((n) => {
+            vsCarnetNonSignees = n;
+          }),
+        );
+      }
+      await Promise.all(tasks);
+      return { vsSanctionsAujourdhui, vsCarnetNonSignees };
     } catch {
-      vsSanctionsAujourdhui = 0;
-      vsCarnetNonSignees = 0;
+      return { vsSanctionsAujourdhui: 0, vsCarnetNonSignees: 0 };
     }
-  }
+  };
 
-  let facturesEnRetard = 0;
-  let anneeScolaireLabel: string | null = null;
-  let unseenAccompagnementAlerts: OthersSourceValue["unseenAccompagnementAlerts"] = [];
-  let creneauxVidesCount = 0;
-  let creneauxVidesTravelId: string | null = null;
-
-  try {
-    const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
-    const { resolveAnneeCouranteMeta } = await import("@/app/lib/annees-scolaires-db");
-    const etabId = await resolveCurrentEtablissementId();
-    if (etabId) {
-      anneeScolaireLabel = (await resolveAnneeCouranteMeta(etabId)).label;
-      try {
-        const { countFacturesEnRetard } = await import("@/app/lib/facturation-db");
-        const { parisDateKey } = await import("@/app/lib/paris-time");
-        facturesEnRetard = await countFacturesEnRetard(etabId, parisDateKey(new Date()));
-      } catch {
-        facturesEnRetard = 0;
-      }
-      try {
-        const { loadCreneauVideSignalsForDashboard } = await import("@/app/lib/impact-engine");
-        const { parisDateKey } = await import("@/app/lib/paris-time");
-        const signals = await loadCreneauVideSignalsForDashboard({
-          etablissementId: etabId,
-          date: parisDateKey(new Date()),
-        });
-        creneauxVidesCount = signals.length;
-        const travelIds = [...new Set(signals.map((s) => s.travelId).filter(Boolean))];
-        creneauxVidesTravelId = travelIds.length === 1 ? travelIds[0]! : null;
-      } catch (err) {
-        console.warn("[dashboard/signals] creneaux vides", err);
-      }
-      if (
-        accessibleModuleIds.has("eleve-dossier") &&
-        businessUserId &&
-        hasRole(roles, "professeur")
-      ) {
-        try {
-          const { isProfesseurScopedDossierViewer } = await import(
-            "@/app/lib/eleve-dossier-scope"
-          );
-          if (
-            isProfesseurScopedDossierViewer({
-              roles,
-              orgAdmin: isOrgAdmin,
-            })
-          ) {
-            const {
-              listUnseenAccompagnementAlertsForTeacher,
-              formatAccompagnementAlertDetail,
-            } = await import("@/app/lib/eleve-accompagnement-alerts");
-            const alerts = await listUnseenAccompagnementAlertsForTeacher({
-              etablissementId: etabId,
-              businessUserId,
-            });
-            unseenAccompagnementAlerts = alerts.map((a) => ({
-              documentId: a.documentId,
-              eleveId: a.eleveId,
-              eleveNom: a.eleveNom,
-              elevePrenom: a.elevePrenom,
-              classe: a.classe,
-              kind: a.kind,
-              title: a.title,
-              detail: formatAccompagnementAlertDetail(a),
-            }));
-          }
-        } catch (err) {
-          console.warn("[dashboard/signals] accompagnement alerts", err);
-        }
-      }
+  const loadAnneeLabel = async (): Promise<string | null> => {
+    if (!etabId) return null;
+    try {
+      const { resolveAnneeCouranteMeta } = await import("@/app/lib/annees-scolaires-db");
+      return (await resolveAnneeCouranteMeta(etabId)).label;
+    } catch {
+      return null;
     }
-  } catch {
-    anneeScolaireLabel = null;
-  }
+  };
 
-  let travelsUnreadMessages: OthersSourceValue["travelsUnreadMessages"];
-  if (accessibleModuleIds.has("travels")) {
+  const loadFactures = async (): Promise<number> => {
+    if (!etabId) return 0;
+    try {
+      const { countFacturesEnRetard } = await import("@/app/lib/facturation-db");
+      const { parisDateKey } = await import("@/app/lib/paris-time");
+      return await countFacturesEnRetard(etabId, parisDateKey(new Date()));
+    } catch {
+      return 0;
+    }
+  };
+
+  const loadCreneaux = async (): Promise<{
+    creneauxVidesCount: number;
+    creneauxVidesTravelId: string | null;
+  }> => {
+    if (!etabId) return { creneauxVidesCount: 0, creneauxVidesTravelId: null };
+    try {
+      const { loadCreneauVideSignalsForDashboard } = await import("@/app/lib/impact-engine");
+      const { parisDateKey } = await import("@/app/lib/paris-time");
+      const signals = await loadCreneauVideSignalsForDashboard({
+        etablissementId: etabId,
+        date: parisDateKey(new Date()),
+      });
+      const travelIds = [...new Set(signals.map((s) => s.travelId).filter(Boolean))];
+      return {
+        creneauxVidesCount: signals.length,
+        creneauxVidesTravelId: travelIds.length === 1 ? travelIds[0]! : null,
+      };
+    } catch (err) {
+      console.warn("[dashboard/signals] creneaux vides", err);
+      return { creneauxVidesCount: 0, creneauxVidesTravelId: null };
+    }
+  };
+
+  const loadAccompagnement = async (): Promise<OthersSourceValue["unseenAccompagnementAlerts"]> => {
+    if (
+      !etabId ||
+      !accessibleModuleIds.has("eleve-dossier") ||
+      !businessUserId ||
+      !hasRole(roles, "professeur")
+    ) {
+      return [];
+    }
+    try {
+      const { isProfesseurScopedDossierViewer } = await import("@/app/lib/eleve-dossier-scope");
+      if (!isProfesseurScopedDossierViewer({ roles, orgAdmin: isOrgAdmin })) return [];
+      const {
+        listUnseenAccompagnementAlertsForTeacher,
+        formatAccompagnementAlertDetail,
+      } = await import("@/app/lib/eleve-accompagnement-alerts");
+      const alerts = await listUnseenAccompagnementAlertsForTeacher({
+        etablissementId: etabId,
+        businessUserId,
+      });
+      return alerts.map((a) => ({
+        documentId: a.documentId,
+        eleveId: a.eleveId,
+        eleveNom: a.eleveNom,
+        elevePrenom: a.elevePrenom,
+        classe: a.classe,
+        kind: a.kind,
+        title: a.title,
+        detail: formatAccompagnementAlertDetail(a),
+      }));
+    } catch (err) {
+      console.warn("[dashboard/signals] accompagnement alerts", err);
+      return [];
+    }
+  };
+
+  const loadTravelsUnread = async (): Promise<OthersSourceValue["travelsUnreadMessages"]> => {
+    if (!accessibleModuleIds.has("travels")) return undefined;
     try {
       const { summarizeViewerTravelUnread } = await import("@/app/lib/travel-message-unread-db");
       const { travelThreadViewerFromStaff } = await import("@/app/lib/travels-thread-unread");
@@ -900,28 +910,37 @@ async function loadOthersSource(ctx: DashboardSignalsLoadContext): Promise<Other
           ? (tripsRaw as import("@/app/lib/travels-types").TravelsTrip[])
           : await listTravelsIndex();
       const { travelsDbReady } = await import("@/app/lib/travel-db");
-      const etabId = await travelsDbReady();
-      if (etabId) {
-        travelsUnreadMessages = await summarizeViewerTravelUnread({
-          etablissementId: etabId,
-          trips: tripsForUnread,
-          viewer: travelThreadViewerFromStaff({
-            id: user.id,
-            businessUserId: user.businessUserId,
-            email: user.email,
-            roles: user.roles,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            name: user.name,
-          }),
-          establishments,
-        });
-      }
+      const travelsEtabId = await travelsDbReady();
+      if (!travelsEtabId) return undefined;
+      return await summarizeViewerTravelUnread({
+        etablissementId: travelsEtabId,
+        trips: tripsForUnread,
+        viewer: travelThreadViewerFromStaff({
+          id: user.id,
+          businessUserId: user.businessUserId,
+          email: user.email,
+          roles: user.roles,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          name: user.name,
+        }),
+        establishments,
+      });
     } catch (err) {
       console.warn("[dashboard/signals] travels unread", err);
-      travelsUnreadMessages = undefined;
+      return undefined;
     }
-  }
+  };
+
+  const [vsBlock, anneeScolaireLabel, facturesEnRetard, creneauxBlock, unseenAccompagnementAlerts, travelsUnreadMessages] =
+    await Promise.all([
+      loadVsSanctionsCarnet(),
+      loadAnneeLabel(),
+      loadFactures(),
+      loadCreneaux(),
+      loadAccompagnement(),
+      loadTravelsUnread(),
+    ]);
 
   return {
     tripsRaw: Array.isArray(tripsRaw) ? tripsRaw : null,
@@ -929,13 +948,13 @@ async function loadOthersSource(ctx: DashboardSignalsLoadContext): Promise<Other
     reservations,
     roomSubjectColors,
     weekSheet,
-    vsSanctionsAujourdhui,
-    vsCarnetNonSignees,
+    vsSanctionsAujourdhui: vsBlock.vsSanctionsAujourdhui,
+    vsCarnetNonSignees: vsBlock.vsCarnetNonSignees,
     facturesEnRetard,
     anneeScolaireLabel,
     unseenAccompagnementAlerts,
-    creneauxVidesCount,
-    creneauxVidesTravelId,
+    creneauxVidesCount: creneauxBlock.creneauxVidesCount,
+    creneauxVidesTravelId: creneauxBlock.creneauxVidesTravelId,
     travelsUnreadMessages,
   };
 }
@@ -943,8 +962,9 @@ async function loadOthersSource(ctx: DashboardSignalsLoadContext): Promise<Other
 export async function loadDashboardSignalSources(ctx: DashboardSignalsLoadContext): Promise<{
   bundle: DashboardSignalSourcesBundle;
   stepsMs: Record<DashboardSignalSourceId, number>;
+  sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus>;
 }> {
-  const { outcomes, stepsMs } = await runParallelSignalSources<DashboardSignalSourcesBundle>({
+  const { outcomes, stepsMs, sourceStatus } = await runParallelSignalSources<DashboardSignalSourcesBundle>({
     internat: () => loadInternatSource(ctx),
     rh: () => loadRhSource(ctx),
     demandes: () => loadDemandesSource(ctx),
@@ -971,7 +991,7 @@ export async function loadDashboardSignalSources(ctx: DashboardSignalsLoadContex
     }
   }
 
-  return { bundle, stepsMs };
+  return { bundle, stepsMs, sourceStatus };
 }
 
 export function buildLoadContextFromViewUser(

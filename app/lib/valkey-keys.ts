@@ -20,8 +20,8 @@ export const VALKEY_TTL = {
   moduleAccessUser: 45,
   /** Liens dashboard */
   dashboardLinks: 60,
-  /** Signaux dashboard (agrégat lourd) */
-  dashboardSignals: 25,
+  /** Signaux dashboard (agrégat lourd — aligné polling client 60 s) */
+  dashboardSignals: 60,
   /** Compteurs VS (dashboard signals — par scope modules) */
   dashboardSignalsVsCounts: 18,
   /** Index absences RH brut (établissement) */
@@ -31,7 +31,9 @@ export const VALKEY_TTL = {
   /** Signatures stage en attente (utilisateur) */
   dashboardSignalsStagesPending: 20,
   /** File demandes staff (utilisateur) */
-  dashboardSignalsRequestsBoard: 15,
+  dashboardSignalsRequestsBoard: 45,
+  /** Créneaux vides impact-engine (établissement + jour, inclut vide) */
+  dashboardCreneauxVides: 25,
   /** Config app / module-access store */
   appConfig: 45,
   moduleAccessConfig: 30,
@@ -169,6 +171,13 @@ export function valkeyKeyDashboardSignalsRequestsBoard(
   authUserId: string,
 ): string {
   return `${NS}:dash:sig-src:req-board:${etablissementId}:${authUserId}`;
+}
+
+export function valkeyKeyDashboardCreneauxVides(
+  etablissementId: string,
+  parisDateKey: string,
+): string {
+  return `${NS}:dash:creneaux:${etablissementId}:${parisDateKey}`;
 }
 
 export function valkeyKeyAppConfig(tenantSlug: string): string {

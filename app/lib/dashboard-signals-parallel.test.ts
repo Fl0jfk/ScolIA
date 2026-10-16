@@ -8,31 +8,35 @@ import {
 
 test("runParallelSignalSources — agrège en parallèle et isole les échecs", async () => {
   const order: string[] = [];
-  const { outcomes, stepsMs } = await runParallelSignalSources({
-    internat: async () => {
-      order.push("internat-start");
-      await new Promise((r) => setTimeout(r, 30));
-      order.push("internat-end");
-      return 1;
+  const { outcomes, stepsMs, sourceStatus } = await runParallelSignalSources(
+    {
+      internat: async () => {
+        order.push("internat-start");
+        await new Promise((r) => setTimeout(r, 30));
+        order.push("internat-end");
+        return 1;
+      },
+      rh: async () => {
+        order.push("rh-start");
+        await new Promise((r) => setTimeout(r, 5));
+        order.push("rh-end");
+        return 2;
+      },
+      demandes: async () => {
+        throw new Error("demandes down");
+      },
+      absences: async () => 4,
+      documents: async () => 5,
+      stages: async () => 6,
+      others: async () => 7,
     },
-    rh: async () => {
-      order.push("rh-start");
-      await new Promise((r) => setTimeout(r, 5));
-      order.push("rh-end");
-      return 2;
-    },
-    demandes: async () => {
-      throw new Error("demandes down");
-    },
-    absences: async () => 4,
-    documents: async () => 5,
-    stages: async () => 6,
-    others: async () => 7,
-  });
+    { timeoutMs: 0 },
+  );
 
   assert.equal(outcomes.internat.ok && outcomes.internat.value, 1);
   assert.equal(outcomes.rh.ok && outcomes.rh.value, 2);
   assert.equal(outcomes.demandes.ok, false);
+  assert.equal(sourceStatus.demandes, "error");
   assert.equal(outcomes.absences.ok && outcomes.absences.value, 4);
   assert.deepEqual(unwrapSignalSource(outcomes.demandes, [] as number[]), []);
   assert.equal(DASHBOARD_SIGNAL_SOURCES.length, 7);
@@ -45,18 +49,42 @@ test("runParallelSignalSources — agrège en parallèle et isole les échecs", 
 
 test("runParallelSignalSources — une source lente ne bloque pas le délai total", async () => {
   const t0 = Date.now();
-  await runParallelSignalSources({
-    internat: async () => {
-      await new Promise((r) => setTimeout(r, 80));
-      return null;
+  await runParallelSignalSources(
+    {
+      internat: async () => {
+        await new Promise((r) => setTimeout(r, 80));
+        return null;
+      },
+      rh: async () => null,
+      demandes: async () => null,
+      absences: async () => null,
+      documents: async () => null,
+      stages: async () => null,
+      others: async () => null,
     },
-    rh: async () => null,
-    demandes: async () => null,
-    absences: async () => null,
-    documents: async () => null,
-    stages: async () => null,
-    others: async () => null,
-  });
+    { timeoutMs: 0 },
+  );
   const elapsed = Date.now() - t0;
   assert.ok(elapsed < 200, `attendu parallèle, got ${elapsed}ms`);
+});
+
+test("runParallelSignalSources — timeout par source (~1,2 s)", async () => {
+  const { outcomes, sourceStatus } = await runParallelSignalSources(
+    {
+      internat: async () => {
+        await new Promise((r) => setTimeout(r, 2_000));
+        return 1;
+      },
+      rh: async () => 2,
+      demandes: async () => 3,
+      absences: async () => 4,
+      documents: async () => 5,
+      stages: async () => 6,
+      others: async () => 7,
+    },
+    { timeoutMs: 100 },
+  );
+  assert.equal(sourceStatus.internat, "timeout");
+  assert.equal(outcomes.internat.ok, false);
+  assert.equal(sourceStatus.rh, "ok");
 });

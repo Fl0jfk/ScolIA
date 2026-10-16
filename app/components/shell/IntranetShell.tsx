@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
+import { DashboardSignalsProvider } from "@/app/components/shell/DashboardSignalsProvider";
 import EleveDossierModalProvider from "@/app/components/shell/EleveDossierModalProvider";
 import IntranetSidebar from "@/app/components/shell/IntranetSidebar";
 
@@ -37,6 +38,7 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
   return (
     <DashboardThemeRoot>
       <EleveDossierModalProvider>
+        <DashboardSignalsProvider>
         <div className="min-h-screen lg:pl-[17.5rem]">
           <IntranetSidebar
             mobileOpen={mobileOpen}
@@ -59,6 +61,7 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
 
           <div className="min-w-0">{children}</div>
         </div>
+        </DashboardSignalsProvider>
       </EleveDossierModalProvider>
     </DashboardThemeRoot>
   );

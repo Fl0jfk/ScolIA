@@ -8,6 +8,7 @@ import {
   valkeyKeyDashboardSignalsRhPlanningNow,
   valkeyKeyDashboardSignalsStagesPending,
   valkeyKeyDashboardSignalsVsCounts,
+  valkeyKeyStagesConventionsIndex,
 } from "@/app/lib/valkey-keys";
 import { isScopedMemoryCacheKey, resetValkeyMemoryCacheForTests, valkeyCached } from "@/app/lib/valkey";
 
@@ -30,6 +31,31 @@ test("clés cache signaux — isolation établissement et utilisateur", () => {
   );
 });
 
+test("prof vs direction — clés utilisateur et scope VS distincts", () => {
+  const profModules = new Set(["vs-appels", "rh", "mon-planning"]);
+  const directionModules = new Set([
+    "vs-absences",
+    "vs-appels",
+    "vs-sanctions",
+    "vs-carnet",
+    "rh",
+    "demandes-hse",
+  ]);
+  assert.notEqual(vsModulesScopeHash(profModules), vsModulesScopeHash(directionModules));
+  assert.notEqual(
+    valkeyKeyDashboardSignalsRhPlanningNow("etab-1", "auth-prof"),
+    valkeyKeyDashboardSignalsRhPlanningNow("etab-1", "auth-direction"),
+  );
+  assert.notEqual(
+    valkeyKeyDashboardSignals("etab-1", "auth-prof"),
+    valkeyKeyDashboardSignals("etab-1", "auth-direction"),
+  );
+  assert.notEqual(
+    valkeyKeyDashboardSignalsStagesPending("etab-1", "auth-prof"),
+    valkeyKeyDashboardSignalsRequestsBoard("etab-1", "auth-direction"),
+  );
+});
+
 test("vsModulesScopeHash — diffère selon modules VS visibles", () => {
   const direction = new Set(["vs-absences", "vs-appels", "vs-sanctions"]);
   const teacher = new Set(["vs-appels"]);
@@ -49,6 +75,34 @@ test("valkeyCached dash:sig-src — pas de fuite entre établissements sans Valk
   const keyB = valkeyKeyDashboardSignalsAbsenceIndex("etab-b");
   assert.equal(isScopedMemoryCacheKey(keyA), true);
   assert.equal(isScopedMemoryCacheKey(valkeyKeyDashboardSignalsVsCounts("e1", "vs-absences")), true);
+
+  const stageKey = valkeyKeyStagesConventionsIndex("etab-stage");
+  let stageLoads = 0;
+  for (let i = 0; i < 300; i++) {
+    await valkeyCached({
+      key: valkeyKeyDashboardSignalsAbsenceIndex(`etab-dash-${i}`),
+      ttlSeconds: 30,
+      loader: async () => ["x"],
+    });
+  }
+  await valkeyCached({
+    key: stageKey,
+    ttlSeconds: 30,
+    loader: async () => {
+      stageLoads += 1;
+      return ["stage-index"];
+    },
+  });
+  const stageAgain = await valkeyCached({
+    key: stageKey,
+    ttlSeconds: 30,
+    loader: async () => {
+      stageLoads += 1;
+      return ["stage-index-2"];
+    },
+  });
+  assert.deepEqual(stageAgain, ["stage-index"]);
+  assert.equal(stageLoads, 1);
 
   await valkeyCached({
     key: keyA,
