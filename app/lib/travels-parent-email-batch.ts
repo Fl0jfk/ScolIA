@@ -9,10 +9,8 @@ export type BatchedEmailSendResult = {
 /** Log SMTP sans adresses rejetées (objet brut nodemailer). */
 export function smtpErrorForLog(error: unknown): { message: string; code?: string } {
   if (error instanceof Error) {
-    const code =
-      typeof (error as { code?: unknown }).code === "string"
-        ? (error as { code: string }).code
-        : undefined;
+    const rawCode = (error as unknown as { code?: unknown }).code;
+    const code = typeof rawCode === "string" ? rawCode : undefined;
     return code ? { message: error.message, code } : { message: error.message };
   }
   return { message: String(error) };
