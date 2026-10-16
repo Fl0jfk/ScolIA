@@ -134,6 +134,10 @@ let notesDevoirsEmptySeamusBzRefresh = null;
 let notesDevoirsEmptyLunaBxRefresh = null;
 /** Rempli dans bindNotes — repère Ginny devoir BX-A sur tip « 0 devoir » (audit BX-D). */
 let notesDevoirsEmptyGinnyRefresh = null;
+/** Rempli dans bindNotes — repère Luna note CC-A sur tip « 0 devoir » (audit CC-D). */
+let notesDevoirsEmptyLunaCcRefresh = null;
+/** Rempli dans bindNotes — repère Ginny devoir CC-A sur tip « 0 devoir » (audit CC-D). */
+let notesDevoirsEmptyGinnyCcRefresh = null;
 /** Rempli dans bindNotes — repère Luna BS-D sur tip « éval sans note ». */
 let notesEvalSansNoteLunaRefresh = null;
 /** Évite le toast « période sélectionnée » pendant syncPeriodeSelects / boot. */
@@ -903,6 +907,8 @@ function refreshNotesHomeTip(nSans, nTotal, periodeLabel, prefPeriode, nMat) {
     if (typeof notesDevoirsEmptySeamusBzRefresh === 'function') void notesDevoirsEmptySeamusBzRefresh();
     if (typeof notesDevoirsEmptyLunaBxRefresh === 'function') void notesDevoirsEmptyLunaBxRefresh();
     if (typeof notesDevoirsEmptyGinnyRefresh === 'function') void notesDevoirsEmptyGinnyRefresh();
+    if (typeof notesDevoirsEmptyLunaCcRefresh === 'function') void notesDevoirsEmptyLunaCcRefresh();
+    if (typeof notesDevoirsEmptyGinnyCcRefresh === 'function') void notesDevoirsEmptyGinnyCcRefresh();
   } else if ((!p || p.statut === 'ouverte' || p.statut === 'partielle_appreciations')
     && Number.isFinite(nMatiere) && nMatiere > 0 && nTot > 0) {
     if (typeof notesEvalSansNoteLunaRefresh === 'function') void notesEvalSansNoteLunaRefresh();
@@ -1438,9 +1444,16 @@ function bindNotesHarryDevoirGoTipGo(opts) {
 }
 
 function findGinnyBxDevoir(devoirs) {
+  return (devoirs || []).find(d => {
+    const t = String(d.titre || '');
+    if (!/ginny/i.test(t) || /CC-A/i.test(t)) return false;
+    return /BX-A/i.test(t) || /potions/i.test(String(d.matiere_libelle || d.matiere || ''));
+  });
+}
+
+function findGinnyCcDevoir(devoirs) {
   return (devoirs || []).find(d =>
-    /ginny/i.test(String(d.titre || ''))
-    && (/BX-A/i.test(String(d.titre || '')) || /potions/i.test(String(d.matiere_libelle || d.matiere || ''))));
+    /ginny/i.test(String(d.titre || '')) && /CC-A/i.test(String(d.titre || '')));
 }
 
 function notesGinnyDevoirGoActions() {
@@ -1493,6 +1506,52 @@ function bindNotesGinnyDevoirGoTipGo(opts) {
     };
   }
   const list = document.getElementById('notesGinnyDevoirListBtn');
+  if (list) {
+    list.onclick = () => notesGinnyDevoirGoActions();
+  }
+}
+
+/** /app/notes — repère devoir Ginny CC-A (0 devoir global ou liste filtrée vide). */
+function notesGinnyCcDevoirGoTipDenseHtml(meta) {
+  const o = meta || {};
+  const dev = o.ginnyCcDevoir || null;
+  const hasDevoir = !!dev;
+  const devoirLbl = dev && dev.titre
+    ? esc(String(dev.titre).trim().slice(0, 32))
+    : 'Ginny CC-A';
+  return `<div class="bento" style="margin:.1rem 0 .45rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Ginny Weasley</strong><span>Seed labo · 4B · devoir audit CC-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesGinnyCcDevoirGoBtn" style="cursor:pointer;text-align:left;border-color:${hasDevoir ? 'var(--ok,#16a34a)' : 'var(--accent,#0071e3)'}">
+      <strong class="${hasDevoir ? 'ok' : 'warn'}">${hasDevoir ? '→' : '0'}</strong><span>${hasDevoir ? devoirLbl : 'Créer / lister devoir CC-A · 4B'}</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesGinnyCcDevoirListBtn" style="cursor:pointer;text-align:left">
+      <strong>Liste</strong><span>Matières &amp; devoirs · filtre 4B</span>
+    </button>
+  </div>`;
+}
+
+function bindNotesGinnyCcDevoirGoTipGo(opts) {
+  const o = opts || {};
+  const go = document.getElementById('notesGinnyCcDevoirGoBtn');
+  if (go) {
+    go.onclick = async () => {
+      if (o.ginnyCcDevoir && o.ginnyCcDevoir.id && typeof o.openGrille === 'function') {
+        await o.openGrille(o.ginnyCcDevoir);
+        return;
+      }
+      notesGinnyDevoirGoActions();
+      const titre = document.getElementById('devTitre');
+      if (titre && !String(titre.value || '').trim()) {
+        titre.value = 'Ginny CC-A';
+      }
+      if (!o.ginnyCcDevoir) {
+        document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+  }
+  const list = document.getElementById('notesGinnyCcDevoirListBtn');
   if (list) {
     list.onclick = () => notesGinnyDevoirGoActions();
   }
@@ -1659,6 +1718,30 @@ function notesLunaBxSeedTipDenseHtml(meta) {
     </button>
     <button type="button" class="stat-tile bento-span-4" id="notesLunaBxSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="${hasBxNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasBxNote ? 'Repère Luna · Français BX-A' : 'Filtre 6A · saisie / seed'}</span>
+    </button>
+  </div>`;
+}
+
+/** /app/notes — repère seed labo Luna Lovegood (6A · note Français CC-A · audit CC-D). */
+function notesLunaCcSeedTipDenseHtml(meta) {
+  const o = meta || {};
+  if (!o.lunaId) return '';
+  const nNotes = Number(o.nNotes) || 0;
+  const classe = esc(String(o.classe || '6A').trim());
+  const hasCcNote = !!o.hasCcNote;
+  const noteLbl = o.ccNoteLabel
+    ? esc(String(o.ccNoteLabel).trim().slice(0, 32))
+    : (nNotes > 0 ? 'Note seed' : 'Aucune note · CC-A');
+  const noteStrong = hasCcNote ? 'ok' : (nNotes > 0 ? '' : 'warn');
+  return `<div class="bento" style="margin:.15rem 0 .55rem">
+    <div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+      <strong>Luna Lovegood</strong><span>Seed labo · ${classe} · audit notes CC-D</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" id="notesLunaCcSeedNotesBtn" data-luna-id="${esc(String(o.lunaId))}" style="cursor:pointer;text-align:left">
+      <strong class="${noteStrong}">${nNotes}</strong><span>Note(s) staff · fiche élève</span>
+    </button>
+    <button type="button" class="stat-tile bento-span-4" id="notesLunaCcSeedClasseBtn" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong class="${hasCcNote ? 'ok' : 'muted'}">${noteLbl}</strong><span>${hasCcNote ? 'Repère Luna · Français CC-A' : 'Filtre 6A · saisie / seed'}</span>
     </button>
   </div>`;
 }
@@ -2369,18 +2452,68 @@ function toastQuittanceTelechargee(numero, opts) {
 
 function toastFamTelephoneEnregistre(telephone) {
   const t = esc(String(telephone || '').trim());
+  const onHome = isFamilleHomeFlux();
+  if (!onHome) {
+    showEntToast(
+      `<strong>Téléphone enregistré</strong>${t ? ` — ${t}` : ''}. Utilisé pour les SMS vie scolaire.`,
+      8000,
+    );
+    return;
+  }
+  const tiles = `<div class="bento" data-ui-audit="CC-B" style="margin:.4rem 0 0">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${t || '—'}</strong><span>SMS vie scolaire · RH</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" data-fam-cc-go="#famContactPanel" style="cursor:pointer;text-align:left">
+      <strong>Contact</strong><span>Self-service · #famContactPanel</span>
+    </button>
+    <a class="stat-tile bento-span-4" href="/famille/messages" style="text-decoration:none">
+      <strong>→</strong><span>Messagerie école</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong class="muted">CC-B</strong><span>PUT /users/…/telephone</span></div>
+  </div>`;
   showEntToast(
-    `<strong>Téléphone enregistré</strong>${t ? ` — ${t}` : ''}. Utilisé pour les SMS vie scolaire.`,
-    8000,
+    `<strong>Téléphone enregistré</strong>`
+    + tiles
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/journal">Journal</a> · `
+    + `<a href="#famContactPanel">Mon contact</a></p>`,
+    8500,
   );
+  bindFamHomeCcBTipGo();
 }
 
 function toastFamEmailEnregistre(email) {
   const e = esc(String(email || '').trim());
+  const onHome = isFamilleHomeFlux();
+  if (!onHome) {
+    showEntToast(
+      `<strong>E-mail de contact enregistré</strong>${e ? ` — ${e}` : ''}. Utilisé pour la connexion et les notifications.`,
+      8000,
+    );
+    return;
+  }
+  const tiles = `<div class="bento" data-ui-audit="CC-B" style="margin:.4rem 0 0">
+    <div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">${e || '—'}</strong><span>Connexion · notifications</span>
+    </div>
+    <button type="button" class="stat-tile bento-span-4" data-fam-cc-go="#famContactPanel" style="cursor:pointer;text-align:left">
+      <strong>Compte</strong><span>E-mail foyer · self-service</span>
+    </button>
+    <a class="stat-tile bento-span-4" href="/famille/enfants" style="text-decoration:none">
+      <strong>Enfants</strong><span>Fiches liées au foyer</span>
+    </a>
+    <div class="stat-tile bento-span-4"><strong class="muted">CC-B</strong><span>PUT /users/…/email</span></div>
+  </div>`;
   showEntToast(
-    `<strong>E-mail de contact enregistré</strong>${e ? ` — ${e}` : ''}. Utilisé pour la connexion et les notifications.`,
-    8000,
+    `<strong>E-mail de contact enregistré</strong>`
+    + tiles
+    + `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="/famille/journal">Journal</a> · `
+    + `<a href="#famPushPanel">Notifications (lab)</a></p>`,
+    8500,
   );
+  bindFamHomeCcBTipGo();
 }
 
 function isEleveMessagesFlux() {
@@ -3960,6 +4093,225 @@ function toastStaffCbcAction(kind, meta) {
     `<strong>${title}</strong> · ${jour}`
     + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir le module</a> · audit CB-C</p>`,
+    6500,
+  );
+}
+
+function isStaffHomeCccFlux() {
+  const role = (me && me.role) || '';
+  return path() === '/app' && role === 'cpe';
+}
+
+function isStaffSortiesPageFlux() {
+  return path() === '/app/sorties';
+}
+
+/** Accueil CPE — sorties exceptionnelles · contrôle portail · autorisations (audit UI CC-C). */
+function homeStaffCccTipDenseHtml(meta) {
+  if (!isStaffHomeCccFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cccLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CC-C</span>';
+  const nSort = Number(o.nSort) || 0;
+  const nDem = Number(o.nDemTotal) || 0;
+  const nCtrlOk = Number(o.nCtrlAuth) || 0;
+  const nCtrlKo = Number(o.nCtrlKo) || 0;
+  const nCom = Number(o.nComDos) || 0;
+  const demTile = nSort
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCccDemGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nSort}</strong><span>Demande(s) en attente · ${nDem} au total · ${cccLbl}</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" id="homeCccDemGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">0</strong><span>File sorties · à jour · ${jour}</span></button>`;
+  const ctrlTile = `<button type="button" class="stat-tile bento-span-4" id="homeCccCtrlGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${nCtrlOk} / ${nCtrlOk + nCtrlKo}</strong><span>Contrôles portail · autorisés / jour</span></button>`;
+  const autTile = `<button type="button" class="stat-tile bento-span-4" id="homeCccAutGo" style="cursor:pointer;text-align:left">
+      <strong>Permanent</strong><span>Autorisation élève · matin · midi · soir</span></button>`;
+  const comTile = nCom
+    ? `<button type="button" class="stat-tile bento-span-4" id="homeCccComGo" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">${nCom}</strong><span>Commission VS · dossier à trancher</span></button>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">—</strong><span>Commissions · hors file sorties</span></div>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CC-C</strong><span>Sorties staff · route /app/sorties</span></div>`;
+  return `<div class="bento" data-ui-audit="CC-C" style="margin:0 0 .55rem">
+    ${demTile}${ctrlTile}${autTile}${comTile}${auditTile}
+  </div>`;
+}
+
+function bindHomeStaffCccTipActions(meta) {
+  const o = meta || {};
+  const dem = document.getElementById('homeCccDemGo');
+  if (dem) {
+    dem.onclick = () => {
+      toastStaffCccAction('demandes', o);
+      go('/app/sorties');
+    };
+  }
+  const ctrl = document.getElementById('homeCccCtrlGo');
+  if (ctrl) {
+    ctrl.onclick = () => {
+      toastStaffCccAction('controle', o);
+      go('/app/sorties');
+    };
+  }
+  const aut = document.getElementById('homeCccAutGo');
+  if (aut) {
+    aut.onclick = () => {
+      toastStaffCccAction('permanent', o);
+      go('/app/sorties');
+    };
+  }
+  const com = document.getElementById('homeCccComGo');
+  if (com) {
+    com.onclick = () => {
+      toastStaffCccAction('commission', o);
+      go(o.comDosHref || '/app/absences');
+    };
+  }
+}
+
+/** Page /app/sorties — synthèse file + contrôles (audit UI CC-C). */
+function sortiesStaffPageTipDenseHtml(meta) {
+  if (!isStaffSortiesPageFlux()) return '';
+  const o = meta || {};
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  const cccLbl = '<span class="muted empty-state-hint" style="font-size:.72rem">CC-C</span>';
+  const nSort = Number(o.nSort) || 0;
+  const nDem = Number(o.nDemTotal) || 0;
+  const nCtrlOk = Number(o.nCtrlAuth) || 0;
+  const nCtrlKo = Number(o.nCtrlKo) || 0;
+  const demTile = `<button type="button" class="stat-tile bento-span-4" id="sortCccDemGo" style="cursor:pointer;text-align:left;border-color:${nSort ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+      <strong class="${nSort ? 'warn' : 'ok'}">${nSort}</strong><span>Exceptionnelle(s) · ${nDem} en file · ${cccLbl}</span></button>`;
+  const ctrlTile = `<button type="button" class="stat-tile bento-span-4" id="sortCccCtrlGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
+      <strong>${nCtrlOk}</strong><span>Autorisé(s) · ${nCtrlKo} refus · ${jour}</span></button>`;
+  const autTile = `<button type="button" class="stat-tile bento-span-4" id="sortCccAutGo" style="cursor:pointer;text-align:left">
+      <strong>↔</strong><span>Permanent · règles niveau / régime</span></button>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CC-C</strong><span>GET /vs/sorties/demandes</span></div>`;
+  return `<div class="bento" data-ui-audit="CC-C" style="margin:0 0 .55rem">
+    ${demTile}${ctrlTile}${autTile}${auditTile}
+  </div>`;
+}
+
+function bindSortiesStaffPageTipActions(meta) {
+  const o = meta || {};
+  const dem = document.getElementById('sortCccDemGo');
+  if (dem) {
+    dem.onclick = () => {
+      toastStaffCccAction('demandes', o);
+      document.getElementById('demOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const ctrl = document.getElementById('sortCccCtrlGo');
+  if (ctrl) {
+    ctrl.onclick = () => {
+      toastStaffCccAction('controle', o);
+      document.getElementById('histCtrlOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+  const aut = document.getElementById('sortCccAutGo');
+  if (aut) {
+    aut.onclick = () => {
+      toastStaffCccAction('permanent', o);
+      document.getElementById('autOut')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  }
+}
+
+function sortiesStaffCccMetaFromLists(demandes, controles, jour, extra) {
+  const o = extra || {};
+  const pending = (demandes || []).filter(d => {
+    const s = String(d.statut || '');
+    return s === 'en_attente' || s === 'demandee' || s === 'ouverte' || s === 'soumise';
+  });
+  const ctrls = controles || [];
+  const nCtrlAuth = ctrls.filter(c => String(c.verdict || '').startsWith('autoris')).length;
+  return {
+    jour: jour || today(),
+    nSort: pending.length,
+    nDemTotal: (demandes || []).length,
+    nCtrlAuth,
+    nCtrlKo: ctrls.length - nCtrlAuth,
+    nComDos: o.nComDos,
+    comDosHref: o.comDosHref,
+    nAbsTrait: o.nAbsTrait,
+  };
+}
+
+function refreshSortiesStaffCccTip(demandes, controles, extra) {
+  const box = document.getElementById('sortiesStaffCccTip');
+  if (!box) return;
+  const jour = document.getElementById('histCtrlJour')?.value || today();
+  const meta = sortiesStaffCccMetaFromLists(demandes, controles, jour, extra);
+  box.innerHTML = sortiesStaffPageTipDenseHtml(meta);
+  bindSortiesStaffPageTipActions(meta);
+}
+
+function maybeToastStaffSortiesPageOpen(meta) {
+  if (!isStaffSortiesPageFlux()) return;
+  const ssKey = 'ent_staff_sorties_ccc_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastStaffCccAction('page-open', meta);
+}
+
+/** Toast bento — cockpit sorties staff (routes existantes · audit CC-C). */
+function toastStaffCccAction(kind, meta) {
+  const o = meta || {};
+  const k = String(kind || '').trim();
+  const jour = esc(String(o.jour || today()).slice(0, 10));
+  let title = 'Sorties VS · staff';
+  let href = '/app/sorties';
+  let tiles = '';
+  const nSort = Number(o.nSort) || 0;
+  const nDem = Number(o.nDemTotal) || 0;
+  const nCtrlOk = Number(o.nCtrlAuth) || 0;
+  const nCtrlKo = Number(o.nCtrlKo) || 0;
+  const nCom = Number(o.nComDos) || 0;
+  if (k === 'demandes') {
+    title = nSort ? 'Demandes exceptionnelles · file' : 'Sorties · file vide';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nSort ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nSort ? 'warn' : 'ok'}">${nSort}</strong><span>En attente · ${nDem} demande(s) listée(s)</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Décision</strong><span>Accepter · refuser · note CPE</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CC-C</strong><span>POST …/demandes/…/decider</span></div>`;
+  } else if (k === 'controle') {
+    title = 'Contrôle portail · jour';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>${nCtrlOk}</strong><span>Autorisé(s) · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="warn">${nCtrlKo}</strong><span>Refus · historique du jour</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CC-C</strong><span>GET /vs/sorties/controles</span></div>`;
+  } else if (k === 'permanent') {
+    title = 'Autorisation permanente élève';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
+        <strong>Permanent</strong><span>Matin · midi · soir · interdit étab.</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Règles</strong><span>Niveau · régime · paramètres</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CC-C</strong><span>PUT autorisation élève</span></div>`;
+  } else if (k === 'commission') {
+    href = o.comDosHref || '/app/absences';
+    title = nCom ? 'Commission VS · dossier ouvert' : 'Absences &amp; commissions';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nCom ? 'var(--warn,#b45309)' : 'var(--border,#e5e5ea)'}">
+        <strong class="${nCom ? 'warn' : 'muted'}">${nCom || '—'}</strong><span>Dossier(s) commission · seed abs/com OK</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong class="muted">VS</strong><span>Distinct de la file sorties parent</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CC-C</strong><span>Lien panneau commission</span></div>`;
+  } else if (k === 'page-open') {
+    title = 'Module sorties VS';
+    tiles = `<div class="stat-tile bento-span-4" style="border-color:${nSort ? 'var(--warn,#b45309)' : 'var(--ok,#16a34a)'}">
+        <strong class="${nSort ? 'warn' : 'ok'}">${nSort}</strong><span>Exceptionnelle(s) · ${jour}</span>
+      </div>
+      <div class="stat-tile bento-span-4"><strong>${nCtrlOk + nCtrlKo}</strong><span>Contrôle(s) portail enregistré(s)</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">CC-C</strong><span>Page /app/sorties</span></div>`;
+  } else {
+    return;
+  }
+  showEntToast(
+    `<strong>${title}</strong> · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="${esc(href)}">Ouvrir</a> · audit CC-C</p>`,
     6500,
   );
 }
@@ -6875,13 +7227,171 @@ function famPortalJournalTipDenseHtml(list, opts) {
   const padTile = domKeys.length >= 2
     ? domTiles
     : `${domTiles}<div class="stat-tile bento-span-4"><strong>${lastShort}</strong><span>Dernière entrée</span></div>`;
-  return `<div class="bento" style="margin:0 0 .55rem">
+  return `<div class="bento" data-ui-audit="CC-B" style="margin:0 0 .55rem">
     <div class="stat-tile bento-span-4"><strong>${items.length}</strong><span>Entrée(s) journal</span></div>
     ${padTile}
-    <a class="stat-tile bento-span-4" href="${journalHref}" style="text-decoration:none">
+    <a class="stat-tile bento-span-4" href="${journalHref}" style="text-decoration:none" data-fam-cc-go="${journalHref}">
       <strong>Journal</strong><span>${journalSub}</span>
     </a>
+    <div class="stat-tile bento-span-4"><strong class="muted">CC-B</strong><span>GET …/journal</span></div>
   </div>`;
+}
+
+function isFamilleJournalFlux() {
+  return path() === '/famille/journal';
+}
+
+function famCcBJournalPageHref() {
+  return '/famille/journal';
+}
+
+function famCcBJournalFicheHref(enfantId) {
+  const eid = enfantId ? esc(String(enfantId).trim()) : '';
+  return eid ? `/famille/enfants/${eid}?section=journal` : famCcBJournalPageHref();
+}
+
+/** Page /famille/journal — synthèse (bento) — audit UI CC-B. */
+function famJournalPageTipDenseHtml(opts) {
+  const o = opts || {};
+  if (!isFamilleJournalFlux() && !o.forceShow) return '';
+  const pageHref = famCcBJournalPageHref();
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant';
+  const n = Math.max(0, Number(o.nEntries) || 0);
+  const nDom = Math.max(0, Number(o.nDomaines) || 0);
+  const lastRaw = o.lastLabel ? String(o.lastLabel).trim() : '';
+  const lastShort = lastRaw
+    ? esc(lastRaw.slice(0, 28)) + (lastRaw.length > 28 ? '…' : '')
+    : '—';
+  const ficheHref = famCcBJournalFicheHref(o.enfantId);
+  const countTile = n
+    ? `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+        <strong class="ok">${n}</strong><span>Entrée(s) · ${who}</span></div>`
+    : `<div class="stat-tile bento-span-4"><strong class="muted">0</strong><span>Aucune entrée visible · ${who}</span></div>`;
+  const domTile = `<div class="stat-tile bento-span-4"><strong>${nDom}</strong><span>Domaine(s) · filtre famille</span></div>`;
+  const actTile = o.enfantId
+    ? `<a class="stat-tile bento-span-4" href="${ficheHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-cc-go="${ficheHref}">
+        <strong>${lastShort}</strong><span>Dernière · section fiche</span></a>`
+    : `<a class="stat-tile bento-span-4" href="${pageHref}" style="text-decoration:none;border-color:var(--accent,#0071e3)" data-fam-cc-go="${pageHref}">
+        <strong>→</strong><span>Choisir un enfant ci-dessous</span></a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CC-B</strong><span>Route ${pageHref}</span></div>`;
+  return `<div class="bento" data-ui-audit="CC-B" style="margin:0 0 .55rem">${countTile}${domTile}${actTile}${auditTile}</div>`;
+}
+
+/** Page /famille/journal — empty-state (famEmptyDense + tip) — audit UI CC-B. */
+function famJournalPageEmptyDenseHtml(opts) {
+  const o = opts || {};
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'cet enfant';
+  const ficheHref = famCcBJournalFicheHref(o.enfantId);
+  const tip = famJournalPageTipDenseHtml({ ...o, forceShow: true, nEntries: 0, nDomaines: 0 });
+  const actions = o.enfantId
+    ? `<a href="${ficheHref}">Fiche ${who}</a> · <a href="/famille/cahier">Cahier parent</a> · <a href="/famille/messages">Contacter l’école</a>`
+    : '<a href="/famille/enfants">Mes enfants</a> · <a href="/famille/messages">Contacter l’école</a>';
+  return `${tip}${famEmptyDense(`Aucune entrée journal — ${who}`, [
+    'Les modifications partagées avec la famille (dossier, vie scolaire, options…) apparaissent ici.',
+    'Même filtre que le portail élève — seules les entrées « visibles famille » sont listées.',
+    'Audit UI CC-B — page multi-enfants ou section fiche ?section=journal.',
+  ], actions)}`;
+}
+
+/** Accueil famille — compte / contact foyer (bento) — audit UI CC-B. */
+function famContactCcBTipDenseHtml(opts) {
+  const o = opts || {};
+  const emailRaw = o.email ? String(o.email).trim() : '';
+  const telRaw = o.telephone ? String(o.telephone).trim() : '';
+  const emailShort = emailRaw
+    ? esc(emailRaw.slice(0, 26)) + (emailRaw.length > 26 ? '…' : '')
+    : '—';
+  const telShort = telRaw ? esc(telRaw.slice(0, 18)) : '—';
+  const emailTile = emailRaw
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-cc-go="#famContactPanel" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
+        <strong class="ok">${emailShort}</strong><span>E-mail connexion</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-cc-go="#famContactPanel" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">E-mail</strong><span>À renseigner · connexion</span></button>`;
+  const telTile = telRaw
+    ? `<button type="button" class="stat-tile bento-span-4" data-fam-cc-go="#famContactPanel" style="cursor:pointer;text-align:left">
+        <strong>${telShort}</strong><span>SMS vie scolaire</span></button>`
+    : `<button type="button" class="stat-tile bento-span-4" data-fam-cc-go="#famContactPanel" style="cursor:pointer;text-align:left;border-color:var(--warn,#b45309)">
+        <strong class="warn">Tél.</strong><span>Recommandé · absences / RH</span></button>`;
+  const journalTile = `<a class="stat-tile bento-span-4" href="${famCcBJournalPageHref()}" style="text-decoration:none" data-fam-cc-go="${famCcBJournalPageHref()}">
+      <strong>Journal</strong><span>Historique visible famille</span></a>`;
+  const auditTile = `<div class="stat-tile bento-span-4"><strong class="muted">CC-B</strong><span>#famContactPanel · compte</span></div>`;
+  return `<div class="bento" data-ui-audit="CC-B" style="margin:0 0 .55rem">${emailTile}${telTile}${journalTile}${auditTile}</div>`;
+}
+
+function bindFamHomeCcBTipGo() {
+  ['famJournalPageTip', 'famContactCcBTip', 'famEnfantJournalTip', 'entToast'].forEach(rootId => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('[data-fam-cc-go]').forEach(btn => {
+      if (btn.dataset.famCcBound === '1') return;
+      btn.dataset.famCcBound = '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const href = btn.getAttribute('data-fam-cc-go');
+        if (!href) return;
+        if (href.startsWith('#')) {
+          const el = document.querySelector(href);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.style.outline = '2px solid var(--accent, #2563eb)';
+            setTimeout(() => { el.style.outline = ''; }, 1800);
+          }
+          return;
+        }
+        go(href);
+      };
+    });
+  });
+}
+
+function famJournalSyncPageTip(opts, rootEl) {
+  const el = rootEl || document.getElementById('famJournalPageTip');
+  if (!el) return;
+  const html = famJournalPageTipDenseHtml({ ...(opts || {}), forceShow: true });
+  if (html) {
+    el.style.display = '';
+    el.innerHTML = html;
+    bindFamHomeCcBTipGo();
+  } else {
+    el.style.display = 'none';
+    el.innerHTML = '';
+  }
+}
+
+/** Toast bento — page /famille/journal ouverte — audit UI CC-B. */
+function toastFamJournalOuverte(opts) {
+  const o = opts || {};
+  const pageHref = famCcBJournalPageHref();
+  const who = o.prenom ? esc(String(o.prenom).trim()) : 'Enfant(s)';
+  const tipHtml = famJournalPageTipDenseHtml({ ...o, forceShow: true });
+  const ficheHref = famCcBJournalFicheHref(o.enfantId);
+  const foot = `<p style="margin:.35rem 0 0;font-size:.85rem">`
+    + `<a href="${pageHref}">Journal</a>`
+    + (o.enfantId ? ` · <a href="${ficheHref}">Section journal</a>` : '')
+    + ` · <a href="/famille#famContactPanel">Mon contact</a></p>`;
+  if (!isFamilleJournalFlux() && !o.dense) {
+    showEntToast(`<strong>Journal famille</strong> — ${who}. <a href="${pageHref}">Entrées visibles</a>`, 6500);
+    return;
+  }
+  showEntToast(
+    `<strong>Journal famille</strong> — ${who}`
+    + (tipHtml ? `<div style="margin:.35rem 0 0">${tipHtml}</div>` : '')
+    + foot,
+    (Number(o.nEntries) || 0) > 0 ? 8500 : 7500,
+  );
+  bindFamHomeCcBTipGo();
+}
+
+function maybeToastFamJournalOuverte(opts) {
+  if (!isParent() || !isFamilleJournalFlux()) return;
+  const ssKey = 'ent_fam_journal_page_open_toast';
+  try {
+    if (sessionStorage.getItem(ssKey) === '1') return;
+    sessionStorage.setItem(ssKey, '1');
+  } catch {
+    return;
+  }
+  toastFamJournalOuverte({ ...(opts || {}), dense: true });
 }
 
 /** Bannière push famille (lab) — tuiles denses. */
@@ -8695,7 +9205,9 @@ function notesDevoirsEmptyTipDenseHtml(periodeLabel) {
   <div id="notesDevoirsEmptySeamusSlot"></div>
   <div id="notesDevoirsEmptySeamusBzSlot"></div>
   <div id="notesDevoirsEmptyLunaBxSlot"></div>
-  <div id="notesDevoirsEmptyGinnySlot"></div>`;
+  <div id="notesDevoirsEmptyGinnySlot"></div>
+  <div id="notesDevoirsEmptyLunaCcSlot"></div>
+  <div id="notesDevoirsEmptyGinnyCcSlot"></div>`;
 }
 
 function bindNotesDevoirsEmptyTipGo() {
@@ -14287,7 +14799,7 @@ function toastFilArchiver(sujet, opts) {
     + `<div class="bento" style="margin:.4rem 0 0">${archTile}${subjTile}${okTile}${restoreTipTile}</div>`
     + `<p style="margin:.35rem 0 0;font-size:.85rem">`
     + `<a href="${esc(msgHref)}">Messagerie</a>`
-    + ' · <label style="font-size:.85rem;cursor:pointer"><input type="checkbox" id="entToastFilArchivesChk" checked> Afficher les archives</label></p>`,
+    + ' · <label style="font-size:.85rem;cursor:pointer"><input type="checkbox" id="entToastFilArchivesChk" checked> Afficher les archives</label></p>',
     8000,
   );
   const archChk = document.getElementById('entToastFilArchivesChk');
@@ -14543,10 +15055,20 @@ function facFamScrollToListRow(facId) {
 }
 function toastSortieValidee(meta) {
   const o = meta || {};
-  const who = o.eleveLabel ? ` — ${esc(String(o.eleveLabel).trim())}` : '';
-  const jour = o.jour ? ` · ${esc(String(o.jour))}` : '';
-  const creneau = o.creneau ? ` · ${esc(String(o.creneau))}` : '';
-  showEntToast(`<strong>Sortie validée</strong>${who}${jour}${creneau}. Demande acceptée.`, 8000);
+  const who = o.eleveLabel ? esc(String(o.eleveLabel).trim()) : 'Élève';
+  const jour = o.jour ? esc(String(o.jour)) : today();
+  const creneau = o.creneau ? esc(String(o.creneau)) : '—';
+  const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
+      <strong class="ok">OK</strong><span>Demande acceptée · note CPE</span>
+    </div>
+    <div class="stat-tile bento-span-4"><strong>${who}</strong><span>${jour} · ${creneau}</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">CC-C</strong><span>POST …/demandes/…/decider</span></div>`;
+  showEntToast(
+    `<strong>Sortie validée</strong> — ${who} · ${jour}`
+    + `<div class="bento" style="margin:.4rem 0 0">${tiles}</div>`
+    + `<p style="margin:.35rem 0 0;font-size:.85rem"><a href="/app/sorties">File sorties</a> · audit CC-C</p>`,
+    8000,
+  );
 }
 function toastInternatChambreCreee(c) {
   if (!c) return;
@@ -19327,7 +19849,6 @@ async function bindEleveNotes() {
           if (msg) msg.innerHTML = '<span class="bad">Aucun bulletin accessible (attendu ex. BULLETIN_T0)</span>';
           return;
         }
-        const sel = document.getElementById('eleveNotePeriode');
         const plabel = sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '';
         const pcode = (periode && periode.code) ? String(periode.code).trim().toUpperCase() : '';
         let doc = bulletins[0];
@@ -19592,6 +20113,11 @@ function viewHome() {
       <h3>Cockpit accompagnement</h3>
       <p class="muted" style="margin-top:0">Trombi · santé · internat · dispenses · permis · messagerie — <span class="muted empty-state-hint" style="font-size:.72rem">BU-C</span>.</p>
       <div id="homeStaffBucTip" class="muted">Chargement…</div>
+    </div>
+    <div class="panel" style="margin-top:.75rem">
+      <h3>Cockpit sorties VS</h3>
+      <p class="muted" style="margin-top:0">Demandes exceptionnelles · contrôle portail · autorisations permanentes — <span class="muted empty-state-hint" style="font-size:.72rem">CC-C</span>.</p>
+      <div id="homeStaffCccTip" class="muted">Chargement…</div>
     </div>`;
   } else if (role === 'compta') {
     tiles = `
@@ -20118,6 +20644,17 @@ async function bindHome() {
     };
     staffBucBox.innerHTML = homeStaffBucTipDenseHtml(bucMeta);
     bindHomeStaffBucTipActions(bucMeta);
+  }
+  const staffCccBox = document.getElementById('homeStaffCccTip');
+  if (staffCccBox && role === 'cpe') {
+    const ctrlsCcc = await settle(api('/vs/sorties/controles?jour=' + encodeURIComponent(jour)), []);
+    const cccMeta = sortiesStaffCccMetaFromLists(sorties, ctrlsCcc, jour, {
+      nComDos,
+      comDosHref,
+      nAbsTrait: nAbs,
+    });
+    staffCccBox.innerHTML = homeStaffCccTipDenseHtml(cccMeta);
+    bindHomeStaffCccTipActions(cccMeta);
   }
   const dirPageTip = document.getElementById('homeDirPageTip');
   if (dirPageTip && role === 'direction') {
@@ -20775,9 +21312,10 @@ function viewFamilleHome() {
       <div id="famTodo" class="muted">…</div>
     </div>
     <div id="famHomeContactTip" style="display:none;margin:-.25rem 0 .65rem"></div>
+    <div id="famContactCcBTip" style="display:none;margin:.5rem 0 0"></div>
     <div class="panel" style="margin-top:.75rem" id="famContactPanel">
       <h3>Mon contact</h3>
-      <p class="muted">E-mail de connexion et téléphone pour SMS vie scolaire / RH (self-service · foyer).</p>
+      <p class="muted">E-mail de connexion et téléphone pour SMS vie scolaire / RH (self-service · foyer) — <span class="muted empty-state-hint">CC-B</span>.</p>
       <div class="row" style="flex-wrap:wrap;gap:.5rem">
         <label>E-mail <input id="famEmail" type="email" placeholder="parent@…" style="min-width:14rem"/></label>
         <button type="button" class="primary" id="btnFamEmail">Enregistrer l’e-mail</button>
@@ -21543,6 +22081,17 @@ async function bindFamilleHome() {
     }
     const famEmailInp = document.getElementById('famEmail');
     if (famEmailInp && me && me.email) famEmailInp.value = me.email;
+    const famTelInp = document.getElementById('famTel');
+    if (famTelInp && me && me.telephone) famTelInp.value = me.telephone;
+    const ccContactTip = document.getElementById('famContactCcBTip');
+    if (ccContactTip) {
+      ccContactTip.style.display = '';
+      ccContactTip.innerHTML = famContactCcBTipDenseHtml({
+        email: (me && me.email) || (famEmailInp && famEmailInp.value) || '',
+        telephone: (me && me.telephone) || (famTelInp && famTelInp.value) || '',
+      });
+      bindFamHomeCcBTipGo();
+    }
     const btnEmail = document.getElementById('btnFamEmail');
     if (btnEmail && me && me.user_id) {
       btnEmail.onclick = async () => {
@@ -23448,6 +23997,7 @@ async function bindFamilleEnfant(id) {
         if (denseTip) {
           jourTip.style.display = '';
           jourTip.innerHTML = denseTip;
+          bindFamHomeCcBTipGo();
         } else {
           jourTip.style.display = 'none';
           jourTip.innerHTML = '';
@@ -23458,10 +24008,9 @@ async function bindFamilleEnfant(id) {
       }
       if (!box) { /* noop */ } else if (!list.length) {
         box.innerHTML = jourSection
-          ? famEmptyDense('Aucune entrée visible', [
-            'Les modifications partagées avec la famille apparaissent ici.',
-          ], '<a href="/famille/journal">Page Journal</a>')
+          ? famJournalPageEmptyDenseHtml({ enfantId: id, prenom: e.prenom })
           : '<p class="empty">Aucune entrée visible.</p>';
+        if (jourSection) bindFamHomeCcBTipGo();
       } else if (jourSection) {
         const groups = {};
         list.forEach(j => {
@@ -33293,6 +33842,7 @@ async function bindDocsSigner() {
 /* ---------- Sorties VS ---------- */
 function viewSorties() {
   return shell('/app/sorties', `
+    <div id="sortiesStaffCccTip"></div>
     <div class="bento" id="sortStats"></div>
     <div class="bento">
     <div class="panel bento-span-6">
@@ -33394,6 +33944,7 @@ function viewSorties() {
 async function bindSorties() {
   await bindElevePickers('ctrlEleve', 'ctrlEleveQ', 'btnCtrlEleveSearch');
   await bindElevePickers('autEleve', 'autEleveQ', 'btnAutEleveSearch');
+  let sortiesCccPageToastDone = false;
 
   async function updateSortStats(demandes, controles) {
     const box = document.getElementById('sortStats');
@@ -33404,6 +33955,13 @@ async function bindSorties() {
       <div class="stat-tile bento-span-4"><strong>${(demandes || []).length}</strong><span>Demandes en file</span></div>
       <div class="stat-tile bento-span-4"><strong>${ok}</strong><span>Contrôles autorisés</span></div>
       <div class="stat-tile bento-span-4"><strong>${ko}</strong><span>Contrôles refusés</span></div>`;
+    const jour = document.getElementById('histCtrlJour')?.value || today();
+    const cccMeta = sortiesStaffCccMetaFromLists(demandes, controles, jour, {});
+    refreshSortiesStaffCccTip(demandes, controles, {});
+    if (!sortiesCccPageToastDone) {
+      sortiesCccPageToastDone = true;
+      maybeToastStaffSortiesPageOpen(cccMeta);
+    }
   }
 
   async function loadDemandes() {
@@ -35967,6 +36525,77 @@ async function bindNotes() {
     }
   }
   notesDevoirsEmptyGinnyRefresh = refreshNotesDevoirsEmptyGinnySlot;
+  async function refreshNotesDevoirsEmptyLunaCcSlot() {
+    const el = document.getElementById('notesDevoirsEmptyLunaCcSlot');
+    if (!el) return;
+    try {
+      const lunaId = await resolveLunaLovegoodEleveId();
+      if (!lunaId) {
+        el.innerHTML = '';
+        return;
+      }
+      let classe = '6A';
+      try {
+        const eleve = await api('/eleves/' + lunaId);
+        if (eleve && eleve.classe) classe = eleve.classe;
+      } catch { /* défaut 6A */ }
+      const meta = await lunaCcNoteMetaFromApi(lunaId);
+      el.innerHTML = notesLunaCcSeedTipDenseHtml({
+        lunaId,
+        classe,
+        ...meta,
+      });
+      const btnNotes = document.getElementById('notesLunaCcSeedNotesBtn');
+      if (btnNotes) {
+        btnNotes.onclick = async () => {
+          const cid = btnNotes.dataset.lunaId || lunaId;
+          const sel = document.getElementById('noteEleve');
+          if (sel && ![...sel.options].some(o => o.value === cid)) {
+            await fillElevesNotes('Luna');
+          }
+          await voirNotesEleve(cid);
+        };
+      }
+      const btnCl = document.getElementById('notesLunaCcSeedClasseBtn');
+      if (btnCl) {
+        btnCl.onclick = () => {
+          const chip = document.getElementById('notesChip6A');
+          if (chip) chip.click();
+          const devCl = document.getElementById('devClasse');
+          if (devCl) devCl.value = '6A';
+          document.getElementById('btnDevCreer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+      }
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyLunaCcRefresh = refreshNotesDevoirsEmptyLunaCcSlot;
+  async function refreshNotesDevoirsEmptyGinnyCcSlot() {
+    const el = document.getElementById('notesDevoirsEmptyGinnyCcSlot');
+    if (!el) return;
+    try {
+      const pid = document.getElementById('devPeriode')?.value.trim()
+        || document.getElementById('notePeriode')?.value.trim();
+      let devoirs = [];
+      if (pid) {
+        try {
+          devoirs = await api('/devoirs?periode_id=' + encodeURIComponent(pid));
+        } catch {
+          devoirs = [];
+        }
+      }
+      const ginnyCcDevoir = findGinnyCcDevoir(devoirs);
+      el.innerHTML = notesGinnyCcDevoirGoTipDenseHtml({ ginnyCcDevoir: ginnyCcDevoir || null });
+      bindNotesGinnyCcDevoirGoTipGo({
+        ginnyCcDevoir: ginnyCcDevoir || null,
+        openGrille: (d) => openGrille(d),
+      });
+    } catch {
+      el.innerHTML = '';
+    }
+  }
+  notesDevoirsEmptyGinnyCcRefresh = refreshNotesDevoirsEmptyGinnyCcSlot;
   async function choBuNoteMetaFromApi(choId) {
     let nNotes = 0;
     let buNoteLabel = '';
@@ -36162,6 +36791,25 @@ async function bindNotes() {
       nNotes = 0;
     }
     return { nNotes, bxNoteLabel, hasBxNote };
+  }
+  async function lunaCcNoteMetaFromApi(lunaId) {
+    let nNotes = 0;
+    let ccNoteLabel = '';
+    let hasCcNote = false;
+    try {
+      const notes = await api('/eleves/' + lunaId + '/notes');
+      nNotes = (notes || []).length;
+      const ccNote = (notes || []).find(n =>
+        /CC-A/i.test(String(n.libelle || ''))
+        || (/luna/i.test(String(n.libelle || '')) && /CC-A/i.test(String(n.libelle || ''))));
+      if (ccNote) {
+        hasCcNote = /CC-A/i.test(String(ccNote.libelle || ''));
+        if (ccNote.libelle) ccNoteLabel = String(ccNote.libelle);
+      }
+    } catch {
+      nNotes = 0;
+    }
+    return { nNotes, ccNoteLabel, hasCcNote };
   }
   async function refreshNotesEvalSansNoteLunaSlot() {
     const el = document.getElementById('notesEvalSansNoteLunaSlot');
@@ -40400,10 +41048,10 @@ async function bindFamilleSante() {
 
 function viewFamilleJournal() {
   return shell('/famille/journal', `
-    <div class="bento" id="famJourStats"></div>
+    <div id="famJournalPageTip" style="display:none;margin:0 0 .55rem"></div>
     <div class="panel">
       <h2>Journal</h2>
-      <p class="muted">Entrées visibles famille (même filtre que le portail élève).</p>
+      <p class="muted">Entrées visibles famille (même filtre que le portail élève) — <span class="muted empty-state-hint">CC-B</span>.</p>
       <div class="row">
         <label>Enfant <select id="famJourEnfant" style="min-width:14rem"></select></label>
         <button type="button" class="primary" id="btnFamJourLoad">Actualiser</button>
@@ -40415,7 +41063,7 @@ function viewFamilleJournal() {
 async function bindFamilleJournal() {
   const sel = document.getElementById('famJourEnfant');
   const out = document.getElementById('famJourOut');
-  const stats = document.getElementById('famJourStats');
+  let journalPageToastDone = false;
   try {
     await fillFamilleEnfantSelect('famJourEnfant');
   } catch (e) {
@@ -40424,7 +41072,13 @@ async function bindFamilleJournal() {
   }
   async function load() {
     const id = sel.value;
-    if (!id) { out.innerHTML = '<p class="empty">Aucun enfant.</p>'; return; }
+    const opt = sel.selectedOptions && sel.selectedOptions[0];
+    const prenom = opt ? String(opt.textContent || '').split(' ')[0].trim() : '';
+    if (!id) {
+      famJournalSyncPageTip({ nEntries: 0, nDomaines: 0 });
+      out.innerHTML = famJournalPageEmptyDenseHtml({});
+      return;
+    }
     out.textContent = 'Chargement…';
     try {
       const list = await api('/eleves/' + id + '/journal?limit=50');
@@ -40433,16 +41087,29 @@ async function bindFamilleJournal() {
         const d = j.domaine || 'autre';
         byDom[d] = (byDom[d] || 0) + 1;
       });
-      if (stats) {
-        const keys = Object.keys(byDom);
-        stats.innerHTML = `
-          <div class="stat-tile bento-span-3"><strong>${(list || []).length}</strong><span>Entrées</span></div>
-          ${keys.slice(0, 3).map(k =>
-            `<div class="stat-tile bento-span-3"><strong>${byDom[k]}</strong><span>${esc(k)}</span></div>`
-          ).join('')}`;
+      const nEntries = (list || []).length;
+      const nDomaines = Object.keys(byDom).length;
+      const lastLabel = list && list[0] && list[0].libelle ? list[0].libelle : '';
+      famJournalSyncPageTip({
+        enfantId: id,
+        prenom,
+        nEntries,
+        nDomaines,
+        lastLabel,
+      });
+      if (!journalPageToastDone) {
+        journalPageToastDone = true;
+        maybeToastFamJournalOuverte({
+          enfantId: id,
+          prenom,
+          nEntries,
+          nDomaines,
+          lastLabel,
+        });
       }
       if (!(list || []).length) {
-        out.innerHTML = '<p class="empty">Aucune entrée visible.</p>';
+        out.innerHTML = famJournalPageEmptyDenseHtml({ enfantId: id, prenom });
+        bindFamHomeCcBTipGo();
         return;
       }
       const groups = {};
