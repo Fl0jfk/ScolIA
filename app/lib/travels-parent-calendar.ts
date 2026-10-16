@@ -1,6 +1,5 @@
 /** Calendrier parents (.ics) pour sorties scolaires — multi-événements dans un seul fichier. */
 
-import { createHash } from "node:crypto";
 import { buildCalendarEventsIcs, type CalendarIcsEvent } from "@/app/lib/calendar-ics";
 import type {
   TravelsCalendarPoint,
@@ -23,8 +22,8 @@ export function defaultParentCalendarFromTrip(data: TravelsTripData): TravelsPar
 
   const startDate = String(data.startDate || data.date || "").slice(0, 10);
   const endDate = String(data.endDate || data.startDate || data.date || "").slice(0, 10);
-  const startTime = normalizeTime(data.startTime) || "08:00";
-  const endTime = normalizeTime(data.endTime) || "18:00";
+  const startTime = normalizeParentCalendarTime(data.startTime) || "08:00";
+  const endTime = normalizeParentCalendarTime(data.endTime) || "18:00";
   const place =
     typeof data.transportRequest?.pickupPoint === "string"
       ? data.transportRequest.pickupPoint
@@ -38,7 +37,7 @@ export function defaultParentCalendarFromTrip(data: TravelsTripData): TravelsPar
       kind: "depot",
       label: "Dépôt / départ",
       date: data.parentMeeting.date,
-      time: normalizeTime(data.parentMeeting.time) || startTime,
+      time: normalizeParentCalendarTime(data.parentMeeting.time) || startTime,
       durationMinutes: data.parentMeeting.durationMinutes || 30,
       place: data.parentMeeting.place || place || undefined,
       note: data.parentMeeting.note,
@@ -70,7 +69,8 @@ export function defaultParentCalendarFromTrip(data: TravelsTripData): TravelsPar
   return { includeTripSpan: true, points };
 }
 
-function normalizeTime(t: unknown): string | undefined {
+/** Normalisation horaire partagée (calendrier client + hash serveur). */
+export function normalizeParentCalendarTime(t: unknown): string | undefined {
   const s = String(t || "").trim();
   if (/^\d{2}:\d{2}$/.test(s)) return s;
   if (/^\d{2}:\d{2}:\d{2}$/.test(s)) return s.slice(0, 5);
@@ -81,7 +81,7 @@ function isValidCalendarPoint(p: TravelsCalendarPoint | undefined): p is Travels
   return Boolean(
     p &&
       /^\d{4}-\d{2}-\d{2}$/.test(p.date) &&
-      /^\d{2}:\d{2}$/.test(normalizeTime(p.time) || "") &&
+      /^\d{2}:\d{2}$/.test(normalizeParentCalendarTime(p.time) || "") &&
       (p.kind === "depot" || p.kind === "recuperation" || p.kind === "autre"),
   );
 }
@@ -107,8 +107,8 @@ export function buildTravelsParentsTripIcs(input: {
   if (cal.includeTripSpan !== false) {
     const startDate = String(input.data.startDate || input.data.date || "").slice(0, 10);
     const endDate = String(input.data.endDate || startDate).slice(0, 10);
-    const startTime = normalizeTime(input.data.startTime) || "08:00";
-    const endTime = normalizeTime(input.data.endTime) || "18:00";
+    const startTime = normalizeParentCalendarTime(input.data.startTime) || "08:00";
+    const endTime = normalizeParentCalendarTime(input.data.endTime) || "18:00";
     if (/^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
       events.push({
         title: `Séjour — ${title}`,
@@ -131,7 +131,7 @@ export function buildTravelsParentsTripIcs(input: {
 
   for (const p of cal.points || []) {
     if (!isValidCalendarPoint(p)) continue;
-    const time = normalizeTime(p.time)!;
+    const time = normalizeParentCalendarTime(p.time)!;
     const kindLabel = p.label?.trim() || KIND_LABEL[p.kind];
     events.push({
       title: `${kindLabel} — ${title}`,
@@ -166,7 +166,7 @@ function parentMeetingToCalendar(m: TravelsParentMeeting | undefined): TravelsPa
         kind: "depot",
         label: "Dépôt / départ",
         date: m.date,
-        time: normalizeTime(m.time) || m.time,
+        time: normalizeParentCalendarTime(m.time) || m.time,
         durationMinutes: m.durationMinutes || 30,
         place: m.place,
         note: m.note,
@@ -196,7 +196,7 @@ export function sanitizeParentCalendar(
           : ("autre" as const),
       label: p.label ? String(p.label).trim() : undefined,
       date: String(p.date || "").slice(0, 10),
-      time: normalizeTime(p.time) || String(p.time || "").slice(0, 5),
+      time: normalizeParentCalendarTime(p.time) || String(p.time || "").slice(0, 5),
       durationMinutes:
         typeof p.durationMinutes === "number" && p.durationMinutes > 0
           ? Math.min(240, Math.round(p.durationMinutes))
@@ -217,35 +217,6 @@ export function calendarHasDepotAndRecuperation(cal: TravelsParentCalendar | nul
   const hasDepot = points.some((p) => p.kind === "depot" && isValidCalendarPoint(p));
   const hasRecup = points.some((p) => p.kind === "recuperation" && isValidCalendarPoint(p));
   return hasDepot && hasRecup;
-}
-
-/** Empreinte stable du contenu calendrier (.ics) pour dédoublonner les envois parents. */
-export function computeParentCalendarNotifyHash(
-  data: Pick<TravelsTripData, "startDate" | "endDate" | "date" | "startTime" | "endTime">,
-  calendar: TravelsParentCalendar,
-): string {
-  const startDate = String(data.startDate || data.date || "").slice(0, 10);
-  const endDate = String(data.endDate || startDate).slice(0, 10);
-  const startTime = normalizeTime(data.startTime) || "";
-  const endTime = normalizeTime(data.endTime) || "";
-  const points = (calendar.points || [])
-    .map((p) => ({
-      kind: p.kind,
-      date: String(p.date || "").slice(0, 10),
-      time: normalizeTime(p.time) || "",
-      place: String(p.place || "").trim(),
-    }))
-    .sort((a, b) =>
-      `${a.kind}:${a.date}:${a.time}:${a.place}`.localeCompare(
-        `${b.kind}:${b.date}:${b.time}:${b.place}`,
-      ),
-    );
-  const payload = JSON.stringify({
-    includeTripSpan: calendar.includeTripSpan !== false,
-    span: { startDate, endDate, startTime, endTime },
-    points,
-  });
-  return createHash("sha256").update(payload).digest("hex");
 }
 
 /**
@@ -296,7 +267,7 @@ export function buildParentsCalendarMailCopy(input: {
           : pt.kind === "recuperation"
             ? "Heure de reprise / récupération"
             : "Point d’attention");
-      const when = `${formatFrDate(pt.date)} à ${normalizeTime(pt.time) || pt.time}`;
+      const when = `${formatFrDate(pt.date)} à ${normalizeParentCalendarTime(pt.time) || pt.time}`;
       const place = pt.place?.trim() ? ` — ${pt.place.trim()}` : "";
       return `• ${label} : ${when}${place}`;
     });

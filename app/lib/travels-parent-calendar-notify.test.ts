@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { computeParentCalendarNotifyHash } from "@/app/lib/travels-parent-calendar";
+import { computeParentCalendarNotifyHash } from "@/app/lib/travels-parent-calendar-server";
 import {
   mergeNotifiedParentEmails,
   parentCalendarNotifiedEmailsForHash,
@@ -48,6 +48,14 @@ const calendarB: TravelsParentCalendar = {
 };
 
 describe("parent calendar notify hash", () => {
+  it("empreinte sha256 stable (régression client / serveur)", () => {
+    const hash = computeParentCalendarNotifyHash(tripData, calendarA);
+    assert.equal(
+      hash,
+      "dad23e8775d3ea3773cbcc7cf12d70cfb0a320ac729c6d4a6e4b36b98a586209",
+    );
+  });
+
   it("réinitialise la liste notifiée quand le calendrier change", () => {
     const hashA = computeParentCalendarNotifyHash(tripData, calendarA);
     const hashB = computeParentCalendarNotifyHash(tripData, calendarB);
