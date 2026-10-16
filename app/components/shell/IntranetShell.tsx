@@ -31,14 +31,13 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
     };
   }, [shellActive]);
 
-  if (!shellActive) {
-    return <DashboardSignalsProvider>{children}</DashboardSignalsProvider>;
-  }
-
   return (
+    <DashboardSignalsProvider>
+      {!shellActive ? (
+        children
+      ) : (
     <DashboardThemeRoot>
       <EleveDossierModalProvider>
-        <DashboardSignalsProvider>
         <div className="min-h-screen lg:pl-[17.5rem]">
           <IntranetSidebar
             mobileOpen={mobileOpen}
@@ -61,8 +60,9 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
 
           <div className="min-w-0">{children}</div>
         </div>
-        </DashboardSignalsProvider>
       </EleveDossierModalProvider>
     </DashboardThemeRoot>
+      )}
+    </DashboardSignalsProvider>
   );
 }

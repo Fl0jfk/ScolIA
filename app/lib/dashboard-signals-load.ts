@@ -57,13 +57,22 @@ import type { RhPlanningDoc } from "@/app/lib/rh/planning-types";
 import { listUnseenSharedFolderInvites } from "@/app/lib/documents-cloud";
 import { canAccessSstRegistre } from "@/app/lib/sst-registre/access";
 import { isSstEmargementPending } from "@/app/lib/sst-registre/db";
-import { vsModulesScopeHash } from "@/app/lib/dashboard-signals-cache-keys";
+import {
+  dashboardSignalsRolesHash,
+  dashboardSignalsSubCacheKey,
+  vsModulesScopeHash,
+} from "@/app/lib/dashboard-signals-cache-keys";
 import {
   runParallelSignalSources,
   unwrapSignalSource,
   type DashboardSignalSourceId,
   type SignalSourceStatus,
 } from "@/app/lib/dashboard-signals-parallel";
+import {
+  buildDashboardSourceStaleAdapters,
+  valkeyKeyDashboardSignalSourceBundle,
+} from "@/app/lib/dashboard-signals-source-stale";
+import { runDashboardSignalSourceFlightShared } from "@/app/lib/dashboard-signals-source-flight-server";
 import { valkeyCached } from "@/app/lib/valkey";
 import {
   VALKEY_TTL,
@@ -187,6 +196,8 @@ export type DashboardSignalsViewUser = {
 
 export type DashboardSignalsLoadContext = {
   signalsEtabId: string;
+  /** Génération bundle au début de la requête (invalidation établissement). */
+  signalsBundleGeneration: number;
   user: DashboardSignalsViewUser;
   isOrgAdmin: boolean;
   accessibleModuleIds: Set<string>;
@@ -604,7 +615,10 @@ async function loadVsCounts(
   }
   const scopeHash = vsModulesScopeHash(accessibleModuleIds);
   return valkeyCached({
-    key: valkeyKeyDashboardSignalsVsCounts(signalsEtabId, scopeHash),
+    key: dashboardSignalsSubCacheKey(
+      valkeyKeyDashboardSignalsVsCounts(signalsEtabId, scopeHash),
+      ctx.signalsBundleGeneration,
+    ),
     ttlSeconds: VALKEY_TTL.dashboardSignalsVsCounts,
     loader: async () => {
       const etabId = signalsEtabId.trim();
@@ -656,7 +670,10 @@ async function loadAbsencesSource(ctx: DashboardSignalsLoadContext): Promise<Abs
   let absencesRaw: AbsenceRecord[] = [];
   if (accessibleModuleIds.has("rh")) {
     absencesRaw = await valkeyCached({
-      key: valkeyKeyDashboardSignalsAbsenceIndex(signalsEtabId),
+      key: dashboardSignalsSubCacheKey(
+        valkeyKeyDashboardSignalsAbsenceIndex(signalsEtabId),
+        ctx.signalsBundleGeneration,
+      ),
       ttlSeconds: VALKEY_TTL.dashboardSignalsAbsenceIndex,
       loader: () => getAbsenceIndex().catch(() => [] as AbsenceRecord[]),
     });
@@ -963,15 +980,22 @@ export async function loadDashboardSignalSources(ctx: DashboardSignalsLoadContex
   stepsMs: Record<DashboardSignalSourceId, number>;
   sourceStatus: Record<DashboardSignalSourceId, SignalSourceStatus>;
 }> {
+  const rolesHash = dashboardSignalsRolesHash(ctx.user.roles);
+  const stale = buildDashboardSourceStaleAdapters(ctx.signalsEtabId, ctx.user.id, rolesHash);
+  const flightKey = (sourceId: DashboardSignalSourceId) =>
+    valkeyKeyDashboardSignalSourceBundle(ctx.signalsEtabId, ctx.user.id, rolesHash, sourceId);
+  const withFlight = <T>(sourceId: DashboardSignalSourceId, loader: () => Promise<T>) => () =>
+    runDashboardSignalSourceFlightShared(flightKey(sourceId), loader);
+
   const { outcomes, stepsMs, sourceStatus } = await runParallelSignalSources<DashboardSignalSourcesBundle>({
-    internat: () => loadInternatSource(ctx),
-    rh: () => loadRhSource(ctx),
-    demandes: () => loadDemandesSource(ctx),
-    absences: () => loadAbsencesSource(ctx),
-    documents: () => loadDocumentsSource(ctx),
-    stages: () => loadStagesSource(ctx),
-    others: () => loadOthersSource(ctx),
-  });
+    internat: withFlight("internat", () => loadInternatSource(ctx)),
+    rh: withFlight("rh", () => loadRhSource(ctx)),
+    demandes: withFlight("demandes", () => loadDemandesSource(ctx)),
+    absences: withFlight("absences", () => loadAbsencesSource(ctx)),
+    documents: withFlight("documents", () => loadDocumentsSource(ctx)),
+    stages: withFlight("stages", () => loadStagesSource(ctx)),
+    others: withFlight("others", () => loadOthersSource(ctx)),
+  }, { stale });
 
   const bundle: DashboardSignalSourcesBundle = {
     internat: unwrapSignalSource(outcomes.internat, EMPTY_INTERNAT),
@@ -997,6 +1021,7 @@ export function buildLoadContextFromViewUser(
   viewUser: DashboardSignalsViewUser,
   opts: {
     signalsEtabId: string;
+    signalsBundleGeneration: number;
     isOrgAdmin: boolean;
     accessibleModuleIds: Set<string>;
     moduleAccess: ModuleAccessConfig;
@@ -1009,6 +1034,7 @@ export function buildLoadContextFromViewUser(
 ): DashboardSignalsLoadContext {
   return {
     signalsEtabId: opts.signalsEtabId,
+    signalsBundleGeneration: opts.signalsBundleGeneration,
     user: viewUser,
     isOrgAdmin: opts.isOrgAdmin,
     accessibleModuleIds: opts.accessibleModuleIds,

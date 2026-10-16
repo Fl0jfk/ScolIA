@@ -1,12 +1,27 @@
 import type { DashboardSignalSourceId } from "@/app/lib/dashboard-signals-parallel";
 
 /** Hash stable pour clés cache (modules accessibles pertinents par source). */
+/** Suffixe génération invalidation (sous-caches signaux par établissement). */
+export function dashboardSignalsBundleGenerationKeyPart(bundleGeneration: number): string {
+  const n = Math.max(0, Math.floor(bundleGeneration));
+  return `g${n}`;
+}
+
+export function dashboardSignalsSubCacheKey(baseKey: string, bundleGeneration: number): string {
+  return `${baseKey}:${dashboardSignalsBundleGenerationKeyPart(bundleGeneration)}`;
+}
+
 export function dashboardSignalsScopeHash(parts: string[]): string {
   return parts
     .map((p) => p.trim())
     .filter(Boolean)
     .sort()
     .join("|");
+}
+
+/** Hash stable des rôles session (clés bundle stale par utilisateur). */
+export function dashboardSignalsRolesHash(roles: string[]): string {
+  return dashboardSignalsScopeHash(roles);
 }
 
 export function vsModulesScopeHash(accessibleModuleIds: Set<string>): string {

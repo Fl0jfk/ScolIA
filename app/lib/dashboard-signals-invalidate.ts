@@ -1,8 +1,8 @@
 import "server-only";
 
-import { valkeyDel, valkeyDeleteByPrefix } from "@/app/lib/valkey";
+import { bumpDashboardSignalsBundleGeneration } from "@/app/lib/dashboard-signals-bundle-generation-server";
+import { valkeyDeleteByPrefix } from "@/app/lib/valkey";
 import {
-  valkeyKeyDashboardSignalsAbsenceIndex,
   valkeyPrefixDashboardSignalsCreneaux,
   valkeyPrefixDashboardSignalsEtab,
 } from "@/app/lib/valkey-keys";
@@ -16,6 +16,8 @@ export async function invalidateDashboardSignalsForEstablishment(
   const etabId = etablissementId.trim();
   if (!etabId) return;
 
+  await bumpDashboardSignalsBundleGeneration(etabId);
+
   await Promise.all([
     valkeyDeleteByPrefix(valkeyPrefixDashboardSignalsEtab(etabId)),
     valkeyDeleteByPrefix(valkeyPrefixDashboardSignalsCreneaux(etabId)),
@@ -23,6 +25,7 @@ export async function invalidateDashboardSignalsForEstablishment(
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:rh-now:${etabId}:`),
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:stages-pend:${etabId}:`),
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:req-board:${etabId}:`),
-    valkeyDel(valkeyKeyDashboardSignalsAbsenceIndex(etabId)),
+    valkeyDeleteByPrefix(`${NS}:dash:sig-bundle:${etabId}:`),
+    valkeyDeleteByPrefix(`${NS}:dash:sig-src:abs-index:${etabId}:`),
   ]);
 }
