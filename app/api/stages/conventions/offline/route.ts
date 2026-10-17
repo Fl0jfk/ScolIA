@@ -1,17 +1,22 @@
 import { NextResponse } from "next/server";
-import { safeCurrentUser } from "@/app/lib/intranet-session";
-import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireViewUser } from "@/app/lib/intranet-session";
 import { canReviewPreconvention } from "@/app/lib/stage-access";
 import { createAdminOfflineSignedConvention } from "@/app/lib/stage-workflow";
 import type { StageInternshipKind } from "@/app/lib/stage-types";
 
 export const maxDuration = 60;
 
-function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
-  const first = user?.firstName?.trim() || "";
-  const last = user?.lastName?.trim() || "";
-  return `${first} ${last}`.trim() || "Administratif";
+function displayName(user: {
+  firstName?: string | null;
+  lastName?: string | null;
+  name?: string | null;
+}) {
+  const first = user.firstName?.trim() || "";
+  const last = user.lastName?.trim() || "";
+  const combined = `${first} ${last}`.trim();
+  if (combined) return combined;
+  const name = user.name?.trim();
+  return name || "Administratif";
 }
 
 function isPdfFile(file: File) {
@@ -29,16 +34,50 @@ function parseInternshipKind(raw: string): StageInternshipKind {
   return "stage_observation";
 }
 
+function storageErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("access denied") ||
+    lower.includes("accessdenied") ||
+    lower.includes("unauthorized") ||
+    lower.includes("not authorized") ||
+    lower.includes("invalidaccesskeyid") ||
+    lower.includes("signaturedoesnotmatch")
+  ) {
+    return "Envoi du PDF vers le stockage impossible (droits S3). Réessayez ou contactez l'administrateur technique.";
+  }
+  if (lower.includes("access_key") || lower.includes("secret_access_key") || lower.includes("manquants")) {
+    return "Stockage non configuré pour cet établissement (clés S3 manquantes).";
+  }
+  return raw || "Erreur serveur lors de l'enregistrement hors plateforme.";
+}
+
 export async function POST(req: Request) {
   try {
-    const gate = await requireAuth();
-    if (!gate.ok) return gate.response;
+    const gate = await requireViewUser();
+    if (!gate.ok) {
+      return NextResponse.json(
+        {
+          error:
+            gate.reason === "unavailable"
+              ? "Authentification temporairement indisponible."
+              : "Session expirée ou non connecté. Rechargez la page, reconnectez-vous, puis réessayez.",
+          code: gate.reason === "unavailable" ? "AUTH_UNAVAILABLE" : "AUTH_REQUIRED",
+        },
+        { status: gate.reason === "unavailable" ? 503 : 401 },
+      );
+    }
 
-    const user = await safeCurrentUser();
-    const roles = intranetRolesFromMetadata(user?.publicMetadata);
+    const user = gate.user;
+    const roles = user.roles;
     if (!canReviewPreconvention(roles)) {
       return NextResponse.json(
-        { error: "Réservé à l'administratif / direction." },
+        {
+          error:
+            "Réservé à l'administratif, à la direction ou à l'admin de l'établissement.",
+          code: "STAGE_REVIEW_FORBIDDEN",
+        },
         { status: 403 },
       );
     }
@@ -59,7 +98,7 @@ export async function POST(req: Request) {
     const pdfBytes = new Uint8Array(await file.arrayBuffer());
 
     const result = await createAdminOfflineSignedConvention({
-      by: gate.ctx.userId,
+      by: user.businessUserId,
       byName: displayName(user),
       student: {
         firstName: str("studentFirstName"),
@@ -100,9 +139,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("[stages/conventions/offline]", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: storageErrorMessage(error) }, { status: 500 });
   }
 }
