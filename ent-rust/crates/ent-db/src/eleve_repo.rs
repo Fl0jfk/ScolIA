@@ -163,6 +163,57 @@ impl PgEleveRepo {
         Ok(rows.into_iter().map(EleveRow::into_eleve).collect())
     }
 
+    /// Effectif actif à une date donnée (entrées/sorties datées), sans jointure
+    /// de période : réponse au « combien d'élèves ? » du copilote.
+    pub async fn count_actifs_au(
+        &self,
+        etablissement_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<i64, DomainError> {
+        let (n,): (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM ent_eleve
+            WHERE etablissement_id = $1
+              AND (date_entree IS NULL OR date_entree <= $2)
+              AND (date_sortie IS NULL OR date_sortie > $2)
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(jour)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(n)
+    }
+
+    /// Liste des élèves actifs à une date (entrées/sorties datées) — base des
+    /// diffusions établissement → familles.
+    pub async fn list_actifs_au(
+        &self,
+        etablissement_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Vec<Eleve>, DomainError> {
+        let rows = sqlx::query_as::<_, EleveRow>(
+            r#"
+            SELECT id, etablissement_id, nom, prenom, ine, sexe, date_naissance, numero_badge,
+                   redoublant, photo_key, status, classe, regime, mef, site,
+                   date_entree, date_sortie, motif_sortie
+            FROM ent_eleve
+            WHERE etablissement_id = $1
+              AND (date_entree IS NULL OR date_entree <= $2)
+              AND (date_sortie IS NULL OR date_sortie > $2)
+            ORDER BY nom, prenom
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(jour)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(EleveRow::into_eleve).collect())
+    }
+
     pub async fn upsert(&self, eleve: &Eleve) -> Result<(), DomainError> {
         let result = sqlx::query(
             r#"
@@ -279,6 +330,5 @@ fn parse_status(s: &str) -> EleveStatus {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("eleve_repo", err)
 }

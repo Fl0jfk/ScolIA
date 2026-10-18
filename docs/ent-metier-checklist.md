@@ -58,6 +58,9 @@ Statut ScolIA : **déjà** = partiellement ou largement couvert dans le repo act
 | Sites / locaux (si multi-sites) | `TAB_SITE`, `VS_LOCALISATION` | P2 | déjà (UI `/app/etab` salles + site ; sorties multi-site EDT) |
 | Paramètres établissement | `VS_PARAMETRES_ETAB`, prefs `COM_*` | P1 | déjà (UI `/app/etab` params) |
 | Utilisateurs, rôles, profils | `ADM_PROFIL`, `CC_PROFIL_*`, `VS_PROFIL` | P0 | déjà (Better-Auth) |
+| Authentification forte (2FA) | écrans sécurité | P0 | déjà (Rust : **passkeys WebAuthn uniquement**, pas de TOTP — `ent_passkey_credential` + 2ᵉ facteur non contournable, connexion sans mot de passe, récupération Direction/Admin, UI `/app/securite`) |
+| SSO établissement (délégation d'identité) | fédération | P1 | déjà (Rust : **OIDC** par établissement — découverte validée à la configuration, PKCE S256 + state + nonce, `id_token` RS256 vérifié (JWKS), state à usage unique, rattachement par `sub`/e-mail, **aucun provisioning implicite**, UI bouton SSO + `/app/securite`) |
+| Supervision & sauvegardes (production) | exploitation | P0 | déjà (Rust : `/metrics` Prometheus derrière jeton, `/health` + `/ready` avec `migration_tag`, journaux JSON optionnels, **inventaire d'intégrité** qui détecte la dérive donc prouve une restauration, scripts `pg_dump`/restauration/exercice PRA gardés loopback — `docs/ent-rust-observabilite-pra.md`) |
 
 ### 3.2 Référentiels élèves & familles — P0
 
@@ -95,7 +98,7 @@ Statut ScolIA : **déjà** = partiellement ou largement couvert dans le repo act
 | Besoin métier | Réf. Charlemagne | Priorité | ScolIA |
 |---|---|---|---|
 | Appel de classe | `VS_APPEL`, `VS_APPEL_ELEVE` | P0 | déjà |
-| Absences / retards élèves | `VS_ABSENCE*`, motifs, prévenues | P0 | déjà |
+| Absences / retards élèves | `VS_ABSENCE*`, motifs, prévenues | P0 | déjà (retards = fait **canonique** `ent_retard`, persistant et distinct des absences : `POST/GET /eleves/{id}/retards`, compteur, vue famille) |
 | Absences / appels profs | `VS_ABSENCE_PROF`, `VS_APPEL_PROF` | P1 | déjà (`/rh/absences` + validation ; appels élève déjà) |
 | Sanctions / incidents | `VS_SANCTION*`, `VS_INCIDENT*` | P0 | déjà |
 | Dispenses | `VS_DISPENSES` | P1 | déjà (Rust : EPS/piscine/médical + couverture appel) |
@@ -133,7 +136,7 @@ Statut ScolIA : **déjà** = partiellement ou largement couvert dans le repo act
 | Notes élève | `NO_NOTE` | P0 | déjà |
 | Moyennes (élève / classe / rang) | `NO_MOY_*` | P0 | déjà |
 | Appréciations | `NO_APPRECIATION*` | P0 | déjà (saisie + période partielle_appreciations) |
-| Compétences / socle / livret | `NO_COMP*`, `NO_LIVRET*`, `LSU_*` | P1 | déjà (p3) |
+| Compétences / socle / livret | `NO_COMP*`, `NO_LIVRET*`, `LSU_*` | P1 | déjà (référentiel socle par établissement `ent_competence_item` + niveau de maîtrise saisi par `(élève, item, période)`, export LSU sur évaluations réelles, **livret PDF notifié**, écran `/app/competences` + section famille) |
 | LSL / LSUN / exports EN | `NO_LSL_*`, `NO_LSUN_*` | P1 | déjà (`/exports/lsl` + `/exports/lsun` CSV ; dépôt national hors scope) |
 | Mentions / grilles / simulation conseil | `NO_TABLE_MENTIONS`, `NO_GRILLE*`, `NO_SIMULATION` | P2 | déjà (Rust : mentions conseil) |
 | Parcoursup / APB / Notanet | `NO_APB_*`, `NO_NOTANET_*` | P2 | déjà (`/exports/notanet` + `/exports/parcoursup` CSV ; dépôt national hors scope) |
@@ -148,6 +151,7 @@ Statut ScolIA : **déjà** = partiellement ou largement couvert dans le repo act
 | Messagerie / messages prédéfinis | `COM_MESSAGES_*`, `COM_MODELS_MAIL` | P0 | déjà |
 | Historique mails | `COM_HISTORIQUE_MAILS` | P1 | déjà (`GET /mails` outbox staff) |
 | Documents famille (GED légère) | `COM_DOCUMENT`, pièces | P0 | déjà |
+| Annonces établissement (actualités diffusées) | `COM_*` (diffusion) | P1 | déjà (Rust : `ent_annonce` + diffusion mail/push familles ciblées + UI `/app/annonces`) |
 | Portail famille (absences, notes, carnet) | ÉcoleDirecte côté Aplim | P0 | `/famille` |
 | Notifications push / SMS | VS SMS, notifs | P1 | déjà (devices push + outbox SMS/mail) |
 
@@ -270,6 +274,8 @@ Les tables Charlemagne = **checklist de couverture**, pas schéma cible.
 - [x] Solveur EDT : consultation + greedy ; CP-SAT = hors scope
 - [x] Stages : **in** Rust (entreprises + conventions) ; CFA Charlemagne DROP
 - [x] Permis à points : **keep** (solde via commission)
+- [x] 2FA : **passkeys WebAuthn uniquement** — pas de TOTP ni d'application d'authentification (décision Florian)
+- [x] Observabilité / PRA : **in** — `/metrics` (Prometheus, jeton ou 404), journaux JSON, `migration_tag` sur `/health`, **inventaire d'intégrité** par établissement (preuve de fidélité d'une restauration, dérive détectée ligne à ligne), sauvegardes `pg_dump` gardées par loopback. Détail : `docs/ent-rust-observabilite-pra.md`
 
 ---
 

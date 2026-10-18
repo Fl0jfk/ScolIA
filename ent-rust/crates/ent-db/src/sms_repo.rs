@@ -188,6 +188,5 @@ fn status_str(s: SmsSendStatus) -> &'static str {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] sms sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("sms_repo", err)
 }

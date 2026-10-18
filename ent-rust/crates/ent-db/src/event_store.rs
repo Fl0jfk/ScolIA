@@ -149,6 +149,9 @@ fn aggregate_str(a: AggregateKind) -> &'static str {
         AggregateKind::Entreprise => "entreprise",
         AggregateKind::ConventionStage => "convention_stage",
         AggregateKind::EdtContrainte => "edt_contrainte",
+        AggregateKind::Annonce => "annonce",
+        AggregateKind::Retard => "retard",
+        AggregateKind::Competence => "competence",
     }
 }
 
@@ -207,6 +210,9 @@ fn parse_aggregate(s: &str) -> AggregateKind {
         "entreprise" => AggregateKind::Entreprise,
         "convention_stage" => AggregateKind::ConventionStage,
         "edt_contrainte" => AggregateKind::EdtContrainte,
+        "annonce" => AggregateKind::Annonce,
+        "retard" => AggregateKind::Retard,
+        "competence" => AggregateKind::Competence,
         _ => AggregateKind::Eleve,
     }
 }

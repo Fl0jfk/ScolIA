@@ -14,5 +14,11 @@ sha2 = "0.10"
 hex = "0.4"
 thiserror = { workspace = true }
 uuid = { workspace = true }
+webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
+url = "2"
+# WebAuthn (passkeys) tire openssl pour la vérification d'attestation : on force
+# la compilation *vendored* pour ne pas dépendre d'un OpenSSL système (CI/dev).
+openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
+serde_json = { workspace = true }

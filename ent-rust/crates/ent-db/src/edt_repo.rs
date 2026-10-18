@@ -475,6 +475,5 @@ impl ExceptionRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] edt sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("edt_repo", err)
 }

@@ -91,6 +91,5 @@ impl OptRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] option sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("option_repo", err)
 }

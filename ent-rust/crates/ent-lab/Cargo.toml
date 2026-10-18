@@ -15,5 +15,12 @@ chrono = { workspace = true }
 domain-eleve = { path = "../domain-eleve" }
 ent-auth = { path = "../ent-auth" }
 ent-db = { path = "../ent-db" }
+ent-oidc = { path = "../ent-oidc" }
+ent-obs = { path = "../ent-obs" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 uuid = { workspace = true }
+serde_json = { workspace = true }
+# Authentificateur logiciel : le labo pilote un **vrai** parcours WebAuthn
+# (passkey) de bout en bout. Labo uniquement — jamais dans l'image prod
+# (`cargo build -p ent-api`).
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }

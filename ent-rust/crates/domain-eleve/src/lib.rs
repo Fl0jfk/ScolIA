@@ -8,6 +8,7 @@
 //! Historique daté : [`periode`] — dates d'effet classe / régime / MEF / site.
 
 mod absence;
+mod annonce;
 mod carnet;
 mod continuum;
 mod document;
@@ -27,10 +28,12 @@ mod facturation_rappel;
 mod facturation_sepa;
 mod messagerie;
 mod cahier_texte;
+mod competence;
 mod notes;
 mod bulletin_pdf;
 mod periode;
 mod repas;
+mod retard;
 mod sanction;
 mod commission;
 mod sortie;
@@ -128,6 +131,11 @@ pub use edition_vs::{
 pub use lsun_export::{
     domaine_depuis_matiere, plan_exporter_lsun, render_lsun_csv, ExporterLsun, LigneLsun,
 };
+pub use competence::{
+    plan_creer_competence_item, plan_evaluer_competence, render_livret_competences_pdf,
+    CompetenceItem, CreerCompetenceItem, EvaluerCompetence, EvaluationCompetence,
+    LigneLivretCompetence, LivretCompetences, NiveauMaitrise,
+};
 pub use sortie::{
     a_cours_autre_site_apres, appliquer_regle_niveau_parent, appliquer_regle_regime_parent,
     evaluer_controle_sortie, evaluer_controle_sortie_avec_contexte, normalize_sortie_regime,
@@ -160,6 +168,10 @@ pub use doc_signer::{
     plan_annuler_doc_a_signer, plan_publier_doc_a_signer, plan_signer_doc_a_signer, DocASigner,
     DocSignerStatut, PublierDocASigner, SignerDocASigner,
 };
+pub use annonce::{
+    plan_creer_annonce, Annonce, AudienceAnnonce, CreerAnnonce,
+};
+pub use retard::{plan_declarer_retard, DeclarerRetard, Retard};
 pub use conseil_classe::{
     plan_ajouter_dossier_conseil, plan_creer_conseil_classe, plan_decider_dossier_conseil,
     plan_tenir_conseil, AjouterDossierConseil, ConseilClasse, ConseilClasseDossier,
@@ -458,6 +470,14 @@ pub enum DomainError {
     NoOpenPeriode,
     #[error("type de période incohérent")]
     PeriodeKindMismatch,
+    #[error("code matière déjà utilisé pour cet établissement")]
+    MatiereCodeDejaPris,
+    #[error("valeur déjà existante (conflit d'unicité)")]
+    Conflit,
+    #[error("référence inconnue (élément lié inexistant)")]
+    ReferenceInconnue,
+    #[error("valeur invalide (contrainte non respectée)")]
+    ValeurInvalide,
     #[error("somme des parts payeurs ≠ 100 % pour cet élève")]
     PartsPaiementInvalides,
     #[error("durée de grant invalide")]
@@ -692,6 +712,12 @@ pub enum DomainError {
     EdtContrainteInvalide,
     #[error("type ou motif VS inconnu pour cet établissement")]
     ReferentielVsInconnu,
+    #[error("annonce invalide")]
+    AnnonceInvalide,
+    #[error("retard invalide")]
+    RetardInvalide,
+    #[error("compétence invalide")]
+    CompetenceInvalide,
     #[error(transparent)]
     Event(#[from] EventBusError),
 }

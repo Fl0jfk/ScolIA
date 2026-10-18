@@ -17,6 +17,8 @@ ent-sms = { path = "../ent-sms" }
 ent-push = { path = "../ent-push" }
 ent-bank = { path = "../ent-bank" }
 ent-object = { path = "../ent-object" }
+ent-oidc = { path = "../ent-oidc" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio",
@@ -33,3 +35,4 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }

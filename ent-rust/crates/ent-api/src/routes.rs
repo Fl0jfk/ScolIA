@@ -1,10 +1,12 @@
 use crate::auth::EntSession;
 use crate::ical::{render_edt_calendar, EdtOccurrence};
 use crate::dto::{
-    AbsenceDto, AbsentDto, AppelDto, AppelLigneDto, CampagneDto, CarnetEntreeDto, ChangeClasseBody,
+    AbsenceDto, AbsentDto, AnnonceDto, AppelDto, AppelLigneDto, CampagneDto, CarnetEntreeDto, ChangeClasseBody,
     ChangeMefBody, ChangeRegimeBody, ChangeSiteBody, ChoisirOptionBody, CreateEleveBody,
-    CreateMatiereBody, UpdateMatiereBody, CreerCarnetBody,
+    CreateMatiereBody, UpdateMatiereBody, CreerAnnonceBody, CreerCarnetBody,
     CreerDevoirBody, CreerFactureBody, CreerNotePeriodeBody, DeclareAbsenceBody, DevoirDto,
+    DeclarerRetardBody, RetardDto,
+    CreerCompetenceItemBody, CompetenceItemDto, EvaluerCompetenceBody, EvaluationCompetenceDto,
     EcheanceDto, EcheancierPartsBody, EdtCreneauDto, EdtExceptionDto, EffectifDto, EleveDto,
     EncaissementDto,
     EncaisserBody, EnfantFamilleDto, FamilleResumeDto, FactureDetailDto, FactureDto,
@@ -75,8 +77,9 @@ use chrono::{NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
     annee_scolaire_de, annees_continuum, render_facture_pdf, render_quittance_pdf, reste_a_payer,
     today_utc, CarnetCategorie, ChangeClasse, ChangeMef, ChangeRegime, ChangeSite, ChoisirOptionN1,
-    ConfigurerAcompteCampagne, ConfirmerReinscription, CreateEleve, CreerCarnetEntree, CreerDevoir,
-    CreerFacture, CreerMandatSepa, CreerNotePeriode, DeclareAbsence, DocTiroir, EcheanceCmd,
+    ConfigurerAcompteCampagne, ConfirmerReinscription, CreateEleve, CreerAnnonce, CreerCarnetEntree,
+    CreerDevoir,
+    CreerFacture, CreerMandatSepa, CreerNotePeriode, DeclareAbsence, DeclarerRetard, DocTiroir, EcheanceCmd,
     SaisirAppreciation,
     EncaisserFacture, ExporterOgec, LigneFactureCmd, MonteeLot, MonteeRapide, MoyenPaiement,
     NotePeriodeStatut, OptionNature, OuvrirCampagneReinscription, OuvrirFil, PlanifierPrelevement,
@@ -105,6 +108,7 @@ use domain_eleve::{
     CreerTarifConso, ExporterNotanet, DeclarerAbsenceRh, AffecterEdtCreneau,
     CreerEditionVs, ExporterLsun, ExporterParcoursup, CreerConventionStage, CreerEntreprise,
     CreerEdtContrainte, EdtContrainteKind, UpdateIdentite,
+    CreerCompetenceItem, EvaluerCompetence,
 };
 use base64::Engine;
 use ent_db::{Appel, AppelLigne, CreateMatiere, LABO_PASSWORD, LigneEtat, SaisirNote};
@@ -115,6 +119,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(ui_page))
         .route("/login", get(ui_page))
+        .route("/mot-de-passe-oublie", get(ui_page))
+        .route("/reset-mot-de-passe", get(ui_page))
         .route("/app", get(ui_page))
         .route("/app/{*rest}", get(ui_page))
         .route("/famille", get(ui_page))
@@ -122,17 +128,51 @@ pub fn router() -> Router<AppState> {
         .route("/eleve", get(ui_page))
         .route("/eleve/{*rest}", get(ui_page))
         .route("/health", get(health))
+        .route("/ready", get(ready))
+        .route("/metrics", get(crate::obs::metrics_handler))
+        .route("/pra/inventaire", get(pra_inventaire))
+        .route("/pra/inventaire/verifier", post(pra_verifier_inventaire))
         .route("/labo/bootstrap", post(labo_bootstrap))
         .route("/auth/register", post(register))
         .route("/auth/login", post(login))
+        .route("/auth/passkey/register/start", post(passkey_register_start))
+        .route(
+            "/auth/passkey/register/finish",
+            post(passkey_register_finish),
+        )
+        .route("/auth/passkey/login/start", post(passkey_login_start))
+        .route("/auth/passkey/login/finish", post(passkey_login_finish))
+        .route("/auth/passkeys", get(list_passkeys))
+        .route("/auth/passkeys/{id}", delete(delete_passkey))
+        .route("/auth/users/{id}/passkeys", delete(reset_passkeys_admin))
+        .route("/auth/oidc/callback", get(ui_page))
+        .route("/auth/oidc/public", get(oidc_public_providers))
+        .route("/auth/oidc/providers", get(list_oidc_providers).put(upsert_oidc_provider))
+        .route(
+            "/auth/oidc/providers/{slug}",
+            delete(delete_oidc_provider),
+        )
+        .route("/auth/oidc/{slug}/start", post(oidc_start))
+        .route("/auth/oidc/complete", post(oidc_complete))
         .route("/auth/logout", post(logout))
+        .route("/auth/password", post(change_password))
+        .route("/auth/forgot-password", post(forgot_password))
+        .route("/auth/reset-password", post(reset_password))
         .route("/auth/me", get(me))
+        .route("/audit/journal", get(list_audit_journal))
+        .route("/copilote/ask", post(copilote_ask))
+        .route("/copilote/capacites", get(copilote_capacites))
         .route("/devices/push", post(register_push_device))
         .route("/eleves", post(create_eleve))
         .route("/eleves/search", get(search_eleves))
         .route("/eleves/labels", get(eleve_labels_batch))
         .route("/personnel/search", get(search_personnel))
         .route("/personnel/{id}", get(get_personnel))
+        .route("/etablissement/personnel", post(provisionner_personnel))
+        .route(
+            "/etablissement/personnel/{id}/reset-mot-de-passe",
+            post(reinitialiser_mot_de_passe),
+        )
         .route("/eleves/homonymes", post(rechercher_homonymes))
         .route("/eleves/sans-compte", get(list_eleves_sans_compte))
         .route(
@@ -333,6 +373,24 @@ pub fn router() -> Router<AppState> {
         .route("/docs-a-signer/{id}/signer", post(signer_doc_a_signer))
         .route("/docs-a-signer/{id}/annuler", post(annuler_doc_a_signer))
         .route("/vs/docs-a-signer", get(list_docs_a_signer_etab))
+        .route("/annonces", get(list_annonces).post(publier_annonce))
+        .route("/eleves/{id}/annonces", get(list_annonces_eleve))
+        .route(
+            "/eleves/{id}/retards",
+            get(list_retards_eleve).post(declarer_retard),
+        )
+        .route(
+            "/competences",
+            get(list_competences_items).post(creer_competence_item),
+        )
+        .route(
+            "/eleves/{id}/competences",
+            get(list_competences_eleve).post(evaluer_competence),
+        )
+        .route(
+            "/eleves/{id}/livret-competences",
+            post(publier_livret_competences),
+        )
         .route(
             "/conseils-classe",
             get(list_conseils_classe).post(creer_conseil_classe),
@@ -691,6 +749,12 @@ struct PersonnelDto {
 async fn labo_bootstrap(
     State(state): State<AppState>,
 ) -> Result<Json<LaboBootstrapDto>, (StatusCode, String)> {
+    if !labo_open() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "labo désactivé sur cet environnement".into(),
+        ));
+    }
     let cast = state
         .ent
         .seed_labo_cast()
@@ -914,6 +978,81 @@ async fn search_personnel(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(rows.into_iter().map(personnel_dto).collect()))
+}
+
+#[derive(Debug, Deserialize)]
+struct ProvisionnerPersonnelBody {
+    email: String,
+    role: String,
+    display_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PersonnelProvisionneDto {
+    user_id: Uuid,
+    email: String,
+    role: String,
+    mot_de_passe_temporaire: String,
+}
+
+/// Provisionne un compte personnel (staff) dans l'établissement de la session.
+/// Réservé à Direction / Admin (Admin seul peut créer Admin / Direction).
+async fn provisionner_personnel(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<ProvisionnerPersonnelBody>,
+) -> Result<(StatusCode, Json<PersonnelProvisionneDto>), (StatusCode, String)> {
+    let p = state
+        .ent
+        .provisionner_personnel_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            ent_db::ProvisionnerPersonnel {
+                email: body.email,
+                display_name: body.display_name,
+                role: body.role,
+            },
+        )
+        .await
+        .map_err(map_auth)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(PersonnelProvisionneDto {
+            user_id: p.user_id,
+            email: p.email,
+            role: p.role,
+            mot_de_passe_temporaire: p.mot_de_passe_temporaire,
+        }),
+    ))
+}
+
+#[derive(Debug, Serialize)]
+struct MotDePasseReinitialiseDto {
+    user_id: Uuid,
+    mot_de_passe_temporaire: String,
+}
+
+/// Réinitialise le mot de passe d'un membre du personnel (Direction / Admin).
+async fn reinitialiser_mot_de_passe(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<MotDePasseReinitialiseDto>, (StatusCode, String)> {
+    let mdp = state
+        .ent
+        .reinitialiser_mot_de_passe_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(MotDePasseReinitialiseDto {
+        user_id: id,
+        mot_de_passe_temporaire: mdp,
+    }))
 }
 
 async fn get_personnel(
@@ -1376,7 +1515,77 @@ async fn enrich_appel(
 }
 
 async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "ok": true, "service": "ent-api" }))
+    Json(serde_json::json!({
+        "ok": true,
+        "service": "ent-api",
+        "version": crate::VERSION,
+        "git_sha": crate::GIT_SHA,
+        "migration_tag": ent_db::MIGRATION_TAG,
+    }))
+}
+
+/// Readiness : vérifie que la base répond (sinon 503 → le conteneur n'est pas prêt).
+async fn ready(State(state): State<AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    state.ent.ping().await.map_err(|e| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("base indisponible: {e}"),
+        )
+    })?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "service": "ent-api",
+        "db": "up",
+        "version": crate::VERSION,
+        "git_sha": crate::GIT_SHA,
+        "migration_tag": ent_db::MIGRATION_TAG,
+    })))
+}
+
+/// Inventaire d'intégrité de **l'établissement de la session** (Direction /
+/// Admin) — référence avant sauvegarde. Aucun compteur ne sort du tenant.
+async fn pra_inventaire(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<ent_db::Inventaire>, (StatusCode, String)> {
+    session.require_sauvegarde()?;
+    let inventaire = state
+        .ent
+        .inventaire_etablissement_pour_acteur(session.etablissement_id, &session.role)
+        .await
+        .map_err(map_pra)?;
+    Ok(Json(inventaire))
+}
+
+/// Vérifie qu'une base (typiquement **restaurée**) recalcule exactement
+/// l'inventaire fourni. Refuse un inventaire d'un autre établissement.
+async fn pra_verifier_inventaire(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(attendu): Json<ent_db::Inventaire>,
+) -> Result<Json<ent_db::RapportIntegrite>, (StatusCode, String)> {
+    session.require_sauvegarde()?;
+    let rapport = state
+        .ent
+        .verifier_inventaire_etablissement_pour_acteur(
+            session.etablissement_id,
+            &session.role,
+            &attendu,
+        )
+        .await
+        .map_err(map_pra)?;
+    Ok(Json(rapport))
+}
+
+/// Erreurs PRA / inventaire → statut HTTP explicite.
+fn map_pra(err: ent_db::EntDbError) -> (StatusCode, String) {
+    match &err {
+        ent_db::EntDbError::Forbidden | ent_db::EntDbError::InventairePorteeEtrangere => {
+            (StatusCode::FORBIDDEN, err.to_string())
+        }
+        ent_db::EntDbError::Sqlx(_) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+        _ => (StatusCode::BAD_REQUEST, err.to_string()),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1419,12 +1628,155 @@ pub struct MeDto {
     /// Présent si le compte est une face élève liée.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub eleve_id: Option<Uuid>,
+    /// Nombre de passkeys enrôlées : > 0 ⇒ le 2ᵉ facteur est actif.
+    pub passkey_count: i64,
+}
+
+/// Réponse de connexion : soit une session (champs à plat), soit l'exigence
+/// d'un 2ᵉ facteur passkey (`mfa_required: true` + challenge).
+#[derive(Debug, Serialize)]
+pub struct LoginResponseDto {
+    pub mfa_required: bool,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub session: Option<AuthSessionDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passkey: Option<PasskeyChallengeDto>,
+}
+
+/// Challenge passkey renvoyé au navigateur (options WebAuthn + token opaque).
+#[derive(Debug, Serialize)]
+pub struct PasskeyChallengeDto {
+    pub token: String,
+    pub options: serde_json::Value,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Challenge d'enrôlement (pas d'expiration exposée : parcours immédiat).
+#[derive(Debug, Serialize)]
+pub struct PasskeyRegisterStartDto {
+    pub token: String,
+    pub options: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PasskeyRegisterFinishBody {
+    pub token: String,
+    pub credential: serde_json::Value,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PasskeyLoginStartBody {
+    pub email: String,
+    pub etablissement_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PasskeyLoginFinishBody {
+    pub token: String,
+    pub credential: serde_json::Value,
+}
+
+/// Passkey d'un compte, vue « gestion » (jamais la clé publique).
+#[derive(Debug, Serialize)]
+pub struct PasskeyDto {
+    pub id: Uuid,
+    pub name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl From<ent_db::PasskeyRow> for PasskeyDto {
+    fn from(row: ent_db::PasskeyRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            created_at: row.created_at,
+            last_used_at: row.last_used_at,
+        }
+    }
+}
+
+/// Fournisseur SSO tel qu'exposé à la page de connexion (aucune donnée
+/// sensible : ni client_id, ni issuer, ni secret).
+#[derive(Debug, Serialize)]
+pub struct OidcPublicProviderDto {
+    pub slug: String,
+    pub libelle: String,
+}
+
+/// Fournisseur SSO en vue gestion (staff) : jamais le `client_secret`.
+#[derive(Debug, Serialize)]
+pub struct OidcProviderDto {
+    pub slug: String,
+    pub libelle: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub scopes: String,
+    pub redirect_uri: String,
+    pub actif: bool,
+}
+
+impl From<ent_db::OidcProviderRow> for OidcProviderDto {
+    fn from(row: ent_db::OidcProviderRow) -> Self {
+        Self {
+            slug: row.slug,
+            libelle: row.libelle,
+            issuer: row.issuer,
+            client_id: row.client_id,
+            scopes: row.scopes,
+            redirect_uri: row.redirect_uri,
+            actif: row.actif,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OidcEtabQuery {
+    pub etablissement_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OidcStartBody {
+    pub etablissement_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OidcStartDto {
+    /// URL d'autorisation de l'IdP : le navigateur y est redirigé.
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OidcCompleteBody {
+    pub code: String,
+    pub state: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OidcUpsertBody {
+    pub slug: String,
+    pub libelle: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: String,
+    #[serde(default)]
+    pub scopes: Option<String>,
+    #[serde(default)]
+    pub redirect_uri: Option<String>,
 }
 
 async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
+    if !registration_open() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "inscription fermée sur cet environnement".into(),
+        ));
+    }
     let user = state
         .ent
         .register_user(
@@ -1446,15 +1798,195 @@ async fn register(
     ))
 }
 
+/// IP cliente de confiance pour la garde par IP.
+///
+/// **Uniquement** si `ENT_TRUST_PROXY=1` : sans proxy de confiance, un client
+/// pourrait falsifier `x-forwarded-for` et contourner le verrou par IP. Hôte
+/// absent / trop long → `None` (la garde par compte reste active).
+fn client_ip(headers: &HeaderMap) -> Option<String> {
+    let trust = std::env::var("ENT_TRUST_PROXY")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false);
+    if !trust {
+        return None;
+    }
+    let valeur = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })?;
+    // Longueur bornée (IPv6 max 45) : évite d'injecter une clé arbitraire.
+    if valeur.len() > 45 {
+        return None;
+    }
+    Some(valeur)
+}
+
 async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<LoginBody>,
-) -> Result<Json<AuthSessionDto>, (StatusCode, String)> {
-    let session = state
+) -> Result<Json<LoginResponseDto>, (StatusCode, String)> {
+    let ip = client_ip(&headers);
+    let outcome = state
         .ent
-        .login(&body.email, &body.password, body.etablissement_id)
+        .login_start_with_ip(
+            &body.email,
+            &body.password,
+            body.etablissement_id,
+            ip.as_deref(),
+        )
         .await
         .map_err(map_auth)?;
+    Ok(Json(login_response(outcome)))
+}
+
+/// Traduit l'issue de connexion en réponse HTTP (session à plat ou 2FA).
+fn login_response(outcome: ent_db::LoginOutcome) -> LoginResponseDto {
+    match outcome {
+        ent_db::LoginOutcome::Session(s) => LoginResponseDto {
+            mfa_required: false,
+            session: Some(AuthSessionDto {
+                token: s.token,
+                user_id: s.user_id,
+                email: s.email,
+                etablissement_id: s.etablissement_id,
+                role: s.role,
+                expires_at: s.expires_at,
+            }),
+            passkey: None,
+        },
+        ent_db::LoginOutcome::PasskeyRequired {
+            token,
+            options,
+            expires_at,
+        } => LoginResponseDto {
+            mfa_required: true,
+            session: None,
+            passkey: Some(PasskeyChallengeDto {
+                token,
+                options,
+                expires_at,
+            }),
+        },
+    }
+}
+
+/// Enrôlement passkey — étape 1 (options). Requiert une session : on n'enrôle
+/// une passkey que pour un compte authentifié.
+async fn passkey_register_start(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<PasskeyRegisterStartDto>, (StatusCode, String)> {
+    let (token, options) = state
+        .ent
+        .passkey_register_start_for_actor(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_passkey)?;
+    Ok(Json(PasskeyRegisterStartDto { token, options }))
+}
+
+/// Enrôlement passkey — étape 2 (vérification + persistance).
+async fn passkey_register_finish(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<PasskeyRegisterFinishBody>,
+) -> Result<(StatusCode, Json<PasskeyDto>), (StatusCode, String)> {
+    let credential: ent_auth::RegisterPublicKeyCredential =
+        serde_json::from_value(body.credential)
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("credential invalide: {e}")))?;
+    let row = state
+        .ent
+        .passkey_register_finish_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &body.token,
+            &credential,
+            body.name.clone(),
+        )
+        .await
+        .map_err(map_passkey)?;
+    Ok((StatusCode::CREATED, Json(row.into())))
+}
+
+/// Passkeys du compte connecté.
+async fn list_passkeys(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<Vec<PasskeyDto>>, (StatusCode, String)> {
+    let rows = state
+        .ent
+        .list_passkeys_for_actor(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_passkey)?;
+    Ok(Json(rows.into_iter().map(PasskeyDto::from).collect()))
+}
+
+/// Supprime une passkey du compte connecté.
+async fn delete_passkey(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let removed = state
+        .ent
+        .delete_passkey_for_actor(session.etablissement_id, session.user_id, id)
+        .await
+        .map_err(map_passkey)?;
+    if removed {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "passkey introuvable".into()))
+    }
+}
+
+/// Connexion sans mot de passe — étape 1 (options pour l'e-mail donné).
+/// Réponse générique quand le compte n'a pas de passkey : pas d'énumération.
+async fn passkey_login_start(
+    State(state): State<AppState>,
+    Json(body): Json<PasskeyLoginStartBody>,
+) -> Result<Json<PasskeyChallengeDto>, (StatusCode, String)> {
+    match state
+        .ent
+        .passkey_login_start(body.etablissement_id, &body.email)
+        .await
+        .map_err(map_passkey)?
+    {
+        Some((token, options, expires_at)) => Ok(Json(PasskeyChallengeDto {
+            token,
+            options,
+            expires_at,
+        })),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            "aucune passkey pour ce compte".into(),
+        )),
+    }
+}
+
+/// Connexion par passkey — étape 2 (vérification de l'assertion → session).
+/// Couvre le 2ᵉ facteur (après mot de passe) et le parcours sans mot de passe.
+async fn passkey_login_finish(
+    State(state): State<AppState>,
+    Json(body): Json<PasskeyLoginFinishBody>,
+) -> Result<Json<AuthSessionDto>, (StatusCode, String)> {
+    let credential: ent_auth::PublicKeyCredential = serde_json::from_value(body.credential)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("credential invalide: {e}")))?;
+    let session = state
+        .ent
+        .passkey_login_finish(&body.token, &credential)
+        .await
+        .map_err(map_passkey)?;
     Ok(Json(AuthSessionDto {
         token: session.token,
         user_id: session.user_id,
@@ -1463,6 +1995,127 @@ async fn login(
         role: session.role,
         expires_at: session.expires_at,
     }))
+}
+
+/// Récupération : Direction / Admin retire les passkeys d'un membre (perte
+/// d'appareil). L'utilisateur retombe sur mot de passe puis réenrôle.
+async fn reset_passkeys_admin(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let removed = state
+        .ent
+        .reset_passkeys_admin_for_actor(session.etablissement_id, &session.role, user_id)
+        .await
+        .map_err(map_passkey)?;
+    Ok(Json(serde_json::json!({ "removed": removed })))
+}
+
+/// Fournisseurs SSO visibles sur la page de connexion (public : slug + libellé).
+async fn oidc_public_providers(
+    State(state): State<AppState>,
+    Query(q): Query<OidcEtabQuery>,
+) -> Result<Json<Vec<OidcPublicProviderDto>>, (StatusCode, String)> {
+    let rows = state
+        .ent
+        .list_oidc_providers_public(q.etablissement_id)
+        .await
+        .map_err(map_oidc)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|p| OidcPublicProviderDto {
+                slug: p.slug,
+                libelle: p.libelle,
+            })
+            .collect(),
+    ))
+}
+
+/// Fournisseurs SSO de l'établissement de la session (staff — sans secret).
+async fn list_oidc_providers(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<Vec<OidcProviderDto>>, (StatusCode, String)> {
+    let rows = state
+        .ent
+        .list_oidc_providers_for_actor(session.etablissement_id, &session.role)
+        .await
+        .map_err(map_oidc)?;
+    Ok(Json(rows.into_iter().map(OidcProviderDto::from).collect()))
+}
+
+/// Déclare / met à jour un fournisseur SSO (Direction / Admin). La
+/// configuration est validée par découverte réelle de l'IdP.
+async fn upsert_oidc_provider(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<OidcUpsertBody>,
+) -> Result<Json<OidcProviderDto>, (StatusCode, String)> {
+    let row = state
+        .ent
+        .upsert_oidc_provider_for_actor(
+            session.etablissement_id,
+            &session.role,
+            ent_db::OidcProviderParams {
+                slug: body.slug,
+                libelle: body.libelle,
+                issuer: body.issuer,
+                client_id: body.client_id,
+                client_secret: body.client_secret,
+                scopes: body.scopes,
+                redirect_uri: body.redirect_uri,
+            },
+        )
+        .await
+        .map_err(map_oidc)?;
+    Ok(Json(row.into()))
+}
+
+async fn delete_oidc_provider(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(slug): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let removed = state
+        .ent
+        .delete_oidc_provider_for_actor(session.etablissement_id, &session.role, &slug)
+        .await
+        .map_err(map_oidc)?;
+    if removed {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "fournisseur SSO introuvable".into()))
+    }
+}
+
+/// Démarre le parcours SSO : renvoie l'URL d'autorisation à ouvrir.
+async fn oidc_start(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Json(body): Json<OidcStartBody>,
+) -> Result<Json<OidcStartDto>, (StatusCode, String)> {
+    let url = state
+        .ent
+        .oidc_start(body.etablissement_id, &slug)
+        .await
+        .map_err(map_oidc)?;
+    Ok(Json(OidcStartDto { url }))
+}
+
+/// Retour de l'IdP : vérifie l'`id_token`, rattache au compte local et ouvre
+/// la session (même contrat de réponse que la connexion mot de passe — un
+/// 2ᵉ facteur passkey enrôlé reste exigé).
+async fn oidc_complete(
+    State(state): State<AppState>,
+    Json(body): Json<OidcCompleteBody>,
+) -> Result<Json<LoginResponseDto>, (StatusCode, String)> {
+    let outcome = state
+        .ent
+        .oidc_complete(&body.code, &body.state)
+        .await
+        .map_err(map_oidc)?;
+    Ok(Json(login_response(outcome)))
 }
 
 async fn logout(
@@ -1474,6 +2127,82 @@ async fn logout(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, "authorization manquante".into()))?;
     state.ent.logout(header).await.map_err(map_auth)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct ChangePasswordBody {
+    current_password: String,
+    new_password: String,
+}
+
+/// Change le mot de passe de l'utilisateur connecté (révoque ses autres sessions).
+async fn change_password(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<ChangePasswordBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .ent
+        .change_password(
+            session.etablissement_id,
+            session.user_id,
+            session.session_id,
+            &body.current_password,
+            &body.new_password,
+        )
+        .await
+        .map_err(map_auth)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct ForgotPasswordBody {
+    email: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResetPasswordBody {
+    token: String,
+    new_password: String,
+}
+
+/// Demande de réinitialisation de mot de passe (public).
+/// Réponse **toujours 202** : on ne révèle jamais si l'e-mail existe.
+async fn forgot_password(
+    State(state): State<AppState>,
+    Json(body): Json<ForgotPasswordBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if body.email.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "e-mail vide".into()));
+    }
+    let base = std::env::var("ENT_PUBLIC_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:8088".into());
+    // Best-effort : une erreur interne ne doit pas distinguer les cas.
+    if let Err(e) = state
+        .ent
+        .demander_reinitialisation_mot_de_passe(&body.email, &base)
+        .await
+    {
+        tracing::warn!("forgot-password: {e}");
+    }
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Applique une réinitialisation par jeton (public).
+/// Change le mot de passe et révoque toutes les sessions de l'utilisateur.
+async fn reset_password(
+    State(state): State<AppState>,
+    Json(body): Json<ResetPasswordBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if body.token.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "jeton manquant".into()));
+    }
+    state
+        .ent
+        .reinitialiser_mot_de_passe_par_token(&body.token, &body.new_password)
+        .await
+        .map_err(map_auth)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1523,12 +2252,18 @@ async fn me(
     } else {
         None
     };
+    let passkey_count = state
+        .ent
+        .count_passkeys_for_user(session.user_id)
+        .await
+        .map_err(map_db)?;
     Ok(Json(MeDto {
         user_id: session.user_id,
         email: session.email,
         etablissement_id: session.etablissement_id,
         role: session.role,
         eleve_id,
+        passkey_count,
     }))
 }
 
@@ -2877,6 +3612,89 @@ async fn list_journal_eleve(
     Ok(Json(list.iter().map(JournalEntreeDto::from).collect()))
 }
 
+#[derive(Debug, Deserialize)]
+struct AuditJournalQuery {
+    domaine: Option<String>,
+    limit: Option<i64>,
+}
+
+/// Journal d'audit par domaine (défaut `auth`) — staff habilité.
+async fn list_audit_journal(
+    State(state): State<AppState>,
+    session: EntSession,
+    Query(q): Query<AuditJournalQuery>,
+) -> Result<Json<Vec<JournalEntreeDto>>, (StatusCode, String)> {
+    session.require_manage_eleves()?;
+    let domaine = q.domaine.unwrap_or_else(|| "auth".into());
+    let list = state
+        .ent
+        .list_journal_domaine_for_actor(
+            session.etablissement_id,
+            &session.role,
+            &domaine,
+            q.limit.unwrap_or(100),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(list.iter().map(JournalEntreeDto::from).collect()))
+}
+
+#[derive(Debug, Deserialize)]
+struct CopiloteAskBody {
+    question: String,
+}
+
+/// Copilote ENT — question en langage naturel, réponse lecture seule.
+/// Réservé au personnel (chaque intention revérifie la capacité du rôle).
+async fn copilote_ask(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<CopiloteAskBody>,
+) -> Result<Json<ent_db::ReponseCopilote>, (StatusCode, String)> {
+    if !session
+        .role_parsed()
+        .map(|r| r.is_staff())
+        .unwrap_or(false)
+    {
+        return Err((StatusCode::FORBIDDEN, "réservé au personnel".into()));
+    }
+    let question = body.question.trim();
+    if question.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "question vide".into()));
+    }
+    if question.chars().count() > 300 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "question trop longue (300 caractères max)".into(),
+        ));
+    }
+    let reponse = state
+        .ent
+        .copilote_repondre(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            question,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(reponse))
+}
+
+/// Questions supportées par le copilote (aide / autocomplétion UI).
+async fn copilote_capacites(
+    session: EntSession,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !session
+        .role_parsed()
+        .map(|r| r.is_staff())
+        .unwrap_or(false)
+    {
+        return Err((StatusCode::FORBIDDEN, "réservé au personnel".into()));
+    }
+    Ok(Json(serde_json::json!({ "capacites": ent_db::CAPACITES })))
+}
+
 async fn list_alertes_cpe_eleve(
     State(state): State<AppState>,
     session: EntSession,
@@ -3060,6 +3878,251 @@ async fn list_docs_a_signer_etab(
             list.iter().map(DocASignerDto::from).collect(),
         )
         .await?,
+    ))
+}
+
+async fn publier_annonce(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<CreerAnnonceBody>,
+) -> Result<(StatusCode, Json<AnnonceDto>), (StatusCode, String)> {
+    let a = state
+        .ent
+        .publier_annonce_for_actor(
+            &session.role,
+            CreerAnnonce {
+                etablissement_id: session.etablissement_id,
+                titre: body.titre,
+                corps: body.corps,
+                audience: body.audience,
+                cible_classe: body.cible_classe,
+                actor_user_id: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(AnnonceDto::from(&a))))
+}
+
+async fn list_annonces(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<Vec<AnnonceDto>>, (StatusCode, String)> {
+    let list = state
+        .ent
+        .list_annonces_for_actor(session.etablissement_id, &session.role, 100)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(list.iter().map(AnnonceDto::from).collect()))
+}
+
+async fn list_annonces_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<AnnonceDto>>, (StatusCode, String)> {
+    let list = state
+        .ent
+        .list_annonces_famille_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(list.iter().map(AnnonceDto::from).collect()))
+}
+
+async fn declarer_retard(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<DeclarerRetardBody>,
+) -> Result<(StatusCode, Json<RetardDto>), (StatusCode, String)> {
+    let r = state
+        .ent
+        .declarer_retard_for_actor(
+            &session.role,
+            DeclarerRetard {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                jour: body.jour,
+                minutes: body.minutes,
+                motif: body.motif,
+                source_appel_id: None,
+                actor_user_id: Some(session.user_id),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(RetardDto::from(&r))))
+}
+
+async fn list_retards_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<RetardDto>>, (StatusCode, String)> {
+    let list = state
+        .ent
+        .list_retards_eleve_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            200,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(list.iter().map(RetardDto::from).collect()))
+}
+
+#[derive(Debug, Deserialize)]
+struct CompetencePeriodeQuery {
+    periode_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InclureInactifsQuery {
+    inclure_inactifs: Option<bool>,
+}
+
+async fn list_competences_items(
+    State(state): State<AppState>,
+    session: EntSession,
+    Query(q): Query<InclureInactifsQuery>,
+) -> Result<Json<Vec<CompetenceItemDto>>, (StatusCode, String)> {
+    let list = state
+        .ent
+        .list_competences_items_for_actor(
+            &session.role,
+            session.etablissement_id,
+            q.inclure_inactifs.unwrap_or(false),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(list.iter().map(CompetenceItemDto::from).collect()))
+}
+
+async fn creer_competence_item(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<CreerCompetenceItemBody>,
+) -> Result<(StatusCode, Json<CompetenceItemDto>), (StatusCode, String)> {
+    let item = state
+        .ent
+        .creer_competence_item_for_actor(
+            &session.role,
+            CreerCompetenceItem {
+                etablissement_id: session.etablissement_id,
+                domaine: body.domaine,
+                code: body.code,
+                libelle: body.libelle,
+                ordre: body.ordre,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(CompetenceItemDto::from(&item))))
+}
+
+async fn list_competences_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<CompetencePeriodeQuery>,
+) -> Result<Json<Vec<EvaluationCompetenceDto>>, (StatusCode, String)> {
+    let list = state
+        .ent
+        .list_evaluations_eleve_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            q.periode_id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        list.iter().map(EvaluationCompetenceDto::from).collect(),
+    ))
+}
+
+async fn evaluer_competence(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<EvaluerCompetenceBody>,
+) -> Result<(StatusCode, Json<EvaluationCompetenceDto>), (StatusCode, String)> {
+    session.require_saisir_notes()?;
+    let planned = state
+        .ent
+        .evaluer_competence_for_actor(
+            &session.role,
+            EvaluerCompetence {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                item_id: body.item_id,
+                periode_id: body.periode_id,
+                niveau: body.niveau,
+                commentaire: body.commentaire,
+                actor_user_id: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    // Relit la ligne enrichie (libellé / domaine) pour la réponse famille/staff.
+    let lue = state
+        .ent
+        .list_evaluations_eleve_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            Some(planned.periode_id),
+        )
+        .await
+        .map_err(map_db)?
+        .into_iter()
+        .find(|e| e.item_id == planned.item_id)
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "évaluation non relue".to_string()))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(EvaluationCompetenceDto::from(&lue)),
+    ))
+}
+
+async fn publier_livret_competences(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<PublierBulletinBody>,
+) -> Result<(StatusCode, Json<DocumentMetaDto>), (StatusCode, String)> {
+    let doc = state
+        .ent
+        .publier_livret_competences_for_actor(
+            &session.role,
+            session.etablissement_id,
+            id,
+            body.periode_id,
+            session.user_id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(DocumentMetaDto {
+            id: doc.id,
+            eleve_id: doc.eleve_id,
+            titre: doc.titre,
+            tiroir: doc.tiroir.as_str().to_string(),
+            confidentialite: doc.confidentialite.as_str().to_string(),
+            source: doc.source,
+            code: doc.code,
+            accessible: true,
+            grant_etat: None,
+        }),
     ))
 }
 
@@ -7608,13 +8671,79 @@ async fn signer_carnet(
     Ok(Json(enriched.remove(0)))
 }
 
+/// Porte logique pure : ouverte sauf en prod, sauf dérogation explicite.
+fn gate_open(env: Option<&str>, allow: Option<&str>) -> bool {
+    let prod = matches!(
+        env.map(|e| e.trim().to_ascii_lowercase()),
+        Some(ref v) if v == "prod" || v == "production"
+    );
+    !prod || allow == Some("1")
+}
+
+/// Inscription libre : fermée en prod sauf `ENT_ALLOW_REGISTRATION=1`.
+fn registration_open() -> bool {
+    gate_open(
+        std::env::var("ENT_ENV").ok().as_deref(),
+        std::env::var("ENT_ALLOW_REGISTRATION").ok().as_deref(),
+    )
+}
+
+/// Seed de démo / labo : fermé en prod sauf `ENT_ALLOW_LABO=1`.
+fn labo_open() -> bool {
+    gate_open(
+        std::env::var("ENT_ENV").ok().as_deref(),
+        std::env::var("ENT_ALLOW_LABO").ok().as_deref(),
+    )
+}
+
+/// Mapping dédié au SSO : une identité inconnue ou un `state` rejoué sont des
+/// refus d'authentification (401), une configuration invalide est un 400, un
+/// IdP injoignable un 502.
+fn map_oidc(err: ent_db::EntDbError) -> (StatusCode, String) {
+    match &err {
+        ent_db::EntDbError::OidcCompteInconnu | ent_db::EntDbError::OidcStateInvalide => {
+            (StatusCode::UNAUTHORIZED, err.to_string())
+        }
+        ent_db::EntDbError::OidcProviderInconnu => (StatusCode::NOT_FOUND, err.to_string()),
+        ent_db::EntDbError::Forbidden => (StatusCode::FORBIDDEN, err.to_string()),
+        ent_db::EntDbError::Oidc(ent_db::OidcError::Network(_)) => {
+            (StatusCode::BAD_GATEWAY, err.to_string())
+        }
+        ent_db::EntDbError::Oidc(ent_db::OidcError::Http { status }) => {
+            (StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY), err.to_string())
+        }
+        _ => (StatusCode::BAD_REQUEST, err.to_string()),
+    }
+}
+
+/// Mapping dédié aux parcours passkey : une assertion refusée est un 401 (et
+/// non un 403) ; une config WebAuthn absente est un 503 (fail closed explicite).
+fn map_passkey(err: ent_db::EntDbError) -> (StatusCode, String) {
+    let msg = err.to_string();
+    if msg.contains("accès refusé") || msg.contains("Forbidden") {
+        (StatusCode::FORBIDDEN, msg)
+    } else if msg.contains("configuration WebAuthn") {
+        (StatusCode::SERVICE_UNAVAILABLE, msg)
+    } else if msg.contains("authentification par passkey refusée")
+        || msg.contains("vérification utilisateur absente")
+    {
+        (StatusCode::UNAUTHORIZED, msg)
+    } else {
+        (StatusCode::BAD_REQUEST, msg)
+    }
+}
+
 fn map_auth(err: ent_db::EntDbError) -> (StatusCode, String) {
     let msg = err.to_string();
-    if msg.contains("déjà") {
+    if msg.contains("trop de tentatives") {
+        (StatusCode::TOO_MANY_REQUESTS, msg)
+    } else if msg.contains("déjà") {
         (StatusCode::CONFLICT, msg)
     } else if msg.contains("trop court") || msg.contains("e-mail vide") {
         (StatusCode::BAD_REQUEST, msg)
-    } else if msg.contains("membre") {
+    } else if msg.contains("réinitialisation") {
+        (StatusCode::BAD_REQUEST, msg)
+    } else if msg.contains("membre") || msg.contains("refusé") {
         (StatusCode::FORBIDDEN, msg)
     } else {
         (StatusCode::UNAUTHORIZED, msg)
@@ -9314,6 +10443,14 @@ fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         (StatusCode::FORBIDDEN, msg)
     } else if msg.contains("introuvable") || msg.contains("NotFound") {
         (StatusCode::NOT_FOUND, msg)
+    } else if msg.contains("déjà utilisé")
+        || msg.contains("déjà existant")
+        || msg.contains("déjà existante")
+        || msg.contains("déjà prise")
+        || msg.contains("déjà pris")
+        || msg.contains("en conflit")
+    {
+        (StatusCode::CONFLICT, msg)
     } else if msg.contains("parts payeurs")
         || msg.contains("Identity")
         || msg.contains("motif")
@@ -9321,6 +10458,7 @@ fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         || msg.contains("bulletin")
         || msg.contains("date d'effet")
         || msg.contains("valeur")
+        || msg.contains("référence inconnue")
         || msg.contains("attribut")
         || msg.contains("matière")
         || msg.contains("note")
@@ -9374,6 +10512,10 @@ fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         || msg.contains("document")
         || msg.contains("conseil")
         || msg.contains("mention")
+        || msg.contains("annonce")
+        || msg.contains("retard")
+        || msg.contains("compétence")
+        || msg.contains("competence")
     {
         (StatusCode::BAD_REQUEST, msg)
     } else {
@@ -9723,4 +10865,63 @@ async fn volume_repas_facturable(
         fin: q.fin,
         jours_facturables: n,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gate_open;
+
+    #[test]
+    fn gate_defaults_open_hors_prod() {
+        assert!(gate_open(None, None));
+        assert!(gate_open(Some("dev"), None));
+        assert!(gate_open(Some("Labo"), None));
+    }
+
+    #[test]
+    fn gate_ferme_en_prod_sauf_derogation() {
+        assert!(!gate_open(Some("prod"), None));
+        assert!(!gate_open(Some("PRODUCTION"), Some("0")));
+        assert!(gate_open(Some("prod"), Some("1")));
+    }
+}
+
+#[cfg(test)]
+mod client_ip_tests {
+    use axum::http::{HeaderMap, HeaderName};
+    use std::str::FromStr;
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut m = HeaderMap::new();
+        for (k, v) in pairs {
+            m.insert(HeaderName::from_str(k).unwrap(), v.parse().unwrap());
+        }
+        m
+    }
+
+    #[test]
+    fn extraction_ip_cliente_selon_confiance_proxy() {
+        std::env::remove_var("ENT_TRUST_PROXY");
+        // Sans proxy de confiance : jamais d'IP (anti-falsification XFF).
+        assert_eq!(super::client_ip(&headers(&[("x-forwarded-for", "1.2.3.4")])), None);
+
+        std::env::set_var("ENT_TRUST_PROXY", "1");
+        // XFF : premier hop (le client), espaces ignorés.
+        assert_eq!(
+            super::client_ip(&headers(&[("x-forwarded-for", "1.2.3.4, 10.0.0.1")])),
+            Some("1.2.3.4".to_string())
+        );
+        // Repli sur x-real-ip.
+        assert_eq!(
+            super::client_ip(&headers(&[("x-real-ip", "5.6.7.8")])),
+            Some("5.6.7.8".to_string())
+        );
+        // Valeur trop longue → ignorée (clé bornée).
+        let long = "a".repeat(200);
+        assert_eq!(super::client_ip(&headers(&[("x-real-ip", &long)])), None);
+        // Absente → None.
+        assert_eq!(super::client_ip(&headers(&[])), None);
+
+        std::env::remove_var("ENT_TRUST_PROXY");
+    }
 }

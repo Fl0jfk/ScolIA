@@ -91,7 +91,20 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/081_edition_vs.sql"),
     include_str!("../../../migrations/082_stage.sql"),
     include_str!("../../../migrations/083_edt_contrainte.sql"),
+    include_str!("../../../migrations/084_auth_guard.sql"),
+    include_str!("../../../migrations/085_auth_reset.sql"),
+    include_str!("../../../migrations/086_annonce.sql"),
+    include_str!("../../../migrations/087_retard.sql"),
+    include_str!("../../../migrations/088_competence.sql"),
+    include_str!("../../../migrations/089_passkey.sql"),
+    include_str!("../../../migrations/090_oidc.sql"),
 ];
+
+/// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
+/// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
+/// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
+/// fichier sans mettre à jour cette constante.
+pub const MIGRATION_TAG: &str = "090_oidc";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -142,4 +155,37 @@ async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
         sqlx::query(cleaned).execute(pool).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Garde anti-dérive : le tag annoncé par `/health` suit le dernier fichier
+    /// de `migrations/`. Ajouter `091_xxx.sql` sans bumper `MIGRATION_TAG` fait
+    /// échouer ce test (le tag est une preuve de schéma, il ne doit pas mentir).
+    #[test]
+    fn migration_tag_suit_la_derniere_migration() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/../../../migrations");
+        let mut noms: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("lecture {}: {e}", dir.display()))
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".sql"))
+            .collect();
+        noms.sort();
+        let dernier = noms.last().expect("au moins une migration");
+        let dernier = dernier.trim_end_matches(".sql");
+        assert_eq!(
+            dernier, MIGRATION_TAG,
+            "MIGRATION_TAG doit pointer la dernière migration ({dernier})"
+        );
+
+        // Tous les fichiers sont compilés (aucune migration oubliée dans MIGRATIONS).
+        assert_eq!(
+            MIGRATIONS.len(),
+            noms.len(),
+            "chaque fichier de migrations/ doit être dans MIGRATIONS"
+        );
+    }
 }

@@ -30,3 +30,8 @@ crates/ent-api/static/fonts/*.otf
 crates/ent-api/static/fonts/*.zip
 crates/ent-api/static/fonts/*.rtf
 scripts/michel-debug.html
+
+# Sauvegardes logiques PRA (scripts/sauvegarde-postgres.sh) — jamais versionnées
+/backups/
+*.dump
+*.dump.sha256

@@ -370,6 +370,5 @@ impl EntretienRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] psy sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("psy_repo", err)
 }

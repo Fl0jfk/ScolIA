@@ -36,11 +36,38 @@ Mot de passe : `DevLocalPass1!`.
 ```bash
 cd ent-rust
 set ENT_DATABASE_URL=postgres://scola:scola_dev_pwd@127.0.0.1:5432/scola
-cargo run -p ent-lab
-cargo test -p ent-db -- scenarios
+cargo run -p ent-lab       # exploration : gestes + TROU
+cargo test -p ent-db       # scénarios rejouables (par défaut sans DB → skip)
+cargo test --workspace     # tout, y compris API
 ```
 
-Le rapport liste **gestes** + **TROU** (prochaine vague module).
+Le rapport liste **gestes** + **TROU** (prochaine vague module). Le seed est
+rejoué à chaque run (école jetable, nouveau `etablissement_id`).
+
+---
+
+## Vies croisées (élargissement du labo)
+
+Au-delà de la « journée type » par module, le labo enchaîne des **vies** où une
+écriture d'un persona se propage (ou pas) chez les autres — ce qui révèle les
+vrais trous de bout en bout :
+
+| Vie croisée | Ce qui est prouvé | Reste (décision produit) |
+|---|---|---|
+| **Changement de classe en cours d'année** (`explorer_vie_croisee_changement_classe`, Cedric 3C→5A) | Effectif daté (avant/après), EDT élève qui suit la classe, dossier staff reflète 5A, `scolarite.classe_changed` publié (Brain), journal `classe_change`, parent non lié → refusé | Tarif facturation par niveau à la bascule (prorata) — appels/EDT sont dérivés datés, donc suivent seuls |
+| **Sortie élève** (`explorer_vie_croisee_sortie_eleve`, Neville) | Statut `sorti` + date, effectif daté (présent la veille, absent le jour de sortie), `eleve.sortie`, journal `eleve_sorti`, **compte face détaché + sessions révoquées** (prouvé aussi en HTTP : 401), **grilles repas closes**, **documents à signer annulés**, historique de périodes conservé | Prorata facturation/tarif au départ — EDT/appel dérivés, plus rien côté élève |
+
+Ces deux vies sont aussi couvertes par des tests rejouables dans
+`crates/ent-db/src/scenarios.rs` (`changement_classe_date_visible_partout`,
+`sortie_eleve_revoque_compte_et_grille`).
+
+Cycle de vie élève (sortie effective `date_sortie <= today`) : le service
+`sortir` **détache** `ent_eleve_compte`, **révoque** `ent_session`
+(`eleve.compte_revoque`), **clôt** les grilles repas la veille, **annule** les
+docs à signer en attente, **ferme** les périodes ouvertes (historique daté
+conservé) et **journalise** (`eleve_sorti`). Les bascules datées
+(`classe`/`regime`/`mef`/`site`/`statut`, identité) alimentent aussi le journal
+`ent_journal_modif` (`classe_change`, `statut_change`, `identite_modifiee`, …).
 
 ---
 

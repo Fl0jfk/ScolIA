@@ -159,6 +159,55 @@ impl PgAbsenceRepo {
         Ok(n)
     }
 
+    /// Absences **non justifiées** (`statut = 'a_traiter'`) depuis une date,
+    /// agrégées par élève — base du copilote « qui manque le plus ? ».
+    /// `classe` optionnelle : filtre la classe à la date `jour` (période `classe`).
+    /// Retourne `(eleve_id, nom, prenom, total)` décroissant sur `total`.
+    pub async fn count_a_traiter_par_eleve_depuis(
+        &self,
+        etablissement_id: Uuid,
+        depuis: NaiveDate,
+        classe: Option<&str>,
+        jour: NaiveDate,
+    ) -> Result<Vec<(Uuid, String, String, i64)>, DomainError> {
+        let rows: Vec<(Uuid, String, String, i64)> = sqlx::query_as(
+            r#"
+            SELECT e.id, e.nom, e.prenom, COUNT(a.id)::bigint AS total
+            FROM ent_eleve e
+            INNER JOIN ent_absence a
+                ON a.etablissement_id = e.etablissement_id
+               AND a.eleve_id = e.id
+            WHERE e.etablissement_id = $1
+              AND a.debut >= $2
+              AND a.statut = 'a_traiter'
+              AND (e.date_sortie IS NULL OR e.date_sortie > $4)
+              AND (
+                $3::text IS NULL
+                OR EXISTS (
+                    SELECT 1 FROM ent_eleve_periode p
+                    WHERE p.etablissement_id = e.etablissement_id
+                      AND p.eleve_id = e.id
+                      AND p.kind = 'classe'
+                      AND p.valeur = $3
+                      AND p.date_debut <= $4
+                      AND (p.date_fin IS NULL OR p.date_fin >= $4)
+                )
+              )
+            GROUP BY e.id, e.nom, e.prenom
+            ORDER BY total DESC, e.nom, e.prenom
+            LIMIT 200
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(depuis)
+        .bind(classe)
+        .bind(jour)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows)
+    }
+
     pub async fn est_absent(
         &self,
         etablissement_id: Uuid,
@@ -220,6 +269,5 @@ impl AbsenceRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] absence sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("absence_repo", err)
 }

@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct EntSession {
+    pub session_id: Uuid,
     pub user_id: Uuid,
     pub etablissement_id: Uuid,
     pub actor_user_id: String,
@@ -154,6 +155,19 @@ impl EntSession {
             ))
         }
     }
+
+    /// Sauvegardes / PRA : inventaire d'intégrité et vérification de
+    /// restauration — Direction / Admin uniquement, sur son établissement.
+    pub fn require_sauvegarde(&self) -> Result<(), (StatusCode, String)> {
+        if PgEnt::role_can_sauvegarde(&self.role) {
+            Ok(())
+        } else {
+            Err((
+                StatusCode::FORBIDDEN,
+                "rôle insuffisant pour les sauvegardes / PRA".into(),
+            ))
+        }
+    }
 }
 
 impl FromRequestParts<AppState> for EntSession {
@@ -176,6 +190,7 @@ impl FromRequestParts<AppState> for EntSession {
             .map_err(|e| (StatusCode::UNAUTHORIZED, e.to_string()))?;
 
         Ok(Self {
+            session_id: info.session_id,
             user_id: info.user_id,
             etablissement_id: info.etablissement_id,
             actor_user_id: info.user_id.to_string(),

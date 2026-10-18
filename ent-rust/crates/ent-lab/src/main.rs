@@ -10,7 +10,8 @@
 
 use chrono::{Duration, NaiveDate, NaiveTime, Timelike};
 use domain_eleve::{
-    annee_scolaire_de, annees_continuum, lundi_iso, today_utc, AbsenceStatut, AffecterBourse,
+    annee_scolaire_de, annees_continuum, lundi_iso, today_utc,
+    AbsenceStatut, AffecterBourse,
     AnnulerSanction, BourseStatus, ConvoquerCommission, CreerBourseType, CreerCommissionVs,
     DeciderBourse, DeciderCommissionDossier, DecisionCommission,
     ArchiverFil, AttacherPiece, CarnetCategorie, SignalAbsenceStatut, ChoisirOptionN1, ClasserFil,
@@ -29,17 +30,19 @@ use domain_eleve::{
     NATURE_REINSCRIPTION_ACOMPTE, ControleSortieVerdict, DeciderDemandeSortie,
     DemanderSortieExceptionnelle, SortieCreneau, UpsertAutorisationSortie,
     UpsertSortieParamEtab, UpsertSortieRegleNiveau, UpsertSortieRegleRegime,
-    AffecterEleveInternat, ChangeRegime, CreerChambreInternat, CreerSuiviInternat,
+    AffecterEleveInternat, ChangeClasse, ChangeRegime, CreerChambreInternat, CreerSuiviInternat,
     PointerPresenceInternat, PresenceInternatStatut, DispenseVsStatut, PoserDispenseVs,
     AlerteCpeStatut, CreerAlerteCpe,
-    AjouterDossierConseil, CreerConseilClasse, DeciderDossierConseil, DocSignerStatut,
+    AjouterDossierConseil, CreerAnnonce, CreerConseilClasse, DeciderDossierConseil, DocSignerStatut,
+    DeclarerRetard,
+    CreerCompetenceItem, EvaluerCompetence, NiveauMaitrise,
     PublierDocASigner, SignerDocASigner, CreerInfoCompChamp, UpsertInfoCompValeur,
     CreerPeriodeVacances, RechercherHomonymes, UpsertMenuCantine,
     CreerTauxTva, UpsertQuotientFoyer, CreerSalle, UpsertParamEtab,
     CreerFiliere, PoserVoeu, UpsertInscriptionSuivi, ExporterLsl, ExporterOnde,
     CreerTarifConso, ExporterNotanet, DeclarerAbsenceRh, AffecterEdtCreneau,
     CreerEditionVs, ExporterLsun, ExporterParcoursup, CreerConventionStage, CreerEntreprise,
-    CreerEdtContrainte, EdtContrainteKind,
+    CreerEdtContrainte, EdtContrainteKind, EleveStatus, SortirEleve,
 };
 use ent_auth::Role;
 use ent_db::{
@@ -76,10 +79,88 @@ impl Rapport {
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = run().await {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let personas = args
+        .iter()
+        .any(|a| matches!(a.as_str(), "personas" | "--personas" | "cast"));
+    let res = if personas { run_personas().await } else { run().await };
+    if let Err(e) = res {
         eprintln!("ent-lab ÉCHEC: {e}");
         std::process::exit(1);
     }
+}
+
+/// `cargo run -p ent-lab -- personas` : bootstrappe l'école labo et **envoie les
+/// personas** (rôles, e-mails, mot de passe, élèves & familles) sur stdout et
+/// dans `personas-lab.txt`. Utile pour ouvrir l'ENT et se connecter avec un rôle.
+async fn run_personas() -> Result<(), String> {
+    let url = std::env::var("ENT_DATABASE_URL")
+        .map_err(|_| "ENT_DATABASE_URL requis (127.0.0.1 uniquement)".to_string())?;
+    assert_local_postgres_url(&url).map_err(|e| e.to_string())?;
+
+    let mut ent = PgEnt::connect(&url).await.map_err(|e| e.to_string())?;
+    ent.migrate().await.map_err(|e| e.to_string())?;
+    ent.install_brain_p0();
+    let cast = ent.seed_labo_cast().await.map_err(|e| e.to_string())?;
+
+    let mut out = String::new();
+    out.push_str("=== ENT labo — personas ===\n");
+    out.push_str(&format!("établissement : {}\n", cast.etablissement_id));
+    out.push_str(&format!("mot de passe (tous) : {LABO_PASSWORD}\n\n"));
+
+    out.push_str("## Staff\n");
+    let staff: [(&str, &ent_db::LaboPersona); 6] = [
+        ("admin", &cast.admin),
+        ("direction", &cast.direction),
+        ("administratif", &cast.administratif),
+        ("compta", &cast.compta),
+        ("cpe", &cast.cpe),
+        ("prof", &cast.prof),
+    ];
+    for (label, p) in staff {
+        out.push_str(&format!(
+            "- {label:<14} {:>12}  {}\n",
+            p.role.as_str(),
+            p.email
+        ));
+    }
+    for (i, p) in cast.profs.iter().enumerate().skip(1) {
+        out.push_str(&format!(
+            "- prof #{i:<9} {:>12}  {}\n",
+            p.role.as_str(),
+            p.email
+        ));
+    }
+    for (i, p) in cast.cpes.iter().enumerate().skip(1) {
+        out.push_str(&format!("- cpe  #{i:<9} {:>12}  {}\n", p.role.as_str(), p.email));
+    }
+    for (i, p) in cast.infirmieres.iter().enumerate() {
+        out.push_str(&format!(
+            "- infirmière #{i:<3} {:>12}  {}\n",
+            p.role.as_str(),
+            p.email
+        ));
+    }
+    for (i, p) in cast.psys.iter().enumerate() {
+        out.push_str(&format!("- psy  #{i:<9} {:>12}  {}\n", p.role.as_str(), p.email));
+    }
+
+    out.push_str("\n## Élèves & familles\n");
+    for e in &cast.eleves {
+        out.push_str(&format!(
+            "- {:>9} {:<10} ({:>3})  parent: {}",
+            e.prenom, e.nom, e.classe, e.parent.email
+        ));
+        if let Some(c) = &e.compte {
+            out.push_str(&format!("  ·  élève: {}", c.email));
+        }
+        out.push('\n');
+    }
+
+    println!("{out}");
+    std::fs::write("personas-lab.txt", &out).map_err(|e| e.to_string())?;
+    println!("(personas écrits dans personas-lab.txt — {} élèves)", cast.eleves.len());
+    Ok(())
 }
 
 async fn run() -> Result<(), String> {
@@ -166,7 +247,16 @@ async fn run() -> Result<(), String> {
     explorer_stages(&ent, &cast, jour, &mut r).await?;
     explorer_staff_sans_metier(&ent, &cast, jour, &mut r).await?;
     explorer_seuils_et_signaux(&ent, &cast, jour, &mut r).await?;
-
+    explorer_vie_croisee_changement_classe(&ent, &cast, jour, &mut r).await?;
+    explorer_vie_croisee_sortie_eleve(&ent, &cast, jour, &mut r).await?;
+    explorer_copilote(&ent, &cast, jour, &mut r).await?;
+    explorer_spine_notifications_famille(&ent, &cast, jour, &mut r).await?;
+    explorer_annonces_communication(&ent, &cast, jour, &mut r).await?;
+    explorer_retards_vie_scolaire(&ent, &cast, jour, &mut r).await?;
+    explorer_competences_lsu(&ent, &cast, jour, &mut r).await?;
+    explorer_passkeys_websauthn(&ent, &cast, jour, &mut r).await?;
+    explorer_sso_oidc(&ent, &cast, jour, &mut r).await?;
+    explorer_observabilite_pra(&ent, &cast, jour, &mut r).await?;
     println!();
     println!("=== synthèse ===");
     println!("gestes joués: {}", r.gestes.len());
@@ -490,21 +580,30 @@ async fn explorer_repas_bourses(
         .eleve_inscrit_midi_present(cast.etablissement_id, cast.eleve_lea_id, jour)
         .await
         .map_err(|e| e.to_string())?;
-    // jour lab = today ; si week-end la grille lun-ven peut être false — on teste un mercredi fixe.
-    let mercredi = NaiveDate::from_ymd_opt(2026, 10, 14).unwrap();
-    let inscrit_mer = ent
-        .eleve_inscrit_midi_present(cast.etablissement_id, cast.eleve_lea_id, mercredi)
-        .await
-        .map_err(|e| e.to_string())?;
-    if !inscrit_mer {
-        return Err("Léa doit être inscrite midi un mercredi (lun–ven)".into());
+    // Semaine courante : le seed y place une dispense (lundi) et une absence (J-3) pour
+    // Harry. On repère un jour réellement facturable pour tester la prévenance sans collision.
+    let debut_sem = lundi_iso(jour);
+    let fin_sem = debut_sem + Duration::days(4);
+    let mut jour_prevenance = None;
+    for offset in 0..5i64 {
+        let d = debut_sem + Duration::days(offset);
+        if ent
+            .eleve_inscrit_midi_present(cast.etablissement_id, cast.eleve_lea_id, d)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            jour_prevenance = Some(d);
+            break;
+        }
     }
+    let jour_prevenance =
+        jour_prevenance.ok_or_else(|| "aucun jour midi facturable cette semaine".to_string())?;
     r.geste(format!(
-        "cantine: Léa inscrite midi mercredi={inscrit_mer} (aujourd'hui={inscrit})"
+        "cantine: Léa inscrite midi le {jour_prevenance} (aujourd'hui={inscrit})"
     ));
 
     let tom_midi = ent
-        .eleve_inscrit_midi_present(cast.etablissement_id, cast.eleve_tom_id, mercredi)
+        .eleve_inscrit_midi_present(cast.etablissement_id, cast.eleve_tom_id, jour_prevenance)
         .await
         .map_err(|e| e.to_string())?;
     if tom_midi {
@@ -689,9 +788,9 @@ async fn explorer_repas_bourses(
     }
     r.geste("invariant: grille sans jour refusée");
 
-    // Prévenance / dispense jour → hors cantine + hors volume facturable
-    let debut_sem = NaiveDate::from_ymd_opt(2026, 10, 12).unwrap(); // lun
-    let fin_sem = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap(); // ven
+    // Prévenance / dispense jour → hors cantine + hors volume facturable.
+    // Semaine courante : le seed peut déjà y avoir posé une dispense (audit AB-A le
+    // lundi), on mesure donc le delta plutôt qu'un absolu.
     let vol0 = ent
         .compter_repas_facturables_eleve(
             cast.etablissement_id,
@@ -702,8 +801,8 @@ async fn explorer_repas_bourses(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if vol0 != 5 {
-        return Err(format!("volume midi lun–ven attendu 5, obtenu {vol0}"));
+    if vol0 == 0 {
+        return Err("volume midi semaine : aucun jour facturable (grille absente ?)".into());
     }
     let dispense = ent
         .poser_dispense_repas_for_actor(
@@ -712,7 +811,7 @@ async fn explorer_repas_bourses(
                 etablissement_id: cast.etablissement_id,
                 eleve_id: cast.eleve_lea_id,
                 activite_id: midi.id,
-                jour: mercredi,
+                jour: jour_prevenance,
                 motif: "Sortie scolaire".into(),
                 source: DispenseSource::Parent,
                 actor_user_id: Some(cast.parent_lea.user_id.to_string()),
@@ -721,11 +820,11 @@ async fn explorer_repas_bourses(
         .await
         .map_err(|e| e.to_string())?;
     let inscrit_apres = ent
-        .eleve_inscrit_midi_present(cast.etablissement_id, cast.eleve_lea_id, mercredi)
+        .eleve_inscrit_midi_present(cast.etablissement_id, cast.eleve_lea_id, jour_prevenance)
         .await
         .map_err(|e| e.to_string())?;
     if inscrit_apres {
-        return Err("après dispense Lily, Léa ne doit plus être inscrite midi mercredi".into());
+        return Err("après dispense Lily, Léa ne doit plus être inscrite midi ce jour".into());
     }
     let vol1 = ent
         .compter_repas_facturables_eleve(
@@ -737,9 +836,9 @@ async fn explorer_repas_bourses(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if vol1 != 4 {
+    if vol1 + 1 != vol0 {
         return Err(format!(
-            "volume après dispense attendu 4, obtenu {vol1} (dispense={})",
+            "dispense doit retirer 1 repas facturable: {vol0}→{vol1} (dispense={})",
             dispense.id
         ));
     }
@@ -762,7 +861,7 @@ async fn explorer_repas_bourses(
         return Err("Narcissa ne doit pas poser de dispense sur Léa".into());
     }
     r.geste(format!(
-        "Lily prévenance cantine mercredi → volume {vol0}→{vol1} · Narcissa bloquée (attendu)"
+        "Lily prévenance cantine {jour_prevenance} → volume {vol0}→{vol1} · Narcissa bloquée (attendu)"
     ));
 
     // Export volumes cuisine (grille − prévenances) pour la semaine
@@ -807,8 +906,9 @@ async fn explorer_repas_bourses(
         csv.len()
     ));
 
-    // Passage badge cantine (jour sans dispense — jeudi de la semaine)
-    let jeudi = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+    // Passage badge cantine : le seed pointe déjà tous les jours ouvrés inscrits de la
+    // semaine courante. On choisit le premier jour ouvré inscrit libre (semaine suivante)
+    // puis on isole la facture badge sur ce seul jour.
     let harry = ent
         .get_eleve(cast.etablissement_id, cast.eleve_lea_id)
         .await
@@ -818,13 +918,43 @@ async fn explorer_repas_bourses(
         .numero_badge
         .clone()
         .ok_or("Harry doit avoir un badge seed")?;
+    let passages_existants = ent
+        .list_passages_repas_eleve_for_actor(
+            cast.etablissement_id,
+            Role::Cpe.as_str(),
+            cast.cpe.user_id,
+            cast.eleve_lea_id,
+            debut_sem,
+            debut_sem + Duration::days(13),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut jour_badge = None;
+    for offset in 0..14i64 {
+        if offset % 7 >= 5 {
+            continue;
+        }
+        let d = debut_sem + Duration::days(offset);
+        if passages_existants.iter().any(|p| p.jour == d) {
+            continue;
+        }
+        if ent
+            .eleve_inscrit_midi_present(cast.etablissement_id, cast.eleve_lea_id, d)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            jour_badge = Some(d);
+            break;
+        }
+    }
+    let jour_badge = jour_badge.ok_or("aucun jour ouvré libre pour le badge")?;
     let (passage, eleve_scan) = ent
         .scan_badge_repas_for_actor(
             cast.etablissement_id,
             Role::Cpe.as_str(),
             &badge,
             RepasActiviteKind::Midi,
-            jeudi,
+            jour_badge,
             cast.cpe.user_id,
         )
         .await
@@ -838,7 +968,7 @@ async fn explorer_repas_bourses(
             Role::Cpe.as_str(),
             &badge,
             RepasActiviteKind::Midi,
-            jeudi,
+            jour_badge,
             cast.cpe.user_id,
         )
         .await;
@@ -851,7 +981,7 @@ async fn explorer_repas_bourses(
             Role::Cpe.as_str(),
             &badge,
             RepasActiviteKind::Midi,
-            mercredi,
+            jour_prevenance,
             cast.cpe.user_id,
         )
         .await;
@@ -864,7 +994,7 @@ async fn explorer_repas_bourses(
             Role::Cpe.as_str(),
             "BADGE-INCONNU",
             RepasActiviteKind::Midi,
-            jeudi,
+            jour_badge,
             cast.cpe.user_id,
         )
         .await;
@@ -875,7 +1005,7 @@ async fn explorer_repas_bourses(
         .list_passages_repas_jour_for_actor(
             cast.etablissement_id,
             Role::Cpe.as_str(),
-            jeudi,
+            jour_badge,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -888,7 +1018,7 @@ async fn explorer_repas_bourses(
             Role::Parent.as_str(),
             &badge,
             RepasActiviteKind::Midi,
-            NaiveDate::from_ymd_opt(2026, 10, 16).unwrap(),
+            jour_badge,
             cast.parent_lea.user_id,
         )
         .await;
@@ -903,7 +1033,7 @@ async fn explorer_repas_bourses(
             cast.parent_lea.user_id,
             cast.eleve_lea_id,
             debut_sem,
-            fin_sem,
+            jour_badge,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -917,7 +1047,7 @@ async fn explorer_repas_bourses(
             cast.cpe.user_id,
             cast.eleve_lea_id,
             debut_sem,
-            fin_sem,
+            jour_badge,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -931,33 +1061,33 @@ async fn explorer_repas_bourses(
             cast.parent_tom.user_id,
             cast.eleve_lea_id,
             debut_sem,
-            fin_sem,
+            jour_badge,
         )
         .await;
     if refuse_hist_tom.is_ok() {
         return Err("parent non lié ne doit pas lire l'historique passages".into());
     }
     r.geste(format!(
-        "CPE scan badge {} → passage midi jeudi · hist Lily {} · Tom refusé · doublon/dispense/inconnu/parent refusés",
+        "CPE scan badge {} → passage midi le {jour_badge} · hist Lily {} · Tom refusé · doublon/dispense/inconnu/parent refusés",
         badge,
         hist_parent.len()
     ));
 
-    // Facturation auto depuis passages badge (semaine)
+    // Facturation auto depuis passages badge (jour du passage isolé)
     let n_prev = ent
         .apercu_cantine_badge_for_actor(
             Role::Compta.as_str(),
             cast.etablissement_id,
             cast.eleve_lea_id,
-            debut_sem,
-            fin_sem,
+            jour_badge,
+            jour_badge,
             RepasActiviteKind::Midi,
         )
         .await
         .map_err(|e| e.to_string())?;
     if n_prev != 1 {
         return Err(format!(
-            "aperçu badge attendu 1 passage (jeudi), obtenu {n_prev}"
+            "aperçu badge attendu 1 passage, obtenu {n_prev}"
         ));
     }
     let (fac_badge, lignes_badge, nb) = ent
@@ -966,8 +1096,8 @@ async fn explorer_repas_bourses(
             cast.etablissement_id,
             cast.foyer_lea_id,
             cast.eleve_lea_id,
-            debut_sem,
-            fin_sem,
+            jour_badge,
+            jour_badge,
             450,
             format!("CB-{}", &cast.etablissement_id.to_string()[..8]),
             cast.compta.user_id,
@@ -1056,14 +1186,15 @@ async fn explorer_continuum_montee(
         d0.continuum.len()
     ));
 
-    // Campagne fermée → montée refusée.
+    // Campagne fermée → montée refusée. Le seed ouvre la campagne N+1 ; on part donc de
+    // N-1 (campagne de N absente) pour éprouver le refus.
     let refuse_fermee = ent
         .montee_rapide_for_actor(
             Role::Administratif.as_str(),
             MonteeRapide {
                 etablissement_id: cast.etablissement_id,
                 eleve_id: cast.eleve_lea_id,
-                annee_courante: annee_scolaire_de(jour),
+                annee_courante: nm1.clone(),
                 actor_user_id: Some(cast.administratif.user_id.to_string()),
             },
             jour,
@@ -4043,13 +4174,13 @@ async fn explorer_facturation(
             Role::Compta.as_str(),
             CreerFacture {
                 etablissement_id: cast.etablissement_id,
-                foyer_id: cast.foyer_lea_id,
+                foyer_id: cast.foyer_tom_id,
                 numero: format!("SEPA-{}", &cast.etablissement_id.to_string()[..8]),
                 libelle: "Voyage pédagogique".into(),
                 nature: None,
                 annee_scolaire: None,
                 lignes: vec![LigneFactureCmd {
-                    eleve_id: Some(cast.eleve_lea_id),
+                    eleve_id: Some(cast.eleve_tom_id),
                     libelle: "Voyage".into(),
                     quantite: 1,
                     montant_unitaire_centimes: 8000,
@@ -4075,7 +4206,7 @@ async fn explorer_facturation(
             cast.compta.user_id,
             domain_eleve::CreerMandatSepa {
                 etablissement_id: cast.etablissement_id,
-                foyer_id: cast.foyer_lea_id,
+                foyer_id: cast.foyer_tom_id,
                 rum: rum.clone(),
                 iban: "FR76 3000 6000 0112 3456 7890 189".into(),
                 bic: Some("AGRIFRPP".into()),
@@ -4154,13 +4285,13 @@ async fn explorer_facturation(
             Role::Compta.as_str(),
             CreerFacture {
                 etablissement_id: cast.etablissement_id,
-                foyer_id: cast.foyer_lea_id,
+                foyer_id: cast.foyer_tom_id,
                 numero: format!("SEPA2-{}", &cast.etablissement_id.to_string()[..8]),
                 libelle: "Assurance scolaire".into(),
                 nature: None,
                 annee_scolaire: None,
                 lignes: vec![LigneFactureCmd {
-                    eleve_id: Some(cast.eleve_lea_id),
+                    eleve_id: Some(cast.eleve_tom_id),
                     libelle: "Assurance".into(),
                     quantite: 1,
                     montant_unitaire_centimes: 2500,
@@ -4262,13 +4393,13 @@ async fn explorer_facturation(
             Role::Compta.as_str(),
             CreerFacture {
                 etablissement_id: cast.etablissement_id,
-                foyer_id: cast.foyer_lea_id,
+                foyer_id: cast.foyer_tom_id,
                 numero: format!("BANK-OK-{}", &cast.etablissement_id.to_string()[..8]),
                 libelle: "Stage linguistique".into(),
                 nature: None,
                 annee_scolaire: None,
                 lignes: vec![LigneFactureCmd {
-                    eleve_id: Some(cast.eleve_lea_id),
+                    eleve_id: Some(cast.eleve_tom_id),
                     libelle: "Stage".into(),
                     quantite: 1,
                     montant_unitaire_centimes: 4500,
@@ -4306,13 +4437,13 @@ async fn explorer_facturation(
             Role::Compta.as_str(),
             CreerFacture {
                 etablissement_id: cast.etablissement_id,
-                foyer_id: cast.foyer_lea_id,
+                foyer_id: cast.foyer_tom_id,
                 numero: format!("BANK-KO-{}", &cast.etablissement_id.to_string()[..8]),
                 libelle: "Cotisation AS".into(),
                 nature: None,
                 annee_scolaire: None,
                 lignes: vec![LigneFactureCmd {
-                    eleve_id: Some(cast.eleve_lea_id),
+                    eleve_id: Some(cast.eleve_tom_id),
                     libelle: "AS".into(),
                     quantite: 1,
                     montant_unitaire_centimes: 1200,
@@ -4398,27 +4529,27 @@ UNKNOWN-E2E;999;settled;\n",
         bank_sum.executed, bank_sum.rejected, bank_sum.unmatched
     ));
 
-    // Doublon actif : Lily ne peut pas créer un 2ᵉ mandat tant que le premier est actif.
+    // Doublon actif : Narcissa ne peut pas créer un 2ᵉ mandat tant que le premier est actif.
     let parent_mandat = ent
         .creer_mandat_sepa_for_actor(
             Role::Parent.as_str(),
-            cast.parent_lea.user_id,
+            cast.parent_tom.user_id,
             domain_eleve::CreerMandatSepa {
                 etablissement_id: cast.etablissement_id,
-                foyer_id: cast.foyer_lea_id,
+                foyer_id: cast.foyer_tom_id,
                 rum: "RUM-PARENT".into(),
                 iban: "FR7630006000011234567890189".into(),
                 bic: None,
-                titulaire: "Lily".into(),
+                titulaire: "Narcissa".into(),
                 signe_at: chrono::Utc::now(),
-                actor_user_id: cast.parent_lea.user_id,
+                actor_user_id: cast.parent_tom.user_id,
             },
         )
         .await;
     if parent_mandat.is_ok() {
         return Err("parent ne doit pas créer un 2e mandat SEPA actif".into());
     }
-    r.geste("Lily refusée (mandat foyer déjà actif — attendu)");
+    r.geste("Narcissa refusée (mandat foyer déjà actif — attendu)");
 
     // Rappels auto J-3 / en retard
     let (br_rap, _) = ent
@@ -5350,6 +5481,16 @@ async fn explorer_sanctions_vs(
     }
     r.geste("Lily lit convocation commission sans note interne");
 
+    // Le seed audit a déjà retiré 5 points (permis Harry) : on mesure le delta.
+    let solde_avant = ent
+        .solde_points_vs_for_actor(
+            cast.etablissement_id,
+            cast.cpe.user_id,
+            Role::Cpe.as_str(),
+            cast.eleve_lea_id,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
     let decided = ent
         .decider_commission_dossier_for_actor(
             Role::Cpe.as_str(),
@@ -5376,8 +5517,11 @@ async fn explorer_sanctions_vs(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if solde != 15 {
-        return Err(format!("solde points attendu 15, obtenu {solde}").into());
+    if solde_avant < 5 || solde != solde_avant - 5 {
+        return Err(format!(
+            "solde points: {solde_avant} → {solde} (5 attendus en moins)"
+        )
+        .into());
     }
     let lily_solde = ent
         .solde_points_vs_for_actor(
@@ -5388,10 +5532,12 @@ async fn explorer_sanctions_vs(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if lily_solde != 15 {
-        return Err("Lily doit voir le solde points 15".into());
+    if lily_solde != solde {
+        return Err(format!("Lily doit voir le solde points {solde}").into());
     }
-    r.geste("commission décide avertissement · permis à points 20→15");
+    r.geste(format!(
+        "commission décide avertissement · permis à points {solde_avant}→{solde}"
+    ));
 
     let re_dec = ent
         .decider_commission_dossier_for_actor(
@@ -6604,10 +6750,15 @@ async fn explorer_alertes_cpe(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if vue_lily.len() != 1 || vue_lily[0].id != famille.id {
-        return Err("Lily ne doit voir que l'alerte visible famille".into());
+    if !vue_lily.iter().any(|a| a.id == famille.id)
+        || vue_lily.iter().any(|a| a.id == interne.id)
+    {
+        return Err("Lily ne doit voir que les alertes visibles famille".into());
     }
-    r.geste("Lily lit 1 alerte CPE (retards) — pas l'interne");
+    r.geste(format!(
+        "Lily lit {} alerte(s) CPE famille — pas l'interne",
+        vue_lily.len()
+    ));
 
     let closed = ent
         .clore_alerte_cpe_for_actor(
@@ -6909,7 +7060,7 @@ async fn explorer_info_comp(
             Role::Administratif.as_str(),
             CreerInfoCompChamp {
                 etablissement_id: cast.etablissement_id,
-                code: "LANGUE_MAISON".into(),
+                code: "LAB_LANGUE_MAISON".into(),
                 libelle: "Langue parlée à la maison".into(),
                 type_valeur: "texte".into(),
                 obligatoire: false,
@@ -6926,7 +7077,7 @@ async fn explorer_info_comp(
             Role::Administratif.as_str(),
             CreerInfoCompChamp {
                 etablissement_id: cast.etablissement_id,
-                code: "NOTE_INTERNE_IC".into(),
+                code: "LAB_NOTE_INTERNE_IC".into(),
                 libelle: "Note interne IC".into(),
                 type_valeur: "texte".into(),
                 obligatoire: false,
@@ -6993,14 +7144,26 @@ async fn explorer_info_comp(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if champs_f.len() != 1 || vals_f.len() != 1 || vals_f[0].valeur != "Anglais" {
+    // Le seed pose déjà des champs visibles famille (LANGUE_MAISON, CLUB_HARRY) : on
+    // vérifie la présence de notre champ/valeur et l'absence de la note interne.
+    if !champs_f.iter().any(|c| c.id == champ.id)
+        || champs_f.iter().any(|c| c.id == interne.id)
+        || !vals_f
+            .iter()
+            .any(|v| v.champ_id == champ.id && v.valeur == "Anglais")
+        || vals_f.iter().any(|v| v.champ_id == interne.id)
+    {
         return Err(format!(
-            "Lily doit voir 1 champ/valeur visible (got champs={} vals={:?})",
+            "Lily doit voir le champ famille (Anglais) sans la note interne (champs={} vals={:?})",
             champs_f.len(),
             vals_f.iter().map(|v| v.valeur.as_str()).collect::<Vec<_>>()
         ));
     }
-    r.geste("Lily lit info-comp visible (Anglais) — pas la note interne");
+    r.geste(format!(
+        "Lily lit {} champ(s)/{} valeur(s) visible(s) (Anglais) — pas la note interne",
+        champs_f.len(),
+        vals_f.len()
+    ));
 
     r.trou("info-comp: champs paramétrables + valeurs + filtre famille OK — UI /app/etab + natives");
     Ok(())
@@ -9286,5 +9449,1612 @@ async fn explorer_seuils_et_signaux(
         "cantine opérationnelle: grille + activités HTTP + dispense + volumes + badge + hist famille + facture badge OK — UI /app/cantine + dossier",
     );
 
+    Ok(())
+}
+
+/// Vie croisée : la direction change la classe d'un élève en cours d'année.
+/// On suit **une seule écriture** à travers effectif daté, EDT élève, dossier
+/// famille/staff et bus d'événements (vision : « une écriture, partout visible »).
+async fn explorer_vie_croisee_changement_classe(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    println!("# vie croisée — un élève change de classe en cours d'année");
+
+    // Cedric (3C) : classe sans créneau seedé → l'EDT élève bascule nettement vers 5A.
+    let cedric = cast
+        .eleves
+        .iter()
+        .find(|e| e.prenom == "Cedric")
+        .ok_or_else(|| "Cedric attendu dans le cast".to_string())?;
+    let parent = cedric.parent.clone();
+
+    let avant_3c = ent
+        .eleves_en_classe_au(cast.etablissement_id, "3C", jour)
+        .await
+        .map_err(|e| e.to_string())?;
+    let avant_5a = ent
+        .eleves_en_classe_au(cast.etablissement_id, "5A", jour)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !avant_3c.iter().any(|e| e.id == cedric.id) || avant_5a.iter().any(|e| e.id == cedric.id) {
+        return Err("Cedric doit être en 3C (et pas en 5A) avant le changement".into());
+    }
+    r.geste("effectif daté: Cedric en 3C, pas en 5A (avant)");
+
+    // 3C n'a pas de créneau seedé → l'EDT lu par le parent est vide avant.
+    let edt_avant = ent
+        .list_edt_eleve_jour_for_actor(
+            cast.etablissement_id,
+            Role::Parent.as_str(),
+            parent.user_id,
+            cedric.id,
+            jour,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if !edt_avant.is_empty() {
+        return Err("3C non planifié: EDT élève attendu vide avant".into());
+    }
+    r.geste(format!("parent {}: 0 créneau (3C non planifié)", parent.email));
+
+    // L'unique écriture.
+    ent.change_classe(ChangeClasse {
+        etablissement_id: cast.etablissement_id,
+        eleve_id: cedric.id,
+        nouvelle_classe: "5A".into(),
+        date_effet: jour,
+        actor_user_id: Some(cast.direction.user_id.to_string()),
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let apres_3c = ent
+        .eleves_en_classe_au(cast.etablissement_id, "3C", jour)
+        .await
+        .map_err(|e| e.to_string())?;
+    let apres_5a = ent
+        .eleves_en_classe_au(cast.etablissement_id, "5A", jour)
+        .await
+        .map_err(|e| e.to_string())?;
+    if apres_3c.iter().any(|e| e.id == cedric.id) || !apres_5a.iter().any(|e| e.id == cedric.id) {
+        return Err("date d'effet: Cedric doit basculer 3C→5A au jour J".into());
+    }
+    r.geste("direction change Cedric 3C→5A (date d'effet = jour)");
+
+    // L'EDT lu par la famille suit la nouvelle classe.
+    let edt_apres = ent
+        .list_edt_eleve_jour_for_actor(
+            cast.etablissement_id,
+            Role::Parent.as_str(),
+            parent.user_id,
+            cedric.id,
+            jour,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if edt_apres.is_empty() {
+        return Err("EDT élève doit suivre la nouvelle classe (5A planifiée)".into());
+    }
+    r.geste(format!(
+        "parent {} voit {} créneau(x) 5A après bascule",
+        parent.email,
+        edt_apres.len()
+    ));
+
+    // Le dossier staff reflète la classe (même lecture, autre face).
+    let dossier = ent
+        .get_dossier_for_actor(
+            cast.etablissement_id,
+            cast.administratif.user_id,
+            Role::Administratif.as_str(),
+            cedric.id,
+            jour,
+        )
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "dossier Cedric introuvable".to_string())?;
+    if dossier.eleve.classe.as_deref() != Some("5A") {
+        return Err(format!(
+            "dossier admini doit refléter 5A, got {:?}",
+            dossier.eleve.classe
+        ));
+    }
+    r.geste("dossier admini reflète 5A (une écriture, partout visible)");
+
+    // Bus d'événements (Brain).
+    let events = ent
+        .events_for_eleve(cast.etablissement_id, cedric.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !events.iter().any(|e| e.type_name == "scolarite.classe_changed") {
+        return Err("event scolarite.classe_changed attendu".into());
+    }
+    r.geste("event scolarite.classe_changed publié (hook Brain)");
+
+    // Journal des modifications : la bascule est tracée (COM_JOURNAL_MODIF).
+    let journal = ent
+        .list_journal_eleve_for_actor(
+            cast.etablissement_id,
+            cast.administratif.user_id,
+            Role::Administratif.as_str(),
+            cedric.id,
+            50,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if !journal.iter().any(|e| e.action == "classe_change") {
+        return Err("journal doit tracer la bascule de classe".into());
+    }
+    r.geste("journal des modifications: entrée `classe_change` (traçabilité)");
+
+    // Isolation : un parent non lié ne lit pas l'EDT de Cedric.
+    let refus = ent
+        .list_edt_eleve_jour_for_actor(
+            cast.etablissement_id,
+            Role::Parent.as_str(),
+            cast.parent_tom.user_id,
+            cedric.id,
+            jour,
+        )
+        .await;
+    if refus.is_ok() {
+        return Err("un parent non lié ne doit pas lire l'EDT de Cedric".into());
+    }
+    r.geste("parent non lié refusé sur l'EDT de Cedric (attendu)");
+
+    r.trou(
+        "changement de classe: effectif daté + EDT élève + appels (dérivés datés) + dossier + event Brain OK — reste (décision produit): tarif facturation par niveau à la bascule (prorata)",
+    );
+    Ok(())
+}
+
+/// Vie croisée : un élève quitte l'établissement en cours d'année.
+/// Observe effectif daté, statut/event, historique conservé — et la **cascade
+/// transverse** de sortie : compte face élève, grilles repas **et internat**.
+async fn explorer_vie_croisee_sortie_eleve(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    println!("# vie croisée — un élève quitte l'établissement");
+
+    // Neville (3C) : a un compte face élève (idx < 5) → on peut tester la révocation.
+    let eleve = cast
+        .eleves
+        .iter()
+        .find(|e| e.prenom == "Neville")
+        .ok_or_else(|| "Neville attendu dans le cast".to_string())?;
+    // Sortie effective aujourd'hui (la veille = J-1) : status=sorti + date, effectif daté.
+    let sortie = jour;
+    let la_veille = jour - Duration::days(1);
+
+    let avant = ent
+        .eleves_en_classe_au(cast.etablissement_id, &eleve.classe, la_veille)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !avant.iter().any(|e| e.id == eleve.id) {
+        return Err("l'élève doit compter dans l'effectif avant la sortie".into());
+    }
+
+    // Un document à signer en attente avant le départ (doit être annulé par la sortie).
+    let doc_attente = ent
+        .publier_doc_a_signer_for_actor(
+            Role::Cpe.as_str(),
+            PublierDocASigner {
+                etablissement_id: cast.etablissement_id,
+                eleve_id: eleve.id,
+                code: "REGLEMENT".into(),
+                titre: "Règlement intérieur".into(),
+                corps: "Article 1 — …".into(),
+                annee_scolaire: annee_scolaire_de(jour),
+                echeance: None,
+                actor_user_id: cast.cpe.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let sorti = ent
+        .sortir(SortirEleve {
+            etablissement_id: cast.etablissement_id,
+            eleve_id: eleve.id,
+            date_sortie: sortie,
+            motif_sortie: Some("demenagement".into()),
+            actor_user_id: Some(cast.administratif.user_id.to_string()),
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    if sorti.status != EleveStatus::Sorti || sorti.date_sortie != Some(sortie) {
+        return Err(format!(
+            "sortie: statut `sorti` + date attendus (got {} / {:?})",
+            sorti.status.as_str(),
+            sorti.date_sortie
+        ));
+    }
+    r.geste(format!(
+        "admini sort {} ({}) → statut sorti au {sortie}",
+        eleve.prenom, eleve.classe
+    ));
+
+    let a_la_sortie = ent
+        .eleves_en_classe_au(cast.etablissement_id, &eleve.classe, sortie)
+        .await
+        .map_err(|e| e.to_string())?;
+    if a_la_sortie.iter().any(|e| e.id == eleve.id) {
+        return Err("élève sorti ne doit plus compter à la date de sortie".into());
+    }
+    let encore_la_veille = ent
+        .eleves_en_classe_au(cast.etablissement_id, &eleve.classe, la_veille)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !encore_la_veille.iter().any(|e| e.id == eleve.id) {
+        return Err("effectif daté: l'élève compte encore la veille".into());
+    }
+    r.geste("effectif daté: présent la veille, sorti le jour de sortie");
+
+    let events = ent
+        .events_for_eleve(cast.etablissement_id, eleve.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !events.iter().any(|e| e.type_name == "eleve.sortie") {
+        return Err("event eleve.sortie attendu".into());
+    }
+    r.geste("event eleve.sortie publié (hook Brain)");
+
+    let periodes = ent
+        .list_periodes(cast.etablissement_id, eleve.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    if periodes.is_empty() {
+        return Err("historique des périodes conservé attendu après sortie".into());
+    }
+    r.geste("historique des périodes conservé (pas d'effacement)");
+
+    // Journal des modifications : la sortie est tracée.
+    let journal = ent
+        .list_journal_eleve_for_actor(
+            cast.etablissement_id,
+            cast.administratif.user_id,
+            Role::Administratif.as_str(),
+            eleve.id,
+            50,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if !journal.iter().any(|e| e.action == "eleve_sorti") {
+        return Err("journal doit tracer la sortie de l'élève".into());
+    }
+    r.geste("journal des modifications: entrée `eleve_sorti` (traçabilité)");
+
+    // Sortie effective → le compte face élève est détaché et ses sessions révoquées.
+    if let Some(compte) = &eleve.compte {
+        let lien = ent
+            .eleve_id_for_compte(cast.etablissement_id, compte.user_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if lien == Some(eleve.id) {
+            return Err(format!(
+                "sortie: le compte face {} doit être détaché de l'élève",
+                compte.email
+            ));
+        }
+        r.geste("compte face élève détaché + sessions révoquées à la sortie");
+    }
+    let revoque = events
+        .iter()
+        .any(|e| e.type_name == "eleve.compte_revoque");
+    if eleve.compte.is_some() && !revoque {
+        return Err("event eleve.compte_revoque attendu".into());
+    }
+
+    // Grille repas clôturée la veille : plus aucun repas facturable après la sortie.
+    let grilles = ent
+        .list_grilles_repas_eleve_for_actor(
+            cast.etablissement_id,
+            cast.administratif.user_id,
+            Role::Administratif.as_str(),
+            eleve.id,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let veille = la_veille;
+    if grilles.iter().any(|g| g.date_fin.map(|f| f >= sortie).unwrap_or(true)) {
+        return Err("sortie: les grilles repas doivent être clôturées avant la sortie".into());
+    }
+    if !grilles.is_empty() {
+        r.geste(format!(
+            "grilles repas clôturées au {veille} ({} grille(s))",
+            grilles.len()
+        ));
+    }
+
+    // Affectation internat close à la sortie : plus d'hébergement après le départ
+    // (l'élève est interne dans le seed → l'affectation doit être fermée).
+    let lendemain = sortie + Duration::days(1);
+    let affs = ent
+        .list_affectations_internat_jour_for_actor(
+            cast.etablissement_id,
+            Role::Cpe.as_str(),
+            lendemain,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if affs.iter().any(|a| a.eleve_id == eleve.id) {
+        return Err("sortie: l'affectation internat doit être close au départ".into());
+    }
+    if !events.iter().any(|e| e.type_name == "internat.affectation") {
+        return Err("event internat.affectation attendu à la sortie".into());
+    }
+    r.geste("affectation internat close + event internat.affectation (sortie)");
+
+    // Documents à signer annulés à la sortie.
+    let docs = ent
+        .list_docs_a_signer_eleve_for_actor(
+            cast.etablissement_id,
+            cast.administratif.user_id,
+            Role::Administratif.as_str(),
+            eleve.id,
+            false,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    // Documents à signer annulés à la sortie : le doc n'est plus en attente, et
+    // il n'apparaît plus dans la vue « tous statuts » (annulé exclu) → bien annulé.
+    if docs.iter().any(|d| d.id == doc_attente.id) {
+        return Err("doc à signer annulé ne doit plus apparaître dans la vue complète".into());
+    }
+    let docs_pending = ent
+        .list_docs_a_signer_eleve_for_actor(
+            cast.etablissement_id,
+            cast.administratif.user_id,
+            Role::Administratif.as_str(),
+            eleve.id,
+            true,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if docs_pending.iter().any(|d| d.id == doc_attente.id) {
+        return Err("doc à signer encore en attente après la sortie".into());
+    }
+    r.geste("documents à signer annulés à la sortie");
+
+    r.trou(
+        "sortie élève: effectif daté + event eleve.sortie + compte révoqué + grilles repas closes + affectation internat close + périodes closes + docs à signer annulés + historique OK (EDT/appel dérivés = plus rien) — reste (décision produit): prorata facturation/tarif au départ",
+    );
+    Ok(())
+}
+
+/// Copilote — questions du personnel en langage naturel, réponses lecture seule.
+/// Vérifie l'effectif, la fenêtre d'absences, et le **cloisonnement par rôle**.
+async fn explorer_copilote(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    _jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    println!("# copilote — assistant lecture seule (langage naturel)");
+
+    let questions: &[(&str, &str)] = &[
+        (Role::Administratif.as_str(), "Combien d'élèves au total ?"),
+        (Role::Cpe.as_str(), "absences non justifiées depuis 30 jours"),
+        (Role::Compta.as_str(), "Quelles factures sont impayées ?"),
+        (Role::Administratif.as_str(), "élèves sans compte ?"),
+        (Role::Cpe.as_str(), "alertes CPE ouvertes ?"),
+        (Role::Prof.as_str(), "que peux-tu faire ?"),
+    ];
+    for (role, question) in questions {
+        let actor = match *role {
+            "cpe" => cast.cpe.user_id,
+            "compta" => cast.compta.user_id,
+            "prof" => cast.prof.user_id,
+            _ => cast.administratif.user_id,
+        };
+        let rep = ent
+            .copilote_repondre(cast.etablissement_id, actor, role, question)
+            .await
+            .map_err(|e| e.to_string())?;
+        if rep.refusee {
+            r.trou(format!("copilote: question refusée pour {role} — {question}"));
+        } else {
+            r.geste(format!("copilote [{role}] « {question} » → {}", rep.reponse));
+        }
+    }
+
+    // Effectif 4B connu du seed (Harry, Hermione, Ginny).
+    let rep = ent
+        .copilote_repondre(
+            cast.etablissement_id,
+            cast.administratif.user_id,
+            Role::Administratif.as_str(),
+            "effectif 4B",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    match rep.donnees["effectif"].as_i64() {
+        Some(3) => r.geste("copilote: effectif 4B = 3 (seed) vérifié"),
+        Some(n) => r.trou(format!("copilote: effectif 4B attendu 3, obtenu {n}")),
+        None => r.trou("copilote: effectif 4B sans compteur"),
+    }
+
+    // Cloisonnement : le prof ne lit pas les impayés.
+    let refus = ent
+        .copilote_repondre(
+            cast.etablissement_id,
+            cast.prof.user_id,
+            Role::Prof.as_str(),
+            "factures impayées",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if refus.refusee {
+        r.geste(
+            "copilote: impayés refusés au prof (capacité) OK — HTTP POST /copilote/ask",
+        );
+    } else {
+        r.trou("copilote: le prof a lu les impayés — fuite de capacité");
+    }
+    Ok(())
+}
+
+/// Spine « publication établissement → famille » : chaque publication destinée à
+/// la famille (bulletin, doc à signer, facture, bourse, conseil de classe)
+/// produit une **notification réelle** (outbox mail anti-doublon), pas seulement
+/// un événement interne. Preuve observable de la répercussion transverse.
+async fn explorer_spine_notifications_famille(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    println!("# spine « publication établissement → famille » (notifications)");
+
+    let etab = cast.etablissement_id;
+    let eleve_id = cast.eleve_lea_id;
+    let annee = annee_scolaire_de(jour);
+
+    // 1) Bulletin publié → mail famille.
+    let periodes = ent
+        .list_note_periodes(etab)
+        .await
+        .map_err(|e| e.to_string())?;
+    let periode = periodes.first().ok_or("aucune période de notes")?;
+    let bulletin = ent
+        .publier_bulletin_for_actor(
+            Role::Prof.as_str(),
+            etab,
+            eleve_id,
+            periode.id,
+            cast.prof.user_id,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("prof publie un bulletin → attendu : mail famille");
+
+    // 2) Document à signer publié → mail famille (action requise).
+    let doc = ent
+        .publier_doc_a_signer_for_actor(
+            Role::Cpe.as_str(),
+            PublierDocASigner {
+                etablissement_id: etab,
+                eleve_id,
+                code: "SPINE_REGLEMENT".into(),
+                titre: "Règlement intérieur (spine)".into(),
+                corps: "À signer avant la rentrée.".into(),
+                annee_scolaire: annee.clone(),
+                echeance: None,
+                actor_user_id: cast.cpe.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("CPE publie un doc à signer → attendu : mail famille");
+
+    // 3) Facture émise → mail famille.
+    let (facture, _) = ent
+        .creer_facture_for_actor(
+            Role::Compta.as_str(),
+            CreerFacture {
+                etablissement_id: etab,
+                foyer_id: cast.foyer_lea_id,
+                numero: format!("SPINE-{}", &Uuid::new_v4().to_string()[..8]),
+                libelle: "Spine notifications".into(),
+                nature: None,
+                annee_scolaire: Some(annee),
+                lignes: vec![LigneFactureCmd {
+                    eleve_id: Some(eleve_id),
+                    libelle: "Scolarité".into(),
+                    quantite: 1,
+                    montant_unitaire_centimes: 12_000,
+                }],
+                actor_user_id: cast.compta.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    ent.emettre_facture_for_actor(etab, facture.id, cast.compta.user_id, Role::Compta.as_str())
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("compta émet une facture → attendu : mail famille");
+
+    // 3bis) Encaissement → quittance PDF notifiée à la famille.
+    let (_enc, _f, quittance) = ent
+        .encaisser_facture_for_actor(
+            Role::Compta.as_str(),
+            EncaisserFacture {
+                etablissement_id: etab,
+                facture_id: facture.id,
+                montant_centimes: facture.total_centimes,
+                moyen: MoyenPaiement::Virement,
+                reference: Some("SPINE".into()),
+                actor_user_id: cast.compta.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("famille règle la facture → attendu : quittance notifiée (PDF)");
+
+    // 4) Bourse décidée (acceptée) → mail famille.
+    let bt = ent
+        .list_bourse_types(etab)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .ok_or("aucun type de bourse")?;
+    let bourse = ent
+        .affecter_bourse(AffecterBourse {
+            etablissement_id: etab,
+            eleve_id,
+            bourse_type_id: bt.id,
+            echelon: "3".into(),
+            avec_procuration: false,
+            date_debut: jour,
+            actor_user_id: Some(cast.administratif.user_id.to_string()),
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    ent.decider_bourse(DeciderBourse {
+        etablissement_id: etab,
+        bourse_id: bourse.id,
+        accepter: true,
+        actor_user_id: Some(cast.administratif.user_id.to_string()),
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    r.geste("admini décide une bourse → attendu : mail famille");
+
+    // 5) Conseil de classe (visible famille) → mail famille.
+    let conseil = ent
+        .creer_conseil_classe_for_actor(
+            Role::Direction.as_str(),
+            CreerConseilClasse {
+                etablissement_id: etab,
+                classe: "4B".into(),
+                periode_libelle: "T1".into(),
+                jour,
+                heure: NaiveTime::from_hms_opt(18, 0, 0).ok_or("heure invalide")?,
+                lieu: "Salle des conseils".into(),
+                actor_user_id: cast.direction.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let dossier = ent
+        .ajouter_dossier_conseil_for_actor(
+            Role::Direction.as_str(),
+            AjouterDossierConseil {
+                etablissement_id: etab,
+                conseil_id: conseil.id,
+                eleve_id,
+                actor_user_id: cast.direction.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    ent.decider_dossier_conseil_for_actor(
+        Role::Direction.as_str(),
+        DeciderDossierConseil {
+            etablissement_id: etab,
+            dossier_id: dossier.id,
+            appreciation: "Spine".into(),
+            mention: "encouragements".into(),
+            decision_texte: "Poursuite".into(),
+            visible_famille: true,
+            actor_user_id: cast.direction.user_id,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    r.geste("direction publie une décision de conseil → attendu : mail famille");
+
+    // Preuve : les 5 publications ont produit une notification famille réelle.
+    let mails = ent
+        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .await
+        .map_err(|e| e.to_string())?;
+    let attendu: [(&str, Uuid); 6] = [
+        ("bulletin", bulletin.id),
+        ("doc_a_signer", doc.id),
+        ("facture", facture.id),
+        ("quittance", quittance.id),
+        ("bourse_acceptee", bourse.id),
+        ("conseil_decision", dossier.id),
+    ];
+    for (kind, source_id) in attendu {
+        if !mails
+            .iter()
+            .any(|m| m.kind == kind && m.source_id == Some(source_id))
+        {
+            return Err(format!(
+                "spine famille : publication « {kind} » non notifiée (outbox mail)"
+            ));
+        }
+        r.geste(format!("notifié à la famille : {kind}"));
+    }
+
+    r.trou(
+        "spine familles: bulletin + doc à signer + facture + quittance + bourse + conseil → notifications réelles (outbox mail)",
+    );
+    Ok(())
+}
+
+/// Annonces établissement → familles : la direction publie (générale / classe /
+/// personnels) et l'on vérifie la diffusion réelle (outbox mail) ainsi que ce
+/// que la famille voit effectivement.
+async fn explorer_annonces_communication(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    _jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    println!("# annonces établissement → familles");
+
+    let etab = cast.etablissement_id;
+
+    // 1) Annonce générale (toutes les familles).
+    let generale = ent
+        .publier_annonce_for_actor(
+            Role::Direction.as_str(),
+            CreerAnnonce {
+                etablissement_id: etab,
+                titre: "Réunion parents-professeurs".into(),
+                corps: "Le 12 mars à 17h en salle polyvalente.".into(),
+                audience: "parents".into(),
+                cible_classe: None,
+                actor_user_id: cast.direction.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("direction publie une annonce générale → attendu : diffusion familles");
+
+    // 2) Annonce ciblée classe.
+    let cible = ent
+        .publier_annonce_for_actor(
+            Role::Direction.as_str(),
+            CreerAnnonce {
+                etablissement_id: etab,
+                titre: "Sortie pédagogique 4B".into(),
+                corps: "Rendez-vous 8h devant le portail.".into(),
+                audience: "classe".into(),
+                cible_classe: Some("4B".into()),
+                actor_user_id: cast.direction.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("direction publie une annonce ciblée 4B → attendu : familles 4B seulement");
+
+    // 3) Note interne (personnels) → aucune diffusion famille.
+    let interne = ent
+        .publier_annonce_for_actor(
+            Role::Direction.as_str(),
+            CreerAnnonce {
+                etablissement_id: etab,
+                titre: "Note de service interne".into(),
+                corps: "Réservé aux personnels.".into(),
+                audience: "personnels".into(),
+                cible_classe: None,
+                actor_user_id: cast.direction.user_id,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("direction publie une note « personnels » → attendu : pas de diffusion famille");
+
+    // Preuve : le nombre de familles distinctes touchées par la diffusion générale.
+    let mails = ent
+        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .await
+        .map_err(|e| e.to_string())?;
+    let familles_generale: std::collections::HashSet<Uuid> = mails
+        .iter()
+        .filter(|m| m.kind == "annonce" && m.source_id == Some(generale.id))
+        .filter_map(|m| m.eleve_id)
+        .collect();
+    if familles_generale.len() < 2 {
+        return Err(format!(
+            "annonce générale : diffusion attendue vers plusieurs familles (got {})",
+            familles_generale.len()
+        ));
+    }
+    if mails
+        .iter()
+        .any(|m| m.kind == "annonce" && m.source_id == Some(interne.id))
+    {
+        return Err("annonce « personnels » diffusée à tort vers les familles".into());
+    }
+    r.geste(format!(
+        "diffusion réelle : {} famille(s) distincte(s) notifiée(s) pour l'annonce générale",
+        familles_generale.len()
+    ));
+
+    // Ce que la famille (parent de Harry, 4B) voit réellement.
+    let vues = ent
+        .list_annonces_famille_for_actor(
+            etab,
+            cast.parent_lea.user_id,
+            Role::Parent.as_str(),
+            cast.eleve_lea_id,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if !vues.iter().any(|a| a.id == generale.id) {
+        return Err("la famille ne voit pas l'annonce générale".into());
+    }
+    if !vues.iter().any(|a| a.id == cible.id) {
+        return Err("la famille 4B ne voit pas l'annonce de sa classe".into());
+    }
+    if vues.iter().any(|a| a.id == interne.id) {
+        return Err("la famille voit à tort une note interne « personnels »".into());
+    }
+    r.geste("famille 4B : voit générale + sa classe, ne voit pas la note interne");
+
+    r.trou(
+        "annonces: diffusion établissement → familles (mail par destinataire, anti-doublon par élève) + vue famille ciblée classe",
+    );
+    Ok(())
+}
+
+/// Retards : pointé à l'appel, un retard devient un fait VS **canonique et
+/// persistant** (`ent_retard`) — distinct de l'absence, visible par la famille.
+async fn explorer_retards_vie_scolaire(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    println!("# retards → fait vie scolaire canonique (distinct de l'absence)");
+
+    let etab = cast.etablissement_id;
+    let lea = cast.eleve_lea_id;
+
+    // Créneau dédié (jour courant) pour ne pas entrer en conflit avec les appels
+    // déjà ouverts/clos par les autres explorations.
+    let creneau = ent
+        .creer_edt_creneau(EdtCreneau {
+            id: Uuid::new_v4(),
+            etablissement_id: etab,
+            classe: "4B".into(),
+            matiere_id: None,
+            matiere_libelle: "Vie de classe".into(),
+            prof_user_id: cast.prof.user_id,
+            jour_semaine: jour_semaine_iso(jour),
+            heure_debut: NaiveTime::from_hms_opt(18, 0, 0).unwrap(),
+            heure_fin: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+            salle: Some("Salle 4B".into()),
+            site: String::new(),
+            semaine_ab: EdtSemaineAb::Toutes,
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 1) Retard pointé à l'appel 4B.
+    let (appel, _) = ent
+        .ouvrir_appel(
+            etab,
+            creneau.id,
+            jour,
+            cast.prof.user_id,
+            Role::Prof.as_str(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    ent.marquer_appel_ligne(etab, appel.id, lea, LigneEtat::Retard)
+        .await
+        .map_err(|e| e.to_string())?;
+    let avant = ent
+        .list_absences_a_traiter(etab, jour)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|a| a.eleve_id == lea)
+        .count();
+    ent.clore_appel(etab, appel.id, Some(cast.prof.user_id.to_string()))
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("prof pointe Harry en retard à l'appel 4B puis clôture");
+
+    // 2) Le retard est un fait VS persistant (pas l'état éphémère d'un appel).
+    let retards = ent
+        .list_retards_eleve_for_actor(etab, cast.cpe.user_id, Role::Cpe.as_str(), lea, 50)
+        .await
+        .map_err(|e| e.to_string())?;
+    if retards.len() != 1 || retards[0].source_appel_id != Some(appel.id) {
+        return Err("le retard pointé n'est pas persisté correctement".into());
+    }
+    r.geste("vie scolaire : le retard reste consultable après clôture (source = appel)");
+
+    // 3) Un retard n'est pas une absence (file VS inchangée).
+    let apres = ent
+        .list_absences_a_traiter(etab, jour)
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|a| a.eleve_id == lea)
+        .count();
+    if apres != avant {
+        return Err("un retard a créé une absence à tort".into());
+    }
+    r.geste("contrôle : un retard n'alimente pas la file des absences");
+
+    // 4) La famille liée voit le retard de son enfant.
+    let vus = ent
+        .list_retards_eleve_for_actor(etab, cast.parent_lea.user_id, Role::Parent.as_str(), lea, 50)
+        .await
+        .map_err(|e| e.to_string())?;
+    if vus.len() != 1 {
+        return Err("la famille ne voit pas le retard de son enfant".into());
+    }
+    r.geste("famille 4B : voit le retard de son enfant");
+
+    // 5) Saisie manuelle VS avec durée + compteur annuel.
+    ent.declarer_retard_for_actor(
+        Role::Cpe.as_str(),
+        DeclarerRetard {
+            etablissement_id: etab,
+            eleve_id: lea,
+            jour,
+            minutes: Some(20),
+            motif: Some("Bus".into()),
+            source_appel_id: None,
+            actor_user_id: Some(cast.cpe.user_id),
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let total = ent
+        .count_retards_eleve_depuis(etab, lea, jour)
+        .await
+        .map_err(|e| e.to_string())?;
+    if total != 2 {
+        return Err(format!("compteur retards attendu 2, got {total}"));
+    }
+    r.geste("CPE saisit un retard de 20 min (bus) → compteur élève du jour = 2");
+
+    // 6) Cloisonnement : une autre famille ne lit pas ces retards.
+    if ent
+        .list_retards_eleve_for_actor(etab, cast.parent_tom.user_id, Role::Parent.as_str(), lea, 50)
+        .await
+        .is_ok()
+    {
+        return Err("une famille non liée lit les retards d'un autre élève".into());
+    }
+    r.geste("contrôle : une famille non liée n'accède pas aux retards de l'élève");
+
+    r.trou(
+        "retards: appel → ent_retard (canonique, idempotent par appel/élève) + saisie manuelle VS + compteur + vue famille, sans polluer les absences",
+    );
+    Ok(())
+}
+
+async fn explorer_competences_lsu(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    println!("# compétences / LSU → niveau de maîtrise saisi (jamais deviné)");
+
+    let etab = cast.etablissement_id;
+    let lea = cast.eleve_lea_id;
+
+    // 1) Référentiel socle posé par le seed (5 domaines × 2 items).
+    let items = ent
+        .list_competences_items_for_actor(Role::Direction.as_str(), etab, false)
+        .await
+        .map_err(|e| e.to_string())?;
+    if items.len() < 10 {
+        return Err(format!("référentiel socle attendu ≥10, got {}", items.len()));
+    }
+    r.geste(format!(
+        "référentiel de compétences : {} item(s) sur {} domaine(s)",
+        items.len(),
+        items
+            .iter()
+            .map(|i| i.domaine.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    ));
+
+    // 2) La direction enrichit le référentiel.
+    let nouvel = ent
+        .creer_competence_item_for_actor(
+            Role::Direction.as_str(),
+            CreerCompetenceItem {
+                etablissement_id: etab,
+                domaine: "D2".into(),
+                code: "D2.3".into(),
+                libelle: "Coopérer et mutualiser".into(),
+                ordre: Some(30),
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("direction : ajoute un item au référentiel (coopérer et mutualiser)");
+
+    // 3) Période ouverte dédiée + évaluation d'Harry par le professeur.
+    let debut = domain_eleve::debut_annee_scolaire(jour);
+    let periode = ent
+        .creer_note_periode(CreerNotePeriode {
+            etablissement_id: etab,
+            code: "T-CMP".into(),
+            libelle: "Trimestre compétences".into(),
+            date_debut: debut,
+            date_fin: debut + chrono::Duration::days(110),
+            actor_user_id: Some(cast.direction.user_id.to_string()),
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    let d1_1 = items
+        .iter()
+        .find(|i| i.code == "D1.1")
+        .ok_or_else(|| "item D1.1 absent du socle".to_string())?
+        .clone();
+    ent.evaluer_competence_for_actor(
+        Role::Prof.as_str(),
+        EvaluerCompetence {
+            etablissement_id: etab,
+            eleve_id: lea,
+            item_id: d1_1.id,
+            periode_id: periode.id,
+            niveau: "4".into(),
+            commentaire: Some("Excellente prise de parole".into()),
+            actor_user_id: cast.prof.user_id,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    ent.evaluer_competence_for_actor(
+        Role::Prof.as_str(),
+        EvaluerCompetence {
+            etablissement_id: etab,
+            eleve_id: lea,
+            item_id: nouvel.id,
+            periode_id: periode.id,
+            niveau: "fragile".into(),
+            commentaire: None,
+            actor_user_id: cast.prof.user_id,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    r.geste("professeur : évalue Harry (D1.1 très bonne maîtrise, D2.3 fragile)");
+
+    // 4) La famille liée lit les niveaux ; une autre famille non.
+    let vus = ent
+        .list_evaluations_eleve_for_actor(
+            etab,
+            cast.parent_lea.user_id,
+            Role::Parent.as_str(),
+            lea,
+            Some(periode.id),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if vus.len() != 2 {
+        return Err(format!("famille attend 2 évaluations, got {}", vus.len()));
+    }
+    if ent
+        .list_evaluations_eleve_for_actor(
+            etab,
+            cast.parent_tom.user_id,
+            Role::Parent.as_str(),
+            lea,
+            Some(periode.id),
+        )
+        .await
+        .is_ok()
+    {
+        return Err("une famille non liée lit les compétences d'un autre élève".into());
+    }
+    r.geste("famille 4B : lit les niveaux de son enfant ; une autre famille est refusée");
+
+    // 5) L'export LSU porte le niveau réel (code 4), pas une devinette.
+    let csv = ent
+        .exporter_lsun_csv_for_actor(
+            Role::Prof.as_str(),
+            ExporterLsun {
+                etablissement_id: etab,
+                periode_id: periode.id,
+                classe: Some("4B".into()),
+                jour_reference: jour,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if !csv.contains("Potter;Harry;4B;D1;Comprendre et s'exprimer à l'oral;4;") {
+        return Err(format!("export LSU inattendu:\n{csv}"));
+    }
+    r.geste("export LSU : dérive le niveau de maîtrise des évaluations réelles");
+
+    // 6) Le livret de compétences est publié comme document famille + notifié.
+    let doc = ent
+        .publier_livret_competences_for_actor(
+            Role::Prof.as_str(),
+            etab,
+            lea,
+            periode.id,
+            cast.prof.user_id,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let mails = ent
+        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !mails
+        .iter()
+        .any(|m| m.kind == "livret_competences" && m.eleve_id == Some(lea))
+    {
+        return Err("la publication du livret n'a pas notifié la famille".into());
+    }
+    r.geste(format!(
+        "professeur : publie le livret PDF ({}) → document famille + notification",
+        doc.code.as_deref().unwrap_or("LIVRET")
+    ));
+
+    // Contrôle : le niveau stocké est bien re-lu (fragile sur D2.3).
+    let d2_3 = vus
+        .iter()
+        .find(|e| e.item_code == "D2.3")
+        .ok_or_else(|| "évaluation D2.3 absente".to_string())?;
+    if d2_3.niveau != NiveauMaitrise::Fragile {
+        return Err("niveau D2.3 attendu fragile".into());
+    }
+
+    r.trou(
+        "LSU: référentiel par établissement + évaluations par (élève, item, période) → lecture famille, export LSU et livret PDF notifié, sans deviner depuis une appréciation",
+    );
+    Ok(())
+}
+
+/// Passkeys (WebAuthn) : enrôlement réel, 2ᵉ facteur obligatoire, connexion
+/// sans mot de passe, récupération administrateur. Aucun TOTP, aucune app
+/// d'authentification : le facteur est une passkey (Touch ID / clé de sécurité).
+async fn explorer_passkeys_websauthn(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    _jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    use ent_auth::{CreationChallengeResponse, RequestChallengeResponse};
+    use webauthn_authenticator_rs::prelude::{Url, WebauthnAuthenticator};
+    use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+
+    println!("# passkeys (WebAuthn) → 2ᵉ facteur sans mot de passe, sans TOTP");
+
+    let etab = cast.etablissement_id;
+    let email = format!("passkey-lab-{}@ent.local", Uuid::new_v4());
+    let password = "PasskeyLab1!";
+    let user = ent
+        .register_user(&email, password, Some("Claire Labo"), etab, Role::Prof.as_str())
+        .await
+        .map_err(|e| e.to_string())?;
+    let user_id = user.id;
+
+    // 1) Sans passkey : mot de passe → session.
+    let outcome = ent
+        .login_start_with_ip(&email, password, etab, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !matches!(outcome, ent_db::LoginOutcome::Session(_)) {
+        return Err("un compte sans passkey doit ouvrir une session directe".into());
+    }
+    r.geste("compte neuf : mot de passe seul → session (2ᵉ facteur non encore enrôlé)");
+
+    // 2) Enrôlement d'une passkey via l'authentificateur logiciel du labo.
+    let origin = Url::parse("http://localhost:3000").map_err(|e| e.to_string())?;
+    let mut device = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let (reg_token, options) = ent
+        .passkey_register_start_for_actor(etab, user_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let ccr: CreationChallengeResponse =
+        serde_json::from_value(options).map_err(|e| e.to_string())?;
+    let registration = device
+        .do_registration(origin.clone(), ccr)
+        .map_err(|e| e.to_string())?;
+    ent.passkey_register_finish_for_actor(
+        etab,
+        user_id,
+        &reg_token,
+        &registration,
+        Some("Clé labo".into()),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    r.geste("professeur : enrôle une passkey (clé de sécurité / Touch ID)");
+
+    // 3) Le mot de passe seul ne suffit plus : challenge 2FA, pas de session.
+    let outcome = ent
+        .login_start_with_ip(&email, password, etab, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    let (auth_token, options) = match outcome {
+        ent_db::LoginOutcome::PasskeyRequired { token, options, .. } => (token, options),
+        ent_db::LoginOutcome::Session(_) => {
+            return Err("2ᵉ facteur non exigé alors qu'une passkey existe".into())
+        }
+    };
+    if !matches!(
+        ent.login_with_ip(&email, password, etab, None).await,
+        Err(ent_db::EntDbError::PasskeyRequis)
+    ) {
+        return Err("le chemin interne doit refuser de contourner la passkey".into());
+    }
+    r.geste("connexion : mot de passe validé puis passkey exigée (impossible de contourner)");
+
+    // 4) Assertion → session.
+    let rcr: RequestChallengeResponse =
+        serde_json::from_value(options).map_err(|e| e.to_string())?;
+    let assertion = device
+        .do_authentication(origin.clone(), rcr)
+        .map_err(|e| e.to_string())?;
+    let session = ent
+        .passkey_login_finish(&auth_token, &assertion)
+        .await
+        .map_err(|e| e.to_string())?;
+    if session.user_id != user_id {
+        return Err("session passkey sur un mauvais compte".into());
+    }
+    // Rejeu refusé (challenge à usage unique).
+    if ent.passkey_login_finish(&auth_token, &assertion).await.is_ok() {
+        return Err("un challenge d'authentification rejoué est accepté".into());
+    }
+    r.geste("assertion vérifiée → session ouverte ; le rejeu du même challenge est refusé");
+
+    // 5) Connexion **sans mot de passe**.
+    let (t, opts, _) = ent
+        .passkey_login_start(etab, &email)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "passkey non retrouvée pour la connexion sans mot de passe".to_string())?;
+    let rcr: RequestChallengeResponse = serde_json::from_value(opts).map_err(|e| e.to_string())?;
+    let assertion = device
+        .do_authentication(origin.clone(), rcr)
+        .map_err(|e| e.to_string())?;
+    ent.passkey_login_finish(&t, &assertion)
+        .await
+        .map_err(|e| e.to_string())?;
+    r.geste("connexion sans mot de passe : la passkey seule ouvre la session");
+
+    // 6) Isolation : un autre établissement ne voit rien.
+    let autre = Uuid::new_v4();
+    if ent.list_passkeys_for_actor(autre, user_id).await.is_ok() {
+        return Err("un autre établissement voit les passkeys".into());
+    }
+    if ent
+        .passkey_login_start(autre, &email)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err("un non-membre découvre une passkey hors établissement".into());
+    }
+    r.geste("multi-tenant : un autre établissement ne voit ni n'utilise ces passkeys");
+
+    // 7) Récupération : la direction retire les passkeys, mot de passe redevient suffisant.
+    let removed = ent
+        .reset_passkeys_admin_for_actor(etab, Role::Direction.as_str(), user_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    if removed == 0 {
+        return Err("la réinitialisation administrateur n'a rien retiré".into());
+    }
+    let outcome = ent
+        .login_start_with_ip(&email, password, etab, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !matches!(outcome, ent_db::LoginOutcome::Session(_)) {
+        return Err("après réinitialisation, le mot de passe doit suffire".into());
+    }
+    r.geste("direction : retire les passkeys (perte d'appareil) → mot de passe rétabli");
+
+    r.trou(
+        "Passkeys: WebAuthn uniquement (pas de TOTP) — enrôlement authentifié, 2ᵉ facteur non contournable, connexion sans mot de passe, challenge à usage unique, isolation par établissement, récupération direction",
+    );
+    Ok(())
+}
+
+/// SSO OIDC : l'établissement délègue l'identité à son annuaire (Google
+/// Workspace, Microsoft Entra, Keycloak…). IdP en mémoire : aucun réseau.
+async fn explorer_sso_oidc(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    _jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    use ent_oidc::testing::{FakeOidcTransport, TestIdp};
+    use std::sync::Arc;
+
+    fn param(url: &str, key: &str) -> Result<String, String> {
+        url.split_once('?')
+            .map(|(_, q)| q)
+            .unwrap_or_default()
+            .split('&')
+            .filter_map(|kv| kv.split_once('='))
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.to_string())
+            .ok_or_else(|| format!("paramètre {key} absent de l'URL d'autorisation"))
+    }
+
+    println!("# SSO OIDC → l'établissement délègue l'identité, l'ENT ne voit jamais le mot de passe");
+
+    let etab = cast.etablissement_id;
+    let mut idp = TestIdp::new();
+    idp.email = format!("sso-lab-{}@ent.local", Uuid::new_v4());
+    idp.subject = format!("sub-lab-{}", Uuid::new_v4());
+    let transport = Arc::new(FakeOidcTransport::new(idp.clone()));
+    ent.set_oidc_transport(transport.clone());
+
+    // Un compte local doit **déjà** exister : le SSO ne provisionne personne.
+    let user = ent
+        .register_user(
+            &idp.email,
+            "SsoLaboPass1!",
+            Some("Claire SSO"),
+            etab,
+            Role::Direction.as_str(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 1) Déclaration du fournisseur — validée par découverte réelle de l'IdP.
+    let provider = ent
+        .upsert_oidc_provider_for_actor(
+            etab,
+            Role::Direction.as_str(),
+            ent_db::OidcProviderParams {
+                slug: "annuaire".into(),
+                libelle: "Annuaire de l'établissement".into(),
+                issuer: idp.issuer.clone(),
+                client_id: idp.client_id.clone(),
+                client_secret: idp.client_secret.clone(),
+                scopes: None,
+                redirect_uri: None,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if provider.token_endpoint != idp.token_endpoint() {
+        return Err("endpoints d'IdP non résolus par la découverte".into());
+    }
+    r.geste("direction : déclare un fournisseur SSO (endpoints résolus par découverte, pas saisis à la main)");
+
+    // 2) La page de connexion n'expose que slug + libellé.
+    let publics = ent
+        .list_oidc_providers_public(etab)
+        .await
+        .map_err(|e| e.to_string())?;
+    if publics.len() != 1 || publics[0].slug != provider.slug {
+        return Err("le fournisseur SSO n'apparaît pas sur la page de connexion".into());
+    }
+    r.geste("page de connexion : bouton SSO (slug + libellé seulement — ni issuer, ni client_id, ni secret)");
+
+    // 3) Parcours complet : autorisation PKCE → retour → session.
+    let url = ent
+        .oidc_start(etab, &provider.slug)
+        .await
+        .map_err(|e| e.to_string())?;
+    let state = param(&url, "state")?;
+    transport.arm_nonce(&param(&url, "nonce")?);
+    transport.arm_code_challenge(&param(&url, "code_challenge")?);
+    let session = match ent
+        .oidc_complete("code-labo", &state)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        ent_db::LoginOutcome::Session(s) => s,
+        ent_db::LoginOutcome::PasskeyRequired { .. } => {
+            return Err("le compte SSO de labo ne doit pas exiger de passkey".into())
+        }
+    };
+    if session.user_id != user.id || session.etablissement_id != etab {
+        return Err("session SSO ouverte sur un mauvais compte".into());
+    }
+    r.geste("parcours SSO : PKCE + nonce vérifiés, id_token RS256 validé → session sur le compte local");
+
+    // 4) `state` à usage unique.
+    if ent.oidc_complete("code-labo", &state).await.is_ok() {
+        return Err("un state SSO rejoué est accepté".into());
+    }
+    r.geste("le state SSO est à usage unique : un retour rejoué est refusé (anti-CSRF)");
+
+    // 5) Identité inconnue → refus, aucun compte créé.
+    let mut inconnu = TestIdp::new();
+    inconnu.email = format!("sso-inconnu-{}@ent.local", Uuid::new_v4());
+    inconnu.subject = format!("sub-inconnu-{}", Uuid::new_v4());
+    let transport_inconnu = Arc::new(FakeOidcTransport::new(inconnu));
+    ent.set_oidc_transport(transport_inconnu.clone());
+    let url = ent
+        .oidc_start(etab, &provider.slug)
+        .await
+        .map_err(|e| e.to_string())?;
+    transport_inconnu.arm_nonce(&param(&url, "nonce")?);
+    transport_inconnu.arm_code_challenge(&param(&url, "code_challenge")?);
+    if !matches!(
+        ent.oidc_complete("code-inconnu", &param(&url, "state")?).await,
+        Err(ent_db::EntDbError::OidcCompteInconnu)
+    ) {
+        return Err("une identité SSO inconnue doit être refusée".into());
+    }
+    r.geste("identité SSO inconnue : refus — l'ENT ne crée jamais de compte à la volée (pas de rôle inventé)");
+
+    // 6) Le SSO ne contourne pas une passkey déjà enrôlée.
+    {
+        use ent_auth::CreationChallengeResponse;
+        use webauthn_authenticator_rs::prelude::{Url, WebauthnAuthenticator};
+        use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+
+        let mut device = WebauthnAuthenticator::new(SoftPasskey::new(true));
+        let origin = Url::parse("http://localhost:3000").map_err(|e| e.to_string())?;
+        let (reg_token, options) = ent
+            .passkey_register_start_for_actor(etab, user.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let ccr: CreationChallengeResponse =
+            serde_json::from_value(options).map_err(|e| e.to_string())?;
+        let registration = device
+            .do_registration(origin.clone(), ccr)
+            .map_err(|e| e.to_string())?;
+        ent.passkey_register_finish_for_actor(
+            etab,
+            user.id,
+            &reg_token,
+            &registration,
+            Some("Clé SSO".into()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    let transport5 = Arc::new(FakeOidcTransport::new(idp.clone()));
+    ent.set_oidc_transport(transport5.clone());
+    let url = ent
+        .oidc_start(etab, &provider.slug)
+        .await
+        .map_err(|e| e.to_string())?;
+    transport5.arm_nonce(&param(&url, "nonce")?);
+    transport5.arm_code_challenge(&param(&url, "code_challenge")?);
+    match ent
+        .oidc_complete("code-passkey", &param(&url, "state")?)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        ent_db::LoginOutcome::PasskeyRequired { .. } => {}
+        ent_db::LoginOutcome::Session(_) => {
+            return Err("le SSO contourne la passkey enrôlée".into())
+        }
+    }
+    r.geste("un compte à passkey ne l'esquive pas via le SSO : l'IdP valide, puis la passkey est exigée");
+
+    // 7) Isolation : le fournisseur est propre à l'établissement.
+    let autre = Uuid::new_v4();
+    if ent.oidc_start(autre, &provider.slug).await.is_ok() {
+        return Err("un autre établissement démarre le SSO de celui-ci".into());
+    }
+    if !ent
+        .list_oidc_providers_public(autre)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_empty()
+    {
+        return Err("un autre établissement voit ce fournisseur SSO".into());
+    }
+    r.geste("multi-tenant : un fournisseur SSO n'existe que dans son établissement");
+
+    r.trou(
+        "SSO OIDC: découverte validée à la configuration, PKCE S256 + nonce, id_token RS256 vérifié (JWKS), state à usage unique, rattachement par sub puis e-mail, aucun provisioning implicite, ne contourne pas une passkey enrôlée, isolation par établissement",
+    );
+    Ok(())
+}
+
+/// Observabilité (métriques Prometheus, sondes base, gabarits de route) et
+/// sauvegardes / PRA (inventaire d'intégrité par établissement, détection de
+/// dérive, cloisonnement, empreinte de schéma).
+async fn explorer_observabilite_pra(
+    ent: &PgEnt,
+    cast: &LaboCast,
+    _jour: NaiveDate,
+    r: &mut Rapport,
+) -> Result<(), String> {
+    use ent_obs::{Genre, Metrics};
+
+    println!("# Observabilité + sauvegardes / PRA → ce qu'un exploitant voit et peut prouver");
+
+    let etab = cast.etablissement_id;
+
+    // 1) Registre de métriques : comptage par gabarit, jauge, histogramme.
+    let obs = Metrics::new();
+    obs.declarer(
+        "ent_http_requetes_total",
+        Genre::Compteur,
+        "Requêtes HTTP traitées, par méthode, gabarit de route et statut",
+    );
+    for statut in ["200", "200", "404"] {
+        obs.compteur_incr(
+            "ent_http_requetes",
+            &[
+                ("methode", "GET"),
+                ("route", "/eleves/{id}"),
+                ("statut", statut),
+            ],
+        );
+    }
+    obs.histogramme_observer(
+        "ent_http_duree_secondes",
+        &[("methode", "GET"), ("route", "/eleves/{id}")],
+        0.042,
+    );
+    obs.jauge_definir("ent_http_requetes_en_cours", &[], 0);
+    let texte = obs.rendre();
+    if !texte.contains("ent_http_requetes_total{methode=\"GET\",route=\"/eleves/{id}\",statut=\"200\"} 2")
+    {
+        return Err("le compteur par gabarit de route n'est pas rendu".into());
+    }
+    if !texte.contains("ent_http_duree_secondes_bucket{methode=\"GET\",route=\"/eleves/{id}\",le=\"+Inf\"} 1")
+    {
+        return Err("l'histogramme de latence n'est pas rendu".into());
+    }
+    r.geste("métriques : compteurs par gabarit de route (jamais l'identifiant brut), jauge « en cours », histogramme de latence, export texte Prometheus");
+
+    // 2) Sondes base réelles (pool, sessions, outbox, passkeys, volumétrie).
+    let sondes = ent.sondes_metriques().await.map_err(|e| e.to_string())?;
+    let noms: Vec<&str> = sondes.iter().map(|s| s.nom.as_str()).collect();
+    for attendu in [
+        "ent_db_pool_connexions",
+        "ent_sessions_actives",
+        "ent_mails_outbox",
+        "ent_passkeys_total",
+        "ent_eleves_total",
+    ] {
+        if !noms.contains(&attendu) {
+            return Err(format!("sonde {attendu} absente"));
+        }
+    }
+    let sessions = sondes
+        .iter()
+        .find(|s| s.nom == "ent_sessions_actives")
+        .map(|s| s.valeur)
+        .unwrap_or_default();
+    let mails_dry = sondes
+        .iter()
+        .find(|s| s.nom == "ent_mails_outbox" && s.etiquettes.iter().any(|(_, v)| v == "dry_run"))
+        .map(|s| s.valeur)
+        .unwrap_or_default();
+    r.geste(format!(
+        "sondes base : pool Postgres, {sessions} semaine(s) de sessions actives, {mails_dry} courrier(s) en dry-run, passkeys et élèves comptés sans donnée nominative"
+    ));
+
+    // 3) Inventaire d'intégrité de l'établissement (référence avant sauvegarde).
+    let inv1 = ent
+        .inventaire_etablissement(etab)
+        .await
+        .map_err(|e| e.to_string())?;
+    if inv1.tables.iter().any(|t| ent_db::TABLES_VOLATILES.contains(&t.nom.as_str())) {
+        return Err("une table volatile figure à l'inventaire (sessions / défis / verrous)".into());
+    }
+    r.geste(format!(
+        "inventaire établissement : {} table(s) portant l'établissement, {} ligne(s), empreinte de schéma {}, migration {}",
+        inv1.nombre_tables(),
+        inv1.lignes_total(),
+        &inv1.empreinte_schema[..8],
+        inv1.migration_tag,
+    ));
+
+    let conforme = ent.verifier_inventaire(&inv1).await.map_err(|e| e.to_string())?;
+    if !conforme.conforme {
+        return Err(format!("intégrité non conforme à vide : {}", conforme.resume()));
+    }
+    r.geste("vérification à vide : la base recalcule exactement l'inventaire (empreinte + digest par table)");
+
+    // 4) Dérive volontaire → détectée ligne à ligne, puis retour à conformité.
+    let derive = format!("Pra{}", &Uuid::new_v4().to_string()[..8]);
+    ent.create_eleve(domain_eleve::CreateEleve {
+        etablissement_id: etab,
+        nom: "Derive".into(),
+        prenom: derive,
+        ine: None,
+        sexe: None,
+        date_naissance: None,
+        numero_badge: None,
+        redoublant: false,
+        classe: Some("6A".into()),
+        regime: None,
+        mef: None,
+        site: None,
+        date_entree: None,
+        date_sortie: None,
+        motif_sortie: None,
+        actor_user_id: Some(cast.direction.user_id.to_string()),
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let rapport = ent.verifier_inventaire(&inv1).await.map_err(|e| e.to_string())?;
+    if rapport.conforme {
+        return Err("une inscription de plus n'a pas été détectée par l'inventaire".into());
+    }
+    let ecart = rapport
+        .ecarts
+        .iter()
+        .find(|e| e.nom == "ent_eleve")
+        .ok_or("l'écart attendu ne porte pas sur ent_eleve")?;
+    r.geste(format!(
+        "dérive détectée : ent_eleve {} → {} ligne(s), digest changé — c'est ce qui prouve une restauration fidèle (et l'inverse)",
+        ecart.lignes_attendues, ecart.lignes_obtenues
+    ));
+    let inv2 = ent
+        .inventaire_etablissement(etab)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !ent
+        .verifier_inventaire(&inv2)
+        .await
+        .map_err(|e| e.to_string())?
+        .conforme
+    {
+        return Err("le nouvel inventaire n'est pas conforme".into());
+    }
+    r.geste("nouvel inventaire après reprise → conforme (procédure : inventaire → sauvegarde → restauration → vérification)");
+
+    // 5) Garde par rôle et portée : prof refusé, inventaire d'un autre tenant refusé.
+    if ent
+        .inventaire_etablissement_pour_acteur(etab, Role::Prof.as_str())
+        .await
+        .is_ok()
+    {
+        return Err("un professeur peut lire l'inventaire de sauvegarde".into());
+    }
+    let autre = Uuid::new_v4();
+    match ent
+        .verifier_inventaire_etablissement_pour_acteur(autre, Role::Direction.as_str(), &inv2)
+        .await
+    {
+        Err(ent_db::EntDbError::InventairePorteeEtrangere) => {}
+        _ => return Err("un inventaire d'un autre établissement est accepté comme référence".into()),
+    }
+    r.geste("direction / admin only, et un inventaire d'un autre établissement ne peut pas servir de référence");
+
+    // 6) Inventaire global (surface opérateur, hors HTTP) + volumétrie.
+    let global = ent.inventaire_global().await.map_err(|e| e.to_string())?;
+    if global.table("ent_user").is_none() {
+        return Err("l'inventaire global ne couvre pas les comptes".into());
+    }
+    r.geste(format!(
+        "inventaire global (opérateur) : {} table(s), {} ligne(s) toutes faces confondues — surface de sauvegarde / PRA",
+        global.nombre_tables(),
+        global.lignes_total(),
+    ));
+
+    r.trou(
+        "Observabilité: /metrics (jeton ENT_METRICS_TOKEN ou ENT_METRICS=1, sinon 404), gabarits de route sans explosion de cardinalité, journaux JSON (ENT_LOG_FORMAT=json), /health et /ready porteurs du tag de migration — pas de traces distribuées (OTel) ni de tableaux de bord livrés",
+    );
+    r.trou(
+        "PRA: inventaire d'intégrité vérifiable (lignes + digest par table + empreinte de schéma), procédure inventaire → sauvegarde → restauration → vérification — les scripts pg_dump/pg_restore et les snapshots RDB Scaleway restent la mécanique de sauvegarde (absents de cette machine)",
+    );
     Ok(())
 }

@@ -81,6 +81,32 @@ impl PgJournalRepo {
         };
         Ok(rows.into_iter().map(Row::into_entree).collect())
     }
+
+    /// Journal filtré par domaine (ex. `auth` pour l'audit d'accès).
+    pub async fn list_domaine(
+        &self,
+        etablissement_id: Uuid,
+        domaine: &str,
+        limit: i64,
+    ) -> Result<Vec<JournalEntree>, DomainError> {
+        let rows = sqlx::query_as::<_, Row>(
+            r#"
+            SELECT id, etablissement_id, eleve_id, domaine, action, libelle,
+                   payload, visible_famille, actor_user_id, created_at
+            FROM ent_journal_modif
+            WHERE etablissement_id = $1 AND domaine = $2
+            ORDER BY created_at DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(domaine)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(Row::into_entree).collect())
+    }
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {

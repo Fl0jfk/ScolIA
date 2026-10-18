@@ -126,6 +126,5 @@ impl MotifRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] motif sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("motif_repo", err)
 }

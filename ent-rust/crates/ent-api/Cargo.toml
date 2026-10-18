@@ -17,16 +17,19 @@ chrono = { workspace = true }
 domain-eleve = { path = "../domain-eleve" }
 ent-auth = { path = "../ent-auth" }
 ent-db = { path = "../ent-db" }
+ent-obs = { path = "../ent-obs" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["trace", "fs"] }
+tower-http = { version = "0.6", features = ["trace", "fs", "cors", "limit", "catch-panic", "set-header", "request-id", "timeout"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+ent-oidc = { path = "../ent-oidc" }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }

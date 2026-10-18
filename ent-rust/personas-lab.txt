@@ -1,0 +1,35 @@
+=== ENT labo — personas ===
+établissement : e0d09d9f-f6aa-4066-aab7-9ecb21c99d11
+mot de passe (tous) : DevLocalPass1!
+
+## Staff
+- admin                 admin  admin-e0d09d9f@ent.lab
+- direction         direction  direction1-e0d09d9f@ent.lab
+- administratif  administratif  admini1-e0d09d9f@ent.lab
+- compta               compta  compta1-e0d09d9f@ent.lab
+- cpe                     cpe  cpe1-e0d09d9f@ent.lab
+- prof                   prof  prof1-e0d09d9f@ent.lab
+- prof #1                 prof  prof2-e0d09d9f@ent.lab
+- prof #2                 prof  prof3-e0d09d9f@ent.lab
+- prof #3                 prof  prof4-e0d09d9f@ent.lab
+- prof #4                 prof  prof5-e0d09d9f@ent.lab
+- prof #5                 prof  prof6-e0d09d9f@ent.lab
+- prof #6                 prof  prof7-e0d09d9f@ent.lab
+- prof #7                 prof  prof8-e0d09d9f@ent.lab
+- cpe  #1                  cpe  cpe2-e0d09d9f@ent.lab
+- infirmière #0     infirmerie  infirmiere1-e0d09d9f@ent.lab
+- infirmière #1     infirmerie  infirmiere2-e0d09d9f@ent.lab
+- psy  #0                  psy  psy1-e0d09d9f@ent.lab
+- psy  #1                  psy  psy2-e0d09d9f@ent.lab
+
+## Élèves & familles
+-     Harry Potter     ( 4B)  parent: parent0-e0d09d9f@ent.lab  ·  élève: eleve0-e0d09d9f@ent.lab
+-     Draco Malefoy    ( 5A)  parent: parent1-e0d09d9f@ent.lab  ·  élève: eleve1-e0d09d9f@ent.lab
+-  Hermione Granger    ( 4B)  parent: parent2-e0d09d9f@ent.lab  ·  élève: eleve2-e0d09d9f@ent.lab
+-       Ron Weasley    ( 5A)  parent: weasley-e0d09d9f@ent.lab  ·  élève: eleve3-e0d09d9f@ent.lab
+-   Neville Londubat   ( 3C)  parent: parent4-e0d09d9f@ent.lab  ·  élève: eleve4-e0d09d9f@ent.lab
+-      Luna Lovegood   ( 6A)  parent: parent5-e0d09d9f@ent.lab
+-     Ginny Weasley    ( 4B)  parent: weasley-e0d09d9f@ent.lab
+-       Cho Chang      ( 5A)  parent: parent7-e0d09d9f@ent.lab
+-    Cedric Diggory    ( 3C)  parent: parent8-e0d09d9f@ent.lab
+-    Seamus Finnigan   ( 6A)  parent: parent9-e0d09d9f@ent.lab

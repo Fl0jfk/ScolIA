@@ -857,6 +857,5 @@ impl DossierRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] sanction sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("sanction_repo", err)
 }

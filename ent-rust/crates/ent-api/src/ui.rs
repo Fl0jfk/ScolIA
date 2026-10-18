@@ -18399,7 +18399,7 @@ function appelManquantsTipDenseHtml(nManq, total) {
       <strong class="warn">${k}</strong><span>Saisie manquante · ${tot} élève(s) au créneau</span>
     </div>
     <div class="stat-tile bento-span-4"><strong class="muted">P / A / R</strong><span>Marquer chaque ligne (défaut présent ≠ validé)</span></div>
-    <div class="stat-tile bento-span-4"><strong class="muted">Clôture</strong><span>Seuls les absents alimentent la file VS</span></div>
+    <div class="stat-tile bento-span-4"><strong class="muted">Clôture</strong><span>Absents → file VS · retards → registre retards</span></div>
   </div>`;
 }
 
@@ -24665,6 +24665,7 @@ function navHtml(active) {
       ['/famille/sorties', 'Sorties'],
       ['/famille/orientation', 'Orientation'],
       ['/famille/reinscription', 'Réinscription'],
+      ['/famille/securite', 'Sécurité'],
     ].map(([h, l]) => navLink(active, h, l)).join('');
   }
   if (isEleve()) {
@@ -24685,6 +24686,7 @@ function navHtml(active) {
       ['/eleve/stages', 'Stages'],
       ['/eleve/orientation', 'Orientation'],
       ['/eleve/journal', 'Journal'],
+      ['/eleve/securite', 'Sécurité'],
     ].map(([h, l]) => navLink(active, h, l)).join('');
   }
   // Staff — groupes métier filtrés par rôle (RBAC API reste la vérité).
@@ -24696,6 +24698,7 @@ function navHtml(active) {
   const isSante = isAdminish || ['infirmerie', 'psy', 'cpe'].includes(role);
   const isPedago = isAdminish || isProf || role === 'cpe';
   const parts = [navLink(active, '/app', 'Accueil')];
+  parts.push(navLink(active, '/app/copilote', 'Copilote'));
   if (isAdminish) {
     parts.push(navGroup(active, 'Administration', [
       ['/app/eleves', 'Élèves'],
@@ -24750,6 +24753,7 @@ function navHtml(active) {
     const ped = [
       ['/app/notes', 'Notes'],
       ['/app/cahier', 'Cahier de texte'],
+      ['/app/competences', 'Compétences'],
     ];
     if (isAdminish || role === 'cpe') {
       ped.push(['/app/edt', 'Emploi du temps'], ['/app/conseils', 'Conseils de classe']);
@@ -24772,6 +24776,9 @@ function navHtml(active) {
     if (isVs || isAdminish) {
       fam.push(['/app/docs-signer', 'Docs à signer']);
     }
+    if (isAdminish || role === 'cpe') {
+      fam.push(['/app/annonces', 'Annonces']);
+    }
     if (isAdminish) {
       fam.push(['/app/comms', 'Mails / SMS']);
     }
@@ -24789,6 +24796,7 @@ function navHtml(active) {
       ['/app/reinscription', 'Réinscription'],
     ]));
   }
+  parts.push(navGroup(active, 'Mon compte', [['/app/securite', 'Sécurité']]));
   return parts.join('');
 }
 
@@ -24832,6 +24840,182 @@ function shell(active, body) {
   </div>`;
 }
 
+/* ---------- Passkeys (WebAuthn) ---------- */
+/* L'ENT n'accepte que des passkeys : pas de TOTP, pas d'app tierce. Le secret
+   reste sur l'appareil ; le serveur vérifie une signature asymétrique. */
+function passkeysSupportes() {
+  return !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);
+}
+
+function fmtDateHeure(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function b64urlToBuf(s) {
+  const t = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  const padded = t + '='.repeat((4 - (t.length % 4)) % 4);
+  const bin = atob(padded);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+
+function bufToB64url(buf) {
+  if (!buf) return null;
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/* Transforme les options serveur (base64url) en options navigateur (ArrayBuffer). */
+function optionsCreationNavigateur(options) {
+  const pk = Object.assign({}, options.publicKey);
+  pk.challenge = b64urlToBuf(pk.challenge);
+  pk.user = Object.assign({}, pk.user, { id: b64urlToBuf(pk.user.id) });
+  pk.excludeCredentials = (pk.excludeCredentials || []).map(c =>
+    Object.assign({}, c, { id: b64urlToBuf(c.id) }));
+  return { publicKey: pk };
+}
+
+function optionsAssertionNavigateur(options) {
+  const pk = Object.assign({}, options.publicKey);
+  pk.challenge = b64urlToBuf(pk.challenge);
+  pk.allowCredentials = (pk.allowCredentials || []).map(c =>
+    Object.assign({}, c, { id: b64urlToBuf(c.id) }));
+  return { publicKey: pk };
+}
+
+/* Sérialise la réponse du navigateur vers le format attendu par le serveur. */
+function credentialVersJson(cred) {
+  const r = cred.response;
+  const out = {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: {},
+  };
+  if (r.attestationObject) {
+    out.response.attestationObject = bufToB64url(r.attestationObject);
+    out.response.clientDataJSON = bufToB64url(r.clientDataJSON);
+    if (typeof r.getTransports === 'function') {
+      try { out.response.transports = r.getTransports(); } catch { /* ignoré */ }
+    }
+  } else {
+    out.response.authenticatorData = bufToB64url(r.authenticatorData);
+    out.response.clientDataJSON = bufToB64url(r.clientDataJSON);
+    out.response.signature = bufToB64url(r.signature);
+    if (r.userHandle) out.response.userHandle = bufToB64url(r.userHandle);
+  }
+  if (typeof cred.getClientExtensionResults === 'function') {
+    try { out.extensions = cred.getClientExtensionResults(); } catch { /* ignoré */ }
+  }
+  return out;
+}
+
+function messagePasskey(e) {
+  if (!e) return 'Opération passkey refusée.';
+  if (e.name === 'NotAllowedError') return 'Opération annulée ou expirée sur l’appareil.';
+  if (e.name === 'InvalidStateError') return 'Cet appareil est déjà enrôlé pour ce compte.';
+  if (e.name === 'NotSupportedError') return 'Cet appareil / navigateur ne gère pas les passkeys.';
+  if (e.name === 'SecurityError') return 'Origine non sécurisée : les passkeys exigent HTTPS (ou localhost).';
+  return e.message || String(e);
+}
+
+/* Étape 1 : enrôlement d'une nouvelle passkey (session requise). */
+async function enrollerPasskey(name) {
+  if (!passkeysSupportes()) {
+    throw new Error('Ce navigateur ne gère pas les passkeys (WebAuthn).');
+  }
+  const start = await api('/auth/passkey/register/start', { method: 'POST', body: '{}' });
+  let cred;
+  try {
+    cred = await navigator.credentials.create(optionsCreationNavigateur(start.options));
+  } catch (e) {
+    throw new Error(messagePasskey(e));
+  }
+  if (!cred) throw new Error('Enrôlement annulé.');
+  return api('/auth/passkey/register/finish', {
+    method: 'POST',
+    body: JSON.stringify({ token: start.token, credential: credentialVersJson(cred), name: name || null }),
+  });
+}
+
+/* Étape finale d'authentification : token de challenge → session. */
+async function finaliserPasskey(token, options) {
+  if (!passkeysSupportes()) {
+    throw new Error('Ce navigateur ne gère pas les passkeys (WebAuthn).');
+  }
+  let cred;
+  try {
+    cred = await navigator.credentials.get(optionsAssertionNavigateur(options));
+  } catch (e) {
+    throw new Error(messagePasskey(e));
+  }
+  if (!cred) throw new Error('Authentification annulée.');
+  return api('/auth/passkey/login/finish', {
+    method: 'POST',
+    body: JSON.stringify({ token, credential: credentialVersJson(cred) }),
+  });
+}
+
+/* ---------- SSO OIDC ---------- */
+/* Le SSO délègue l'authentification à l'IdP de l'établissement. L'ENT ne
+   reçoit jamais le mot de passe : il vérifie l'id_token signé par l'IdP. */
+async function ssoChargerFournisseurs(etab) {
+  return api('/auth/oidc/public?etablissement_id=' + encodeURIComponent(etab));
+}
+
+async function ssoDemarrer(slug, etab) {
+  const res = await api('/auth/oidc/' + encodeURIComponent(slug) + '/start', {
+    method: 'POST',
+    body: JSON.stringify({ etablissement_id: etab }),
+  });
+  window.location.href = res.url;
+}
+
+function viewOidcCallback() {
+  return `<div class="panel" style="max-width:32rem;margin:3rem auto">
+    <h2>Connexion SSO</h2>
+    <div id="oidcOut"><p class="muted">Vérification auprès de l’établissement…</p></div>
+    <p class="muted" style="margin-top:1rem"><a href="/login">Retour à la connexion</a></p>
+  </div>`;
+}
+
+async function bindOidcCallback() {
+  const out = document.getElementById('oidcOut');
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  const state = params.get('state');
+  const erreur = params.get('error');
+  // On ne garde pas code/state dans l'URL (historique, copie de lien).
+  history.replaceState(null, '', '/auth/oidc/callback');
+  if (erreur) {
+    out.innerHTML = `<div class="errbox">L’établissement a refusé la connexion (${esc(erreur)}).</div>`;
+    return;
+  }
+  if (!code || !state) {
+    out.innerHTML = `<div class="errbox">Retour SSO incomplet (code ou state manquant).</div>`;
+    return;
+  }
+  try {
+    const res = await api('/auth/oidc/complete', {
+      method: 'POST',
+      body: JSON.stringify({ code, state }),
+    });
+    if (res && res.mfa_required) {
+      await validerSecondFacteur(res.passkey, out);
+      return;
+    }
+    await ouvrirSession(res);
+  } catch (e) {
+    out.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
 /* ---------- Login ---------- */
 function viewLogin() {
   const cast = STORE.cast;
@@ -24863,8 +25047,15 @@ function viewLogin() {
     </label>
     <div class="actions">
       <button type="submit" class="primary">Se connecter</button>
+      <button type="button" id="btnPasskeyLogin">Connexion par passkey</button>
     </div>
+    <div class="actions" style="margin-top:.25rem">
+      <button type="button" id="btnSsoLogin">Connexion via le SSO de l’établissement</button>
+    </div>
+    <div id="ssoList"></div>
+    <p class="muted" style="margin-top:.5rem"><a href="/mot-de-passe-oublie">Mot de passe oublié ?</a></p>
     <div id="loginErr"></div>
+    <div id="loginStep2"></div>
   </form></div>`;
 }
 
@@ -24891,26 +25082,118 @@ async function bindLogin() {
   document.getElementById('loginForm').onsubmit = async (ev) => {
     ev.preventDefault();
     const box = document.getElementById('loginErr');
+    const step2 = document.getElementById('loginStep2');
     box.innerHTML = '';
+    if (step2) step2.innerHTML = '';
     try {
       const body = {
         email: document.getElementById('email').value.trim(),
         password: document.getElementById('password').value,
         etablissement_id: document.getElementById('etab').value.trim(),
       };
-      const sess = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
-      STORE.token = sess.token;
-      STORE.etab = sess.etablissement_id;
-      await ensureMe();
-      famEnfantsCache = null;
-      if (isParent()) {
-        try { await fetchFamEnfants(true); } catch { famEnfantsCache = null; }
+      const res = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
+      if (res && res.mfa_required) {
+        // 2ᵉ facteur : mot de passe validé, passkey exigée avant toute session.
+        await validerSecondFacteur(res.passkey, step2 || box);
+        return;
       }
-      go(homeForRole());
+      await ouvrirSession(res);
     } catch (e) {
       box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
     }
   };
+
+  const btnPasskey = document.getElementById('btnPasskeyLogin');
+  if (btnPasskey) {
+    if (!passkeysSupportes()) {
+      btnPasskey.disabled = true;
+      btnPasskey.title = 'Passkeys non gérées par ce navigateur';
+    }
+    btnPasskey.onclick = async () => {
+      const box = document.getElementById('loginErr');
+      const step2 = document.getElementById('loginStep2');
+      box.innerHTML = '';
+      if (step2) step2.innerHTML = '';
+      try {
+        const start = await api('/auth/passkey/login/start', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: document.getElementById('email').value.trim(),
+            etablissement_id: document.getElementById('etab').value.trim(),
+          }),
+        });
+        const sess = await finaliserPasskey(start.token, start.options);
+        await ouvrirSession(sess);
+      } catch (e) {
+        box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      }
+    };
+  }
+
+  /* SSO OIDC : l'établissement peut déléguer l'authentification à son IdP.
+     Si plusieurs fournisseurs sont configurés, on laisse choisir. */
+  const btnSso = document.getElementById('btnSsoLogin');
+  if (btnSso) {
+    btnSso.onclick = async () => {
+      const box = document.getElementById('loginErr');
+      const list = document.getElementById('ssoList');
+      box.innerHTML = '';
+      list.innerHTML = '';
+      const etabInput = document.getElementById('etab').value.trim();
+      if (!etabInput) {
+        box.innerHTML = `<div class="errbox">Renseignez l’établissement pour retrouver son SSO.</div>`;
+        return;
+      }
+      try {
+        const providers = await ssoChargerFournisseurs(etabInput);
+        if (!providers || providers.length === 0) {
+          list.innerHTML = `<p class="muted">Aucun SSO configuré pour cet établissement.</p>`;
+          return;
+        }
+        if (providers.length === 1) {
+          await ssoDemarrer(providers[0].slug, etabInput);
+          return;
+        }
+        list.innerHTML = providers.map(p =>
+          `<div class="actions" style="margin-top:.25rem"><button type="button" class="sso-provider" data-slug="${esc(p.slug)}">${esc(p.libelle)}</button></div>`
+        ).join('');
+        list.querySelectorAll('button.sso-provider').forEach(b => {
+          b.onclick = async () => {
+            try {
+              await ssoDemarrer(b.dataset.slug, etabInput);
+            } catch (e) {
+              box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+            }
+          };
+        });
+      } catch (e) {
+        box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      }
+    };
+  }
+}
+
+/* Valide le 2ᵉ facteur passkey puis ouvre la session. */
+async function validerSecondFacteur(passkey, target) {
+  target.innerHTML = '<p class="muted">Validation de la passkey…</p>';
+  try {
+    const sess = await finaliserPasskey(passkey.token, passkey.options);
+    await ouvrirSession(sess);
+  } catch (e) {
+    target.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  }
+}
+
+/* Ouvre la session locale à partir d'une réponse d'authentification. */
+async function ouvrirSession(sess) {
+  STORE.token = sess.token;
+  STORE.etab = sess.etablissement_id;
+  await ensureMe();
+  famEnfantsCache = null;
+  if (isParent()) {
+    try { await fetchFamEnfants(true); } catch { famEnfantsCache = null; }
+  }
+  go(homeForRole());
 }
 
 /* ---------- Portail élève ---------- */
@@ -29566,6 +29849,24 @@ async function bindFamilleEnfant(id) {
         absAll = [];
       }
     }
+    // Retards : fait VS canonique, distinct des absences (vue famille).
+    let retards = [];
+    if (e.peut_voir_vs) {
+      try {
+        retards = await api('/eleves/' + id + '/retards');
+      } catch {
+        retards = [];
+      }
+    }
+    // Compétences / LSU : lecture famille (si le lien parent voit les notes).
+    let competences = [];
+    if (e.peut_voir_notes) {
+      try {
+        competences = await api('/eleves/' + id + '/competences');
+      } catch {
+        competences = [];
+      }
+    }
     let html = `<h2 style="margin-bottom:.15rem">${esc(e.prenom || '')} ${esc(e.nom || '')}</h2>`;
     html += famEnfantIdentBandeauHtml(e, dossier);
     html += famLienDroitsHintHtml(e);
@@ -29635,8 +29936,45 @@ async function bindFamilleEnfant(id) {
         </div>
         <div id="prevMsg" class="muted"></div>`;
     }
+
+    // Retards — fait vie scolaire persistant, distinct des absences.
+    if (e.peut_voir_vs) {
+      html += `<h4 style="margin:1rem 0 .25rem">Retards <span class="muted" style="font-weight:400;font-size:.72rem">vie scolaire · sans lien avec les absences</span></h4>`;
+      if (!retards.length) {
+        html += `<p class="empty">Aucun retard enregistré.</p>`;
+      } else {
+        html += `<table><thead><tr><th>Jour</th><th>Durée</th><th>Motif</th></tr></thead><tbody>
+          ${retards.map(x => `<tr>
+            <td>${esc(x.jour)}</td>
+            <td>${x.minutes == null ? '<span class="muted">—</span>' : esc(String(x.minutes)) + ' min'}</td>
+            <td>${esc(x.motif || '—')}</td>
+          </tr>`).join('')}
+        </tbody></table>`;
+      }
+    }
     html += `</div>`;
 
+    // Compétences / LSU — niveaux de maîtrise saisis par les professeurs.
+    if (e.peut_voir_notes) {
+      const byDom = {};
+      competences.forEach(c => { (byDom[c.domaine] = byDom[c.domaine] || []).push(c); });
+      html += `<div id="fam-sec-competences" style="scroll-margin-top:4.5rem">
+        <h3>Compétences <span class="muted" style="font-weight:400;font-size:.72rem">socle · niveaux de maîtrise</span></h3>`;
+      if (!competences.length) {
+        html += `<p class="empty">Aucune compétence évaluée pour l’instant.</p>`;
+      } else {
+        Object.keys(byDom).sort().forEach(dom => {
+          html += `<h4 style="margin:.6rem 0 .2rem">Domaine ${esc(dom)}</h4>
+            <table><thead><tr><th>Compétence</th><th>Niveau</th></tr></thead><tbody>
+            ${byDom[dom].map(c => `<tr>
+              <td>${esc(c.item_libelle)}${c.commentaire ? `<div class="muted" style="font-size:.72rem">${esc(c.commentaire)}</div>` : ''}</td>
+              <td><span class="pill">${esc(c.niveau_libelle)}</span></td>
+            </tr>`).join('')}
+            </tbody></table>`;
+        });
+      }
+      html += `</div>`;
+    }
     // Prévenance cantine (dispense jour)
     const grilleFam = (dossier && dossier.grille_repas) || [];
     if (grilleFam.length) {
@@ -52512,6 +52850,691 @@ function bindShell() {
   }
 }
 
+/* ---------- Mot de passe oublié / réinitialisation (public) ---------- */
+function viewForgotPassword() {
+  return `<div class="login-wrap"><form class="login-card" id="forgotForm">
+    <h1>Mot de passe oublié</h1>
+    <p class="muted">Indiquez votre e-mail : si un compte existe, un lien de réinitialisation vous est envoyé (valable 30 minutes).</p>
+    <label>E-mail <input id="fgEmail" type="email" required autocomplete="username"/></label>
+    <div class="actions">
+      <button type="submit" class="primary">Envoyer le lien</button>
+      <a href="/login" class="muted">Retour à la connexion</a>
+    </div>
+    <div id="fgMsg"></div>
+  </form></div>`;
+}
+
+function bindForgotPassword() {
+  document.getElementById('forgotForm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const box = document.getElementById('fgMsg');
+    const email = document.getElementById('fgEmail').value.trim();
+    box.innerHTML = '';
+    try {
+      await api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+      box.innerHTML = '<p class="ok">Si un compte correspond à cet e-mail, un lien vient d’être envoyé.</p>';
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+}
+
+function viewResetPassword() {
+  return `<div class="login-wrap"><form class="login-card" id="resetForm">
+    <h1>Nouveau mot de passe</h1>
+    <p class="muted">Choisissez un mot de passe (10 caractères minimum).</p>
+    <label>Nouveau mot de passe <input id="rsPwd" type="password" required autocomplete="new-password"/></label>
+    <label>Confirmation <input id="rsPwd2" type="password" required autocomplete="new-password"/></label>
+    <div class="actions"><button type="submit" class="primary">Valider</button></div>
+    <div id="rsMsg"></div>
+  </form></div>`;
+}
+
+function bindResetPassword() {
+  const token = new URLSearchParams(location.search).get('token') || '';
+  document.getElementById('resetForm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const box = document.getElementById('rsMsg');
+    const a = document.getElementById('rsPwd').value;
+    const b = document.getElementById('rsPwd2').value;
+    if (a !== b) {
+      box.innerHTML = '<div class="errbox">Les deux mots de passe diffèrent.</div>';
+      return;
+    }
+    if (!token) {
+      box.innerHTML = '<div class="errbox">Lien invalide (jeton manquant).</div>';
+      return;
+    }
+    box.innerHTML = '';
+    try {
+      await api('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token, new_password: a }),
+      });
+      box.innerHTML = '<p class="ok">Mot de passe modifié. Vous pouvez vous connecter.</p>';
+      setTimeout(() => go('/login'), 1200);
+    } catch (e) {
+      box.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
+}
+
+/* ---------- Copilote — assistant lecture seule (langage naturel) ---------- */
+function viewCopilote() {
+  return shell('/app/copilote', `
+    <div class="panel">
+      <h2>Copilote</h2>
+      <p class="muted">Posez une question en français : la réponse est calculée sur les données de l'établissement. Aucune écriture, accès contrôlé par votre rôle.</p>
+      <div class="row">
+        <label style="flex:1;min-width:16rem">Question
+          <input id="copQ" placeholder="combien d'élèves en 4B ? · absences non justifiées depuis 7 jours · factures impayées" style="width:100%"/>
+        </label>
+        <button type="button" class="primary" id="btnCopAsk">Demander</button>
+      </div>
+      <div id="copCaps" class="muted" style="margin:.4rem 0"></div>
+      <div id="copOut" class="muted" style="margin-top:.5rem">…</div>
+    </div>
+  `);
+}
+
+async function bindCopilote() {
+  const out = document.getElementById('copOut');
+  const caps = document.getElementById('copCaps');
+  try {
+    const c = await api('/copilote/capacites');
+    if (caps && c && Array.isArray(c.capacites)) {
+      caps.innerHTML = 'Exemples : ' + c.capacites.map(x => `<code>${esc(x)}</code>`).join(' · ');
+    }
+  } catch { /* aide best-effort : l'essentiel est le champ question */ }
+  const ask = async () => {
+    const input = document.getElementById('copQ');
+    const q = ((input && input.value) || '').trim();
+    if (!q) { out.innerHTML = '<span class="bad">Saisissez une question.</span>'; return; }
+    out.textContent = '…';
+    try {
+      const r = await api('/copilote/ask', { method: 'POST', body: JSON.stringify({ question: q }) });
+      const cls = r.refusee ? 'bad' : 'ok';
+      let html = `<p class="${cls}">${esc(r.reponse)}</p>`;
+      const liste = r.donnees && r.donnees.capacites;
+      if (Array.isArray(liste)) {
+        html += '<ul>' + liste.map(x => `<li><code>${esc(x)}</code></li>`).join('') + '</ul>';
+      }
+      const eleves = r.donnees && r.donnees.eleves;
+      if (Array.isArray(eleves) && eleves.length) {
+        html += '<table class="table"><thead><tr><th>Élève</th><th>Total</th></tr></thead><tbody>'
+          + eleves.map(e => `<tr><td>${esc(e.prenom)} ${esc(e.nom)}</td><td>${esc(e.total)}</td></tr>`).join('')
+          + '</tbody></table>';
+      }
+      out.innerHTML = html;
+    } catch (e) {
+      out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  const btn = document.getElementById('btnCopAsk');
+  if (btn) btn.onclick = ask;
+  const input = document.getElementById('copQ');
+  if (input) input.addEventListener('keydown', ev => { if (ev.key === 'Enter') ask(); });
+}
+
+function viewAnnonces() {
+  const role = (me && me.role) || '';
+  const peutPublier = ['admin', 'direction', 'administratif', 'cpe'].includes(role);
+  return shell('/app/annonces', `
+    <div class="panel">
+      <h2>Annonces</h2>
+      <p class="muted">Diffusion établissement → familles / personnels. Une annonce destinée aux familles est notifiée aux responsables (mail + push).</p>
+      ${peutPublier ? `
+      <div class="row">
+        <label style="flex:1;min-width:14rem">Titre
+          <input id="annTitre" placeholder="Réunion parents-professeurs" style="width:100%"/>
+        </label>
+        <label>Audience
+          <select id="annAudience">
+            <option value="tous">Tous</option>
+            <option value="parents" selected>Familles</option>
+            <option value="classe">Une classe</option>
+            <option value="personnels">Personnels</option>
+          </select>
+        </label>
+        <label id="annClasseWrap" style="display:none">Classe
+          <input id="annClasse" placeholder="4B" style="width:6rem"/>
+        </label>
+      </div>
+      <label>Corps
+        <textarea id="annCorps" rows="3" placeholder="Texte de l'annonce…" style="width:100%"></textarea>
+      </label>
+      <div class="actions">
+        <button type="button" class="primary" id="btnAnnPublier">Publier</button>
+        <span id="annMsg" class="muted"></span>
+      </div>` : `<p class="muted">Consultation seule — votre rôle ne publie pas d'annonce.</p>`}
+    </div>
+    <div class="panel">
+      <h3>Publiées</h3>
+      <div id="annListe" class="muted">…</div>
+    </div>
+  `);
+}
+
+async function bindAnnonces() {
+  const liste = document.getElementById('annListe');
+  const fmt = a => `<div class="panel" style="margin:.4rem 0;padding:.6rem .8rem">
+    <strong>${esc(a.titre)}</strong>
+    <span class="pill">${esc(a.audience)}${a.cible_classe ? ' · ' + esc(a.cible_classe) : ''}</span>
+    <p class="muted" style="margin:.35rem 0 0">${esc(a.corps)}</p>
+  </div>`;
+  const charge = async () => {
+    try {
+      const l = await api('/annonces');
+      liste.innerHTML = Array.isArray(l) && l.length
+        ? l.map(fmt).join('')
+        : '<p class="muted">Aucune annonce.</p>';
+    } catch (e) {
+      liste.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  const aud = document.getElementById('annAudience');
+  if (aud) {
+    aud.onchange = () => {
+      const w = document.getElementById('annClasseWrap');
+      if (w) w.style.display = aud.value === 'classe' ? '' : 'none';
+    };
+  }
+  const btn = document.getElementById('btnAnnPublier');
+  if (btn) {
+    btn.onclick = async () => {
+      const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+      const audience = val('annAudience') || 'parents';
+      const cible = val('annClasse').trim();
+      const msg = document.getElementById('annMsg');
+      if (audience === 'classe' && !cible) {
+        if (msg) msg.innerHTML = '<span class="bad">Classe requise.</span>';
+        return;
+      }
+      try {
+        await api('/annonces', {
+          method: 'POST',
+          body: JSON.stringify({
+            titre: val('annTitre'),
+            corps: val('annCorps'),
+            audience,
+            cible_classe: audience === 'classe' ? cible : null,
+          }),
+        });
+        if (msg) msg.innerHTML = '<span class="ok">Publiée.</span>';
+        const t = document.getElementById('annTitre'); if (t) t.value = '';
+        const c = document.getElementById('annCorps'); if (c) c.value = '';
+        await charge();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  await charge();
+}
+
+function viewCompetences() {
+  const role = (me && me.role) || '';
+  const peutReferentiel = ['admin', 'direction', 'administratif'].includes(role);
+  const peutEvaluer = ['admin', 'direction', 'prof', 'cpe', 'administratif'].includes(role);
+  return shell('/app/competences', `
+    <div class="panel">
+      <h2>Compétences <span class="muted" style="font-weight:400;font-size:.78rem">socle · LSU</span></h2>
+      <p class="muted">Référentiel de compétences de l’établissement et niveaux de maîtrise par élève / période. L’export LSU lit ces évaluations réelles (aucun niveau deviné).</p>
+      ${peutReferentiel ? `
+      <div class="row">
+        <label>Domaine <input id="cmpDomaine" placeholder="D1" style="width:4.5rem"/></label>
+        <label>Code <input id="cmpCode" placeholder="D1.3" style="width:6rem"/></label>
+        <label style="flex:1;min-width:12rem">Libellé <input id="cmpLibelle" placeholder="Compétence" style="width:100%"/></label>
+        <label>Ordre <input id="cmpOrdre" type="number" value="0" style="width:4.5rem"/></label>
+        <button type="button" class="primary" id="btnCmpItem">Ajouter</button>
+        <span id="cmpMsg" class="muted"></span>
+      </div>` : ''}
+      <div id="cmpRef" class="muted">…</div>
+    </div>
+    ${peutEvaluer ? `
+    <div class="panel">
+      <h3>Évaluer un élève</h3>
+      <div class="row">
+        <label style="flex:1;min-width:12rem">Recherche classe / élève
+          <input id="cmpQ" placeholder="4B" style="width:100%"/></label>
+        <button type="button" id="btnCmpChercher">Chercher</button>
+        <label>Élève <select id="cmpEleve"></select></label>
+        <label>Période <select id="cmpPeriode"></select></label>
+      </div>
+      <div class="row">
+        <label style="flex:1;min-width:14rem">Compétence <select id="cmpItem"></select></label>
+        <label>Niveau <select id="cmpNiveau">
+          <option value="insuffisante">Maîtrise insuffisante</option>
+          <option value="fragile">Maîtrise fragile</option>
+          <option value="satisfaisante" selected>Maîtrise satisfaisante</option>
+          <option value="tres_bonne">Très bonne maîtrise</option>
+        </select></label>
+        <button type="button" class="primary" id="btnCmpEval">Enregistrer</button>
+        <button type="button" id="btnCmpLivret">Publier le livret</button>
+        <span id="cmpEvalMsg" class="muted"></span>
+      </div>
+      <div id="cmpEvalOut" class="muted"></div>
+    </div>` : ''}
+  `);
+}
+
+async function bindCompetences() {
+  const ref = document.getElementById('cmpRef');
+  const items = document.getElementById('cmpItem');
+  let referentiel = [];
+
+  const renderRef = () => {
+    if (!ref) return;
+    const byDom = {};
+    referentiel.forEach(i => { (byDom[i.domaine] = byDom[i.domaine] || []).push(i); });
+    ref.innerHTML = Object.keys(byDom).sort().map(dom => `
+      <div class="panel" style="margin:.4rem 0;padding:.5rem .7rem">
+        <strong>Domaine ${esc(dom)}</strong>
+        <ul style="margin:.3rem 0 0">${byDom[dom].map(i => `<li><code>${esc(i.code)}</code> ${esc(i.libelle)}</li>`).join('')}</ul>
+      </div>`).join('') || '<p class="muted">Aucune compétence au référentiel.</p>';
+    if (items) {
+      items.innerHTML = referentiel.map(i =>
+        `<option value="${esc(i.id)}">${esc(i.domaine)} · ${esc(i.code)} — ${esc(i.libelle)}</option>`
+      ).join('') || '<option value="">—</option>';
+    }
+  };
+
+  const chargeRef = async () => {
+    try {
+      referentiel = await api('/competences');
+      renderRef();
+    } catch (e) {
+      if (ref) ref.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  const btnItem = document.getElementById('btnCmpItem');
+  if (btnItem) {
+    btnItem.onclick = async () => {
+      const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+      const msg = document.getElementById('cmpMsg');
+      try {
+        await api('/competences', {
+          method: 'POST',
+          body: JSON.stringify({
+            domaine: val('cmpDomaine'),
+            code: val('cmpCode'),
+            libelle: val('cmpLibelle'),
+            ordre: parseInt(val('cmpOrdre'), 10) || 0,
+          }),
+        });
+        if (msg) msg.innerHTML = '<span class="ok">Ajouté.</span>';
+        ['cmpDomaine', 'cmpCode', 'cmpLibelle'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        await chargeRef();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+
+  const selPer = document.getElementById('cmpPeriode');
+  try {
+    const periodes = await api('/note-periodes').catch(() => []);
+    if (selPer) {
+      selPer.innerHTML = (periodes || []).map(p =>
+        `<option value="${esc(p.id)}">${esc(p.code)} — ${esc(p.libelle)}</option>`
+      ).join('') || '<option value="">—</option>';
+      const ouverte = (periodes || []).find(p => p.statut === 'ouverte') || (periodes || [])[0];
+      if (ouverte) selPer.value = ouverte.id;
+    }
+  } catch { /* ignore */ }
+
+  const selEleve = document.getElementById('cmpEleve');
+  const out = document.getElementById('cmpEvalOut');
+
+  const chargeEvals = async () => {
+    if (!out || !selEleve || !selEleve.value) { if (out) out.innerHTML = ''; return; }
+    const pid = selPer && selPer.value ? '?periode_id=' + encodeURIComponent(selPer.value) : '';
+    try {
+      const evals = await api('/eleves/' + encodeURIComponent(selEleve.value) + '/competences' + pid);
+      out.innerHTML = Array.isArray(evals) && evals.length
+        ? `<table><thead><tr><th>Domaine</th><th>Compétence</th><th>Niveau</th></tr></thead><tbody>
+            ${evals.map(c => `<tr><td>${esc(c.domaine)}</td><td>${esc(c.item_libelle)}</td><td><span class="pill">${esc(c.niveau_libelle)}</span></td></tr>`).join('')}
+          </tbody></table>`
+        : '<p class="muted">Aucune compétence évaluée sur cette période.</p>';
+    } catch (e) {
+      out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  const btnChercher = document.getElementById('btnCmpChercher');
+  if (btnChercher) {
+    btnChercher.onclick = async () => {
+      const q = (document.getElementById('cmpQ') || {}).value || '';
+      if (!selEleve) return;
+      try {
+        const rows = await api('/eleves/search?q=' + encodeURIComponent(q));
+        selEleve.innerHTML = (rows || []).map(e =>
+          `<option value="${esc(e.id)}">${esc(e.prenom)} ${esc(e.nom)} · ${esc(e.classe || '')}</option>`
+        ).join('') || '<option value="">—</option>';
+        await chargeEvals();
+      } catch (e) {
+        if (out) out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  if (selEleve) selEleve.onchange = chargeEvals;
+  if (selPer) selPer.onchange = chargeEvals;
+
+  const btnEval = document.getElementById('btnCmpEval');
+  if (btnEval) {
+    btnEval.onclick = async () => {
+      const msg = document.getElementById('cmpEvalMsg');
+      if (!selEleve || !selEleve.value) { if (msg) msg.innerHTML = '<span class="bad">Élève requis.</span>'; return; }
+      if (!items || !items.value) { if (msg) msg.innerHTML = '<span class="bad">Compétence requise.</span>'; return; }
+      try {
+        await api('/eleves/' + encodeURIComponent(selEleve.value) + '/competences', {
+          method: 'POST',
+          body: JSON.stringify({
+            item_id: items.value,
+            periode_id: (selPer && selPer.value) || '',
+            niveau: (document.getElementById('cmpNiveau') || {}).value || 'satisfaisante',
+          }),
+        });
+        if (msg) msg.innerHTML = '<span class="ok">Enregistré.</span>';
+        await chargeEvals();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+
+  const btnLivret = document.getElementById('btnCmpLivret');
+  if (btnLivret) {
+    btnLivret.onclick = async () => {
+      const msg = document.getElementById('cmpEvalMsg');
+      if (!selEleve || !selEleve.value) { if (msg) msg.innerHTML = '<span class="bad">Élève requis.</span>'; return; }
+      try {
+        await api('/eleves/' + encodeURIComponent(selEleve.value) + '/livret-competences', {
+          method: 'POST',
+          body: JSON.stringify({ periode_id: (selPer && selPer.value) || '' }),
+        });
+        if (msg) msg.innerHTML = '<span class="ok">Livret publié (documents famille + notification).</span>';
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+
+  await chargeRef();
+}
+
+/* ---------- Sécurité : passkeys (WebAuthn) ---------- */
+function viewSecurite(active) {
+  const support = passkeysSupportes();
+  const role = (me && me.role) || '';
+  const adminish = ['admin', 'direction'].includes(role);
+  return shell(active || '/app/securite', `
+    <div class="panel">
+      <h2>Sécurité <span class="muted" style="font-weight:400;font-size:.78rem">passkeys</span></h2>
+      <p class="muted">Le 2ᵉ facteur de l’ENT repose <strong>uniquement</strong> sur des passkeys
+      (Touch&nbsp;ID, Face&nbsp;ID, Windows&nbsp;Hello, clé de sécurité). Aucune application
+      d’authentification, aucun code à recopier : la clé privée ne quitte jamais votre appareil.
+      Dès qu’une passkey est enrôlée, la connexion par mot de passe exige ensuite la passkey.</p>
+      ${support ? '' : '<p class="bad">Ce navigateur ne gère pas les passkeys (WebAuthn) : utilisez un navigateur récent, en HTTPS ou sur localhost.</p>'}
+      <div class="row">
+        <label style="flex:1;min-width:12rem">Nom de l’appareil (facultatif)
+          <input id="pkName" placeholder="MacBook de Claire" style="width:100%"/></label>
+        <button type="button" class="primary" id="btnPkAjouter" ${support ? '' : 'disabled'}>Enrôler une passkey</button>
+        <span id="pkMsg" class="muted"></span>
+      </div>
+      <div id="pkListe" class="muted">…</div>
+    </div>
+    ${adminish ? `
+    <div class="panel">
+      <h3>Récupération (perte d’appareil)</h3>
+      <p class="muted">Retire toutes les passkeys d’un membre de l’établissement : le compte retombe
+      en mot de passe, la personne réenrôle ensuite une passkey.</p>
+      <div class="row">
+        <label style="flex:1;min-width:12rem">Rechercher un membre
+          <input id="pkAdminQ" placeholder="e-mail ou nom" style="width:100%"/></label>
+        <button type="button" id="btnPkAdminChercher">Chercher</button>
+      </div>
+      <div id="pkAdminOut" class="muted"></div>
+    </div>` : ''}
+    ${adminish ? `
+    <div class="panel">
+      <h3>SSO établissement <span class="muted" style="font-weight:400;font-size:.78rem">OpenID Connect</span></h3>
+      <p class="muted">Délègue l’authentification à l’annuaire de l’établissement (Google Workspace,
+      Microsoft Entra, Keycloak…). Le compte local doit exister au préalable : une identité SSO inconnue
+      est <strong>refusée</strong>, elle ne crée jamais de compte. Les comptes créés après coup sont
+      rattachés par leur e-mail à la première connexion.</p>
+      <div id="ssoAdminListe" class="muted">…</div>
+      <div class="row" style="margin-top:.5rem">
+        <label style="flex:1;min-width:9rem">Identifiant court
+          <input id="ssoSlug" placeholder="entra" style="width:100%"/></label>
+        <label style="flex:1;min-width:9rem">Libellé
+          <input id="ssoLibelle" placeholder="Annuaire de l’établissement" style="width:100%"/></label>
+      </div>
+      <div class="row">
+        <label style="flex:2;min-width:14rem">Issuer (URL)
+          <input id="ssoIssuer" placeholder="https://idp.exemple.fr/oidc" style="width:100%"/></label>
+        <label style="flex:1;min-width:9rem">Client ID
+          <input id="ssoClientId" style="width:100%"/></label>
+      </div>
+      <div class="row">
+        <label style="flex:1;min-width:10rem">Client secret
+          <input id="ssoClientSecret" type="password" autocomplete="new-password" style="width:100%"/></label>
+        <label style="flex:1;min-width:12rem">URL de retour (facultatif)
+          <input id="ssoRedirect" placeholder="/auth/oidc/callback" style="width:100%"/></label>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="btnSsoEnregistrer">Enregistrer (validé par découverte)</button>
+        <span id="ssoMsg" class="muted"></span>
+      </div>
+    </div>` : ''}
+    ${adminish ? `
+    <div class="panel">
+      <h3>Sauvegardes / PRA <span class="muted" style="font-weight:400;font-size:.78rem">intégrité</span></h3>
+      <p class="muted">Capturez la référence <strong>avant</strong> une sauvegarde, puis vérifiez
+      <strong>après</strong> une restauration : l’ENT recalcule, pour chaque table de votre
+      établissement, le nombre de lignes et une empreinte de contenu — toute dérive est signalée
+      table par table. Aucun compteur ne sort de l’établissement.</p>
+      <div id="praResume" class="muted">…</div>
+      <div class="actions">
+        <button type="button" id="btnPraCharger">Capturer la référence</button>
+        <button type="button" id="btnPraVerifier" disabled>Vérifier contre la référence</button>
+        <span id="praMsg" class="muted"></span>
+      </div>
+    </div>` : ''}
+  `);
+}
+
+async function bindSecurite() {
+  const liste = document.getElementById('pkListe');
+  const msg = document.getElementById('pkMsg');
+
+  const charge = async () => {
+    if (!liste) return;
+    try {
+      const rows = await api('/auth/passkeys');
+      liste.innerHTML = (Array.isArray(rows) && rows.length)
+        ? `<table><thead><tr><th>Nom</th><th>Enrôlée</th><th>Dernier usage</th><th></th></tr></thead><tbody>
+            ${rows.map(p => `<tr>
+              <td>${esc(p.name || '—')}</td>
+              <td>${esc(fmtDateHeure(p.created_at))}</td>
+              <td>${esc(p.last_used_at ? fmtDateHeure(p.last_used_at) : 'jamais')}</td>
+              <td><button type="button" data-pk-id="${esc(p.id)}" class="danger">Retirer</button></td>
+            </tr>`).join('')}</tbody></table>`
+        : '<p class="muted">Aucune passkey enrôlée : le 2ᵉ facteur n’est pas actif sur ce compte.</p>';
+      liste.querySelectorAll('button[data-pk-id]').forEach(b => {
+        b.onclick = async () => {
+          try {
+            await api('/auth/passkeys/' + encodeURIComponent(b.getAttribute('data-pk-id')), { method: 'DELETE' });
+            if (msg) msg.innerHTML = '<span class="ok">Passkey retirée.</span>';
+            await charge();
+          } catch (e) {
+            if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      });
+    } catch (e) {
+      liste.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+
+  const btnAjouter = document.getElementById('btnPkAjouter');
+  if (btnAjouter) {
+    btnAjouter.onclick = async () => {
+      const name = (document.getElementById('pkName') || {}).value || '';
+      if (msg) msg.innerHTML = '<span class="muted">Suivez l’invite de votre appareil…</span>';
+      try {
+        await enrollerPasskey(name.trim());
+        if (msg) msg.innerHTML = '<span class="ok">Passkey enrôlée : le 2ᵉ facteur est actif.</span>';
+        const el = document.getElementById('pkName'); if (el) el.value = '';
+        await charge();
+      } catch (e) {
+        if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+
+  const btnChercher = document.getElementById('btnPkAdminChercher');
+  if (btnChercher) {
+    const out = document.getElementById('pkAdminOut');
+    btnChercher.onclick = async () => {
+      const q = (document.getElementById('pkAdminQ') || {}).value || '';
+      try {
+        const rows = await api('/personnel/search?q=' + encodeURIComponent(q));
+        out.innerHTML = (Array.isArray(rows) && rows.length)
+          ? `<table><thead><tr><th>Membre</th><th>Rôle</th><th></th></tr></thead><tbody>
+              ${rows.map(m => `<tr>
+                <td>${esc(m.label || m.email)}<br><span class="muted">${esc(m.email)}</span></td>
+                <td>${esc(m.role)}</td>
+                <td><button type="button" class="danger" data-pk-reset="${esc(m.user_id)}">Réinitialiser les passkeys</button></td>
+              </tr>`).join('')}</tbody></table>`
+          : '<p class="muted">Aucun membre trouvé.</p>';
+        out.querySelectorAll('button[data-pk-reset]').forEach(b => {
+          b.onclick = async () => {
+            try {
+              const res = await api('/auth/users/' + encodeURIComponent(b.getAttribute('data-pk-reset')) + '/passkeys', { method: 'DELETE' });
+              out.innerHTML = `<span class="ok">${esc(String(res && res.removed || 0))} passkey(s) retirée(s).</span>`;
+            } catch (e) {
+              out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+            }
+          };
+        });
+      } catch (e) {
+        out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+
+  /* SSO établissement : configuration (Direction / Admin). */
+  const ssoListe = document.getElementById('ssoAdminListe');
+  const ssoMsg = document.getElementById('ssoMsg');
+  const chargeSso = async () => {
+    if (!ssoListe) return;
+    try {
+      const rows = await api('/auth/oidc/providers');
+      ssoListe.innerHTML = (Array.isArray(rows) && rows.length)
+        ? `<table><thead><tr><th>Libellé</th><th>Identifiant</th><th>Issuer</th><th>État</th><th></th></tr></thead><tbody>
+            ${rows.map(p => `<tr>
+              <td>${esc(p.libelle)}</td>
+              <td><code>${esc(p.slug)}</code></td>
+              <td class="muted">${esc(p.issuer)}</td>
+              <td>${p.actif ? '<span class="ok">actif</span>' : 'inactif'}</td>
+              <td><button type="button" class="danger" data-sso-del="${esc(p.slug)}">Supprimer</button></td>
+            </tr>`).join('')}</tbody></table>`
+        : '<p class="muted">Aucun fournisseur SSO configuré : la connexion se fait par mot de passe ou passkey.</p>';
+      ssoListe.querySelectorAll('button[data-sso-del]').forEach(b => {
+        b.onclick = async () => {
+          try {
+            await api('/auth/oidc/providers/' + encodeURIComponent(b.getAttribute('data-sso-del')), { method: 'DELETE' });
+            if (ssoMsg) ssoMsg.innerHTML = '<span class="ok">Fournisseur supprimé.</span>';
+            await chargeSso();
+          } catch (e) {
+            if (ssoMsg) ssoMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+          }
+        };
+      });
+    } catch (e) {
+      ssoListe.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };
+  const btnSso = document.getElementById('btnSsoEnregistrer');
+  if (btnSso) {
+    btnSso.onclick = async () => {
+      const val = id => ((document.getElementById(id) || {}).value || '');
+      if (ssoMsg) ssoMsg.innerHTML = '<span class="muted">Découverte de l’IdP…</span>';
+      try {
+        await api('/auth/oidc/providers', {
+          method: 'PUT',
+          body: JSON.stringify({
+            slug: val('ssoSlug').trim(),
+            libelle: val('ssoLibelle').trim(),
+            issuer: val('ssoIssuer').trim(),
+            client_id: val('ssoClientId').trim(),
+            client_secret: val('ssoClientSecret'),
+            redirect_uri: val('ssoRedirect').trim() || null,
+          }),
+        });
+        if (ssoMsg) ssoMsg.innerHTML = '<span class="ok">Fournisseur enregistré : le SSO apparaît sur la page de connexion.</span>';
+        const secret = document.getElementById('ssoClientSecret');
+        if (secret) secret.value = '';
+        await chargeSso();
+      } catch (e) {
+        if (ssoMsg) ssoMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  if (ssoListe) await chargeSso();
+
+  // --- Sauvegardes / PRA : référence d'intégrité et vérification ---
+  const praResume = document.getElementById('praResume');
+  const praMsg = document.getElementById('praMsg');
+  const btnPraCharger = document.getElementById('btnPraCharger');
+  const btnPraVerifier = document.getElementById('btnPraVerifier');
+  let praReference = null;
+  const afficherPra = inv => {
+    const tables = (inv && Array.isArray(inv.tables)) ? inv.tables : [];
+    const lignes = tables.reduce((n, t) => n + (t.lignes || 0), 0);
+    const detail = tables.filter(t => (t.lignes || 0) > 0);
+    praResume.innerHTML = `<table><thead><tr><th>Table</th><th>Lignes</th><th>Empreinte</th></tr></thead><tbody>
+      ${detail.map(t => `<tr><td>${esc(t.nom)}</td><td>${t.lignes}</td><td class="muted">${esc(String(t.digest || '').slice(0, 12))}…</td></tr>`).join('')}
+      </tbody></table><p class="muted">${tables.length} table(s) suivies · ${lignes} ligne(s) ·
+      schéma <code>${esc(String(inv.empreinte_schema || '').slice(0, 12))}</code> ·
+      migration <code>${esc(inv.migration_tag || '')}</code></p>`;
+  };
+  if (btnPraCharger) {
+    btnPraCharger.onclick = async () => {
+      try {
+        praReference = await api('/pra/inventaire');
+        afficherPra(praReference);
+        if (btnPraVerifier) btnPraVerifier.disabled = false;
+        if (praMsg) praMsg.innerHTML = '<span class="ok">Référence capturée : à comparer après une restauration.</span>';
+      } catch (e) {
+        if (praMsg) praMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+  if (btnPraVerifier) {
+    btnPraVerifier.onclick = async () => {
+      if (!praReference) return;
+      try {
+        const r = await api('/pra/inventaire/verifier', {
+          method: 'POST',
+          body: JSON.stringify(praReference),
+        });
+        if (r && r.conforme) {
+          praMsg.innerHTML = `<span class="ok">Intégrité conforme : ${r.tables_conformes} table(s) identiques, aucune dérive.</span>`;
+        } else {
+          praMsg.innerHTML = `<span class="bad">Dérive détectée : ${((r && r.ecarts) || []).length} écart(s) de contenu, ${((r && r.tables_absentes) || []).length} table(s) absente(s).</span>`;
+        }
+      } catch (e) {
+        if (praMsg) praMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+      }
+    };
+  }
+
+  await charge();
+}
+
 async function render() {
   syncOfflineBanner();
   const root = document.getElementById('root');
@@ -52540,6 +53563,23 @@ async function render() {
     }
     root.innerHTML = viewLogin();
     await bindLogin();
+    return;
+  }
+
+  if (p === '/mot-de-passe-oublie') {
+    root.innerHTML = viewForgotPassword();
+    bindForgotPassword();
+    return;
+  }
+  if (p === '/reset-mot-de-passe') {
+    root.innerHTML = viewResetPassword();
+    bindResetPassword();
+    return;
+  }
+
+  if (p === '/auth/oidc/callback') {
+    root.innerHTML = viewOidcCallback();
+    await bindOidcCallback();
     return;
   }
 
@@ -52919,6 +53959,30 @@ async function render() {
     root.innerHTML = viewInscriptions();
     bindShell();
     await bindInscriptions();
+    return;
+  }
+  if (p === '/app/copilote') {
+    root.innerHTML = viewCopilote();
+    bindShell();
+    await bindCopilote();
+    return;
+  }
+  if (p === '/app/annonces') {
+    root.innerHTML = viewAnnonces();
+    bindShell();
+    await bindAnnonces();
+    return;
+  }
+  if (p === '/app/competences') {
+    root.innerHTML = viewCompetences();
+    bindShell();
+    await bindCompetences();
+    return;
+  }
+  if (p === '/app/securite' || p === '/famille/securite' || p === '/eleve/securite') {
+    root.innerHTML = viewSecurite(p);
+    bindShell();
+    await bindSecurite();
     return;
   }
   if (p === '/app/etab') {

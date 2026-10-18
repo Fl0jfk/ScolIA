@@ -59,6 +59,27 @@ impl PgDocSignerRepo {
         Ok(())
     }
 
+    /// Annule tous les documents « à signer » d'un élève (départ / radiation).
+    /// Renvoie le nombre de documents annulés.
+    pub async fn annuler_pending_eleve(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<u64, DomainError> {
+        let res = sqlx::query(
+            r#"
+            UPDATE ent_doc_a_signer SET statut = 'annule'
+            WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'a_signer'
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(res.rows_affected())
+    }
+
     pub async fn update_statut(&self, d: &DocASigner) -> Result<(), DomainError> {
         sqlx::query(
             r#"

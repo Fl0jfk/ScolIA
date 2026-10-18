@@ -153,12 +153,12 @@ Voir checklist dans `ent-rust-quality.md` §2bis.
 ```
 A. Contrats events + Eleve (+ isolation)     ← fait
 B. L1 Postgres local + garde URL             ← fait
-C. Brain unifié (répercussions all-in-one)   ← fait
+C. Brain unifié (répercussions all-in-one)   ← fait (carte : docs/ent-rust-transverse.md)
 D. API Rust axum + auth PG finale            ← fait
 E. Noyau enrichi : dates d’effet, foyers/liens, matières/notes, appel→absence
 F. Labo multi-personas (vie sur base vierge) ← amorcé (`seed_labo_cast` + scenarios)
 G. Front Leptos (Natif) ; Lite = apps natives plus tard
-H. IA sur Brain
+H. IA sur Brain                              ← amorcé : Copilote déterministe (intentions sur données centrales), `POST /copilote/ask` + UI staff ; LLM optionnel plus tard
 I. Labo → prod ENT (validation humaine) — hors touch prod ScolIA Next
 ```
 

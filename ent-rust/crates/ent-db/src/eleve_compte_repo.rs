@@ -83,6 +83,27 @@ impl PgEleveCompteRepo {
         Ok(row.is_some())
     }
 
+    /// Détache le compte face élève (sortie / radiation). Renvoie l'`user_id` retiré.
+    pub async fn unlink_eleve(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Option<Uuid>, DomainError> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            r#"
+            DELETE FROM ent_eleve_compte
+            WHERE etablissement_id = $1 AND eleve_id = $2
+            RETURNING user_id
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(|r| r.0))
+    }
+
     pub async fn list_eleves_sans_compte(
         &self,
         etablissement_id: Uuid,
@@ -244,6 +265,5 @@ impl InvitationRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] eleve_compte sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("eleve_compte_repo", err)
 }

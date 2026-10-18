@@ -3743,3 +3743,144 @@ pub struct EleveLienDto {
 pub fn kind_label(k: AttributKind) -> &'static str {
     k.as_str()
 }
+
+#[derive(Debug, Deserialize)]
+pub struct CreerAnnonceBody {
+    pub titre: String,
+    pub corps: String,
+    pub audience: String,
+    #[serde(default)]
+    pub cible_classe: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeclarerRetardBody {
+    pub jour: NaiveDate,
+    #[serde(default)]
+    pub minutes: Option<i32>,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RetardDto {
+    pub id: Uuid,
+    pub eleve_id: Uuid,
+    pub jour: NaiveDate,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motif: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_appel_id: Option<Uuid>,
+}
+
+impl From<&ent_db::Retard> for RetardDto {
+    fn from(r: &ent_db::Retard) -> Self {
+        Self {
+            id: r.id,
+            eleve_id: r.eleve_id,
+            jour: r.jour,
+            minutes: r.minutes,
+            motif: r.motif.clone(),
+            source_appel_id: r.source_appel_id,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreerCompetenceItemBody {
+    pub domaine: String,
+    pub code: String,
+    pub libelle: String,
+    #[serde(default)]
+    pub ordre: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompetenceItemDto {
+    pub id: Uuid,
+    pub domaine: String,
+    pub code: String,
+    pub libelle: String,
+    pub ordre: i32,
+    pub actif: bool,
+}
+
+impl From<&ent_db::CompetenceItem> for CompetenceItemDto {
+    fn from(i: &ent_db::CompetenceItem) -> Self {
+        Self {
+            id: i.id,
+            domaine: i.domaine.clone(),
+            code: i.code.clone(),
+            libelle: i.libelle.clone(),
+            ordre: i.ordre,
+            actif: i.actif,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EvaluerCompetenceBody {
+    pub item_id: Uuid,
+    pub periode_id: Uuid,
+    pub niveau: String,
+    #[serde(default)]
+    pub commentaire: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EvaluationCompetenceDto {
+    pub evaluation_id: Uuid,
+    pub item_id: Uuid,
+    pub domaine: String,
+    pub item_code: String,
+    pub item_libelle: String,
+    pub niveau: String,
+    pub niveau_libelle: String,
+    pub code_lsu: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commentaire: Option<String>,
+}
+
+impl From<&ent_db::EvaluationLue> for EvaluationCompetenceDto {
+    fn from(e: &ent_db::EvaluationLue) -> Self {
+        Self {
+            evaluation_id: e.evaluation_id,
+            item_id: e.item_id,
+            domaine: e.domaine.clone(),
+            item_code: e.item_code.clone(),
+            item_libelle: e.item_libelle.clone(),
+            niveau: e.niveau.as_str().to_string(),
+            niveau_libelle: e.niveau.libelle().to_string(),
+            code_lsu: e.niveau.code_lsu().to_string(),
+            commentaire: e.commentaire.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct AnnonceDto {
+    pub id: Uuid,
+    pub titre: String,
+    pub corps: String,
+    pub audience: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cible_classe: Option<String>,
+    pub auteur_user_id: Uuid,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl From<&ent_db::Annonce> for AnnonceDto {
+    fn from(a: &ent_db::Annonce) -> Self {
+        Self {
+            id: a.id,
+            titre: a.titre.clone(),
+            corps: a.corps.clone(),
+            audience: a.audience.as_str().to_string(),
+            cible_classe: a.cible_classe.clone(),
+            auteur_user_id: a.auteur_user_id,
+            created_at: a.created_at,
+        }
+    }
+}

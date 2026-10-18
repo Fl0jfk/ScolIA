@@ -4,12 +4,21 @@
 //! est stocké en Postgres (`ent_session`). Pas de Better-Auth, pas de JWT magique.
 
 mod password;
+mod passkey;
 mod roles;
 mod token;
 
+pub use passkey::{
+    rp_config_from_env, AuthenticationResult, CreationChallengeResponse, CredentialID, Passkey,
+    PasskeyAuthentication, PasskeyEngine, PasskeyError, PasskeyRegistration, PublicKeyCredential,
+    RegisterPublicKeyCredential, RequestChallengeResponse, DEFAULT_RP_NAME,
+};
 pub use password::{hash_password, verify_password, PasswordError};
 pub use roles::Role;
-pub use token::{generate_session_token, hash_token};
+pub use token::{
+    generate_challenge_token, generate_reset_token, generate_session_token, generate_temp_password,
+    hash_token,
+};
 
 use thiserror::Error;
 
@@ -27,6 +36,10 @@ pub enum AuthError {
     EmptyEmail,
     #[error("mot de passe trop court (min. 10)")]
     WeakPassword,
+    #[error("trop de tentatives de connexion — réessayez plus tard")]
+    TooManyAttempts,
+    #[error("lien de réinitialisation invalide ou expiré")]
+    ResetTokenInvalide,
     #[error(transparent)]
     Password(#[from] PasswordError),
 }
@@ -58,10 +71,28 @@ mod tests {
     }
 
     #[test]
+    fn temp_password_respecte_la_politique() {
+        let pwd = generate_temp_password();
+        assert!(pwd.chars().count() >= 10);
+        assert!(assert_password_policy(&pwd).is_ok());
+        // Deux tirages diffèrent (aléatoire).
+        assert_ne!(pwd, generate_temp_password());
+    }
+
+    #[test]
     fn token_hash_stable() {
         let (raw, h1) = generate_session_token();
         let h2 = hash_token(&raw);
         assert_eq!(h1, h2);
         assert_ne!(raw, h1);
+    }
+
+    #[test]
+    fn reset_token_usage_unique() {
+        let (raw1, h1) = generate_reset_token();
+        let (raw2, _) = generate_reset_token();
+        assert_ne!(raw1, raw2);
+        assert_ne!(raw1, h1);
+        assert_eq!(hash_token(&raw1), h1);
     }
 }

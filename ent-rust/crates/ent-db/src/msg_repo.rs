@@ -681,6 +681,5 @@ impl PieceRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] msg sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("msg_repo", err)
 }

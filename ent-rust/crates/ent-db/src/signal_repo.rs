@@ -251,6 +251,5 @@ impl SignalRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] signal sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("signal_repo", err)
 }

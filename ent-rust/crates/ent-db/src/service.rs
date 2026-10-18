@@ -1,6 +1,13 @@
 use crate::absence_repo::PgAbsenceRepo;
 use crate::appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat, PgAppelRepo};
+use crate::annonce_repo::PgAnnonceRepo;
+use crate::retard_repo::PgRetardRepo;
+use crate::competence_repo::{EvaluationLue, PgCompetenceRepo};
 use crate::auth_repo::{AuthUser, PgAuthRepo, SessionInfo, StaffMember};
+use crate::passkey_repo::{PasskeyRow, PgPasskeyRepo};
+use crate::oidc_repo::{
+    OidcProviderPublic, OidcProviderRow, OidcProviderUpsert, OidcStateInsert, PgOidcRepo,
+};
 use crate::carnet_repo::PgCarnetRepo;
 use crate::cahier_texte_repo::PgCahierTexteRepo;
 use crate::edt_repo::{jour_semaine_iso, EdtCreneau, PgEdtRepo};
@@ -51,7 +58,7 @@ use crate::stage_repo::PgStageRepo;
 use crate::edt_contrainte_repo::PgEdtContrainteRepo;
 use crate::signal_repo::PgSignalRepo;
 use crate::url_guard::{assert_local_postgres_url, UrlGuardError};
-use chrono::{NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
     age_ans_au, annee_relative, annee_scolaire_de, annees_continuum, bourse_deductible_facture,
     assert_vanne_acompte, assert_vannes_documents, candidats_lot_montee,
@@ -76,7 +83,7 @@ use domain_eleve::{
     ConfirmerReinscription, CutoverOp, DeciderBourse, DeciderGrant, DecisionAbsence, DeclareAbsence,
     DemanderGrant, DeposerDocument, DocConfidentialite, DocTiroir, DocumentGrant, DomainError,
     DispenseSource, DossierEleve, DossierSections, Eleve, EleveBourse, EleveDispenseRepas,
-    EleveDispositif, EleveDocument, EleveGrilleRepas, EleveOption, ElevePeriode,
+    EleveDispositif, EleveDocument, EleveGrilleRepas, EleveOption, ElevePeriode, EleveStatus,
     EnregistrerScolariteAnnee, ExigenceDocReinscription, ExporterVolumesRepas, JustifierAbsence,
     LotMonteeIgnore, LotMonteeResultat, MonteeLot, MonteeRapide, OptionAnnee, OptionNature,
     CloreSignalAbsence, EnregistrerPassageBadge, OuvrirCampagneReinscription, PassageRepas,
@@ -170,12 +177,23 @@ use domain_eleve::{
     plan_declarer_absence_rh, plan_valider_absence_rh, AbsenceRh, DeclarerAbsenceRh,
     plan_affecter_edt_creneau, AffecterEdtCreneau,
     plan_creer_edition_vs, rendre_edition_vs, CreerEditionVs, EditionVsTemplate, RendreEditionVs,
-    domaine_depuis_matiere, plan_exporter_lsun, render_lsun_csv, ExporterLsun, LigneLsun,
+    plan_exporter_lsun, render_lsun_csv, ExporterLsun, LigneLsun,
     plan_creer_convention_stage, plan_creer_entreprise, ConventionStage, CreerConventionStage,
     CreerEntreprise, Entreprise,
     plan_creer_edt_contrainte, CreerEdtContrainte, EdtContrainte,
 };
-use ent_auth::{AuthError, Role};
+use domain_eleve::{plan_creer_annonce, Annonce, AudienceAnnonce, CreerAnnonce};
+use domain_eleve::{plan_declarer_retard, DeclarerRetard, Retard};
+use domain_eleve::{
+    plan_creer_competence_item, plan_evaluer_competence, render_livret_competences_pdf,
+    CompetenceItem, CreerCompetenceItem, EvaluerCompetence, EvaluationCompetence,
+    LigneLivretCompetence, LivretCompetences, NiveauMaitrise,
+};
+use ent_auth::{
+    generate_challenge_token, generate_reset_token, generate_temp_password, hash_token, AuthError,
+    Passkey, PasskeyAuthentication, PasskeyEngine, PasskeyError, PasskeyRegistration,
+    PublicKeyCredential, RegisterPublicKeyCredential, Role,
+};
 use ent_brain::{react, BrainAction, BrainP0};
 use ent_events::{types, AggregateKind, EventBusError, EventHandler, MetierEvent, MetierEventDraft};
 use ent_mail::{MailAttachment, MailService, OutgoingMail};
@@ -183,12 +201,69 @@ use ent_sms::{OutgoingSms, SmsService};
 use ent_push::{OutgoingPush, PushPlatform, PushService};
 use ent_bank::{plan_action_ligne, BankConnector, BankMatchAction, BankParseError};
 use ent_object::{ObjectStore, ObjectStoreError};
+use ent_oidc::{
+    build_authorization_url, discover, exchange_authorization_code, generate_pkce, random_token,
+    HttpOidcTransport, OidcDiscovery, OidcError, OidcProviderConfig, OidcTransport,
+};
+use std::sync::{Arc, RwLock};
 use serde_json::json;
+use crate::copilote::{self, ReponseCopilote};
 use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
-use std::sync::Arc;
+use sqlx::{PgPool, Row};
 use thiserror::Error;
 use uuid::Uuid;
+
+/// Commande de provisionnement d'un compte personnel (staff).
+#[derive(Debug, Clone)]
+pub struct ProvisionnerPersonnel {
+    pub email: String,
+    pub display_name: Option<String>,
+    pub role: String,
+}
+
+/// Résultat d'un provisionnement staff : mot de passe temporaire (affiché une fois).
+#[derive(Debug, Clone)]
+pub struct PersonnelProvisionne {
+    pub user_id: Uuid,
+    pub email: String,
+    pub role: String,
+    pub mot_de_passe_temporaire: String,
+}
+
+/// Durée de vie d'un challenge passkey (minutes). Court : c'est une fenêtre
+/// d'authentification, pas une session. Configurable via
+/// `ENT_PASSKEY_CHALLENGE_MINUTES` (5 par défaut).
+fn passkey_challenge_minutes() -> i64 {
+    std::env::var("ENT_PASSKEY_CHALLENGE_MINUTES")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|m| *m > 0)
+        .unwrap_or(5)
+}
+
+/// Durée de vie d'un parcours SSO (minutes). Assez large pour une saisie de
+/// mot de passe chez l'IdP, assez court pour limiter le rejeu.
+/// `ENT_OIDC_STATE_MINUTES` (10 par défaut).
+fn oidc_state_minutes() -> i64 {
+    std::env::var("ENT_OIDC_STATE_MINUTES")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|m| *m > 0)
+        .unwrap_or(10)
+}
+
+/// URL de retour enregistrée chez l'IdP. Dérivée de l'URL publique de l'ENT
+/// (`ENT_PUBLIC_BASE_URL`, la même que celle des liens e-mail ; repli
+/// `http://localhost:8088` en dev). Surchargeable par fournisseur (colonne
+/// `ent_oidc_provider.redirect_uri`) quand l'IdP impose une URL enregistrée.
+fn oidc_default_redirect_uri() -> String {
+    let base = std::env::var("ENT_PUBLIC_BASE_URL")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "http://localhost:8088".to_string());
+    format!("{base}/auth/oidc/callback")
+}
 
 #[derive(Debug, Error)]
 pub enum EntDbError {
@@ -204,8 +279,23 @@ pub enum EntDbError {
     Migrate(#[from] crate::migrate::MigrateError),
     #[error(transparent)]
     Auth(#[from] AuthError),
+    #[error(transparent)]
+    Passkey(#[from] PasskeyError),
+    #[error(transparent)]
+    Oidc(#[from] OidcError),
+    #[error("parcours SSO inconnu, expiré ou déjà utilisé")]
+    OidcStateInvalide,
+    #[error("aucun compte local rattaché à cette identité SSO (création par un administrateur requise)")]
+    OidcCompteInconnu,
+    #[error("fournisseur SSO introuvable ou désactivé")]
+    OidcProviderInconnu,
+    /// 2ᵉ facteur (passkey) requis pour ce compte
+    #[error("2ᵉ facteur (passkey) requis pour ce compte")]
+    PasskeyRequis,
     #[error("accès refusé pour ce rôle")]
     Forbidden,
+    #[error("inventaire de sauvegarde d'un autre établissement refusé")]
+    InventairePorteeEtrangere,
     #[error("code ou libellé matière vide")]
     MatiereInvalide,
     #[error("note hors barème")]
@@ -226,10 +316,56 @@ pub enum EntDbError {
     EdtImportConflicts,
 }
 
+/// Issue d'une tentative de connexion par mot de passe : soit une session est
+/// ouverte, soit un 2ᵉ facteur (passkey) est exigé avant toute session.
+#[derive(Debug)]
+pub enum LoginOutcome {
+    Session(SessionInfo),
+    PasskeyRequired {
+        token: String,
+        options: serde_json::Value,
+        expires_at: DateTime<Utc>,
+    },
+}
+
+/// Une sonde chiffrée prête à être publiée en jauge (`/metrics`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SondeMetrique {
+    pub nom: String,
+    pub etiquettes: Vec<(String, String)>,
+    pub valeur: i64,
+}
+
+impl SondeMetrique {
+    pub fn jauge(nom: &str, etiquettes: &[(&str, &str)], valeur: i64) -> Self {
+        Self {
+            nom: nom.to_string(),
+            etiquettes: etiquettes
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+            valeur,
+        }
+    }
+}
+
+/// Paramètres de création / mise à jour d'un fournisseur OIDC d'établissement.
+#[derive(Debug, Clone)]
+pub struct OidcProviderParams {
+    pub slug: String,
+    pub libelle: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: String,
+    /// `None` → `openid email profile`.
+    pub scopes: Option<String>,
+    /// `None` → `{ENT_PUBLIC_BASE_URL}/auth/oidc/callback`.
+    pub redirect_uri: Option<String>,
+}
+
 /// Résumé d'un ingest relevé bancaire (rapprochement SEPA).
 #[derive(Debug, Clone, Default)]
-pub struct BankRapprochementSummary {
-    pub lines: usize,
+pub struct BankRapprochementSummary {    pub lines: usize,
     pub executed: usize,
     pub rejected: usize,
     pub unmatched: usize,
@@ -287,6 +423,9 @@ pub struct PgEnt {
     editions_vs: PgEditionVsRepo,
     stages: PgStageRepo,
     edt_contraintes: PgEdtContrainteRepo,
+    annonces: PgAnnonceRepo,
+    retards: PgRetardRepo,
+    competences: PgCompetenceRepo,
     carnet: PgCarnetRepo,
     cahier_texte: PgCahierTexteRepo,
     infirmerie: PgInfirmerieRepo,
@@ -304,6 +443,10 @@ pub struct PgEnt {
     bank: BankConnector,
     objects: ObjectStore,
     auth: PgAuthRepo,
+    passkeys: PgPasskeyRepo,
+    passkey_engine: Option<PasskeyEngine>,
+    oidc: PgOidcRepo,
+    oidc_transport: RwLock<Arc<dyn OidcTransport>>,
     events: PgEventStore,
     brain: Option<BrainP0>,
 }
@@ -358,6 +501,9 @@ impl PgEnt {
             editions_vs: PgEditionVsRepo::new(pool.clone()),
             stages: PgStageRepo::new(pool.clone()),
             edt_contraintes: PgEdtContrainteRepo::new(pool.clone()),
+            annonces: PgAnnonceRepo::new(pool.clone()),
+            retards: PgRetardRepo::new(pool.clone()),
+            competences: PgCompetenceRepo::new(pool.clone()),
             carnet: PgCarnetRepo::new(pool.clone()),
             cahier_texte: PgCahierTexteRepo::new(pool.clone()),
             infirmerie: PgInfirmerieRepo::new(pool.clone()),
@@ -375,6 +521,10 @@ impl PgEnt {
             bank: BankConnector::from_env(),
             objects: ObjectStore::from_env(),
             auth: PgAuthRepo::new(pool.clone()),
+            passkeys: PgPasskeyRepo::new(pool.clone()),
+            passkey_engine: PasskeyEngine::from_env().ok(),
+            oidc: PgOidcRepo::new(pool.clone()),
+            oidc_transport: RwLock::new(Arc::new(HttpOidcTransport::from_env())),
             events: PgEventStore::new(pool.clone()),
             pool,
             brain: None,
@@ -438,6 +588,94 @@ impl PgEnt {
         Ok(())
     }
 
+    /// Sonde de disponibilité (readiness) : la base répond.
+    pub async fn ping(&self) -> Result<(), EntDbError> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Pool sous-jacent (usage interne au crate : PRA, sondes, migrateurs).
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    /// Sondes chiffrées exposées par `/metrics` (jauges). Une seule requête par
+    /// famille : volontairement peu coûteuses pour un scrape toutes les 15 s.
+    ///
+    /// Aucune donnée nominative : ce sont des **compteurs d'exploitation**
+    /// (pool, sessions actives, volumétrie du outbox, passkeys enrôlées).
+    pub async fn sondes_metriques(&self) -> Result<Vec<SondeMetrique>, EntDbError> {
+        let mut sondes = vec![
+            SondeMetrique::jauge(
+                "ent_db_pool_connexions",
+                &[("etat", "total")],
+                self.pool.size() as i64,
+            ),
+            SondeMetrique::jauge(
+                "ent_db_pool_connexions",
+                &[("etat", "inactives")],
+                self.pool.num_idle() as i64,
+            ),
+            SondeMetrique::jauge(
+                "ent_db_pool_connexions",
+                &[("etat", "maximum")],
+                self.pool.options().get_max_connections() as i64,
+            ),
+        ];
+
+        let sessions = sqlx::query(
+            "SELECT count(*)::bigint AS n FROM ent_session
+             WHERE revoked_at IS NULL AND expires_at > now()",
+        )
+        .fetch_one(&self.pool)
+        .await?
+        .get::<i64, _>("n");
+        sondes.push(SondeMetrique::jauge("ent_sessions_actives", &[], sessions));
+
+        let passkeys =
+            sqlx::query("SELECT count(*)::bigint AS n FROM ent_passkey_credential")
+                .fetch_one(&self.pool)
+                .await?
+                .get::<i64, _>("n");
+        sondes.push(SondeMetrique::jauge("ent_passkeys_total", &[], passkeys));
+
+        let eleves = sqlx::query("SELECT count(*)::bigint AS n FROM ent_eleve")
+            .fetch_one(&self.pool)
+            .await?
+            .get::<i64, _>("n");
+        sondes.push(SondeMetrique::jauge("ent_eleves_total", &[], eleves));
+
+        let etablissements =
+            sqlx::query("SELECT count(DISTINCT etablissement_id)::bigint AS n FROM ent_membership")
+                .fetch_one(&self.pool)
+                .await?
+                .get::<i64, _>("n");
+        sondes.push(SondeMetrique::jauge(
+            "ent_etablissements_total",
+            &[],
+            etablissements,
+        ));
+
+        // Outbox courrier par statut : `dry_run` = jamais parti (pas de SMTP
+        // configuré ou envoi désactivé) — c'est la jauge d'alerte principale.
+        for ligne in sqlx::query(
+            "SELECT status AS statut, count(*)::bigint AS n
+             FROM ent_mail_outbox GROUP BY status ORDER BY status",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        {
+            let statut: String = ligne.get("statut");
+            sondes.push(SondeMetrique::jauge(
+                "ent_mails_outbox",
+                &[("statut", statut.as_str())],
+                ligne.get::<i64, _>("n"),
+            ));
+        }
+
+        Ok(sondes)
+    }
+
     pub fn install_brain_p0(&mut self) -> &BrainP0 {
         let brain = BrainP0::install();
         self.events.register_handler(brain.runtime.clone());
@@ -454,6 +692,10 @@ impl PgEnt {
     }
 
     /// Notifie les parents liés par e-mail (dry-run ou live). Best-effort.
+    ///
+    /// Anti-doublon **par source** (`source_id`, `kind`) : un même geste
+    /// (signal, carnet, facture…) ne notifie qu'une fois. Pour une diffusion à
+    /// plusieurs familles partageant une source, voir `notify_parents_mail_broadcast`.
     async fn notify_parents_mail(
         &self,
         etablissement_id: Uuid,
@@ -478,6 +720,75 @@ impl PgEnt {
         {
             return Ok(0);
         }
+        self.envoyer_mail_parents(
+            etablissement_id,
+            eleve_id,
+            kind,
+            subject,
+            body_text,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+            attachments,
+        )
+        .await
+    }
+
+    /// Diffusion : anti-doublon **par destinataire** (élève). Plusieurs familles
+    /// peuvent partager la même `source_id` (ex. annonce établissement) sans se
+    /// bloquer mutuellement.
+    #[allow(clippy::too_many_arguments)]
+    async fn notify_parents_mail_broadcast(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        kind: &str,
+        subject: &str,
+        body_text: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+        attachments: Vec<MailAttachment>,
+    ) -> Result<usize, EntDbError> {
+        if !self.mailer.is_ready() {
+            return Ok(0);
+        }
+        if self
+            .mail_outbox
+            .count_by_source_kind_eleve(etablissement_id, source_id, kind, eleve_id)
+            .await?
+            > 0
+        {
+            return Ok(0);
+        }
+        self.envoyer_mail_parents(
+            etablissement_id,
+            eleve_id,
+            kind,
+            subject,
+            body_text,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+            attachments,
+        )
+        .await
+    }
+
+    /// Corps commun : envoie à tous les responsables liés à l'élève et journalise.
+    #[allow(clippy::too_many_arguments)]
+    async fn envoyer_mail_parents(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        kind: &str,
+        subject: &str,
+        body_text: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+        attachments: Vec<MailAttachment>,
+    ) -> Result<usize, EntDbError> {
         let emails = self
             .foyers
             .emails_parents_eleve(etablissement_id, eleve_id)
@@ -709,6 +1020,7 @@ impl PgEnt {
     }
 
     /// Push aux parents liés qui ont un device enregistré. Best-effort.
+    /// Push aux responsables liés à l'élève. Anti-doublon **par source**.
     async fn notify_parents_push(
         &self,
         etablissement_id: Uuid,
@@ -731,6 +1043,69 @@ impl PgEnt {
         {
             return Ok(0);
         }
+        self.envoyer_push_parents(
+            etablissement_id,
+            eleve_id,
+            kind,
+            title,
+            body,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+        )
+        .await
+    }
+
+    /// Diffusion : anti-doublon **par destinataire** (élève) — plusieurs familles
+    /// peuvent partager la même `source_id` (ex. annonce établissement).
+    #[allow(clippy::too_many_arguments)]
+    async fn notify_parents_push_broadcast(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        kind: &str,
+        title: &str,
+        body: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+    ) -> Result<usize, EntDbError> {
+        if !self.push.is_ready() {
+            return Ok(0);
+        }
+        if self
+            .push_devices
+            .count_by_source_kind_eleve(etablissement_id, source_id, kind, eleve_id)
+            .await?
+            > 0
+        {
+            return Ok(0);
+        }
+        self.envoyer_push_parents(
+            etablissement_id,
+            eleve_id,
+            kind,
+            title,
+            body,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn envoyer_push_parents(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        kind: &str,
+        title: &str,
+        body: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+    ) -> Result<usize, EntDbError> {
         let liens = self
             .foyers
             .list_liens_eleve(etablissement_id, eleve_id)
@@ -951,7 +1326,864 @@ impl PgEnt {
         password: &str,
         etablissement_id: Uuid,
     ) -> Result<SessionInfo, EntDbError> {
-        Ok(self.auth.login(email, password, etablissement_id).await?)
+        self.login_with_ip(email, password, etablissement_id, None)
+            .await
+    }
+
+    /// Connexion avec l'IP cliente (garde anti-force brute par IP, en plus du
+    /// verrou par compte). `client_ip` ne vient que d'un proxy de confiance.
+    ///
+    /// **Ne contourne pas** le 2ᵉ facteur : pour un compte doté de passkeys,
+    /// cette méthode échoue avec [`EntDbError::PasskeyRequis`] — utilisez
+    /// [`PgEnt::login_start_with_ip`]. Les appelants internes (seed, tests) ne
+    /// manipulent que des comptes sans passkey.
+    pub async fn login_with_ip(
+        &self,
+        email: &str,
+        password: &str,
+        etablissement_id: Uuid,
+        client_ip: Option<&str>,
+    ) -> Result<SessionInfo, EntDbError> {
+        match self
+            .login_start_with_ip(email, password, etablissement_id, client_ip)
+            .await?
+        {
+            LoginOutcome::Session(session) => Ok(session),
+            LoginOutcome::PasskeyRequired { .. } => Err(EntDbError::PasskeyRequis),
+        }
+    }
+
+    /// Connexion *complète* par mot de passe : émet une session **ou** signale
+    /// qu'une passkey est exigée (2ᵉ facteur) pour ce compte.
+    pub async fn login_start_with_ip(
+        &self,
+        email: &str,
+        password: &str,
+        etablissement_id: Uuid,
+        client_ip: Option<&str>,
+    ) -> Result<LoginOutcome, EntDbError> {
+        let identity = self
+            .auth
+            .verify_credentials(email, password, etablissement_id, client_ip)
+            .await?;
+        let passkeys = self
+            .passkeys
+            .list_passkeys(etablissement_id, identity.user_id)
+            .await?;
+        if passkeys.is_empty() {
+            let session = self
+                .auth
+                .issue_session(
+                    identity.user_id,
+                    etablissement_id,
+                    &identity.email,
+                    &identity.role,
+                )
+                .await?;
+            self.audit_acces(
+                etablissement_id,
+                Some(identity.user_id),
+                &identity.email,
+                &identity.role,
+                "connexion",
+                "Connexion à l'ENT",
+            )
+            .await;
+            return Ok(LoginOutcome::Session(session));
+        }
+
+        // 2ᵉ facteur : on n'ouvre pas de session tant que la passkey n'a pas été
+        // vérifiée. Le challenge est à usage unique et expire vite.
+        let (token, options, expires_at) = self
+            .open_authentication_challenge(etablissement_id, identity.user_id, &passkeys)
+            .await?;
+        self.audit_acces(
+            etablissement_id,
+            Some(identity.user_id),
+            &identity.email,
+            &identity.role,
+            "connexion_2fa",
+            "Mot de passe validé — passkey exigée",
+        )
+        .await;
+        Ok(LoginOutcome::PasskeyRequired {
+            token,
+            options,
+            expires_at,
+        })
+    }
+
+    /// Moteur WebAuthn du déploiement (RP ID / origine). Absent seulement si la
+    /// configuration est invalide : l'inscription comme la connexion par
+    /// passkey échouent alors explicitement (fail closed).
+    fn passkey_engine(&self) -> Result<&PasskeyEngine, EntDbError> {
+        self.passkey_engine
+            .as_ref()
+            .ok_or(EntDbError::Passkey(PasskeyError::Config))
+    }
+
+    /// Nombre de passkeys d'un compte (information de sécurité pour l'UI).
+    pub async fn count_passkeys_for_user(&self, user_id: Uuid) -> Result<i64, EntDbError> {
+        Ok(self.passkeys.count_for_user(user_id).await?)
+    }
+
+    /// Ouvre (et persiste) un challenge d'authentification pour les passkeys
+    /// fournies. Renvoie le token opaque remis au client, les options WebAuthn
+    /// et l'expiration.
+    async fn open_authentication_challenge(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        passkeys: &[Passkey],
+    ) -> Result<(String, serde_json::Value, DateTime<Utc>), EntDbError> {
+        let engine = self.passkey_engine()?;
+        let (rcr, state) = engine.start_authentication(passkeys)?;
+        let state_json = serde_json::to_value(&state)
+            .map_err(|_| EntDbError::Passkey(PasskeyError::BadState))?;
+        let options = serde_json::to_value(&rcr).unwrap_or(serde_json::Value::Null);
+        let (raw_token, token_hash) = generate_challenge_token();
+        let expires_at =
+            Utc::now() + chrono::Duration::minutes(passkey_challenge_minutes());
+        self.passkeys.prune_expired_challenges().await?;
+        self.passkeys
+            .insert_challenge(
+                etablissement_id,
+                user_id,
+                "authenticate",
+                &state_json,
+                &token_hash,
+                expires_at,
+            )
+            .await?;
+        Ok((raw_token, options, expires_at))
+    }
+
+    /// Démarre l'enrôlement d'une passkey pour l'acteur connecté. Renvoie le
+    /// token de corrélation et les options à passer au navigateur.
+    pub async fn passkey_register_start_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(String, serde_json::Value), EntDbError> {
+        if !self.auth.is_member(etablissement_id, user_id).await? {
+            return Err(EntDbError::Forbidden);
+        }
+        let (email, display_name) = self
+            .auth
+            .user_profile(user_id)
+            .await?
+            .ok_or(EntDbError::Forbidden)?;
+        let display = display_name
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| email.clone());
+        let exclude = self
+            .passkeys
+            .list_credential_ids(etablissement_id, user_id)
+            .await?;
+        let engine = self.passkey_engine()?;
+        let (ccr, state) = engine.start_registration(user_id, &email, &display, exclude)?;
+        let state_json = serde_json::to_value(&state)
+            .map_err(|_| EntDbError::Passkey(PasskeyError::BadState))?;
+        let options = serde_json::to_value(&ccr).unwrap_or(serde_json::Value::Null);
+        let (raw_token, token_hash) = generate_challenge_token();
+        let expires_at =
+            Utc::now() + chrono::Duration::minutes(passkey_challenge_minutes());
+        self.passkeys.prune_expired_challenges().await?;
+        self.passkeys
+            .insert_challenge(
+                etablissement_id,
+                user_id,
+                "register",
+                &state_json,
+                &token_hash,
+                expires_at,
+            )
+            .await?;
+        Ok((raw_token, options))
+    }
+
+    /// Finalise l'enrôlement : vérifie l'attestation puis persiste la passkey.
+    pub async fn passkey_register_finish_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        token: &str,
+        credential: &RegisterPublicKeyCredential,
+        name: Option<String>,
+    ) -> Result<PasskeyRow, EntDbError> {
+        let token_hash = hash_token(token);
+        let challenge = self
+            .passkeys
+            .take_challenge(&token_hash, "register")
+            .await?
+            .ok_or(EntDbError::Passkey(PasskeyError::RegisterStart))?;
+        // Le challenge doit appartenir au même compte / établissement : un
+        // token volé ne peut pas enrôler une passkey sur un autre compte.
+        if challenge.user_id != user_id || challenge.etablissement_id != etablissement_id {
+            return Err(EntDbError::Forbidden);
+        }
+        let state: PasskeyRegistration = serde_json::from_value(challenge.state)
+            .map_err(|_| EntDbError::Passkey(PasskeyError::BadState))?;
+        let engine = self.passkey_engine()?;
+        let passkey = engine.finish_registration(credential, &state)?;
+        let stored = self
+            .passkeys
+            .insert_credential(etablissement_id, user_id, &passkey, name.as_deref())
+            .await?;
+        if !stored {
+            // Même appareil déjà enrôlé (identifiant de credential connu).
+            return Err(EntDbError::Passkey(PasskeyError::RegisterFinish));
+        }
+        let email = self
+            .auth
+            .resolve_user_email(user_id)
+            .await
+            .unwrap_or_default();
+        self.audit_acces(
+            etablissement_id,
+            Some(user_id),
+            &email,
+            "",
+            "passkey_enrolement",
+            "Enrôlement d'une passkey",
+        )
+        .await;
+        let rows = self
+            .passkeys
+            .list_rows(etablissement_id, user_id)
+            .await?;
+        rows.into_iter()
+            .last()
+            .ok_or(EntDbError::Passkey(PasskeyError::RegisterFinish))
+    }
+
+    /// Passkeys d'un compte (métadonnées, jamais la matière cryptographique).
+    pub async fn list_passkeys_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Vec<PasskeyRow>, EntDbError> {
+        if !self.auth.is_member(etablissement_id, user_id).await? {
+            return Err(EntDbError::Forbidden);
+        }
+        Ok(self.passkeys.list_rows(etablissement_id, user_id).await?)
+    }
+
+    /// Retire une passkey du compte connecté (peut désactiver son 2ᵉ facteur).
+    pub async fn delete_passkey_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        passkey_id: Uuid,
+    ) -> Result<bool, EntDbError> {
+        let removed = self
+            .passkeys
+            .delete_credential(etablissement_id, user_id, passkey_id)
+            .await?;
+        if removed {
+            let email = self
+                .auth
+                .resolve_user_email(user_id)
+                .await
+                .unwrap_or_default();
+            self.audit_acces(
+                etablissement_id,
+                Some(user_id),
+                &email,
+                "",
+                "passkey_suppression",
+                "Suppression d'une passkey",
+            )
+            .await;
+        }
+        Ok(removed)
+    }
+
+    /// Démarre une connexion **sans mot de passe** par passkey à partir de
+    /// l'e-mail. `None` si l'utilisateur n'existe pas, n'appartient pas à
+    /// l'établissement ou n'a aucune passkey : la réponse HTTP reste générique
+    /// pour ne pas révéler l'existence d'un compte.
+    pub async fn passkey_login_start(
+        &self,
+        etablissement_id: Uuid,
+        email: &str,
+    ) -> Result<Option<(String, serde_json::Value, DateTime<Utc>)>, EntDbError> {
+        let Some(user_id) = self.auth.find_user_id_by_email(email).await? else {
+            return Ok(None);
+        };
+        if !self.auth.is_member(etablissement_id, user_id).await? {
+            return Ok(None);
+        }
+        let passkeys = self.passkeys.list_passkeys(etablissement_id, user_id).await?;
+        if passkeys.is_empty() {
+            return Ok(None);
+        }
+        let (token, options, expires_at) = self
+            .open_authentication_challenge(etablissement_id, user_id, &passkeys)
+            .await?;
+        Ok(Some((token, options, expires_at)))
+    }
+
+    /// Finalise une connexion par passkey (2ᵉ facteur **ou** sans mot de passe) :
+    /// vérifie l'assertion, met à jour le compteur d'usage, ouvre la session.
+    pub async fn passkey_login_finish(
+        &self,
+        token: &str,
+        credential: &PublicKeyCredential,
+    ) -> Result<SessionInfo, EntDbError> {
+        let token_hash = hash_token(token);
+        let challenge = self
+            .passkeys
+            .take_challenge(&token_hash, "authenticate")
+            .await?
+            .ok_or(EntDbError::Passkey(PasskeyError::AuthStart))?;
+        let state: PasskeyAuthentication = serde_json::from_value(challenge.state)
+            .map_err(|_| EntDbError::Passkey(PasskeyError::BadState))?;
+        let passkeys = self
+            .passkeys
+            .list_passkeys(challenge.etablissement_id, challenge.user_id)
+            .await?;
+        if passkeys.is_empty() {
+            return Err(EntDbError::Passkey(PasskeyError::AuthFinish));
+        }
+        let engine = self.passkey_engine()?;
+        let result = engine.finish_authentication(credential, &state)?;
+        // Compteur d'usage : n'écrit que le credential réellement utilisé.
+        for mut pk in passkeys {
+            if PasskeyEngine::apply_counter(&mut pk, &result) {
+                self.passkeys.update_credential(&pk).await?;
+            }
+        }
+        let identity = self
+            .auth
+            .user_profile(challenge.user_id)
+            .await?
+            .ok_or(EntDbError::Passkey(PasskeyError::AuthFinish))?;
+        let role = self
+            .auth
+            .role_in(challenge.etablissement_id, challenge.user_id)
+            .await?
+            .ok_or(EntDbError::Forbidden)?;
+        let session = self
+            .auth
+            .issue_session(
+                challenge.user_id,
+                challenge.etablissement_id,
+                &identity.0,
+                &role,
+            )
+            .await?;
+        self.audit_acces(
+            challenge.etablissement_id,
+            Some(challenge.user_id),
+            &identity.0,
+            &role,
+            "connexion_passkey",
+            "Connexion par passkey",
+        )
+        .await;
+        Ok(session)
+    }
+
+    /// Récupération après perte d'appareil : Direction / Admin retire toutes
+    /// les passkeys d'un membre de **son** établissement. Le compte retombe en
+    /// simple mot de passe, puis l'utilisateur réenrôle une passkey.
+    pub async fn reset_passkeys_admin_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_role: &str,
+        target_user_id: Uuid,
+    ) -> Result<u64, EntDbError> {
+        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
+        if !matches!(actor, Role::Admin | Role::Direction) {
+            return Err(EntDbError::Forbidden);
+        }
+        if !self.auth.is_member(etablissement_id, target_user_id).await? {
+            return Err(EntDbError::Forbidden);
+        }
+        let removed = self
+            .passkeys
+            .delete_all_for_user(etablissement_id, target_user_id)
+            .await?;
+        let email = self
+            .auth
+            .resolve_user_email(target_user_id)
+            .await
+            .unwrap_or_default();
+        self.audit_acces(
+            etablissement_id,
+            Some(target_user_id),
+            &email,
+            actor_role,
+            "passkey_reset_admin",
+            "Réinitialisation des passkeys (récupération)",
+        )
+        .await;
+        Ok(removed)
+    }
+
+    // ---- SSO OIDC ----------------------------------------------------------
+
+    /// Transport SSO courant (HTTP en production, simulé dans les tests).
+    fn oidc_transport(&self) -> Arc<dyn OidcTransport> {
+        self.oidc_transport
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Remplace le transport SSO (tests / labo). Prend `&self` : le PgEnt est
+    /// partagé derrière un `Arc` par l'API.
+    pub fn set_oidc_transport(&self, transport: Arc<dyn OidcTransport>) {
+        *self
+            .oidc_transport
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = transport;
+    }
+
+    /// Déclare (ou met à jour) un fournisseur SSO pour l'établissement.
+    ///
+    /// La configuration est **validée par découverte réelle** de l'IdP avant
+    /// d'être enregistrée : issuer injoignable ou document incomplet → refus
+    /// explicite, pas de fournisseur à moitié configuré. Réservé à
+    /// Direction / Admin.
+    pub async fn upsert_oidc_provider_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_role: &str,
+        params: OidcProviderParams,
+    ) -> Result<OidcProviderRow, EntDbError> {
+        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
+        if !matches!(actor, Role::Admin | Role::Direction) {
+            return Err(EntDbError::Forbidden);
+        }
+        let slug = params.slug.trim().to_lowercase();
+        if slug.is_empty()
+            || params.libelle.trim().is_empty()
+            || params.issuer.trim().is_empty()
+            || params.client_id.trim().is_empty()
+            || params.client_secret.is_empty()
+        {
+            return Err(EntDbError::Oidc(OidcError::Discovery(
+                "slug, libellé, issuer, client_id et client_secret sont requis".into(),
+            )));
+        }
+        let issuer = params.issuer.trim().trim_end_matches('/').to_string();
+        let transport = self.oidc_transport();
+        let discovery = discover(transport.as_ref(), &issuer).await?;
+        let redirect_uri = params
+            .redirect_uri
+            .map(|r| r.trim().to_string())
+            .filter(|r| !r.is_empty())
+            .unwrap_or_else(oidc_default_redirect_uri);
+        let scopes = params
+            .scopes
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "openid email profile".to_string());
+        self.oidc
+            .upsert_provider(OidcProviderUpsert {
+                etablissement_id,
+                slug: &slug,
+                libelle: params.libelle.trim(),
+                issuer: &discovery.issuer,
+                client_id: params.client_id.trim(),
+                client_secret: &params.client_secret,
+                scopes: &scopes,
+                redirect_uri: &redirect_uri,
+                authorization_endpoint: &discovery.authorization_endpoint,
+                token_endpoint: &discovery.token_endpoint,
+                jwks_uri: &discovery.jwks_uri,
+            })
+            .await?;
+        self.audit_acces(
+            etablissement_id,
+            None,
+            "",
+            actor_role,
+            "oidc_provider_config",
+            &format!("Configuration SSO « {slug} » ({issuer})"),
+        )
+        .await;
+        self.oidc
+            .get_provider(etablissement_id, &slug)
+            .await?
+            .ok_or(EntDbError::OidcProviderInconnu)
+    }
+
+    /// Fournisseurs configurés (staff — la direction voit client_id et issuer).
+    pub async fn list_oidc_providers_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_role: &str,
+    ) -> Result<Vec<OidcProviderRow>, EntDbError> {
+        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
+        if !actor.is_staff() {
+            return Err(EntDbError::Forbidden);
+        }
+        Ok(self.oidc.list_providers(etablissement_id).await?)
+    }
+
+    /// Fournisseurs actifs exposés à la page de connexion (aucune donnée
+    /// sensible : slug + libellé seulement).
+    pub async fn list_oidc_providers_public(
+        &self,
+        etablissement_id: Uuid,
+    ) -> Result<Vec<OidcProviderPublic>, EntDbError> {
+        Ok(self.oidc.list_public(etablissement_id).await?)
+    }
+
+    pub async fn delete_oidc_provider_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_role: &str,
+        slug: &str,
+    ) -> Result<bool, EntDbError> {
+        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
+        if !matches!(actor, Role::Admin | Role::Direction) {
+            return Err(EntDbError::Forbidden);
+        }
+        let removed = self
+            .oidc
+            .delete_provider(etablissement_id, &slug.trim().to_lowercase())
+            .await?;
+        if removed {
+            self.audit_acces(
+                etablissement_id,
+                None,
+                "",
+                actor_role,
+                "oidc_provider_suppression",
+                &format!("Suppression du fournisseur SSO « {slug} »"),
+            )
+            .await;
+        }
+        Ok(removed)
+    }
+
+    /// Démarre un parcours SSO : renvoie l'URL d'autorisation de l'IdP (le
+    /// `state` OIDC est notre jeton opaque, consommé au retour).
+    ///
+    /// Aucune écriture de session ici : l'utilisateur n'est pas encore
+    /// authentifié.
+    pub async fn oidc_start(
+        &self,
+        etablissement_id: Uuid,
+        slug: &str,
+    ) -> Result<String, EntDbError> {
+        let provider = self
+            .oidc
+            .get_provider(etablissement_id, &slug.trim().to_lowercase())
+            .await?
+            .filter(|p| p.actif)
+            .ok_or(EntDbError::OidcProviderInconnu)?;
+
+        let discovery = OidcDiscovery {
+            issuer: provider.issuer.clone(),
+            authorization_endpoint: provider.authorization_endpoint.clone(),
+            token_endpoint: provider.token_endpoint.clone(),
+            jwks_uri: provider.jwks_uri.clone(),
+            id_token_signing_alg_values_supported: vec!["RS256".to_string()],
+        };
+        let config = OidcProviderConfig {
+            issuer: provider.issuer.clone(),
+            client_id: provider.client_id.clone(),
+            client_secret: provider.client_secret.clone(),
+            scopes: provider
+                .scopes
+                .split_whitespace()
+                .map(str::to_string)
+                .collect(),
+            redirect_uri: provider.redirect_uri.clone(),
+        };
+
+        let state_token = random_token();
+        let (code_verifier, code_challenge) = generate_pkce();
+        let nonce = random_token();
+        let url = build_authorization_url(
+            &discovery,
+            &config,
+            &state_token,
+            &nonce,
+            &code_challenge,
+        );
+
+        let expires_at = Utc::now() + chrono::Duration::minutes(oidc_state_minutes());
+        self.oidc.prune_expired_states().await?;
+        self.oidc
+            .insert_state(OidcStateInsert {
+                token_hash: &hash_token(&state_token),
+                provider_id: provider.id,
+                etablissement_id,
+                code_verifier: &code_verifier,
+                nonce: &nonce,
+                redirect_uri: &provider.redirect_uri,
+                expires_at,
+            })
+            .await?;
+        Ok(url)
+    }
+
+    /// Termine le parcours SSO : vérifie l'`id_token` puis résout le **compte
+    /// local**. Aucune création automatique : une identité SSO inconnue est
+    /// refusée (un administrateur rattache le compte au préalable).
+    ///
+    /// Le SSO ne **contourne pas** un 2ᵉ facteur déjà enrôlé : si le compte a
+    /// ≥ 1 passkey, une assertion est exigée après l'IdP (`PasskeyRequired`) —
+    /// sinon il suffirait de choisir « SSO » pour esquiver sa passkey.
+    pub async fn oidc_complete(
+        &self,
+        code: &str,
+        state_token: &str,
+    ) -> Result<LoginOutcome, EntDbError> {
+        let state = self
+            .oidc
+            .take_state(&hash_token(state_token))
+            .await?
+            .ok_or(EntDbError::OidcStateInvalide)?;
+        let provider = self
+            .oidc
+            .get_provider_by_id(state.provider_id)
+            .await?
+            .ok_or(EntDbError::OidcProviderInconnu)?;
+
+        let discovery = OidcDiscovery {
+            issuer: provider.issuer.clone(),
+            authorization_endpoint: provider.authorization_endpoint.clone(),
+            token_endpoint: provider.token_endpoint.clone(),
+            jwks_uri: provider.jwks_uri.clone(),
+            id_token_signing_alg_values_supported: vec!["RS256".to_string()],
+        };
+        let config = OidcProviderConfig {
+            issuer: provider.issuer.clone(),
+            client_id: provider.client_id.clone(),
+            client_secret: provider.client_secret.clone(),
+            scopes: provider
+                .scopes
+                .split_whitespace()
+                .map(str::to_string)
+                .collect(),
+            redirect_uri: state.redirect_uri.clone(),
+        };
+        let identity = exchange_authorization_code(
+            self.oidc_transport().as_ref(),
+            &discovery,
+            &config,
+            code,
+            &state.code_verifier,
+            &state.nonce,
+            Utc::now().timestamp(),
+        )
+        .await?;
+
+        // Résolution du compte local : d'abord le rattachement stable (sub),
+        // puis — à la **première** connexion — l'e-mail si un membre de
+        // l'établissement correspond. Sinon : refus (pas de provisioning
+        // implicite, donc pas de rôle inventé).
+        let user_id = match self
+            .oidc
+            .find_identity(provider.id, &identity.subject)
+            .await?
+        {
+            Some(user_id) => user_id,
+            None => {
+                let email = identity
+                    .email
+                    .clone()
+                    .ok_or(EntDbError::OidcCompteInconnu)?;
+                let candidate = self
+                    .auth
+                    .find_user_id_by_email(&email)
+                    .await?
+                    .ok_or(EntDbError::OidcCompteInconnu)?;
+                self.oidc
+                    .link_identity(provider.id, &identity.subject, candidate)
+                    .await?;
+                candidate
+            }
+        };
+
+        if !self.auth.is_member(state.etablissement_id, user_id).await? {
+            return Err(EntDbError::Forbidden);
+        }
+        let role = self
+            .auth
+            .role_in(state.etablissement_id, user_id)
+            .await?
+            .ok_or(EntDbError::Forbidden)?;
+        let email = self
+            .auth
+            .resolve_user_email(user_id)
+            .await
+            .unwrap_or_default();
+
+        // Un 2ᵉ facteur déjà enrôlé reste obligatoire après le SSO : on ne
+        // laisse pas un compte à passkey esquiver sa clé en passant par l'IdP.
+        let passkeys = self
+            .passkeys
+            .list_passkeys(state.etablissement_id, user_id)
+            .await?;
+        if !passkeys.is_empty() {
+            let (token, options, expires_at) = self
+                .open_authentication_challenge(state.etablissement_id, user_id, &passkeys)
+                .await?;
+            self.audit_acces(
+                state.etablissement_id,
+                Some(user_id),
+                &email,
+                &role,
+                "connexion_sso_2fa",
+                &format!("SSO « {} » validé — passkey exigée", provider.slug),
+            )
+            .await;
+            return Ok(LoginOutcome::PasskeyRequired {
+                token,
+                options,
+                expires_at,
+            });
+        }
+
+        let session = self
+            .auth
+            .issue_session(user_id, state.etablissement_id, &email, &role)
+            .await?;
+        self.audit_acces(
+            state.etablissement_id,
+            Some(user_id),
+            &email,
+            &role,
+            "connexion_sso",
+            &format!("Connexion SSO via « {} »", provider.slug),
+        )
+        .await;
+        Ok(LoginOutcome::Session(session))
+    }
+
+    /// Provisionne un compte **personnel** (staff) dans l'établissement de la
+    /// session. La création libre étant fermée en prod, c'est le chemin
+    /// d'ouverture de comptes staff — réservé à Direction / Admin. Seul un
+    /// Admin peut créer un Admin / une Direction.
+    pub async fn provisionner_personnel_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        actor_role: &str,
+        cmd: ProvisionnerPersonnel,
+    ) -> Result<PersonnelProvisionne, EntDbError> {
+        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
+        if !matches!(actor, Role::Admin | Role::Direction) {
+            return Err(EntDbError::Forbidden);
+        }
+        let target = Role::parse(&cmd.role).ok_or(EntDbError::Forbidden)?;
+        if !target.is_staff() {
+            return Err(EntDbError::Forbidden);
+        }
+        if matches!(target, Role::Admin | Role::Direction) && actor != Role::Admin {
+            return Err(EntDbError::Forbidden);
+        }
+
+        let mot_de_passe_temporaire = generate_temp_password();
+        let user = self
+            .auth
+            .register(
+                &cmd.email,
+                &mot_de_passe_temporaire,
+                cmd.display_name.as_deref(),
+                etablissement_id,
+                target.as_str(),
+            )
+            .await?;
+
+        let _ = self
+            .enregistrer_journal_interne(EnregistrerJournal {
+                etablissement_id,
+                eleve_id: None,
+                domaine: "etablissement".into(),
+                action: "personnel_provisionne".into(),
+                libelle: format!(
+                    "Compte personnel provisionné : {} ({})",
+                    user.email,
+                    target.as_str()
+                ),
+                payload: json!({
+                    "email": user.email,
+                    "role": target.as_str(),
+                    "par": actor_user_id.to_string(),
+                }),
+                visible_famille: false,
+                actor_user_id: Some(actor_user_id),
+            })
+            .await;
+
+        Ok(PersonnelProvisionne {
+            user_id: user.id,
+            email: user.email,
+            role: target.as_str().to_string(),
+            mot_de_passe_temporaire,
+        })
+    }
+
+    /// Réinitialise le mot de passe d'un membre du personnel par un tiers
+    /// habilité (Direction / Admin). Renvoie le mot de passe temporaire et
+    /// révoque **toutes** les sessions de la cible. Un utilisateur ne peut pas
+    /// se réinitialiser lui-même par ce chemin (voir `POST /auth/password`).
+    pub async fn reinitialiser_mot_de_passe_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        actor_role: &str,
+        target_user_id: Uuid,
+    ) -> Result<String, EntDbError> {
+        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
+        if !matches!(actor, Role::Admin | Role::Direction) {
+            return Err(EntDbError::Forbidden);
+        }
+        if target_user_id == actor_user_id {
+            return Err(EntDbError::Forbidden);
+        }
+        let target_role = self
+            .auth
+            .role_in(etablissement_id, target_user_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let target = Role::parse(&target_role).ok_or(EntDbError::Forbidden)?;
+        if matches!(target, Role::Admin | Role::Direction) && actor != Role::Admin {
+            return Err(EntDbError::Forbidden);
+        }
+
+        let mot_de_passe_temporaire = generate_temp_password();
+        self.auth
+            .set_password(target_user_id, &mot_de_passe_temporaire)
+            .await?;
+        let _ = self.auth.revoke_all_for_user(target_user_id).await?;
+
+        let email = self
+            .auth
+            .resolve_user_email(target_user_id)
+            .await
+            .unwrap_or_default();
+        let _ = self
+            .enregistrer_journal_interne(EnregistrerJournal {
+                etablissement_id,
+                eleve_id: None,
+                domaine: "etablissement".into(),
+                action: "mot_de_passe_reinitialise".into(),
+                libelle: format!("Mot de passe réinitialisé : {email}"),
+                payload: json!({
+                    "email": email,
+                    "par": actor_user_id.to_string(),
+                }),
+                visible_famille: false,
+                actor_user_id: Some(actor_user_id),
+            })
+            .await;
+
+        Ok(mot_de_passe_temporaire)
+    }
+
+    /// Purge les sessions expirées (maintenance au démarrage du conteneur).
+    pub async fn purge_expired_sessions(&self) -> Result<u64, EntDbError> {
+        Ok(self.auth.purge_expired_sessions().await?)
     }
 
     pub async fn resolve_session(&self, authorization: &str) -> Result<SessionInfo, EntDbError> {
@@ -959,7 +2191,200 @@ impl PgEnt {
     }
 
     pub async fn logout(&self, authorization: &str) -> Result<(), EntDbError> {
-        Ok(self.auth.revoke_bearer(authorization).await?)
+        // Résoudre avant révocation pour pouvoir tracer l'accès.
+        let session = self.auth.resolve_bearer(authorization).await.ok();
+        self.auth.revoke_bearer(authorization).await?;
+        if let Some(s) = session {
+            self.audit_acces(
+                s.etablissement_id,
+                Some(s.user_id),
+                &s.email,
+                &s.role,
+                "deconnexion",
+                "Déconnexion de l'ENT",
+            )
+            .await;
+        }
+        Ok(())
+    }
+
+    /// Changement de mot de passe par l'utilisateur lui-même. Les autres
+    /// sessions de cet utilisateur sont révoquées (l'appelant garde la sienne).
+    pub async fn change_password(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        keep_session_id: Uuid,
+        current_password: &str,
+        new_password: &str,
+    ) -> Result<(), EntDbError> {
+        self.auth
+            .change_password(user_id, current_password, new_password)
+            .await?;
+        let revoked = self
+            .auth
+            .revoke_other_sessions_for_user(user_id, Some(keep_session_id))
+            .await?;
+        let email = self
+            .auth
+            .resolve_user_email(user_id)
+            .await
+            .unwrap_or_default();
+        self.audit_acces(
+            etablissement_id,
+            Some(user_id),
+            &email,
+            "",
+            "mot_de_passe_change",
+            "Mot de passe modifié",
+        )
+        .await;
+        let _ = revoked;
+        Ok(())
+    }
+
+    /// Purge les jetons de réinitialisation expirés / consommés (maintenance boot).
+    pub async fn purge_expired_password_resets(&self) -> Result<u64, EntDbError> {
+        Ok(self.auth.prune_password_resets().await?)
+    }
+
+    /// Demande de réinitialisation de mot de passe : génère un jeton à usage
+    /// unique (TTL 30 min) et envoie un lien par e-mail (dry-run ou SMTP live).
+    ///
+    /// Renvoie `true` si un compte correspondait (utile aux tests), mais
+    /// **l'appelant HTTP ne doit pas divulguer ce booléen** : un e-mail inconnu
+    /// ne produit ni jeton ni erreur (anti-énumération).
+    pub async fn demander_reinitialisation_mot_de_passe(
+        &self,
+        email: &str,
+        public_base_url: &str,
+    ) -> Result<bool, EntDbError> {
+        let Ok(Some(user_id)) = self.auth.find_user_id_by_email(email).await else {
+            return Ok(false);
+        };
+        let (raw, hashed) = generate_reset_token();
+        let expires_at = Utc::now() + chrono::Duration::minutes(30);
+        self.auth
+            .create_password_reset(user_id, &hashed, expires_at)
+            .await?;
+
+        if self.mailer.is_ready() {
+            let to = self.auth.resolve_user_email(user_id).await.unwrap_or_default();
+            let lien = format!(
+                "{}/reset-mot-de-passe?token={}",
+                public_base_url.trim_end_matches('/'),
+                raw
+            );
+            let _ = self
+                .mailer
+                .send(OutgoingMail {
+                    to,
+                    subject: "Réinitialisation de votre mot de passe ENT".into(),
+                    body_text: format!(
+                        "Bonjour,\n\nPour choisir un nouveau mot de passe, ouvrez ce lien (valable 30 minutes) :\n{lien}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
+                    ),
+                    attachments: vec![],
+                })
+                .await;
+        }
+
+        // Audit best-effort pour chaque établissement de l'utilisateur.
+        for (etab, role) in self
+            .auth
+            .list_memberships_for_user(user_id)
+            .await
+            .unwrap_or_default()
+        {
+            self.audit_acces(
+                etab,
+                Some(user_id),
+                email,
+                &role,
+                "reset_demande",
+                "Réinitialisation de mot de passe demandée",
+            )
+            .await;
+        }
+        Ok(true)
+    }
+
+    /// Applique une réinitialisation par jeton : vérifie le jeton (usage unique,
+    /// non expiré), change le mot de passe et **révoque toutes les sessions**.
+    pub async fn reinitialiser_mot_de_passe_par_token(
+        &self,
+        token: &str,
+        new_password: &str,
+    ) -> Result<(), EntDbError> {
+        let hashed = hash_token(token.trim());
+        let user_id = self
+            .auth
+            .consume_password_reset(&hashed, new_password)
+            .await?;
+        let email = self
+            .auth
+            .resolve_user_email(user_id)
+            .await
+            .unwrap_or_default();
+        for (etab, role) in self
+            .auth
+            .list_memberships_for_user(user_id)
+            .await
+            .unwrap_or_default()
+        {
+            self.audit_acces(
+                etab,
+                Some(user_id),
+                &email,
+                &role,
+                "mot_de_passe_reinitialise_token",
+                "Mot de passe réinitialisé par lien",
+            )
+            .await;
+        }
+        Ok(())
+    }
+
+    /// Test-only : crée un jeton de réinitialisation et renvoie le jeton **brut**
+    /// (jamais exposé par l'API HTTP). Réservé aux tests L1.
+    #[cfg(test)]
+    pub(crate) async fn reset_token_for_test(
+        &self,
+        email: &str,
+    ) -> Result<Option<String>, EntDbError> {
+        let Some(user_id) = self.auth.find_user_id_by_email(email).await? else {
+            return Ok(None);
+        };
+        let (raw, hashed) = generate_reset_token();
+        let expires_at = Utc::now() + chrono::Duration::minutes(30);
+        self.auth
+            .create_password_reset(user_id, &hashed, expires_at)
+            .await?;
+        Ok(Some(raw))
+    }
+
+    /// Trace un accès dans le journal (`domaine = auth`). Best-effort : un échec
+    /// d'audit ne doit jamais faire échouer l'action métier.
+    async fn audit_acces(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Option<Uuid>,
+        email: &str,
+        role: &str,
+        action: &str,
+        libelle: &str,
+    ) {
+        let _ = self
+            .enregistrer_journal_interne(EnregistrerJournal {
+                etablissement_id,
+                eleve_id: None,
+                domaine: "auth".into(),
+                action: action.into(),
+                libelle: libelle.into(),
+                payload: json!({ "email": email, "role": role }),
+                visible_famille: false,
+                actor_user_id: user_id,
+            })
+            .await;
     }
 
     pub async fn create_eleve(&self, cmd: CreateEleve) -> Result<Eleve, EntDbError> {
@@ -1052,9 +2477,21 @@ impl PgEnt {
                     "redoublant": eleve.redoublant,
                     "date_entree": eleve.date_entree.map(|d| d.to_string()),
                 }),
-                actor_user_id: actor,
+                actor_user_id: actor.clone(),
             })
             .await?;
+        let _ = self
+            .enregistrer_journal_interne(EnregistrerJournal {
+                etablissement_id: eleve.etablissement_id,
+                eleve_id: Some(eleve.id),
+                domaine: "administratif".into(),
+                action: "identite_modifiee".into(),
+                libelle: format!("Identité modifiée : {} {}", eleve.prenom, eleve.nom),
+                payload: json!({ "nom": eleve.nom, "prenom": eleve.prenom }),
+                visible_famille: true,
+                actor_user_id: actor.and_then(|s| Uuid::parse_str(&s).ok()),
+            })
+            .await;
         Ok(eleve)
     }
 
@@ -1421,11 +2858,43 @@ impl PgEnt {
             .periodes
             .open(cmd.etablissement_id, cmd.eleve_id, cmd.kind)
             .await?;
+        let kind = cmd.kind.as_str();
+        let kind_enum = cmd.kind;
+        let nouvelle_valeur = cmd.nouvelle_valeur.clone();
+        let date_effet = cmd.date_effet;
+        let actor = cmd.actor_user_id.clone();
+        let etab = cmd.etablissement_id;
+        let eleve_id = cmd.eleve_id;
         let planned = plan_cutover(&current, open.as_ref(), cmd, today_utc())?;
+        let changed = match kind_enum {
+            AttributKind::Classe => current.classe != planned.eleve.classe,
+            AttributKind::Regime => current.regime != planned.eleve.regime,
+            AttributKind::Mef => current.mef != planned.eleve.mef,
+            AttributKind::Site => current.site != planned.eleve.site,
+        };
         self.periodes.apply_cutover(&planned.op).await?;
         self.eleves.upsert(&planned.eleve).await?;
         if let Some(event) = planned.event {
             self.events.publish(event).await?;
+        }
+        // Traçabilité : toute bascule d'attribut daté laisse une entrée journal.
+        if changed {
+            let _ = self
+                .enregistrer_journal_interne(EnregistrerJournal {
+                    etablissement_id: etab,
+                    eleve_id: Some(eleve_id),
+                    domaine: "scolarite".into(),
+                    action: format!("{kind}_change"),
+                    libelle: format!("Changement {kind} → {nouvelle_valeur} au {date_effet}"),
+                    payload: json!({
+                        "kind": kind,
+                        "nouvelle_valeur": nouvelle_valeur,
+                        "date_effet": date_effet.to_string(),
+                    }),
+                    visible_famille: true,
+                    actor_user_id: actor.and_then(|s| Uuid::parse_str(&s).ok()),
+                })
+                .await;
         }
         Ok(planned.eleve)
     }
@@ -1436,10 +2905,33 @@ impl PgEnt {
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        let nouveau = cmd.nouveau_status.as_str().to_string();
+        let actor = cmd.actor_user_id.clone();
+        let etab = cmd.etablissement_id;
+        let eleve_id = cmd.eleve_id;
         let planned = plan_change_status(&current, cmd)?;
         self.eleves.upsert(&planned.eleve).await?;
         if let Some(event) = planned.event {
             self.events.publish(event).await?;
+        }
+        let _ = self
+            .enregistrer_journal_interne(EnregistrerJournal {
+                etablissement_id: etab,
+                eleve_id: Some(eleve_id),
+                domaine: "scolarite".into(),
+                action: "statut_change".into(),
+                libelle: format!("Statut élève → {nouveau}"),
+                payload: json!({ "statut": nouveau }),
+                visible_famille: true,
+                actor_user_id: actor.as_deref().and_then(|s| Uuid::parse_str(s).ok()),
+            })
+            .await;
+        // Une bascule de statut vers `Sorti` est une sortie : mêmes répercussions
+        // transverses que le geste dédié `sortir` (une seule vérité pour l'état).
+        if current.status != EleveStatus::Sorti && planned.eleve.status == EleveStatus::Sorti {
+            let date_sortie = planned.eleve.date_sortie.unwrap_or_else(today_utc);
+            self.appliquer_repercussions_sortie(etab, eleve_id, date_sortie, actor)
+                .await?;
         }
         Ok(planned.eleve)
     }
@@ -1450,7 +2942,10 @@ impl PgEnt {
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let planned = plan_sortir(&current, cmd, today_utc())?;
+        let planned = plan_sortir(&current, cmd.clone(), today_utc())?;
+        let etab = planned.eleve.etablissement_id;
+        let eleve_id = planned.eleve.id;
+        let actor_user_id = cmd.actor_user_id.clone();
         if let Some(fin) = planned.close_periodes_au {
             self.periodes
                 .close_open_periodes(planned.eleve.etablissement_id, planned.eleve.id, fin)
@@ -1458,7 +2953,151 @@ impl PgEnt {
         }
         self.eleves.upsert(&planned.eleve).await?;
         self.events.publish(planned.event).await?;
+
+        // Sortie effective : répercussions transverses (cantine, internat, accès, docs).
+        if planned.eleve.status == EleveStatus::Sorti {
+            let date_sortie = planned.eleve.date_sortie.unwrap_or_else(today_utc);
+            self.appliquer_repercussions_sortie(etab, eleve_id, date_sortie, actor_user_id.clone())
+                .await?;
+        }
+        // Traçabilité : la sortie est un acte administratif journalisé.
+        let _ = self
+            .enregistrer_journal_interne(EnregistrerJournal {
+                etablissement_id: etab,
+                eleve_id: Some(eleve_id),
+                domaine: "administratif".into(),
+                action: "eleve_sorti".into(),
+                libelle: match planned.eleve.date_sortie {
+                    Some(d) => format!("Sortie élève au {d}"),
+                    None => "Sortie élève".to_string(),
+                },
+                payload: json!({
+                    "date_sortie": planned.eleve.date_sortie.map(|d| d.to_string()),
+                    "motif_sortie": planned.eleve.motif_sortie,
+                    "statut": planned.eleve.status.as_str(),
+                }),
+                visible_famille: true,
+                actor_user_id: actor_user_id.and_then(|s| Uuid::parse_str(&s).ok()),
+            })
+            .await;
         Ok(planned.eleve)
+    }
+
+    /// Répercussions transverses d'une **sortie effective** (statut `Sorti`).
+    ///
+    /// Un élève qui quitte l'établissement doit être retiré de tous les flux
+    /// vivants, **quel que soit le geste** qui a produit la sortie (`sortir` daté
+    /// ou bascule de statut) :
+    /// - cantine : grille repas fermée la veille de la sortie ;
+    /// - internat : affectation de chambre close la veille de la sortie ;
+    /// - accès : compte élève délié + sessions applicatives révoquées ;
+    /// - documents à signer en attente annulés.
+    ///
+    /// Chaque étape est idempotente (les dépôts renvoient `0` / `None` quand il n'y
+    /// a rien à fermer), mais l'appelant ne déclenche la cascade que sur une
+    /// **transition** vers `Sorti`, pour ne pas republier d'événements à chaque
+    /// écriture ultérieure.
+    async fn appliquer_repercussions_sortie(
+        &self,
+        etab: Uuid,
+        eleve_id: Uuid,
+        date_sortie: NaiveDate,
+        actor_user_id: Option<String>,
+    ) -> Result<(), EntDbError> {
+        let veille = date_sortie - chrono::Duration::days(1);
+
+        // Scolarité : les périodes ouvertes sont closes la veille de la sortie
+        // (historique + effectif daté conservés). Idempotent (ne touche que les
+        // périodes encore ouvertes).
+        self.periodes
+            .close_open_periodes(etab, eleve_id, veille)
+            .await?;
+
+        // Cantine : plus de consommable après la veille de la sortie.
+        let grilles_closes = self.repas.close_grilles_eleve(etab, eleve_id, veille).await?;
+        if grilles_closes > 0 {
+            self.events
+                .publish(MetierEventDraft {
+                    etablissement_id: etab,
+                    type_name: types::ELEVE_GRILLE_REPAS_CLOSE.to_string(),
+                    aggregate: AggregateKind::Eleve,
+                    aggregate_id: eleve_id,
+                    eleve_id: Some(eleve_id),
+                    payload: json!({
+                        "date_fin": veille.to_string(),
+                        "grilles_closes": grilles_closes,
+                    }),
+                    actor_user_id: actor_user_id.clone(),
+                })
+                .await?;
+        }
+
+        // Internat : l'hébergement s'arrête la veille de la sortie (au plus tôt
+        // le premier jour d'affectation, si celle-ci démarre le jour même).
+        if let Some(affectation) = self
+            .internat
+            .get_affectation_active(etab, eleve_id, date_sortie)
+            .await?
+        {
+            let fin_internat = veille.max(affectation.debut);
+            let closed = plan_clore_affectation_internat(affectation, etab, fin_internat)?;
+            self.internat.update_affectation_fin(&closed).await?;
+            self.events
+                .publish(MetierEventDraft {
+                    etablissement_id: etab,
+                    type_name: types::INTERNAT_AFFECTATION.to_string(),
+                    aggregate: AggregateKind::Internat,
+                    aggregate_id: closed.id,
+                    eleve_id: Some(eleve_id),
+                    payload: json!({
+                        "fin": fin_internat.to_string(),
+                        "cloture": true,
+                        "motif": "sortie_eleve",
+                    }),
+                    actor_user_id: actor_user_id.clone(),
+                })
+                .await?;
+        }
+
+        // Accès applicatif élève : délien + sessions révoquées.
+        if let Some(user_id) = self.eleve_comptes.unlink_eleve(etab, eleve_id).await? {
+            let sessions = self.auth.revoke_all_for_user(user_id).await.unwrap_or(0);
+            self.events
+                .publish(MetierEventDraft {
+                    etablissement_id: etab,
+                    type_name: types::ELEVE_COMPTE_REVOQUE.to_string(),
+                    aggregate: AggregateKind::Eleve,
+                    aggregate_id: eleve_id,
+                    eleve_id: Some(eleve_id),
+                    payload: json!({
+                        "user_id": user_id.to_string(),
+                        "sessions_revoquees": sessions,
+                    }),
+                    actor_user_id: None,
+                })
+                .await?;
+        }
+
+        // Documents à signer en attente : plus de sens une fois l'élève parti.
+        let docs_annules = self.docs_signer.annuler_pending_eleve(etab, eleve_id).await?;
+        if docs_annules > 0 {
+            self.events
+                .publish(MetierEventDraft {
+                    etablissement_id: etab,
+                    type_name: types::DOC_A_SIGNER.to_string(),
+                    aggregate: AggregateKind::Eleve,
+                    aggregate_id: eleve_id,
+                    eleve_id: Some(eleve_id),
+                    payload: json!({
+                        "action": "annule_sortie",
+                        "docs_annules": docs_annules,
+                    }),
+                    actor_user_id: actor_user_id.clone(),
+                })
+                .await?;
+        }
+
+        Ok(())
     }
 
     pub async fn get_eleve(
@@ -2184,6 +3823,12 @@ impl PgEnt {
             .unwrap_or(false)
     }
 
+    /// Sauvegardes / PRA : seule la Direction (ou un admin plateforme) peut
+    /// lire un inventaire d'intégrité ou vérifier une restauration.
+    pub fn role_can_sauvegarde(role: &str) -> bool {
+        matches!(Role::parse(role), Some(Role::Admin) | Some(Role::Direction))
+    }
+
     pub fn role_can_declare_absence_staff(role: &str) -> bool {
         Role::parse(role)
             .map(|r| r.can_declare_absence_staff())
@@ -2561,6 +4206,319 @@ impl PgEnt {
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
+
+        // Répercussion famille : un bulletin publié est communiqué aux responsables.
+        let _ = self
+            .notify_parents_mail(
+                etablissement_id,
+                eleve_id,
+                "bulletin",
+                &format!(
+                    "Bulletin {} — {} {}",
+                    periode.libelle, eleve.prenom, eleve.nom
+                ),
+                &format!(
+                    "Le bulletin {} de {} {} est disponible dans le portail famille.",
+                    periode.libelle, eleve.prenom, eleve.nom
+                ),
+                "document",
+                doc.id,
+                Some(actor_user_id),
+                Vec::new(),
+            )
+            .await;
+        let _ = self
+            .notify_parents_push(
+                etablissement_id,
+                eleve_id,
+                "bulletin",
+                "Nouveau bulletin disponible",
+                &format!("Bulletin {} de {}", periode.libelle, eleve.prenom),
+                "document",
+                doc.id,
+                Some(actor_user_id),
+            )
+            .await;
+        Ok(doc)
+    }
+
+    // ---- Compétences / LSU ---------------------------------------------------
+
+    /// Seed le référentiel de compétences (socle commun) + évaluations T1 d'un élève.
+    /// Défaut **éditable** (données établissement), pas une règle nationale figée.
+    pub async fn seed_competences_socle(
+        &self,
+        etablissement_id: Uuid,
+        periode_id: Uuid,
+        eleve_id: Uuid,
+        actor_user_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        const SOCLE: &[(&str, &str, &str)] = &[
+            ("D1", "D1.1", "Comprendre et s'exprimer à l'oral"),
+            ("D1", "D1.2", "Comprendre et s'exprimer à l'écrit"),
+            ("D2", "D2.1", "Organiser son travail personnel"),
+            ("D2", "D2.2", "Chercher et traiter l'information"),
+            ("D3", "D3.1", "Faire preuve de responsabilité et d'initiative"),
+            ("D3", "D3.2", "Respecter autrui et les règles de la vie commune"),
+            ("D4", "D4.1", "Démarrer une démarche scientifique"),
+            ("D4", "D4.2", "Comprendre les systèmes techniques"),
+            ("D5", "D5.1", "Se repérer dans le temps et l'espace"),
+            ("D5", "D5.2", "Formuler une opinion argumentée"),
+        ];
+        for (ordre, (domaine, code, libelle)) in SOCLE.iter().enumerate() {
+            let item = plan_creer_competence_item(CreerCompetenceItem {
+                etablissement_id,
+                domaine: (*domaine).to_string(),
+                code: (*code).to_string(),
+                libelle: (*libelle).to_string(),
+                ordre: Some(ordre as i32),
+            })?;
+            self.competences.upsert_item(&item).await?;
+        }
+        let items = self.competences.list_items(etablissement_id, false).await?;
+        for (i, item) in items.iter().enumerate() {
+            let niveau = match i % 4 {
+                0 => NiveauMaitrise::TresBonne,
+                1 | 2 => NiveauMaitrise::Satisfaisante,
+                _ => NiveauMaitrise::Fragile,
+            };
+            let evaluation = EvaluationCompetence {
+                id: Uuid::new_v4(),
+                etablissement_id,
+                eleve_id,
+                item_id: item.id,
+                periode_id,
+                niveau,
+                commentaire: (i == 0)
+                    .then(|| "Participation orale remarquée en Potions.".to_string()),
+                auteur_user_id: actor_user_id,
+            };
+            self.competences.upsert_evaluation(&evaluation).await?;
+        }
+        Ok(())
+    }
+
+    /// Crée / met à jour un item du référentiel de compétences (staff pédagogique).
+    pub async fn creer_competence_item_for_actor(
+        &self,
+        role: &str,
+        cmd: CreerCompetenceItem,
+    ) -> Result<CompetenceItem, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        if !(Self::role_can_manage_matieres(role) || parsed.can_manage_eleves()) {
+            return Err(EntDbError::Forbidden);
+        }
+        let item = plan_creer_competence_item(cmd)?;
+        self.competences.upsert_item(&item).await?;
+        Ok(item)
+    }
+
+    /// Référentiel de compétences de l'établissement (staff notes).
+    pub async fn list_competences_items_for_actor(
+        &self,
+        role: &str,
+        etablissement_id: Uuid,
+        inclure_inactifs: bool,
+    ) -> Result<Vec<CompetenceItem>, EntDbError> {
+        if !Role::parse(role).is_some_and(|r| r.can_read_notes_staff()) {
+            return Err(EntDbError::Forbidden);
+        }
+        Ok(self
+            .competences
+            .list_items(etablissement_id, inclure_inactifs)
+            .await?)
+    }
+
+    /// Évalue (ou ré-évalue) un item du socle pour un élève sur une période.
+    pub async fn evaluer_competence_for_actor(
+        &self,
+        role: &str,
+        cmd: EvaluerCompetence,
+    ) -> Result<EvaluationCompetence, EntDbError> {
+        if !Self::role_can_saisir_notes(role) {
+            return Err(EntDbError::Forbidden);
+        }
+        self.eleves
+            .get(cmd.etablissement_id, cmd.eleve_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let periode = self
+            .notes
+            .get_periode(cmd.etablissement_id, cmd.periode_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        if !periode.statut.autorise_appreciations() {
+            return Err(DomainError::NoteAppreciationPeriodeFermee.into());
+        }
+        if self
+            .competences
+            .get_item(cmd.etablissement_id, cmd.item_id)
+            .await?
+            .is_none()
+        {
+            return Err(DomainError::CompetenceInvalide.into());
+        }
+        let planned = plan_evaluer_competence(cmd)?;
+        self.competences.upsert_evaluation(&planned).await?;
+        self.events
+            .publish(MetierEventDraft {
+                etablissement_id: planned.etablissement_id,
+                type_name: types::COMPETENCE_EVALUEE.to_string(),
+                aggregate: AggregateKind::Competence,
+                aggregate_id: planned.item_id,
+                eleve_id: Some(planned.eleve_id),
+                payload: json!({
+                    "periode_id": planned.periode_id,
+                    "niveau": planned.niveau.as_str(),
+                    "code_lsu": planned.niveau.code_lsu(),
+                }),
+                actor_user_id: Some(planned.auteur_user_id.to_string()),
+            })
+            .await?;
+        Ok(planned)
+    }
+
+    /// Évaluations de compétences d'un élève (staff ou famille liée).
+    pub async fn list_evaluations_eleve_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+        periode_id: Option<Uuid>,
+    ) -> Result<Vec<EvaluationLue>, EntDbError> {
+        if !self
+            .actor_can_read_notes(etablissement_id, user_id, role, eleve_id)
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        // Isolation tenant : un staff d'un autre établissement ne lit pas cet élève.
+        self.eleves
+            .get(etablissement_id, eleve_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        Ok(self
+            .competences
+            .list_evaluations_eleve(etablissement_id, eleve_id, periode_id)
+            .await?)
+    }
+
+    /// Publie le **livret de compétences** (PDF) — déposé côté famille + notifié.
+    /// Refuse un livret vide : on n'officialise pas un document sans évaluation.
+    pub async fn publier_livret_competences_for_actor(
+        &self,
+        role: &str,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        periode_id: Uuid,
+        actor_user_id: Uuid,
+    ) -> Result<EleveDocument, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        if !(parsed.can_manage_eleves() || parsed.can_saisir_notes() || parsed == Role::Cpe) {
+            return Err(EntDbError::Forbidden);
+        }
+        let eleve = self
+            .eleves
+            .get(etablissement_id, eleve_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let periode = self
+            .notes
+            .get_periode(etablissement_id, periode_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let evals = self
+            .competences
+            .list_evaluations_eleve(etablissement_id, eleve_id, Some(periode_id))
+            .await?;
+        if evals.is_empty() {
+            return Err(DomainError::CompetenceInvalide.into());
+        }
+        let lignes: Vec<LigneLivretCompetence> = evals
+            .iter()
+            .map(|e| LigneLivretCompetence {
+                domaine: e.domaine.clone(),
+                item: e.item_libelle.clone(),
+                niveau: Some(e.niveau),
+                commentaire: e.commentaire.clone(),
+            })
+            .collect();
+        let livret = LivretCompetences {
+            eleve_prenom: eleve.prenom.clone(),
+            eleve_nom: eleve.nom.clone(),
+            classe: eleve.classe.clone(),
+            periode_libelle: periode.libelle.clone(),
+            periode_code: periode.code.clone(),
+            date_document: today_utc(),
+            lignes,
+        };
+        let bytes = render_livret_competences_pdf(&livret);
+        let key = format!(
+            "{}-{eleve_id}",
+            ObjectStore::key_for(etablissement_id, "livret-competences", periode_id, "pdf")
+        );
+        self.objects.put(&key, &bytes)?;
+        let doc = self
+            .deposer_document(DeposerDocument {
+                etablissement_id,
+                eleve_id,
+                tiroir: DocTiroir::Famille,
+                titre: format!(
+                    "Livret de compétences {} — {} {}",
+                    periode.libelle, eleve.prenom, eleve.nom
+                ),
+                code: Some(format!("LIVRET_{}", periode.code)),
+                mime_type: Some("application/pdf".into()),
+                storage_key: Some(key.clone()),
+                confidentialite: DocConfidentialite::Standard,
+                actor_user_id,
+            })
+            .await?;
+        self.events
+            .publish(MetierEventDraft {
+                etablissement_id,
+                type_name: types::COMPETENCE_EVALUEE.to_string(),
+                aggregate: AggregateKind::Competence,
+                aggregate_id: periode_id,
+                eleve_id: Some(eleve_id),
+                payload: json!({
+                    "document_id": doc.id,
+                    "storage_key": key,
+                    "octets": bytes.len(),
+                    "publication": "livret",
+                }),
+                actor_user_id: Some(actor_user_id.to_string()),
+            })
+            .await?;
+        let _ = self
+            .notify_parents_mail(
+                etablissement_id,
+                eleve_id,
+                "livret_competences",
+                &format!("Livret de compétences {} disponible", periode.libelle),
+                &format!(
+                    "Le livret de compétences {} de {} {} est disponible dans le portail famille.",
+                    periode.libelle, eleve.prenom, eleve.nom
+                ),
+                "document",
+                doc.id,
+                Some(actor_user_id),
+                Vec::new(),
+            )
+            .await;
+        let _ = self
+            .notify_parents_push(
+                etablissement_id,
+                eleve_id,
+                "livret_competences",
+                "Nouveau livret de compétences",
+                &format!("Livret {} de {}", periode.libelle, eleve.prenom),
+                "document",
+                doc.id,
+                Some(actor_user_id),
+            )
+            .await;
         Ok(doc)
     }
 
@@ -3628,6 +5586,11 @@ impl PgEnt {
             .filter(|l| l.etat == LigneEtat::Absent)
             .map(|l| l.eleve_id)
             .collect();
+        let retards: Vec<Uuid> = lignes
+            .iter()
+            .filter(|l| l.etat == LigneEtat::Retard)
+            .map(|l| l.eleve_id)
+            .collect();
 
         self.appels
             .clore(etablissement_id, appel_id)
@@ -3646,13 +5609,29 @@ impl PgEnt {
                     "classe": appel.classe,
                     "jour": appel.jour.to_string(),
                     "absents": absents.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+                    "retards": retards.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
                 }),
-                actor_user_id,
+                actor_user_id: actor_user_id.clone(),
             })
             .await?;
 
         for action in react(&event) {
             self.apply_brain_action(action).await?;
+        }
+
+        // Les retards pointés à l'appel deviennent un fait VS **canonique**
+        // (persistant, distinct de l'absence) — sinon l'info disparaît avec l'appel.
+        for eleve_id in retards {
+            let planned = plan_declarer_retard(DeclarerRetard {
+                etablissement_id,
+                eleve_id,
+                jour: appel.jour,
+                minutes: None,
+                motif: None,
+                source_appel_id: Some(appel_id),
+                actor_user_id: actor_user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok()),
+            })?;
+            self.enregistrer_retard(&planned).await?;
         }
 
         Ok(Appel {
@@ -3706,6 +5685,117 @@ impl PgEnt {
             }
         }
         Ok(())
+    }
+
+    /// Charge un élève **si** l'acteur est autorisé à lire son dossier : staff,
+    /// parent lié, ou l'élève lui-même. Refus sinon (isolation tenant + liens).
+    async fn charger_eleve_si_autorise(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<Eleve, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        let staff = parsed.can_read_all_eleves() || Self::role_can_publier_annonces(role);
+        let parent = matches!(parsed, Role::Parent);
+        let eleve = matches!(parsed, Role::Eleve);
+        if !staff && !parent && !eleve {
+            return Err(EntDbError::Forbidden);
+        }
+        if parent
+            && self
+                .lien_parent_eleve(etablissement_id, user_id, eleve_id)
+                .await?
+                .is_none()
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        if eleve {
+            let linked = self
+                .eleve_comptes
+                .eleve_id_for_user(etablissement_id, user_id)
+                .await?;
+            if linked != Some(eleve_id) {
+                return Err(EntDbError::Forbidden);
+            }
+        }
+        self.eleves
+            .get(etablissement_id, eleve_id)
+            .await?
+            .ok_or(DomainError::NotFound.into())
+    }
+
+    /// Déclare un retard (fait VS **canonique**, distinct de l'absence).
+    /// Persistant : contrairement au simple état d'appel, il reste dans
+    /// `ent_retard` (historique, compteur, famille).
+    pub async fn declarer_retard_for_actor(
+        &self,
+        role: &str,
+        cmd: DeclarerRetard,
+    ) -> Result<Retard, EntDbError> {
+        if !Self::role_can_faire_appel(role) {
+            return Err(EntDbError::Forbidden);
+        }
+        self.eleves
+            .get(cmd.etablissement_id, cmd.eleve_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let planned = plan_declarer_retard(cmd)?;
+        self.enregistrer_retard(&planned).await?;
+        Ok(planned)
+    }
+
+    /// Écrit un retard + publie `vs.retard` (idempotent côté table).
+    async fn enregistrer_retard(&self, r: &Retard) -> Result<(), EntDbError> {
+        self.retards.insert(r).await?;
+        self.events
+            .publish(MetierEventDraft {
+                etablissement_id: r.etablissement_id,
+                type_name: types::RETARD_DECLARE.to_string(),
+                aggregate: AggregateKind::Retard,
+                aggregate_id: r.id,
+                eleve_id: Some(r.eleve_id),
+                payload: json!({
+                    "jour": r.jour.to_string(),
+                    "minutes": r.minutes,
+                    "motif": r.motif,
+                    "source_appel_id": r.source_appel_id,
+                }),
+                actor_user_id: r.auteur_user_id.map(|u| u.to_string()),
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Historique des retards d'un élève (staff ou famille liée).
+    pub async fn list_retards_eleve_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<Retard>, EntDbError> {
+        self.charger_eleve_si_autorise(etablissement_id, user_id, role, eleve_id)
+            .await?;
+        Ok(self
+            .retards
+            .list_eleve(etablissement_id, eleve_id, limit)
+            .await?)
+    }
+
+    /// Nombre de retards d'un élève depuis une date (compteur vie scolaire).
+    pub async fn count_retards_eleve_depuis(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        depuis: NaiveDate,
+    ) -> Result<i64, EntDbError> {
+        Ok(self
+            .retards
+            .count_eleve_depuis(etablissement_id, eleve_id, depuis)
+            .await?)
     }
 
     /// Après toute écriture d'absence active : compteur année scolaire → signal VS si seuil.
@@ -5569,6 +7659,7 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::NotFound)?;
         let actor = cmd.actor_user_id.clone();
+        let actor_uuid = actor.as_deref().and_then(|s| Uuid::parse_str(s).ok());
         let b = plan_decider_bourse(&current, cmd)?;
         self.repas.upsert_bourse(&b).await?;
         self.events
@@ -5586,6 +7677,49 @@ impl PgEnt {
                 actor_user_id: actor,
             })
             .await?;
+
+        // Répercussion famille : la décision de bourse est notifiée aux responsables.
+        let eleve = self.eleves.get(b.etablissement_id, b.eleve_id).await?;
+        let (prenom, nom) = eleve
+            .as_ref()
+            .map(|e| (e.prenom.as_str(), e.nom.as_str()))
+            .unwrap_or(("l'élève", ""));
+        let statut_lbl = match b.status {
+            domain_eleve::BourseStatus::Acceptee => "acceptée",
+            domain_eleve::BourseStatus::Refusee => "refusée",
+            domain_eleve::BourseStatus::Demandee => "enregistrée",
+            domain_eleve::BourseStatus::Cloturee => "clôturée",
+        };
+        let sujet = format!("Décision bourse — {prenom} {nom}");
+        let corps = format!(
+            "La demande de bourse de {prenom} {nom} est {statut_lbl}. Détail dans le portail famille."
+        );
+        let kind = format!("bourse_{}", b.status.as_str());
+        let _ = self
+            .notify_parents_mail(
+                b.etablissement_id,
+                b.eleve_id,
+                &kind,
+                &sujet,
+                &corps,
+                "bourse",
+                b.id,
+                actor_uuid,
+                Vec::new(),
+            )
+            .await;
+        let _ = self
+            .notify_parents_push(
+                b.etablissement_id,
+                b.eleve_id,
+                &kind,
+                "Décision bourse",
+                &corps,
+                "bourse",
+                b.id,
+                actor_uuid,
+            )
+            .await;
         Ok(b)
     }
 
@@ -7969,6 +10103,25 @@ impl PgEnt {
             .await?)
     }
 
+    /// Journal d'audit filtrable par domaine (ex. `auth`) — staff habilité.
+    pub async fn list_journal_domaine_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        role: &str,
+        domaine: &str,
+        limit: i64,
+    ) -> Result<Vec<JournalEntree>, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        if !(parsed.can_read_all_eleves() || parsed.can_manage_eleves()) {
+            return Err(EntDbError::Forbidden);
+        }
+        let lim = if limit <= 0 { 50 } else { limit.min(500) };
+        Ok(self
+            .journal
+            .list_domaine(etablissement_id, domaine, lim)
+            .await?)
+    }
+
     pub async fn list_repas_activites_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -8137,6 +10290,148 @@ impl PgEnt {
             .unwrap_or(false)
     }
 
+    pub fn role_can_publier_annonces(role: &str) -> bool {
+        Role::parse(role)
+            .map(|r| r.can_publier_annonces())
+            .unwrap_or(false)
+    }
+
+    /// Publie une annonce de l'établissement. Répercussions transverses :
+    /// événement `annonce.publiee`, entrée journal, et — si l'audience touche
+    /// les familles — notification mail + push **de chaque famille ciblée**
+    /// (anti-doublon par destinataire, cf. `notify_parents_*_broadcast`).
+    pub async fn publier_annonce_for_actor(
+        &self,
+        role: &str,
+        cmd: CreerAnnonce,
+    ) -> Result<Annonce, EntDbError> {
+        if !Self::role_can_publier_annonces(role) {
+            return Err(EntDbError::Forbidden);
+        }
+        let planned = plan_creer_annonce(cmd)?;
+        self.annonces.insert(&planned).await?;
+        self.events
+            .publish(MetierEventDraft {
+                etablissement_id: planned.etablissement_id,
+                type_name: types::ANNONCE_PUBLIEE.to_string(),
+                aggregate: AggregateKind::Annonce,
+                aggregate_id: planned.id,
+                eleve_id: None,
+                payload: json!({
+                    "titre": planned.titre,
+                    "audience": planned.audience.as_str(),
+                    "cible_classe": planned.cible_classe,
+                }),
+                actor_user_id: Some(planned.auteur_user_id.to_string()),
+            })
+            .await?;
+        self.enregistrer_journal_interne(EnregistrerJournal {
+            etablissement_id: planned.etablissement_id,
+            eleve_id: None,
+            domaine: "communication".into(),
+            action: "annonce_publiee".into(),
+            libelle: format!(
+                "Annonce « {} » diffusée ({})",
+                planned.titre,
+                planned.audience.as_str()
+            ),
+            payload: json!({
+                "annonce_id": planned.id,
+                "audience": planned.audience.as_str(),
+                "cible_classe": planned.cible_classe,
+            }),
+            visible_famille: planned.audience.touche_parents(),
+            actor_user_id: Some(planned.auteur_user_id),
+        })
+        .await?;
+
+        if planned.audience.touche_parents() {
+            self.diffuser_annonce_aux_familles(&planned).await;
+        }
+        Ok(planned)
+    }
+
+    /// Projette une annonce vers les familles ciblées : un mail + un push par
+    /// élève (donc par foyer), sans jamais bloquer le geste si un envoi échoue.
+    async fn diffuser_annonce_aux_familles(&self, a: &Annonce) {
+        let jour = chrono::Utc::now().date_naive();
+        let eleves = match a.audience {
+            AudienceAnnonce::Classe => {
+                let classe = a.cible_classe.clone().unwrap_or_default();
+                self.eleves
+                    .list_en_classe_au(a.etablissement_id, &classe, jour)
+                    .await
+                    .unwrap_or_default()
+            }
+            _ => self
+                .eleves
+                .list_actifs_au(a.etablissement_id, jour)
+                .await
+                .unwrap_or_default(),
+        };
+        let subject = format!("Annonce — {}", a.titre);
+        let push_body: String = a.corps.chars().take(140).collect();
+        for e in eleves {
+            let _ = self
+                .notify_parents_mail_broadcast(
+                    a.etablissement_id,
+                    e.id,
+                    "annonce",
+                    &subject,
+                    &a.corps,
+                    "annonce",
+                    a.id,
+                    Some(a.auteur_user_id),
+                    Vec::new(),
+                )
+                .await;
+            let _ = self
+                .notify_parents_push_broadcast(
+                    a.etablissement_id,
+                    e.id,
+                    "annonce",
+                    &subject,
+                    &push_body,
+                    "annonce",
+                    a.id,
+                    Some(a.auteur_user_id),
+                )
+                .await;
+        }
+    }
+
+    /// Annonces de l'établissement (vue staff / communication).
+    pub async fn list_annonces_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        role: &str,
+        limit: i64,
+    ) -> Result<Vec<Annonce>, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        if matches!(parsed, Role::Parent | Role::Eleve) {
+            return Err(EntDbError::Forbidden);
+        }
+        Ok(self.annonces.list(etablissement_id, limit).await?)
+    }
+
+    /// Annonces visibles par la famille d'un élève (ciblage classe respecté).
+    /// Le lien à l'élève est vérifié (parent) comme pour les autres vues famille.
+    pub async fn list_annonces_famille_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<Vec<Annonce>, EntDbError> {
+        let eleve = self
+            .charger_eleve_si_autorise(etablissement_id, user_id, role, eleve_id)
+            .await?;
+        Ok(self
+            .annonces
+            .list_visibles_famille(etablissement_id, eleve.classe.as_deref(), 100)
+            .await?)
+    }
+
     pub async fn publier_doc_a_signer_for_actor(
         &self,
         role: &str,
@@ -8173,6 +10468,36 @@ impl PgEnt {
                 visible_famille: true,
                 actor_user_id: Some(planned.publie_par_user_id),
             })
+            .await;
+
+        // Répercussion famille : un document à signer est une action requise → notifier.
+        let _ = self
+            .notify_parents_mail(
+                planned.etablissement_id,
+                planned.eleve_id,
+                "doc_a_signer",
+                &format!("Document à signer : {}", planned.titre),
+                &format!(
+                    "Un document est à signer dans le portail famille : « {} ».",
+                    planned.titre
+                ),
+                "doc_a_signer",
+                planned.id,
+                Some(planned.publie_par_user_id),
+                Vec::new(),
+            )
+            .await;
+        let _ = self
+            .notify_parents_push(
+                planned.etablissement_id,
+                planned.eleve_id,
+                "doc_a_signer",
+                "Document à signer",
+                &planned.titre,
+                "doc_a_signer",
+                planned.id,
+                Some(planned.publie_par_user_id),
+            )
             .await;
         Ok(planned)
     }
@@ -8417,6 +10742,47 @@ impl PgEnt {
                     visible_famille: true,
                     actor_user_id: decided.decided_by_user_id,
                 })
+                .await;
+
+            // Répercussion famille : une décision de conseil de classe publiée
+            // (visible_famille) est communiquée aux responsables.
+            let mention_lbl = decided.mention.map(|m| m.as_str()).unwrap_or("décision");
+            let eleve = self
+                .eleves
+                .get(decided.etablissement_id, decided.eleve_id)
+                .await?;
+            let (prenom, nom) = eleve
+                .as_ref()
+                .map(|e| (e.prenom.as_str(), e.nom.as_str()))
+                .unwrap_or(("l'élève", ""));
+            let sujet = format!("Conseil de classe — {prenom} {nom}");
+            let corps = format!(
+                "Le conseil de classe de {prenom} {nom} a rendu sa décision ({mention_lbl}). Détail dans le portail famille."
+            );
+            let _ = self
+                .notify_parents_mail(
+                    decided.etablissement_id,
+                    decided.eleve_id,
+                    "conseil_decision",
+                    &sujet,
+                    &corps,
+                    "conseil_classe",
+                    decided.id,
+                    decided.decided_by_user_id,
+                    Vec::new(),
+                )
+                .await;
+            let _ = self
+                .notify_parents_push(
+                    decided.etablissement_id,
+                    decided.eleve_id,
+                    "conseil_decision",
+                    "Décision conseil de classe",
+                    &corps,
+                    "conseil_classe",
+                    decided.id,
+                    decided.decided_by_user_id,
+                )
                 .await;
         }
         Ok(decided)
@@ -10148,52 +12514,45 @@ impl PgEnt {
             .eleves
             .list_en_classe_au(cmd.etablissement_id, classe, cmd.jour_reference)
             .await?;
-        let matieres = self.matieres.list(cmd.etablissement_id).await?;
-        let matiere_label = |id: Option<Uuid>| -> String {
-            id.and_then(|mid| matieres.iter().find(|m| m.id == mid).map(|m| m.code.clone()))
-                .unwrap_or_else(|| "GENERALE".into())
-        };
+        let eleve_ids: Vec<Uuid> = eleves.iter().map(|e| e.id).collect();
+        // Le LSU ne se devine plus depuis une appréciation : on lit les évaluations
+        // de compétences réellement saisies. Un élève sans évaluation sort une ligne
+        // « non évalué » (domaine/item/niveau vides) — on n'invente aucun niveau.
+        let evals = self
+            .competences
+            .list_evaluations_classe(cmd.etablissement_id, &eleve_ids, cmd.periode_id)
+            .await?;
         let mut lignes = Vec::new();
         for e in &eleves {
-            let apps = self
-                .notes
-                .list_appreciations_eleve(cmd.etablissement_id, e.id, Some(cmd.periode_id))
-                .await?;
-            if apps.is_empty() {
+            let mine: Vec<&EvaluationLue> = evals
+                .iter()
+                .filter(|(eid, _)| *eid == e.id)
+                .map(|(_, l)| l)
+                .collect();
+            if mine.is_empty() {
                 lignes.push(LigneLsun {
                     ine: e.ine.clone().unwrap_or_default(),
                     nom: e.nom.clone(),
                     prenom: e.prenom.clone(),
                     classe: e.classe.clone().unwrap_or_default(),
-                    domaine: "D1".into(),
+                    domaine: String::new(),
                     item: String::new(),
                     niveau: String::new(),
                     periode: periode.code.clone(),
                 });
-            } else {
-                for a in apps {
-                    let item = matiere_label(a.matiere_id);
-                    let domaine = domaine_depuis_matiere(&item);
-                    let niveau = if a.texte.to_ascii_lowercase().contains("maîtrise")
-                        || a.texte.to_ascii_lowercase().contains("maitrise")
-                    {
-                        "MF".into()
-                    } else if a.texte.to_ascii_lowercase().contains("fragile") {
-                        "PA".into()
-                    } else {
-                        "A".into()
-                    };
-                    lignes.push(LigneLsun {
-                        ine: e.ine.clone().unwrap_or_default(),
-                        nom: e.nom.clone(),
-                        prenom: e.prenom.clone(),
-                        classe: e.classe.clone().unwrap_or_default(),
-                        domaine,
-                        item,
-                        niveau,
-                        periode: periode.code.clone(),
-                    });
-                }
+                continue;
+            }
+            for l in mine {
+                lignes.push(LigneLsun {
+                    ine: e.ine.clone().unwrap_or_default(),
+                    nom: e.nom.clone(),
+                    prenom: e.prenom.clone(),
+                    classe: e.classe.clone().unwrap_or_default(),
+                    domaine: l.domaine.clone(),
+                    item: l.item_libelle.clone(),
+                    niveau: l.niveau.code_lsu().to_string(),
+                    periode: periode.code.clone(),
+                });
             }
         }
         Ok(render_lsun_csv(&lignes))
@@ -12115,6 +14474,31 @@ impl PgEnt {
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
+
+        // Répercussion famille : une facture émise est notifiée aux responsables.
+        if let Some(eleve_id) = self
+            .facturation
+            .first_eleve_id_foyer(emise.etablissement_id, emise.foyer_id)
+            .await?
+        {
+            let _ = self
+                .notify_parents_mail(
+                    emise.etablissement_id,
+                    eleve_id,
+                    "facture",
+                    &format!("Facture {}", emise.numero),
+                    &format!(
+                        "Votre facture {} d'un montant de {} est disponible dans le portail famille (rubrique Facturation).",
+                        emise.numero,
+                        domain_eleve::euros_centimes(emise.total_centimes)
+                    ),
+                    "facture",
+                    emise.id,
+                    Some(actor_user_id),
+                    Vec::new(),
+                )
+                .await;
+        }
         Ok(emise)
     }
 
@@ -12472,6 +14856,39 @@ impl PgEnt {
                     actor_user_id: enc.created_by_user_id.map(|u| u.to_string()),
                 })
                 .await?;
+        }
+        // Répercussion famille : le paiement est confirmé aux responsables, avec
+        // la quittance PDF en pièce jointe.
+        if let Some(eleve_id) = self
+            .facturation
+            .first_eleve_id_foyer(facture.etablissement_id, facture.foyer_id)
+            .await?
+        {
+            let pdf = domain_eleve::render_quittance_pdf(&quittance, &facture.numero);
+            let _ = self
+                .notify_parents_mail(
+                    facture.etablissement_id,
+                    eleve_id,
+                    "quittance",
+                    &format!(
+                        "Quittance {} — facture {}",
+                        quittance.numero, facture.numero
+                    ),
+                    &format!(
+                        "Nous avons reçu votre paiement de {} (facture {}). Quittance ci-jointe.",
+                        domain_eleve::euros_centimes(quittance.montant_centimes),
+                        facture.numero
+                    ),
+                    "quittance",
+                    quittance.id,
+                    enc.created_by_user_id,
+                    vec![MailAttachment {
+                        filename: format!("quittance-{}.pdf", quittance.numero),
+                        mime: "application/pdf".into(),
+                        bytes: pdf,
+                    }],
+                )
+                .await;
         }
         Ok((enc, facture, quittance))
     }
@@ -13200,6 +15617,177 @@ impl PgEnt {
             .facturation
             .list_rappels_etab(etablissement_id, 80)
             .await?)
+    }
+
+    /// Copilote — répond à une question du personnel en **lecture seule**.
+    ///
+    /// Déterministe : intention → requête sur les tables centrales, toujours
+    /// filtrée par `etablissement_id`. Le rôle est vérifié **par intention** ;
+    /// une question interdite renvoie une réponse `refusee = true` (pas d'erreur
+    /// HTTP) pour que l'UI l'affiche simplement.
+    pub async fn copilote_repondre(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        question: &str,
+    ) -> Result<ReponseCopilote, EntDbError> {
+        let r = Role::parse(role).unwrap_or(Role::Parent);
+        let jour = today_utc();
+        let reponse = match copilote::analyser(question) {
+            copilote::Intention::Capacites => ReponseCopilote::new(
+                "capacites",
+                question,
+                "Je peux répondre à :",
+                json!({ "capacites": copilote::CAPACITES }),
+            ),
+            copilote::Intention::Inconnu => ReponseCopilote::new(
+                "inconnu",
+                question,
+                "Je ne comprends pas encore cette question. Essayez par exemple :",
+                json!({ "capacites": copilote::CAPACITES }),
+            ),
+            copilote::Intention::Effectif { classe } => {
+                if !r.can_read_effectif() {
+                    ReponseCopilote::refus("effectif", question)
+                } else {
+                    match classe {
+                        Some(c) => {
+                            let n = self
+                                .eleves_en_classe_au(etablissement_id, &c, jour)
+                                .await?
+                                .len();
+                            ReponseCopilote::new(
+                                "effectif",
+                                question,
+                                format!("Effectif {c} : {n} élève(s) au {jour}."),
+                                json!({ "classe": c, "effectif": n, "au": jour.to_string() }),
+                            )
+                        }
+                        None => {
+                            let n = self.eleves.count_actifs_au(etablissement_id, jour).await?;
+                            ReponseCopilote::new(
+                                "effectif",
+                                question,
+                                format!("Effectif total : {n} élève(s) actif(s) au {jour}."),
+                                json!({ "effectif": n, "au": jour.to_string() }),
+                            )
+                        }
+                    }
+                }
+            }
+            copilote::Intention::AbsencesNonJustifiees { classe, jours } => {
+                if !r.can_lire_vs_absences() {
+                    ReponseCopilote::refus("absences_non_justifiees", question)
+                } else {
+                    let depuis = jour - chrono::Duration::days(i64::from(jours));
+                    let rows = self
+                        .absences
+                        .count_a_traiter_par_eleve_depuis(
+                            etablissement_id,
+                            depuis,
+                            classe.as_deref(),
+                            jour,
+                        )
+                        .await?;
+                    let total: i64 = rows.iter().map(|(_, _, _, n)| *n).sum();
+                    let contexte = match &classe {
+                        Some(c) => format!("classe {c}, "),
+                        None => String::new(),
+                    };
+                    let detail = rows
+                        .iter()
+                        .take(5)
+                        .map(|(_, nom, prenom, n)| format!("{prenom} {nom} ({n})"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let eleves: Vec<_> = rows
+                        .iter()
+                        .map(|(id, nom, prenom, n)| {
+                            json!({ "eleve_id": id, "nom": nom, "prenom": prenom, "total": n })
+                        })
+                        .collect();
+                    let mut msg = format!(
+                        "Absences non justifiées ({contexte}{jours} derniers jours, depuis {depuis}) : {total} au total chez {} élève(s).",
+                        rows.len()
+                    );
+                    if !detail.is_empty() {
+                        msg.push_str(&format!(" Détail : {detail}."));
+                    }
+                    ReponseCopilote::new(
+                        "absences_non_justifiees",
+                        question,
+                        msg,
+                        json!({
+                            "classe": classe,
+                            "jours": jours,
+                            "depuis": depuis.to_string(),
+                            "total": total,
+                            "eleves": eleves,
+                        }),
+                    )
+                }
+            }
+            copilote::Intention::Impayes => {
+                if !r.can_manage_facturation() {
+                    ReponseCopilote::refus("impayes", question)
+                } else {
+                    let list = self
+                        .list_factures_famille_enriched(etablissement_id, actor_user_id, role)
+                        .await?;
+                    let mut nb = 0i64;
+                    let mut reste = 0i64;
+                    for (f, _encaisse, reste_facture) in &list {
+                        if f.statut != domain_eleve::FactureStatut::Soldee && *reste_facture > 0 {
+                            nb += 1;
+                            reste += *reste_facture;
+                        }
+                    }
+                    ReponseCopilote::new(
+                        "impayes",
+                        question,
+                        format!(
+                            "Factures non soldées : {nb} facture(s), reste dû {}.",
+                            copilote::format_eur(reste)
+                        ),
+                        json!({ "factures_non_soldees": nb, "reste_du_centimes": reste }),
+                    )
+                }
+            }
+            copilote::Intention::SansCompte => {
+                if !r.can_manage_eleves() {
+                    ReponseCopilote::refus("sans_compte", question)
+                } else {
+                    let n = self
+                        .list_eleves_sans_compte_for_actor(etablissement_id, role)
+                        .await?
+                        .len();
+                    ReponseCopilote::new(
+                        "sans_compte",
+                        question,
+                        format!("{n} élève(s) actif(s) sans compte ENT."),
+                        json!({ "sans_compte": n }),
+                    )
+                }
+            }
+            copilote::Intention::AlertesCpe => {
+                if !r.can_gerer_alertes_cpe() {
+                    ReponseCopilote::refus("alertes_cpe", question)
+                } else {
+                    let n = self
+                        .list_alertes_cpe_ouvertes_for_actor(etablissement_id, role)
+                        .await?
+                        .len();
+                    ReponseCopilote::new(
+                        "alertes_cpe",
+                        question,
+                        format!("{n} alerte(s) CPE ouverte(s)."),
+                        json!({ "alertes_cpe": n }),
+                    )
+                }
+            }
+        };
+        Ok(reponse)
     }
 }
 

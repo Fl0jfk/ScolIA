@@ -4,11 +4,13 @@
 //! **Anti-doublon :** pas de table miroir de `ent_eleve` (effectif = query datée).
 
 mod absence_repo;
+mod annonce_repo;
 mod appel_repo;
 mod auth_repo;
 mod carnet_repo;
 mod cahier_texte_repo;
 mod continuum_repo;
+mod copilote;
 mod edt_repo;
 mod document_repo;
 mod eleve_compte_repo;
@@ -29,6 +31,7 @@ mod msg_repo;
 mod note_repo;
 mod option_repo;
 mod periode_repo;
+mod pg_err;
 mod repas_repo;
 mod sanction_repo;
 mod sortie_repo;
@@ -42,6 +45,11 @@ mod info_comp_repo;
 mod vacances_repo;
 mod menu_cantine_repo;
 mod quotient_repo;
+mod retard_repo;
+mod competence_repo;
+mod passkey_repo;
+mod oidc_repo;
+mod pra;
 mod tva_repo;
 mod param_etab_repo;
 mod salle_repo;
@@ -59,10 +67,26 @@ mod signal_repo;
 pub mod url_guard;
 
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
-pub use auth_repo::{AuthUser, SessionInfo, StaffMember};
+pub use auth_repo::{AuthUser, LoginIdentity, SessionInfo, StaffMember};
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
 pub use domain_eleve::{EdtException, EdtExceptionKind};
+pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce};
+pub use domain_eleve::{DeclarerRetard, Retard};
+pub use domain_eleve::{
+    CompetenceItem, CreerCompetenceItem, EvaluerCompetence, EvaluationCompetence, NiveauMaitrise,
+};
+pub use annonce_repo::PgAnnonceRepo;
+pub use retard_repo::PgRetardRepo;
+pub use competence_repo::{EvaluationLue, PgCompetenceRepo};
+pub use passkey_repo::{ChallengeRow, PasskeyRow, PgPasskeyRepo};
+pub use oidc_repo::{
+    OidcProviderPublic, OidcProviderRow, OidcProviderUpsert, OidcStateInsert, OidcStateRow,
+    PgOidcRepo,
+};
 pub use eleve_compte_repo::EleveCompte;
+pub use copilote::{
+    analyser, format_eur, Intention, ReponseCopilote, CAPACITES, COPILOTE_JOURS_DEFAUT,
+};
 pub use foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, UpdateLien};
 pub use mail_repo::MailOutboxRow;
 pub use iban_histo_repo::IbanHisto;
@@ -70,12 +94,20 @@ pub use sms_repo::SmsOutboxRow;
 pub use push_repo::PushDevice;
 pub use service::EnfantFamille;
 pub use matiere_repo::{CreateMatiere, Matiere};
-pub use migrate::{apply_socle_migrations, MigrateError};
+pub use migrate::{apply_socle_migrations, MigrateError, MIGRATION_TAG};
+pub use pra::{
+    EcartInventaire, Inventaire, InventaireTable, RapportIntegrite, INVENTAIRE_VERSION,
+    TABLES_VOLATILES,
+};
 pub use motif_repo::AbsenceMotif;
 pub use note_repo::{Note, SaisirNote};
 pub use option_repo::PgOptionRepo;
 pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
-pub use service::{BankRapprochementSummary, EntDbError, PgEnt};
+pub use service::{
+    BankRapprochementSummary, EntDbError, LoginOutcome, OidcProviderParams, PgEnt,
+    PersonnelProvisionne, ProvisionnerPersonnel, SondeMetrique,
+};
+pub use ent_oidc::{OidcError, OidcTransport};
 pub use domain_eleve::SignalAbsence;
 pub use url_guard::{assert_local_postgres_url, UrlGuardError};
 

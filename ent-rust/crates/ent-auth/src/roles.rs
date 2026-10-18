@@ -289,6 +289,14 @@ impl Role {
         )
     }
 
+    /// Publier une annonce de l'établissement (familles / personnels).
+    pub fn can_publier_annonces(self) -> bool {
+        matches!(
+            self,
+            Self::Admin | Self::Direction | Self::Administratif | Self::Cpe
+        )
+    }
+
     /// Planifier / tenir un conseil de classe + mentions.
     pub fn can_gerer_conseil_classe(self) -> bool {
         matches!(

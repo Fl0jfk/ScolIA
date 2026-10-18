@@ -101,6 +101,5 @@ impl Row {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] cahier_texte sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("cahier_texte_repo", err)
 }

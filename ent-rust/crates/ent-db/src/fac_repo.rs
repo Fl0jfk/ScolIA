@@ -1376,6 +1376,5 @@ impl QuitRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] fac sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("fac_repo", err)
 }

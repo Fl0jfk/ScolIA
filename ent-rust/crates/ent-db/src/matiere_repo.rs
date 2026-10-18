@@ -42,7 +42,12 @@ impl PgMatiereRepo {
         .bind(&m.source_nomenclature)
         .execute(&self.pool)
         .await
-        .map_err(map_sqlx)?;
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.constraint() == Some("ent_matiere_code_uq") => {
+                DomainError::MatiereCodeDejaPris
+            }
+            _ => map_sqlx(e),
+        })?;
         Ok(())
     }
 
@@ -128,6 +133,5 @@ impl MatiereRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] matiere sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("matiere_repo", err)
 }

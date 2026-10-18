@@ -125,6 +125,31 @@ impl PgMailRepo {
         Ok(row.0)
     }
 
+    /// Anti-doublon **par destinataire** (élève) — pour les diffusions
+    /// (annonce établissement → plusieurs familles partageant la même source).
+    pub async fn count_by_source_kind_eleve(
+        &self,
+        etablissement_id: Uuid,
+        source_id: Uuid,
+        kind: &str,
+        eleve_id: Uuid,
+    ) -> Result<i64, DomainError> {
+        let row: (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint FROM ent_mail_outbox
+            WHERE etablissement_id = $1 AND source_id = $2 AND kind = $3 AND eleve_id = $4
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(source_id)
+        .bind(kind)
+        .bind(eleve_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.0)
+    }
+
     pub async fn list_recent(
         &self,
         etablissement_id: Uuid,
@@ -159,8 +184,7 @@ fn status_str(s: MailSendStatus) -> &'static str {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] mail sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("mail_repo", err)
 }
 
 #[derive(sqlx::FromRow)]

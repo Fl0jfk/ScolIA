@@ -15,6 +15,8 @@ pub mod types {
     pub const ELEVE_CREATED: &str = "eleve.created";
     pub const ELEVE_STATUS_CHANGED: &str = "eleve.status_changed";
     pub const ELEVE_IDENTITY_CHANGED: &str = "eleve.identity_changed";
+    /// Réservé : aucun émetteur tant que « scolarité ouverte/fermée » (période
+    /// vs année) n'est pas tranché côté produit — ne pas inventer la sémantique.
     pub const SCOLARITE_OPENED: &str = "scolarite.opened";
     pub const SCOLARITE_CLASSE_CHANGED: &str = "scolarite.classe_changed";
     pub const SCOLARITE_MEF_CHANGED: &str = "scolarite.mef_changed";
@@ -22,6 +24,7 @@ pub mod types {
     pub const SCOLARITE_CLOSED: &str = "scolarite.closed";
     pub const ELEVE_REGIME_CHANGED: &str = "eleve.regime_changed";
     pub const ELEVE_SORTIE: &str = "eleve.sortie";
+    /// Réservé : changement de foyer — émission non branchée (règle produit non validée).
     pub const FOYER_CHANGED: &str = "foyer.changed";
     pub const ELEVE_LIEN_UPDATED: &str = "eleve.lien_updated";
     /// Fait d'absence sur l'élève (une vérité pour absences, cantine, appel…).
@@ -37,6 +40,7 @@ pub mod types {
     pub const ELEVE_ABSENCE_SIGNAL_CLOS: &str = "eleve.absence_signal_clos";
     pub const ABSENCE_MOTIF_ETAB_CREATED: &str = "absence.motif_etab_created";
     pub const ELEVE_COMPTE_LIE: &str = "eleve.compte_lie";
+    pub const ELEVE_COMPTE_REVOQUE: &str = "eleve.compte_revoque";
     pub const ELEVE_COMPTE_INVITE: &str = "eleve.compte_invite";
     pub const ELEVE_OPTION_ADDED: &str = "eleve.option_added";
     pub const ELEVE_DOCUMENT_UPLOADED: &str = "eleve.document_uploaded";
@@ -45,6 +49,7 @@ pub mod types {
     pub const ELEVE_DISPOSITIF_AJOUTE: &str = "eleve.dispositif_ajoute";
     pub const REPAS_ACTIVITE_CREATED: &str = "repas.activite_created";
     pub const ELEVE_GRILLE_REPAS_POSED: &str = "eleve.grille_repas_posed";
+    pub const ELEVE_GRILLE_REPAS_CLOSE: &str = "eleve.grille_repas_close";
     pub const ELEVE_DISPENSE_REPAS_POSED: &str = "eleve.dispense_repas_posed";
     pub const ELEVE_DISPENSE_REPAS_ANNULEE: &str = "eleve.dispense_repas_annulee";
     pub const ELEVE_REPAS_PASSAGE: &str = "eleve.repas_passage";
@@ -144,6 +149,7 @@ pub mod types {
     pub const INFO_COMP_CHAMP: &str = "admin.info_comp_champ";
     pub const INFO_COMP_VALEUR: &str = "admin.info_comp_valeur";
     pub const VACANCES: &str = "etab.vacances";
+    /// Réservé (audit) : recherche de doublons d'homonymes — émission non branchée.
     pub const HOMONYME_RECHERCHE: &str = "eleve.homonyme_recherche";
     pub const MENU_CANTINE: &str = "repas.menu";
     pub const QUOTIENT_FOYER: &str = "fac.quotient";
@@ -163,6 +169,9 @@ pub mod types {
     pub const ENTREPRISE: &str = "stage.entreprise";
     pub const CONVENTION_STAGE: &str = "stage.convention";
     pub const EDT_CONTRAINTE: &str = "edt.contrainte";
+    pub const ANNONCE_PUBLIEE: &str = "annonce.publiee";
+    pub const RETARD_DECLARE: &str = "vs.retard";
+    pub const COMPETENCE_EVALUEE: &str = "note.competence";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,6 +231,9 @@ pub enum AggregateKind {
     Entreprise,
     ConventionStage,
     EdtContrainte,
+    Annonce,
+    Retard,
+    Competence,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

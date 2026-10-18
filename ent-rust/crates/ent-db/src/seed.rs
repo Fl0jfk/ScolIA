@@ -838,6 +838,8 @@ impl PgEnt {
     /// ré-ensure commission Harry jour J (sans absence jour J supplémentaire, garde abs=1 com=1).
     /// lot CO (Bot CO-A) : note Cho, devoir Seamus, carnet Hermione (famille), carnet Ron (famille) ;
     /// ré-ensure commission Harry jour J (sans absence jour J supplémentaire, garde abs=1 com=1).
+    /// Seed le référentiel de compétences (socle commun) + évaluations T1 de Harry.
+    /// Défaut **éditable** (données établissement), pas une règle nationale figée.
     async fn seed_labo_journee_audit(
         &self,
         etab: Uuid,
@@ -901,6 +903,11 @@ impl PgEnt {
             .unwrap_or_else(|| debut_as + Duration::days(110));
         let periode = self
             .ensure_note_periode_t1(etab, debut_as, fin_t1, &actor_admin)
+            .await?;
+
+        // Référentiel de compétences (socle) + évaluations réelles pour Harry :
+        // le LSU/livret se lit désormais sur des faits saisis, pas sur une devinette.
+        self.seed_competences_socle(etab, periode.id, harry.id, admin.user_id)
             .await?;
 
         let (devoir, devoir_cree) = self

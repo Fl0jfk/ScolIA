@@ -115,7 +115,7 @@ fn ascii_latin(s: &str) -> String {
         .collect()
 }
 
-fn build_pdf(lines: &[String]) -> Vec<u8> {
+pub(crate) fn build_pdf(lines: &[String]) -> Vec<u8> {
     let mut content = String::from("BT\n/F1 11 Tf\n50 800 Td\n13 TL\n");
     for (i, line) in lines.iter().enumerate() {
         if i > 0 {

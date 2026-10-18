@@ -161,6 +161,35 @@ impl PgRepasRepo {
         Ok(rows.into_iter().map(GrilleRow::into_grille).collect())
     }
 
+    /// Clôt les grilles repas ouvertes d'un élève à `date_fin` (sortie : plus de cantine).
+    /// Renvoie le nombre de grilles clôturées.
+    pub async fn close_grilles_eleve(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        date_fin: chrono::NaiveDate,
+    ) -> Result<u64, DomainError> {
+        let res = sqlx::query(
+            r#"
+            UPDATE ent_eleve_grille_repas
+            SET date_fin = CASE
+                WHEN date_fin IS NOT NULL AND date_fin < $3 THEN date_fin
+                ELSE $3
+            END
+            WHERE etablissement_id = $1
+              AND eleve_id = $2
+              AND (date_fin IS NULL OR date_fin > $3)
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(date_fin)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(res.rows_affected())
+    }
+
     pub async fn upsert_bourse_type(&self, t: &BourseType) -> Result<(), DomainError> {
         sqlx::query(
             r#"
@@ -784,6 +813,5 @@ impl DispenseRow {
 }
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] repas/bourse sqlx error: {err}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("repas_repo", err)
 }
