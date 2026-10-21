@@ -56,6 +56,7 @@ type PublicCtx = {
       procedureHtml?: string;
       contactPpLabel?: string;
     };
+    openForFamille?: boolean;
   };
   etape: {
     id: string;
@@ -74,6 +75,10 @@ type PublicCtx = {
     payload: Record<string, unknown>;
     submittedAt: string;
   }>;
+  token?: {
+    purpose?: string;
+    email?: string | null;
+  };
 };
 
 type IdentifyMatch = {
@@ -87,6 +92,173 @@ type IdentifyMatch = {
   photoKey: string | null;
   maskedEmails: Array<{ email: string; masked: string }>;
 };
+
+function catalogueLabel(ctx: PublicCtx, field: Field | undefined, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Oui" : "Non";
+  if (Array.isArray(value)) {
+    if (!value.length) return "—";
+    return value.map((v) => catalogueLabel(ctx, field, v)).join(" · ");
+  }
+  const raw = String(value);
+  if (field?.optionsFrom === "destinations") {
+    return ctx.campagne.catalogue.destinations.find((d) => d.id === raw)?.label ?? raw;
+  }
+  if (field?.optionsFrom === "options") {
+    return ctx.campagne.catalogue.options.find((o) => o.id === raw)?.label ?? raw;
+  }
+  if (field?.inlineOptions) {
+    return field.inlineOptions.find((o) => o.id === raw)?.label ?? raw;
+  }
+  return raw;
+}
+
+function FamilyResponseSummary({
+  ctx,
+  payload,
+}: {
+  ctx: PublicCtx;
+  payload: Record<string, unknown>;
+}) {
+  const rawValues =
+    payload.values && typeof payload.values === "object"
+      ? (payload.values as Record<string, unknown>)
+      : payload;
+  const fields = (ctx.campagne.catalogue.fields as Field[]).filter((field) => {
+    const value = rawValues[field.id];
+    return (
+      value !== undefined &&
+      value !== null &&
+      value !== "" &&
+      !(Array.isArray(value) && value.length === 0)
+    );
+  });
+  const voeux = Array.isArray(payload.etablissementsVoeux)
+    ? (payload.etablissementsVoeux as Array<{ label?: string; codeRne?: string; chezNous?: boolean }>)
+    : [];
+  const comment = typeof payload.comment === "string" ? payload.comment.trim() : "";
+  const force = payload.forceMalgreAvis === true;
+
+  if (!fields.length && !voeux.length && !comment && !force) {
+    return (
+      <p className="rounded-xl bg-white/90 p-3 text-sm text-slate-600">
+        Aucun détail de réponse à afficher.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl bg-white/90 p-4 text-sm text-slate-800">
+      {fields.length > 0 && (
+        <dl className="grid gap-3 sm:grid-cols-2">
+          {fields.map((field) => (
+            <div key={field.id}>
+              <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                {field.label}
+              </dt>
+              <dd className="font-semibold">{catalogueLabel(ctx, field, rawValues[field.id])}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {voeux.length > 0 && (
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            Établissements souhaités
+          </p>
+          <ol className="mt-1 list-decimal space-y-1 pl-5 font-semibold">
+            {voeux.map((v, i) => (
+              <li key={`${v.codeRne ?? i}-${i}`}>
+                {v.label || v.codeRne || "—"}
+                {v.chezNous ? " (notre établissement)" : ""}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {comment && (
+        <p>
+          <span className="font-bold">Commentaire : </span>
+          <span className="whitespace-pre-wrap">{comment}</span>
+        </p>
+      )}
+      {force && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900">
+          La famille a demandé à passer outre l’avis du conseil.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ConseilDecisionSummary({
+  ctx,
+  payload,
+}: {
+  ctx: PublicCtx;
+  payload: Record<string, unknown>;
+}) {
+  const avisLabels: Record<string, string> = {
+    favorable: "Favorable",
+    reserve: "Favorable sous réserve",
+    defavorable: "Défavorable",
+    autre: "Autre",
+  };
+  const avis = typeof payload.avis === "string" ? payload.avis : "";
+  const destination =
+    typeof payload.destinationProposee === "string"
+      ? ctx.campagne.catalogue.destinations.find((d) => d.id === payload.destinationProposee)?.label ??
+        payload.destinationProposee
+      : "";
+  const options = Array.isArray(payload.optionsProposees)
+    ? (payload.optionsProposees as string[]).map(
+        (id) => ctx.campagne.catalogue.options.find((o) => o.id === id)?.label ?? id,
+      )
+    : [];
+  const motif = typeof payload.motif === "string" ? payload.motif.trim() : "";
+  const commentaire = typeof payload.commentaire === "string" ? payload.commentaire.trim() : "";
+  const avenant = payload.avenant === true;
+  const avenantMotif = typeof payload.avenantMotif === "string" ? payload.avenantMotif.trim() : "";
+
+  return (
+    <div className="space-y-3 rounded-xl bg-white/90 p-4 text-sm text-slate-800">
+      <p>
+        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Avis : </span>
+        <span className="font-black">{avisLabels[avis] || avis || "—"}</span>
+      </p>
+      {destination && (
+        <p>
+          <span className="font-bold">Destination proposée : </span>
+          <span className="font-semibold">{destination}</span>
+        </p>
+      )}
+      {options.length > 0 && (
+        <p>
+          <span className="font-bold">Options : </span>
+          <span className="font-semibold">{options.join(" · ")}</span>
+        </p>
+      )}
+      {motif && (
+        <p>
+          <span className="font-bold">Motif : </span>
+          <span className="whitespace-pre-wrap">{motif}</span>
+        </p>
+      )}
+      {commentaire && (
+        <p>
+          <span className="font-bold">Commentaire : </span>
+          <span className="whitespace-pre-wrap">{commentaire}</span>
+        </p>
+      )}
+      {avenant && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900">
+          <span className="font-bold">Avenant : </span>
+          {avenantMotif || motif || "rectification de la décision précédente"}.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function fieldVisible(field: Field, values: Record<string, string | string[] | boolean>): boolean {
   if (!field.showWhen) return true;
@@ -423,6 +595,9 @@ function RemplirInner() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Échec");
+      if (typeof json.editToken === "string" && json.editToken) {
+        setToken(json.editToken);
+      }
       setDone(true);
       setRefused(Boolean(json.refused));
       setNeedsParent2(Boolean(json.needsParent2));
@@ -586,6 +761,13 @@ function RemplirInner() {
       {info && (
         <p className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
           {info}
+        </p>
+      )}
+
+      {ctx && ctx.campagne.openForFamille === false && (
+        <p className="mb-4 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-900">
+          Cette campagne est clôturée : les réponses ne sont plus acceptées. Contactez
+          l’établissement si vous devez encore transmettre un élément.
         </p>
       )}
 
@@ -764,6 +946,28 @@ function RemplirInner() {
         </div>
       )}
 
+      {step === "form" && !ctx && !loading && (
+        <div className="rounded-3xl border border-amber-300 bg-amber-50 p-6 text-center shadow-sm">
+          <p className="font-bold text-amber-950">Ce lien n’est plus valable.</p>
+          <p className="mt-2 text-sm text-amber-900">
+            Si vous avez déjà répondu, vous pouvez retrouver votre fiche avec votre e-mail pour la
+            corriger, tant que l’étape est ouverte.
+          </p>
+          <button
+            type="button"
+            className="mt-4 rounded-2xl bg-amber-800 px-4 py-3 font-bold text-white"
+            onClick={() => {
+              setStep("identify");
+              setCtx(null);
+              setError(null);
+              setToken("");
+            }}
+          >
+            Retrouver ma fiche
+          </button>
+        </div>
+      )}
+
       {step === "form" && ctx && (
         <form onSubmit={onSubmit} className="space-y-6">
           <div className="flex items-start gap-4 rounded-3xl border border-slate-200 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
@@ -833,7 +1037,28 @@ function RemplirInner() {
             )}
           </div>
 
-          {ctx.fiche.statut === "en_attente_accord_parent2" ? (
+          {ctx.token?.purpose === "accord_parent2" &&
+          ctx.fiche.parentAccord?.statutAutre === "tacite" ? (
+            <div className="space-y-4 rounded-3xl border-2 border-emerald-300 bg-emerald-50 p-6">
+              <h2 className="text-xl font-black text-emerald-950">Accord parental enregistré</h2>
+              <p className="text-sm text-emerald-900">
+                Le délai de confirmation étant dépassé, l’accord tacite de{" "}
+                <strong>{ctx.token.email || "ce responsable"}</strong> a été enregistré. Aucune
+                action n’est nécessaire.
+              </p>
+              {ctx.fiche.parentAccord?.accordDeadlineAt && (
+                <p className="text-sm font-semibold text-emerald-900">
+                  Échéance du délai de confirmation :{" "}
+                  {new Date(ctx.fiche.parentAccord.accordDeadlineAt).toLocaleString("fr-FR")}.
+                </p>
+              )}
+              {familleReponse && <FamilyResponseSummary ctx={ctx} payload={familleReponse} />}
+              <p className="text-xs text-emerald-800">
+                Si vous n’êtes pas à l’origine de cette réponse ou si vous contestez ce dépôt,
+                contactez directement l’établissement.
+              </p>
+            </div>
+          ) : ctx.fiche.statut === "en_attente_accord_parent2" ? (
             <div className="space-y-4 rounded-3xl border-2 border-sky-300 bg-sky-50 p-6">
               <h2 className="text-xl font-black text-sky-950">Confirmation parentale</h2>
               <p className="text-sm text-sky-900">
@@ -841,9 +1066,7 @@ function RemplirInner() {
                 réponse. Merci de confirmer (« j’accepte ») ou d’indiquer un désaccord explicite.
               </p>
               {familleReponse && (
-                <pre className="whitespace-pre-wrap rounded-xl bg-white/90 p-3 text-sm text-slate-800">
-                  {JSON.stringify(familleReponse, null, 2)}
-                </pre>
+                <FamilyResponseSummary ctx={ctx} payload={familleReponse} />
               )}
               {ctx.fiche.parentAccord?.accordDeadlineAt && (
                 <p className="text-sm font-semibold text-amber-900">
@@ -855,7 +1078,7 @@ function RemplirInner() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
                   type="button"
-                  disabled={submitting}
+                  disabled={submitting || ctx.campagne.openForFamille === false}
                   onClick={() => void onParentAccord("confirme")}
                   className="rounded-2xl bg-emerald-600 px-4 py-4 font-black text-white disabled:opacity-60"
                 >
@@ -863,7 +1086,7 @@ function RemplirInner() {
                 </button>
                 <button
                   type="button"
-                  disabled={submitting}
+                  disabled={submitting || ctx.campagne.openForFamille === false}
                   onClick={() => {
                     if (!accordMotif.trim()) {
                       setError("Indiquez brièvement le motif du désaccord.");
@@ -892,9 +1115,7 @@ function RemplirInner() {
                 Réponse définitive du conseil de classe
               </h2>
               {conseilDecision && (
-                <pre className="whitespace-pre-wrap rounded-xl bg-white/80 p-3 text-sm text-slate-800">
-                  {JSON.stringify(conseilDecision, null, 2)}
-                </pre>
+                <ConseilDecisionSummary ctx={ctx} payload={conseilDecision} />
               )}
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
@@ -1167,7 +1388,11 @@ function RemplirInner() {
 
               <button
                 type="submit"
-                disabled={submitting || !ctx.etape.openForFamille}
+                disabled={
+                  submitting ||
+                  !ctx.etape.openForFamille ||
+                  ctx.campagne.openForFamille === false
+                }
                 className="w-full rounded-2xl bg-sky-700 px-4 py-3 font-bold text-white disabled:opacity-60"
               >
                 {submitting

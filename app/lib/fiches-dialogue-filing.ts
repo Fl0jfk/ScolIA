@@ -1,6 +1,7 @@
 import "server-only";
 
 import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleveDocument, fdPdfArchive } from "@/db/schema";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
@@ -37,11 +38,15 @@ export async function fileFicheDialoguePdfToDossier(params: {
       }),
     );
   } catch (err) {
-    console.warn("[fiches-dialogue] upload S3 indisponible, archive sans objet:", err);
+    console.warn(
+      "[fiches-dialogue] upload S3 indisponible — PDF conservé en base (repli) :",
+      err,
+    );
     uploadedKey = null;
   }
 
   const db = getDb();
+  const pdfBase64 = uploadedKey ? null : Buffer.from(params.pdfBytes).toString("base64");
   const [doc] = await db
     .insert(eleveDocument)
     .values({
@@ -67,9 +72,18 @@ export async function fileFicheDialoguePdfToDossier(params: {
       kind: params.kind,
       title: params.title,
       s3Key: uploadedKey,
+      pdfBase64,
       eleveDocumentId: doc.id,
     })
     .returning();
+
+  if (pdfBase64) {
+    // Le dossier élève pointe vers la route de téléchargement du repli base64.
+    await db
+      .update(eleveDocument)
+      .set({ fileUrl: `/api/fiches-dialogue/archives/${archive.id}` })
+      .where(eq(eleveDocument.id, doc.id));
+  }
 
   await recordEleveAccessAudit({
     etablissementId: params.etablissementId,
@@ -78,7 +92,12 @@ export async function fileFicheDialoguePdfToDossier(params: {
     resourceId: doc.id,
     eleveId: params.eleveId,
     action: "document_create",
-    metadata: { source: "fiches_dialogue", kind: params.kind, s3: Boolean(uploadedKey) },
+    metadata: {
+      source: "fiches_dialogue",
+      kind: params.kind,
+      s3: Boolean(uploadedKey),
+      dbFallback: Boolean(pdfBase64),
+    },
   }).catch(() => undefined);
 
   return { eleveDocumentId: doc.id, s3Key: uploadedKey ?? "", archiveId: archive.id };

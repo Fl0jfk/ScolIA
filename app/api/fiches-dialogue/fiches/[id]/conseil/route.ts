@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAppUser } from "@/app/lib/app-session";
-import { canConseilFichesDialogue } from "@/app/lib/fiches-dialogue-access";
+import {
+  canConseilFichesDialogue,
+  canPublishFichesDialogue,
+} from "@/app/lib/fiches-dialogue-access";
 import { submitFdConseilDecision } from "@/app/lib/fiches-dialogue-workflow";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 
@@ -29,6 +32,8 @@ const ConseilSchema = z.object({
   auteurLabel: z.string().optional(),
   /** false = brouillon PP ; true (défaut) = publication direction. */
   publish: z.boolean().optional(),
+  /** true = rectification explicite d’une décision déjà publiée (avenant). */
+  avenant: z.boolean().optional(),
   useSavedSignature: z.boolean().optional(),
 });
 
@@ -48,6 +53,12 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const publish = body.data.publish !== false;
+  if (publish && !canPublishFichesDialogue(appUser.user.roles, { orgAdmin: appUser.user.orgAdmin })) {
+    return NextResponse.json(
+      { error: "Seule la direction peut publier un avis ou une décision." },
+      { status: 403 },
+    );
+  }
   let signatures = body.data.signatures;
 
   if (body.data.useSavedSignature) {
@@ -74,6 +85,16 @@ export async function POST(req: Request, ctx: Ctx) {
     );
   }
 
+  if (body.data.avenant) {
+    const motif = body.data.payload.motif?.trim() || body.data.payload.commentaire?.trim();
+    if (!motif) {
+      return NextResponse.json(
+        { error: "Un avenant nécessite un motif explicite (rectification tracée)." },
+        { status: 400 },
+      );
+    }
+  }
+
   const result = await submitFdConseilDecision({
     etablissementId: scope.ctx.etablissementId,
     ficheId: id,
@@ -83,6 +104,7 @@ export async function POST(req: Request, ctx: Ctx) {
     auteurLabel: body.data.auteurLabel ?? appUser.user.name,
     signatures,
     publish,
+    avenant: body.data.avenant,
   });
 
   if (!result.ok) {

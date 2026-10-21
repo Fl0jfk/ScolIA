@@ -105,7 +105,11 @@ export function defaultEnabledOptionIds(niveau: FdNiveau): string[] {
   }
 }
 
-function catalogueCollege(destId: string, destLabel: string): FdCatalogueChoix {
+function catalogueCollege(
+  niveauActuel: string,
+  destId: string,
+  destLabel: string,
+): FdCatalogueChoix {
   return {
     destinations: [
       { id: destId, label: destLabel, niveauCible: destId, interne: true },
@@ -149,17 +153,17 @@ function catalogueCollege(destId: string, destLabel: string): FdCatalogueChoix {
     ],
     voiesOuverture: [
       {
-        niveauActuel: destId.replace(/e$/, "e"),
+        niveauActuel,
         destinationsIds: [destId, "maintien", "ailleurs", "autre_parcours"],
       },
     ],
   };
 }
 
-const CATALOGUE_6E = catalogueCollege("5e", "5ᵉ");
-const CATALOGUE_5E = catalogueCollege("4e", "4ᵉ");
-const CATALOGUE_4E = catalogueCollege("3e", "3ᵉ");
-const CATALOGUE_3E = catalogueCollege("2nde", "2ⁿᵈᵉ");
+const CATALOGUE_6E = catalogueCollege("6e", "5e", "5ᵉ");
+const CATALOGUE_5E = catalogueCollege("5e", "4e", "4ᵉ");
+const CATALOGUE_4E = catalogueCollege("4e", "3e", "3ᵉ");
+const CATALOGUE_3E = catalogueCollege("3e", "2nde", "2ⁿᵈᵉ");
 
 const CATALOGUE_2NDE: FdCatalogueChoix = {
   destinations: [
@@ -450,6 +454,17 @@ const ETAPES_TERMINALE: FdTemplateEtapeDef[] = [
     label: "2ⁿᵈ semestre — avis du conseil",
     description: "Avis valant conseil.",
   },
+  {
+    kind: "acceptation_famille",
+    label: "2ⁿᵈ semestre — réponse définitive de la famille",
+    description: "Acceptation ou refus (appel si refus).",
+  },
+  {
+    kind: "appel",
+    label: "Procédure d’appel",
+    description: "Activée uniquement en cas de refus.",
+    optionnelle: true,
+  },
 ];
 
 /** Templates prêts à l’emploi — entièrement surchargeables à la création. */
@@ -697,6 +712,7 @@ function catalogueForNiveau(niveau: FdNiveau): FdCatalogueChoix {
 export function presetForNiveau(
   niveau: FdNiveau,
   starterMode: FdStarterMode,
+  templateKey?: string,
 ): {
   templateKey: string;
   calendrierMode: "trimestre" | "semestre" | "personnalise";
@@ -706,14 +722,32 @@ export function presetForNiveau(
   defaultEnabledOptionIds: string[];
 } {
   const college = niveau === "6e" || niveau === "5e" || niveau === "4e" || niveau === "3e";
-  const catalogue = catalogueForNiveau(niveau);
-  catalogue.options = [...FD_OPTIONS_MASTER];
+  const template = templateKey ? getFdTemplate(templateKey) : undefined;
+  /** La Terminale commence toujours par la famille (intentions post-bac). */
+  const effectiveStarter: FdStarterMode = niveau === "Tle" ? "famille_dabord" : starterMode;
+
+  const catalogue = template?.catalogue
+    ? structuredClone(template.catalogue)
+    : structuredClone(catalogueForNiveau(niveau));
+  /**
+   * La liste maîtresse d’options ne sert qu’aux formulaires qui proposent un champ
+   * `optionsFrom: "options"` (spécialités, options). Pour la ST2S ou la Terminale,
+   * on n’affiche pas de cases sans objet.
+   */
+  const usesOptions = (catalogue.fields ?? []).some((f) => f.optionsFrom === "options");
+  catalogue.options = usesOptions ? [...FD_OPTIONS_MASTER] : [];
+
+  const etapes =
+    niveau === "Tle"
+      ? ETAPES_TERMINALE
+      : etapesForStarter(niveau, effectiveStarter);
+
   return {
-    templateKey: templateKeyForNiveau(niveau),
-    calendrierMode: college ? "trimestre" : "semestre",
+    templateKey: template?.key ?? templateKeyForNiveau(niveau),
+    calendrierMode: template?.calendrierMode ?? (college ? "trimestre" : "semestre"),
     catalogue,
-    etapes: etapesForStarter(niveau, starterMode),
-    labelSuggest: `Fiches de dialogue — ${FD_NIVEAU_LABELS[niveau]}`,
+    etapes,
+    labelSuggest: `Fiches de dialogue — ${template?.label ?? FD_NIVEAU_LABELS[niveau]}`,
     defaultEnabledOptionIds: defaultEnabledOptionIds(niveau),
   };
 }

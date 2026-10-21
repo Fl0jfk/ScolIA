@@ -8,10 +8,11 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { dash } from "@/app/lib/dashboard-brand";
 import {
+  FD_CAMPAGNE_TEMPLATES,
   FD_NIVEAU_LABELS,
   FD_NIVEAUX,
-  FD_OPTIONS_MASTER,
   presetForNiveau,
+  templateKeyForNiveau,
   type FdNiveau,
 } from "@/app/lib/fiches-dialogue-templates";
 import type { FdCatalogueChoix, FdEtapeKind, FdStarterMode } from "@/db/schema-fiches-dialogue";
@@ -78,6 +79,7 @@ export default function FichesDialogueHubPage() {
 
   const [niveau, setNiveau] = useState<FdNiveau | null>(null);
   const [starterMode, setStarterMode] = useState<FdStarterMode>("conseil_dabord");
+  const [templateKey, setTemplateKey] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [anneeLabel, setAnneeLabel] = useState("2025-2026");
   const [contactPpLabel, setContactPpLabel] = useState("via École Directe");
@@ -133,7 +135,12 @@ export default function FichesDialogueHubPage() {
 
   function applyNiveau(n: FdNiveau) {
     setNiveau(n);
-    const preset = presetForNiveau(n, starterMode);
+    /** Terminale : la famille commence toujours — on saute l’étape « qui commence ». */
+    const nextStarter: FdStarterMode = n === "Tle" ? "famille_dabord" : starterMode;
+    const nextTemplate = templateKeyForNiveau(n);
+    setStarterMode(nextStarter);
+    setTemplateKey(nextTemplate);
+    const preset = presetForNiveau(n, nextStarter, nextTemplate);
     setCatalogue(preset.catalogue);
     setEnabledDestIds(new Set(preset.catalogue.destinations.map((d) => d.id)));
     setEnabledOptIds(new Set(preset.defaultEnabledOptionIds));
@@ -149,19 +156,40 @@ export default function FichesDialogueHubPage() {
         conseilDate: "",
       })),
     );
-    setStep(2);
+    setStep(n === "Tle" ? 3 : 2);
+  }
+
+  function applyTemplate(key: string) {
+    if (!niveau) return;
+    setTemplateKey(key);
+    const preset = presetForNiveau(niveau, starterMode, key);
+    setCatalogue(preset.catalogue);
+    setEnabledDestIds(new Set(preset.catalogue.destinations.map((d) => d.id)));
+    setEnabledOptIds(new Set(preset.defaultEnabledOptionIds));
+    setLabel(preset.labelSuggest);
+    setEtapeDates(
+      preset.etapes.map((e, i) => ({
+        ordre: i + 1,
+        kind: e.kind,
+        label: e.label,
+        optionnelle: Boolean(e.optionnelle),
+        opensAt: "",
+        closesAt: "",
+        conseilDate: "",
+      })),
+    );
   }
 
   function applyStarter(mode: FdStarterMode) {
     setStarterMode(mode);
     if (niveau) {
-      const preset = presetForNiveau(niveau, mode);
+      const preset = presetForNiveau(niveau, mode, templateKey ?? undefined);
       setCatalogue((prev) => {
         if (!prev) return preset.catalogue;
         return {
           ...preset.catalogue,
           destinations: prev.destinations.length ? prev.destinations : preset.catalogue.destinations,
-          options: [...FD_OPTIONS_MASTER],
+          options: preset.catalogue.options,
         };
       });
       setEtapeDates(
@@ -332,6 +360,7 @@ export default function FichesDialogueHubPage() {
         body: JSON.stringify({
           niveauActuel: niveau,
           starterMode,
+          templateKey: templateKey ?? undefined,
           label: label.trim() || `Fiches de dialogue — ${FD_NIVEAU_LABELS[niveau]}`,
           anneeLabel: anneeLabel.trim(),
           classesCibles: Array.from(selectedClasses),
@@ -405,7 +434,7 @@ export default function FichesDialogueHubPage() {
               type="button"
               onClick={() => {
                 if (s === 1) setStep(1);
-                else if (s === 2 && niveau) setStep(2);
+                else if (s === 2 && niveau) setStep(niveau === "Tle" ? 3 : 2);
                 else if (s === 3 && niveau) setStep(3);
                 else if (s === 4 && niveau && catalogue) setStep(4);
               }}
@@ -479,39 +508,64 @@ export default function FichesDialogueHubPage() {
             <p className={`text-sm ${dash.textMid}`}>
               Niveau sélectionné : <strong>{niveau ? FD_NIVEAU_LABELS[niveau] : "—"}</strong>
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => applyStarter("conseil_dabord")}
-                className={`rounded-2xl border p-5 text-left ${
-                  starterMode === "conseil_dabord"
-                    ? "border-teal-600 bg-teal-50"
-                    : "border-slate-200 hover:border-slate-400"
-                }`}
-              >
-                <p className="font-bold text-slate-900">Conseil de classe d’abord</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Proposition du conseil, puis réponse de la famille (ex. collège 6ᵉ).
+            {niveau === "Tle" ? (
+              <>
+                <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                  En Terminale, la famille commence toujours : elle dépose ses intentions
+                  (1ᵉʳ semestre), puis le conseil donne son avis, puis les intentions sont
+                  actualisées (2ⁿᵈ semestre), le conseil statue et la famille accepte ou
+                  refuse la décision finale (procédure d’appel si refus).
                 </p>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyStarter("famille_dabord")}
-                className={`rounded-2xl border p-5 text-left ${
-                  starterMode === "famille_dabord"
-                    ? "border-teal-600 bg-teal-50"
-                    : "border-slate-200 hover:border-slate-400"
-                }`}
-              >
-                <p className="font-bold text-slate-900">Famille d’abord</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  La famille formule ses vœux, puis avis du conseil (ex. lycée).
-                </p>
-              </button>
-            </div>
-            <ModuleButton type="button" variant="secondary" onClick={() => setStep(1)}>
-              Retour
-            </ModuleButton>
+                <div className="flex flex-wrap gap-2">
+                  <ModuleButton type="button" onClick={() => setStep(3)}>
+                    Continuer
+                  </ModuleButton>
+                  <ModuleButton
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setStep(1)}
+                  >
+                    Retour
+                  </ModuleButton>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => applyStarter("conseil_dabord")}
+                    className={`rounded-2xl border p-5 text-left ${
+                      starterMode === "conseil_dabord"
+                        ? "border-teal-600 bg-teal-50"
+                        : "border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    <p className="font-bold text-slate-900">Conseil de classe d’abord</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Proposition du conseil, puis réponse de la famille (ex. collège 6ᵉ).
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyStarter("famille_dabord")}
+                    className={`rounded-2xl border p-5 text-left ${
+                      starterMode === "famille_dabord"
+                        ? "border-teal-600 bg-teal-50"
+                        : "border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    <p className="font-bold text-slate-900">Famille d’abord</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      La famille formule ses vœux, puis avis du conseil (ex. lycée).
+                    </p>
+                  </button>
+                </div>
+                <ModuleButton type="button" variant="secondary" onClick={() => setStep(1)}>
+                  Retour
+                </ModuleButton>
+              </>
+            )}
           </div>
         ) : null}
 
@@ -544,6 +598,29 @@ export default function FichesDialogueHubPage() {
                 />
               </label>
             </div>
+
+            {niveau === "1re" && (
+              <label className="block rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm">
+                <span className="font-semibold text-slate-800">Filière / série</span>
+                <select
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2"
+                  value={templateKey ?? templateKeyForNiveau("1re")}
+                  onChange={(e) => applyTemplate(e.target.value)}
+                >
+                  {FD_CAMPAGNE_TEMPLATES.filter(
+                    (t) => t.key === "lycee_1ere_gen" || t.key === "lycee_1ere_st2s",
+                  ).map((t) => (
+                    <option key={t.key} value={t.key}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+                <span className={`mt-1 block text-xs ${dash.textMid}`}>
+                  Les destinations, options et spécialités proposées s’adaptent à la série
+                  choisie (générale ou ST2S).
+                </span>
+              </label>
+            )}
 
             <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-3">
               <p className="text-sm font-semibold text-slate-800">
@@ -664,7 +741,7 @@ export default function FichesDialogueHubPage() {
                 Options / langues / spécialités (cochez selon le niveau)
               </p>
               <div className="flex max-h-64 flex-col gap-2 overflow-y-auto rounded-lg border border-slate-100 p-3">
-                {(catalogue.options.length ? catalogue.options : FD_OPTIONS_MASTER).map((o) => (
+                {catalogue.options.map((o) => (
                   <label key={o.id} className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"

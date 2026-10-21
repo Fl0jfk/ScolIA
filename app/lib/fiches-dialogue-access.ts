@@ -11,6 +11,19 @@ export function canManageFichesDialogue(roles: string[], opts?: { orgAdmin?: boo
   return false;
 }
 
+/**
+ * Publication d’un avis / d’une décision : réservée à la direction (ou admin).
+ * Un professeur principal peut rédiger un brouillon, mais ne peut pas publier
+ * en saisissant « Direction » dans un champ texte.
+ */
+export function canPublishFichesDialogue(roles: string[], opts?: { orgAdmin?: boolean }): boolean {
+  if (opts?.orgAdmin) return true;
+  if (hasGlobalAdminRole(roles)) return true;
+  if (INTRANET_DIRECTION_SLUGS.some((s) => roles.includes(s))) return true;
+  if (hasRole(roles, "admin")) return true;
+  return false;
+}
+
 export function canConseilFichesDialogue(roles: string[], opts?: { orgAdmin?: boolean }): boolean {
   if (canManageFichesDialogue(roles, opts)) return true;
   if (hasRole(roles, "professeur") || hasRole(roles, "cpe")) return true;
