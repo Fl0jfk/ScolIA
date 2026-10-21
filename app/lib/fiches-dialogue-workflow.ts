@@ -2324,25 +2324,25 @@ export async function findFdEleveForUser(params: {
   if (!email) return null;
   const external = params.externalUserId?.trim() || "";
   const db = getDb();
-  const [row] = await db
-    .select({
-      id: eleve.id,
-      prenom: eleve.prenom,
-      nom: eleve.nom,
-      classe: eleve.classe,
-    })
-    .from(eleve)
-    .where(
-      and(
-        eq(eleve.etablissementId, params.etablissementId),
-        or(
-          sql`lower(${eleve.email}) = ${email}`,
-          external ? eq(eleve.sourceKey, external) : undefined,
-          external ? eq(eleve.ine, external) : undefined,
-        ),
+  // Recherche d'identité (e-mail / clé de fusion / INE), pas une liste : on ne
+  // filtre donc pas sur les élèves actifs, sinon un élève sorti perdrait l'accès
+  // en lecture seule à ses fiches.
+  const row = await db.query.eleve.findFirst({
+    columns: {
+      id: true,
+      prenom: true,
+      nom: true,
+      classe: true,
+    },
+    where: and(
+      eq(eleve.etablissementId, params.etablissementId),
+      or(
+        sql`lower(${eleve.email}) = ${email}`,
+        external ? eq(eleve.sourceKey, external) : undefined,
+        external ? eq(eleve.ine, external) : undefined,
       ),
-    )
-    .limit(1);
+    ),
+  });
   return row ?? null;
 }
 
