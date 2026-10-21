@@ -116,11 +116,51 @@ export type FdConseilDecisionPayload = {
   /** true = proposition publiée aux familles. */
   publiee?: boolean;
   publishedAt?: string;
+  /** true = rectification explicite d’une décision déjà publiée (jamais silencieuse). */
+  avenant?: boolean;
+  avenantMotif?: string;
+  avenantAt?: string;
 };
 
 export type FdAcceptationPayload = {
   accepte: boolean;
   motifRefus?: string;
+};
+
+/**
+ * Dossier d’appel : la commission est extérieure. Les informations arrivent
+ * souvent après la distribution des fiches ; l’établissement doit pouvoir les
+ * compléter au fur et à mesure, puis enregistrer la décision et clôturer.
+ */
+export type FdAppelDocument = {
+  label: string;
+  /** Référence interne, lien ou emplacement du document. */
+  reference?: string;
+  statut?: "attendu" | "recu";
+  receivedAt?: string;
+  notes?: string;
+};
+
+export type FdAppelPayload = {
+  commissionLabel?: string;
+  /** Date de saisine / transmission du dossier à la commission. */
+  saisineDate?: string;
+  /** Date de la commission ou de l’audience. */
+  commissionDate?: string;
+  /** Date de réception de la décision par l’établissement. */
+  receivedAt?: string;
+  decision?: "maintien" | "reformation";
+  motif?: string;
+  destinationProposee?: string;
+  optionsProposees?: string[];
+  /** Informations complémentaires connues plus tard. */
+  informations?: string;
+  documents?: FdAppelDocument[];
+  decidedAt?: string;
+  closedAt?: string;
+  notifiedAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 };
 
 export type FdParentAccordPayload = {
@@ -138,12 +178,22 @@ export type FdParentAccordPayload = {
   accordDeadlineAt?: string;
   conflictMotif?: string;
   conflictValues?: Record<string, string | string[] | boolean | null>;
+  /** Résolution direction d’un conflit parents (en_conflit → saisie_recue). */
+  resolution?: "maintien_famille" | "avis_conseil" | "tacite";
+  resolutionNote?: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  /** Horodatage de la dernière alerte envoyée (staff et/ou parents). */
+  conflictNotifiedAt?: string;
+  /** Horodatage de l’information envoyée pour l’accord tacite. */
+  taciteNotifiedAt?: string;
 };
 
 export type FdAppelConfig = {
   /**
-   * Toujours true (obligation légale). Conservé pour compat ;
-   * on ne désactive plus l’appel en UI.
+   * Appel activé par défaut (obligation légale) ; l’UI ne propose pas de le désactiver.
+   * Les campagnes legacy peuvent porter `false` : le workflow le respecte alors et
+   * clôture directement la fiche en `refusee`.
    */
   enabled: boolean;
   /** Souvent renseigné tard (mai–juin) — optionnel à la création. */
@@ -261,6 +311,8 @@ export const fdFiche = pgTable(
     lastReminderAt: timestamp("last_reminder_at", { withTimezone: true }),
     reminderCount: integer("reminder_count").notNull().default(0),
     acceptation: jsonb("acceptation").$type<FdAcceptationPayload | null>(),
+    /** Dossier d’appel, complété au fil de l’eau (commission extérieure). */
+    appel: jsonb("appel").$type<FdAppelPayload | null>(),
     parentAccord: jsonb("parent_accord").$type<FdParentAccordPayload | null>(),
     conflictPayload: jsonb("conflict_payload").$type<FdParentAccordPayload | null>(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
@@ -375,6 +427,11 @@ export const fdPdfArchive = pgTable(
     kind: text("kind").notNull(),
     title: text("title").notNull(),
     s3Key: text("s3_key"),
+    /**
+     * Repli base de données : si l’upload S3 échoue, les octets PDF sont conservés ici
+     * (base64) pour ne pas perdre le document. En prod S3 reste la voie normale.
+     */
+    pdfBase64: text("pdf_base64"),
     eleveDocumentId: uuid("eleve_document_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

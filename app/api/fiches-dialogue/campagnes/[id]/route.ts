@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { desc, eq, inArray } from "drizzle-orm";
+import { getDb } from "@/db/index";
+import { fdPdfArchive } from "@/db/schema";
 import { requireAppUser } from "@/app/lib/app-session";
 import {
   canManageFichesDialogue,
@@ -45,7 +48,46 @@ export async function GET(_req: Request, ctx: Ctx) {
     lastSentAt: f.lastSentAt,
     parentAccordStatut: f.parentAccord?.statutAutre ?? null,
   }));
-  return NextResponse.json({ campagne, etapes, fiches, stats });
+
+  let archives: Array<{
+    id: string;
+    ficheId: string;
+    kind: string;
+    title: string;
+    createdAt: Date;
+    storage: "s3" | "db" | "none";
+  }> = [];
+  if (fichesRaw.length) {
+    const db = getDb();
+    const archiveRows = await db
+      .select({
+        id: fdPdfArchive.id,
+        ficheId: fdPdfArchive.ficheId,
+        kind: fdPdfArchive.kind,
+        title: fdPdfArchive.title,
+        createdAt: fdPdfArchive.createdAt,
+        s3Key: fdPdfArchive.s3Key,
+        pdfBase64: fdPdfArchive.pdfBase64,
+      })
+      .from(fdPdfArchive)
+      .where(
+        inArray(
+          fdPdfArchive.ficheId,
+          fichesRaw.map((f) => f.id),
+        ),
+      )
+      .orderBy(desc(fdPdfArchive.createdAt));
+    archives = archiveRows.map((r) => ({
+      id: r.id,
+      ficheId: r.ficheId,
+      kind: r.kind,
+      title: r.title,
+      createdAt: r.createdAt,
+      storage: r.s3Key ? ("s3" as const) : r.pdfBase64 ? ("db" as const) : ("none" as const),
+    }));
+  }
+
+  return NextResponse.json({ campagne, etapes, fiches, stats, archives });
 }
 
 const PatchSchema = z.object({

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo } from "react";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
@@ -81,6 +82,12 @@ export default function Home() {
               <p className="text-sm leading-relaxed text-neutral-600">
                 Ouvre la bulle en bas à droite pour parler au bot d&apos;écoute.
               </p>
+              <Link
+                href="/eleve/fiches-dialogue"
+                className="mt-5 inline-flex rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+              >
+                Voir mes fiches de dialogue
+              </Link>
             </div>
           ) : (
             <>
