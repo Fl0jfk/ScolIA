@@ -55,7 +55,8 @@ export const SST_NOTICE = {
   ],
   commentCompleterTitle: "Comment compléter une fiche",
   commentCompleter: [
-    "Nom et prénom (préremplis), fonction et signature manuscrite ;",
+    "Nom et prénom du déclarant (préremplis), fonction et signature manuscrite ;",
+    "Le déposant de la fiche est toujours tracé (y compris en cas de dépôt pour un autre collaborateur, si vous y êtes autorisé) ;",
     "La date et l’heure de l’observation ;",
     "Le lieu (service, poste ou emplacement concerné) ;",
     "Les observations : risques ou dangers encourus, circonstances détaillées d’un fait, incident ou accident, facteurs matériels et humains ;",

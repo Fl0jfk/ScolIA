@@ -12,7 +12,7 @@ import {
   SST_SOMMAIRE,
   SST_URGENCES,
 } from "@/app/lib/sst-registre/content";
-import { getSstMyStatus } from "@/app/lib/sst-registre/db";
+import { getSstMyStatus, listSstStaffOptions } from "@/app/lib/sst-registre/db";
 
 export async function GET() {
   const scope = await requireTenantId();
@@ -42,8 +42,13 @@ export async function GET() {
         .filter(Boolean)
         .join(", ");
 
+    const staffOptions = status.canDepositForOthers
+      ? await listSstStaffOptions(scope.ctx.etablissementId)
+      : [];
+
     return NextResponse.json({
       ...status,
+      staffOptions,
       content: {
         presentation: SST_PRESENTATION,
         sommaire: SST_SOMMAIRE,

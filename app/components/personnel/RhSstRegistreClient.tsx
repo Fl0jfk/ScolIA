@@ -8,6 +8,8 @@ import {
   type SstFicheDetail,
   type SstFicheListItem,
   type SstMyStatus,
+  type SstProxyPerson,
+  type SstStaffOption,
   type SstSuiviPayload,
 } from "@/app/lib/sst-registre/types";
 
@@ -49,7 +51,10 @@ type ContentPayload = {
   urgences: Array<{ label: string; value: string }>;
 };
 
-type MePayload = SstMyStatus & { content: ContentPayload };
+type MePayload = SstMyStatus & {
+  content: ContentPayload;
+  staffOptions?: SstStaffOption[];
+};
 
 type ViewMode = "accueil" | "fiche" | "suivi";
 
@@ -92,6 +97,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
     lieu: "",
     observations: "",
     suggestions: "",
+    onBehalfOfUserId: "",
   });
   const [ficheSignature, setFicheSignature] = useState<string | null>(null);
   const [savingFiche, setSavingFiche] = useState(false);
@@ -103,6 +109,11 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
   const [consultComments, setConsultComments] = useState("");
   const [consultSignature, setConsultSignature] = useState<string | null>(null);
   const [savingConsult, setSavingConsult] = useState(false);
+
+  const [proxyPeople, setProxyPeople] = useState<SstProxyPerson[]>([]);
+  const [proxyStaff, setProxyStaff] = useState<SstStaffOption[]>([]);
+  const [proxyPick, setProxyPick] = useState("");
+  const [savingProxy, setSavingProxy] = useState(false);
 
   const loadMe = useCallback(async () => {
     setLoading(true);
@@ -137,6 +148,20 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
     }
   }, [me?.canManage, mode]);
 
+  const loadProxy = useCallback(async () => {
+    if (!me?.canManage && mode !== "pilotage") return;
+    const res = await fetch("/api/rh/sst/proxy", { cache: "no-store" });
+    const json = (await res.json()) as {
+      people?: SstProxyPerson[];
+      staff?: SstStaffOption[];
+      error?: string;
+    };
+    if (res.ok) {
+      setProxyPeople(json.people ?? []);
+      setProxyStaff(json.staff ?? []);
+    }
+  }, [me?.canManage, mode]);
+
   useEffect(() => {
     void loadMe();
   }, [loadMe]);
@@ -144,8 +169,11 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
   useEffect(() => {
     if (!me) return;
     void loadFiches();
-    if (me.canManage || mode === "pilotage") void loadSuivi();
-  }, [me, loadFiches, loadSuivi, mode]);
+    if (me.canManage || mode === "pilotage") {
+      void loadSuivi();
+      void loadProxy();
+    }
+  }, [me, loadFiches, loadSuivi, loadProxy, mode]);
 
   const pendingPeople = useMemo(
     () => (suivi?.people ?? []).filter((p) => !p.signed),
@@ -188,8 +216,13 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...ficheForm,
+          observedDate: ficheForm.observedDate,
+          observedTime: ficheForm.observedTime || undefined,
+          lieu: ficheForm.lieu || undefined,
+          observations: ficheForm.observations,
+          suggestions: ficheForm.suggestions || undefined,
           signatureDataUrl: ficheSignature || undefined,
+          onBehalfOfUserId: ficheForm.onBehalfOfUserId.trim() || undefined,
         }),
       });
       const json = await res.json();
@@ -200,6 +233,7 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
         lieu: "",
         observations: "",
         suggestions: "",
+        onBehalfOfUserId: "",
       });
       setFicheSignature(null);
       setView("accueil");
@@ -212,6 +246,48 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
     } finally {
       setSavingFiche(false);
     }
+  }
+
+  async function saveProxyPeople(next: SstProxyPerson[]) {
+    setSavingProxy(true);
+    try {
+      const res = await fetch("/api/rh/sst/proxy", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ people: next }),
+      });
+      const json = (await res.json()) as { people?: SstProxyPerson[]; error?: string };
+      if (!res.ok) throw new Error(json.error || "Échec enregistrement");
+      setProxyPeople(json.people ?? next);
+      setProxyPick("");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingProxy(false);
+    }
+  }
+
+  function addProxyPerson() {
+    if (!proxyPick) return;
+    const u = proxyStaff.find((s) => s.userId === proxyPick);
+    if (!u) return;
+    if (proxyPeople.some((p) => p.userId === u.userId)) {
+      alert("Cette personne est déjà autorisée.");
+      return;
+    }
+    void saveProxyPeople([
+      ...proxyPeople,
+      {
+        userId: u.userId,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+      },
+    ]);
+  }
+
+  function removeProxyPerson(userId: string) {
+    void saveProxyPeople(proxyPeople.filter((p) => p.userId !== userId));
   }
 
   async function openFiche(id: string) {
@@ -553,6 +629,9 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                         Fiche n°{f.numero} — {f.declarantName || "Anonyme"}
                       </p>
                       <p className="truncate text-xs text-slate-500">
+                        Déposée par {f.createdByName || "—"}
+                        {f.depositedForOther ? " (pour autrui)" : ""}
+                        {" · "}
                         {f.observedDate}
                         {f.lieu ? ` · ${f.lieu}` : ""} — {f.observationsPreview}
                       </p>
@@ -584,7 +663,33 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
           <h3 className="font-black text-slate-900">Nouvelle fiche du registre</h3>
           <p className="mt-1 text-sm text-slate-600">
             Signalez un risque, un incident, un dysfonctionnement ou une suggestion d&apos;amélioration.
+            Votre nom figure systématiquement comme déposant de la fiche.
           </p>
+          {me.canDepositForOthers ? (
+            <label className="mt-4 block text-sm">
+              <span className="font-bold text-slate-700">Déposer pour (optionnel)</span>
+              <select
+                value={ficheForm.onBehalfOfUserId}
+                onChange={(e) =>
+                  setFicheForm((f) => ({ ...f, onBehalfOfUserId: e.target.value }))
+                }
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              >
+                <option value="">Moi-même</option>
+                {(me.staffOptions ?? [])
+                  .filter((s) => s.userId)
+                  .map((s) => (
+                    <option key={s.userId} value={s.userId}>
+                      {s.lastName} {s.firstName}
+                      {s.fonction ? ` — ${s.fonction}` : ""}
+                    </option>
+                  ))}
+              </select>
+              <span className="mt-1 block text-xs text-slate-500">
+                La fiche portera le nom du déclarant choisi ; vous resterez visible comme déposant.
+              </span>
+            </label>
+          ) : null}
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="font-bold text-slate-700">Date</span>
@@ -771,7 +876,10 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                         n°{f.numero} — {f.observationsPreview}
                       </p>
                       <p className="text-xs text-slate-500">
-                        {f.observedDate} · {f.declarantName}
+                        {f.observedDate} · déclarant {f.declarantName}
+                        {" · "}
+                        déposée par {f.createdByName || "—"}
+                        {f.depositedForOther ? " (pour autrui)" : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -792,6 +900,74 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                 ))}
               </ul>
             )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="font-black text-slate-900">Paramétrage — dépôt pour autrui</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Autorisez des personnes (accueil, secrétariat, référent sécurité…) à créer une fiche
+              au nom d&apos;un autre collaborateur. La direction / RH pilotage peut déjà le faire.
+              Le déposant reste toujours visible sur la fiche.
+            </p>
+            {proxyPeople.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {proxyPeople.map((p) => (
+                  <li
+                    key={p.userId}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 px-3 py-2 text-sm"
+                  >
+                    <span>
+                      <span className="font-bold text-slate-900">
+                        {p.lastName} {p.firstName}
+                      </span>
+                      {p.email ? (
+                        <span className="block text-xs text-slate-400">{p.email}</span>
+                      ) : null}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={savingProxy}
+                      onClick={() => removeProxyPerson(p.userId)}
+                      className="text-xs font-bold text-rose-700 underline disabled:opacity-50"
+                    >
+                      Retirer
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm italic text-slate-400">
+                Personne n&apos;est encore autorisé en plus de la direction / RH.
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="min-w-[14rem] flex-1 text-sm">
+                <span className="font-bold text-slate-700">Ajouter une personne</span>
+                <select
+                  value={proxyPick}
+                  onChange={(e) => setProxyPick(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                >
+                  <option value="">Choisir…</option>
+                  {proxyStaff
+                    .filter((s) => !proxyPeople.some((p) => p.userId === s.userId))
+                    .map((s) => (
+                      <option key={s.userId} value={s.userId}>
+                        {s.lastName} {s.firstName}
+                        {s.email ? ` (${s.email})` : ""}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={savingProxy || !proxyPick}
+                onClick={() => addProxyPerson()}
+                className="rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-900 disabled:opacity-50"
+              >
+                {savingProxy ? "…" : "Autoriser"}
+              </button>
+            </div>
           </section>
         </div>
       ) : null}
@@ -822,6 +998,17 @@ export default function RhSstRegistreClient({ mode = "staff" }: { mode?: "staff"
                 <dd>
                   {selectedFiche.declarantFirstName} {selectedFiche.declarantLastName} —{" "}
                   {selectedFiche.declarantFonction}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-bold text-slate-900">Déposée par</dt>
+                <dd>
+                  {selectedFiche.createdByFirstName} {selectedFiche.createdByLastName}
+                  {selectedFiche.depositedForOther ? (
+                    <span className="ml-1 text-xs font-bold text-amber-800">
+                      (fiche déposée pour autrui)
+                    </span>
+                  ) : null}
                 </dd>
               </div>
               <div>
