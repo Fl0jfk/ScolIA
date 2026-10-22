@@ -133,6 +133,17 @@ export default function SstFicheDetailModal({
             </dd>
           </div>
           <div>
+            <dt className="font-bold text-slate-900">Déposée par</dt>
+            <dd>
+              {fiche.createdByFirstName} {fiche.createdByLastName}
+              {fiche.depositedForOther ? (
+                <span className="ml-1 text-xs font-bold text-amber-800">
+                  (fiche déposée pour autrui)
+                </span>
+              ) : null}
+            </dd>
+          </div>
+          <div>
             <dt className="font-bold text-slate-900">Quand / où</dt>
             <dd>
               {fiche.observedDate}

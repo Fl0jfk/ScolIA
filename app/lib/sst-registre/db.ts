@@ -7,6 +7,7 @@ import {
   sstConsultation,
   sstEmargement,
   sstFiche,
+  sstProxyDeposant,
   type SstFicheStatus,
   type SstFicheWorkflow,
   type SstFicheVisa,
@@ -14,6 +15,7 @@ import {
 import { currentSchoolYearLabel } from "@/app/lib/ent-core-db";
 import { listStaffMembersLite } from "@/app/lib/members-db";
 import {
+  canDepositSstForOthers,
   canManageSstRegistre,
   primaryFonctionFromRoles,
 } from "@/app/lib/sst-registre/access";
@@ -32,9 +34,26 @@ import {
   type SstFicheDetail,
   type SstFicheListItem,
   type SstMyStatus,
+  type SstProxyPerson,
+  type SstStaffOption,
   type SstSuiviPayload,
   type SstSuiviPerson,
 } from "@/app/lib/sst-registre/types";
+
+function displayName(first: string, last: string): string {
+  return `${first} ${last}`.trim();
+}
+
+function isDepositedForOther(row: typeof sstFiche.$inferSelect): boolean {
+  const declarantId = (row.declarantUserId || row.createdByUserId).trim();
+  if (declarantId && declarantId !== row.createdByUserId.trim()) return true;
+  const byName = displayName(row.createdByFirstName, row.createdByLastName);
+  const declarantName = displayName(row.declarantFirstName, row.declarantLastName);
+  if (byName && declarantName && byName.localeCompare(declarantName, "fr", { sensitivity: "accent" }) !== 0) {
+    return true;
+  }
+  return false;
+}
 
 function assertDb() {
   if (!isDatabaseConfigured()) {
@@ -67,6 +86,9 @@ function toEmargementDto(row: typeof sstEmargement.$inferSelect): SstEmargementD
 
 function toFicheListItem(row: typeof sstFiche.$inferSelect): SstFicheListItem {
   const status = isSstFicheStatus(row.status) ? row.status : "ouverte";
+  const createdByName =
+    displayName(row.createdByFirstName, row.createdByLastName) ||
+    displayName(row.declarantFirstName, row.declarantLastName);
   return {
     id: row.id,
     numero: row.numero,
@@ -74,7 +96,9 @@ function toFicheListItem(row: typeof sstFiche.$inferSelect): SstFicheListItem {
     observedDate: row.observedDate,
     lieu: row.lieu,
     observationsPreview: previewText(row.observations),
-    declarantName: `${row.declarantFirstName} ${row.declarantLastName}`.trim(),
+    declarantName: displayName(row.declarantFirstName, row.declarantLastName),
+    createdByName,
+    depositedForOther: isDepositedForOther(row),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -91,9 +115,13 @@ function toFicheDetail(
     status,
     campagneId: row.campagneId,
     createdByUserId: row.createdByUserId,
+    createdByFirstName: row.createdByFirstName || row.declarantFirstName,
+    createdByLastName: row.createdByLastName || row.declarantLastName,
+    declarantUserId: row.declarantUserId || row.createdByUserId,
     declarantFirstName: row.declarantFirstName,
     declarantLastName: row.declarantLastName,
     declarantFonction: row.declarantFonction,
+    depositedForOther: isDepositedForOther(row),
     observedDate: row.observedDate,
     observedTime: row.observedTime,
     lieu: row.lieu,
@@ -157,6 +185,109 @@ export async function ensureSstCampagne(etablissementId: string): Promise<SstCam
   return toCampagneDto(again[0]);
 }
 
+export async function listSstProxyUserIds(etablissementId: string): Promise<string[]> {
+  const db = assertDb();
+  const rows = await db
+    .select({ userId: sstProxyDeposant.userId })
+    .from(sstProxyDeposant)
+    .where(eq(sstProxyDeposant.etablissementId, etablissementId));
+  return rows.map((r) => r.userId);
+}
+
+export async function listSstProxyPeople(etablissementId: string): Promise<SstProxyPerson[]> {
+  const db = assertDb();
+  const rows = await db
+    .select()
+    .from(sstProxyDeposant)
+    .where(eq(sstProxyDeposant.etablissementId, etablissementId))
+    .orderBy(asc(sstProxyDeposant.lastName), asc(sstProxyDeposant.firstName));
+  return rows.map((r) => ({
+    userId: r.userId,
+    firstName: r.firstName,
+    lastName: r.lastName,
+    email: r.email,
+  }));
+}
+
+export async function setSstProxyPeople(params: {
+  etablissementId: string;
+  people: SstProxyPerson[];
+}): Promise<SstProxyPerson[]> {
+  const db = assertDb();
+  const cleaned = new Map<string, SstProxyPerson>();
+  for (const p of params.people) {
+    const userId = p.userId.trim();
+    if (!userId) continue;
+    cleaned.set(userId, {
+      userId,
+      firstName: p.firstName.trim().slice(0, 120),
+      lastName: p.lastName.trim().slice(0, 120),
+      email: p.email.trim().slice(0, 200),
+    });
+  }
+
+  const existing = await db
+    .select({ id: sstProxyDeposant.id, userId: sstProxyDeposant.userId })
+    .from(sstProxyDeposant)
+    .where(eq(sstProxyDeposant.etablissementId, params.etablissementId));
+
+  const nextIds = new Set(cleaned.keys());
+  for (const row of existing) {
+    if (!nextIds.has(row.userId)) {
+      await db
+        .delete(sstProxyDeposant)
+        .where(
+          and(
+            eq(sstProxyDeposant.etablissementId, params.etablissementId),
+            eq(sstProxyDeposant.id, row.id),
+          ),
+        );
+    }
+  }
+
+  for (const person of cleaned.values()) {
+    await db
+      .insert(sstProxyDeposant)
+      .values({
+        etablissementId: params.etablissementId,
+        userId: person.userId,
+        firstName: person.firstName,
+        lastName: person.lastName,
+        email: person.email,
+      })
+      .onConflictDoUpdate({
+        target: [sstProxyDeposant.etablissementId, sstProxyDeposant.userId],
+        set: {
+          firstName: person.firstName,
+          lastName: person.lastName,
+          email: person.email,
+        },
+      });
+  }
+
+  return listSstProxyPeople(params.etablissementId);
+}
+
+export async function listSstStaffOptions(etablissementId: string): Promise<SstStaffOption[]> {
+  const staff = await listStaffMembersLite(etablissementId);
+  return staff
+    .map((m) => {
+      const userId = String(m.userId || m.externalUserId || "").trim();
+      if (!userId) return null;
+      return {
+        userId,
+        firstName: m.firstName ?? "",
+        lastName: m.lastName ?? "",
+        email: m.email,
+        fonction: primaryFonctionFromRoles(m.roles),
+      } satisfies SstStaffOption;
+    })
+    .filter((p): p is SstStaffOption => p !== null)
+    .sort((a, b) =>
+      `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "fr"),
+    );
+}
+
 export async function getSstMyStatus(params: {
   etablissementId: string;
   userId: string;
@@ -164,32 +295,40 @@ export async function getSstMyStatus(params: {
 }): Promise<SstMyStatus> {
   const db = assertDb();
   const campagne = await ensureSstCampagne(params.etablissementId);
-  const rows = await db
-    .select()
-    .from(sstEmargement)
-    .where(
-      and(
-        eq(sstEmargement.etablissementId, params.etablissementId),
-        eq(sstEmargement.campagneId, campagne.id),
-        eq(sstEmargement.userId, params.userId),
+  const [rows, openRows, proxyIds] = await Promise.all([
+    db
+      .select()
+      .from(sstEmargement)
+      .where(
+        and(
+          eq(sstEmargement.etablissementId, params.etablissementId),
+          eq(sstEmargement.campagneId, campagne.id),
+          eq(sstEmargement.userId, params.userId),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(sstFiche)
+      .where(
+        and(
+          eq(sstFiche.etablissementId, params.etablissementId),
+          eq(sstFiche.campagneId, campagne.id),
+          ne(sstFiche.status, "cloturee"),
+        ),
       ),
-    )
-    .limit(1);
-  const openRows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sstFiche)
-    .where(
-      and(
-        eq(sstFiche.etablissementId, params.etablissementId),
-        eq(sstFiche.campagneId, campagne.id),
-        ne(sstFiche.status, "cloturee"),
-      ),
-    );
+    listSstProxyUserIds(params.etablissementId),
+  ]);
   return {
     campagne,
     signed: Boolean(rows[0]),
     emargement: rows[0] ? toEmargementDto(rows[0]) : null,
     canManage: canManageSstRegistre(params.roles),
+    canDepositForOthers: canDepositSstForOthers({
+      roles: params.roles,
+      userId: params.userId,
+      proxyUserIds: proxyIds,
+    }),
     openFichesCount: openRows[0]?.count ?? 0,
   };
 }
@@ -410,6 +549,8 @@ export async function createSstFiche(params: {
   observations: string;
   suggestions?: string;
   signatureDataUrl?: string;
+  /** Si renseigné : fiche déposée au nom d’un autre collaborateur. */
+  onBehalfOfUserId?: string;
 }): Promise<{ ok: true; fiche: SstFicheDetail } | { ok: false; error: string }> {
   const observations = params.observations.trim();
   if (observations.length < 5) {
@@ -422,6 +563,44 @@ export async function createSstFiche(params: {
   if (params.signatureDataUrl?.trim()) {
     signature = parseSignaturePngDataUrl(params.signatureDataUrl);
     if (!signature) return { ok: false, error: "Signature manuscrite invalide." };
+  }
+
+  const onBehalfId = (params.onBehalfOfUserId ?? "").trim();
+  let declarantUserId = params.userId;
+  let declarantFirstName = params.firstName.trim();
+  let declarantLastName = params.lastName.trim();
+  let declarantFonction = primaryFonctionFromRoles(params.roles);
+
+  if (onBehalfId && onBehalfId !== params.userId) {
+    const proxyIds = await listSstProxyUserIds(params.etablissementId);
+    if (
+      !canDepositSstForOthers({
+        roles: params.roles,
+        userId: params.userId,
+        proxyUserIds: proxyIds,
+      })
+    ) {
+      return {
+        ok: false,
+        error: "Vous n’êtes pas autorisé(e) à déposer une fiche pour une autre personne.",
+      };
+    }
+    const staff = await listStaffMembersLite(params.etablissementId);
+    const subject = staff.find((m) => {
+      const uid = String(m.userId || "").trim();
+      const ext = String(m.externalUserId || "").trim();
+      return uid === onBehalfId || ext === onBehalfId;
+    });
+    if (!subject || subject.pending) {
+      return { ok: false, error: "Collaborateur introuvable pour le dépôt pour autrui." };
+    }
+    declarantUserId = String(subject.userId || subject.externalUserId || onBehalfId).trim();
+    declarantFirstName = (subject.firstName ?? "").trim();
+    declarantLastName = (subject.lastName ?? "").trim();
+    declarantFonction = primaryFonctionFromRoles(subject.roles);
+    if (!declarantFirstName && !declarantLastName) {
+      declarantLastName = subject.displayName?.trim() || subject.email;
+    }
   }
 
   const db = assertDb();
@@ -439,9 +618,12 @@ export async function createSstFiche(params: {
       campagneId: campagne.id,
       numero,
       createdByUserId: params.userId,
-      declarantFirstName: params.firstName.trim(),
-      declarantLastName: params.lastName.trim(),
-      declarantFonction: primaryFonctionFromRoles(params.roles),
+      createdByFirstName: params.firstName.trim(),
+      createdByLastName: params.lastName.trim(),
+      declarantUserId,
+      declarantFirstName,
+      declarantLastName,
+      declarantFonction,
       observedDate: params.observedDate,
       observedTime: (params.observedTime ?? "").trim().slice(0, 8),
       lieu: (params.lieu ?? "").trim().slice(0, 200),

@@ -533,6 +533,13 @@
       "when": 1787420079851,
       "tag": "0066_fiches_dialogue_appel",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1787420139851,
+      "tag": "0067_sst_fiche_proxy",
+      "breakpoints": true
     }
   ]
 }

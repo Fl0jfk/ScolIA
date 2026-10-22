@@ -986,8 +986,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         rich: sstEmargementPending,
         badge: sstEmargementPending ? "À signer" : undefined,
         detail: sstEmargementPending
-          ? "Émargement annuel du registre santé & sécurité"
-          : "Registre santé & sécurité au travail",
+          ? "Émargement annuel du registre santé et sécurité au travail"
+          : "Registre santé et sécurité au travail",
         tone: sstEmargementPending ? "warn" : "neutral",
       });
       if (sstEmargementPending) {
@@ -997,7 +997,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           label: "Registre SST",
           count: 1,
           href: "/rh?tab=dashboard&section=sst",
-          detail: "Émargement annuel à signer (registre santé & sécurité)",
+          detail: "Émargement annuel à signer (registre santé et sécurité au travail)",
         });
       }
       if (canCreateHseDemand(roles)) {

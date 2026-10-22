@@ -366,12 +366,12 @@ export default function RhPersonnelHome({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
-              Santé &amp; sécurité
+              Santé &amp; sécurité au travail
             </p>
             <h3 className="mt-1 font-black text-slate-900">Registre SST</h3>
             <p className="mt-1 text-sm text-slate-600">
-              Émargement annuel, notice d&apos;utilisation et fiches de signalement — le registre
-              n&apos;est plus un classeur introuvable.
+              Émargement annuel du registre santé et sécurité au travail, notice et fiches de
+              signalement — le registre n&apos;est plus un classeur introuvable.
             </p>
           </div>
           <Link
