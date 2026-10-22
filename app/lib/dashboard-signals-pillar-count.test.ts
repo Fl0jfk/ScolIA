@@ -12,6 +12,7 @@ const notifs: DashboardNotification[] = [
     label: "Sorties",
     count: 3,
     href: "/travels",
+    detail: "3 séjours à valider",
   },
   {
     id: "travels-messages",
@@ -19,6 +20,7 @@ const notifs: DashboardNotification[] = [
     label: "Messages",
     count: 3,
     href: "/travels",
+    detail: "3 messages à lire",
   },
   {
     id: "stages-sign",
@@ -26,6 +28,7 @@ const notifs: DashboardNotification[] = [
     label: "Stages",
     count: 2,
     href: "/stages",
+    detail: "2 signatures en attente",
   },
   {
     id: "photocopies",
@@ -33,6 +36,7 @@ const notifs: DashboardNotification[] = [
     label: "Photocopies",
     count: 1,
     href: "/photocopies",
+    detail: "1 photocopie à traiter",
   },
 ];
 
