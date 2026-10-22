@@ -56,6 +56,12 @@ export type DomainPlanningSignupValidationStatus =
   | "changes_requested"
   | "rejected";
 
+export type DomainPlanningSignupActor = {
+  userId: string;
+  name: string;
+  email: string;
+};
+
 export type DomainPlanningSignup = {
   id: string;
   sessionId: string;
@@ -72,4 +78,10 @@ export type DomainPlanningSignup = {
   validatedByUserId?: string;
   /** Commentaire de la responsable du domaine (modifications demandées ou refus). */
   validationComment?: string;
+  /** Acteur qui a créé le positionnement (responsable saisissant à la place). */
+  createdByUserId?: string;
+  /** Qui a saisi (si différent de l'intervenant). */
+  submittedBy?: DomainPlanningSignupActor;
+  /** self = demandeur ; coordinator = saisie responsable de domaine. */
+  assignmentKind?: "self" | "coordinator";
 };

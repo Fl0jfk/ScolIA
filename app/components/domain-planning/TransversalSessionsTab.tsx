@@ -1,8 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { DirectoryAssigneeOption } from "@/app/components/domain-planning/DomainAssigneePicker";
+import DomainColleaguePicker, {
+  type ColleagueScopeFilter,
+} from "@/app/components/domain-planning/DomainColleaguePicker";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import {
   ASSOCIATION_LOCKED_IDEA,
   ASSOCIATION_LOCKED_SUBJECT,
@@ -92,6 +97,7 @@ function ValidationStatusBadge({
 export default function TransversalSessionsTab() {
   const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
+  const isOrgAdmin = useIsOrgAdmin();
   const [sessions, setSessions] = useState<DomainPlanningSession[]>([]);
   const [signups, setSignups] = useState<DomainPlanningSignup[]>([]);
   const [domains, setDomains] = useState<DomainPlanningDomain[]>([]);
@@ -108,6 +114,12 @@ export default function TransversalSessionsTab() {
   const [subject, setSubject] = useState("");
   const [sessionIdea, setSessionIdea] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [forColleague, setForColleague] = useState(false);
+  const [colleague, setColleague] = useState<DirectoryAssigneeOption | null>(null);
+  const [colleagueScope, setColleagueScope] = useState<ColleagueScopeFilter>("all");
+  const [notifyEmail, setNotifyEmail] = useState(false);
+  const [directoryUsers, setDirectoryUsers] = useState<DirectoryAssigneeOption[]>([]);
+  const [loadingDirectory, setLoadingDirectory] = useState(false);
 
   const roles = useMemo(() => {
     const fromContext = appCtx?.session?.intranetRoles;
@@ -181,8 +193,26 @@ export default function TransversalSessionsTab() {
   );
 
   const isCoordinator = Boolean(
-    user?.id && selectedDomain?.coordinatorExternalUserIds?.includes(user.id),
+    isOrgAdmin ||
+      (user?.id && selectedDomain?.coordinatorExternalUserIds?.includes(user.id)),
   );
+
+  const loadDirectoryUsers = useCallback(async () => {
+    setLoadingDirectory(true);
+    try {
+      const res = await fetch("/api/domain-planning/directory-users", { cache: "no-store" });
+      if (!res.ok) {
+        setDirectoryUsers([]);
+        return;
+      }
+      const json = (await res.json()) as { users?: DirectoryAssigneeOption[] };
+      setDirectoryUsers(json.users || []);
+    } catch {
+      setDirectoryUsers([]);
+    } finally {
+      setLoadingDirectory(false);
+    }
+  }, []);
 
   const coordinatorRoleLabel = selectedDomain?.name?.trim()
     ? `la responsable de « ${selectedDomain.name.trim()} »`
@@ -230,17 +260,40 @@ export default function TransversalSessionsTab() {
   function openSignup(session: DomainPlanningSession, className: string) {
     setSubject(lockedSubjectForSession(session) || "");
     setSessionIdea("");
+    setForColleague(false);
+    setColleague(null);
+    setColleagueScope("all");
+    setNotifyEmail(false);
     setModal({ session, className });
+    if (isCoordinator) {
+      void loadDirectoryUsers();
+    }
+  }
+
+  function closeSignupModal() {
+    setModal(null);
+    setForColleague(false);
+    setColleague(null);
+    setColleagueScope("all");
+    setNotifyEmail(false);
   }
 
   async function confirmSignup() {
     if (!modal) return;
+    if (forColleague && isCoordinator && !colleague?.externalUserId) {
+      alert("Sélectionnez la personne à positionner.");
+      return;
+    }
     if (signupRequiresSessionIdea(modal.session) && !sessionIdea.trim()) {
       alert("Merci de décrire votre idée de séance.");
       return;
     }
     setSubmitting(true);
     try {
+      const onBehalf =
+        forColleague && isCoordinator && colleague?.externalUserId
+          ? { onBehalfOf: { userId: colleague.externalUserId }, notifyEmail }
+          : {};
       const res = await fetch("/api/domain-planning/signups/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -249,11 +302,12 @@ export default function TransversalSessionsTab() {
           className: modal.className,
           subject,
           sessionIdea,
+          ...onBehalf,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
-      setModal(null);
+      closeSignupModal();
       await reload();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Erreur");
@@ -419,6 +473,9 @@ export default function TransversalSessionsTab() {
                     {signup.className}
                   </p>
                   <p className="font-bold text-slate-700">{displayName(signup)}</p>
+                  {signup.submittedBy?.name ? (
+                    <p className="text-xs text-slate-500">saisi par {signup.submittedBy.name}</p>
+                  ) : null}
                   <p className="text-slate-600">{signup.subject}</p>
                   {signup.sessionIdea ? (
                     <p className="text-slate-600 mt-2 italic">&laquo; {signup.sessionIdea} &raquo;</p>
@@ -574,11 +631,12 @@ export default function TransversalSessionsTab() {
                           const signup = signupFor(session.id, className);
                           const isMine = signup?.userId === user?.id;
                           const isAssociation = session.intervenantConstraint === "fixed_association";
+                          const canOpenSlot = canSignup || (isCoordinator && !signup);
 
                           return (
                             <tr key={className} className="border-t border-slate-100">
                               <td className="py-2 pr-3 font-black text-slate-800">{className}</td>
-                              {isAssociation && !signup ? (
+                              {isAssociation && !signup && !isCoordinator ? (
                                 <>
                                   <td className="py-2 pr-3 text-slate-600 italic">{session.intervenantLabel}</td>
                                   <td className="py-2 pr-3 text-slate-600">{ASSOCIATION_LOCKED_SUBJECT}</td>
@@ -589,6 +647,11 @@ export default function TransversalSessionsTab() {
                                 <>
                                   <td className="py-2 pr-3 font-bold">
                                     {displayName(signup)}
+                                    {signup.submittedBy?.name ? (
+                                      <span className="block text-[10px] font-normal text-slate-500 mt-0.5">
+                                        saisi par {signup.submittedBy.name}
+                                      </span>
+                                    ) : null}
                                     {(isMine || isCoordinator) && (
                                       <button
                                         type="button"
@@ -642,14 +705,14 @@ export default function TransversalSessionsTab() {
                                     )}
                                   </td>
                                 </>
-                              ) : canSignup ? (
+                              ) : canOpenSlot ? (
                                 <td colSpan={4} className="py-2">
                                   <button
                                     type="button"
                                     onClick={() => openSignup(session, className)}
                                     className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-black text-white hover:bg-violet-700"
                                   >
-                                    Me positionner
+                                    {isCoordinator ? "Positionner" : "Me positionner"}
                                   </button>
                                 </td>
                               ) : (
@@ -672,16 +735,72 @@ export default function TransversalSessionsTab() {
 
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl space-y-4">
             <h3 className="text-lg font-black text-slate-900">
               {TRANSVERSAL_NIVEAU_LABELS[modal.session.niveau]} — Séance {modal.session.seanceNumber} — {modal.className}
             </h3>
             <p className="text-sm text-slate-600">{modal.session.theme}</p>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <span className="text-[10px] font-black uppercase text-slate-400">Vous</span>
-              <p className="text-sm font-black text-slate-900">{sessionDisplayName}</p>
-            </div>
+            {isCoordinator ? (
+              <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  checked={forColleague}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setForColleague(checked);
+                    if (!checked) {
+                      setColleague(null);
+                      setNotifyEmail(false);
+                    } else if (directoryUsers.length === 0) {
+                      void loadDirectoryUsers();
+                    }
+                  }}
+                />
+                <span className="text-sm text-slate-700">
+                  <span className="font-bold text-slate-900">Positionner un collègue</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    Saisir à la place d&apos;un professeur ou d&apos;un personnel — validation immédiate.
+                  </span>
+                </span>
+              </label>
+            ) : null}
+
+            {isCoordinator && forColleague ? (
+              <div className="space-y-3">
+                <span className="text-xs font-bold text-slate-500 uppercase">Personne concernée *</span>
+                <DomainColleaguePicker
+                  users={directoryUsers}
+                  value={colleague?.externalUserId || ""}
+                  scope={colleagueScope}
+                  loading={loadingDirectory}
+                  excludeUserId={user?.id}
+                  onChange={setColleague}
+                  onScopeChange={setColleagueScope}
+                />
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                    checked={notifyEmail}
+                    onChange={(e) => setNotifyEmail(e.target.checked)}
+                    disabled={!colleague}
+                  />
+                  <span className="text-sm text-slate-700">
+                    <span className="font-bold text-slate-900">Notifier la personne par e-mail</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      Optionnel — un message lui indique qu&apos;elle a été positionnée.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <span className="text-[10px] font-black uppercase text-slate-400">Vous</span>
+                <p className="text-sm font-black text-slate-900">{sessionDisplayName}</p>
+              </div>
+            )}
 
             {lockedSubjectForSession(modal.session) ? (
               <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2">
@@ -706,32 +825,53 @@ export default function TransversalSessionsTab() {
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm min-h-[80px]"
                 value={sessionIdea}
                 onChange={(e) => setSessionIdea(e.target.value)}
-                placeholder="Décrivez ce que vous proposez pour cette classe"
+                placeholder={
+                  forColleague && isCoordinator
+                    ? "Décrivez l'idée de séance pour cette classe"
+                    : "Décrivez ce que vous proposez pour cette classe"
+                }
               />
-              <p className="text-[10px] text-slate-500 mt-1">
-                Votre idée sera examinée par {coordinatorRoleLabel} (validation, modifications ou refus).
-              </p>
+              {!(forColleague && isCoordinator) ? (
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Votre idée sera examinée par {coordinatorRoleLabel} (validation, modifications ou refus).
+                </p>
+              ) : null}
             </label>
 
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 font-bold">
-              Statut après envoi : en attente de validation
+            <p
+              className={`text-xs border rounded-xl px-3 py-2 font-bold ${
+                forColleague && isCoordinator
+                  ? "text-emerald-800 bg-emerald-50 border-emerald-200"
+                  : "text-amber-800 bg-amber-50 border-amber-200"
+              }`}
+            >
+              {forColleague && isCoordinator
+                ? "Statut après envoi : validé immédiatement"
+                : "Statut après envoi : en attente de validation"}
             </p>
 
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setModal(null)}
+                onClick={closeSignupModal}
                 className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-bold"
               >
                 Annuler
               </button>
               <button
                 type="button"
-                disabled={submitting}
+                disabled={
+                  submitting ||
+                  (Boolean(forColleague && isCoordinator) && !colleague?.externalUserId)
+                }
                 onClick={() => void confirmSignup()}
                 className="flex-1 rounded-xl bg-violet-600 py-2 text-sm font-black text-white disabled:opacity-50"
               >
-                {submitting ? "Envoi…" : "Confirmer le positionnement"}
+                {submitting
+                  ? "Envoi…"
+                  : forColleague && isCoordinator
+                    ? "Positionner le collègue"
+                    : "Confirmer le positionnement"}
               </button>
             </div>
           </div>

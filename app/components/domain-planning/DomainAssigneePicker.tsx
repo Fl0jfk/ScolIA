@@ -5,4 +5,6 @@ export type DirectoryAssigneeOption = {
   lastName?: string;
   displayName?: string;
   pending?: boolean;
+  /** Rôles intranet (pour filtre professeurs / personnels). */
+  roles?: string[];
 };
