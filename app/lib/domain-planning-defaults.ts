@@ -396,8 +396,9 @@ function hasTeacherRole(roles: string[]): boolean {
 export function canUserSignupOnSession(
   session: DomainPlanningSession,
   roles: string[],
-  _isCoordinator: boolean,
+  isCoordinator: boolean,
 ): boolean {
+  if (isCoordinator) return true;
   if (session.intervenantConstraint === "fixed_association") return false;
   if (session.intervenantConstraint === "psy_inf") return hasPsyInfRole(roles);
   return true;
