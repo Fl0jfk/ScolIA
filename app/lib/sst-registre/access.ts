@@ -19,8 +19,7 @@ export function canDepositSstForOthers(params: {
   if (canManageSstRegistre(params.roles)) return true;
   const uid = params.userId.trim();
   if (!uid) return false;
-  if (params.proxyUserIds instanceof Set) return params.proxyUserIds.has(uid);
-  return params.proxyUserIds.includes(uid);
+  return new Set(params.proxyUserIds).has(uid);
 }
 
 export function primaryFonctionFromRoles(roles: string[]): string {
