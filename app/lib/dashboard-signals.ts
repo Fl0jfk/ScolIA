@@ -124,27 +124,40 @@ export function notificationCountForShortcut(
     .reduce((sum, n) => sum + n.count, 0);
 }
 
-/** Total des notifications d’un module (hubs piliers). */
+/**
+ * Compteur d’un module : plusieurs notifs du même module (ex. sorties à valider +
+ * messages séjours) ne s’additionnent pas — on garde le max.
+ */
 export function notificationCountForModule(
   moduleId: string,
   notifications: DashboardNotification[],
 ): number {
-  return notifications
-    .filter((n) => n.moduleId === moduleId && n.count > 0)
-    .reduce((sum, n) => sum + n.count, 0);
+  let max = 0;
+  for (const n of notifications) {
+    if (n.moduleId !== moduleId || n.count <= 0) continue;
+    if (n.count > max) max = n.count;
+  }
+  return max;
 }
 
 /**
- * Total des notifications d’un espace (pilier) — agrège tous les modules
- * rattachés via `moduleIdToPillarId` (ex. absences / HSE → Comptabilité & RH).
+ * Pastille espace (sidebar) : max par module, puis somme entre modules distincts.
+ * Évite le « ×2 » quand un même module a plusieurs signaux (sorties + messages, etc.).
  */
 export function notificationCountForPillar(
   pillarId: DashboardPillarId,
   notifications: DashboardNotification[],
 ): number {
-  return notifications
-    .filter((n) => n.count > 0 && moduleIdToPillarId(n.moduleId) === pillarId)
-    .reduce((sum, n) => sum + n.count, 0);
+  const maxByModule = new Map<string, number>();
+  for (const n of notifications) {
+    if (n.count <= 0) continue;
+    if (moduleIdToPillarId(n.moduleId) !== pillarId) continue;
+    const prev = maxByModule.get(n.moduleId) ?? 0;
+    if (n.count > prev) maxByModule.set(n.moduleId, n.count);
+  }
+  let total = 0;
+  for (const count of maxByModule.values()) total += count;
+  return total;
 }
 
 export type DashboardSignals = {
