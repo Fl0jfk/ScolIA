@@ -1,12 +1,15 @@
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import type { SessionLikeUser } from "@/app/lib/app-actor-types";
 import {
+  directionRoleForKind,
   isAnyDirectionRole,
   isGroupeScolaireRef,
-  userCanActAsDirectionFor,
+  matchEstablishment,
+  roleSlugsForEstablishment,
   userIsAnyDirection,
 } from "@/app/lib/establishment-catalog";
-import { hasRole } from "@/app/lib/intranet-role-utils";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
+import { hasRole, normRole } from "@/app/lib/intranet-role-utils";
 import { isTripOwnerOrCreator } from "@/app/lib/travels-direction-permissions";
 
 export type TravelThreadTripRef = {
@@ -119,7 +122,43 @@ export function canUseTravelInternalThread(
 }
 
 /**
- * Doit être notifié d’un message non lu : direction de l’établissement du séjour
+ * Direction « concernée » par le séjour : rôle exact du site (ou directrice
+ * configurée). Pas de match flou — la direction lycée ne reçoit pas les
+ * messages collège, et inversement. Groupe scolaire → toutes les directions.
+ */
+export function viewerIsDirectionForTravelTrip(
+  trip: TravelThreadTripRef,
+  viewer: TravelThreadViewer,
+  establishments: Establishment[],
+): boolean {
+  const etab = trip.data?.etablissement;
+  if (isGroupeScolaireRef(etab)) {
+    return (
+      isAnyDirectionRole(viewer.roles) ||
+      userIsAnyDirection(viewer.user, establishments, viewer.roles, viewer.extraUserIds)
+    );
+  }
+
+  const est = matchEstablishment(establishments, etab);
+  if (!est) return false;
+
+  const directorId = est.directorExternalUserId?.trim();
+  if (directorId && viewerIdSet(viewer).has(directorId)) return true;
+
+  const wanted = new Set<string>(
+    (est.roleSlugs && est.roleSlugs.length > 0
+      ? est.roleSlugs
+      : roleSlugsForEstablishment(est)
+    ).map((slug) => normRole(slug)),
+  );
+  wanted.add(normRole(directionRoleForKind(inferEstablishmentKind(est))));
+
+  // Correspondance exacte uniquement (évite « direction » ⊃ tous les sites).
+  return viewer.roles.some((role) => wanted.has(normRole(role)));
+}
+
+/**
+ * Doit être notifié d’un message non lu : direction du site du séjour
  * (toutes les directions si Groupe scolaire), toute la compta, créateur.
  */
 export function viewerIsTravelThreadAudience(
@@ -129,15 +168,7 @@ export function viewerIsTravelThreadAudience(
 ): boolean {
   if (isTripOwnerForThread(trip, viewer)) return true;
   if (viewerIsCompta(viewer.roles)) return true;
-  const etab = trip.data?.etablissement;
-  if (isGroupeScolaireRef(etab) && isAnyDirectionRole(viewer.roles)) return true;
-  return userCanActAsDirectionFor(
-    viewer.user,
-    establishments,
-    etab,
-    viewer.roles,
-    viewer.extraUserIds,
-  );
+  return viewerIsDirectionForTravelTrip(trip, viewer, establishments);
 }
 
 export function messageIsUnreadForViewer(params: {

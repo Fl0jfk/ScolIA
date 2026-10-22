@@ -260,11 +260,17 @@ type DashboardSignalsInput = {
   creneauxVidesCount?: number;
   /** Premier travelId concerné (lien détail si unique). */
   creneauxVidesTravelId?: string | null;
-  /** Messages internes séjours non lus (direction / compta / créateur). */
+  /** Messages internes séjours non lus (direction / compta / créateur), par voyage. */
   travelsUnreadMessages?: {
     tripCount: number;
     messageCount: number;
     firstTripId: string | null;
+    trips?: Array<{
+      tripId: string;
+      messageCount: number;
+      title: string;
+      etablissement: string | null;
+    }>;
   };
 };
 
@@ -536,37 +542,75 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
     const unreadTrips = travelsUnreadMessages?.tripCount ?? 0;
     const unreadMsgs = travelsUnreadMessages?.messageCount ?? 0;
+    const unreadByTrip = travelsUnreadMessages?.trips ?? [];
     if (unreadMsgs > 0) {
       const unreadHref =
         unreadTrips === 1 && travelsUnreadMessages?.firstTripId
           ? travelsTripHref(roles, travelsUnreadMessages.firstTripId, travelsHome)
           : travelsHome;
-      pushNotif({
-        id: "travels-messages",
-        moduleId: "travels",
-        label: "Messages séjours",
-        count: unreadMsgs,
-        href: unreadHref,
-        detail:
-          unreadTrips <= 1
-            ? unreadMsgs === 1
-              ? "1 message interne à lire"
-              : `${unreadMsgs} messages internes à lire`
-            : `${unreadMsgs} messages à lire sur ${unreadTrips} séjours`,
-      });
+
+      // Une notification par séjour concerné (audience déjà filtrée : site + compta + créateur).
+      if (unreadByTrip.length > 0) {
+        for (const row of unreadByTrip) {
+          const href = travelsTripHref(roles, row.tripId, travelsHome);
+          const site = row.etablissement?.trim();
+          pushNotif({
+            id: `travels-messages-${row.tripId}`,
+            moduleId: "travels",
+            label: row.title,
+            count: row.messageCount,
+            href,
+            detail:
+              row.messageCount === 1
+                ? site
+                  ? `1 message interne — ${site}`
+                  : "1 message interne à lire"
+                : site
+                  ? `${row.messageCount} messages internes — ${site}`
+                  : `${row.messageCount} messages internes à lire`,
+          });
+        }
+      } else {
+        pushNotif({
+          id: "travels-messages",
+          moduleId: "travels",
+          label: "Messages séjours",
+          count: unreadMsgs,
+          href: unreadHref,
+          detail:
+            unreadTrips <= 1
+              ? unreadMsgs === 1
+                ? "1 message interne à lire"
+                : `${unreadMsgs} messages internes à lire`
+              : `${unreadMsgs} messages à lire sur ${unreadTrips} séjours`,
+        });
+      }
+
       shortcuts.push({
         id: "travels-messages",
         pillarId: "vie_scolaire",
         moduleId: "travels",
         href: unreadHref,
-        label: "Messages séjours",
+        label: unreadTrips === 1 ? unreadByTrip[0]?.title || "Messages séjours" : "Messages séjours",
         rich: true,
         badge: unreadMsgs === 1 ? "1 à lire" : `${unreadMsgs} à lire`,
         detail:
           unreadTrips <= 1
-            ? "Fil interne direction / compta / organisateur"
+            ? unreadByTrip[0]?.etablissement || "Fil interne direction / compta / organisateur"
             : `${unreadTrips} séjours concernés`,
         tone: "warn",
+        slides:
+          unreadByTrip.length > 1
+            ? unreadByTrip.map((row) => ({
+                id: row.tripId,
+                label: row.title,
+                detail: row.etablissement || undefined,
+                badge:
+                  row.messageCount === 1 ? "1 message" : `${row.messageCount} messages`,
+                count: row.messageCount,
+                href: travelsTripHref(roles, row.tripId, travelsHome),
+              }))
+            : undefined,
       });
     }
 
