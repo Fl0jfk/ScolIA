@@ -121,6 +121,8 @@ export default function RdvInscriptionAdminClient() {
     studentLabel: string;
     slotLabel: string;
     currentEventId: string;
+    /** true = RDV déjà annulé (ex. demande d’autre créneau) — on réactive. */
+    wasCancelled: boolean;
   } | null>(null);
   const [changeSlotNote, setChangeSlotNote] = useState("");
   const [changeSlotGoogleMode, setChangeSlotGoogleMode] = useState<"update" | "already_done">(
@@ -281,7 +283,7 @@ export default function RdvInscriptionAdminClient() {
         setMessage(
           json.mailWarning
             ? `Créneau modifié (attention mail : ${json.mailWarning})`
-            : "Créneau modifié — mail + ICS envoyés au parent.",
+            : "Créneau modifié / repris — mail de confirmation + ICS envoyés au parent.",
         );
         setChangeSlotTarget(null);
         setChangeSlotNote("");
@@ -341,15 +343,18 @@ export default function RdvInscriptionAdminClient() {
   }
 
   async function openChangeSlot(booking: RdvInscriptionBookingRow) {
+    const wasCancelled = booking.status === "cancelled";
     setChangeSlotTarget({
       id: booking.id,
       studentLabel: `${booking.studentFirstName} ${booking.studentLastName}`,
       slotLabel: formatSlot(booking.startAt, booking.endAt),
       currentEventId: booking.googleEventId,
+      wasCancelled,
     });
     setChangeSlotNote("");
-    setChangeSlotGoogleMode("already_done");
-    setChangeSlotSelectedEventId(booking.googleEventId);
+    // Annulé : on réserve en général un nouveau créneau libre côté Google.
+    setChangeSlotGoogleMode(wasCancelled ? "update" : "already_done");
+    setChangeSlotSelectedEventId(wasCancelled ? "" : booking.googleEventId);
     setChangeSlotOptions([]);
     setChangeSlotLoading(true);
     setError(null);
@@ -365,8 +370,12 @@ export default function RdvInscriptionAdminClient() {
         currentEventId?: string;
       };
       if (!res.ok) throw new Error(json.error || "Impossible de charger les créneaux.");
-      setChangeSlotOptions(json.slots || []);
-      if (json.currentEventId) {
+      const slots = json.slots || [];
+      setChangeSlotOptions(slots);
+      if (wasCancelled) {
+        // Forcer un choix explicite (nouveau libre, ou réactivation de l’ancien).
+        setChangeSlotSelectedEventId("");
+      } else if (json.currentEventId) {
         setChangeSlotSelectedEventId(json.currentEventId);
       }
     } catch (e) {
@@ -1084,16 +1093,20 @@ export default function RdvInscriptionAdminClient() {
                                 Confirmer maintenant
                               </button>
                             ) : null}
+                            {b.status === "pending" ||
+                            b.status === "confirmed" ||
+                            b.status === "cancelled" ? (
+                              <button
+                                type="button"
+                                disabled={busy || changeSlotLoading}
+                                onClick={() => void openChangeSlot(b)}
+                                className="mt-1.5 block text-xs font-semibold text-[var(--dash-primary)] hover:underline disabled:opacity-50"
+                              >
+                                Modifier le créneau
+                              </button>
+                            ) : null}
                             {b.status === "pending" || b.status === "confirmed" ? (
                               <>
-                                <button
-                                  type="button"
-                                  disabled={busy || changeSlotLoading}
-                                  onClick={() => void openChangeSlot(b)}
-                                  className="mt-1.5 block text-xs font-semibold text-[var(--dash-primary)] hover:underline disabled:opacity-50"
-                                >
-                                  Modifier le créneau
-                                </button>
                                 <button
                                   type="button"
                                   disabled={busy}
@@ -1253,16 +1266,28 @@ export default function RdvInscriptionAdminClient() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 id="change-slot-title" className="text-lg font-bold text-slate-900">
-              Modifier le créneau
+              {changeSlotTarget.wasCancelled
+                ? "Reprendre / modifier le créneau"
+                : "Modifier le créneau"}
             </h3>
             <p className="mt-1 text-sm text-slate-600">
-              {changeSlotTarget.studentLabel} — actuel : {changeSlotTarget.slotLabel}
+              {changeSlotTarget.studentLabel} —{" "}
+              {changeSlotTarget.wasCancelled ? "dernier créneau : " : "actuel : "}
+              {changeSlotTarget.slotLabel}
             </p>
-            <p className="mt-3 text-sm text-slate-600">
-              Après un appel téléphone : choisissez le nouveau créneau (ou resynchronisez si vous
-              avez déjà déplacé l’événement dans Google Agenda). Le parent reçoit un mail avec le
-              nouvel horaire et un fichier calendrier (.ics).
-            </p>
+            {changeSlotTarget.wasCancelled ? (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Ce RDV est annulé (ex. demande d’autre créneau). Vous pouvez fixer un nouveau
+                horaire après un appel : le parent reçoit un mail de confirmation + .ics, et le
+                lien de rechoix parent est invalidé.
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-slate-600">
+                Après un appel téléphone : choisissez le nouveau créneau (ou resynchronisez si vous
+                avez déjà déplacé l’événement dans Google Agenda). Le parent reçoit un mail avec le
+                nouvel horaire et un fichier calendrier (.ics).
+              </p>
+            )}
 
             <fieldset className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <legend className="px-1 text-sm font-semibold text-slate-800">
@@ -1295,7 +1320,9 @@ export default function RdvInscriptionAdminClient() {
                 <span>
                   <strong>Mettre aussi à jour Google Agenda</strong>
                   <span className="mt-0.5 block text-xs text-slate-500">
-                    Remet l’ancien créneau libre et réserve le nouveau (titre élève + détails).
+                    {changeSlotTarget.wasCancelled
+                      ? "Réserve le créneau choisi (titre élève + détails). L’ancien événement annulé n’est pas remis libre."
+                      : "Remet l’ancien créneau libre et réserve le nouveau (titre élève + détails)."}
                   </span>
                 </span>
               </label>
@@ -1320,7 +1347,9 @@ export default function RdvInscriptionAdminClient() {
                       }`}
                     >
                       <span className="font-semibold">
-                        Resynchroniser l’événement Google actuel
+                        {changeSlotTarget.wasCancelled
+                          ? "Réactiver l’ancien créneau Google"
+                          : "Resynchroniser l’événement Google actuel"}
                       </span>
                       <span
                         className={`mt-0.5 block text-xs ${
@@ -1329,7 +1358,9 @@ export default function RdvInscriptionAdminClient() {
                             : "text-emerald-800/80"
                         }`}
                       >
-                        Si vous avez déjà déplacé le même rendez-vous dans Agenda
+                        {changeSlotTarget.wasCancelled
+                          ? "Remet le même horaire (événement encore présent dans Agenda)"
+                          : "Si vous avez déjà déplacé le même rendez-vous dans Agenda"}
                       </span>
                     </button>
                   </li>
@@ -1357,8 +1388,9 @@ export default function RdvInscriptionAdminClient() {
               )}
               {!changeSlotLoading && changeSlotOptions.length === 0 ? (
                 <p className="mt-2 text-xs text-slate-500">
-                  Aucun autre créneau libre dans l’horizon — utilisez la resynchronisation si
-                  l’horaire a déjà changé dans Agenda.
+                  {changeSlotTarget.wasCancelled
+                    ? "Aucun créneau libre dans l’horizon — réactivez l’ancien si l’événement existe encore, ou créez un créneau libre dans Agenda."
+                    : "Aucun autre créneau libre dans l’horizon — utilisez la resynchronisation si l’horaire a déjà changé dans Agenda."}
                 </p>
               ) : null}
             </div>

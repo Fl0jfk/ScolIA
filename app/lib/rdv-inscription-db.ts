@@ -739,7 +739,10 @@ export async function markRdvInscriptionBookingConfirmed(opts: {
   return rows[0] ? mapBooking(rows[0]) : null;
 }
 
-/** Déplace une réservation active vers un autre événement Google (ou resynchronise les horaires). */
+/**
+ * Déplace une réservation vers un autre événement Google (ou resynchronise les horaires).
+ * Avec `forceConfirmed`, réactive aussi un RDV annulé (invalide le lien de rechoix parent).
+ */
 export async function updateRdvInscriptionBookingSlot(opts: {
   bookingId: string;
   etablissementId: string;
@@ -748,7 +751,7 @@ export async function updateRdvInscriptionBookingSlot(opts: {
   googleHtmlLink?: string | null;
   startAt: Date;
   endAt: Date;
-  /** Si true, force le statut confirmé (ex. modification admin). */
+  /** Si true, force le statut confirmé (ex. modification admin, y compris depuis annulé). */
   forceConfirmed?: boolean;
 }): Promise<RdvInscriptionBookingRow | null> {
   const db = requireDb();
@@ -763,6 +766,8 @@ export async function updateRdvInscriptionBookingSlot(opts: {
     confirmedAt?: Date;
     confirmToken?: null;
     confirmExpiresAt?: null;
+    rescheduleToken?: null;
+    rescheduleTokenExpiresAt?: null;
   } = {
     googleEventId: opts.googleEventId.trim(),
     googleHtmlLink: opts.googleHtmlLink ?? null,
@@ -778,6 +783,9 @@ export async function updateRdvInscriptionBookingSlot(opts: {
     patch.confirmedAt = new Date();
     patch.confirmToken = null;
     patch.confirmExpiresAt = null;
+    // Invalide le lien « choisir un autre créneau » si on reprend la main côté admin.
+    patch.rescheduleToken = null;
+    patch.rescheduleTokenExpiresAt = null;
   }
   await db
     .update(rdvInscriptionBooking)
