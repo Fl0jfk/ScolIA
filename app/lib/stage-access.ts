@@ -1,4 +1,5 @@
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
+import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 
 const DIRECTIONS = [...INTRANET_DIRECTION_SLUGS];
 
@@ -10,10 +11,15 @@ type StageViewerRole =
   | "staff"
   | "externe";
 
+/** Admin établissement / master : mêmes pouvoirs de validation que l’administratif. */
+function isStageAdminReviewer(roles: string[]) {
+  return hasGlobalAdminRole(roles) || hasMasterRole(roles);
+}
+
 export function resolveStageViewerRole(roles: string[]): StageViewerRole | null {
   if (roles.includes("parent")) return "parent";
   if (roles.some((r) => DIRECTIONS.includes(r as (typeof DIRECTIONS)[number]))) return "direction";
-  if (roles.includes("administratif")) return "administratif";
+  if (roles.includes("administratif") || isStageAdminReviewer(roles)) return "administratif";
   if (roles.includes("professeur")) return "professeur";
   if (
     roles.includes("surveillant") ||
@@ -30,8 +36,16 @@ export function canModerateOffers(roles: string[]) {
   return roles.some((r) => DIRECTIONS.includes(r as (typeof DIRECTIONS)[number]));
 }
 
+/**
+ * Validation préconvention / import hors plateforme / signatures manuelles.
+ * Aligné voyages & fiches de dialogue : administratif, direction*, admin établissement.
+ */
 export function canReviewPreconvention(roles: string[]) {
-  return roles.includes("administratif") || canModerateOffers(roles);
+  return (
+    roles.includes("administratif") ||
+    isStageAdminReviewer(roles) ||
+    canModerateOffers(roles)
+  );
 }
 
 export function canViewAllConventions(roles: string[]) {
@@ -71,10 +85,14 @@ export function canCreateConventionAsStaff(roles: string[]) {
 
 /** Envoi convention signée vers dossier élève OneDrive (flux OCR). */
 export function canFileConventionToOneDrive(roles: string[]) {
-  return roles.includes("administratif") || canModerateOffers(roles);
+  return (
+    roles.includes("administratif") ||
+    isStageAdminReviewer(roles) ||
+    canModerateOffers(roles)
+  );
 }
 
-/** Réglages module (classes stages, lien public, référents) — secrétariat uniquement. */
+/** Réglages module (classes stages, lien public, référents) — secrétariat / admin. */
 export function canManageStageSettings(roles: string[]) {
-  return roles.includes("administratif");
+  return roles.includes("administratif") || isStageAdminReviewer(roles);
 }

@@ -206,12 +206,34 @@ export default function StageOfflineCreateModal({
       const res = await fetch("/api/stages/conventions/offline", {
         method: "POST",
         body: fd,
+        credentials: "include",
+        cache: "no-store",
       });
-      const data = (await res.json()) as {
+      let data: {
         error?: string;
+        code?: string;
         convention?: { id: string };
-      };
-      if (!res.ok) throw new Error(data.error || "Erreur");
+      } = {};
+      try {
+        data = (await res.json()) as typeof data;
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        if (res.status === 401 || data.code === "AUTH_REQUIRED") {
+          throw new Error(
+            data.error ||
+              "Session expirée ou non connecté. Rechargez la page, reconnectez-vous, puis réessayez.",
+          );
+        }
+        if (res.status === 403 || data.code === "STAGE_REVIEW_FORBIDDEN") {
+          throw new Error(
+            data.error ||
+              "Réservé à l'administratif, à la direction ou à l'admin de l'établissement.",
+          );
+        }
+        throw new Error(data.error || `Erreur d'enregistrement (${res.status}).`);
+      }
       if (!data.convention?.id) throw new Error("Réponse invalide.");
       onCreated(data.convention.id);
       onClose();
