@@ -571,9 +571,13 @@ export async function dismissInvitationDuplicates(
 }
 
 export type RegisterInvitationInput = {
-  slug: string;
-  eleveFirstName: string;
-  eleveLastName: string;
+  /** Public : lookup par slug. Staff : préférer `pageId`. */
+  slug?: string;
+  pageId?: string;
+  /** Staff : cible directe dans la liste blanche (évite le match flou). */
+  eligibleId?: string | null;
+  eleveFirstName?: string;
+  eleveLastName?: string;
   birthDate?: string | null;
   response: InvitationResponse;
   presentCount?: number;
@@ -582,6 +586,13 @@ export type RegisterInvitationInput = {
   situationStatus?: InvitationSituationStatus | null;
   situationDetail?: string;
   situationEstablishment?: string;
+};
+
+export type RegisterInvitationOptions = {
+  /** Personnel : ignore la date limite de réponse (appel téléphone, etc.). */
+  bypassRsvpDeadline?: boolean;
+  /** Personnel : autorise une page non publiée. */
+  allowDisabledPage?: boolean;
 };
 
 export type RegisterInvitationResult =
@@ -744,51 +755,47 @@ export async function lookupInvitationIdentity(
 export async function registerInvitationRsvp(
   input: RegisterInvitationInput,
   etablissementId?: string,
+  options: RegisterInvitationOptions = {},
 ): Promise<RegisterInvitationResult> {
   const etabId = await requireEtabId(etablissementId);
   if (!isDatabaseConfigured()) {
     return { ok: false, error: "Service indisponible.", status: 503 };
   }
 
-  let eleveFirstName = formatInvitationFirstName(input.eleveFirstName).slice(0, 80);
-  let eleveLastName = formatInvitationLastName(input.eleveLastName).slice(0, 80);
   const parentEmail = input.parentEmail.trim().toLowerCase().slice(0, 200);
-  const birthDate = parseInvitationBirthDate(String(input.birthDate || "")) ||
-    birthDateToIso(input.birthDate) ||
-    null;
-  if (!eleveFirstName || !eleveLastName) {
-    return { ok: false, error: "Nom et prénom de l'élève requis.", status: 400 };
-  }
-  if (!birthDate) {
-    return {
-      ok: false,
-      error: "Indiquez la date de naissance de l'élève.",
-      status: 400,
-    };
-  }
   if (!parentEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) {
     return { ok: false, error: "E-mail parent invalide.", status: 400 };
   }
   if (!isInvitationResponse(input.response)) {
     return { ok: false, error: "Réponse Oui / Non requise.", status: 400 };
   }
+  if (!input.pageId && !input.slug) {
+    return { ok: false, error: "Page d'invitation manquante.", status: 400 };
+  }
 
   const db = getDb();
 
   return db.transaction(async (tx) => {
+    const pageFilters = [
+      eq(invitationPage.etablissementId, etabId),
+      input.pageId
+        ? eq(invitationPage.id, input.pageId)
+        : eq(invitationPage.slug, String(input.slug)),
+    ];
     const pages = await tx
       .select()
       .from(invitationPage)
-      .where(
-        and(eq(invitationPage.etablissementId, etabId), eq(invitationPage.slug, input.slug)),
-      )
+      .where(and(...pageFilters))
       .limit(1);
     const pageRow = pages[0];
-    if (!pageRow || pageRow.enabled !== 1) {
+    if (!pageRow) {
+      return { ok: false as const, error: "Cette invitation n'est pas disponible.", status: 404 };
+    }
+    if (pageRow.enabled !== 1 && !options.allowDisabledPage) {
       return { ok: false as const, error: "Cette invitation n'est pas disponible.", status: 404 };
     }
     const page = mapPage(pageRow);
-    if (!isInvitationRsvpOpen(page.rsvpClosesAt)) {
+    if (!options.bypassRsvpDeadline && !isInvitationRsvpOpen(page.rsvpClosesAt)) {
       return {
         ok: false as const,
         error: "La date limite de réponse est dépassée.",
@@ -796,11 +803,59 @@ export async function registerInvitationRsvp(
       };
     }
 
-    const identity = { firstName: eleveFirstName, lastName: eleveLastName, birthDate };
+    let eleveFirstName = formatInvitationFirstName(input.eleveFirstName || "").slice(0, 80);
+    let eleveLastName = formatInvitationLastName(input.eleveLastName || "").slice(0, 80);
+    let birthDate =
+      parseInvitationBirthDate(String(input.birthDate || "")) ||
+      birthDateToIso(input.birthDate) ||
+      null;
+
     let eligibleId: string | null = null;
     let eligibleDiploma: InvitationDiploma | null = null;
 
-    if (page.requireEligible) {
+    const staffEligibleId = input.eligibleId?.trim() || null;
+    if (staffEligibleId) {
+      const eligibleRows = await tx
+        .select()
+        .from(invitationEligible)
+        .where(
+          and(
+            eq(invitationEligible.etablissementId, etabId),
+            eq(invitationEligible.pageId, page.id),
+            eq(invitationEligible.id, staffEligibleId),
+          ),
+        )
+        .limit(1);
+      const eligibleRow = eligibleRows[0];
+      if (!eligibleRow) {
+        return {
+          ok: false as const,
+          error: "Élève introuvable dans la liste de cette invitation.",
+          status: 404,
+        };
+      }
+      const mapped = mapEligible(eligibleRow);
+      eligibleId = mapped.id;
+      eligibleDiploma = mapped.diploma;
+      eleveFirstName = mapped.eleveFirstName;
+      eleveLastName = mapped.eleveLastName;
+      birthDate = mapped.birthDate || birthDate;
+    }
+
+    if (!eleveFirstName || !eleveLastName) {
+      return { ok: false as const, error: "Nom et prénom de l'élève requis.", status: 400 };
+    }
+    if (!birthDate) {
+      return {
+        ok: false as const,
+        error: "Indiquez la date de naissance de l'élève.",
+        status: 400,
+      };
+    }
+
+    const identity = { firstName: eleveFirstName, lastName: eleveLastName, birthDate };
+
+    if (!eligibleId && page.requireEligible) {
       const eligibleList = await loadEligibleCandidates(tx, etabId, page.id, identity);
       const picked = pickBestIdentityMatch(identity, eligibleList, 2);
       if (!picked) {
@@ -993,6 +1048,27 @@ export async function registerInvitationRsvp(
       updated: false,
     };
   });
+}
+
+/**
+ * Saisie personnel à la place d’une famille (téléphone, etc.).
+ * Même écriture RSVP + mêmes règles de capacité ; date limite et publication ignorées.
+ */
+export async function registerInvitationRsvpAsStaff(
+  pageId: string,
+  input: Omit<RegisterInvitationInput, "slug" | "pageId">,
+  etablissementId?: string,
+): Promise<RegisterInvitationResult> {
+  return registerInvitationRsvp(
+    {
+      ...input,
+      pageId,
+      eleveFirstName: input.eleveFirstName || "",
+      eleveLastName: input.eleveLastName || "",
+    },
+    etablissementId,
+    { bypassRsvpDeadline: true, allowDisabledPage: true },
+  );
 }
 
 export async function deleteInvitationRsvp(

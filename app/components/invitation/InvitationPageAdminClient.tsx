@@ -11,14 +11,18 @@ import {
   formatInvitationEleveLabel,
   formatInvitationFirstName,
   formatInvitationLastName,
+  shouldAskSituation,
   situationStatusLabel,
   type InvitationAskSituation,
   type InvitationDashboardStats,
+  type InvitationDiploma,
   type InvitationDiplomaMode,
   type InvitationDuplicateSuspect,
   type InvitationEligibleRecord,
   type InvitationPageRecord,
+  type InvitationResponse,
   type InvitationRsvpRecord,
+  type InvitationSituationStatus,
   type InvitationTheme,
 } from "@/app/lib/invitation-types";
 import {
@@ -117,6 +121,24 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
   const [eligibleBusy, setEligibleBusy] = useState(false);
   const [eligibleFileName, setEligibleFileName] = useState<string | null>(null);
   const eligibleFileRef = useRef<HTMLInputElement | null>(null);
+
+  // Saisie à la place (téléphone)
+  const [proxyEligibleId, setProxyEligibleId] = useState("");
+  const [proxyFirstName, setProxyFirstName] = useState("");
+  const [proxyLastName, setProxyLastName] = useState("");
+  const [proxyBirthDate, setProxyBirthDate] = useState("");
+  const [proxyEmail, setProxyEmail] = useState("");
+  const [proxyResponse, setProxyResponse] = useState<InvitationResponse>("oui");
+  const [proxyPresentCount, setProxyPresentCount] = useState(2);
+  const [proxyDiploma, setProxyDiploma] = useState<InvitationDiploma | "">("");
+  const [proxySituationStatus, setProxySituationStatus] = useState<
+    InvitationSituationStatus | ""
+  >("");
+  const [proxySituationDetail, setProxySituationDetail] = useState("");
+  const [proxySituationEstablishment, setProxySituationEstablishment] = useState("");
+  const [proxySendMail, setProxySendMail] = useState(true);
+  const [proxyBusy, setProxyBusy] = useState(false);
+  const proxyFormRef = useRef<HTMLElement | null>(null);
 
   const applyPage = useCallback((page: InvitationPageRecord) => {
     setTitle(page.title);
@@ -261,6 +283,114 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
     }
   }
 
+  function resetProxyForm() {
+    setProxyEligibleId("");
+    setProxyFirstName("");
+    setProxyLastName("");
+    setProxyBirthDate("");
+    setProxyEmail("");
+    setProxyResponse("oui");
+    setProxyPresentCount(2);
+    setProxyDiploma("");
+    setProxySituationStatus("");
+    setProxySituationDetail("");
+    setProxySituationEstablishment("");
+    setProxySendMail(true);
+  }
+
+  function fillProxyFromEligible(e: InvitationEligibleRecord, existing?: InvitationRsvpRecord | null) {
+    setProxyEligibleId(e.id);
+    setProxyFirstName(e.eleveFirstName);
+    setProxyLastName(e.eleveLastName);
+    setProxyBirthDate(e.birthDate || "");
+    if (existing) {
+      setProxyEmail(existing.parentEmail);
+      setProxyResponse(existing.response);
+      setProxyPresentCount(existing.presentCount > 0 ? existing.presentCount : 2);
+      setProxyDiploma(existing.diploma || e.diploma || "");
+      setProxySituationStatus(existing.situationStatus || "");
+      setProxySituationDetail(existing.situationDetail || "");
+      setProxySituationEstablishment(existing.situationEstablishment || "");
+    } else {
+      setProxyEmail("");
+      setProxyResponse("oui");
+      setProxyPresentCount(Math.min(2, data?.page.maxPersonsPerEleve || 2));
+      setProxyDiploma(e.diploma || "");
+      setProxySituationStatus("");
+      setProxySituationDetail("");
+      setProxySituationEstablishment("");
+    }
+    setProxySendMail(true);
+    window.setTimeout(() => {
+      proxyFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
+  function fillProxyFromRsvp(r: InvitationRsvpRecord) {
+    setProxyEligibleId(r.eligibleId || "");
+    setProxyFirstName(r.eleveFirstName);
+    setProxyLastName(r.eleveLastName);
+    setProxyBirthDate(r.birthDate || "");
+    setProxyEmail(r.parentEmail);
+    setProxyResponse(r.response);
+    setProxyPresentCount(r.presentCount > 0 ? r.presentCount : 2);
+    setProxyDiploma(r.diploma || "");
+    setProxySituationStatus(r.situationStatus || "");
+    setProxySituationDetail(r.situationDetail || "");
+    setProxySituationEstablishment(r.situationEstablishment || "");
+    setProxySendMail(true);
+    window.setTimeout(() => {
+      proxyFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
+  async function submitProxyRsvp() {
+    setProxyBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/invitation/pages/${pageId}/rsvps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eligibleId: proxyEligibleId || null,
+          eleveFirstName: proxyFirstName,
+          eleveLastName: proxyLastName,
+          birthDate: proxyBirthDate || null,
+          response: proxyResponse,
+          presentCount: proxyResponse === "oui" ? proxyPresentCount : undefined,
+          parentEmail: proxyEmail,
+          diploma: proxyDiploma || null,
+          situationStatus: proxySituationStatus || null,
+          situationDetail: proxySituationDetail,
+          situationEstablishment: proxySituationEstablishment,
+          sendMail: proxySendMail,
+        }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        updated?: boolean;
+        mailQueued?: boolean;
+        rsvp?: InvitationRsvpRecord;
+      };
+      if (!res.ok) throw new Error(json.error || "Enregistrement impossible.");
+      const label = json.rsvp
+        ? formatInvitationEleveLabel(json.rsvp.eleveFirstName, json.rsvp.eleveLastName)
+        : "élève";
+      const action = json.updated ? "mise à jour" : "enregistrée";
+      const mailNote = json.mailQueued
+        ? " Un e-mail de confirmation part vers la famille."
+        : " Aucun e-mail envoyé.";
+      setNotice(`Réponse ${action} pour ${label}.${mailNote}`);
+      resetProxyForm();
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProxyBusy(false);
+    }
+  }
+
   async function importEligible(mode: "append" | "replace") {
     if (!eligiblePaste.trim()) {
       setError("Collez une liste (Prénom;Nom ou Prénom Nom par ligne).");
@@ -396,6 +526,25 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
       );
     });
   }, [data?.eligible, rsvpByEligibleId]);
+
+  const proxyDiplomaResolved = useMemo((): InvitationDiploma | null => {
+    if (!data) return null;
+    if (data.page.diplomaMode === "bac") return "bac";
+    if (data.page.diplomaMode === "brevet") return "brevet";
+    if (data.page.diplomaMode === "both") {
+      return proxyDiploma || null;
+    }
+    if (proxyEligibleId) {
+      const el = data.eligible.find((e) => e.id === proxyEligibleId);
+      return el?.diploma || null;
+    }
+    return null;
+  }, [data, proxyDiploma, proxyEligibleId]);
+
+  const proxyShowSituation = useMemo(() => {
+    if (!data) return false;
+    return shouldAskSituation(data.page.askSituation, proxyDiplomaResolved, data.page.diplomaMode);
+  }, [data, proxyDiplomaResolved]);
 
   const filteredRsvps = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -793,18 +942,27 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                                 )}
                               </td>
                               <td className="px-2 py-1.5 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void removeEligible(
-                                      e.id,
-                                      `${formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}`,
-                                    )
-                                  }
-                                  className="text-[11px] font-bold text-rose-700 hover:underline"
-                                >
-                                  Retirer
-                                </button>
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => fillProxyFromEligible(e, rsvp || null)}
+                                    className="text-[11px] font-bold text-sky-700 hover:underline"
+                                  >
+                                    {rsvp ? "Modifier" : "Répondre"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void removeEligible(
+                                        e.id,
+                                        `${formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)}`,
+                                      )
+                                    }
+                                    className="text-[11px] font-bold text-rose-700 hover:underline"
+                                  >
+                                    Retirer
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -874,6 +1032,220 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                 </ul>
               </section>
             ) : null}
+
+            <section
+              ref={proxyFormRef}
+              className="rounded-2xl border border-sky-200 bg-sky-50/40 p-5 space-y-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-black text-slate-900">
+                    Répondre à la place (téléphone)
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Saisie pour une famille qui n’y arrive pas en ligne. Même résultat qu’un
+                    remplissage sur la page publique (places, mail de confirmation).
+                  </p>
+                </div>
+                {(proxyEligibleId || proxyFirstName || proxyLastName || proxyEmail) && (
+                  <button
+                    type="button"
+                    onClick={resetProxyForm}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    Effacer
+                  </button>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {data.eligible.length > 0 ? (
+                  <Field label="Élève (liste)">
+                    <select
+                      value={proxyEligibleId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        if (!id) {
+                          setProxyEligibleId("");
+                          return;
+                        }
+                        const row = data.eligible.find((x) => x.id === id);
+                        if (!row) return;
+                        const existing =
+                          rsvpByEligibleId.get(row.id) ||
+                          rsvpByEligibleId.get(`${row.eleveNameNorm}|${row.birthDate || ""}`) ||
+                          null;
+                        fillProxyFromEligible(row, existing);
+                      }}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">— Choisir un élève —</option>
+                      {data.eligible.map((e) => {
+                        const rsvp =
+                          rsvpByEligibleId.get(e.id) ||
+                          rsvpByEligibleId.get(`${e.eleveNameNorm}|${e.birthDate || ""}`);
+                        const status =
+                          rsvp?.response === "oui"
+                            ? `Oui (${rsvp.presentCount})`
+                            : rsvp?.response === "non"
+                              ? "Non"
+                              : "En attente";
+                        return (
+                          <option key={e.id} value={e.id}>
+                            {formatInvitationEleveLabel(e.eleveFirstName, e.eleveLastName)} — {status}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </Field>
+                ) : null}
+
+                <Field label="E-mail famille">
+                  <input
+                    type="email"
+                    value={proxyEmail}
+                    onChange={(e) => setProxyEmail(e.target.value)}
+                    placeholder="parent@exemple.fr"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    required
+                  />
+                </Field>
+
+                {!proxyEligibleId ? (
+                  <>
+                    <Field label="Prénom élève">
+                      <input
+                        value={proxyFirstName}
+                        onChange={(e) => setProxyFirstName(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </Field>
+                    <Field label="Nom élève">
+                      <input
+                        value={proxyLastName}
+                        onChange={(e) => setProxyLastName(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </Field>
+                    <Field label="Date de naissance">
+                      <input
+                        type="date"
+                        value={proxyBirthDate}
+                        onChange={(e) => setProxyBirthDate(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </Field>
+                  </>
+                ) : (
+                  <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                    <span className="font-semibold text-slate-900">
+                      {formatInvitationEleveLabel(proxyFirstName, proxyLastName)}
+                    </span>
+                    {proxyBirthDate ? (
+                      <span className="text-slate-500">
+                        {" "}
+                        · né(e) le{" "}
+                        {new Date(proxyBirthDate + "T12:00:00").toLocaleDateString("fr-FR")}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+
+                <Field label="Réponse">
+                  <select
+                    value={proxyResponse}
+                    onChange={(e) => setProxyResponse(e.target.value as InvitationResponse)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="oui">Oui — présent(e)</option>
+                    <option value="non">Non — absent(e)</option>
+                  </select>
+                </Field>
+
+                {proxyResponse === "oui" ? (
+                  <Field label={`Nombre de personnes (max ${data.page.maxPersonsPerEleve})`}>
+                    <input
+                      type="number"
+                      min={1}
+                      max={data.page.maxPersonsPerEleve}
+                      value={proxyPresentCount}
+                      onChange={(e) => setProxyPresentCount(Number(e.target.value) || 1)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </Field>
+                ) : null}
+
+                {data.page.diplomaMode === "both" ? (
+                  <Field label="Diplôme">
+                    <select
+                      value={proxyDiploma}
+                      onChange={(e) =>
+                        setProxyDiploma((e.target.value as InvitationDiploma | "") || "")
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">— Choisir —</option>
+                      <option value="bac">Baccalauréat</option>
+                      <option value="brevet">Brevet</option>
+                    </select>
+                  </Field>
+                ) : null}
+
+                {proxyShowSituation ? (
+                  <>
+                    <Field label="Situation actuelle (optionnel)">
+                      <select
+                        value={proxySituationStatus}
+                        onChange={(e) =>
+                          setProxySituationStatus(
+                            (e.target.value as InvitationSituationStatus | "") || "",
+                          )
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">— Non renseigné —</option>
+                        <option value="etudes">Études / poursuite d’études</option>
+                        <option value="emploi">Emploi / stage</option>
+                        <option value="autre">Autre</option>
+                      </select>
+                    </Field>
+                    <Field label="Précision (filière, métier…)">
+                      <input
+                        value={proxySituationDetail}
+                        onChange={(e) => setProxySituationDetail(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </Field>
+                    <Field label="Établissement / entreprise">
+                      <input
+                        value={proxySituationEstablishment}
+                        onChange={(e) => setProxySituationEstablishment(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </Field>
+                  </>
+                ) : null}
+              </div>
+
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={proxySendMail}
+                  onChange={(e) => setProxySendMail(e.target.checked)}
+                />
+                Envoyer le mail de confirmation à la famille
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <ModuleButton
+                  type="button"
+                  onClick={() => void submitProxyRsvp()}
+                  disabled={proxyBusy || !proxyEmail.trim()}
+                >
+                  {proxyBusy ? "Enregistrement…" : "Enregistrer la réponse"}
+                </ModuleButton>
+              </div>
+            </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
               <div className="flex flex-wrap items-end justify-between gap-3">
@@ -970,18 +1342,27 @@ export default function InvitationPageAdminClient({ pageId }: { pageId: string }
                               })}
                             </td>
                             <td className="px-2 py-2 text-right">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void deleteRsvp(
-                                    r.id,
-                                    `${formatInvitationEleveLabel(r.eleveFirstName, r.eleveLastName)}`,
-                                  )
-                                }
-                                className="text-[11px] font-bold text-rose-700 hover:underline"
-                              >
-                                Supprimer
-                              </button>
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => fillProxyFromRsvp(r)}
+                                  className="text-[11px] font-bold text-sky-700 hover:underline"
+                                >
+                                  Modifier
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void deleteRsvp(
+                                      r.id,
+                                      `${formatInvitationEleveLabel(r.eleveFirstName, r.eleveLastName)}`,
+                                    )
+                                  }
+                                  className="text-[11px] font-bold text-rose-700 hover:underline"
+                                >
+                                  Supprimer
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
