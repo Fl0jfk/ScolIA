@@ -56,5 +56,9 @@ export function buildOneDriveMsalConfig(ms: Pick<MicrosoftOneDrivePublicConfig, 
     cache: {
       cacheLocation: "localStorage",
     },
+    system: {
+      // Coupe plus vite le SSO iframe quand Chrome sandbox / cookies 3P bloquent le flux.
+      iframeBridgeTimeout: 8_000,
+    },
   };
 }
