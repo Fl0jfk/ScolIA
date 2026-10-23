@@ -119,3 +119,51 @@ test("dashboardPillarBadgeProps — partialUnavailable si un signal KO et compte
   );
   assert.deepEqual(badge, { count: 3, partialUnavailable: true, compact: undefined });
 });
+
+test("dashboardPillarBadgeProps — Comptabilité RH : pas de ×2 via raccourci absences", () => {
+  // Régression : notifs (19+4+1=24) + recompte via slides du raccourci (23) → 47.
+  const notifs = [
+    {
+      id: "absences-admin-queue",
+      moduleId: "absences",
+      label: "Dossiers à traiter",
+      count: 19,
+      href: "/rh?tab=dashboard&section=absences&view=traitement",
+      detail: "19 dossiers",
+    },
+    {
+      id: "absences-pending",
+      moduleId: "absences",
+      label: "Absences à valider",
+      count: 4,
+      href: "/rh?tab=dashboard&section=absences&view=a-traiter",
+      detail: "4 à valider",
+    },
+    {
+      id: "rh-sst-emargement",
+      moduleId: "rh",
+      label: "Registre SST",
+      count: 1,
+      href: "/rh?tab=dashboard&section=sst",
+      detail: "Émargement",
+    },
+  ];
+  const shortcuts = [
+    {
+      id: "absences-queue",
+      moduleId: "absences",
+      pillarId: "compta_rh" as const,
+      slides: [
+        { id: "absences-pending", label: "Absences à valider", count: 4 },
+        { id: "absences-admin-queue", label: "Dossiers à traiter", count: 19 },
+      ],
+    },
+    {
+      id: "rh-sst-registre",
+      moduleId: "rh",
+      pillarId: "compta_rh" as const,
+    },
+  ];
+  const badge = dashboardPillarBadgeProps("compta_rh", notifs, shortcuts, OK);
+  assert.deepEqual(badge, { count: 24 });
+});

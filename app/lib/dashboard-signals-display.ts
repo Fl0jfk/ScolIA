@@ -1,8 +1,4 @@
-import {
-  notificationCountForPillar,
-  notificationCountForShortcut,
-  type DashboardNotification,
-} from "@/app/lib/dashboard-signals";
+import { type DashboardNotification } from "@/app/lib/dashboard-signals";
 import { moduleIdToPillarId, type DashboardPillarId } from "@/app/lib/dashboard-pillars";
 import { resolveDashboardSignalSource } from "@/app/lib/dashboard-signal-source";
 import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
@@ -93,6 +89,9 @@ export function dashboardPillarBadgeProps(
     (n) => moduleIdToPillarId(n.moduleId) === pillarId,
   );
   let unavailable = false;
+  // Une seule source de vérité : les notifications (même logique que le badge profil).
+  // Les raccourcis / slides dérivent des mêmes notifs — les recompter faisait ×2
+  // (ex. Comptabilité RH : 19 dossiers + 4 à valider + 1 SST → 47 au lieu de 24).
   let count = 0;
   for (const n of pillarNotifs) {
     if (isDashboardNotificationUnavailable(n, sourceStatus)) {
@@ -105,11 +104,8 @@ export function dashboardPillarBadgeProps(
     const inPillar =
       s.pillarId === pillarId || moduleIdToPillarId(s.moduleId) === pillarId;
     if (!inPillar) continue;
-    const c = notificationCountForShortcut(s, notifications);
     if (isDashboardNotificationUnavailable(s, sourceStatus)) {
       unavailable = true;
-    } else if (c > 0) {
-      count += c;
     }
   }
   if (unavailable && count > 0) {
