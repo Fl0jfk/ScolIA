@@ -3,12 +3,25 @@ import "server-only";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { getEnabledPlatformDpas } from "@/app/lib/rgpd-platform-dpas";
 import type { RgpdCatalogEntry } from "@/app/lib/rgpd-catalog";
+import type { RgpdProcessingFicheDef } from "@/app/lib/rgpd-processing-fiches";
 import type {
   RgpdDataBreachFields,
   RgpdIncidentKind,
   RgpdQuestionnaireAnswers,
   RgpdSecurityIncidentFields,
 } from "@/app/lib/rgpd-types";
+
+/** Critères Art. 30 pour analyser une fiche de traitement importée. */
+export const RGPD_FICHE_ANALYSIS_CHECKLIST = [
+  "Finalité(s) du traitement clairement énoncée(s)",
+  "Base légale identifiée",
+  "Catégories de personnes concernées",
+  "Catégories de données personnelles",
+  "Destinataires / sous-traitants",
+  "Durée(s) de conservation",
+  "Mesures de sécurité techniques et organisationnelles",
+  "Responsable du traitement identifié",
+] as const;
 
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 
@@ -49,14 +62,45 @@ type RgpdAnalysisResult = {
   suggestedActions: string[];
 };
 
+type RgpdAnalyzableDoc = {
+  title: string;
+  checklist: readonly string[];
+  description?: string;
+};
+
+export function toRgpdAnalyzableFromCatalog(entry: RgpdCatalogEntry): RgpdAnalyzableDoc {
+  return {
+    title: entry.title,
+    checklist: entry.checklist,
+    description: entry.description,
+  };
+}
+
+export function toRgpdAnalyzableFromFiche(
+  fiche: RgpdProcessingFicheDef,
+): RgpdAnalyzableDoc {
+  return {
+    title: fiche.title,
+    checklist: RGPD_FICHE_ANALYSIS_CHECKLIST,
+    description: fiche.description,
+  };
+}
+
 export async function analyzeRgpdDocumentWithAi(input: {
-  entry: RgpdCatalogEntry;
+  entry: RgpdCatalogEntry | RgpdAnalyzableDoc;
   documentText: string;
   answers: RgpdQuestionnaireAnswers;
 }): Promise<RgpdAnalysisResult> {
-  const checklist = input.entry.checklist.join("\n- ");
+  const title = input.entry.title;
+  const checklistItems =
+    "checklist" in input.entry ? input.entry.checklist : [];
+  const checklist = checklistItems.join("\n- ");
+  const description =
+    "description" in input.entry && input.entry.description
+      ? `\nContexte du document attendu : ${input.entry.description}`
+      : "";
   const prompt = `Tu es expert RGPD pour établissements scolaires français.
-Analyse le document fourni par rapport au type attendu : "${input.entry.title}".
+Analyse le document fourni par rapport au type attendu : "${title}".${description}
 Checklist attendue :
 - ${checklist}
 

@@ -10,7 +10,7 @@ import {
   rgpdEstablishmentDisplayName,
 } from "@/app/lib/rgpd-establishment-helpers";
 
-type RgpdProcessingFicheDef = {
+export type RgpdProcessingFicheDef = {
   id: string;
   catalogId: string;
   number: number;

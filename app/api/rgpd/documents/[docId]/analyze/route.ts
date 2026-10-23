@@ -4,7 +4,12 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canAccessRgpdModule } from "@/app/lib/rgpd-access";
 import { getRgpdCatalogEntry } from "@/app/lib/rgpd-catalog";
-import { analyzeRgpdDocumentWithAi } from "@/app/lib/rgpd-ai";
+import { getRgpdProcessingFiche } from "@/app/lib/rgpd-processing-fiches";
+import {
+  analyzeRgpdDocumentWithAi,
+  toRgpdAnalyzableFromCatalog,
+  toRgpdAnalyzableFromFiche,
+} from "@/app/lib/rgpd-ai";
 import { computeRgpdComplianceScore } from "@/app/lib/rgpd-scoring";
 import {
   getRgpdDocumentBytes,
@@ -27,9 +32,14 @@ export async function POST(
 
   const { docId } = await ctx.params;
   const entry = getRgpdCatalogEntry(docId);
-  if (!entry || entry.incidentTool) {
+  const fiche = getRgpdProcessingFiche(docId);
+  if ((!entry || entry.incidentTool) && !fiche) {
     return NextResponse.json({ error: "Document inconnu." }, { status: 404 });
   }
+
+  const analyzable = entry && !entry.incidentTool
+    ? toRgpdAnalyzableFromCatalog(entry)
+    : toRgpdAnalyzableFromFiche(fiche!);
 
   try {
     const body = await req.json();
@@ -47,7 +57,7 @@ export async function POST(
     const text = await extractTextFromUpload(bytes, fileName, body.contentType || "");
     const workspace = await loadRgpdWorkspace();
     const analysis = await analyzeRgpdDocumentWithAi({
-      entry,
+      entry: analyzable,
       documentText: text,
       answers: workspace.answers,
     });
@@ -66,7 +76,7 @@ export async function POST(
         by:
           [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Utilisateur",
         action: "DOCUMENT_ANALYZED",
-        note: `${entry.title} — score ${analysis.documentScore}/100`,
+        note: `${analyzable.title} — score ${analysis.documentScore}/100`,
       },
     ];
     await saveRgpdWorkspace(workspace);
