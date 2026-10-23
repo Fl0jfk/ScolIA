@@ -5,12 +5,16 @@ import {
   computeComptaSheetDerived,
   COMPTA_MARGE_PRESETS,
   comptaAfficheMargeSecurite,
+  comptaDefinitiveCostPerStudent,
   emptyComptaSheet,
+  ensureManualDepenseSources,
   formatEuroDisplay,
   formatEuroWhole,
+  isManualDepenseSource,
   isUsableComptaAmount,
   isBlankRecetteLine,
   isApelRecetteLineIndex,
+  newManualDepenseLine,
   normalizeComptaRecettesLignes,
   perStudentEuroCeilAdjusted,
   suggestComptaMargeFromPreset,
@@ -115,8 +119,11 @@ function isIncompleteDepenseLine(line: TravelsComptaExpenseLine): boolean {
   return hasLabel !== hasAmount;
 }
 
+/** Conserve les lignes manuelles même encore vides (suppression = bouton explicite). */
 function withoutBlankDepenses(depenses: TravelsComptaExpenseLine[]): TravelsComptaExpenseLine[] {
-  return depenses.filter((line) => !isBlankDepenseLine(line));
+  return depenses.filter(
+    (line) => !isBlankDepenseLine(line) || isManualDepenseSource(line.source),
+  );
 }
 
 function newRowKey(): string {
@@ -212,6 +219,7 @@ export default function TravelsComptaSheetForm({
 
   const hydrated = useRef(false);
   const skipSave = useRef(true);
+  const dirtyRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSavedRef = useRef(onSaved);
   const onValidateBudgetRef = useRef(onValidateBudget);
@@ -245,6 +253,10 @@ export default function TravelsComptaSheetForm({
   }, [sheet]);
 
   const derived = useMemo(() => computeComptaSheetDerived(sheet), [sheet]);
+  const prixParEleveDefinitif = useMemo(
+    () => comptaDefinitiveCostPerStudent(derived),
+    [derived],
+  );
   const coutPrevisionnelArrondi = perStudentEuroCeilAdjusted(
     derived.montantCibleFacturation,
     sheet.nbEleves ?? 0,
@@ -280,6 +292,7 @@ export default function TravelsComptaSheetForm({
 
   const patch = useCallback((partial: Partial<TravelsComptaSheet>) => {
     if (readOnly) return;
+    dirtyRef.current = true;
     setSheet((prev) => computeComptaSheetDerived({ ...prev, ...partial }));
   }, [readOnly]);
 
@@ -310,7 +323,7 @@ export default function TravelsComptaSheetForm({
     );
     const cleanedSheet = computeComptaSheetDerived({
       ...finalSheet,
-      depenses: withoutBlankDepenses(finalSheet.depenses),
+      depenses: ensureManualDepenseSources(withoutBlankDepenses(finalSheet.depenses)),
       recettesLignes: withoutBlankRecettesLignes(finalSheet.recettesLignes ?? []),
       aidesIndividuelles:
         cleanedAides.length > 0 ? cleanedAides : [{ name: "", amount: null }],
@@ -324,6 +337,7 @@ export default function TravelsComptaSheetForm({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
       const saved = computeComptaSheetDerived(data.sheet || cleanedSheet);
+      dirtyRef.current = false;
       onSavedRef.current?.(saved);
 
       // Ne jamais écraser une saisie plus récente (libellés / montants qui « sautent »).
@@ -388,6 +402,7 @@ export default function TravelsComptaSheetForm({
       if (seq !== loadSeq.current) return;
 
       skipSave.current = true;
+      dirtyRef.current = false;
       setSheet(computeComptaSheetDerived(dataFast.sheet || emptyComptaSheet()));
       hydrated.current = true;
       setInitialLoading(false);
@@ -414,7 +429,24 @@ export default function TravelsComptaSheetForm({
       if (seq !== loadSeq.current) return;
 
       skipSave.current = true;
-      setSheet(computeComptaSheetDerived(dataSync.sheet || emptyComptaSheet()));
+      // Ne jamais écraser une saisie en cours pendant le sync documents.
+      if (dirtyRef.current) {
+        const synced = dataSync.sheet || emptyComptaSheet();
+        setSheet((prev) =>
+          computeComptaSheetDerived({
+            ...prev,
+            documentScans: synced.documentScans ?? prev.documentScans,
+            syncedDocumentsFingerprint:
+              synced.syncedDocumentsFingerprint ?? prev.syncedDocumentsFingerprint,
+            syncedAt: synced.syncedAt ?? prev.syncedAt,
+            ocrDebugLog: synced.ocrDebugLog ?? prev.ocrDebugLog,
+            analysisNotes: synced.analysisNotes ?? prev.analysisNotes,
+          }),
+        );
+      } else {
+        dirtyRef.current = false;
+        setSheet(computeComptaSheetDerived(dataSync.sheet || emptyComptaSheet()));
+      }
 
       const parts: string[] = [];
       if (dataSync.ocrNewCount > 0) parts.push(`${dataSync.ocrNewCount} document(s) analysé(s)`);
@@ -569,6 +601,8 @@ export default function TravelsComptaSheetForm({
   function pruneBlankDepense(index: number) {
     const line = sheet.depenses[index];
     if (!line || !isBlankDepenseLine(line)) return;
+    // Lignes manuelles : restent jusqu'à suppression explicite (sinon elles « sautent »).
+    if (isManualDepenseSource(line.source)) return;
     // Garder au moins une ligne vide pour la saisie, sauf suppression explicite.
     if (sheet.depenses.length <= 1) return;
     syncRowKeys(depenseKeysRef, sheet.depenses.length - 1, index);
@@ -577,7 +611,7 @@ export default function TravelsComptaSheetForm({
 
   function addDepense() {
     depenseKeysRef.current = [...depenseKeysRef.current, newRowKey()];
-    patch({ depenses: [...sheet.depenses, { label: "", amount: null }] });
+    patch({ depenses: [...sheet.depenses, newManualDepenseLine()] });
   }
 
   function updateRecette(index: number, field: "label" | "amount", value: string | number | null) {
@@ -1153,12 +1187,14 @@ export default function TravelsComptaSheetForm({
                   <span>
                     Prix par élève définitif
                     <span className="block text-[10px] font-normal text-slate-500 normal-case">
-                      (Budget prévisionnel − subventions) ÷ nb élèves, arrondi à l&apos;euro près
+                      {recettesFigees && sheet.prixParEleveAnnonce != null
+                        ? "Prix déjà annoncé aux familles (retenu pour les recettes)"
+                        : "(Budget prévisionnel − subventions) ÷ nb élèves, arrondi à l'euro supérieur"}
                     </span>
                   </span>
                   <span className="font-mono whitespace-nowrap">
-                    {derived.prixParEleveAvecSubventions != null
-                      ? `${formatEuroWhole(derived.prixParEleveAvecSubventions)} €`
+                    {prixParEleveDefinitif != null
+                      ? `${formatEuroWhole(prixParEleveDefinitif)} €`
                       : sheet.nbEleves
                         ? "#DIV/0!"
                         : "—"}
@@ -1378,8 +1414,8 @@ export default function TravelsComptaSheetForm({
                   <div className="rounded-lg bg-white border border-indigo-100 px-4 py-3">
                     <p className="text-xs text-slate-500">Prix par élève définitif</p>
                     <p className="font-mono font-black text-lg text-slate-900">
-                      {derived.prixParEleveAvecSubventions != null
-                        ? `${formatEuroWhole(derived.prixParEleveAvecSubventions)} €`
+                      {prixParEleveDefinitif != null
+                        ? `${formatEuroWhole(prixParEleveDefinitif)} €`
                         : "—"}
                     </p>
                   </div>

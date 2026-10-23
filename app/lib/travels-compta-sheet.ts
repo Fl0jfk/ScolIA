@@ -6,6 +6,50 @@ export type TravelsComptaExpenseLine = {
   source?: string | null;
 };
 
+/** Préfixe des lignes de dépenses créées à la main (stable au sync / filtre transport). */
+export const COMPTA_MANUAL_DEPENSE_PREFIX = "manuel:";
+
+export function isManualDepenseSource(source: string | null | undefined): boolean {
+  return String(source || "").trim().startsWith(COMPTA_MANUAL_DEPENSE_PREFIX);
+}
+
+function newManualDepenseId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `m-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+export function newManualDepenseSource(): string {
+  return `${COMPTA_MANUAL_DEPENSE_PREFIX}${newManualDepenseId()}`;
+}
+
+/** Nouvelle ligne de dépense saisie manuellement (identité stable). */
+export function newManualDepenseLine(
+  partial?: Partial<Pick<TravelsComptaExpenseLine, "label" | "amount">>,
+): TravelsComptaExpenseLine {
+  return {
+    label: partial?.label ?? "",
+    amount: partial?.amount ?? null,
+    source: newManualDepenseSource(),
+  };
+}
+
+/**
+ * Attribue une source `manuel:…` aux lignes utilisateur sans source
+ * (évite qu'elles disparaissent au filtre transport / sync documents).
+ */
+export function ensureManualDepenseSources(
+  depenses: TravelsComptaExpenseLine[],
+): TravelsComptaExpenseLine[] {
+  return depenses.map((line) => {
+    if (isManualDepenseSource(line.source)) return line;
+    if (String(line.source || "").trim()) return line;
+    if (!line.label.trim() && line.amount == null) return line;
+    return { ...line, source: newManualDepenseSource() };
+  });
+}
+
 export type TravelsComptaRecetteLine = {
   label: string;
   amount: number | null;
@@ -535,16 +579,23 @@ export function computeComptaSheetDerived(
       ? Math.round((Math.max(0, depensesTotalRounded - totalSubventions) / nb) * 100) / 100
       : null;
 
-  const prixParEleveAvecSubventions =
+  // Coût calculé (arrondi supérieur) — utilisé seulement s'il n'y a pas de prix déjà annoncé.
+  const prixParEleveCalcule =
     nb > 0 && depensesAvecMargeRisque != null
       ? perStudentEuroCeil(Math.max(0, depensesAvecMargeRisque - totalSubventions), nb)
       : prixParEleveAvantMargeRisque != null
         ? Math.ceil(prixParEleveAvantMargeRisque)
         : null;
 
+  // Prix par élève définitif = prix annoncé aux familles s'il existe, sinon coût calculé.
+  const prixParEleveAvecSubventions =
+    recettesFigees && sheet.prixParEleveAnnonce != null
+      ? Math.round(sheet.prixParEleveAnnonce * 100) / 100
+      : prixParEleveCalcule;
+
   // Recettes élèves = prix facturé aux familles × effectif.
-  // Le prix à l'euro près (ceil) produit un surplus d'arrondi en plus de la marge :
-  // on ne doit PAS utiliser le budget exact (dépenses + marge), sinon l'excédent
+  // Priorité au prix annoncé (déjà communiqué) ; sinon prix à l'euro près (ceil).
+  // On ne doit PAS utiliser le budget exact (dépenses + marge), sinon l'excédent
   // ignore cet arrondi (ex. 14,70 € → 15 € × 57 = 855, pas 837,90).
   let recettesEleves: number | null;
   if (recettesFigees && sheet.prixParEleveAnnonce != null && nbFactures != null && nbFactures > 0) {
@@ -846,6 +897,7 @@ export function comptaDefinitiveCostPerStudent(sheet: TravelsComptaSheet): numbe
 }
 
 function isManualComptaDepenseLine(line: TravelsComptaExpenseLine, trip: TravelsTrip): boolean {
+  if (isManualDepenseSource(line.source)) return true;
   if (!line.label.trim() && line.amount == null) return false;
   const src = String(line.source || "").trim();
   if (src === "devis_signe" || src === "budget_previsionnel") return false;
@@ -1079,9 +1131,11 @@ export function finalizeComptaSheetForPersist(
 ): TravelsComptaSheet {
   const fingerprint = comptaDocumentsFingerprint(trip);
   const now = new Date().toISOString();
+  const depenses = ensureManualDepenseSources(sheet.depenses ?? []);
   return computeComptaSheetDerived(
     patchDocumentScansFromDepenses({
       ...sheet,
+      depenses,
       syncedDocumentsFingerprint: fingerprint,
       syncedAt: now,
       analyzedAt: sheet.analyzedAt || now,
@@ -1229,6 +1283,12 @@ export function filterComptaDepenses(
     const src = String(line.source || "");
     const label = line.label.trim();
     if (!label && line.amount == null) {
+      nonTransport.push(line);
+      continue;
+    }
+
+    // Lignes créées à la main : toujours conservées (y compris libellé « transport »).
+    if (isManualDepenseSource(src)) {
       nonTransport.push(line);
       continue;
     }
