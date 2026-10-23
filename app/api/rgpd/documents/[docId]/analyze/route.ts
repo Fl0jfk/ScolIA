@@ -56,35 +56,74 @@ export async function POST(
 
     const text = await extractTextFromUpload(bytes, fileName, body.contentType || "");
     const workspace = await loadRgpdWorkspace();
-    const analysis = await analyzeRgpdDocumentWithAi({
-      entry: analyzable,
-      documentText: text,
-      answers: workspace.answers,
-    });
+    const actor =
+      [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Utilisateur";
 
+    // Toujours enregistrer l'import : l'analyse IA ne doit pas faire perdre le fichier.
     workspace.documents[docId] = {
       status: "importe",
       importedAt: new Date().toISOString(),
       fileKey: key,
       fileName,
-      analysis: { ...analysis, analyzedAt: new Date().toISOString() },
+      analysis: workspace.documents[docId]?.analysis,
     };
-    workspace.history = [
-      ...(workspace.history ?? []).slice(-99),
-      {
-        at: new Date().toISOString(),
-        by:
-          [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Utilisateur",
-        action: "DOCUMENT_ANALYZED",
-        note: `${analyzable.title} — score ${analysis.documentScore}/100`,
-      },
-    ];
-    await saveRgpdWorkspace(workspace);
 
-    return NextResponse.json({
-      analysis,
-      score: computeRgpdComplianceScore(workspace),
-    });
+    try {
+      const analysis = await analyzeRgpdDocumentWithAi({
+        entry: analyzable,
+        documentText: text,
+        answers: workspace.answers,
+      });
+
+      workspace.documents[docId] = {
+        ...workspace.documents[docId],
+        status: "importe",
+        importedAt: workspace.documents[docId].importedAt,
+        fileKey: key,
+        fileName,
+        analysis: { ...analysis, analyzedAt: new Date().toISOString() },
+      };
+      workspace.history = [
+        ...(workspace.history ?? []).slice(-99),
+        {
+          at: new Date().toISOString(),
+          by: actor,
+          action: "DOCUMENT_ANALYZED",
+          note: `${analyzable.title} — score ${analysis.documentScore}/100`,
+        },
+      ];
+      await saveRgpdWorkspace(workspace);
+
+      return NextResponse.json({
+        analysis,
+        analysisPending: false,
+        score: computeRgpdComplianceScore(workspace),
+      });
+    } catch (aiError) {
+      console.error("[rgpd/analyze] AI", aiError);
+      workspace.history = [
+        ...(workspace.history ?? []).slice(-99),
+        {
+          at: new Date().toISOString(),
+          by: actor,
+          action: "DOCUMENT_IMPORTED",
+          note: `${analyzable.title} — import OK, analyse IA différée`,
+        },
+      ];
+      await saveRgpdWorkspace(workspace);
+
+      const message =
+        aiError instanceof Error
+          ? aiError.message
+          : "Analyse IA temporairement indisponible.";
+
+      return NextResponse.json({
+        analysis: null,
+        analysisPending: true,
+        warning: message,
+        score: computeRgpdComplianceScore(workspace),
+      });
+    }
   } catch (e) {
     console.error("[rgpd/analyze]", e);
     return NextResponse.json(

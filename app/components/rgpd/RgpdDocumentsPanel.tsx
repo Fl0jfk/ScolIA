@@ -143,9 +143,17 @@ export default function RgpdDocumentsPanel({
       const analyzeData = await analyzeRes.json();
       if (!analyzeRes.ok) throw new Error(analyzeData.error || "Analyse");
 
-      setMessage(
-        `Analyse terminée — score document ${analyzeData.analysis?.documentScore ?? "?"}/100.`,
-      );
+      if (analyzeData.analysisPending) {
+        setMessage(
+          `Document importé. Analyse IA différée : ${
+            analyzeData.warning || "service temporairement indisponible — réessayez dans une minute."
+          }`,
+        );
+      } else {
+        setMessage(
+          `Analyse terminée — score document ${analyzeData.analysis?.documentScore ?? "?"}/100.`,
+        );
+      }
       setSelectedId(docId);
       setViewMode("pdf");
       await onRefresh();
