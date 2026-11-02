@@ -19,7 +19,6 @@ fix-home-tiles.mjs
 lab-out*.txt
 lab-err*.txt
 lab-check*.txt
-.cursor/
 
 # Tailwind (deps locales ; CSS compilé versionné pour cargo run sans npm)
 crates/ent-api/node_modules/

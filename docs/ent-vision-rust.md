@@ -83,7 +83,7 @@ Amorce déjà dans ScolIA (TypeScript) : table `metier_event`, pack clôture app
 
 - Pas de `Cargo.toml` dans le dépôt actuel après pull `dev`.
 - Amorce « cerveau » côté TS : `metier_event`, `brain-ai`, `eleve-core`.
-- Branche liée événements : `cursor/metier-event-pack-a-91ad` (TS / VS) — **inspiration**, pas base du vrai ENT Rust.
+- Ancienne branche événements `cursor/metier-event-pack-a-91ad` (TS / VS, supprimée de GitHub le 2026-11-02, sauvegardée dans `Scolia-cursor-branches-backup-2026-11-02.bundle`) — **inspiration**, pas base du vrai ENT Rust.
 
 → On part sur **`feature/ent-rust`** : doc + squelette crates, sans mélanger avec les lots métier Next.js du quotidien.
 
