@@ -1,0 +1,36 @@
+[package]
+name = "ent-web-app"
+description = "Application Leptos de l'ENT (prototype : module d'appel)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Navigateur : hydratation du HTML rendu par le serveur.
+hydrate = [
+    "leptos/hydrate",
+    "dep:console_error_panic_hook",
+    "dep:wasm-bindgen",
+    "chrono/wasmbind",
+]
+# Serveur : rendu HTML (SSR) et fonctions serveur.
+ssr = ["leptos/ssr", "leptos_meta/ssr", "leptos_router/ssr", "dep:leptos_axum"]
+
+[dependencies]
+leptos = { workspace = true }
+leptos_router = { workspace = true }
+leptos_meta = { workspace = true }
+leptos_axum = { workspace = true, optional = true }
+ent-web-ui = { workspace = true }
+ent-web-api = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true, optional = true }
+web-sys = { workspace = true, features = ["Window", "Storage", "KeyboardEvent", "Event", "EventTarget", "HtmlElement", "HtmlInputElement"] }

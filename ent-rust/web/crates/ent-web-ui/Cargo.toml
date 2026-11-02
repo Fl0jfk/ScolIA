@@ -1,0 +1,11 @@
+[package]
+name = "ent-web-ui"
+description = "Composants d'interface réutilisables de l'ENT (design system Leptos)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+leptos = { workspace = true }
+web-sys = { workspace = true, features = ["HtmlDialogElement"] }

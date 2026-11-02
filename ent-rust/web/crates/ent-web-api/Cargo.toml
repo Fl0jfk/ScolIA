@@ -1,0 +1,23 @@
+[package]
+name = "ent-web-api"
+description = "Client typé des routes JSON existantes d'ent-api (navigateur + tests natifs)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Transport HTTP natif (reqwest) — utilisé par les tests d'intégration.
+natif = ["dep:reqwest"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-net = { workspace = true }
