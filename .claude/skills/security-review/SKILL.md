@@ -1,0 +1,2 @@
+# Revue sécurité
+Identifier actifs/frontières ; examiner auth, autorisations, multi-tenant, entrées/sorties, fichiers, jobs, cache, recherche et IA ; vérifier secrets/logs/dépendances sans afficher secrets ; proposer tests synthétiques ; classer gravité/confiance ; revue indépendante. Jamais de test sur production, exploitation réelle ou scan externe non autorisé. Une revue IA n'est pas une certification.
