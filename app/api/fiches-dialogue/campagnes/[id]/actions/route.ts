@@ -6,15 +6,24 @@ import {
   advanceCampagneToConseil,
   generateFdFichesForCampagne,
   sendFdCampagneEtapeToFamilles,
+  unfreezeFdEtape,
 } from "@/app/lib/fiches-dialogue-workflow";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 const ActionSchema = z.object({
-  action: z.enum(["generate", "send", "remind", "freeze_and_conseil"]),
+  action: z.enum([
+    "generate",
+    "send",
+    "remind",
+    "freeze_and_conseil",
+    "unfreeze_etape",
+  ]),
   fromEtapeId: z.string().uuid().optional(),
   onlyMissing: z.boolean().optional(),
+  /** Ciblage fin de l’avancement (sinon toutes les fiches prêtes de l’étape). */
+  ficheIds: z.array(z.string().uuid()).optional(),
 });
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -54,8 +63,20 @@ export async function POST(req: Request, ctx: Ctx) {
         etablissementId: scope.ctx.etablissementId,
         campagneId: id,
         fromEtapeId: body.data.fromEtapeId,
+        ficheIds: body.data.ficheIds,
       });
       return NextResponse.json(result);
+    }
+    if (body.data.action === "unfreeze_etape") {
+      if (!body.data.fromEtapeId) {
+        return NextResponse.json({ error: "fromEtapeId requis." }, { status: 400 });
+      }
+      const etape = await unfreezeFdEtape({
+        etablissementId: scope.ctx.etablissementId,
+        campagneId: id,
+        etapeId: body.data.fromEtapeId,
+      });
+      return NextResponse.json({ ok: true, etape });
     }
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
   } catch (e) {

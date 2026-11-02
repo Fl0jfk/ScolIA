@@ -34,6 +34,7 @@ import type { TravelsHubTab, TravelsTrip } from "@/app/lib/travels-types";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 import { TRAVELS_HUB_TABS, TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types";
 import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
+import { canSelectBusQuoteWithoutSignature } from "@/app/lib/travels-bus-quote-permissions";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
@@ -729,9 +730,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       note.trim() ? `Dossier réouvert : ${note.trim()}` : `Dossier réouvert à l'étape « ${stepLabel} »`,
     );
   };
-  /** Créateur, administratif, compta ou admin général — sans pouvoir de signature direction. */
-  const canSelectBusQuoteOnly =
-    !canSign && (isOwner || isAdministratif || isCompta || isGlobalAdmin);
+  const canSelectBusQuoteOnly = canSelectBusQuoteWithoutSignature({
+    isOwner,
+    canSign,
+    isAdministratif,
+    isCompta,
+    isGlobalAdmin,
+  });
 
   const selectBusQuote = async (quote: any) => {
     if (!canSelectBusQuoteOnly) return;

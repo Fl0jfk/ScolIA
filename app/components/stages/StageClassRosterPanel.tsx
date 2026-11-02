@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { StageClassRoster, StageGlobalSearchHit, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
+import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
+import {
+  pickClassAfterMetadataResponse,
+  rosterMemoryCacheKey,
+  rosterMemoryWriteKeys,
+} from "@/app/components/stages/stage-class-roster-panel-logic";
 
 type RosterStatusFilter = "all" | StageRosterStudentStatus | "sans_referent";
 
@@ -180,7 +186,11 @@ export default function StageClassRosterPanel({
   const [selectedStudentKey, setSelectedStudentKey] = useState<string | null>(null);
   const detailAnchorRef = useRef<HTMLDivElement | null>(null);
   const loadSeqRef = useRef(0);
-  const cacheKeyFor = (className: string) => className.trim().toLowerCase() || "__default__";
+  const availableClassesRef = useRef<string[]>([]);
+  const prefetchDoneRef = useRef<Set<string>>(new Set());
+  const selectedClassRef = useRef("");
+
+  const cacheKeyFor = rosterMemoryCacheKey;
 
   const load = useCallback(async (className?: string, opts?: { force?: boolean; silent?: boolean }) => {
     const wanted = className?.trim() || "";
@@ -189,10 +199,27 @@ export default function StageClassRosterPanel({
     if (cached) {
       if (!opts?.silent) {
         setData(cached);
-        if (cached.roster?.className) setSelectedClass(cached.roster.className);
-        else if (wanted) setSelectedClass(wanted);
-        setLoading(false);
+        if (cached.roster?.className) {
+          setSelectedClass(cached.roster.className);
+          selectedClassRef.current = cached.roster.className;
+        } else if (wanted) {
+          setSelectedClass(wanted);
+          selectedClassRef.current = wanted;
+        }
         setError(null);
+        const followFromCache = pickClassAfterMetadataResponse(
+          cached.availableClasses ?? [],
+          wanted,
+          selectedClassRef.current,
+        );
+        if (!cached.roster && followFromCache) {
+          setSelectedClass(followFromCache);
+          selectedClassRef.current = followFromCache;
+          setLoading(true);
+          void load(followFromCache);
+          return;
+        }
+        setLoading(false);
       }
     } else if (!opts?.silent) {
       setLoading(true);
@@ -214,31 +241,49 @@ export default function StageClassRosterPanel({
       if (!res.ok) throw new Error(json.error || "Erreur chargement");
       if (!opts?.silent && seq !== loadSeqRef.current) return;
 
-      if (json.roster?.className) {
-        writeRosterMemory(cacheKeyFor(json.roster.className), json);
-      } else if (wanted) {
-        writeRosterMemory(cacheKeyFor(wanted), json);
+      for (const key of rosterMemoryWriteKeys(json, wanted)) {
+        writeRosterMemory(key, json);
       }
-      if (!wanted) writeRosterMemory("__default__", json);
+      if (json.availableClasses?.length) {
+        availableClassesRef.current = json.availableClasses;
+      }
+
+      const followClass = pickClassAfterMetadataResponse(
+        json.availableClasses ?? [],
+        wanted,
+        selectedClassRef.current,
+      );
 
       if (!opts?.silent) {
         setData(json);
-        if (json.roster?.className) setSelectedClass(json.roster.className);
-        else if (wanted) setSelectedClass(wanted);
+        if (json.roster?.className) {
+          setSelectedClass(json.roster.className);
+          selectedClassRef.current = json.roster.className;
+        } else if (wanted) {
+          setSelectedClass(wanted);
+          selectedClassRef.current = wanted;
+        } else if (followClass) {
+          setSelectedClass(followClass);
+          selectedClassRef.current = followClass;
+        }
       }
 
-      if (!wanted && !json.roster && json.availableClasses.length === 1) {
-        void load(json.availableClasses[0]!, opts);
-      }
+      const resolvedClass =
+        json.roster?.className || wanted || followClass || json.availableClasses[0] || "";
 
       console.info("[ScolIA][stages/roster]", {
-        className: json.roster?.className || wanted || "(classes)",
+        className: resolvedClass || wanted || "(défaut)",
         fromMemoryCache: Boolean(cached),
         silent: Boolean(opts?.silent),
         clientMs: Math.round(performance.now() - t0),
         server: json.perf ?? null,
         valkey: json.cache ?? null,
       });
+
+      if (!opts?.silent && !json.roster && followClass) {
+        await load(followClass);
+        return;
+      }
     } catch (e: unknown) {
       if (!opts?.silent && seq !== loadSeqRef.current) return;
       if (!cached && !opts?.silent) setError(e instanceof Error ? e.message : "Erreur");
@@ -247,14 +292,44 @@ export default function StageClassRosterPanel({
     }
   }, []);
 
+  /** Prefetch des classes voisines en arrière-plan (Valkey + cache mémoire). */
+  const prefetchNeighbors = useCallback(
+    (currentClass: string, classes: string[]) => {
+      if (!classes.length) return;
+      const idx = classes.findIndex(
+        (c) => c.localeCompare(currentClass, "fr", { sensitivity: "base" }) === 0,
+      );
+      const neighbor = classes[idx - 1] ?? classes[idx + 1];
+      if (!neighbor?.trim()) return;
+      const key = cacheKeyFor(neighbor);
+      if (readRosterMemory(key) || prefetchDoneRef.current.has(key)) return;
+      prefetchDoneRef.current.add(key);
+      const run = () => void load(neighbor, { silent: true });
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(run, { timeout: 4_000 });
+      } else {
+        setTimeout(run, 200);
+      }
+    },
+    [load],
+  );
+
+  // Premier chargement / focus classe : utiliser le cache si possible (pas de wipe).
   useEffect(() => {
     const wanted = focusClassName?.trim() || "";
-    void load(wanted || undefined);
-  }, [load, focusClassName]);
+    void load(wanted || undefined).then(() => {
+      const classes = availableClassesRef.current;
+      const current = wanted || selectedClass || classes[0] || "";
+      if (current) prefetchNeighbors(current, classes);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focusClassName only
+  }, [load, focusClassName, prefetchNeighbors]);
 
+  // Refresh explicite (après mutation) : invalider le cache mémoire.
   useEffect(() => {
     if (refreshToken == null || refreshToken === 0) return;
     clearRosterMemory();
+    prefetchDoneRef.current.clear();
     void load(selectedClass || focusClassName || undefined, { force: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
@@ -314,10 +389,13 @@ export default function StageClassRosterPanel({
 
   const onClassChange = (className: string) => {
     setSelectedClass(className);
+    selectedClassRef.current = className;
     setStatusFilter("all");
     setSelectedStudentKey(null);
     setSelectedStudentKeys(new Set());
-    void load(className);
+    void load(className).then(() => {
+      prefetchNeighbors(className, availableClassesRef.current);
+    });
   };
 
   async function assignReferent(conventionId: string, teacherId: string) {
@@ -475,45 +553,92 @@ export default function StageClassRosterPanel({
     );
   }
 
-  if (data?.message && !data.roster) {
-    return (
-      <div className="space-y-4">
-        {globalSearchBlock}
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {data.message}
-        </div>
-      </div>
-    );
+  if (!data) {
+    return <div className="space-y-4">{globalSearchBlock}</div>;
   }
 
-  if (!data || !roster) {
+  if (!roster) {
     return (
       <div className="space-y-4">
-        {globalSearchBlock}
-        {classOptions.length > 0 ? (
-          <div>
-            <p className="text-sm font-medium text-stone-700">Classes</p>
-            <p className="mt-0.5 text-xs text-stone-500">
-              Choisissez une classe : les élèves s’affichent tout de suite, le dossier de
-              convention s’ouvre au clic sur un élève.
+        <div className="flex flex-wrap items-end gap-4">
+          {globalSearchBlock}
+          {classOptions.length >= 1 ? (
+            <label className="text-sm font-medium text-stone-700">
+              Classe
+              <select
+                className="mt-1 block min-w-[140px] rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm"
+                value={selectedClass}
+                onChange={(e) => onClassChange(e.target.value)}
+              >
+                {classOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {loading ? (
+            <p className="pb-2 text-xs text-stone-400">Chargement de la classe…</p>
+          ) : null}
+        </div>
+
+        {globalQuery.trim().length >= 2 ? (
+          <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
+            <p className="text-xs font-semibold text-stone-600">
+              Résultats{globalSearching ? "…" : ` · ${globalResults.length}`}
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {classOptions.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => onClassChange(c)}
-                  className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-[#1F3D2B] shadow-sm hover:border-[#2F6B4A] hover:bg-[#2F6B4A]/05"
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
+            {globalSearching && globalResults.length === 0 ? (
+              <p className="mt-1 text-sm text-stone-500">Recherche…</p>
+            ) : globalResults.length === 0 ? (
+              <p className="mt-1 text-sm text-stone-500">Aucun résultat.</p>
+            ) : (
+              <ul className="mt-1 divide-y divide-stone-200">
+                {globalResults.map((hit) => (
+                  <li key={hit.conventionId} className="flex items-center gap-2 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-[#1F3D2B]">
+                        {hit.studentFirstName} {hit.studentLastName}
+                        <span className="ml-2 font-normal text-stone-500">{hit.className}</span>
+                      </p>
+                      <p className="truncate text-xs text-stone-600">
+                        {hit.companyName}
+                        {hit.stageLabel ? ` · ${hit.stageLabel}` : ""}
+                        {" · "}
+                        {hit.statusLabel}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onOpenConvention(hit.conventionId)}
+                      className="shrink-0 rounded-lg bg-[#2F6B4A] px-2.5 py-1 text-xs font-bold text-white"
+                    >
+                      Ouvrir
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-        ) : (
-          <p className="text-sm text-stone-500">Aucune classe à afficher pour le moment.</p>
-        )}
-        {loading ? <p className="text-xs text-stone-400">Chargement…</p> : null}
+        ) : null}
+
+        {data.message ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {data.message}
+          </div>
+        ) : null}
+
+        {error ? (
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            {error}
+          </p>
+        ) : null}
+
+        {!loading && classOptions.length === 0 && !data.message ? (
+          <p className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
+            Aucune classe disponible pour le suivi stages.
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -546,11 +671,6 @@ export default function StageClassRosterPanel({
               value={selectedClass}
               onChange={(e) => onClassChange(e.target.value)}
             >
-              {!selectedClass ? (
-                <option value="" disabled>
-                  Choisir une classe…
-                </option>
-              ) : null}
               {classOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -909,9 +1029,7 @@ export default function StageClassRosterPanel({
                       </button>
                     </div>
                     <div className="mt-2">
-                      <p className="text-xs text-stone-500">
-                        Ouvrez le dossier pour les signatures, le PDF et le dépôt OneDrive.
-                      </p>
+                      <StageSignatureProgress summary={c.signatureSummary} compact />
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-3">
                       {canAssign && teachers.length > 0 ? (

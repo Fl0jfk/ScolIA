@@ -8,17 +8,25 @@ import {
 } from "@/app/lib/travels-eleves-excel";
 import {
   accompagnateurPanierKey,
+  accompagnateurPanierListKey,
   applyParticipantElevesToTripData,
   compareParticipantsByClasseThenName,
   countPanierRepasTotalAssigned,
   cuisineWhoEatsMissingMessage,
   eleveParticipantKey,
   isCuisineWhoEatsComplete,
+  listOrphanPanierRepasAccompagnateurs,
   newPanierRepasAdulteAutreId,
+  normalizePanierRepasAutreNameOnBlur,
+  PANIER_REPAS_AUTRE_DEFAULT_NAME,
+  panierRepasAdulteMatchesEscort,
+  panierRepasAutreNameForEdit,
   parentEmailCoverage,
   sanitizePanierRepasAdultes,
   toParticipantEleve,
 } from "@/app/lib/travels-eleves-list";
+import { dash } from "@/app/lib/dashboard-brand";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import { parseAccompagnateursFromTrip } from "@/app/lib/travels-accompagnateurs";
 import {
   calendarHasDepotAndRecuperation,
@@ -74,6 +82,7 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
   const [panierByKey, setPanierByKey] = useState<Record<string, boolean>>({});
   /** Adultes / accompagnateurs qui mangent (1 entrée = 1 panier). */
   const [panierAdultes, setPanierAdultes] = useState<TravelsPanierRepasAdulte[]>([]);
+  const [panierNotice, setPanierNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "confirm" | "panier" | null>(null);
   const [classFilter, setClassFilter] = useState("");
   const [calendar, setCalendar] = useState<TravelsParentCalendar>(() =>
@@ -305,18 +314,20 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
   );
   const panierRemaining = Math.max(0, mealsOrdered - panierAssigned);
 
-  const panierAdultesByEscortKey = useMemo(() => {
-    const map = new Map<string, TravelsPanierRepasAdulte>();
-    for (const a of panierAdultes) {
-      if (a.source !== "accompagnateur") continue;
-      map.set(accompagnateurPanierKey(a), a);
-    }
-    return map;
-  }, [panierAdultes]);
-
   const panierAdultesAutres = useMemo(
     () => panierAdultes.filter((a) => a.source === "autre"),
     [panierAdultes],
+  );
+
+  const panierAdultesOrphans = useMemo(
+    () => listOrphanPanierRepasAccompagnateurs(panierAdultes, tripAccompagnateurs),
+    [panierAdultes, tripAccompagnateurs],
+  );
+
+  const panierCapacityMessage = useCallback(
+    () =>
+      `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
+    [mealsOrdered],
   );
 
   const coverage = useMemo(() => {
@@ -366,16 +377,20 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
 
   const togglePanierRepas = (key: string) => {
     if (!cuisineActive || !canEdit) return;
-    setPanierByKey((prev) => {
-      const currentlyOn = prev[key] === true;
-      if (currentlyOn) return { ...prev, [key]: false };
-      const elevesOn = Object.entries(prev).filter(([k, v]) => v && selectedKeys.has(k)).length;
+    const currentlyOn = panierByKey[key] === true;
+    if (!currentlyOn) {
+      const elevesOn = Object.entries(panierByKey).filter(
+        ([k, v]) => v && selectedKeys.has(k),
+      ).length;
       if (elevesOn + panierAdultes.length >= mealsOrdered) {
-        alert(
-          `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
-        );
-        return prev;
+        setPanierNotice(panierCapacityMessage());
+        return;
       }
+    }
+    setPanierNotice(null);
+    setPanierByKey((prev) => {
+      const on = prev[key] === true;
+      if (on) return { ...prev, [key]: false };
       return { ...prev, [key]: true };
     });
   };
@@ -387,31 +402,32 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
   }) => {
     if (!cuisineActive || !canEdit) return;
     const key = accompagnateurPanierKey(escort);
-    setPanierAdultes((prev) => {
-      const existing = prev.find(
-        (a) => a.source === "accompagnateur" && accompagnateurPanierKey(a) === key,
-      );
-      if (existing) return prev.filter((a) => a.id !== existing.id);
-      const elevesOn = Object.entries(panierByKey).filter(
-        ([k, v]) => v && selectedKeys.has(k),
-      ).length;
-      if (elevesOn + prev.length >= mealsOrdered) {
-        alert(
-          `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
-        );
-        return prev;
-      }
-      return [
-        ...prev,
-        {
-          id: `acc-${key}`,
-          name: escort.name.trim() || "Accompagnateur",
-          ...(escort.userId ? { userId: escort.userId } : {}),
-          ...(escort.email ? { email: escort.email } : {}),
-          source: "accompagnateur" as const,
-        },
-      ];
-    });
+    const existing = panierAdultes.find(
+      (a) => a.source === "accompagnateur" && panierRepasAdulteMatchesEscort(a, escort),
+    );
+    if (existing) {
+      setPanierNotice(null);
+      setPanierAdultes((prev) => prev.filter((a) => a.id !== existing.id));
+      return;
+    }
+    const elevesOn = Object.entries(panierByKey).filter(
+      ([k, v]) => v && selectedKeys.has(k),
+    ).length;
+    if (elevesOn + panierAdultes.length >= mealsOrdered) {
+      setPanierNotice(panierCapacityMessage());
+      return;
+    }
+    setPanierNotice(null);
+    setPanierAdultes((prev) => [
+      ...prev,
+      {
+        id: `acc-${key}`,
+        name: escort.name.trim() || "Accompagnateur",
+        ...(escort.userId ? { userId: escort.userId } : {}),
+        ...(escort.email ? { email: escort.email } : {}),
+        source: "accompagnateur" as const,
+      },
+    ]);
   };
 
   const addAccompagnateurAutre = () => {
@@ -420,24 +436,28 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
       ([k, v]) => v && selectedKeys.has(k),
     ).length;
     if (elevesOn + panierAdultes.length >= mealsOrdered) {
-      alert(
-        `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
-      );
+      setPanierNotice(panierCapacityMessage());
       return;
     }
+    setPanierNotice(null);
     setPanierAdultes((prev) => [
       ...prev,
       {
         id: newPanierRepasAdulteAutreId(),
-        name: "Accompagnateur autre",
+        name: PANIER_REPAS_AUTRE_DEFAULT_NAME,
         source: "autre",
       },
     ]);
   };
 
   const updateAccompagnateurAutreName = (id: string, name: string) => {
+    setPanierAdultes((prev) => prev.map((a) => (a.id === id ? { ...a, name } : a)));
+  };
+
+  const finalizeAccompagnateurAutreName = (id: string, name: string) => {
+    const normalized = normalizePanierRepasAutreNameOnBlur(name);
     setPanierAdultes((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, name: name.trim() || "Accompagnateur autre" } : a)),
+      prev.map((a) => (a.id === id ? { ...a, name: normalized } : a)),
     );
   };
 
@@ -1071,6 +1091,15 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
                   </span>
                 </div>
 
+                {panierNotice && (
+                  <div
+                    role="status"
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+                  >
+                    {panierNotice}
+                  </div>
+                )}
+
                 {selectedParticipants.length === 0 ? (
                   <p className="text-sm text-amber-900/60">
                     Ajoutez d’abord des élèves à la liste (étape 2) — les adultes peuvent être
@@ -1146,77 +1175,145 @@ export function TripElevesListPanel({ trip, canEdit, isCompta = false, onTripUpd
 
                   {tripAccompagnateurs.length > 0 ? (
                     <ul className="divide-y divide-amber-50 rounded-lg border border-amber-50">
-                      {tripAccompagnateurs.map((escort) => {
-                        const key = accompagnateurPanierKey(escort);
-                        const on = panierAdultesByEscortKey.has(key);
+                      {tripAccompagnateurs.map((escort, escortIdx) => {
+                        const listKey = accompagnateurPanierListKey(escort, escortIdx);
+                        const checkboxId = `panier-acc-${listKey}`;
+                        const on = panierAdultes.some(
+                          (a) =>
+                            a.source === "accompagnateur" &&
+                            panierRepasAdulteMatchesEscort(a, escort),
+                        );
                         const disableAdd = !on && panierRemaining <= 0;
                         return (
                           <li
-                            key={key}
-                            className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm"
+                            key={listKey}
+                            className="flex flex-col gap-1.5 px-3 py-2 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3"
                           >
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              disabled={!canEdit || disableAdd}
-                              onChange={() => toggleAccompagnateurPanier(escort)}
-                              className="rounded border-amber-300"
-                            />
-                            <span className="min-w-0 flex-1 font-medium text-slate-800">
-                              {escort.name}
-                            </span>
-                            <span className="text-[10px] font-bold uppercase text-slate-500">
-                              Accompagnateur
-                            </span>
-                            {on ? (
-                              <span className="text-[10px] font-bold uppercase text-amber-800">
-                                Panier
+                            <label
+                              htmlFor={checkboxId}
+                              className="flex w-full min-w-0 cursor-pointer items-start gap-3 sm:flex-1 sm:items-center"
+                            >
+                              <input
+                                id={checkboxId}
+                                type="checkbox"
+                                checked={on}
+                                disabled={!canEdit || disableAdd}
+                                onChange={() => toggleAccompagnateurPanier(escort)}
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-300 accent-[color:var(--dash-ink)]"
+                                title={
+                                  disableAdd
+                                    ? "Tous les paniers commandés sont déjà attribués"
+                                    : undefined
+                                }
+                              />
+                              <span className="min-w-0 flex-1 font-medium text-slate-800">
+                                {escort.name}
                               </span>
-                            ) : null}
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0">
+                              <span
+                                className={`rounded-full ${dash.bgSoft} px-2 py-0.5 text-[10px] font-bold uppercase ${dash.textMid}`}
+                              >
+                                Accompagnateur
+                              </span>
+                              {on ? (
+                                <span className="text-[10px] font-bold uppercase text-amber-800">
+                                  Panier
+                                </span>
+                              ) : null}
+                            </div>
                           </li>
                         );
                       })}
                     </ul>
                   ) : (
-                    <p className="text-xs text-amber-900/60">
+                    <p className={`text-xs ${dash.textMid}`}>
                       Aucun accompagnateur nommé sur ce dossier pour l’instant — vous pouvez
                       quand même ajouter des « accompagnateurs autres ».
                     </p>
                   )}
 
-                  {panierAdultesAutres.length > 0 && (
+                  {panierAdultesOrphans.length > 0 && (
                     <ul className="space-y-2">
-                      {panierAdultesAutres.map((a, idx) => (
+                      <p className={`text-xs font-semibold ${dash.textMid}`}>
+                        Paniers sans accompagnateur correspondant dans le dossier :
+                      </p>
+                      {panierAdultesOrphans.map((a) => (
                         <li
                           key={a.id}
-                          className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-100 bg-amber-50/40 px-3 py-2"
+                          className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center"
                         >
-                          <span className="text-[10px] font-bold uppercase text-amber-800">
-                            Autre {idx + 1}
+                          <span className="min-w-0 flex-1 font-medium text-slate-800">
+                            {a.name}
+                            <span className={`mt-0.5 block text-xs font-normal ${dash.textMid}`}>
+                              N’est plus accompagnateur sur ce dossier
+                            </span>
                           </span>
-                          <input
-                            type="text"
-                            value={
-                              a.name === "Accompagnateur autre" && canEdit ? "" : a.name
-                            }
-                            placeholder="Nom (optionnel)"
-                            disabled={!canEdit}
-                            onChange={(e) =>
-                              updateAccompagnateurAutreName(a.id, e.target.value)
-                            }
-                            className="min-w-0 flex-1 rounded-md border border-amber-200 bg-white px-2 py-1 text-sm"
-                          />
                           {canEdit && (
-                            <button
-                              type="button"
+                            <ModuleButton
+                              variant="danger"
+                              className="px-3 py-1.5 text-xs"
+                              aria-label={`Retirer le panier de ${a.name}`}
                               onClick={() => removePanierAdulte(a.id)}
-                              className="text-xs font-bold text-rose-600 hover:underline"
                             >
                               Retirer
-                            </button>
+                            </ModuleButton>
                           )}
                         </li>
                       ))}
+                    </ul>
+                  )}
+
+                  {panierRemaining <= 0 && canEdit && (
+                    <p className={`text-xs ${dash.textMid}`}>
+                      Tous les paniers commandés sont attribués.
+                    </p>
+                  )}
+
+                  {panierAdultesAutres.length > 0 && (
+                    <ul className="space-y-2">
+                      {panierAdultesAutres.map((a, idx) => {
+                        const inputId = `panier-autre-${a.id}`;
+                        return (
+                          <li
+                            key={a.id}
+                            className="flex flex-col gap-2 rounded-lg border border-amber-100 bg-amber-50/40 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center"
+                          >
+                            <span
+                              className={`rounded-full ${dash.bgSoft} px-2 py-0.5 text-[10px] font-bold uppercase ${dash.textMid}`}
+                            >
+                              Autre {idx + 1}
+                            </span>
+                            <label htmlFor={inputId} className="sr-only">
+                              Nom de l&apos;accompagnateur autre {idx + 1}
+                            </label>
+                            <input
+                              id={inputId}
+                              type="text"
+                              value={canEdit ? panierRepasAutreNameForEdit(a.name) : a.name}
+                              placeholder="Nom (optionnel)"
+                              disabled={!canEdit}
+                              onChange={(e) =>
+                                updateAccompagnateurAutreName(a.id, e.target.value)
+                              }
+                              onBlur={(e) =>
+                                finalizeAccompagnateurAutreName(a.id, e.target.value)
+                              }
+                              className={`min-w-0 flex-1 ${dash.field} !py-2 !px-3`}
+                            />
+                            {canEdit && (
+                              <ModuleButton
+                                variant="danger"
+                                className="px-3 py-1.5 text-xs"
+                                aria-label={`Retirer l'accompagnateur autre ${idx + 1}`}
+                                onClick={() => removePanierAdulte(a.id)}
+                              >
+                                Retirer
+                              </ModuleButton>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>

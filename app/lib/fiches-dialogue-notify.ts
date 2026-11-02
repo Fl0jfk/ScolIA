@@ -55,7 +55,8 @@ export async function notifyFdFamilleSaisie(params: {
     `Étape : ${params.etapeLabel}`,
     `Vous disposez de ${params.delaiJours} jour(s) pour répondre.`,
     "",
-    `Lien unique : ${link}`,
+    `Lien personnel : ${link}`,
+    "Ce lien vous est réservé : l’autre responsable reçoit son propre lien de saisie.",
     "",
     `Vous pouvez aussi ouvrir ${codeEntry} et saisir votre e-mail avec le code : ${params.secureCode}`,
     "",
@@ -367,6 +368,133 @@ export async function notifyFdParentOtp(params: {
     subject: `Code d’accès — fiche de dialogue ${params.elevePrenom} ${params.eleveNom}`,
     text,
   });
+  return { sent: true };
+}
+
+/** Alerte PP + direction + admin : les deux responsables ont des réponses contradictoires. */
+export async function notifyFdConflictStaff(params: {
+  to: string[];
+  elevePrenom: string;
+  eleveNom: string;
+  classe: string;
+  campagneLabel: string;
+  campagneId: string;
+  motif?: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+  if (!params.to.length) return { sent: false, reason: "no_recipients" };
+
+  const school = await schoolName();
+  const adminLink = await tenantAbsolutePath(`/fiches-dialogue/${params.campagneId}`);
+  const text = [
+    "ALERTE — Désaccord entre les responsables",
+    "",
+    `Élève : ${params.elevePrenom} ${params.eleveNom}`,
+    `Classe : ${params.classe || "non renseignée"}`,
+    `Campagne : ${params.campagneLabel}`,
+    "",
+    "Le second responsable a signalé un désaccord sur les vœux déposés.",
+    "La fiche est bloquée en conflit : la direction doit statuer avant l’avancement au conseil.",
+    params.motif ? `Motif indiqué : ${params.motif}` : "",
+    "",
+    `Dossier famille : ${adminLink}`,
+    "",
+    "Cordialement,",
+    school,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  for (const to of params.to) {
+    await sendMailWithTimeout(m.transporter, {
+      from: `"Fiches de dialogue — ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[CONFLIT] Fiche de dialogue — ${params.elevePrenom} ${params.eleveNom}`,
+      text,
+    });
+  }
+  return { sent: true };
+}
+
+/** Information des deux responsables : leur désaccord est enregistré et sera arbitré. */
+export async function notifyFdConflictParents(params: {
+  to: string[];
+  elevePrenom: string;
+  eleveNom: string;
+  campagneLabel: string;
+  motif?: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+  if (!params.to.length) return { sent: false, reason: "no_recipients" };
+
+  const school = await schoolName();
+  const text = [
+    "Bonjour,",
+    "",
+    `Les responsables de ${params.elevePrenom} ${params.eleveNom} ont donné des réponses différentes pour la fiche de dialogue (${params.campagneLabel}).`,
+    "",
+    "Le désaccord est enregistré. La direction de l’établissement va examiner la situation et vous recontactera.",
+    params.motif ? `Motif transmis : ${params.motif}` : "",
+    "",
+    "Aucune nouvelle action n’est attendue de votre part pour le moment.",
+    "",
+    "Cordialement,",
+    school,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  for (const to of params.to) {
+    await sendMailWithTimeout(m.transporter, {
+      from: `"Fiches de dialogue — ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `Désaccord enregistré — fiche de dialogue ${params.elevePrenom} ${params.eleveNom}`,
+      text,
+    });
+  }
+  return { sent: true };
+}
+
+/** Information des responsables : le délai d’accord est écoulé, l’accord tacite s’applique. */
+export async function notifyFdTacitAccord(params: {
+  to: string[];
+  elevePrenom: string;
+  eleveNom: string;
+  campagneLabel: string;
+  etapeLabel: string;
+  accordDeadlineAt: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+  if (!params.to.length) return { sent: false, reason: "no_recipients" };
+
+  const school = await schoolName();
+  const deadline = new Date(params.accordDeadlineAt).toLocaleString("fr-FR");
+  const text = [
+    "Bonjour,",
+    "",
+    `Le délai de confirmation pour la fiche de dialogue de ${params.elevePrenom} ${params.eleveNom} est écoulé (${deadline}).`,
+    "",
+    `Campagne : ${params.campagneLabel}`,
+    `Étape : ${params.etapeLabel}`,
+    "",
+    "Sans opposition de l’autre responsable avant cette date, la réponse déposée est considérée comme acceptée par les deux parties (accord tacite).",
+    "La fiche poursuit son circuit normal.",
+    "",
+    "Cordialement,",
+    school,
+  ].join("\n");
+
+  for (const to of params.to) {
+    await sendMailWithTimeout(m.transporter, {
+      from: `"Fiches de dialogue — ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `Accord tacite enregistré — fiche de dialogue ${params.elevePrenom} ${params.eleveNom}`,
+      text,
+    });
+  }
   return { sent: true };
 }
 

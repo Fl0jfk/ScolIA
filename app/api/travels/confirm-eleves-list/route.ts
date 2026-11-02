@@ -24,6 +24,7 @@ import {
   parentHorairesRequiredForTrip,
   sanitizeParentCalendar,
 } from "@/app/lib/travels-parent-calendar";
+import { computeParentCalendarNotifyHash } from "@/app/lib/travels-parent-calendar-server";
 import type {
   TravelsPanierRepasAdulte,
   TravelsParentCalendar,
@@ -39,6 +40,13 @@ import {
 } from "@/app/lib/tenant-mail";
 import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
 import { travelsDbReady } from "@/app/lib/travel-db";
+import {
+  mergeNotifiedParentEmails,
+  parentCalendarNotifiedEmailsForHash,
+  remainingParentEmailsToNotify,
+  smtpErrorForLog,
+  sendParentEmailsInBatches,
+} from "@/app/lib/travels-parent-email-batch";
 
 const PARENT_BATCH = 40;
 
@@ -372,48 +380,91 @@ export async function POST(req: Request) {
             </div>
           `;
 
-            for (let i = 0; i < parentEmails.length; i += PARENT_BATCH) {
-              const batch = parentEmails.slice(i, i + PARENT_BATCH);
-              await sendMailWithTimeout(
-                transporter,
-                {
-                  from: `"Sorties scolaires" <${smtp.user}>`,
-                  bcc: batch,
-                  subject,
-                  text,
-                  html,
-                  attachments: [
-                    {
-                      filename: "calendrier-sortie.ics",
-                      content: Buffer.from(ics, "utf8"),
-                      contentType: "text/calendar; charset=utf-8",
-                    },
-                  ],
-                },
-                120_000,
-              );
-            }
-            icsAttached = true;
-            parentsNotified = parentEmails.length;
+            const calendarNotifyHash = computeParentCalendarNotifyHash(data, parentCalendar);
+            const notifiedForCalendar = parentCalendarNotifiedEmailsForHash(
+              data.parentCalendarNotifiedEmails,
+              data.parentCalendarNotifyContentHash,
+              calendarNotifyHash,
+            );
+            const pendingEmails = remainingParentEmailsToNotify(parentEmails, notifiedForCalendar);
+            const alreadyNotifiedCount = parentEmails.length - pendingEmails.length;
+            const sendResult = await sendParentEmailsInBatches(
+              pendingEmails,
+              PARENT_BATCH,
+              async (batch) => {
+                await sendMailWithTimeout(
+                  transporter,
+                  {
+                    from: `"Sorties scolaires" <${smtp.user}>`,
+                    bcc: batch,
+                    subject,
+                    text,
+                    html,
+                    attachments: [
+                      {
+                        filename: "calendrier-sortie.ics",
+                        content: Buffer.from(ics, "utf8"),
+                        contentType: "text/calendar; charset=utf-8",
+                      },
+                    ],
+                  },
+                  120_000,
+                );
+              },
+            );
 
-            const log: TravelsParentComLog = {
-              id: `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-              sentAt: now,
-              sentBy: { userId: access.user.id, name: userName },
-              subject,
-              body: text,
-              photoCount: 0,
-              recipientCount: parentsNotified,
-              icsAttached: true,
-            };
-            data.parentComLogs = [...(data.parentComLogs || []), log];
+            if (sendResult.sentEmails.length > 0) {
+              data.parentCalendarNotifiedEmails = mergeNotifiedParentEmails(
+                notifiedForCalendar,
+                sendResult.sentEmails,
+              );
+              data.parentCalendarNotifyContentHash = calendarNotifyHash;
+            }
+
+            parentsNotified = sendResult.sentCount;
+            icsAttached = sendResult.completed && sendResult.sentCount > 0;
+
+            if (sendResult.sentCount > 0) {
+              const log: TravelsParentComLog = {
+                id: `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+                sentAt: now,
+                sentBy: { userId: access.user.id, name: userName },
+                subject,
+                body: text,
+                photoCount: 0,
+                recipientCount: sendResult.sentCount,
+                icsAttached: true,
+              };
+              data.parentComLogs = [...(data.parentComLogs || []), log];
+            }
+
+            if (!sendResult.completed) {
+              const errMsg =
+                sendResult.error instanceof Error
+                  ? sendResult.error.message
+                  : "erreur d’envoi";
+              console.error("[confirm-eleves-list] parents calendar mail (partiel)", {
+                sentCount: sendResult.sentCount,
+                pendingTotal: pendingEmails.length,
+                alreadyNotifiedCount,
+                error: smtpErrorForLog(sendResult.error),
+              });
+              parentsSkippedReason =
+                sendResult.sentCount > 0
+                  ? `Calendrier parents : ${sendResult.sentCount}/${pendingEmails.length} e-mail(s) envoyé(s) avant échec (${errMsg}). ${alreadyNotifiedCount > 0 ? `${alreadyNotifiedCount} déjà notifié(s) auparavant — ` : ""}Les parents déjà servis ne seront pas renvoyés à une prochaine confirmation.`
+                  : `Calendrier parents non envoyé (${errMsg}) — liste tout de même confirmée.`;
+              icsAttached = sendResult.sentCount > 0;
+            } else if (pendingEmails.length === 0 && parentEmails.length > 0) {
+              parentsSkippedReason =
+                `${parentEmails.length} parent(s) avaient déjà reçu le calendrier — aucun nouvel envoi.`;
+              parentsNotified = 0;
+              icsAttached = true;
+            }
           }
         } catch (mailErr) {
-          console.error("[confirm-eleves-list] parents calendar mail", mailErr);
-          parentsSkippedReason =
-            mailErr instanceof Error
-              ? `Calendrier parents non envoyé (${mailErr.message}) — liste tout de même confirmée.`
-              : "Calendrier parents non envoyé — liste tout de même confirmée.";
+          const logged = smtpErrorForLog(mailErr);
+          console.error("[confirm-eleves-list] parents calendar mail", logged);
+          parentsSkippedReason = `Calendrier parents non envoyé (${logged.message}) — liste tout de même confirmée.`;
           icsAttached = false;
           parentsNotified = 0;
         }

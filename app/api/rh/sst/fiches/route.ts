@@ -35,6 +35,7 @@ const CreateSchema = z.object({
   observations: z.string().min(5).max(8000),
   suggestions: z.string().max(4000).optional(),
   signatureDataUrl: z.string().max(1_200_000).optional(),
+  onBehalfOfUserId: z.string().min(1).max(200).optional(),
 });
 
 export async function POST(req: Request) {
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
     observations: parsed.data.observations,
     suggestions: parsed.data.suggestions,
     signatureDataUrl: parsed.data.signatureDataUrl,
+    onBehalfOfUserId: parsed.data.onBehalfOfUserId,
   });
 
   if (!result.ok) {

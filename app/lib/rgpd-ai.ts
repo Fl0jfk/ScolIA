@@ -3,6 +3,7 @@ import "server-only";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { getEnabledPlatformDpas } from "@/app/lib/rgpd-platform-dpas";
 import type { RgpdCatalogEntry } from "@/app/lib/rgpd-catalog";
+import type { RgpdProcessingFicheDef } from "@/app/lib/rgpd-processing-fiches";
 import type {
   RgpdDataBreachFields,
   RgpdIncidentKind,
@@ -10,35 +11,79 @@ import type {
   RgpdSecurityIncidentFields,
 } from "@/app/lib/rgpd-types";
 
+/** Critères Art. 30 pour analyser une fiche de traitement importée. */
+export const RGPD_FICHE_ANALYSIS_CHECKLIST = [
+  "Finalité(s) du traitement clairement énoncée(s)",
+  "Base légale identifiée",
+  "Catégories de personnes concernées",
+  "Catégories de données personnelles",
+  "Destinataires / sous-traitants",
+  "Durée(s) de conservation",
+  "Mesures de sécurité techniques et organisationnelles",
+  "Responsable du traitement identifié",
+] as const;
+
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
+const MISTRAL_MODELS = ["mistral-small-latest", "mistral-medium"] as const;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function mistralUserFacingError(status: number, body: string): Error {
+  if (status === 429) {
+    return new Error(
+      "Service d'analyse temporairement saturé. Réessayez dans quelques instants.",
+    );
+  }
+  if (status === 503 || status === 502 || status === 504 || status === 500) {
+    return new Error(
+      "Service d'analyse temporairement indisponible (Mistral). Réessayez dans une minute.",
+    );
+  }
+  return new Error(`Analyse IA impossible (${status}) : ${body.slice(0, 160)}`);
+}
 
 async function mistralJson<T>(prompt: string): Promise<T> {
   const key = await getMistralApiKey();
   if (!key) throw new Error("Clé Mistral non configurée.");
 
-  const res = await fetch(MISTRAL_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model: "mistral-small-latest",
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
+  let lastStatus = 0;
+  let lastBody = "";
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Mistral : ${res.status} ${err.slice(0, 200)}`);
+  for (const model of MISTRAL_MODELS) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const res = await fetch(MISTRAL_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error("Réponse Mistral vide.");
+        return JSON.parse(content) as T;
+      }
+
+      lastStatus = res.status;
+      lastBody = await res.text();
+      const retryable = RETRYABLE_STATUS.has(res.status);
+      if (!retryable) throw mistralUserFacingError(res.status, lastBody);
+      if (attempt < 2) await sleep(400 * (attempt + 1));
+    }
   }
 
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Réponse Mistral vide.");
-  return JSON.parse(content) as T;
+  throw mistralUserFacingError(lastStatus, lastBody);
 }
 
 type RgpdAnalysisResult = {
@@ -49,14 +94,45 @@ type RgpdAnalysisResult = {
   suggestedActions: string[];
 };
 
+type RgpdAnalyzableDoc = {
+  title: string;
+  checklist: readonly string[];
+  description?: string;
+};
+
+export function toRgpdAnalyzableFromCatalog(entry: RgpdCatalogEntry): RgpdAnalyzableDoc {
+  return {
+    title: entry.title,
+    checklist: entry.checklist,
+    description: entry.description,
+  };
+}
+
+export function toRgpdAnalyzableFromFiche(
+  fiche: RgpdProcessingFicheDef,
+): RgpdAnalyzableDoc {
+  return {
+    title: fiche.title,
+    checklist: RGPD_FICHE_ANALYSIS_CHECKLIST,
+    description: fiche.description,
+  };
+}
+
 export async function analyzeRgpdDocumentWithAi(input: {
-  entry: RgpdCatalogEntry;
+  entry: RgpdCatalogEntry | RgpdAnalyzableDoc;
   documentText: string;
   answers: RgpdQuestionnaireAnswers;
 }): Promise<RgpdAnalysisResult> {
-  const checklist = input.entry.checklist.join("\n- ");
+  const title = input.entry.title;
+  const checklistItems =
+    "checklist" in input.entry ? input.entry.checklist : [];
+  const checklist = checklistItems.join("\n- ");
+  const description =
+    "description" in input.entry && input.entry.description
+      ? `\nContexte du document attendu : ${input.entry.description}`
+      : "";
   const prompt = `Tu es expert RGPD pour établissements scolaires français.
-Analyse le document fourni par rapport au type attendu : "${input.entry.title}".
+Analyse le document fourni par rapport au type attendu : "${title}".${description}
 Checklist attendue :
 - ${checklist}
 

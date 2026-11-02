@@ -1,3 +1,4 @@
+import { canSelectBusQuoteWithoutSignature } from "@/app/lib/travels-bus-quote-permissions";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import { TRAVELS_STATUS_LABELS, type TravelsHubTab, type TravelsTrip } from "@/app/lib/travels-types";
 import {
@@ -179,8 +180,13 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
         focusQuestion: "Il n’y a pas de bus. Comment passer aux finances ?",
       });
     }
-    const canSelectQuoteOnly =
-      !canSign && (isOwner || isAdministratif || isCompta || isGlobalAdmin);
+    const canSelectQuoteOnly = canSelectBusQuoteWithoutSignature({
+      isOwner,
+      canSign,
+      isAdministratif,
+      isCompta,
+      isGlobalAdmin,
+    });
     if (pendingAmended) {
       return finish({
         stepLabel,

@@ -17,6 +17,9 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { canSignTravelsDirectionForEtab, resolveDirectorForEstablishment } from "@/app/lib/establishments";
 import { mergeTravelAttachments } from "@/app/lib/travels-attachments-merge";
+import { canChooseBusQuoteForLogisticsTransition } from "@/app/lib/travels-bus-quote-permissions";
+import { buildTravelsBusQuoteSelectionCtx } from "@/app/lib/travels-bus-quote-permissions-server";
+import type { TravelsTrip } from "@/app/lib/travels-types";
 
 /** Le client fait foi (suppressions incluses) ; on n'ajoute depuis S3 que si le client n'envoie pas la liste. */
 function mergeReceivedDevis(fromClient: unknown, fromS3: unknown): unknown[] {
@@ -134,6 +137,30 @@ export async function POST(req: Request) {
     }
     const previousStatus = existingOnS3 && typeof existingOnS3.status === "string" ? existingOnS3.status : null;
     const newStatus = typeof objectToSave.status === "string" ? objectToSave.status : "";
+    if (
+      previousStatus === "PROF_LOGISTICS" &&
+      newStatus === "EN_ATTENTE_BUS_SIGNATURE"
+    ) {
+      const meForBus = await safeCurrentUser();
+      if (!meForBus) {
+        return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+      }
+      const tripForBus: TravelsTrip = {
+        ...(existingOnS3 as TravelsTrip),
+        ...objectToSave,
+        data: saveInner as TravelsTrip["data"],
+      };
+      const busCtx = await buildTravelsBusQuoteSelectionCtx(meForBus, tripForBus);
+      if (!canChooseBusQuoteForLogisticsTransition(busCtx)) {
+        return NextResponse.json(
+          {
+            error:
+              "Seul le créateur, l'administratif, la compta, la direction ou un administrateur général peut choisir un devis bus.",
+          },
+          { status: 403 },
+        );
+      }
+    }
     const leavingFinalized =
       (previousStatus === "VALIDE" || previousStatus === "FINALISE_DIR_ATTENTE_ELEVES") &&
       newStatus !== previousStatus &&

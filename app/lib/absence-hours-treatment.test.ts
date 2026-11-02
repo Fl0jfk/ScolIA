@@ -254,10 +254,100 @@ test("processeur : uniquement déclaration rectorat pour les profs (hors non dis
   );
 });
 
+const shortRetardDay = {
+  startDate: "2026-03-10",
+  endDate: "2026-03-10",
+  startTime: "08:00",
+  endTime: "08:30",
+  periodType: "single_day" as const,
+};
+
 test("retard RH : détection motif + option sans incidence", () => {
-  assert.equal(isRhRetardAbsence({ data: { reason: "Retard" } }), true);
-  assert.equal(isRhRetardAbsence({ data: { reason: "Retard 10 min" } }), true);
-  assert.equal(isRhRetardAbsence({ data: { reason: "RDV médical" } }), false);
+  assert.equal(
+    isRhRetardAbsence({ data: { reason: "Retard", ...shortRetardDay } }),
+    true,
+  );
+  assert.equal(
+    isRhRetardAbsence({ data: { reason: "Retard 10 min", ...shortRetardDay } }),
+    true,
+  );
+  assert.equal(isRhRetardAbsence({ data: { reason: "RDV médical", ...shortRetardDay } }), false);
+  assert.equal(
+    isRhRetardAbsence({
+      data: {
+        reason: "retard de train",
+        startDate: "2026-03-10",
+        endDate: "2026-03-10",
+        periodType: "multi_day",
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    isRhRetardAbsence({
+      data: {
+        reason: "retard de train",
+        startDate: "2026-03-10",
+        endDate: "2026-03-12",
+        startTime: "08:00",
+        endTime: "17:00",
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    isRhRetardAbsence({
+      data: {
+        declarationNature: "retard",
+        reason: "Retard",
+        ...shortRetardDay,
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    isRhRetardAbsence({
+      data: {
+        declarationNature: "absence",
+        reason: "retard de train",
+        ...shortRetardDay,
+      },
+    }),
+    false,
+  );
+
+  const retard240 = {
+    startDate: "2026-03-10",
+    endDate: "2026-03-10",
+    startTime: "08:00",
+    endTime: "12:00",
+    periodType: "single_day" as const,
+  };
+  assert.equal(
+    isRhRetardAbsence({ data: { reason: "Retard", declarationNature: "retard", ...retard240 } }),
+    true,
+    "retard RH : 240 min exactement",
+  );
+  const retard241 = { ...retard240, endTime: "12:01" };
+  assert.equal(
+    isRhRetardAbsence({ data: { reason: "Retard", declarationNature: "retard", ...retard241 } }),
+    false,
+    "retard RH : 241 min exclu",
+  );
+  assert.equal(
+    isRhRetardAbsence({
+      data: {
+        reason: "Retard",
+        declarationNature: "retard",
+        startDate: "2026-03-10",
+        endDate: "2026-03-10",
+        periodType: "single_day",
+      },
+    }),
+    false,
+    "retard RH : sans heures de début/fin",
+  );
+
   assert.equal(
     getHoursTreatmentOptions("professeur", "Lycée", { isRetard: true }).some(
       (o) => o.value === "SANS_INCIDENCE",
@@ -269,7 +359,7 @@ test("retard RH : détection motif + option sans incidence", () => {
     false,
   );
   const ok = validateHoursTreatmentForAbsence("professeur", "Lycée", "SANS_INCIDENCE", {
-    isRetard: true,
+    isRetard: isRhRetardAbsence({ data: { reason: "Retard", ...shortRetardDay } }),
   });
   assert.equal(ok.ok, true);
   const refused = validateHoursTreatmentForAbsence("professeur", "Lycée", "SANS_INCIDENCE");

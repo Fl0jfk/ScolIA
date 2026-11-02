@@ -171,6 +171,11 @@ export function isEntCoreDbEnabled(): boolean {
 
 /** Résout l'UUID tenant courant pour le cœur ENT (null si DB off / hors requête). */
 export async function resolveCurrentEtablissementId(): Promise<string | null> {
+  const { isNonProductionTestProcess } = await import("@/app/lib/scola-test-runtime");
+  const testEtabId = process.env.SCOLA_TEST_ETAB_ID?.trim();
+  if (isNonProductionTestProcess() && testEtabId) {
+    return testEtabId;
+  }
   if (!isEntCoreDbEnabled()) return null;
   // Scripts locaux (seed / smoke) hors requête HTTP — jamais en prod conteneur.
   const scriptEtab = process.env.SCOLA_SCRIPT_ETABLISSEMENT_ID?.trim();

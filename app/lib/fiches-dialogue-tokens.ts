@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomBytes, randomInt } from "crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { fdToken, type FdTokenRow } from "@/db/schema";
 
@@ -91,10 +91,13 @@ export async function resolveFdTokenBySecureCode(
 export async function revokeFdTokensForFiche(
   ficheId: string,
   purpose?: string,
+  opts?: { exceptEmail?: string | null },
 ): Promise<void> {
   const db = getDb();
   const conditions = [eq(fdToken.ficheId, ficheId), isNull(fdToken.revokedAt)];
   if (purpose) conditions.push(eq(fdToken.purpose, purpose));
+  const exceptEmail = opts?.exceptEmail ? normalizeFdEmail(opts.exceptEmail) : "";
+  if (exceptEmail) conditions.push(ne(fdToken.email, exceptEmail));
   await db
     .update(fdToken)
     .set({ revokedAt: new Date() })

@@ -92,13 +92,30 @@ export default function RgpdDocumentsPanel({
     fileRef.current?.click();
   };
 
+  const resolveClientContentType = (file: File): string => {
+    const mime = (file.type || "").trim().toLowerCase();
+    if (
+      mime === "application/pdf" ||
+      mime === "application/x-pdf" ||
+      mime ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      return mime === "application/x-pdf" ? "application/pdf" : mime;
+    }
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".docx")) {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+    return "application/pdf";
+  };
+
   const onFile = async (file: File) => {
     const docId = uploadDocIdRef.current;
     if (!docId) return;
     setBusy(docId);
     setMessage("");
     try {
-      const ct = file.type || "application/pdf";
+      const ct = resolveClientContentType(file);
       const urlRes = await fetch(`/api/rgpd/documents/${docId}/upload-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -126,9 +143,17 @@ export default function RgpdDocumentsPanel({
       const analyzeData = await analyzeRes.json();
       if (!analyzeRes.ok) throw new Error(analyzeData.error || "Analyse");
 
-      setMessage(
-        `Analyse terminée — score document ${analyzeData.analysis?.documentScore ?? "?"}/100.`,
-      );
+      if (analyzeData.analysisPending) {
+        setMessage(
+          `Document importé. Analyse IA différée : ${
+            analyzeData.warning || "service temporairement indisponible — réessayez dans une minute."
+          }`,
+        );
+      } else {
+        setMessage(
+          `Analyse terminée — score document ${analyzeData.analysis?.documentScore ?? "?"}/100.`,
+        );
+      }
       setSelectedId(docId);
       setViewMode("pdf");
       await onRefresh();

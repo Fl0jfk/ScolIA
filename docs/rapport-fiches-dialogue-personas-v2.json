@@ -1,0 +1,579 @@
+{
+  "generatedAt": "2026-10-21T07:23:04.588Z",
+  "database": "scolia_migrate",
+  "observations": [
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Secrétariat",
+      "action": "Envoyer le lien initial",
+      "before": "a_envoyer",
+      "after": "a_envoyer",
+      "ok": true,
+      "detail": "sent=0, failed=1, lastSentAt=null",
+      "ux": "SMTP absent : l’échec est désormais compté (failed=1), la fiche reste « à envoyer » et la date d’envoi n’est pas falsifiée."
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Parent 1",
+      "action": "Ouvrir le lien",
+      "before": "en_attente_famille",
+      "after": "saisie_famille / open=true",
+      "ok": true,
+      "detail": "etape=2ᵉ trimestre — demande de la famille"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Parent 1",
+      "action": "Déposer les vœux",
+      "before": "en_attente_famille",
+      "after": "saisie_recue",
+      "ok": true,
+      "detail": "réponse enregistrée"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Direction",
+      "action": "Geler et transmettre au conseil",
+      "before": "saisie_recue",
+      "after": "en_conseil",
+      "ok": true,
+      "detail": "advanced=1, skipped=0"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Professeur principal",
+      "action": "Rédiger l’avis (brouillon)",
+      "before": "en_conseil",
+      "after": "en_attente_direction",
+      "ok": true,
+      "detail": "brouillon PP enregistré"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Direction",
+      "action": "Publier l’avis provisoire",
+      "before": "en_attente_direction",
+      "after": "decision_envoyee",
+      "ok": true,
+      "detail": "avis publié + envoi auto de l’étape suivante"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Parent 1",
+      "action": "Confirmer au 2e semestre",
+      "before": "en_attente_famille",
+      "after": "saisie_recue",
+      "ok": true,
+      "detail": "choix définitifs enregistrés"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Direction",
+      "action": "Transmettre la décision finale au conseil",
+      "before": "saisie_recue",
+      "after": "en_conseil",
+      "ok": true,
+      "detail": "advanced=1, skipped=0"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Direction",
+      "action": "Publier la décision définitive",
+      "before": "en_conseil",
+      "after": "en_attente_acceptation",
+      "ok": true,
+      "detail": "décision finale publiée + demande d’acceptation"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Parent 1",
+      "action": "Accepter la décision",
+      "before": "en_attente_acceptation",
+      "after": "acceptee / closed=true",
+      "ok": true,
+      "detail": "étape=appel disponible"
+    },
+    {
+      "kind": "test",
+      "scenario": "S1 nominal collège",
+      "persona": "Admin",
+      "action": "Vérifier les archives PDF",
+      "before": "—",
+      "after": "5 archive(s)",
+      "ok": true,
+      "detail": "document_final(db), saisie_famille(db), conseil(db), choix_definitifs(db), decision_finale_conseil(db)"
+    },
+    {
+      "kind": "test",
+      "scenario": "S2 changement d’avis",
+      "persona": "Parent 1",
+      "action": "Déposer un premier vœu (maintien)",
+      "before": "en_attente_famille",
+      "after": "saisie_recue",
+      "ok": true,
+      "detail": "maintien enregistré"
+    },
+    {
+      "kind": "test",
+      "scenario": "S2 changement d’avis",
+      "persona": "Parent 1",
+      "action": "Réutiliser le lien initial pour changer d’avis",
+      "before": "saisie_recue",
+      "after": "contexte encore valide",
+      "ok": true,
+      "detail": "le lien initial reste valable jusqu’à la clôture de l’étape : correction possible",
+      "ux": "Le parent peut rectifier ses vœux depuis son e-mail initial, sans redemander un code, jusqu’à la date de clôture."
+    },
+    {
+      "kind": "test",
+      "scenario": "S2 changement d’avis",
+      "persona": "Secrétariat",
+      "action": "Cliquer « Envoyer aux familles (manquants) »",
+      "before": "saisie_recue",
+      "after": "0 envoi(s)",
+      "ok": true,
+      "detail": "les fiches saisie_recue sont ignorées : aucun renvoi n’est nécessaire, le lien initial reste ouvert",
+      "ux": "Le secrétariat n’a pas besoin de renvoyer un lien de correction : le parent garde la main jusqu’à la clôture."
+    },
+    {
+      "kind": "test",
+      "scenario": "S2 changement d’avis",
+      "persona": "Parent 1",
+      "action": "Corriger de secours via un nouveau code (OTP simulé)",
+      "before": "saisie_recue",
+      "after": "saisie_recue",
+      "ok": true,
+      "detail": "réponses famille=1, payload={\"values\":{\"destination\":\"5e\"},\"comment\":\"Finalement, passage en 5e.\"}",
+      "ux": "Si le lien est perdu, l’identification + code reste un filet de sécurité."
+    },
+    {
+      "kind": "test",
+      "scenario": "S3 deux parents — accord",
+      "persona": "Parent 1",
+      "action": "Déposer la réponse",
+      "before": "en_attente_famille",
+      "after": "en_attente_accord_parent2",
+      "ok": true,
+      "detail": "2e parent notifié"
+    },
+    {
+      "kind": "test",
+      "scenario": "S3 deux parents — accord",
+      "persona": "Parent 2",
+      "action": "Recevoir le lien de confirmation",
+      "before": "en_attente_accord_parent2",
+      "after": "jeton pour parent2.audit@example.test",
+      "ok": true,
+      "detail": "un seul jeton d’accord est créé, pour la première adresse différente du déposant"
+    },
+    {
+      "kind": "test",
+      "scenario": "S3 deux parents — accord",
+      "persona": "Parent 2",
+      "action": "Confirmer l’accord",
+      "before": "en_attente_accord_parent2",
+      "after": "saisie_recue / confirme",
+      "ok": true,
+      "detail": "accord confirmé"
+    },
+    {
+      "kind": "test",
+      "scenario": "S3 deux parents — accord",
+      "persona": "Parent 2",
+      "action": "Déposer en premier (rôle inversé)",
+      "before": "en_attente_famille",
+      "after": "confirmation demandée à parent1.audit@example.test",
+      "ok": true,
+      "detail": "le dépôt est attribué au parent 2 ; la confirmation part bien vers le parent 1"
+    },
+    {
+      "kind": "test",
+      "scenario": "S3 deux parents — accord",
+      "persona": "Parent 1",
+      "action": "Confirmer la réponse du parent 2",
+      "before": "en_attente_accord_parent2",
+      "after": "saisie_recue / confirme",
+      "ok": true,
+      "detail": "rôle inversé validé"
+    },
+    {
+      "kind": "test",
+      "scenario": "S4 conflit parents",
+      "persona": "Parent 2",
+      "action": "Contredire la réponse",
+      "before": "en_attente_accord_parent2",
+      "after": "en_conflit / en_conflit",
+      "ok": true,
+      "detail": "les deux fiches passent en conflit",
+      "ux": "Alerte staff (PP/direction) et information des deux parents tentées ; sans SMTP, l’échec est best-effort et ne bloque pas le conflit."
+    },
+    {
+      "kind": "test",
+      "scenario": "S4 conflit parents",
+      "persona": "Professeur principal / direction",
+      "action": "Lire le désaccord dans le dossier famille",
+      "before": "en_conflit",
+      "after": "réponses=1, motif=présent",
+      "ok": true,
+      "detail": "le dossier staff expose la réponse déposée et le motif du désaccord, pas seulement un statut"
+    },
+    {
+      "kind": "test",
+      "scenario": "S4 conflit parents",
+      "persona": "Direction",
+      "action": "Geler malgré les conflits",
+      "before": "en_conflit",
+      "after": "advanced=0, skipped=2",
+      "ok": true,
+      "detail": "Prenom-s4a NOM-s4a: Conflit parents à résoudre avant l’avancement | Prenom-s4b NOM-s4b: Conflit parents à résoudre avant l’avancement"
+    },
+    {
+      "kind": "test",
+      "scenario": "S4 conflit parents",
+      "persona": "Direction",
+      "action": "Résoudre les conflits",
+      "before": "en_conflit",
+      "after": "saisie_recue/maintien_famille ; saisie_recue/avis_conseil",
+      "ok": true,
+      "detail": "maintien_famille et avis_conseil tracés dans parentAccord"
+    },
+    {
+      "kind": "test",
+      "scenario": "S4 conflit parents",
+      "persona": "Direction",
+      "action": "Regeler après résolution",
+      "before": "saisie_recue",
+      "after": "advanced=2, skipped=0",
+      "ok": true,
+      "detail": "les deux fiches avancent une fois le conflit résolu"
+    },
+    {
+      "kind": "test",
+      "scenario": "S5 accord tacite",
+      "persona": "Système",
+      "action": "Appliquer l’accord tacite échu",
+      "before": "en_attente_accord_parent2",
+      "after": "saisie_recue / tacite",
+      "ok": true,
+      "detail": "l’accord tacite est bien appliqué",
+      "ux": "Les deux parents sont informés de l’accord tacite (envoi best-effort : sans SMTP, l’accord reste acquis et l’horodatage de notification n’est pas falsifié)."
+    },
+    {
+      "kind": "test",
+      "scenario": "S5 accord tacite",
+      "persona": "Parent 2",
+      "action": "Cliquer sur son lien après l’échéance",
+      "before": "saisie_recue (tacite)",
+      "after": "contexte encore valide",
+      "ok": true,
+      "detail": "le lien affiche l’accord tacite déjà enregistré (tacite)",
+      "ux": "Le parent lit « accord tacite enregistré » au lieu de « lien invalide » : il sait que son silence a été pris en compte."
+    },
+    {
+      "kind": "test",
+      "scenario": "S5 accord tacite",
+      "persona": "Parent 2",
+      "action": "Confirmer après l’échéance (si le lien était encore valide)",
+      "before": "saisie_recue",
+      "after": "saisie_recue",
+      "ok": true,
+      "detail": "action idempotente : l’accord tacite est déjà enregistré",
+      "ux": "Une confirmation tardive ne rouvre pas le dossier et ne produit pas d’erreur anxiogène."
+    },
+    {
+      "kind": "test",
+      "scenario": "S6 refus + appel",
+      "persona": "Direction",
+      "action": "Publier un avis défavorable au redoublement",
+      "before": "en_conseil",
+      "after": "en_attente_acceptation",
+      "ok": true,
+      "detail": "décision finale publiée"
+    },
+    {
+      "kind": "test",
+      "scenario": "S6 refus + appel",
+      "persona": "Parent 1",
+      "action": "Refuser la décision et demander l’appel",
+      "before": "en_attente_acceptation",
+      "after": "en_appel / etape=appel",
+      "ok": true,
+      "detail": "procédure d’appel déclenchée",
+      "ux": "L’e-mail d’appel et l’alerte staff sont prévus ; la direction dispose désormais d’un dossier d’appel pour statuer."
+    },
+    {
+      "kind": "test",
+      "scenario": "S6 refus + appel",
+      "persona": "Parent 1",
+      "action": "Revenir en arrière après l’appel",
+      "before": "en_appel",
+      "after": "en_appel",
+      "ok": true,
+      "detail": "refusé : Cette étape d’acceptation n’est plus l’étape courante de la fiche."
+    },
+    {
+      "kind": "test",
+      "scenario": "S6 refus + appel",
+      "persona": "Direction",
+      "action": "Compléter le dossier d’appel (documents attendus/reçus)",
+      "before": "en_appel",
+      "after": "en_appel / 2 document(s)",
+      "ok": true,
+      "detail": "dossier enregistré sans clôturer : les informations peuvent être ajoutées plus tard",
+      "ux": "La commission est extérieure : l’établissement peut préparer le dossier avant de connaître la décision."
+    },
+    {
+      "kind": "test",
+      "scenario": "S6 refus + appel",
+      "persona": "Direction",
+      "action": "Ajouter un document reçu plus tard",
+      "before": "en_appel",
+      "after": "3 document(s)",
+      "ok": true,
+      "detail": "le dossier reste ouvert et accepte de nouvelles pièces",
+      "ux": "Les informations et documents peuvent arriver après l’ouverture de l’appel sans bloquer la saisie."
+    },
+    {
+      "kind": "test",
+      "scenario": "S6 refus + appel",
+      "persona": "Direction",
+      "action": "Clôturer l’appel après décision extérieure",
+      "before": "en_appel",
+      "after": "cloturee / maintien",
+      "ok": true,
+      "detail": "décision enregistrée ; notification parents=SMTP indisponible",
+      "ux": "La fiche sort enfin de l’appel : décision, motif, dates, documents et PDF sont tracés."
+    },
+    {
+      "kind": "test",
+      "scenario": "S6 refus + appel",
+      "persona": "Admin",
+      "action": "Retrouver le PDF de décision d’appel",
+      "before": "—",
+      "after": "1 archive(s) d’appel",
+      "ok": true,
+      "detail": "Fiche de dialogue — décision d’appel"
+    },
+    {
+      "kind": "test",
+      "scenario": "S6 refus + appel",
+      "persona": "Admin",
+      "action": "Vérifier le document final d’appel",
+      "before": "—",
+      "after": "1 document(s) final(aux)",
+      "ok": true,
+      "detail": "Fiche de dialogue — document final — Prenom-s6 NOM-s6"
+    },
+    {
+      "kind": "test",
+      "scenario": "S7 avenant après acceptation",
+      "persona": "Direction",
+      "action": "Publier un avenant après acceptation",
+      "before": "acceptee",
+      "after": "en_attente_acceptation / etape=acceptation",
+      "ok": true,
+      "detail": "avenant publié, nouvelle acceptation demandée",
+      "ux": "Le formulaire d’avenant s’ouvre vide : l’admin doit ressaisir la décision, sans voir l’avis précédent."
+    },
+    {
+      "kind": "test",
+      "scenario": "S7 avenant après acceptation",
+      "persona": "Parent 1",
+      "action": "Accepter l’avenant",
+      "before": "en_attente_acceptation",
+      "after": "acceptee",
+      "ok": true,
+      "detail": "nouvelle décision acceptée"
+    },
+    {
+      "kind": "test",
+      "scenario": "S7 avenant après acceptation",
+      "persona": "Admin",
+      "action": "Retrouver l’avenant dans les archives",
+      "before": "—",
+      "after": "7 archive(s)",
+      "ok": true,
+      "detail": "saisie_famille, conseil, choix_definitifs, decision_finale_conseil, document_final, decision_finale_conseil_avenant, document_final"
+    },
+    {
+      "kind": "test",
+      "scenario": "S8 non-répondant",
+      "persona": "Direction",
+      "action": "Geler avec un non-répondant",
+      "before": "1 prête + 1 sans réponse",
+      "after": "en_conseil / en_attente_famille",
+      "ok": true,
+      "detail": "advanced=1, skipped=Prenom-s8late NOM-s8late: Aucune réponse famille"
+    },
+    {
+      "kind": "test",
+      "scenario": "S8 non-répondant",
+      "persona": "Direction",
+      "action": "Dégeler, relancer, regeler",
+      "before": "étape gelée",
+      "after": "en_conseil (advanced=1)",
+      "ok": true,
+      "detail": "réponse tardive acceptée puis avancée"
+    },
+    {
+      "kind": "test",
+      "scenario": "S9 campagne clôturée",
+      "persona": "Parent 1",
+      "action": "Ouvrir un ancien lien après clôture",
+      "before": "en_attente_famille",
+      "after": "campagneOpen=false / a_envoyer",
+      "ok": true,
+      "detail": "réponse=La campagne est clôturée : la saisie n’est plus possible. ; envoi=La campagne est clôturée. ; closedAt=renseigné",
+      "ux": "La clôture est horodatée et coupe les liens, les réponses et les relances ; l’UI campagne propose désormais clôturer puis archiver."
+    },
+    {
+      "kind": "test",
+      "scenario": "S10 envois",
+      "persona": "Système",
+      "action": "Envoi unitaire sans SMTP",
+      "before": "a_envoyer",
+      "after": "a_envoyer / sent=false",
+      "ok": true,
+      "detail": "l’e-mail n’est pas parti : statut et lastSentAt restent inchangés (pas de faux positif)",
+      "ux": "L’admin voit un échec réel et peut relancer ; le lien personnel reste disponible pour un renvoi."
+    },
+    {
+      "kind": "test",
+      "scenario": "S10 envois",
+      "persona": "Secrétariat",
+      "action": "Envoyer à une fiche sans e-mail parent",
+      "before": "a_envoyer",
+      "after": "a_envoyer / campagne=active",
+      "ok": true,
+      "detail": "sent=0, failed=2, errors=Prenom-s10 NOM-s10: envoi non délivré (parent1.audit@example.test: smtp) | Prenom-s10b NOM-s10b: Aucun e-mail parent renseigné.",
+      "ux": "La campagne peut être activée alors qu’aucun e-mail n’est parti pour la fiche sans contact."
+    },
+    {
+      "kind": "test",
+      "scenario": "S11 Terminale",
+      "persona": "Admin",
+      "action": "Créer une campagne Tle en mode conseil d’abord",
+      "before": "—",
+      "after": "starter=famille_dabord / étapes=6",
+      "ok": true,
+      "detail": "le mode est normalisé en famille_dabord et une acceptation est présente"
+    },
+    {
+      "kind": "test",
+      "scenario": "S11 Terminale",
+      "persona": "Parent 1",
+      "action": "Accepter la décision finale",
+      "before": "en_attente_acceptation",
+      "after": "acceptee",
+      "ok": true,
+      "detail": "Terminale clôturée"
+    },
+    {
+      "kind": "test",
+      "scenario": "S12 1re ST2S",
+      "persona": "Admin",
+      "action": "Vérifier le catalogue ST2S",
+      "before": "—",
+      "after": "tle_st2s, maintien, ailleurs, autre_parcours",
+      "ok": true,
+      "detail": "template=lycee_1ere_st2s"
+    },
+    {
+      "kind": "test",
+      "scenario": "S12 1re ST2S",
+      "persona": "Parent 1",
+      "action": "Choisir la Terminale ST2S",
+      "before": "en_attente_famille",
+      "after": "saisie_recue",
+      "ok": true,
+      "detail": "vœu ST2S enregistré"
+    },
+    {
+      "kind": "test",
+      "scenario": "S13 signatures",
+      "persona": "Direction",
+      "action": "Publier avec la seule signature direction",
+      "before": "saisie_recue",
+      "after": "decision_envoyee",
+      "ok": true,
+      "detail": "le workflow n’exige pas la signature du PP, seulement celle de la direction",
+      "ux": "Un avis peut être publié sans signature PP alors que le libellé de l’étape annonce « signatures PP puis direction »."
+    },
+    {
+      "kind": "test",
+      "scenario": "S13 signatures",
+      "persona": "Professeur principal",
+      "action": "Tenter de publier un avis avec le rôle professeur",
+      "before": "—",
+      "after": "professeur=refusé ; direction=autorisée",
+      "ok": true,
+      "detail": "la garde serveur canPublishFichesDialogue réserve la publication à la direction/admin",
+      "ux": "Un PP peut préparer un brouillon mais ne peut plus auto-valider en tapant « Direction »."
+    },
+    {
+      "kind": "test",
+      "scenario": "S14 élève",
+      "persona": "Élève",
+      "action": "Chercher un rôle décideur, une signature ou un jeton élève",
+      "before": "—",
+      "after": "roles=conseil, famille ; purposes=acceptation, accord_parent2, saisie",
+      "ok": true,
+      "detail": "aucun rôle « eleve » ni jeton élève : l’élève ne décide pas et ne signe pas",
+      "ux": "L’élève est le sujet de la fiche mais n’est jamais acteur : ses responsables légaux décident, l’établissement arbitre."
+    },
+    {
+      "kind": "test",
+      "scenario": "S14 élève",
+      "persona": "Élève",
+      "action": "Consulter sa fiche de dialogue",
+      "before": "en_attente_famille",
+      "after": "fiches=1, réponse famille=true",
+      "ok": true,
+      "detail": "l’élève est rattaché par e-mail (insensible à la casse) et voit les réponses lisibles",
+      "ux": "Écran /eleve/fiches-dialogue en lecture seule : aucune action, aucun contact, aucun jeton."
+    },
+    {
+      "kind": "test",
+      "scenario": "S14 élève",
+      "persona": "Élève non rattaché",
+      "action": "Tenter d’ouvrir le dossier d’un autre élève",
+      "before": "—",
+      "after": "aucun rattachement",
+      "ok": true,
+      "detail": "une adresse sans correspondance ne donne accès à aucune fiche",
+      "ux": "L’écran affiche un message clair invitant à contacter la vie scolaire si le rattachement manque."
+    },
+    {
+      "kind": "test",
+      "scenario": "S15 admin aveugle",
+      "persona": "Professeur principal / direction",
+      "action": "Ouvrir le dossier famille pour préparer l’avis du conseil",
+      "before": "saisie_recue",
+      "after": "réponses=1, vœu=maintien, commentaire=lisible, secrets=absents",
+      "ok": true,
+      "detail": "GET /api/fiches-dialogue/fiches/[id] renvoie le vœu, le commentaire, les signatures et les documents, sans jeton ni code",
+      "ux": "Le PP voit la demande de la famille avant de décider ; le formulaire conseil est prérempli avec le dernier vœu (ou la dernière proposition en avenant)."
+    },
+    {
+      "kind": "test",
+      "scenario": "S15 admin aveugle",
+      "persona": "Parent 1 / Parent 2",
+      "action": "Recevoir le lien initial",
+      "before": "en_attente_famille",
+      "after": "2 jeton(s) saisi pour 2 adresse(s)",
+      "ok": true,
+      "detail": "jetons personnels : parent2.audit@example.test · parent1.audit@example.test",
+      "ux": "Chaque responsable reçoit son propre lien et son propre code : le dépôt est attribué à la bonne adresse et l’autre parent reçoit la demande de confirmation."
+    }
+  ]
+}

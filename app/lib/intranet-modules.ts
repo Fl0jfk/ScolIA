@@ -8,7 +8,7 @@
  * ═══════════════════════════════════════════════════════════════════
  */
 
-import { hasGlobalAdminRole, hasMasterRole, hasRole, isEleveOnlyRoleSet, normRole } from "./intranet-role-utils";
+import { hasEleveRole, hasGlobalAdminRole, hasMasterRole, hasRole, isEleveOnlyRoleSet, normRole } from "./intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS, intranetRolesExceptParent, rolesFromUserLike } from "./intranet-roles";
 import { RGPD_MODULE_ROLES } from "./rgpd-access";
 import { scolaImageUrl } from "./scola-image";
@@ -121,6 +121,7 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
 const INTRANET_ELEVE_ALLOWED_PREFIXES = [
   "/dashboard",
   "/bien-etre",
+  "/eleve",
   "/api/dashboard",
   "/api/bien-etre",
   "/api/app/context",
@@ -292,7 +293,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/domain-planning",
       external: false,
-      description: "Positionnements, séances et validation des intervenants par domaine.",
+      description: "Positionnements EVARS, séances et validation des intervenants — comme une réservation de salle.",
     },
   },
   {
@@ -1326,6 +1327,16 @@ export function canAccessIntranetPath(
     return INTRANET_ELEVE_ALLOWED_PREFIXES.some(
       (p) => normalized === p || normalized.startsWith(`${p}/`),
     );
+  }
+
+  /** Un compte multi-rôles (élève + personnel) garde l’accès à son espace élève. */
+  if (
+    hasEleveRole(roles) &&
+    INTRANET_ELEVE_ALLOWED_PREFIXES.some(
+      (p) => normalized === p || normalized.startsWith(`${p}/`),
+    )
+  ) {
+    return true;
   }
 
   if (

@@ -1,13 +1,63 @@
 import "server-only";
 
-import { getConventionsIndex, getStageConventionsByIds } from "@/app/lib/stage-storage";
+import { getConventionsFromDb } from "@/app/lib/stage-db";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import type { StageConvention, StageConventionStatus } from "@/app/lib/stage-types";
+import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
+
+function withSanitizedStudentEmail(convention: StageConvention): StageConvention {
+  const raw = convention.student.email;
+  const cleaned = sanitizeElevePersonalEmail(raw);
+  const previous = raw?.trim() ? raw.trim().toLowerCase() : undefined;
+  if (cleaned === previous) return convention;
+  return {
+    ...convention,
+    student: {
+      ...convention.student,
+      email: cleaned,
+    },
+  };
+}
 
 /**
- * Charge des conventions par id en lot (2 requêtes SQL), plus un GET N+1.
+ * Charge des conventions par id en 2 requêtes SQL par lot (ids chunkés).
+ * Repli unitaire `getStageConvention` pour les ids encore uniquement en legacy.
  */
 export async function loadStageConventionsByIds(ids: string[]): Promise<StageConvention[]> {
-  return getStageConventionsByIds(ids);
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  const out: StageConvention[] = [];
+
+  if (etabId) {
+    const loaded = await getConventionsFromDb(etabId, unique);
+    for (const c of loaded) {
+      out.push(withSanitizedStudentEmail(c));
+    }
+    const found = new Set(loaded.map((c) => c.id));
+    const missing = unique.filter((id) => !found.has(id));
+    for (const id of missing) {
+      try {
+        const convention = await getStageConvention(id);
+        if (convention) out.push(convention);
+      } catch (error) {
+        console.error("[stage-convention-load] convention illisible, ignorée", id, error);
+      }
+    }
+    return out;
+  }
+
+  for (const id of unique) {
+    try {
+      const convention = await getStageConvention(id);
+      if (convention) out.push(convention);
+    } catch (error) {
+      console.error("[stage-convention-load] convention illisible, ignorée", id, error);
+    }
+  }
+  return out;
 }
 
 const SKIP_STATUSES: ReadonlySet<StageConventionStatus> = new Set([
@@ -16,7 +66,7 @@ const SKIP_STATUSES: ReadonlySet<StageConventionStatus> = new Set([
   "cancelled",
 ]);
 
-/** Index filtré puis chargement en lot — pour les listes admin. */
+/** Index filtré puis chargement par lot — pour le hub stages. */
 export async function loadActiveStageConventions(): Promise<StageConvention[]> {
   const index = await getConventionsIndex();
   const ids = index.filter((e) => !SKIP_STATUSES.has(e.status)).map((e) => e.id);

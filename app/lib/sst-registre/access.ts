@@ -5,9 +5,21 @@ export function canAccessSstRegistre(roles: string[]): boolean {
   return canAccessRhPersonalEspace(roles);
 }
 
-/** Pilotage : suivi des signatures, visas, clôture des fiches. */
+/** Pilotage : suivi des signatures, visas, clôture des fiches + paramétrage proxy. */
 export function canManageSstRegistre(roles: string[]): boolean {
   return canAccessRhPilotageDashboard(roles);
+}
+
+/** Droit de dépôt pour autrui : pilotage RH, ou liste paramétrée côté établissement. */
+export function canDepositSstForOthers(params: {
+  roles: string[];
+  userId: string;
+  proxyUserIds: ReadonlySet<string> | readonly string[];
+}): boolean {
+  if (canManageSstRegistre(params.roles)) return true;
+  const uid = params.userId.trim();
+  if (!uid) return false;
+  return new Set(params.proxyUserIds).has(uid);
 }
 
 export function primaryFonctionFromRoles(roles: string[]): string {

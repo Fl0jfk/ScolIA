@@ -139,25 +139,15 @@ function StagesContent() {
       const b = await bRes.json();
       if (!bRes.ok) throw new Error(b?.error || "Erreur");
       setBoard(b);
+      setHasStoredSignature(
+        typeof b?.hasStoredSignature === "boolean" ? b.hasStoredSignature : undefined,
+      );
       const clientMs = Math.round(performance.now() - t0);
       console.info("[ScolIA][stages/hub]", {
         clientMs,
         server: b?.perf ?? null,
         valkey: b?.cache?.valkey ?? null,
       });
-      // Préchauffe le suivi classe (Valkey) pendant que l’utilisateur lit le tableau de bord.
-      if (b?.permissions?.canViewClassRoster) {
-        void fetch("/api/stages/class-roster", { cache: "no-store" }).catch(() => undefined);
-      }
-      if ((b.myPendingSignatures?.length ?? 0) > 0) {
-        try {
-          const sigRes = await fetch("/api/stages/my-signature", { cache: "no-store" });
-          const sigData = await sigRes.json();
-          if (sigRes.ok) setHasStoredSignature(Boolean(sigData.hasSignature));
-        } catch {
-          /* ignore */
-        }
-      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     }
@@ -1056,7 +1046,7 @@ function StagesContent() {
           {
             id: "classe",
             label: "Suivi classe",
-            hidden: !permissions?.canViewClassRoster,
+            hidden: permissions ? !permissions.canViewClassRoster : tab !== "classe",
             dataAttrs: { "data-stages-tab": "classe" },
           },
           {
@@ -1076,6 +1066,8 @@ function StagesContent() {
         onChange={setTab}
         badges={{ classe: board?.counts?.myPendingSignatures }}
       />
+
+      {tab === "classe" && permissions == null && <ModuleTabFallback />}
 
       {tab === "classe" && permissions?.canViewClassRoster && (
         <StagesClassePanel

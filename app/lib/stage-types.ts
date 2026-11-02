@@ -90,11 +90,16 @@ export type StageDaySlot = {
   date?: string;
   /** Jour de la semaine (mode uniform_week) */
   weekday?: StageWeekday;
+  /** Null / vide = ne travaille pas le matin (si pause midi). */
   morningStart?: string | null;
   morningEnd?: string | null;
+  /** Null / vide = ne travaille pas l'après-midi (si pause midi). */
   afternoonStart?: string | null;
   afternoonEnd?: string | null;
-  /** Si false : une seule plage (morningStart–morningEnd ou fullDay) */
+  /**
+   * Si false : une seule plage (morningStart–morningEnd ou fullDay).
+   * Si true : matin et/ou après-midi — au moins une demi-journée obligatoire.
+   */
   hasLunchBreak: boolean;
   fullDayStart?: string | null;
   fullDayEnd?: string | null;

@@ -83,7 +83,14 @@ export default function StageSignatureProgress({
             : `${pct} %`}
         </span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-100">
+      <div
+        className="h-1.5 w-full overflow-hidden rounded-full bg-stone-100"
+        role="progressbar"
+        aria-valuenow={summary.signed}
+        aria-valuemin={0}
+        aria-valuemax={summary.total}
+        aria-label={`Signatures : ${summary.signed} sur ${summary.total}`}
+      >
         <div
           className={`h-full rounded-full transition-all ${
             summary.complete ? "bg-emerald-500" : "bg-amber-400"

@@ -38,11 +38,28 @@ export type SstEmargementDto = {
   hasSignature: boolean;
 };
 
+export type SstProxyPerson = {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
+export type SstStaffOption = {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  fonction: string;
+};
+
 export type SstMyStatus = {
   campagne: SstCampagneDto;
   signed: boolean;
   emargement: SstEmargementDto | null;
   canManage: boolean;
+  /** Direction / RH pilotage, ou personne listée dans le paramétrage proxy. */
+  canDepositForOthers: boolean;
   openFichesCount: number;
 };
 
@@ -74,6 +91,9 @@ export type SstFicheListItem = {
   lieu: string;
   observationsPreview: string;
   declarantName: string;
+  createdByName: string;
+  /** true si le déposant n’est pas le déclarant (fiche pour autrui). */
+  depositedForOther: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -84,9 +104,14 @@ export type SstFicheDetail = {
   status: SstFicheStatus;
   campagneId: string;
   createdByUserId: string;
+  createdByFirstName: string;
+  createdByLastName: string;
+  declarantUserId: string;
   declarantFirstName: string;
   declarantLastName: string;
   declarantFonction: string;
+  /** true si le déposant n’est pas le déclarant. */
+  depositedForOther: boolean;
   observedDate: string;
   observedTime: string;
   lieu: string;

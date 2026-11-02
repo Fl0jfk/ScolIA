@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import { HOME_SIGNAL_TILE_LINK_CLASS } from "@/app/components/Dashboard/home-signal-tile-link";
 import {
   notificationCountForShortcut,
   type DashboardNotification,
@@ -9,14 +11,18 @@ import {
   type DashboardShortcutSlide,
   type DashboardShortcutTone,
 } from "@/app/lib/dashboard-signals";
+import { isDashboardFaceCountUnavailable } from "@/app/lib/dashboard-signals-display";
+import type { DashboardSignalSourceId, SignalSourceStatus } from "@/app/lib/dashboard-signals-parallel";
 import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
 
 type Face = {
   id: string;
+  moduleId: string;
   label: string;
   detail?: string;
   badge?: string;
   count?: number;
+  unavailable?: boolean;
   href: string;
 };
 
@@ -66,36 +72,57 @@ function bestTone(tones: Array<DashboardShortcutTone | undefined>): DashboardSho
   return [...tones].sort((a, b) => toneRank(a) - toneRank(b))[0] || "neutral";
 }
 
-function slideToFace(slide: DashboardShortcutSlide, fallbackHref: string): Face {
+function slideToFace(
+  slide: DashboardShortcutSlide,
+  fallbackHref: string,
+  parent: DashboardShortcut,
+  slideCount: number,
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>,
+): Face {
+  const ref = { id: slide.id, moduleId: parent.moduleId, signalSourceId: parent.signalSourceId };
+  const unavailable = isDashboardFaceCountUnavailable(slideCount, ref, sourceStatus);
   return {
     id: slide.id,
+    moduleId: parent.moduleId,
     label: slide.label,
     detail: slide.detail,
     badge: slide.badge,
-    count: slide.count,
+    count: unavailable ? undefined : slideCount > 0 ? slideCount : slide.count,
+    unavailable,
     href: slide.href || fallbackHref,
   };
 }
 
-function shortcutToFaces(s: DashboardShortcut, count: number): Face[] {
+function shortcutToFaces(
+  s: DashboardShortcut,
+  count: number,
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>,
+): Face[] {
   if (s.slides && s.slides.length > 0) {
-    return s.slides.map((sl) =>
-      slideToFace(
+    return s.slides.map((sl) => {
+      const slideCount = sl.count ?? (sl.id === s.id ? count : sl.count) ?? 0;
+      return slideToFace(
         {
           ...sl,
           count: sl.count ?? (sl.id === s.id ? count : sl.count),
         },
         s.href,
-      ),
-    );
+        s,
+        slideCount,
+        sourceStatus,
+      );
+    });
   }
+  const unavailable = isDashboardFaceCountUnavailable(count, s, sourceStatus);
   return [
     {
       id: s.id,
+      moduleId: s.moduleId,
       label: s.label,
       detail: s.detail,
       badge: s.badge,
-      count: count > 0 ? count : undefined,
+      count: unavailable ? undefined : count > 0 ? count : undefined,
+      unavailable,
       href: s.href,
     },
   ];
@@ -113,6 +140,13 @@ function dedupeFaces(faces: Face[]): Face[] {
   return out;
 }
 
+function unavailableHintClass(tone: DashboardShortcutTone): string {
+  if (tone === "warn") return "text-amber-100";
+  if (tone === "info") return "text-white";
+  if (tone === "action") return "text-[var(--dash-ink)]";
+  return "text-neutral-600";
+}
+
 function tileShell(tone: DashboardShortcutTone): string {
   if (tone === "warn") {
     return "bg-[#1a1208] text-amber-50 ring-1 ring-amber-400/30";
@@ -126,7 +160,13 @@ function tileShell(tone: DashboardShortcutTone): string {
   return "bg-white text-[var(--dash-ink)] ring-1 ring-black/6";
 }
 
-function HomeSignalCard({ tile }: { tile: HomeTile }) {
+function HomeSignalCard({
+  tile,
+  onRetry,
+}: {
+  tile: HomeTile;
+  onRetry?: () => void;
+}) {
   const [slideIdx, setSlideIdx] = useState(0);
   const faces = tile.faces;
   const multi = faces.length > 1;
@@ -141,15 +181,34 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
 
   const active = faces[slideIdx] ?? faces[0]!;
 
+  const faceUnavailable = active.unavailable;
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetry = async () => {
+    if (!onRetry || retrying) return;
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   return (
-    <Link
-      href={active.href}
+    <div
       className={`group relative flex min-h-[11rem] flex-col overflow-hidden rounded-[1.75rem] p-5 transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(0,0,0,0.45)] sm:p-5 ${tileShell(
         tile.tone,
       )}`}
     >
+      <Link
+        href={active.href}
+        className={HOME_SIGNAL_TILE_LINK_CLASS}
+        aria-label={`Ouvrir ${active.label}`}
+      >
+        <span className="sr-only">Ouvrir {active.label}</span>
+      </Link>
       <div
-        className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-40 blur-2xl transition group-hover:opacity-70"
+        className="pointer-events-none absolute -right-8 -top-8 z-[1] h-28 w-28 rounded-full opacity-40 blur-2xl transition group-hover:opacity-70"
         style={{
           background:
             tile.tone === "action"
@@ -161,7 +220,7 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
         aria-hidden
       />
 
-      <div className="relative flex items-start justify-between gap-3">
+      <div className="relative z-[1] flex items-start justify-between gap-3 pointer-events-none">
         <div className="min-w-0">
           <p
             className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${
@@ -193,10 +252,17 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
         </span>
       </div>
 
-      <div className="relative mt-3 min-h-[5.75rem] flex-1">
+      <div className="relative z-[1] mt-3 min-h-[5.75rem] flex-1 pointer-events-none">
         {faces.map((face, i) => {
           const visible = i === slideIdx;
           const faceCount = face.count ?? 0;
+          const countDisplay = face.unavailable
+            ? null
+            : faceCount > 0
+              ? faceCount > 99
+                ? "99+"
+                : String(faceCount)
+              : null;
           return (
             <div
               key={face.id}
@@ -207,12 +273,23 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
               }`}
               aria-hidden={!visible}
             >
-              {faceCount > 0 ? (
+              {face.unavailable ? (
+                <>
+                  <p className="text-4xl font-black leading-none tracking-tight sm:text-5xl">—</p>
+                  <p
+                    className={`mt-2 text-sm font-medium leading-snug ${unavailableHintClass(tile.tone)}`}
+                  >
+                    Compteur momentanément indisponible. Nouvelle tentative automatique sous 60 s.
+                  </p>
+                </>
+              ) : countDisplay ? (
                 <p className="text-4xl font-black leading-none tracking-tight sm:text-5xl">
-                  {faceCount > 99 ? "99+" : faceCount}
+                  {countDisplay}
                 </p>
               ) : null}
-              <div className={`flex flex-wrap items-center gap-2 ${faceCount > 0 ? "mt-2" : ""}`}>
+              <div
+                className={`flex flex-wrap items-center gap-2 ${countDisplay || face.unavailable ? "mt-2" : ""}`}
+              >
                 <p className="text-lg font-semibold tracking-tight sm:text-xl">{face.label}</p>
                 {face.badge ? (
                   <span
@@ -250,7 +327,7 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
         })}
       </div>
 
-      <div className="relative mt-3 flex items-center justify-between gap-2">
+      <div className="relative z-10 mt-3 flex items-center justify-between gap-2">
         {multi ? (
           <div className="flex items-center gap-1.5" aria-hidden>
             {faces.map((f, i) => (
@@ -291,42 +368,70 @@ function HomeSignalCard({ tile }: { tile: HomeTile }) {
             Ouvrir
           </span>
         )}
-        <span
-          className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-lg transition group-hover:translate-x-0.5 ${
-            tile.tone === "action"
-              ? "bg-[var(--dash-ink)] text-white"
-              : tile.tone === "warn"
-                ? "bg-amber-400 text-[#1a1208]"
-                : tile.tone === "info"
-                  ? "bg-[color:var(--dash-lime)] text-[var(--dash-ink)]"
-                  : "bg-[var(--dash-ink)] text-white"
-          }`}
-          aria-hidden
-        >
-          →
-        </span>
+        <div className="flex items-center gap-2">
+          {faceUnavailable && onRetry ? (
+            <ModuleButton
+              type="button"
+              variant="secondary"
+              disabled={retrying}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleRetry();
+              }}
+              className="!px-3 !py-1.5 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)] focus-visible:ring-offset-2"
+            >
+              {retrying ? "Actualisation…" : "Réessayer"}
+            </ModuleButton>
+          ) : null}
+          <span
+            className={`pointer-events-none inline-flex h-9 w-9 items-center justify-center rounded-full text-lg ${
+              tile.tone === "action"
+                ? "bg-[var(--dash-ink)] text-white"
+                : tile.tone === "warn"
+                  ? "bg-amber-400 text-[#1a1208]"
+                  : tile.tone === "info"
+                    ? "bg-[color:var(--dash-lime)] text-[var(--dash-ink)]"
+                    : "bg-[var(--dash-ink)] text-white"
+            }`}
+            aria-hidden
+          >
+            →
+          </span>
+        </div>
       </div>
-    </Link>
+    </div>
   );
 }
 
 type Props = {
   shortcuts: DashboardShortcut[];
   notifications: DashboardNotification[];
+  sourceStatus?: Record<DashboardSignalSourceId, SignalSourceStatus>;
   loading?: boolean;
+  onRetry?: () => void | Promise<unknown>;
 };
 
 /**
  * Bento signaux : 1 tuile par module, faces fusionnées + transition.
  */
-export default function HomeSignalBento({ shortcuts, notifications, loading }: Props) {
+export default function HomeSignalBento({
+  shortcuts,
+  notifications,
+  sourceStatus,
+  loading,
+  onRetry,
+}: Props) {
   const tiles = useMemo(() => {
     const worthy = shortcuts
       .map((s) => ({
         shortcut: s,
         count: notificationCountForShortcut(s, notifications),
       }))
-      .filter(({ shortcut, count }) => isHomeWorthy(shortcut, count));
+      .filter(
+        ({ shortcut, count }) =>
+          isHomeWorthy(shortcut, count) ||
+          isDashboardFaceCountUnavailable(count, shortcut, sourceStatus),
+      );
 
     const byModule = new Map<string, typeof worthy>();
     for (const item of worthy) {
@@ -344,7 +449,7 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
         return b.count - a.count;
       });
       const faces = dedupeFaces(
-        items.flatMap(({ shortcut, count }) => shortcutToFaces(shortcut, count)),
+        items.flatMap(({ shortcut, count }) => shortcutToFaces(shortcut, count, sourceStatus)),
       );
       if (faces.length === 0) continue;
       const tone = bestTone(items.map((i) => i.shortcut.tone));
@@ -371,7 +476,8 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
     const coveredFaceIds = new Set(grouped.flatMap((t) => t.faces.map((f) => f.id)));
 
     for (const n of notifications) {
-      if (n.count <= 0) continue;
+      const unavailable = isDashboardFaceCountUnavailable(n.count, n, sourceStatus);
+      if (n.count <= 0 && !unavailable) continue;
       if (coveredModules.has(n.moduleId)) continue;
       if (coveredFaceIds.has(n.id)) continue;
       grouped.push({
@@ -383,10 +489,12 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
         faces: [
           {
             id: n.id,
+            moduleId: n.moduleId,
             label: n.label,
             detail: n.detail,
             badge: "À traiter",
-            count: n.count,
+            count: unavailable ? undefined : n.count > 0 ? n.count : undefined,
+            unavailable,
             href: n.href,
           },
         ],
@@ -397,7 +505,7 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
     return grouped
       .sort((a, b) => toneRank(a.tone) - toneRank(b.tone))
       .slice(0, 6);
-  }, [shortcuts, notifications]);
+  }, [shortcuts, notifications, sourceStatus]);
 
   if (loading && tiles.length === 0) {
     return (
@@ -447,7 +555,7 @@ export default function HomeSignalBento({ shortcuts, notifications, loading }: P
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((tile) => (
-          <HomeSignalCard key={tile.id} tile={tile} />
+          <HomeSignalCard key={tile.id} tile={tile} onRetry={onRetry} />
         ))}
       </div>
     </div>

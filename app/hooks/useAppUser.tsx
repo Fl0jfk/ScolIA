@@ -13,6 +13,7 @@ import {
 export type ClientAppUser = {
   id: string;
   businessUserId: string;
+  etablissementId?: string | null;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -55,6 +56,7 @@ const AppUserContext = createContext<AppUserContextValue | null>(null);
 function mapApiUser(u: {
   id: string;
   businessUserId?: string;
+  etablissementId?: string | null;
   email: string;
   name?: string;
   firstName?: string;
@@ -75,6 +77,7 @@ function mapApiUser(u: {
   return {
     id: u.id,
     businessUserId: u.businessUserId?.trim() || u.externalUserId?.trim() || u.id,
+    etablissementId: u.etablissementId?.trim() || null,
     email: u.email,
     firstName: u.firstName,
     lastName: u.lastName,

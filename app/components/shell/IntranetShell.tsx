@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
+import { DashboardSignalsProvider } from "@/app/components/shell/DashboardSignalsProvider";
 import EleveDossierModalProvider from "@/app/components/shell/EleveDossierModalProvider";
 import IntranetSidebar from "@/app/components/shell/IntranetSidebar";
 
@@ -30,11 +31,11 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
     };
   }, [shellActive]);
 
-  if (!shellActive) {
-    return <>{children}</>;
-  }
-
   return (
+    <DashboardSignalsProvider>
+      {!shellActive ? (
+        children
+      ) : (
     <DashboardThemeRoot>
       <EleveDossierModalProvider>
         <div className="min-h-screen lg:pl-[17.5rem]">
@@ -61,5 +62,7 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
         </div>
       </EleveDossierModalProvider>
     </DashboardThemeRoot>
+      )}
+    </DashboardSignalsProvider>
   );
 }

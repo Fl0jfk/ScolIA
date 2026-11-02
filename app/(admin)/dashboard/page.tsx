@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo } from "react";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
@@ -20,7 +21,13 @@ export default function Home() {
   const { isLoaded, user } = useSessionUser();
   const isOrgAdmin = useIsOrgAdmin();
   const data = useData();
-  const { shortcuts, notifications, loading: loadingSignals } = useDashboardSignals();
+  const {
+    shortcuts,
+    notifications,
+    sourceStatus,
+    loading: loadingSignals,
+    refresh: refreshSignals,
+  } = useDashboardSignals();
 
   const userRoles = useMemo(() => {
     if (!user) return [];
@@ -75,6 +82,12 @@ export default function Home() {
               <p className="text-sm leading-relaxed text-neutral-600">
                 Ouvre la bulle en bas à droite pour parler au bot d&apos;écoute.
               </p>
+              <Link
+                href="/eleve/fiches-dialogue"
+                className="mt-5 inline-flex rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+              >
+                Voir mes fiches de dialogue
+              </Link>
             </div>
           ) : (
             <>
@@ -83,7 +96,9 @@ export default function Home() {
               <HomeSignalBento
                 shortcuts={shortcuts}
                 notifications={notifications}
+                sourceStatus={sourceStatus}
                 loading={loadingSignals}
+                onRetry={() => refreshSignals()}
               />
             </>
           )}

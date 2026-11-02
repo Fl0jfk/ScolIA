@@ -8,6 +8,10 @@ import DirectoryPersonSelect, {
 } from "@/app/components/settings/DirectoryPersonSelect";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import type { AbsenceNotifyPerson } from "@/app/lib/app-config-schemas";
+import { dash } from "@/app/lib/dashboard-brand";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+
+const stepBannerClass = `rounded-[1.35rem] border p-5 ${dash.border} bg-[color:var(--dash-soft-muted)]`;
 
 type ProcessorsPayload = {
   absencesValidatorsOgec: AbsenceNotifyPerson[];
@@ -125,8 +129,8 @@ export default function AbsencesProcessorsPanel() {
   return (
     <div className="space-y-6">
       <section className="space-y-3">
-        <div className="rounded-3xl border border-amber-200 bg-amber-50/60 p-5">
-          <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">
+        <div className={stepBannerClass}>
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
             1 · Validation
           </p>
           <h3 className="mt-1 font-black text-slate-900">Qui accepte / prend acte ?</h3>
@@ -137,10 +141,10 @@ export default function AbsencesProcessorsPanel() {
           </p>
         </div>
 
-        <label className="block rounded-3xl border border-slate-200 bg-white p-5">
-          <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+        <fieldset className="block rounded-3xl border border-slate-200 bg-white p-5">
+          <legend className="text-[11px] font-black uppercase tracking-wider text-slate-500">
             Personnel OGEC — validateurs par défaut
-          </span>
+          </legend>
           <p className="mt-1 text-xs text-slate-500">
             Exceptions individuelles : fiche RH du personnel → « Absences — qui valide ? ».
           </p>
@@ -153,12 +157,12 @@ export default function AbsencesProcessorsPanel() {
               }
             />
           </div>
-        </label>
+        </fieldset>
 
-        <label className="block rounded-3xl border border-slate-200 bg-white p-5">
-          <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+        <fieldset className="block rounded-3xl border border-slate-200 bg-white p-5">
+          <legend className="text-[11px] font-black uppercase tracking-wider text-slate-500">
             Professeurs — école (validation)
-          </span>
+          </legend>
           <div className="mt-2">
             <DirectoryPeoplePersonSelect
               members={members}
@@ -168,12 +172,12 @@ export default function AbsencesProcessorsPanel() {
               }
             />
           </div>
-        </label>
+        </fieldset>
 
-        <label className="block rounded-3xl border border-slate-200 bg-white p-5">
-          <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+        <fieldset className="block rounded-3xl border border-slate-200 bg-white p-5">
+          <legend className="text-[11px] font-black uppercase tracking-wider text-slate-500">
             Professeurs — collège (validation)
-          </span>
+          </legend>
           <div className="mt-2">
             <DirectoryPeoplePersonSelect
               members={members}
@@ -183,12 +187,12 @@ export default function AbsencesProcessorsPanel() {
               }
             />
           </div>
-        </label>
+        </fieldset>
 
-        <label className="block rounded-3xl border border-slate-200 bg-white p-5">
-          <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+        <fieldset className="block rounded-3xl border border-slate-200 bg-white p-5">
+          <legend className="text-[11px] font-black uppercase tracking-wider text-slate-500">
             Professeurs — lycée (validation)
-          </span>
+          </legend>
           <div className="mt-2">
             <DirectoryPeoplePersonSelect
               members={members}
@@ -198,12 +202,12 @@ export default function AbsencesProcessorsPanel() {
               }
             />
           </div>
-        </label>
+        </fieldset>
       </section>
 
       <section className="space-y-3">
-        <div className="rounded-3xl border border-indigo-200 bg-indigo-50/50 p-5">
-          <p className="text-[11px] font-black uppercase tracking-widest text-indigo-700">
+        <div className={stepBannerClass}>
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
             2 · Traitement
           </p>
           <h3 className="mt-1 font-black text-slate-900">Qui clôture après validation ?</h3>
@@ -274,14 +278,9 @@ export default function AbsencesProcessorsPanel() {
       {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
       {message ? <p className="text-sm font-medium text-emerald-700">{message}</p> : null}
 
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() => void save()}
-        className="rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
-      >
+      <ModuleButton variant="primary" disabled={saving} onClick={() => void save()}>
         {saving ? "Enregistrement…" : "Enregistrer"}
-      </button>
+      </ModuleButton>
     </div>
   );
 }

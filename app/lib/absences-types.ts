@@ -65,6 +65,8 @@ export type AbsenceRecord = {
     startAt: string;
     endAt: string;
     reason: string;
+    /** Saisie accueil RH : nature explicite (prioritaire sur le motif pour les retards). */
+    declarationNature?: "absence" | "retard" | null;
     details: string;
     /** Code sous-motif congé exceptionnel (L. 3142-4). */
     congeExceptionnelCode?: string | null;

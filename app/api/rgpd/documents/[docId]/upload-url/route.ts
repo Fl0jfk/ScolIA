@@ -6,6 +6,7 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canAccessRgpdModule } from "@/app/lib/rgpd-access";
 import { getRgpdCatalogEntry } from "@/app/lib/rgpd-catalog";
+import { getRgpdProcessingFiche } from "@/app/lib/rgpd-processing-fiches";
 import { newRgpdId, uploadDocKey } from "@/app/lib/rgpd-storage";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
@@ -13,8 +14,31 @@ import { s3Key } from "@/app/lib/s3-path";
 
 const ALLOWED = new Set([
   "application/pdf",
+  "application/x-pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
+
+function resolveUploadContentType(
+  contentType: unknown,
+  fileName: unknown,
+): string {
+  const raw = String(contentType || "").trim().toLowerCase();
+  if (raw === "application/pdf" || raw === "application/x-pdf") {
+    return "application/pdf";
+  }
+  if (
+    raw ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    return raw;
+  }
+  const name = String(fileName || "").toLowerCase();
+  if (name.endsWith(".docx")) {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  if (name.endsWith(".pdf") || !raw) return "application/pdf";
+  return raw;
+}
 
 export async function POST(
   req: Request,
@@ -29,13 +53,15 @@ export async function POST(
   }
 
   const { docId } = await ctx.params;
-  if (!getRgpdCatalogEntry(docId)) {
+  const entry = getRgpdCatalogEntry(docId);
+  const fiche = getRgpdProcessingFiche(docId);
+  if ((!entry || entry.incidentTool) && !fiche) {
     return NextResponse.json({ error: "Document inconnu." }, { status: 404 });
   }
 
   try {
     const { fileName, contentType } = await req.json();
-    const ct = String(contentType || "application/pdf").trim();
+    const ct = resolveUploadContentType(contentType, fileName);
     if (!ALLOWED.has(ct)) {
       return NextResponse.json(
         { error: "Formats acceptés : PDF, DOCX." },

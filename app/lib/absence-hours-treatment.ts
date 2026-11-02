@@ -1,4 +1,12 @@
+import type { AbsencePeriodType } from "@/app/lib/absence-period";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
+
+/**
+ * Durée maximale (minutes) pour traiter une absence RH comme retard
+ * (validation direction en prise d’acte sans suite).
+ * Même jour, créneau horaire explicite — au-delà : traitement d’absence normal.
+ */
+export const RH_RETARD_MAX_DURATION_MINUTES = 4 * 60;
 
 export type OgecHoursTreatment =
   | "RATTRAPAGE"
@@ -322,16 +330,79 @@ export function nonDiscretionaryKindLabel(
   return "arrêt de travail";
 }
 
+function parseHmToMinutes(hhmm: string | null | undefined): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || "").trim());
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+}
+
+function rhAbsenceDurationMinutes(data: {
+  startDate?: string;
+  endDate?: string;
+  startTime?: string | null;
+  endTime?: string | null;
+}): number | null {
+  const startDate = String(data.startDate || "").trim();
+  const endDate = String(data.endDate || "").trim();
+  if (!startDate || !endDate || startDate !== endDate) return null;
+  const startMin = parseHmToMinutes(data.startTime);
+  const endMin = parseHmToMinutes(data.endTime);
+  if (startMin === null || endMin === null) return null;
+  const delta = endMin - startMin;
+  if (delta <= 0) return null;
+  return delta;
+}
+
+function motifMentionsRetard(reason?: string | null): boolean {
+  const text = String(reason || "").trim();
+  if (!text) return false;
+  return /\bretard\b/i.test(text);
+}
+
+function rhAbsenceHasBoundedLatenessDuration(data: {
+  startDate?: string;
+  endDate?: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  periodType?: AbsencePeriodType | null;
+}): boolean {
+  const duration = rhAbsenceDurationMinutes(data);
+  if (duration === null) return false;
+  return duration <= RH_RETARD_MAX_DURATION_MINUTES;
+}
+
 /**
- * Un retard RH = motif qui mentionne « retard » (ex. « Retard », « Retard 10 min »).
- * Réservé à cette nature : la direction peut alors valider sans suite.
+ * Retard RH éligible à la prise d’acte sans suite (SANS_INCIDENCE) :
+ * nature « retard » explicite (accueil) ou motif contenant « retard », et uniquement
+ * si même jour avec un créneau ≤ {@link RH_RETARD_MAX_DURATION_MINUTES} minutes.
  */
 export function isRhRetardAbsence(record: {
-  data?: { reason?: string | null } | null;
+  data?: {
+    reason?: string | null;
+    declarationNature?: "absence" | "retard" | null;
+    startDate?: string;
+    endDate?: string;
+    startTime?: string | null;
+    endTime?: string | null;
+    periodType?: AbsencePeriodType | null;
+  } | null;
 }): boolean {
-  const reason = String(record.data?.reason || "").trim();
-  if (!reason) return false;
-  return /\bretard\b/i.test(reason);
+  const data = record.data;
+  if (!data) return false;
+
+  const nature = data.declarationNature;
+  const isRetardNature =
+    nature === "retard"
+      ? true
+      : nature === "absence"
+        ? false
+        : motifMentionsRetard(data.reason);
+
+  if (!isRetardNature) return false;
+  return rhAbsenceHasBoundedLatenessDuration(data);
 }
 
 export function getHoursTreatmentOptions(

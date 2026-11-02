@@ -229,6 +229,7 @@ async function createRhAccueilAbsence(input: {
   subjectRoles?: string[];
   period: NonNullable<ReturnType<typeof normalizeAbsencePeriodInput>["data"]>;
   motif: string;
+  declarationNature?: AccueilEleveNature;
   actor: AccueilDeclareInput["actor"];
 }): Promise<{ id: string; displayName: string; pendingDirection: true }> {
   const { startAt, endAt } = computeStartEndAt({
@@ -286,6 +287,7 @@ async function createRhAccueilAbsence(input: {
       startAt,
       endAt,
       reason: input.motif,
+      ...(input.declarationNature ? { declarationNature: input.declarationNature } : {}),
       details: "Déclaré à l’accueil (standard).",
     },
     workflowStatus: "OUVERTE",
@@ -518,6 +520,7 @@ export async function declareAccueilAbsence(
       subjectRoles: ["professeur"],
       period,
       motif,
+      declarationNature: staffIsRetard ? "retard" : undefined,
       actor: input.actor,
     });
     return { id: saved.id, kind: "professeur", displayName, pendingDirection: true };
@@ -564,6 +567,7 @@ export async function declareAccueilAbsence(
     subjectRoles: pers.category ? [pers.category] : [],
     period,
     motif,
+    declarationNature: staffIsRetard ? "retard" : undefined,
     actor: input.actor,
   });
   return {
@@ -676,7 +680,15 @@ export async function cancelAccueilAbsence(
   noteCpe = "Annulée par l’accueil",
 ): Promise<boolean> {
   const eleveOk = await cancelAccueilEleveAbsence(etablissementId, id, noteCpe);
-  if (eleveOk) return true;
+  if (eleveOk) {
+    const { invalidateDashboardSignalsForEstablishment } = await import(
+      "@/app/lib/dashboard-signals-invalidate"
+    );
+    await invalidateDashboardSignalsForEstablishment(etablissementId).catch((err) => {
+      console.warn("[accueil-absences] invalidate dashboard signals cache", err);
+    });
+    return true;
+  }
 
   const db = getDb();
   const [row] = await db
@@ -710,5 +722,11 @@ export async function cancelAccueilAbsence(
     ],
   };
   await saveAbsenceRecord(updated);
+  const { invalidateDashboardSignalsForEstablishment } = await import(
+    "@/app/lib/dashboard-signals-invalidate"
+  );
+  await invalidateDashboardSignalsForEstablishment(etablissementId).catch((err) => {
+    console.warn("[accueil-absences] invalidate dashboard signals cache", err);
+  });
   return true;
 }

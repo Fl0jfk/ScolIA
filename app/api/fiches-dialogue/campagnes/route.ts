@@ -131,7 +131,11 @@ export async function POST(req: Request) {
       | import("@/db/schema-fiches-dialogue").FdCatalogueChoix
       | undefined;
     if (catalogueOverride && body.data.niveauActuel && isFdNiveau(body.data.niveauActuel)) {
-      const preset = presetForNiveau(body.data.niveauActuel, body.data.starterMode);
+      const preset = presetForNiveau(
+        body.data.niveauActuel,
+        body.data.starterMode,
+        body.data.templateKey,
+      );
       catalogueOverride = {
         ...preset.catalogue,
         destinations: catalogueOverride.destinations.length

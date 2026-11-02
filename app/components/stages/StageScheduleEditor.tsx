@@ -16,6 +16,8 @@ import {
   STAGE_WEEKDAY_LABELS,
   STAGE_WEEKDAYS,
   buildUniformWeekDays,
+  daySlotHasAfternoon,
+  daySlotHasMorning,
   defaultDayHoursTemplate,
   formatDaySlotLabel,
   presencePeriodMismatchMessage,
@@ -54,6 +56,9 @@ function TimeField({
   );
 }
 
+const DEFAULT_MORNING = { morningStart: "08:00", morningEnd: "12:00" } as const;
+const DEFAULT_AFTERNOON = { afternoonStart: "13:00", afternoonEnd: "16:00" } as const;
+
 function DayHoursEditor({
   day,
   onPatch,
@@ -65,46 +70,141 @@ function DayHoursEditor({
   earliestStart?: string;
   latestEnd?: string;
 }) {
+  const worksMorning = daySlotHasMorning(day);
+  const worksAfternoon = daySlotHasAfternoon(day);
+  const onlyMorning = worksMorning && !worksAfternoon;
+  const onlyAfternoon = worksAfternoon && !worksMorning;
+
   return (
     <div className="space-y-3 rounded-xl border border-[#2F6B4A]/25 bg-[#f3faf6] p-3">
       <label className="flex items-center gap-2 text-xs font-semibold text-[#1F3D2B]">
         <input
           type="checkbox"
           checked={day.hasLunchBreak !== false}
-          onChange={(e) => onPatch({ hasLunchBreak: e.target.checked })}
+          onChange={(e) => {
+            const hasLunchBreak = e.target.checked;
+            if (hasLunchBreak) {
+              onPatch({
+                hasLunchBreak: true,
+                fullDayStart: null,
+                fullDayEnd: null,
+                ...(!daySlotHasMorning(day) && !daySlotHasAfternoon(day)
+                  ? { ...DEFAULT_MORNING, ...DEFAULT_AFTERNOON }
+                  : {}),
+              });
+              return;
+            }
+            onPatch({
+              hasLunchBreak: false,
+              fullDayStart: day.fullDayStart || day.morningStart || "08:00",
+              fullDayEnd: day.fullDayEnd || day.afternoonEnd || day.morningEnd || "16:00",
+              afternoonStart: null,
+              afternoonEnd: null,
+            });
+          }}
         />
         Pause le midi
       </label>
       {day.hasLunchBreak !== false ? (
-        <div className="grid grid-cols-2 gap-3">
-          <TimeField
-            label="Matin — début"
-            value={day.morningStart || ""}
-            min={earliestStart}
-            max={latestEnd}
-            onChange={(v) => onPatch({ morningStart: v })}
-          />
-          <TimeField
-            label="Matin — fin"
-            value={day.morningEnd || ""}
-            min={earliestStart}
-            max={latestEnd}
-            onChange={(v) => onPatch({ morningEnd: v })}
-          />
-          <TimeField
-            label="Après-midi — début"
-            value={day.afternoonStart || ""}
-            min={earliestStart}
-            max={latestEnd}
-            onChange={(v) => onPatch({ afternoonStart: v })}
-          />
-          <TimeField
-            label="Après-midi — fin"
-            value={day.afternoonEnd || ""}
-            min={earliestStart}
-            max={latestEnd}
-            onChange={(v) => onPatch({ afternoonEnd: v })}
-          />
+        <div className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                !worksMorning
+                  ? "border-stone-300 bg-stone-100 text-stone-600"
+                  : "border-[#2F6B4A]/30 bg-white text-[#1F3D2B]"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="accent-[#2F6B4A]"
+                checked={!worksMorning}
+                disabled={onlyAfternoon}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    if (!worksAfternoon) return;
+                    onPatch({ morningStart: null, morningEnd: null });
+                    return;
+                  }
+                  onPatch({ ...DEFAULT_MORNING });
+                }}
+              />
+              Ne travaille pas le matin
+            </label>
+            <label
+              className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+                !worksAfternoon
+                  ? "border-stone-300 bg-stone-100 text-stone-600"
+                  : "border-[#2F6B4A]/30 bg-white text-[#1F3D2B]"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="accent-[#2F6B4A]"
+                checked={!worksAfternoon}
+                disabled={onlyMorning}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    if (!worksMorning) return;
+                    onPatch({ afternoonStart: null, afternoonEnd: null });
+                    return;
+                  }
+                  onPatch({ ...DEFAULT_AFTERNOON });
+                }}
+              />
+              Ne travaille pas l&apos;après-midi
+            </label>
+          </div>
+          <p className="text-[11px] text-stone-500 leading-snug">
+            Cochez une case si l&apos;élève n&apos;est présent que le matin ou seulement
+            l&apos;après-midi. Au moins une demi-journée est obligatoire.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {worksMorning ? (
+              <>
+                <TimeField
+                  label="Matin — début"
+                  value={day.morningStart || ""}
+                  min={earliestStart}
+                  max={latestEnd}
+                  onChange={(v) => onPatch({ morningStart: v })}
+                />
+                <TimeField
+                  label="Matin — fin"
+                  value={day.morningEnd || ""}
+                  min={earliestStart}
+                  max={latestEnd}
+                  onChange={(v) => onPatch({ morningEnd: v })}
+                />
+              </>
+            ) : (
+              <div className="col-span-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-2 text-xs text-stone-500">
+                Matinée : absent
+              </div>
+            )}
+            {worksAfternoon ? (
+              <>
+                <TimeField
+                  label="Après-midi — début"
+                  value={day.afternoonStart || ""}
+                  min={earliestStart}
+                  max={latestEnd}
+                  onChange={(v) => onPatch({ afternoonStart: v })}
+                />
+                <TimeField
+                  label="Après-midi — fin"
+                  value={day.afternoonEnd || ""}
+                  min={earliestStart}
+                  max={latestEnd}
+                  onChange={(v) => onPatch({ afternoonEnd: v })}
+                />
+              </>
+            ) : (
+              <div className="col-span-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-2 text-xs text-stone-500">
+                Après-midi : absent
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">

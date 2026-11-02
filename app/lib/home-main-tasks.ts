@@ -127,7 +127,7 @@ export function resolveHomeMainTasks(opts: ResolveOpts): HomeMainTask[] {
     });
   }
 
-  // Professeur → gestes quotidiens (salles, photocopies, HSE, sorties)
+  // Professeur → gestes quotidiens (salles, photocopies, absence, HSE, sorties)
   if (hasRole(roles, "professeur")) {
     push({
       id: "task-prof-room",
@@ -145,6 +145,20 @@ export function resolveHomeMainTasks(opts: ResolveOpts): HomeMainTask[] {
       href: moduleHref("photocopies-couleur"),
       emoji: MODULE_EMOJI["photocopies-couleur"] || "🖨️",
     });
+    // Absences absorbées dans RH : demande pour soi via absences ou hub rh
+    if (canAccess(opts, "absences") || canAccess(opts, "rh")) {
+      if (!seen.has("absences")) {
+        seen.add("absences");
+        out.push({
+          id: "task-absences-prof",
+          moduleId: "absences",
+          label: "Demande d'absence",
+          detail: "Autorisation pour vous",
+          href: "/rh?tab=absences&view=se-declarer#nouvelle-absence",
+          emoji: MODULE_EMOJI.absences || "🤒",
+        });
+      }
+    }
     // HSE absorbé dans RH : accessible via demandes-hse ou hub rh
     if (canAccess(opts, "demandes-hse") || canAccess(opts, "rh")) {
       if (!seen.has("demandes-hse")) {

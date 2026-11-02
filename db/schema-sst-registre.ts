@@ -98,6 +98,9 @@ export const sstFiche = pgTable(
       .references(() => sstCampagne.id, { onDelete: "cascade" }),
     numero: integer("numero").notNull(),
     createdByUserId: text("created_by_user_id").notNull(),
+    createdByFirstName: text("created_by_first_name").notNull().default(""),
+    createdByLastName: text("created_by_last_name").notNull().default(""),
+    declarantUserId: text("declarant_user_id").notNull().default(""),
     declarantFirstName: text("declarant_first_name").notNull().default(""),
     declarantLastName: text("declarant_last_name").notNull().default(""),
     declarantFonction: text("declarant_fonction").notNull().default(""),
@@ -146,9 +149,30 @@ export const sstConsultation = pgTable(
   ],
 );
 
+/** Personnes autorisées à déposer une fiche SST pour un autre collaborateur. */
+export const sstProxyDeposant = pgTable(
+  "sst_proxy_deposant",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    firstName: text("first_name").notNull().default(""),
+    lastName: text("last_name").notNull().default(""),
+    email: text("email").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sst_proxy_deposant_etab_user_uidx").on(t.etablissementId, t.userId),
+    index("sst_proxy_deposant_etab_idx").on(t.etablissementId),
+  ],
+);
+
 export const sstRegistreSchema = {
   sstCampagne,
   sstEmargement,
   sstFiche,
   sstConsultation,
+  sstProxyDeposant,
 };

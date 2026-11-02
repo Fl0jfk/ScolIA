@@ -142,16 +142,24 @@ function normalizeDaySlot(raw: unknown): StageDaySlot {
       : undefined;
   const date = typeof o.date === "string" ? o.date.slice(0, 10) : undefined;
 
+  const morningStart = str("morningStart");
+  const morningEnd = str("morningEnd");
+  const afternoonStart = str("afternoonStart");
+  const afternoonEnd = str("afternoonEnd");
+  const fullDayStart = str("fullDayStart");
+  const fullDayEnd = str("fullDayEnd");
+
   return {
     date,
     weekday,
     hasLunchBreak: o.hasLunchBreak !== false,
-    morningStart: str("morningStart"),
-    morningEnd: str("morningEnd"),
-    afternoonStart: str("afternoonStart"),
-    afternoonEnd: str("afternoonEnd"),
-    fullDayStart: str("fullDayStart"),
-    fullDayEnd: str("fullDayEnd"),
+    // Demi-journée absente = les deux bornes vides (pas de créneau partiel).
+    morningStart: morningStart && morningEnd ? morningStart : null,
+    morningEnd: morningStart && morningEnd ? morningEnd : null,
+    afternoonStart: afternoonStart && afternoonEnd ? afternoonStart : null,
+    afternoonEnd: afternoonStart && afternoonEnd ? afternoonEnd : null,
+    fullDayStart,
+    fullDayEnd,
   };
 }
 
@@ -191,6 +199,16 @@ export type StageDayTimeParts = {
   fullDay: string;
 };
 
+/** Créneau matin renseigné (début + fin). */
+export function daySlotHasMorning(slot: StageDaySlot): boolean {
+  return Boolean(slot.morningStart && slot.morningEnd);
+}
+
+/** Créneau après-midi renseigné (début + fin). */
+export function daySlotHasAfternoon(slot: StageDaySlot): boolean {
+  return Boolean(slot.afternoonStart && slot.afternoonEnd);
+}
+
 /** Créneaux séparés pour affichage colonnes (UI / PDF). */
 export function formatDaySlotTimeParts(slot: StageDaySlot): StageDayTimeParts {
   const continuous =
@@ -199,7 +217,7 @@ export function formatDaySlotTimeParts(slot: StageDaySlot): StageDayTimeParts {
   const fullStart = slot.fullDayStart || slot.morningStart || "";
   const fullEnd = slot.fullDayEnd || slot.morningEnd || "";
   const range = (start?: string | null, end?: string | null) =>
-    start && end ? `${start}–${end}` : "—";
+    start && end ? `${start}–${end}` : "Absent";
   return {
     continuous,
     morning: range(slot.morningStart, slot.morningEnd),
@@ -484,8 +502,17 @@ export function validateStageSchedule(schedule: StageSchedule): string | null {
       if (!day.fullDayStart && !(day.morningStart && day.morningEnd)) {
         return "Horaires journée continue incomplets.";
       }
-    } else if (!day.morningStart || !day.morningEnd) {
-      return "Horaires matin incomplets.";
+      continue;
+    }
+
+    const morningPartial =
+      Boolean(day.morningStart || day.morningEnd) && !daySlotHasMorning(day);
+    const afternoonPartial =
+      Boolean(day.afternoonStart || day.afternoonEnd) && !daySlotHasAfternoon(day);
+    if (morningPartial) return "Horaires matin incomplets.";
+    if (afternoonPartial) return "Horaires après-midi incomplets.";
+    if (!daySlotHasMorning(day) && !daySlotHasAfternoon(day)) {
+      return "Indiquez au moins une demi-journée (matin ou après-midi).";
     }
   }
   return null;

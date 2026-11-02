@@ -71,6 +71,8 @@ export async function GET(req: Request) {
       starterMode: ctx.campagne.starterMode,
       delaiFamilleJours: ctx.campagne.delaiFamilleJours,
       contactPpLabel: ctx.campagne.contactPpLabel,
+      statut: ctx.campagne.statut,
+      openForFamille: ctx.campagneOpen,
     },
     etape: {
       id: ctx.etape.id,
@@ -89,6 +91,10 @@ export async function GET(req: Request) {
       payload: r.payload,
       submittedAt: r.submittedAt,
     })),
+    token: {
+      purpose: ctx.token.purpose,
+      email: ctx.token.email,
+    },
   });
 }
 
@@ -293,6 +299,21 @@ export async function POST(req: Request) {
     if (!ctx) {
       return NextResponse.json({ error: "Contexte introuvable." }, { status: 404 });
     }
+    if (!ctx.campagneOpen) {
+      return NextResponse.json(
+        { error: "La campagne est clôturée : aucune réponse n’est plus acceptée." },
+        { status: 410 },
+      );
+    }
+    if (tokenRow.purpose === "accord_parent2") {
+      return NextResponse.json(
+        {
+          error:
+            "Ce lien sert à confirmer l’accord du 2e parent. Utilisez le bouton de confirmation ou de désaccord.",
+        },
+        { status: 400 },
+      );
+    }
     if (!isFdEtapeOpenForFamille(ctx.etape)) {
       return NextResponse.json(
         { error: "Cette étape n’est plus modifiable (date limite ou gel)." },
@@ -374,14 +395,32 @@ export async function POST(req: Request) {
         ...submit.data.signature,
         name: submit.data.signature?.name || submit.data.auteurLabel || "Famille",
         email:
-          submit.data.signature?.email ||
           tokenRow.email ||
+          submit.data.signature?.email ||
           undefined,
       },
     });
 
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-    return NextResponse.json({ ok: true, needsParent2: Boolean(result.needsParent2) });
+
+    /**
+     * Le jeton de saisie du déposant reste valable jusqu’à la clôture. On renvoie
+     * tout de même un jeton d’édition frais pour que le bouton « Modifier ma réponse »
+     * fonctionne dans la session courante, sans repasser par l’identification + code.
+     */
+    const editToken = await createFdAccessToken({
+      etablissementId: tokenRow.etablissementId,
+      ficheId: ctx.fiche.id,
+      etapeId: ctx.etape.id,
+      email: tokenRow.email,
+      purpose: "saisie",
+      expiresInMinutes: 60,
+    });
+    return NextResponse.json({
+      ok: true,
+      needsParent2: Boolean(result.needsParent2),
+      editToken: editToken.token,
+    });
   }
 
   const parentAccord = ParentAccordSchema.safeParse(raw);
@@ -389,6 +428,12 @@ export async function POST(req: Request) {
     const tokenRow = await resolveFdToken(parentAccord.data.token);
     if (!tokenRow?.email) {
       return NextResponse.json({ error: "Lien invalide ou expiré." }, { status: 404 });
+    }
+    if (tokenRow.purpose !== "accord_parent2") {
+      return NextResponse.json(
+        { error: "Ce lien n’est pas un lien de confirmation parentale." },
+        { status: 400 },
+      );
     }
     const conflictValues: Record<string, string | string[] | boolean | null> = {};
     if (parentAccord.data.conflictValues) {

@@ -16,6 +16,7 @@ export async function GET() {
         lastName: u.lastName,
         displayName: u.displayName,
         pending: u.pending,
+        roles: u.roles,
       })),
     });
   } catch (err: unknown) {

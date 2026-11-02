@@ -1,8 +1,13 @@
 import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
 import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
-import { getConventionsByIdsFromDb } from "@/app/lib/stage-db";
-import { valkeyCached, valkeyDel, valkeyDeleteByPrefix, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
+import {
+  valkeyCached,
+  valkeyDel,
+  valkeyDeleteByPrefix,
+  valkeyGetJson,
+  valkeySetJson,
+} from "@/app/lib/valkey";
 import {
   VALKEY_TTL,
   valkeyKeyStagesConvention,
@@ -88,18 +93,6 @@ export async function getConventionsIndex(): Promise<StageConventionIndexEntry[]
   });
 }
 
-async function saveConventionsIndex(
-  index: StageConventionIndexEntry[],
-  etabId?: string | null,
-): Promise<void> {
-  await putJson(STAGE_S3.conventionsIndex, index);
-  const id = etabId === undefined ? await stagesEtabId() : etabId;
-  if (id) {
-    // Write-through : les lecteurs suivants évitent un miss immédiat.
-    void valkeySetJson(valkeyKeyStagesConventionsIndex(id), index, VALKEY_TTL.stagesConventionsIndex);
-  }
-}
-
 export async function getStageOffer(id: string): Promise<StageOffer | null> {
   const hit = await getJson<StageOffer>(STAGE_S3.offer(id));
   return hit?.data ?? null;
@@ -150,56 +143,17 @@ export async function getStageConvention(id: string): Promise<StageConvention | 
   return data;
 }
 
-/** Charge plusieurs conventions en lot (2 requêtes SQL) au lieu d’un GET par id. */
-export async function getStageConventionsByIds(ids: string[]): Promise<StageConvention[]> {
-  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
-  if (unique.length === 0) return [];
-
-  const etabId = await stagesEtabId();
-  if (etabId) {
-    const rows = await getConventionsByIdsFromDb(etabId, unique);
-    return rows.map(withSanitizedStudentEmail);
-  }
-
-  const out: StageConvention[] = [];
-  for (const id of unique) {
-    const convention = await getStageConvention(id);
-    if (convention) out.push(convention);
-  }
-  return out;
-}
-
 export async function saveStageConvention(convention: StageConvention) {
   const sanitized = withSanitizedStudentEmail(convention);
   const etabId = await stagesEtabId();
   await putJson(STAGE_S3.convention(sanitized.id), sanitized);
-  const index = await getConventionsIndex();
-  const entry: StageConventionIndexEntry = {
-    id: sanitized.id,
-    status: sanitized.status,
-    studentName: `${sanitized.student.firstName} ${sanitized.student.lastName}`.trim(),
-    className: sanitized.student.className,
-    level: sanitized.student.level,
-    companyName: sanitized.company.name,
-    internshipKind: sanitized.internshipKind,
-    periodStart: sanitized.schedule.periodStart,
-    periodEnd: sanitized.schedule.periodEnd,
-    schoolYear: sanitized.schoolYear,
-    updatedAt: sanitized.updatedAt,
-    stageLabel: sanitized.stageLabel?.trim() || undefined,
-    teacherReferentEmail: sanitized.teacherReferent.email?.toLowerCase() || undefined,
-  };
-  const pos = index.findIndex((x) => x.id === sanitized.id);
-  if (pos >= 0) index[pos] = entry;
-  else index.unshift(entry);
-  await saveConventionsIndex(index, etabId);
   if (etabId) {
+    await invalidateStagesConventionsIndexCache(etabId);
     void valkeySetJson(
       valkeyKeyStagesConvention(etabId, sanitized.id),
       sanitized,
       VALKEY_TTL.stagesConvention,
     );
-    // Le roster agrège plusieurs conventions : on invalide toutes les classes.
     void invalidateStagesClassRosterCaches(etabId);
   }
 }
@@ -217,20 +171,22 @@ export async function listConventionsForDossier(
 ): Promise<StageConvention[]> {
   const key = studentDossierKey(student);
   const index = await getConventionsIndex();
+  const ln = student.lastName.trim().toLowerCase();
+  const fn = student.firstName.trim().toLowerCase();
+  const className = student.className.trim().toLowerCase();
   const ids = index
     .filter((e) => {
-      const className = String(e.className ?? "").trim();
-      if (className.toLowerCase() !== student.className.trim().toLowerCase()) return false;
-      const parts = String(e.studentName ?? "")
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean);
-      const firstName = parts[0] || "";
-      const lastName = parts.slice(1).join(" ");
-      return studentDossierKey({ firstName, lastName, className }) === key;
+      const cn = String(e.className ?? "").trim().toLowerCase();
+      if (className && cn && cn !== className) return false;
+      const name = e.studentName.toLowerCase();
+      if (ln && !name.includes(ln)) return false;
+      if (fn && !name.includes(fn)) return false;
+      return true;
     })
     .map((e) => e.id);
-  const out = await getStageConventionsByIds(ids);
+  const { loadStageConventionsByIds } = await import("@/app/lib/stage-convention-load");
+  const loaded = await loadStageConventionsByIds(ids);
+  const out = loaded.filter((c) => studentDossierKey(c.student) === key);
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 

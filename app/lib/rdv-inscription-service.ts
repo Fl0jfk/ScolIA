@@ -661,14 +661,17 @@ export async function resendRdvInscriptionRescheduleMailAsAdmin(opts: {
 }
 
 /**
- * Admin : change le créneau d’une réservation active (après appel téléphone, etc.).
- * - googleMode `update` : remet l’ancien créneau libre et réserve le nouveau sur Google.
+ * Admin : change le créneau d’une réservation (après appel téléphone, etc.).
+ * Accepte aussi un RDV déjà annulé (ex. après « Demander un autre créneau ») :
+ * on réactive en confirmé, on invalide le lien de rechoix parent, mail + ICS.
+ * - googleMode `update` : sur un RDV actif, remet l’ancien créneau libre et réserve le nouveau.
+ *   Sur un RDV annulé, l’ancien événement a déjà été géré (retiré / libéré) — on ne le touche pas.
  * - googleMode `already_done` : ne touche pas à l’ancien événement Google (déjà géré à la main).
  * Dans les deux cas : maj BDD + mail parent avec ICS.
  */
 export async function changeRdvInscriptionSlotAsAdmin(opts: {
   bookingId: string;
-  /** Nouvel eventId Google, ou l’actuel pour resynchroniser les horaires. */
+  /** Nouvel eventId Google, ou l’actuel pour resynchroniser / réactiver. */
   newEventId: string;
   googleMode: "update" | "already_done";
   note?: string | null;
@@ -680,11 +683,15 @@ export async function changeRdvInscriptionSlotAsAdmin(opts: {
   if (!found) {
     return { ok: false, status: 404, error: "Réservation introuvable." };
   }
-  if (found.status !== "pending" && found.status !== "confirmed") {
+  if (
+    found.status !== "pending" &&
+    found.status !== "confirmed" &&
+    found.status !== "cancelled"
+  ) {
     return {
       ok: false,
       status: 400,
-      error: "Cette réservation n’est plus active (déjà annulée ou expirée).",
+      error: "Cette réservation ne peut plus être modifiée (expirée).",
     };
   }
 
@@ -706,6 +713,7 @@ export async function changeRdvInscriptionSlotAsAdmin(opts: {
   const previousStartAt = found.startAt;
   const previousEndAt = found.endAt;
   const sameEvent = newEventId === found.googleEventId;
+  const wasCancelled = found.status === "cancelled";
   const note = String(opts.note || "").trim().slice(0, 1000) || null;
 
   if (!sameEvent) {
@@ -728,8 +736,9 @@ export async function changeRdvInscriptionSlotAsAdmin(opts: {
       )
     : null;
 
-  // Ancien créneau Google : libérer seulement si on gère Google et qu’on change d’événement.
-  if (!sameEvent && opts.googleMode === "update") {
+  // Ancien créneau Google : libérer seulement si le RDV est encore actif, qu’on gère Google
+  // et qu’on change d’événement. Sur un annulé (rechoix / suppression), l’agenda est déjà traité.
+  if (!sameEvent && opts.googleMode === "update" && !wasCancelled) {
     const restoreTitle = restoreTitleForDirection(direction.eventTitlePattern);
     try {
       if (found.status === "pending") {
@@ -814,6 +823,7 @@ export async function changeRdvInscriptionSlotAsAdmin(opts: {
   }
 
   if (
+    !wasCancelled &&
     previousStartAt === gcal.startAt &&
     previousEndAt === gcal.endAt &&
     sameEvent
