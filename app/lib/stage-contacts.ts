@@ -11,16 +11,6 @@ export function uniqueContactEmails(...lists: Array<string | undefined | null>):
   return [...set];
 }
 
-export function collectEleveContactEmails(eleve?: EleveConfig | null): string[] {
-  if (!eleve) return [];
-  return uniqueContactEmails(
-    eleve.email,
-    eleve.parentEmail,
-    eleve.parent1Email,
-    eleve.parent2Email,
-  );
-}
-
 async function loadElevesConfig(): Promise<EleveConfig[]> {
   return loadElevesRegistry();
 }
