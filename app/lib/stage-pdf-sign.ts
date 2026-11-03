@@ -1,22 +1,30 @@
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { PDFDocument, StandardFonts, rgb, type PDFImage, type PDFPage } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import { loadReferentSignatureBytes, parsePngBase64 } from "@/app/lib/stage-signature-store";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import {
   STAGE_ESIGN_ANNEX_SUBJECT,
   STAGE_ESIGN_PAGE_TITLE,
+  STAGE_PDF_ACCENT_HEX,
+  drawSignatureBoxBody,
   electronicSignatureBoxLayout,
-  stageSignatureStatusLines,
+  resolveStageSignatureImageBytes,
 } from "@/app/lib/stage-pdf";
 import type { StageConvention, StageSignature, StageSignerRole } from "@/app/lib/stage-types";
 import { STAGE_S3, STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
 import { resolvePrincipalSignerForClass } from "@/app/lib/stage-referents-config";
 
-const SIG_W = 140;
-const SIG_H = 55;
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
+
+function accentRgb() {
+  const n = parseInt(STAGE_PDF_ACCENT_HEX.slice(1), 16);
+  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
+
+const INK = rgb(0.12, 0.14, 0.16);
+const SOFT = rgb(0.62, 0.65, 0.68);
 
 const ROLE_STAMP_ORDER: StageSignerRole[] = [
   "tuteur_entreprise",
@@ -51,9 +59,9 @@ async function drawAnnexBoxes(
 ): Promise<void> {
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const accent = rgb(0.18, 0.44, 0.37);
+  const accent = accentRgb();
   const muted = rgb(0.42, 0.45, 0.48);
-  const soft = rgb(0.62, 0.65, 0.68);
+  const soft = SOFT;
   const white = rgb(1, 1, 1);
 
   page.drawRectangle({
@@ -72,7 +80,7 @@ async function drawAnnexBoxes(
     color: accent,
   });
   page.drawText(
-    "Signatures des parties — confirmation e-mail, paraphe electronique ou document papier.",
+    "Signatures des parties - confirmation e-mail, paraphe électronique ou document papier.",
     {
       x: 40,
       y: PAGE_H - 76,
@@ -102,7 +110,7 @@ async function drawAnnexBoxes(
     });
     const label = (
       role === "direction"
-        ? "Direction de l'etablissement scolaire"
+        ? "Direction de l'établissement scolaire"
         : STAGE_SIGNER_ROLE_LABELS[role] || role
     ).replace(/[^\x00-\xFF]/g, "?");
     page.drawText(label, {
@@ -141,23 +149,20 @@ async function ensureElectronicSignatureAnnex(
 }
 
 /**
- * Appose l'image de signature dans la case du rôle concerné.
+ * Redessine entièrement la case du rôle (efface puis statut + image),
+ * avec la même routine que la génération : pas de texte en double ni décalé.
  */
-async function embedSignatureOnPdf(
+async function redrawSignatureBoxOnPdf(
   pdfBytes: Uint8Array,
-  imageBytes: Uint8Array,
-  role: StageSignerRole,
-  isJpg: boolean,
+  signature: StageSignature,
+  imageBytes: Uint8Array | null,
   rolesOnDoc: StageSignerRole[],
 ): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.load(pdfBytes);
-  const sigImage: PDFImage = isJpg
-    ? await pdfDoc.embedJpg(imageBytes)
-    : await pdfDoc.embedPng(imageBytes);
-
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const annex = await ensureElectronicSignatureAnnex(pdfDoc, rolesOnDoc);
   const { width: pageW, height: pageH } = annex.getSize();
-  const index = roleStampIndex(role, rolesOnDoc);
+  const index = roleStampIndex(signature.role, rolesOnDoc);
   const box = electronicSignatureBoxLayout({
     pageWidth: pageW,
     pageHeight: pageH,
@@ -165,19 +170,16 @@ async function embedSignatureOnPdf(
     total: Math.max(rolesOnDoc.length, index + 1),
   });
 
-  const padX = 16;
-  const padY = 18;
-  const maxW = Math.min(SIG_W, box.width - padX * 2);
-  const maxH = Math.min(SIG_H, box.height - 44);
-  const scale = Math.min(maxW / SIG_W, maxH / SIG_H, 1);
-  const drawW = SIG_W * scale;
-  const drawH = SIG_H * scale;
-
-  annex.drawImage(sigImage, {
-    x: box.x + (box.width - drawW) / 2,
-    y: box.y + padY,
-    width: drawW,
-    height: drawH,
+  await drawSignatureBoxBody({
+    doc: pdfDoc,
+    page: annex,
+    box,
+    sig: signature,
+    font,
+    ink: INK,
+    soft: SOFT,
+    imageBytes,
+    clear: true,
   });
 
   return pdfDoc.save();
@@ -415,9 +417,10 @@ export async function stampSignatureOnConventionPdf(params: {
     return { ok: false, error: "Dessinez votre signature dans le cadre prévu." };
   }
 
+  const signature = params.convention.signatures.find((s) => s.role === params.role);
+  if (!signature) return { ok: false, error: "Case de signature introuvable sur la convention." };
   const rolesOnDoc = params.convention.signatures.map((s) => s.role);
-  const isJpg = sigBytes![0] === 0xff && sigBytes![1] === 0xd8;
-  const stamped = await embedSignatureOnPdf(pdfBytes, sigBytes!, params.role, isJpg, rolesOnDoc);
+  const stamped = await redrawSignatureBoxOnPdf(pdfBytes, signature, sigBytes, rolesOnDoc);
   await saveConventionPdfBytes(params.convention, stamped);
   return { ok: true };
 }
@@ -436,47 +439,11 @@ export async function annotateSignatureStatusOnConventionPdf(params: {
   if (!pdfBytes) return { ok: true };
 
   try {
-    const pdfDoc = await PDFDocument.load(pdfBytes);
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const rolesOnDoc = params.convention.signatures.map((s) => s.role);
-    const annex = await ensureElectronicSignatureAnnex(pdfDoc, rolesOnDoc);
-    const { width: pageW, height: pageH } = annex.getSize();
-    const index = roleStampIndex(params.signature.role, rolesOnDoc);
-    const box = electronicSignatureBoxLayout({
-      pageWidth: pageW,
-      pageHeight: pageH,
-      index,
-      total: Math.max(rolesOnDoc.length, index + 1),
-    });
-
-    const white = rgb(1, 1, 1);
-    const ink = rgb(0.12, 0.14, 0.16);
-    const accent = rgb(0.18, 0.44, 0.37);
-
-    annex.drawRectangle({
-      x: box.x + 6,
-      y: box.y + 6,
-      width: box.width - 12,
-      height: box.height - 30,
-      color: white,
-    });
-
-    const lines = stageSignatureStatusLines(params.signature);
-    let lineY = box.y + box.height - 36;
-    for (const line of lines) {
-      const safe = line.replace(/[^\x00-\xFF]/g, "?");
-      annex.drawText(safe, {
-        x: box.x + 14,
-        y: lineY,
-        size: 6.5,
-        font: line.startsWith("Preuve") || line.startsWith("Valide") ? bold : font,
-        color: params.signature.status === "signe" ? accent : ink,
-      });
-      lineY -= 10;
-    }
-
-    await saveConventionPdfBytes(params.convention, await pdfDoc.save());
+    // Garde l'image éventuelle (signature dessinée, direction, professeur) : la case est redessinée en entier.
+    const imageBytes = await resolveStageSignatureImageBytes(params.convention, params.signature);
+    const out = await redrawSignatureBoxOnPdf(pdfBytes, params.signature, imageBytes, rolesOnDoc);
+    await saveConventionPdfBytes(params.convention, out);
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

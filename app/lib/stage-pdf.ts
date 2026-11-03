@@ -30,7 +30,7 @@ export type StageConventionPdfSchoolContext = {
   schoolMail?: string;
   rgpdContact: string;
   insuranceText: string;
-  /** Accent tenant (#RRGGBB) — sinon teal doux. */
+  /** Accent tenant (#RRGGBB) — sinon bleu classique. */
   accentHex?: string;
   logo?: StageConventionPdfLogo | null;
 };
@@ -43,7 +43,7 @@ const PAGE_W = 595.28;
 const PAGE_H = 841.89;
 
 function hexToRgb(hex: string | undefined): { r: number; g: number; b: number } {
-  const h = (hex || "#2F6F5E").replace("#", "").trim();
+  const h = (hex || "#1F4E8C").replace("#", "").trim();
   const full =
     h.length === 3
       ? h
@@ -52,7 +52,7 @@ function hexToRgb(hex: string | undefined): { r: number; g: number; b: number } 
           .join("")
       : h.padEnd(6, "0").slice(0, 6);
   const n = parseInt(full, 16);
-  if (!Number.isFinite(n)) return { r: 0.18, g: 0.44, b: 0.37 };
+  if (!Number.isFinite(n)) return { r: 0.12, g: 0.31, b: 0.55 };
   return {
     r: ((n >> 16) & 255) / 255,
     g: ((n >> 8) & 255) / 255,
@@ -752,6 +752,19 @@ export const STAGE_ESIGN_ANNEX_SUBJECT = "SCOLIA_SIGNATURES";
 /** Titre unique de la page (validation admin + signatures groupées). */
 export const STAGE_ESIGN_PAGE_TITLE = "Validation et signatures";
 
+/**
+ * Accent de la convention : bleu classique, neutre et lisible sur fond blanc.
+ * Ne pas reprendre le lime de l'intranet (illisible en texte sur blanc).
+ */
+export const STAGE_PDF_ACCENT_HEX = "#1F4E8C";
+
+/**
+ * Réserve haute de la page signatures (titre + bandeau validation).
+ * Identique à la génération et aux paraphes ajoutés ensuite, sinon les
+ * textes se superposent avec un décalage.
+ */
+export const STAGE_ESIGN_HEADER_RESERVE = 108;
+
 function signatureBoxLabel(sig: StageSignature): string {
   // Libellé PDF explicite : éviter la confusion avec une direction d'entreprise.
   if (sig.role === "direction") {
@@ -774,7 +787,7 @@ export function electronicSignatureBoxLayout(params: {
   const gap = 10;
   const boxW = (contentW - gap) / 2;
   const boxH = 90;
-  const headerReserve = params.headerReserve ?? 108;
+  const headerReserve = params.headerReserve ?? STAGE_ESIGN_HEADER_RESERVE;
   const col = params.index % 2;
   const row = Math.floor(params.index / 2);
   const x = margin + col * (boxW + gap);
@@ -791,19 +804,91 @@ export function stageSignatureStatusLines(sig: StageSignature): string[] {
     ? new Date(sig.signedAt).toLocaleDateString("fr-FR")
     : "—";
   const who = dash(sig.signedBy);
-  const lines = [`Signe le ${date} — ${who}`];
+  const lines = [`Signé le ${date} - ${who}`];
   if (sig.signMethod === "code_confirm") {
-    lines.push("Valide par code e-mail (signature electronique simple)");
+    lines.push("Validé par code e-mail (signature électronique simple)");
     lines.push(`Preuve ${stageSignatureProofRef(sig)}`);
   } else if (sig.signMethod === "touch") {
-    lines.push("Signature manuscrite electronique");
+    lines.push("Signature manuscrite électronique");
   } else if (sig.signMethod === "paper_upload") {
     lines.push("Signature manuscrite sur le document");
-    lines.push("Scan papier archive");
+    lines.push("Scan papier archivé");
   } else if (sig.signedBy === "Document papier") {
     lines.push("Signature manuscrite sur le document");
   }
   return lines;
+}
+
+/**
+ * Contenu d'une case signature (statut + image ou « Zone de signature »).
+ * Seule routine de dessin : génération du PDF et paraphes ajoutés ensuite.
+ * `clear` efface l'intérieur de la case (sous le libellé) avant de redessiner.
+ */
+export async function drawSignatureBoxBody(params: {
+  doc: PDFDocument;
+  page: PDFPage;
+  box: { x: number; y: number; width: number; height: number };
+  sig: StageSignature;
+  font: PDFFont;
+  ink: RGB;
+  soft: RGB;
+  imageBytes: Uint8Array | null;
+  clear?: boolean;
+}): Promise<void> {
+  const { doc, page, box, sig, font } = params;
+  if (params.clear) {
+    page.drawRectangle({
+      x: box.x + 6,
+      y: box.y + 6,
+      width: box.width - 12,
+      height: box.height - 30,
+      color: rgb(1, 1, 1),
+    });
+  }
+
+  let lineY = box.y + box.height - 36;
+  for (const line of stageSignatureStatusLines(sig)) {
+    page.drawText(sanitizePdfText(line), {
+      x: box.x + 14,
+      y: lineY,
+      size: 6.5,
+      font,
+      color: params.ink,
+    });
+    lineY -= 10;
+  }
+
+  if (params.imageBytes) {
+    try {
+      const bytes = params.imageBytes;
+      const isJpg = bytes[0] === 0xff && bytes[1] === 0xd8;
+      const img = isJpg ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
+      const maxW = box.width - 28;
+      const maxH = Math.max(28, lineY - box.y - 8);
+      const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+      const drawW = img.width * scale;
+      const drawH = img.height * scale;
+      page.drawImage(img, {
+        x: box.x + (box.width - drawW) / 2,
+        y: box.y + 8,
+        width: drawW,
+        height: drawH,
+      });
+      return;
+    } catch (err) {
+      console.error("[stage-pdf] embed signature:", err);
+    }
+  }
+
+  if (sig.status !== "signe") {
+    page.drawText(sanitizePdfText("Zone de signature"), {
+      x: box.x + 14,
+      y: box.y + 14,
+      size: 7,
+      font,
+      color: params.soft,
+    });
+  }
 }
 
 async function resolveSignatureImageBytes(
@@ -845,9 +930,22 @@ async function resolveSignatureImageBytes(
   }
 
   if (sig.role === "professeur_referent" || sig.role === "professeur_principal") {
-    const userId = convention.teacherReferent.userId;
-    if (!userId) return null;
     try {
+      let userId: string | undefined;
+      if (sig.role === "professeur_referent") {
+        userId = convention.teacherReferent.userId;
+      } else {
+        // Professeur principal : sa propre signature, pas celle du référent.
+        const { resolvePrincipalSignerForClass } = await import(
+          "@/app/lib/stage-referents-config"
+        );
+        const principal = await resolvePrincipalSignerForClass(
+          convention.student.className,
+          convention.schoolYear,
+        );
+        userId = principal?.externalUserId;
+      }
+      if (!userId) return null;
       const { loadReferentSignatureBytes } = await import("@/app/lib/stage-signature-store");
       return loadReferentSignatureBytes(userId);
     } catch {
@@ -856,6 +954,14 @@ async function resolveSignatureImageBytes(
   }
 
   return null;
+}
+
+/** Image de signature à apposer pour une case (exportée pour les paraphes ultérieurs). */
+export async function resolveStageSignatureImageBytes(
+  convention: StageConvention,
+  sig: StageSignature,
+): Promise<Uint8Array | null> {
+  return resolveSignatureImageBytes(convention, sig);
 }
 
 async function drawSignatureGrid(
@@ -891,7 +997,7 @@ async function drawSignatureGrid(
 
   if (convention.adminReview?.approved) {
     const who = await resolveStageAdminReviewPdfName(convention.adminReview);
-    const note = `Validee par ${who} le ${new Date(convention.adminReview.at).toLocaleDateString("fr-FR")}${convention.adminReview.note ? ` — ${convention.adminReview.note}` : ""}.`;
+    const note = `Validée par ${who} le ${new Date(convention.adminReview.at).toLocaleDateString("fr-FR")}${convention.adminReview.note ? ` — ${convention.adminReview.note}` : ""}.`;
     const bannerH = 28;
     const bannerBottom = headerY - bannerH;
     roundedRect(ctx.page, 36, bannerBottom, pageW - 72, bannerH, 8, {
@@ -918,7 +1024,7 @@ async function drawSignatureGrid(
 
   ctx.page.drawText(
     sanitizePdfText(
-      "Signatures des parties — confirmation e-mail, paraphe electronique ou document papier.",
+      "Signatures des parties — confirmation e-mail, paraphe électronique ou document papier.",
     ),
     {
       x: 36,
@@ -929,7 +1035,8 @@ async function drawSignatureGrid(
     },
   );
 
-  const headerReserve = pageH - (headerY - 14);
+  // Réserve fixe : les paraphes ajoutés plus tard retombent dans les mêmes cases.
+  const headerReserve = Math.max(STAGE_ESIGN_HEADER_RESERVE, pageH - (headerY - 14));
 
   for (let i = 0; i < list.length; i++) {
     const sig = list[i]!;
@@ -957,49 +1064,16 @@ async function drawSignatureGrid(
       color: palette.accent,
     });
 
-    const statusLines = stageSignatureStatusLines(sig);
-    let lineY = box.y + box.height - 36;
-    for (const line of statusLines) {
-      ctx.page.drawText(sanitizePdfText(line), {
-        x: box.x + 14,
-        y: lineY,
-        size: 6.5,
-        font: ctx.font,
-        color: palette.ink,
-      });
-      lineY -= 10;
-    }
-
-    const imgBytes = await resolveSignatureImageBytes(convention, sig);
-    if (imgBytes) {
-      try {
-        const isJpg = imgBytes[0] === 0xff && imgBytes[1] === 0xd8;
-        const img = isJpg
-          ? await ctx.doc.embedJpg(imgBytes)
-          : await ctx.doc.embedPng(imgBytes);
-        const maxW = box.width - 28;
-        const maxH = Math.max(28, lineY - box.y - 8);
-        const scale = Math.min(maxW / img.width, maxH / img.height, 1);
-        const drawW = img.width * scale;
-        const drawH = img.height * scale;
-        ctx.page.drawImage(img, {
-          x: box.x + (box.width - drawW) / 2,
-          y: box.y + 8,
-          width: drawW,
-          height: drawH,
-        });
-      } catch (err) {
-        console.error("[stage-pdf] embed signature:", err);
-      }
-    } else if (sig.status !== "signe") {
-      ctx.page.drawText(sanitizePdfText("Zone de signature"), {
-        x: box.x + 14,
-        y: box.y + 14,
-        size: 7,
-        font: ctx.font,
-        color: palette.soft,
-      });
-    }
+    await drawSignatureBoxBody({
+      doc: ctx.doc,
+      page: ctx.page,
+      box,
+      sig,
+      font: ctx.font,
+      ink: palette.ink,
+      soft: palette.soft,
+      imageBytes: await resolveSignatureImageBytes(convention, sig),
+    });
   }
 
   const rows = Math.ceil(list.length / 2);
@@ -1188,7 +1262,7 @@ export async function renderStageConventionPdf(
 
   drawText(
     ctx,
-    `Document genere le ${new Date().toLocaleString("fr-FR")} — ${convention.id}`,
+    `Document généré le ${new Date().toLocaleString("fr-FR")} — ${convention.id}`,
     { size: 7, color: ctx.palette.soft },
   );
 
@@ -1256,7 +1330,7 @@ export async function buildStageConventionPdf(convention: StageConvention): Prom
     schoolPhone: bundle.identity.phone?.display || "",
     rgpdContact,
     insuranceText: bundle.notifications.stagesInsuranceText?.trim() || DEFAULT_INSURANCE,
-    accentHex: "#D4FF37",
+    accentHex: STAGE_PDF_ACCENT_HEX,
     logo: logoPayload,
   });
 }
