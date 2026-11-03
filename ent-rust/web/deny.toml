@@ -43,17 +43,19 @@ confidence-threshold = 0.9
 # Licences de la liste non rencontrées : sans effet (la liste est commune aux deux workspaces).
 unused-allowed-license = "allow"
 
-# Exception ciblée (à approuver, voir docs/CI_REPRODUCTIBILITE.md) : MPL-2.0 est un
+# Exception ciblée, APPROUVÉE le 2026-11-03 (D-015, docs/CI_REPRODUCTIBILITE.md). MPL-2.0 est un
 # copyleft faible « au niveau du fichier » : utilisation sans modification compatible
 # avec un logiciel non libre ; toute modification de ces fichiers devrait être publiée.
 # Nécessaire pour les passkeys (D-009). MPL-2.0 n'est PAS autorisée ailleurs.
+# Épinglée à la version exacte : une montée de version fait échouer `cargo deny`
+# et impose de relire la licence avant de modifier ces lignes.
 exceptions = [
-    { allow = ["MPL-2.0"], crate = "webauthn-rs" },
-    { allow = ["MPL-2.0"], crate = "webauthn-rs-core" },
-    { allow = ["MPL-2.0"], crate = "webauthn-rs-proto" },
-    { allow = ["MPL-2.0"], crate = "webauthn-attestation-ca" },
-    { allow = ["MPL-2.0"], crate = "webauthn-authenticator-rs" },
-    { allow = ["MPL-2.0"], crate = "base64urlsafedata" },
+    { allow = ["MPL-2.0"], crate = "webauthn-rs@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "webauthn-rs-core@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "webauthn-rs-proto@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "webauthn-attestation-ca@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "webauthn-authenticator-rs@0.5.5" },
+    { allow = ["MPL-2.0"], crate = "base64urlsafedata@0.5.5" },
 ]
 # Nos propres crates (`publish = false`, licence « UNLICENSED ») ne sont pas évaluées.
 [licenses.private]
