@@ -16,6 +16,7 @@ import {
 import { userIsAnyDirection } from "@/app/lib/establishment-catalog";
 import { travelsDbReady } from "@/app/lib/travel-db";
 import { resolveMemberProfileById } from "@/app/lib/members-db";
+import { notifyTravelThreadMessage } from "@/app/lib/travels-thread-notify";
 import type { AppUser } from "@/app/lib/app-session";
 
 async function resolveThreadContext() {
@@ -88,6 +89,17 @@ export async function POST(req: Request) {
       authorUserId: ctx.user.id,
       userLabel,
       role: roleLabel,
+      text,
+    });
+
+    // E-mail aux autres participants du fil (créateur, compta, direction). Ne lève jamais.
+    await notifyTravelThreadMessage({
+      trip,
+      etablissementId: etabId,
+      authorUserIds: [ctx.user.id, ...(viewer.extraUserIds ?? [])],
+      authorEmail: ctx.user.email,
+      authorLabel: userLabel,
+      roleLabel,
       text,
     });
 
