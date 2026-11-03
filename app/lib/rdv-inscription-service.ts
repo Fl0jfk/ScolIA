@@ -57,6 +57,7 @@ import {
   inscriptionLevelsForDirectionSlug,
 } from "@/app/lib/document-templates/inscription-levels";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { parseManualRdvSlot } from "@/app/lib/rdv-inscription-manual-slot";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import type {
   RdvInscriptionBookInput,
@@ -85,7 +86,8 @@ async function releaseExpiredPendings(etablissementId?: string): Promise<void> {
         bookingId: b.id,
       });
     } catch (e) {
-      console.error("[rdv-inscription] release hold expiré:", e);
+      // Créneau resté masqué : réparable via « Créneaux masqués » dans le paramétrage.
+      console.error("[rdv-inscription] release hold expiré:", { eventId: b.googleEventId }, e);
     }
     await markRdvInscriptionBookingExpired({
       bookingId: b.id,
@@ -307,11 +309,17 @@ async function supersedeActiveBookingsForEleve(opts: {
     }
     try {
       if (prev.status === "pending") {
-        await releaseInscriptionCalendarHold({
-          calendarId: prev.googleCalendarId,
-          eventId: prev.googleEventId,
-          bookingId: prev.id,
-        });
+        // Même règle que pour un confirmé : un échec Google n'empêche pas d'annuler en base
+        // (sinon l'élève garderait deux RDV actifs). Le créneau reste réparable depuis l'admin.
+        try {
+          await releaseInscriptionCalendarHold({
+            calendarId: prev.googleCalendarId,
+            eventId: prev.googleEventId,
+            bookingId: prev.id,
+          });
+        } catch (e) {
+          warnings.push(`${prev.id}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       } else if (prev.status === "confirmed") {
         const restored = await restoreInscriptionCalendarSlot({
           calendarId: prev.googleCalendarId,
@@ -864,6 +872,93 @@ export async function changeRdvInscriptionSlotAsAdmin(opts: {
     booking: updated,
     mailWarning: mail.error,
   };
+}
+
+/**
+ * Admin : fixe à la main la date et l’heure d’un RDV déjà déplacé dans Google Agenda.
+ * Ne touche pas à Google (l’événement a été géré à la main). Maj BDD + mail parent avec ICS.
+ * Accepte aussi un RDV annulé (rechoix) : on le réactive en confirmé.
+ */
+export async function setRdvInscriptionSlotManuallyAsAdmin(opts: {
+  bookingId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  note?: string | null;
+}): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow; mailWarning?: string }
+  | { ok: false; status: number; error: string }
+> {
+  const found = await findRdvInscriptionBookingById({ bookingId: opts.bookingId });
+  if (!found) {
+    return { ok: false, status: 404, error: "Réservation introuvable." };
+  }
+  if (
+    found.status !== "pending" &&
+    found.status !== "confirmed" &&
+    found.status !== "cancelled"
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Cette réservation ne peut plus être modifiée (expirée).",
+    };
+  }
+
+  const parsed = parseManualRdvSlot(opts);
+  if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
+
+  // L'événement Google lié a pu être repris par une autre famille entre-temps.
+  const taken = await findActiveBookingByGoogleEvent({
+    calendarId: found.googleCalendarId,
+    eventId: found.googleEventId,
+    etablissementId: found.etablissementId,
+  });
+  if (taken && taken.id !== found.id) {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        "L’événement Google de ce RDV est désormais réservé par une autre famille. Choisissez un créneau libre dans la liste.",
+    };
+  }
+
+  const direction = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+    etablissementId: found.etablissementId,
+  });
+  if (!direction) {
+    return { ok: false, status: 404, error: "Direction introuvable." };
+  }
+
+  const previousStartAt = found.startAt;
+  const previousEndAt = found.endAt;
+  const note = String(opts.note || "").trim().slice(0, 1000) || null;
+
+  const updated = await updateRdvInscriptionBookingSlot({
+    bookingId: found.id,
+    etablissementId: found.etablissementId,
+    // Événement Google inchangé : déplacé ou recréé à la main par l’établissement.
+    googleEventId: found.googleEventId,
+    googleHtmlLink: found.googleHtmlLink,
+    startAt: parsed.startAt,
+    endAt: parsed.endAt,
+    forceConfirmed: true,
+  });
+  if (!updated) {
+    return { ok: false, status: 500, error: "Mise à jour impossible en base." };
+  }
+
+  const mail = await sendRdvInscriptionSlotChangedByAdminMail({
+    page: directionPageSettings(direction),
+    booking: updated,
+    previousStartAt,
+    previousEndAt,
+    directionLabel: direction.label,
+    directriceName: direction.directriceDisplayName,
+    adminNote: note,
+  });
+
+  return { ok: true, booking: updated, mailWarning: mail.error };
 }
 
 /** Chemin d’erreur public sans forcer une direction (ex. lycée). */

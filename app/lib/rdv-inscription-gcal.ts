@@ -5,13 +5,17 @@ import {
   type RdvInscriptionSlot,
 } from "@/app/lib/rdv-inscription-types";
 import { getRdvInscriptionGoogleAccessToken } from "@/app/lib/rdv-inscription-oauth";
+import {
+  SCOLA_BOOKED_PROP,
+  SCOLA_BOOKING_ID_PROP,
+  SCOLA_PENDING_PROP,
+  privatePatchClearing,
+  privatePatchClearingAllScola,
+} from "@/app/lib/rdv-inscription-gcal-props";
+
+export { SCOLA_BOOKED_PROP, SCOLA_BOOKING_ID_PROP, SCOLA_PENDING_PROP };
 
 const GCAL_BASE = "https://www.googleapis.com/calendar/v3";
-
-/** Propriété privée pour marquer un créneau déjà réservé via ScolIA. */
-export const SCOLA_BOOKED_PROP = "scolaBooked";
-export const SCOLA_PENDING_PROP = "scolaPending";
-export const SCOLA_BOOKING_ID_PROP = "scolaBookingId";
 /** Couleur Google Agenda « Paon » (bleu paon). */
 export const GCAL_COLOR_PAON = "7";
 
@@ -36,7 +40,12 @@ type GCalEvent = {
   attendees?: Array<{ email?: string; displayName?: string }>;
   transparency?: string;
   etag?: string;
+  /** Dernière modification (RFC 3339). */
+  updated?: string;
 };
+
+/** Une marque « en attente » plus récente que ça peut être une réservation en cours. */
+const FRESH_PENDING_MARKER_MS = 10 * 60 * 1000;
 
 function encodeCalendarId(calendarId: string): string {
   return encodeURIComponent(calendarId);
@@ -255,6 +264,123 @@ export async function listAvailableInscriptionSlotsDetailed(opts: {
   return { slots, sampleTitles, upcomingEventCount };
 }
 
+export type HiddenInscriptionSlot = {
+  eventId: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  /** Marque ScolIA qui masque le créneau. */
+  marker: "booked" | "pending";
+  /** Réservation référencée par la marque (peut ne plus exister ou être close). */
+  markerBookingId: string | null;
+};
+
+/**
+ * Créneaux à venir dont le titre correspond au motif mais qui portent encore une marque
+ * ScolIA (réservé / en attente) : ils sont masqués de la liste publique.
+ * Ne dit pas si la marque est légitime : à croiser avec les réservations actives en base.
+ */
+export async function listHiddenInscriptionSlots(opts: {
+  calendarId: string;
+  titlePattern: string;
+  horizonDays: number;
+  accessToken?: string;
+}): Promise<HiddenInscriptionSlot[]> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const calendarId = opts.calendarId.trim();
+  if (!calendarId) return [];
+
+  const { now, items } = await listCalendarEventsInHorizon({
+    calendarId,
+    horizonDays: opts.horizonDays,
+    accessToken,
+  });
+
+  const hidden: HiddenInscriptionSlot[] = [];
+  for (const ev of items) {
+    if (!ev.id || ev.status === "cancelled") continue;
+    if (!isScolaHeldEvent(ev)) continue;
+    const summary = (ev.summary || "").trim();
+    if (!summary || /^annul[eé]/i.test(summary)) continue;
+    if (!eventTitleMatchesPattern(summary, opts.titlePattern)) continue;
+    const bounds = eventStartEnd(ev);
+    if (!bounds) continue;
+    if (new Date(bounds.startAt).getTime() < now.getTime() - 60_000) continue;
+    const priv = ev.extendedProperties?.private || {};
+    hidden.push({
+      eventId: ev.id,
+      title: summary,
+      startAt: bounds.startAt,
+      endAt: bounds.endAt,
+      marker: isScolaBookedEvent(ev) ? "booked" : "pending",
+      markerBookingId: priv[SCOLA_BOOKING_ID_PROP]?.trim() || null,
+    });
+  }
+  return hidden;
+}
+
+/**
+ * Efface les marques ScolIA d'un créneau masqué à tort (aucune réservation active).
+ * Revérifie l'événement juste avant (toujours marqué, titre libre) et protège par etag.
+ * L'appelant DOIT avoir vérifié en base qu'aucune réservation active n'utilise ce créneau.
+ */
+export async function clearOrphanInscriptionMarkers(opts: {
+  calendarId: string;
+  eventId: string;
+  titlePattern: string;
+  accessToken?: string;
+}): Promise<{ ok: true; changed: boolean } | { ok: false; message: string }> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const current = await getCalendarEvent({
+    calendarId: opts.calendarId,
+    eventId: opts.eventId,
+    accessToken,
+  });
+  if (!current?.id || current.status === "cancelled") {
+    return { ok: false, message: "Créneau introuvable." };
+  }
+  if (!isScolaHeldEvent(current)) return { ok: true, changed: false };
+  const summary = (current.summary || "").trim();
+  if (/^annul[eé]/i.test(summary) || !eventTitleMatchesPattern(summary, opts.titlePattern)) {
+    return { ok: false, message: "Le titre ne correspond plus à un créneau libre." };
+  }
+  // Une famille peut être en train de réserver : la marque est posée juste avant la ligne en base.
+  const updatedMs = current.updated ? new Date(current.updated).getTime() : NaN;
+  if (
+    !isScolaBookedEvent(current) &&
+    (!Number.isFinite(updatedMs) || Date.now() - updatedMs < FRESH_PENDING_MARKER_MS)
+  ) {
+    return {
+      ok: false,
+      message: "Réservation peut-être en cours sur ce créneau. Réessayez dans 10 minutes.",
+    };
+  }
+
+  const ifMatch = current.etag?.trim();
+  const res = await gcalFetch(
+    accessToken,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=none`,
+    {
+      method: "PATCH",
+      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
+      body: JSON.stringify({
+        extendedProperties: {
+          private: privatePatchClearingAllScola(current.extendedProperties?.private),
+          shared: current.extendedProperties?.shared || undefined,
+        },
+      }),
+    },
+  );
+  if (res.status === 412) {
+    return { ok: false, message: "Le créneau vient d'être modifié. Relancez la vérification." };
+  }
+  if (!res.ok) {
+    const body = await res.text();
+    return { ok: false, message: `Réparation Google échouée (${res.status}) : ${body.slice(0, 200)}` };
+  }
+  return { ok: true, changed: true };
+}
+
 export async function getCalendarEvent(opts: {
   calendarId: string;
   eventId: string;
@@ -410,12 +536,14 @@ export async function releaseInscriptionCalendarHold(opts: {
   });
   if (!current?.id) return;
   if (isScolaBookedEvent(current)) return;
-  const priv: Record<string, string> = { ...(current.extendedProperties?.private || {}) };
-  if (priv[SCOLA_BOOKING_ID_PROP] && priv[SCOLA_BOOKING_ID_PROP] !== opts.bookingId) return;
-  delete priv[SCOLA_PENDING_PROP];
-  if (priv[SCOLA_BOOKING_ID_PROP] === opts.bookingId) delete priv[SCOLA_BOOKING_ID_PROP];
+  const currentPriv = current.extendedProperties?.private || {};
+  if (currentPriv[SCOLA_BOOKING_ID_PROP] && currentPriv[SCOLA_BOOKING_ID_PROP] !== opts.bookingId) {
+    return;
+  }
+  // `null` obligatoire : une clé simplement omise serait conservée par Google.
+  const priv = privatePatchClearing(currentPriv, [SCOLA_PENDING_PROP, SCOLA_BOOKING_ID_PROP]);
 
-  await gcalFetch(
+  const res = await gcalFetch(
     accessToken,
     `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}`,
     {
@@ -428,6 +556,10 @@ export async function releaseInscriptionCalendarHold(opts: {
       }),
     },
   );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Libération Google échouée (${res.status}) : ${body.slice(0, 200)}`);
+  }
 }
 
 export type BookCalendarEventResult =
@@ -544,12 +676,11 @@ export async function confirmInscriptionCalendarEvent(opts: {
     `Réf. : ${opts.bookingId}`,
   ].filter(Boolean);
 
-  const priv: Record<string, string> = {
-    ...(current.extendedProperties?.private || {}),
+  const priv = {
+    ...privatePatchClearing(current.extendedProperties?.private, [SCOLA_PENDING_PROP]),
     [SCOLA_BOOKED_PROP]: "true",
     [SCOLA_BOOKING_ID_PROP]: opts.bookingId,
   };
-  delete priv[SCOLA_PENDING_PROP];
 
   const patchBody: Record<string, unknown> = {
     summary: newTitle,
@@ -713,10 +844,6 @@ export async function retireInscriptionCalendarSlot(opts: {
     .filter(Boolean)
     .join("\n");
 
-  delete priv[SCOLA_BOOKED_PROP];
-  delete priv[SCOLA_PENDING_PROP];
-  delete priv[SCOLA_BOOKING_ID_PROP];
-
   const res = await gcalFetch(
     accessToken,
     `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=none`,
@@ -728,7 +855,8 @@ export async function retireInscriptionCalendarSlot(opts: {
         transparency: "transparent",
         attendees: [],
         extendedProperties: {
-          private: priv,
+          // `null` obligatoire : une clé simplement omise serait conservée par Google.
+          private: privatePatchClearingAllScola(priv),
           shared: current.extendedProperties?.shared || undefined,
         },
       }),
@@ -777,10 +905,6 @@ export async function restoreInscriptionCalendarSlot(opts: {
     };
   }
 
-  delete priv[SCOLA_BOOKED_PROP];
-  delete priv[SCOLA_PENDING_PROP];
-  delete priv[SCOLA_BOOKING_ID_PROP];
-
   const restoreTitle = opts.restoreTitle.trim() || "Rendez-vous inscription";
   const res = await gcalFetch(
     accessToken,
@@ -793,7 +917,8 @@ export async function restoreInscriptionCalendarSlot(opts: {
         transparency: "opaque",
         attendees: [],
         extendedProperties: {
-          private: priv,
+          // `null` obligatoire : une clé simplement omise serait conservée par Google.
+          private: privatePatchClearingAllScola(priv),
           shared: current.extendedProperties?.shared || undefined,
         },
       }),

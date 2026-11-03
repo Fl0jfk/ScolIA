@@ -92,6 +92,19 @@ function readTabFromUrl(): AdminTab {
   return t === "reglages" ? "reglages" : "suivi";
 }
 
+/** Choix spécial du modal « changer le créneau » : date et heure saisies à la main. */
+const MANUAL_SLOT_CHOICE = "__manual__";
+
+type HiddenSlotRow = {
+  eventId: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  marker: "booked" | "pending";
+  repairable: boolean;
+  activeBooking: { id: string; studentLabel: string; status: string } | null;
+};
+
 function readDirectionFilterFromUrl(): string {
   if (typeof window === "undefined") return "";
   return (new URLSearchParams(window.location.search).get("direction") || "").trim();
@@ -106,6 +119,11 @@ export default function RdvInscriptionAdminClient() {
   const [busy, setBusy] = useState(false);
   const [testSlots, setTestSlots] = useState<RdvInscriptionSlot[] | null>(null);
   const [sampleTitles, setSampleTitles] = useState<string[]>([]);
+  const [hiddenScan, setHiddenScan] = useState<{
+    directionId: string;
+    directionLabel: string;
+    slots: HiddenSlotRow[];
+  } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [tab, setTab] = useState<AdminTab>("suivi");
   const [directionFilter, setDirectionFilter] = useState<string>("");
@@ -131,6 +149,9 @@ export default function RdvInscriptionAdminClient() {
   const [changeSlotSelectedEventId, setChangeSlotSelectedEventId] = useState("");
   const [changeSlotOptions, setChangeSlotOptions] = useState<RdvInscriptionSlot[]>([]);
   const [changeSlotLoading, setChangeSlotLoading] = useState(false);
+  const [manualDate, setManualDate] = useState("");
+  const [manualStartTime, setManualStartTime] = useState("");
+  const [manualEndTime, setManualEndTime] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -279,7 +300,7 @@ export default function RdvInscriptionAdminClient() {
             ? `Lien de rechoix renvoyé (attention mail : ${json.mailWarning})`
             : "Mail de rechoix renvoyé au parent (lien corrigé, valable 14 jours).",
         );
-      } else if (body.action === "change-slot") {
+      } else if (body.action === "change-slot" || body.action === "change-slot-manual") {
         setMessage(
           json.mailWarning
             ? `Créneau modifié (attention mail : ${json.mailWarning})`
@@ -352,6 +373,9 @@ export default function RdvInscriptionAdminClient() {
       wasCancelled,
     });
     setChangeSlotNote("");
+    setManualDate("");
+    setManualStartTime("");
+    setManualEndTime("");
     // Annulé : on réserve en général un nouveau créneau libre côté Google.
     setChangeSlotGoogleMode(wasCancelled ? "update" : "already_done");
     setChangeSlotSelectedEventId(wasCancelled ? "" : booking.googleEventId);
@@ -387,6 +411,18 @@ export default function RdvInscriptionAdminClient() {
 
   async function submitChangeSlot() {
     if (!changeSlotTarget || !changeSlotSelectedEventId) return;
+    if (changeSlotSelectedEventId === MANUAL_SLOT_CHOICE) {
+      if (changeSlotGoogleMode !== "already_done") return;
+      await put({
+        action: "change-slot-manual",
+        bookingId: changeSlotTarget.id,
+        date: manualDate,
+        startTime: manualStartTime,
+        endTime: manualEndTime,
+        note: changeSlotNote.trim() || undefined,
+      });
+      return;
+    }
     await put({
       action: "change-slot",
       bookingId: changeSlotTarget.id,
@@ -808,11 +844,103 @@ export default function RdvInscriptionAdminClient() {
                       >
                         Tester les créneaux
                       </ModuleButton>
+                      <ModuleButton
+                        type="button"
+                        variant="secondary"
+                        disabled={busy || !google.linked || !d.googleCalendarId}
+                        onClick={async () => {
+                          setHiddenScan(null);
+                          const json = await put({
+                            action: "scan-hidden-slots",
+                            directionId: d.id,
+                          });
+                          if (json && "slots" in json) {
+                            const slots = (json as { slots: HiddenSlotRow[] }).slots;
+                            setHiddenScan({ directionId: d.id, directionLabel: d.label, slots });
+                            const repairable = slots.filter((s) => s.repairable).length;
+                            setMessage(
+                              slots.length === 0
+                                ? `Aucun créneau masqué sur « ${d.label} ».`
+                                : `${slots.length} créneau(x) masqué(s) sur « ${d.label} », dont ${repairable} réparable(s).`,
+                            );
+                          }
+                        }}
+                      >
+                        Créneaux masqués
+                      </ModuleButton>
                     </div>
                   </form>
                 </ModuleCard>
               ))}
             </div>
+            {hiddenScan && hiddenScan.slots.length > 0 ? (
+              <ModuleCard
+                className="border-amber-200/80 bg-amber-50/70"
+                bodyClassName="p-4 sm:p-5 text-sm text-amber-950"
+              >
+                <p className="font-semibold">
+                  Créneaux masqués — {hiddenScan.directionLabel}
+                </p>
+                <p className="mt-1 text-xs">
+                  Ces événements ont le bon titre mais ScolIA les croit encore réservés : ils
+                  n’apparaissent pas aux familles. « Réparable » = aucune réservation active ne
+                  les utilise.
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {hiddenScan.slots.map((s) => (
+                    <li key={s.eventId}>
+                      {formatSlot(s.startAt, s.endAt)} — {s.title} —{" "}
+                      {s.repairable ? (
+                        <strong>réparable</strong>
+                      ) : (
+                        <span>
+                          réservé par {s.activeBooking?.studentLabel || "une famille"} (non modifié)
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {hiddenScan.slots.some((s) => s.repairable) ? (
+                  <div className="mt-3">
+                    <ModuleButton
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        const ids = hiddenScan.slots
+                          .filter((s) => s.repairable)
+                          .map((s) => s.eventId);
+                        if (
+                          !window.confirm(
+                            `Remettre ${ids.length} créneau(x) en libre pour les familles ?`,
+                          )
+                        ) {
+                          return;
+                        }
+                        const json = await put({
+                          action: "repair-hidden-slots",
+                          directionId: hiddenScan.directionId,
+                          eventIds: ids,
+                        });
+                        if (json && "repaired" in json) {
+                          const r = json as {
+                            repaired: string[];
+                            skipped: Array<{ eventId: string; reason: string }>;
+                          };
+                          setHiddenScan(null);
+                          setMessage(
+                            r.skipped.length
+                              ? `${r.repaired.length} créneau(x) remis en libre, ${r.skipped.length} ignoré(s) : ${r.skipped.map((x) => x.reason).join(" ; ")}`
+                              : `${r.repaired.length} créneau(x) remis en libre.`,
+                          );
+                        }
+                      }}
+                    >
+                      Remettre en libre les créneaux réparables
+                    </ModuleButton>
+                  </div>
+                ) : null}
+              </ModuleCard>
+            ) : null}
             {testSlots && testSlots.length > 0 ? (
               <ModuleCard bodyClassName="p-4 sm:p-5">
                 <p className={`text-sm font-semibold ${dash.ink}`}>Créneaux libres (aperçu)</p>
@@ -1315,7 +1443,12 @@ export default function RdvInscriptionAdminClient() {
                   className="mt-1"
                   name="change-slot-google"
                   checked={changeSlotGoogleMode === "update"}
-                  onChange={() => setChangeSlotGoogleMode("update")}
+                  onChange={() => {
+                    setChangeSlotGoogleMode("update");
+                    if (changeSlotSelectedEventId === MANUAL_SLOT_CHOICE) {
+                      setChangeSlotSelectedEventId("");
+                    }
+                  }}
                 />
                 <span>
                   <strong>Mettre aussi à jour Google Agenda</strong>
@@ -1386,6 +1519,61 @@ export default function RdvInscriptionAdminClient() {
                   })}
                 </ul>
               )}
+              {changeSlotGoogleMode === "already_done" ? (
+                <div
+                  className={`mt-2 rounded-lg px-3 py-2 text-sm ring-1 ${
+                    changeSlotSelectedEventId === MANUAL_SLOT_CHOICE
+                      ? "bg-sky-50 ring-sky-700"
+                      : "bg-slate-50 ring-slate-200"
+                  }`}
+                >
+                  <label className="flex cursor-pointer items-center gap-2 font-semibold text-slate-800">
+                    <input
+                      type="radio"
+                      name="change-slot-manual"
+                      checked={changeSlotSelectedEventId === MANUAL_SLOT_CHOICE}
+                      onChange={() => setChangeSlotSelectedEventId(MANUAL_SLOT_CHOICE)}
+                    />
+                    Saisir la date et l’heure à la main
+                  </label>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Pour un horaire déjà fixé dans Google Agenda qui n’apparaît pas dans la liste.
+                    ScolIA ne modifie pas Google : l’événement doit porter le nom de l’élève,
+                    sinon il reste proposé aux autres familles.
+                  </p>
+                  {changeSlotSelectedEventId === MANUAL_SLOT_CHOICE ? (
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Date
+                        <input
+                          type="date"
+                          value={manualDate}
+                          onChange={(e) => setManualDate(e.target.value)}
+                          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Début
+                        <input
+                          type="time"
+                          value={manualStartTime}
+                          onChange={(e) => setManualStartTime(e.target.value)}
+                          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Fin
+                        <input
+                          type="time"
+                          value={manualEndTime}
+                          onChange={(e) => setManualEndTime(e.target.value)}
+                          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {!changeSlotLoading && changeSlotOptions.length === 0 ? (
                 <p className="mt-2 text-xs text-slate-500">
                   {changeSlotTarget.wasCancelled
@@ -1424,7 +1612,13 @@ export default function RdvInscriptionAdminClient() {
               </button>
               <button
                 type="button"
-                disabled={busy || changeSlotLoading || !changeSlotSelectedEventId}
+                disabled={
+                  busy ||
+                  changeSlotLoading ||
+                  !changeSlotSelectedEventId ||
+                  (changeSlotSelectedEventId === MANUAL_SLOT_CHOICE &&
+                    (!manualDate || !manualStartTime || !manualEndTime))
+                }
                 onClick={() => void submitChangeSlot()}
                 className="rounded-md bg-sky-700 px-3 py-1.5 text-sm font-bold text-white hover:bg-sky-800 disabled:opacity-50"
               >

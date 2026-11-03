@@ -244,6 +244,71 @@ export async function PUT(req: Request) {
       });
     }
 
+    if (action === "change-slot-manual") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const note =
+        typeof body.note === "string" ? body.note.trim().slice(0, 1000) : "";
+      const { setRdvInscriptionSlotManuallyAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await setRdvInscriptionSlotManuallyAsAdmin({
+        bookingId,
+        date: String(body.date || ""),
+        startTime: String(body.startTime || ""),
+        endTime: String(body.endTime || ""),
+        note: note || null,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
+    if (action === "scan-hidden-slots") {
+      const { scanHiddenInscriptionSlots } = await import(
+        "@/app/lib/rdv-inscription-hidden-slots"
+      );
+      const result = await scanHiddenInscriptionSlots(String(body.directionId || ""));
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({ success: true, slots: result.slots });
+    }
+
+    if (action === "repair-hidden-slots") {
+      const eventIds = Array.isArray(body.eventIds)
+        ? body.eventIds.filter((e): e is string => typeof e === "string")
+        : [];
+      const { repairHiddenInscriptionSlots } = await import(
+        "@/app/lib/rdv-inscription-hidden-slots"
+      );
+      const result = await repairHiddenInscriptionSlots({
+        directionId: String(body.directionId || ""),
+        eventIds,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      console.info("[rdv-inscription] réparation créneaux masqués", {
+        userId: auth.user.id,
+        directionId: String(body.directionId || ""),
+        repaired: result.repaired.length,
+        skipped: result.skipped.length,
+      });
+      return NextResponse.json({
+        success: true,
+        repaired: result.repaired,
+        skipped: result.skipped,
+      });
+    }
+
     if (action === "test-slots") {
       const directionId = String(body.directionId || "").trim();
       const dir = await getRdvInscriptionDirectionById(directionId);
