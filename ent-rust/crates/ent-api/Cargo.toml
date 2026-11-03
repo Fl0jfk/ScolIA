@@ -18,6 +18,7 @@ domain-eleve = { path = "../domain-eleve" }
 ent-auth = { path = "../ent-auth" }
 ent-db = { path = "../ent-db" }
 ent-obs = { path = "../ent-obs" }
+ent-types = { path = "../ent-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

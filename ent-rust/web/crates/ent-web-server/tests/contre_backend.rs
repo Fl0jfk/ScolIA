@@ -448,3 +448,281 @@ async fn contrat_json_ent_types_lot1() {
     assert_eq!(clos["statut"], "clos");
     println!("contrat ent-types lot 1 : 5 routes vérifiées, JSON identique");
 }
+
+/// Remplace les identifiants (UUID) et les jours variables par des repères fixes,
+/// pour comparer le JSON **brut** (ordre des champs compris) d'une exécution à l'autre.
+fn normaliser(brut: &str, jours: &[String]) -> String {
+    let mut s = brut.to_string();
+    for (i, j) in jours.iter().enumerate() {
+        s = s.replace(j.as_str(), &format!("<jour{i}>"));
+    }
+    let c: Vec<char> = s.chars().collect();
+    let forme = |w: &[char]| {
+        w.len() == 36
+            && w.iter().enumerate().all(|(i, ch)| match i {
+                8 | 13 | 18 | 23 => *ch == '-',
+                _ => ch.is_ascii_hexdigit(),
+            })
+    };
+    let mut sortie = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        if i + 36 <= c.len() && forme(&c[i..i + 36]) {
+            sortie.push_str("<uuid>");
+            i += 36;
+        } else {
+            sortie.push(c[i]);
+            i += 1;
+        }
+    }
+    // L'ordre des lignes d'un appel n'est pas garanti par ent-api (pas d'ORDER BY après
+    // modification) : on trie les objets de `lignes`, chacun gardé tel quel (texte brut).
+    if let Some(debut) = sortie.find(r#""lignes":["#) {
+        let d = debut + r#""lignes":["#.len();
+        if let Some(fin) = sortie[d..].find("}]").map(|f| d + f + 1) {
+            let mut lignes: Vec<&str> = sortie[d..fin].split("},{").collect();
+            if lignes.len() > 1 {
+                let n = lignes.len();
+                let mut objets: Vec<String> = lignes
+                    .drain(..)
+                    .enumerate()
+                    .map(|(k, o)| {
+                        let o = if k == 0 {
+                            o.to_string()
+                        } else {
+                            format!("{{{o}")
+                        };
+                        if k == n - 1 {
+                            o
+                        } else {
+                            format!("{o}}}")
+                        }
+                    })
+                    .collect();
+                objets.sort();
+                sortie = format!("{}{}{}", &sortie[..d], objets.join(","), &sortie[fin..]);
+            }
+        }
+    }
+    sortie
+}
+
+async fn envoyer(r: reqwest::RequestBuilder) -> (u16, String) {
+    let rep = r.send().await.unwrap();
+    (rep.status().as_u16(), rep.text().await.unwrap())
+}
+
+/// Instantané du contrat JSON des routes appel / EDT (lot 1 d'`ent-types` côté `ent-api`) :
+/// corps bruts des réponses (ordre des champs compris) et **rejets** des corps invalides
+/// (code HTTP + message). Écrit dans `ENT_CONTRAT_SORTIE` s'il est défini, pour comparer
+/// avant / après une migration (`diff`). Vérifie aussi les invariants du contrat.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn contrat_json_appel_edt_instantane() {
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let http = reqwest::Client::new();
+    let p = l.personnel.iter().find(|p| p.role == "prof").unwrap();
+    let prof = labo::connecter(&base, &l, &p.email)
+        .await
+        .expect("prof")
+        .token;
+    let g = l
+        .personnel
+        .iter()
+        .find(|p| ["direction", "admin", "administratif", "cpe"].contains(&p.role.as_str()))
+        .expect("personnel de gestion de l'EDT");
+    let gestion = labo::connecter(&base, &l, &g.email)
+        .await
+        .expect("gestion")
+        .token;
+
+    let jour = jour_neuf();
+    let jour2 = jour + Duration::weeks(1);
+    let jours = vec![jour.to_string(), jour2.to_string()];
+    let mut instantane: Vec<String> = Vec::new();
+    let mut noter = |nom: &str, statut: u16, corps: &str| {
+        instantane.push(format!(
+            "## {nom}\n{statut}\n{}\n",
+            normaliser(corps, &jours)
+        ));
+    };
+    let json = "application/json";
+
+    // EDT : les 4 routes qui utilisent la conversion EdtCreneau -> EdtCreneauDto.
+    let (s, mes) = envoyer(
+        http.get(format!("{base}/edt/mes-creneaux?jour={jour}"))
+            .bearer_auth(&prof),
+    )
+    .await;
+    noter("GET /edt/mes-creneaux (prof)", s, &mes);
+    assert_eq!(s, 200);
+    let liste: serde_json::Value = serde_json::from_str(&mes).unwrap();
+    let c4b = liste
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["classe"] == "4B")
+        .expect("4B")
+        .clone();
+    let creneau_id = c4b["id"].as_str().unwrap().to_string();
+
+    let (s, b) = envoyer(
+        http.get(format!("{base}/edt/creneaux?jour={jour}"))
+            .bearer_auth(&gestion),
+    )
+    .await;
+    noter("GET /edt/creneaux (gestion)", s, &b);
+    assert_eq!(s, 200);
+
+    let (s, b) = envoyer(
+        http.post(format!("{base}/edt/creneaux/{creneau_id}/affectation"))
+            .bearer_auth(&gestion)
+            .json(
+                &serde_json::json!({ "prof_user_id": c4b["prof_user_id"], "salle": c4b["salle"] }),
+            ),
+    )
+    .await;
+    noter(
+        "POST /edt/creneaux/{id}/affectation (même prof, même salle)",
+        s,
+        &b,
+    );
+    assert_eq!(s, 200, "{b}");
+
+    // Appel : rejets, ouverture, marquage, lecture, clôture.
+    let url_appels = format!("{base}/appels");
+    for (nom, corps) in [
+        ("POST /appels corps vide {}", "{}".to_string()),
+        (
+            "POST /appels sans jour",
+            format!(r#"{{"creneau_id":"{creneau_id}"}}"#),
+        ),
+        (
+            "POST /appels creneau_id invalide",
+            format!(r#"{{"creneau_id":"abc","jour":"{jour}"}}"#),
+        ),
+        (
+            "POST /appels jour invalide",
+            format!(r#"{{"creneau_id":"{creneau_id}","jour":"31/12/2026"}}"#),
+        ),
+        (
+            "POST /appels type incorrect",
+            format!(r#"{{"creneau_id":42,"jour":"{jour}"}}"#),
+        ),
+        (
+            "POST /appels JSON mal formé",
+            r#"{"creneau_id":"#.to_string(),
+        ),
+    ] {
+        let (s, b) = envoyer(
+            http.post(&url_appels)
+                .bearer_auth(&prof)
+                .header("content-type", json)
+                .body(corps),
+        )
+        .await;
+        noter(nom, s, &b);
+        assert!((400..500).contains(&s), "{nom} : {s}");
+    }
+    let (s, b) = envoyer(http.post(&url_appels).bearer_auth(&prof).body(format!(
+        r#"{{"creneau_id":"{creneau_id}","jour":"{jour}"}}"#
+    )))
+    .await;
+    noter("POST /appels sans content-type", s, &b);
+    assert!((400..500).contains(&s), "sans content-type : {s}");
+
+    let (s, ouvert) = envoyer(
+        http.post(&url_appels)
+            .bearer_auth(&prof)
+            .header("content-type", json)
+            .body(format!(
+                r#"{{"creneau_id":"{creneau_id}","jour":"{jour}","champ_inconnu":true}}"#
+            )),
+    )
+    .await;
+    noter("POST /appels (champ inconnu ignoré)", s, &ouvert);
+    assert_eq!(s, 201, "{ouvert}");
+    let appel: serde_json::Value = serde_json::from_str(&ouvert).unwrap();
+    let id = appel["id"].as_str().unwrap().to_string();
+    let eleve = appel["lignes"][0]["eleve_id"]
+        .as_str()
+        .expect("élève")
+        .to_string();
+
+    let (s, b) = envoyer(
+        http.get(format!("{base}/eleves/{eleve}/edt?jour={jour}"))
+            .bearer_auth(&gestion),
+    )
+    .await;
+    noter("GET /eleves/{id}/edt (gestion)", s, &b);
+
+    let url_lignes = format!("{base}/appels/{id}/lignes");
+    for (nom, corps) in [
+        (
+            "POST /appels/{id}/lignes sans etat",
+            format!(r#"{{"eleve_id":"{eleve}"}}"#),
+        ),
+        (
+            "POST /appels/{id}/lignes etat numérique",
+            format!(r#"{{"eleve_id":"{eleve}","etat":1}}"#),
+        ),
+        (
+            "POST /appels/{id}/lignes eleve_id invalide",
+            r#"{"eleve_id":"x","etat":"absent"}"#.to_string(),
+        ),
+    ] {
+        let (s, b) = envoyer(
+            http.post(&url_lignes)
+                .bearer_auth(&prof)
+                .header("content-type", json)
+                .body(corps),
+        )
+        .await;
+        noter(nom, s, &b);
+        assert!((400..500).contains(&s), "{nom} : {s}");
+    }
+    let marquer = |etat: &str| {
+        http.post(&url_lignes)
+            .bearer_auth(&prof)
+            .header("content-type", json)
+            .body(format!(r#"{{"eleve_id":"{eleve}","etat":"{etat}"}}"#))
+    };
+    let (s, b) = envoyer(marquer("absent")).await;
+    noter("POST /appels/{id}/lignes (absent)", s, &b);
+    assert_eq!(s, 204, "{b}");
+
+    let (s, b) = envoyer(http.get(format!("{base}/appels/{id}")).bearer_auth(&prof)).await;
+    noter("GET /appels/{id}", s, &b);
+    assert_eq!(s, 200);
+    let (s, b) = envoyer(
+        http.post(format!("{base}/appels/{id}/clore"))
+            .bearer_auth(&prof),
+    )
+    .await;
+    noter("POST /appels/{id}/clore", s, &b);
+    assert_eq!(s, 200);
+    let (s, b) = envoyer(marquer("present")).await;
+    noter(
+        "POST /appels/{id}/lignes après clôture (refus métier)",
+        s,
+        &b,
+    );
+    assert!((400..500).contains(&s));
+    let (s, b) = envoyer(
+        http.post(&url_appels)
+            .bearer_auth(&prof)
+            .header("content-type", json)
+            .body(format!(
+                r#"{{"creneau_id":"{creneau_id}","jour":"{jour2}"}}"#
+            )),
+    )
+    .await;
+    noter("POST /appels (2e semaine)", s, &b);
+
+    let texte = instantane.join("\n");
+    if let Ok(chemin) = std::env::var("ENT_CONTRAT_SORTIE") {
+        std::fs::write(&chemin, &texte).expect("écriture de l'instantané");
+        println!("instantané écrit : {chemin}");
+    }
+    println!("contrat appel/EDT : {} cas enregistrés", instantane.len());
+}

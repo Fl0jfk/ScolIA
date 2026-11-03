@@ -7,7 +7,7 @@ use crate::dto::{
     CreerDevoirBody, CreerFactureBody, CreerNotePeriodeBody, DeclareAbsenceBody, DevoirDto,
     DeclarerRetardBody, RetardDto,
     CreerCompetenceItemBody, CompetenceItemDto, EvaluerCompetenceBody, EvaluationCompetenceDto,
-    EcheanceDto, EcheancierPartsBody, EdtCreneauDto, EdtExceptionDto, EffectifDto, EleveDto,
+    EcheanceDto, EcheancierPartsBody, EdtCreneauDto, EdtExceptionDto, VersDto, EffectifDto, EleveDto,
     EncaissementDto,
     EncaisserBody, EnfantFamilleDto, FamilleResumeDto, FactureDetailDto, FactureDto,
     FactureFamilleListItemDto,
@@ -6671,7 +6671,7 @@ async fn list_edt_creneaux(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_creneaux(&state, list.iter().map(EdtCreneauDto::from).collect()).await?,
+        enrich_edt_creneaux(&state, list.iter().map(VersDto::vers_dto).collect()).await?,
     ))
 }
 
@@ -6698,7 +6698,7 @@ async fn list_edt_eleve(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_creneaux(&state, list.iter().map(EdtCreneauDto::from).collect()).await?,
+        enrich_edt_creneaux(&state, list.iter().map(VersDto::vers_dto).collect()).await?,
     ))
 }
 
@@ -6850,7 +6850,7 @@ async fn affecter_edt_creneau(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_creneau(&state, EdtCreneauDto::from(&c)).await?,
+        enrich_edt_creneau(&state, c.vers_dto()).await?,
     ))
 }
 
@@ -6939,7 +6939,7 @@ async fn list_mes_creneaux(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_creneaux(&state, list.iter().map(EdtCreneauDto::from).collect()).await?,
+        enrich_edt_creneaux(&state, list.iter().map(VersDto::vers_dto).collect()).await?,
     ))
 }
 

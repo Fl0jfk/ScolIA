@@ -825,30 +825,22 @@ impl From<&domain_eleve::Appreciation> for AppreciationDto {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct OuvrirAppelBody {
-    pub creneau_id: Uuid,
-    pub jour: NaiveDate,
+// Lot 1 d'`ent-types` (D-016) : définitions partagées avec le frontend, JSON inchangé.
+pub use ent_types::appel::{AppelDto, AppelLigneDto, MarquerAppelLigneBody, OuvrirAppelBody};
+pub use ent_types::edt::EdtCreneauDto;
+
+/// Conversion d'un type serveur vers son DTO partagé. Un trait local est nécessaire :
+/// Rust interdit `impl From<ent_db::X> for ent_types::Y` dans `ent-api` (règle d'orphelin).
+pub trait VersDto {
+    type Dto;
+    fn vers_dto(&self) -> Self::Dto;
 }
 
-#[derive(Debug, Serialize)]
-pub struct EdtCreneauDto {
-    pub id: Uuid,
-    pub classe: String,
-    pub matiere_libelle: String,
-    pub prof_user_id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prof_label: Option<String>,
-    pub jour_semaine: i16,
-    pub heure_debut: String,
-    pub heure_fin: String,
-    pub salle: Option<String>,
-    pub semaine_ab: String,
-}
-
-impl From<&ent_db::EdtCreneau> for EdtCreneauDto {
-    fn from(c: &ent_db::EdtCreneau) -> Self {
-        Self {
+impl VersDto for ent_db::EdtCreneau {
+    type Dto = EdtCreneauDto;
+    fn vers_dto(&self) -> EdtCreneauDto {
+        let c = self;
+        EdtCreneauDto {
             id: c.id,
             classe: c.classe.clone(),
             matiere_libelle: c.matiere_libelle.clone(),
@@ -1012,31 +1004,6 @@ impl From<&domain_eleve::CarnetEntree> for CarnetEntreeDto {
             fil_notif_id: e.fil_notif_id,
         }
     }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MarquerAppelLigneBody {
-    pub eleve_id: Uuid,
-    pub etat: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AppelLigneDto {
-    pub eleve_id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub eleve_label: Option<String>,
-    pub etat: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AppelDto {
-    pub id: Uuid,
-    pub classe: String,
-    pub jour: NaiveDate,
-    pub statut: String,
-    pub creneau_id: Option<Uuid>,
-    pub matiere_libelle: Option<String>,
-    pub lignes: Vec<AppelLigneDto>,
 }
 
 #[derive(Debug, Serialize)]

@@ -519,6 +519,7 @@ dependencies = [
  "ent-db",
  "ent-obs",
  "ent-oidc",
+ "ent-types",
  "http-body-util",
  "serde",
  "serde_json",

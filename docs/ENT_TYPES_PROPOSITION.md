@@ -1,6 +1,6 @@
 # Proposition — crate `ent-types` (types partagés frontend / backend)
 
-Date : 2026-11-02 (mise à jour 2026-11-03) — Statut : **lot 1 préparé** : crate créée, utilisée par le frontend, contrat vérifié contre le vrai backend ; **`ent-api` pas encore migré** (aucune modification du backend).
+Date : 2026-11-02 (mise à jour 2026-11-03) — Statut : **lot 1 migré côté `ent-api` (appel et EDT, 2026-11-03)** : crate créée, utilisée par le frontend, contrat vérifié contre le vrai backend ; DTO d'authentification encore dans `ent-api` (§8).
 Contexte : D-008, D-010 ; prototype Leptos (`ent-rust/web/`) qui recopie aujourd'hui les types JSON d'`ent-api`.
 
 ## 1. Constat (vérifié dans le code)
@@ -109,4 +109,30 @@ Lot 0 + lot 1 : environ une demi-journée à une journée (création de la crate
 | Frontend | `ent-web-api` utilise `ent-types` (alias des anciens noms) : copies manuelles supprimées |
 | `ent-api` | **non modifié** ; la bascule (réexport dans `dto.rs`, trait `VersDto`) attend l'approbation |
 
-Prochaine étape (à approuver) : migration du lot 1 dans `ent-api` suivant le déroulé du §4, le test de contrat servant de filet de sécurité.
+Suite : voir §8 (lot 1 migré dans `ent-api` le 2026-11-03).
+
+## 8. Lot 1 côté `ent-api` (2026-11-03, D-016)
+
+**Périmètre validé** (présenté puis approuvé avant toute modification) : les 5 DTO de l'appel et de l'EDT. L'authentification est **hors périmètre**.
+
+| Fichier | Changement |
+|---|---|
+| `ent-api/Cargo.toml` | + dépendance `ent-types` (1 ligne) ; `Cargo.lock` des deux workspaces : 1 ligne chacun |
+| `ent-api/src/dto.rs` | suppression de `OuvrirAppelBody`, `MarquerAppelLigneBody`, `AppelLigneDto`, `AppelDto`, `EdtCreneauDto` ; **réexport sous les mêmes noms** depuis `ent-types` ; `impl From<&ent_db::EdtCreneau>` remplacé par le trait local `VersDto` (règle d'orphelin), **même corps de conversion** |
+| `ent-api/src/routes.rs` | import de `VersDto` + 4 remplacements `EdtCreneauDto::from` → `vers_dto` (routes `/edt/creneaux`, `/eleves/{id}/edt`, `/edt/creneaux/{id}/affectation`, `/edt/mes-creneaux`). Aucune autre ligne. |
+
+Routes, règles métier, droits et authentification : inchangés. Les définitions d'`ent-types` sont identiques champ par champ (mêmes noms, ordre et attributs serde ; `Deserialize` en plus, sans effet sur les réponses).
+
+### Comparaison du contrat JSON avant / après
+Test `contrat_json_appel_edt_instantane` (`ent-web-server/tests/contre_backend.rs`, conservé et rejoué en CI) : corps **bruts** (ordre des champs compris) de 20 cas, identifiants et dates remplacés par des repères.
+- 6 routes : `GET /edt/mes-creneaux`, `GET /edt/creneaux`, `POST /edt/creneaux/{id}/affectation`, `GET /eleves/{id}/edt`, `POST /appels` (+ 2e semaine), `POST /appels/{id}/lignes`, `GET /appels/{id}`, `POST /appels/{id}/clore` ;
+- 10 rejets de corps invalides : champ manquant, UUID invalide, date invalide, type incorrect, JSON mal formé (400), sans `Content-Type` (415), pour `POST /appels` et `POST /appels/{id}/lignes` (422 et message exact de serde) ; champ inconnu accepté ; refus métier après clôture (404).
+- Instantané « avant » stable sur 3 exécutions, puis « après » : **`diff` vide**.
+- Constat (comportement existant, non modifié) : l'ordre des lignes d'un appel varie d'une lecture à l'autre (pas d'`ORDER BY` après modification) ; l'instantané trie donc les lignes, chacune gardée telle quelle.
+
+### Tests rejoués après migration
+Backend : 274 tests (dont 29 + 41 sur PostgreSQL local), 0 échec ; Clippy : toujours 60 avertissements (aucun nouveau). Frontend : 20 unitaires, 6 contre le vrai backend (dont les deux tests de contrat), Clippy `-D warnings`. `cargo deny` : OK dans les deux workspaces.
+
+### Reste à migrer
+- **Auth** (lot ultérieur, touche le code d'authentification) : `LoginBody`, `AuthSessionDto`, `MeDto`, `LoginResponseDto`, `PasskeyChallengeDto` (définis dans `routes.rs`, déjà présents dans `ent-types`).
+- Environ 240 autres types de `dto.rs` et 80 de `routes.rs`, **au moment où un écran Leptos en a besoin** (§4).

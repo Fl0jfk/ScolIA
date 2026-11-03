@@ -8,7 +8,7 @@
 | Backend | Rust (axum, sqlx — existant dans `ent-rust/`) | **Validé** | D-002 |
 | Frontend | Rust, comme le backend ; l'UI JS actuelle (`ent-api/src/ui.rs`) sera remplacée | **Validé** | D-002 |
 | Framework frontend | **Leptos 0.8** (0.8.23), rendu serveur + hydratation / îlots, intégré à axum ; validé techniquement par le prototype d'appel ; pas de migration générale immédiate | **Validé** (socle confirmé) | D-008, D-010 |
-| Types partagés front/back | Crate `ent-types` sans dépendance serveur ; lot 1 créé (appel, EDT, session), utilisé par le frontend, **pas encore par `ent-api`** | Lot 1 préparé ; migration backend à approuver | D-015, `docs/ENT_TYPES_PROPOSITION.md` |
+| Types partagés front/back | Crate `ent-types` sans dépendance serveur ; lot 1 créé (appel, EDT, session), utilisé par le frontend ; **`ent-api` migré pour l'appel et l'EDT** (5 DTO), DTO d'authentification pas encore | Lot 1 appel/EDT migré (D-016) | D-015, D-016, `docs/ENT_TYPES_PROPOSITION.md` §8 |
 | Reproductibilité et CI | `Cargo.lock` versionnés, profil de développement allégé, workflow `ent-rust.yml`, `cargo fmt` / Clippy / `cargo deny` / `cargo audit` | **Validé** (mis en place, non poussé) | D-015 |
 | Session web | Cookie `HttpOnly` ; 2 h d'inactivité, 12 h maximum, **à condition** d'un parcours de reconnexion rapide (passkey en un geste, reconnexion sans quitter la page) | **Validé** (principe) | D-011 |
 | Session mobile | Longue (plusieurs mois, prolongée à l'usage), déverrouillage biométrique, révocable à distance | **Validé** (principe) | D-011 |
@@ -216,3 +216,19 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
   - crate `ent-types` (lot 1) créée et branchée sur le frontend ; `ent-api` non modifié.
 - **Détails et résultats :** `docs/CI_REPRODUCTIBILITE.md`.
 - **Restent à approuver :** exception de licence MPL-2.0 pour `webauthn-rs` ; commit de formatage du backend existant (706 écarts) ; plan de résorption des ≈ 65 avertissements Clippy du backend ; exception `cargo audit` RUSTSEC-2023-0071 (faux positif `rsa`) ; premier push sur `ENT` (déclenchera la CI).
+- **Suites (2026-11-03) :** voir D-016 (MPL-2.0 approuvée, plan Clippy, push effectué, formatage et `rsa` encore en attente).
+
+## D-016 — Suite de l'industrialisation : licences, Clippy, formatage, ent-types, cookie
+
+- **Date :** 2026-11-03 — **Validateur :** Florian (message « Décisions techniques — Suite de l'industrialisation ENT »)
+- **Approuvé :**
+  - **MPL-2.0** : exception limitée aux 6 crates `webauthn-rs` (`webauthn-rs`, `-core`, `-proto`, `webauthn-attestation-ca`, `webauthn-authenticator-rs`, `base64urlsafedata`), **épinglée à la version 0.5.5** ; MPL-2.0 interdite ailleurs ; une montée de version fait échouer `cargo deny` et impose une relecture (vérifié par un test négatif) ;
+  - **plan Clippy** détaillé, classé par gravité (`docs/CLIPPY_PLAN.md`) ; corrections par lots, jamais en une seule opération ;
+  - **ent-types lot 1** côté `ent-api` : quelques DTO, contrat JSON inchangé, règles métier / routes / authentification inchangées, tests de compatibilité obligatoires ; périmètre exact présenté avant toute modification d'`ent-api` (`docs/ENT_TYPES_PROPOSITION.md` §8) ;
+  - **suppression de `_outils-scolia/target-web`** (artefacts de compilation inutilisés, vérifié) ;
+  - **push** des 4 commits de D-015 sur `ENT` ; aucun autre push sans autorisation.
+- **Différé :**
+  - **formatage général du backend** (706 écarts, 76 fichiers) : contrôle CI non bloquant maintenu ; procédure et script préparés (`docs/FORMATAGE_BACKEND.md`), **exécution soumise à validation** ;
+  - **cookie HttpOnly** : principe de migration progressive validé, `SameSite=Lax` comme hypothèse de travail ; **aucune modification d'`ent-auth` / `ent-api`** ; d'abord un prototype isolé (connexion mot de passe et passkey, cookie HttpOnly/Secure, CSRF, révocation et expiration, déconnexion multi-onglets, coexistence Bearer mobile, coexistence `/app` et `/web`), résultats et risques présentés avant toute modification.
+- **Toujours en attente :** exception `cargo audit` RUSTSEC-2023-0071 (faux positif `rsa`, non tranchée).
+- **Réalisé le 2026-11-03 :** MPL-2.0 épinglée (`3e7ea701`) ; plan Clippy (`dd543579`) ; procédure de formatage, non exécutée (`d7716c28`) ; `target-web` supprimé (21 Go) ; puis, sur autorisation, trois commits locaux distincts : lot 1 `ent-types` dans `ent-api` (contrat JSON identique), prototype isolé de session par cookie (`ent-web-session`, pas prêt pour la production), correction de la CI (F-003). **Aucun push** sans autorisation explicite.
