@@ -5,7 +5,7 @@
 //! Ce module ne gère que l'état d'écran : saisie en cours, filtres, sélection,
 //! liste des changements à envoyer.
 
-use ent_web_api::{AppelApi, Capacites, EtatApi};
+use ent_web_api::{ApiError, AppelApi, Capacites, EtatApi};
 use uuid::Uuid;
 
 /// Statut affiché pour un élève.
@@ -325,6 +325,59 @@ pub struct Bilan {
     pub clos: bool,
 }
 
+/// Erreur qui rend inutile (ou dangereux) de poursuivre l'envoi des lignes suivantes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arret {
+    /// 401 : session expirée ou révoquée.
+    SessionExpiree,
+    /// 403 : droits insuffisants (les lignes suivantes seraient refusées aussi).
+    Interdit,
+    /// 429 : limitation de débit (insister aggraverait le blocage).
+    TropDeRequetes,
+}
+
+/// Décision pure : faut-il interrompre l'envoi après cette erreur ? Les autres erreurs
+/// (refus de validation d'une ligne, erreur serveur ponctuelle…) n'arrêtent pas la boucle :
+/// elles sont listées ligne par ligne.
+pub fn arret_apres(erreur: &ApiError) -> Option<Arret> {
+    match erreur {
+        ApiError::NonConnecte => Some(Arret::SessionExpiree),
+        ApiError::Interdit(_) => Some(Arret::Interdit),
+        ApiError::TropDeRequetes => Some(Arret::TropDeRequetes),
+        _ => None,
+    }
+}
+
+/// Message unique affiché quand l'envoi est interrompu ; `non_envoyees` = lignes jamais tentées.
+pub fn message_arret(arret: Arret, non_envoyees: usize) -> String {
+    let cause = match arret {
+        Arret::SessionExpiree => "votre session a expiré",
+        Arret::Interdit => "vous n'avez pas (ou plus) les droits pour modifier cet appel",
+        Arret::TropDeRequetes => "trop de requêtes en peu de temps, patientez avant de réessayer",
+    };
+    let reste = match non_envoyees {
+        0 => String::new(),
+        n => format!(" {n} ligne(s) n'ont pas été tentées."),
+    };
+    format!("Envoi interrompu : {cause}.{reste} L'appel n'a pas été clos.")
+}
+
+/// Jour demandé par `?jour=` : `(jour, invalide)`. Absent → aujourd'hui sans avertissement ;
+/// illisible ou hors 2000–2100 → aujourd'hui **avec** `invalide = true` (à signaler à l'écran).
+pub fn jour_demande(
+    parametre: Option<&str>,
+    aujourdhui: chrono::NaiveDate,
+) -> (chrono::NaiveDate, bool) {
+    use chrono::Datelike;
+    match parametre {
+        None => (aujourdhui, false),
+        Some(p) => match p.parse::<chrono::NaiveDate>() {
+            Ok(d) if (2000..=2100).contains(&d.year()) => (d, false),
+            _ => (aujourdhui, true),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,5 +600,40 @@ mod tests {
         }
         // 100 filtrages de 400 lignes : très en dessous d'une image (16 ms) en natif.
         assert!(debut.elapsed().as_millis() < 500, "{:?}", debut.elapsed());
+    }
+
+    #[test]
+    fn arret_de_l_envoi_selon_l_erreur() {
+        assert_eq!(
+            arret_apres(&ApiError::NonConnecte),
+            Some(Arret::SessionExpiree)
+        );
+        assert_eq!(
+            arret_apres(&ApiError::Interdit("x".into())),
+            Some(Arret::Interdit)
+        );
+        assert_eq!(
+            arret_apres(&ApiError::TropDeRequetes),
+            Some(Arret::TropDeRequetes)
+        );
+        assert_eq!(arret_apres(&ApiError::Invalide("x".into())), None);
+        assert_eq!(arret_apres(&ApiError::Conflit("x".into())), None);
+        assert_eq!(arret_apres(&ApiError::Serveur(500, "x".into())), None);
+        assert_eq!(arret_apres(&ApiError::Reseau("x".into())), None);
+        let m = message_arret(Arret::Interdit, 3);
+        assert!(m.contains("droits") && m.contains("3 ligne(s)") && m.contains("pas été clos"));
+        assert!(!message_arret(Arret::TropDeRequetes, 0).contains("ligne(s)"));
+    }
+
+    #[test]
+    fn jour_demande_signale_les_valeurs_invalides() {
+        let auj = NaiveDate::from_ymd_opt(2026, 11, 3).unwrap();
+        let j = NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        assert_eq!(jour_demande(None, auj), (auj, false));
+        assert_eq!(jour_demande(Some("2026-11-05"), auj), (j, false));
+        assert_eq!(jour_demande(Some("demain"), auj), (auj, true));
+        assert_eq!(jour_demande(Some("2026-13-45"), auj), (auj, true));
+        assert_eq!(jour_demande(Some(""), auj), (auj, true));
+        assert_eq!(jour_demande(Some("9999-01-01"), auj), (auj, true));
     }
 }

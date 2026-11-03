@@ -33,6 +33,7 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 gloo-net = { version = "0.7", default-features = false, features = ["http", "json"] }
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 console_error_panic_hook = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
@@ -44,6 +45,9 @@ ent-web-api = { path = "crates/ent-web-api" }
 ent-web-app = { path = "crates/ent-web-app", default-features = false }
 # Backend existant, réutilisé sans modification.
 ent-api = { path = "../crates/ent-api" }
+# Tests uniquement (parité des droits de l'interface), lecture seule.
+ent-auth = { path = "../crates/ent-auth" }
+ent-db = { path = "../crates/ent-db" }
 
 # Profil de développement allégé (D-015, mesuré : ≈ −80 % d'espace disque) :
 # numéros de ligne conservés pour notre code, pas d'info de débogage pour les dépendances.

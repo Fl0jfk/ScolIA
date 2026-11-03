@@ -10,6 +10,8 @@ pub enum Variante {
     Secondaire,
     Discret,
     Danger,
+    /// Fond encre : action principale neutre (connexion par passkey).
+    Sombre,
 }
 
 /// Taille d'un bouton. `Normale` respecte la cible tactile de 44 px.
@@ -27,6 +29,7 @@ pub fn classes_bouton(variante: Variante, taille: Taille) -> String {
         Variante::Secondaire => "ui-btn--secondaire",
         Variante::Discret => "ui-btn--discret",
         Variante::Danger => "ui-btn--danger",
+        Variante::Sombre => "ui-btn--sombre",
     };
     match taille {
         Taille::Normale => format!("ui-btn {v}"),

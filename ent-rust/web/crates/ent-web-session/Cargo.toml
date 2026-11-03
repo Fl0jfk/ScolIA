@@ -21,6 +21,7 @@ chrono = { workspace = true }
 sha2 = "0.10"
 
 [dev-dependencies]
+ent-db = { workspace = true }
 reqwest = { workspace = true }
 uuid = { workspace = true }
 # Authentificateur logiciel (déjà utilisé par les tests d'ent-api) ; MPL-2.0, exception D-016.

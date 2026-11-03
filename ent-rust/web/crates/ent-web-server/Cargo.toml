@@ -30,5 +30,7 @@ chrono = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+ent-db = { workspace = true }
 ent-types = { workspace = true }
+ent-auth = { workspace = true }
 reqwest = { workspace = true }

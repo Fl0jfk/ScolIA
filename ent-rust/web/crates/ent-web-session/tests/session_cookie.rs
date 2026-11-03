@@ -32,9 +32,14 @@ async fn demarrer(duree_max: Duration, inactivite: Duration) -> Option<Banc> {
         eprintln!("SKIP : ENT_DATABASE_URL absent (sourcer scripts/env.sh)");
         return None;
     };
+    let parsed = ent_db::assert_local_postgres_url(&url)
+        .unwrap_or_else(|e| panic!("base de test locale uniquement : {e}"));
+    let nom_base = parsed.path().trim_start_matches('/').to_ascii_lowercase();
     assert!(
-        url.contains("@127.0.0.1:"),
-        "base de test locale uniquement"
+        ["test", "proto", "lab"]
+            .iter()
+            .any(|m| nom_base.contains(m)),
+        "le nom de la base doit contenir test, proto ou lab (refusé : {nom_base})"
     );
     let (state, _) = ent_api::boot_from_env().await.expect("ent-api");
     let api = ent_api::app(state);

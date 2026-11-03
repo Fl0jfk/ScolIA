@@ -190,3 +190,107 @@ fn notifications_ajout_fermeture_et_affichage() {
         assert_eq!(n.liste()[0].ton, Ton::Info);
     });
 }
+
+#[test]
+fn initiales_robustes_aux_noms_difficiles() {
+    assert_eq!(initiales("Léa MARTIN"), "LM");
+    assert_eq!(initiales("Maximilien FONTAINE-DELACROIX"), "MD");
+    assert_eq!(initiales("María José de la Cruz y Fernández"), "MF");
+    assert_eq!(initiales("Ólafur Darri Ólafsson"), "ÓÓ");
+    assert_eq!(initiales("dana"), "D");
+    assert_eq!(initiales("J"), "J");
+    assert_eq!(initiales("  Sam   Lee "), "SL");
+    assert_eq!(initiales("🦊 Fox"), "F");
+    assert_eq!(initiales("王秀英"), "王");
+    assert_eq!(initiales(""), "?");
+    assert_eq!(initiales("   "), "?");
+    assert_eq!(initiales("Seán O'Brien"), "SO");
+}
+
+#[test]
+fn lien_actif_selon_la_page() {
+    assert!(lien_actif("/web", "/web"));
+    assert!(lien_actif("/web", "/web/"));
+    assert!(
+        !lien_actif("/web", "/web/appel"),
+        "l'accueil n'est actif que sur lui-même"
+    );
+    assert!(lien_actif("/web/appel", "/web/appel"));
+    assert!(lien_actif("/web/appel", "/web/appel/detail"));
+    assert!(!lien_actif("/web/appel", "/web/appels-archives"));
+}
+
+#[test]
+fn coquille_navigation_accessible() {
+    let html = rendu(|| {
+        let entrees = vec![
+            EntreeNav {
+                libelle: "Aujourd'hui".into(),
+                href: "/web".into(),
+                icone: NomIcone::Accueil,
+                badge: None,
+            },
+            EntreeNav {
+                libelle: "Appel".into(),
+                href: "/web/appel".into(),
+                icone: NomIcone::Appel,
+                badge: Some("3".into()),
+            },
+        ];
+        view! {
+            <Coquille
+                entrees=entrees
+                courant="/web/appel".to_string()
+                etablissement="Collège de test".to_string()
+                identite=Some(Identite { nom: "Claire Laurent".into(), detail: "Professeure".into() })
+                on_deconnexion=Callback::new(|_| ())
+            >
+                <p>"contenu"</p>
+            </Coquille>
+        }
+    });
+    assert!(
+        html.contains(r#"aria-label="Navigation principale""#),
+        "{html}"
+    );
+    assert!(
+        html.contains(r##"href="#contenu""##),
+        "lien d'évitement : {html}"
+    );
+    assert!(html.contains(r#"id="contenu""#), "{html}");
+    assert_eq!(
+        html.matches(r#"aria-current="page""#).count(),
+        1,
+        "une seule page courante : {html}"
+    );
+    assert!(html.contains("ui-badge--compteur"), "{html}");
+    assert!(html.contains(">CL<"), "initiales : {html}");
+}
+
+#[test]
+fn tuile_reliee_a_son_titre() {
+    let html = rendu(|| {
+        view! {
+            <GrilleBento libelle="Tableau de bord">
+                <Tuile id="t1" titre="Séances du jour" largeur=Largeur::Quatre><p>"x"</p></Tuile>
+            </GrilleBento>
+        }
+    });
+    assert!(html.contains(r#"aria-labelledby="t1-titre""#), "{html}");
+    assert!(html.contains(r#"<h2 id="t1-titre""#), "{html}");
+    assert!(html.contains("ui-tuile--4"), "{html}");
+}
+
+#[test]
+fn segmente_radios_natives_et_legende() {
+    let html = rendu(|| {
+        let v = RwSignal::new("semaine".to_string());
+        view! {
+            <Segmente nom="vue" legende="Affichage" valeur=v
+                options=vec![OptionSegment::new("jour", "Jour"), OptionSegment::new("semaine", "Semaine")]/>
+        }
+    });
+    assert!(html.contains("<fieldset"), "{html}");
+    assert!(html.contains("<legend>Affichage</legend>"), "{html}");
+    assert_eq!(html.matches(r#"type="radio""#).count(), 2, "{html}");
+}

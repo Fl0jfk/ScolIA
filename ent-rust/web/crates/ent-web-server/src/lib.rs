@@ -17,9 +17,13 @@ pub mod labo;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use axum::http::{header, HeaderValue};
+use axum::extract::Request;
+use axum::http::{header, request::Parts, HeaderValue};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::Router;
 use ent_web_app::{shell, App};
+use leptos::nonce::Nonce;
 use leptos::prelude::*;
 use leptos_axum::{generate_route_list, LeptosRoutes};
 use tower_http::services::ServeDir;
@@ -44,13 +48,54 @@ pub fn options_leptos() -> LeptosOptions {
         .build()
 }
 
+/// Nonce CSP de la requête en cours, posé par `csp_middleware` dans les extensions.
+#[derive(Clone)]
+struct NonceCsp(Nonce);
+
+/// Politique de sécurité du contenu des pages `/web` et de `/pkg`, pour un nonce donné.
+///
+/// Scripts : uniquement `'self'` (paquet WebAssembly/JS) et les scripts d'amorçage de
+/// l'hydratation portant le nonce de la requête ; `'wasm-unsafe-eval'` pour instancier le
+/// wasm. Aucun `'unsafe-inline'`. Le jeton de session est (transitoirement) dans
+/// `localStorage` : cette CSP limite l'impact d'une injection de script.
+pub fn politique_csp(nonce: &str) -> String {
+    format!(
+        "default-src 'self'; script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'; \
+style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; \
+base-uri 'none'; frame-ancestors 'self'; form-action 'self'"
+    )
+}
+
+/// Génère un nonce aléatoire par requête (128 bits, `leptos::nonce`), le met à disposition
+/// du rendu Leptos et pose l'en-tête `Content-Security-Policy` correspondant.
+async fn csp_middleware(mut req: Request, next: Next) -> Response {
+    let nonce = Nonce::new();
+    let csp = politique_csp(&nonce);
+    req.extensions_mut().insert(NonceCsp(nonce));
+    let mut rep = next.run(req).await;
+    if let Ok(v) = HeaderValue::from_str(&csp) {
+        rep.headers_mut().insert(header::CONTENT_SECURITY_POLICY, v);
+    }
+    rep
+}
+
+/// Remplace le nonce que `leptos_axum` génère lui-même par celui du middleware, pour que
+/// l'en-tête CSP et les balises `<script nonce=…>` soient cohérents.
+fn fournir_nonce_de_la_requete() {
+    if let Some(NonceCsp(n)) =
+        use_context::<Parts>().and_then(|p| p.extensions.get::<NonceCsp>().cloned())
+    {
+        provide_context(n);
+    }
+}
+
 /// Routes du frontend Leptos (pages SSR + fonctions serveur + fichiers statiques).
 pub fn routeur_web(options: LeptosOptions) -> Router {
     let routes = generate_route_list(App);
     let pkg_dir = PathBuf::from(options.site_root.as_ref()).join(options.site_pkg_dir.as_ref());
     let pkg_url = format!("/{}", options.site_pkg_dir);
     Router::new()
-        .leptos_routes(&options, routes, {
+        .leptos_routes_with_context(&options, routes, fournir_nonce_de_la_requete, {
             let options = options.clone();
             move || shell(options.clone())
         })
@@ -63,6 +108,7 @@ pub fn routeur_web(options: LeptosOptions) -> Router {
                 .precompressed_br()
                 .precompressed_gzip(),
         )
+        .layer(middleware::from_fn(csp_middleware))
         .layer(SetResponseHeaderLayer::overriding(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),

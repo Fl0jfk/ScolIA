@@ -1,28 +1,30 @@
-//! Application Leptos de l'ENT — prototype du module d'appel (D-008).
+//! Application Leptos de l'ENT — tranche 1 : parcours enseignant (connexion, accueil,
+//! emploi du temps, appel). Architecture : `docs/FRONTEND_CIBLE.md` §3.
 //!
-//! Rendu : le serveur produit le HTML de la page (coquille, en-tête, formulaires,
-//! états de chargement), puis le navigateur l'**hydrate** avec le WebAssembly.
-//! Les données métier sont chargées côté navigateur avec le jeton de session
-//! existant (voir `session.rs` et `docs/LEPTOS_CALL_PROTOTYPE.md`).
+//! Rendu : le serveur produit le HTML (coquille, en-têtes, états de chargement), puis
+//! le navigateur l'**hydrate** avec le WebAssembly. Les données métier sont chargées
+//! côté navigateur avec la session (voir `noyau/session.rs`).
 
 // Les vues Leptos produisent des types très imbriqués : sans effacement des
 // composants (`erase_components`), la limite par défaut (128) est dépassée.
 #![recursion_limit = "512"]
 
-pub mod appel;
 mod composants;
-mod connexion;
-mod entete;
-pub mod session;
+pub mod composants_metier;
+pub mod modules;
+pub mod noyau;
+
+// Chemins historiques (tests contre le backend, serveur).
+pub use modules::appel;
+pub use modules::connexion::{config_connexion, ParametresConnexion};
+pub use noyau::session;
 
 use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 use leptos_router::{
-    components::{Redirect, Route, Router, Routes},
+    components::{ParentRoute, Route, Router, Routes},
     path,
 };
-
-pub use connexion::{config_connexion, ParametresConnexion};
 
 /// Document HTML complet rendu par le serveur.
 pub fn shell(options: LeptosOptions) -> impl IntoView {
@@ -31,8 +33,9 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
         <html lang="fr">
             <head>
                 <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
                 <meta name="color-scheme" content="light"/>
+                <meta name="theme-color" content="#f5f5f7"/>
                 <AutoReload options=options.clone()/>
                 <HydrationScripts options/>
                 <MetaTags/>
@@ -54,10 +57,13 @@ pub fn App() -> impl IntoView {
         <Title formatter=|titre: String| format!("{titre} · ScolIA")/>
         <Router>
             <Routes fallback=PageIntrouvable>
-                <Route path=path!("/web") view=|| view! { <Redirect path="/web/appel"/> }/>
-                <Route path=path!("/web/connexion") view=connexion::PageConnexion/>
-                <Route path=path!("/web/appel") view=appel::PageAppel/>
+                <Route path=path!("/web/connexion") view=modules::connexion::PageConnexion/>
                 <Route path=path!("/web/_composants") view=composants::PageComposants/>
+                <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
+                    <Route path=path!("") view=modules::accueil::PageAccueil/>
+                    <Route path=path!("emploi-du-temps") view=modules::edt::PageEmploiDuTemps/>
+                    <Route path=path!("appel") view=modules::appel::PageAppel/>
+                </ParentRoute>
             </Routes>
             <ent_web_ui::ZoneNotifications/>
         </Router>
@@ -70,7 +76,7 @@ fn PageIntrouvable() -> impl IntoView {
         <Title text="Page introuvable"/>
         <main id="contenu" class="page page--etroite">
             <h1>"Page introuvable"</h1>
-            <p><a href="/web/appel">"Revenir à l'appel"</a></p>
+            <p><a href="/web">"Revenir à l'accueil"</a></p>
         </main>
     }
 }

@@ -9,7 +9,7 @@ async fn main() {
     let base = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "http://127.0.0.1:8090".into());
-    if !(base.starts_with("http://127.0.0.1") || base.starts_with("http://localhost")) {
+    if !labo::est_serveur_local(&base) {
         eprintln!("refus : données de labo uniquement sur un serveur local");
         std::process::exit(2);
     }

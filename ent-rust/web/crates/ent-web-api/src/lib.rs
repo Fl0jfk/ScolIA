@@ -11,11 +11,17 @@
 //! - natif sans feature (rendu serveur) : non disponible — les données métier sont
 //!   chargées côté navigateur, car le jeton de session n'est pas visible du serveur.
 
-use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 mod transport;
+
+// Services par domaine (méthodes de `ApiClient`).
+mod appel;
+mod auth;
+mod communication;
+mod edt;
+
+pub use communication::{Annonce, FilMessages};
 
 // ---------------------------------------------------------------------------
 // Types (contrat JSON d'ent-api)
@@ -24,16 +30,17 @@ mod transport;
 // Types partagés avec ent-api : crate `ent-types` (lot 1). Les noms historiques
 // du prototype sont conservés comme alias.
 pub use ent_types::appel::{AppelDto as AppelApi, AppelLigneDto as LigneAppelApi};
-pub use ent_types::auth::{AuthSessionDto as Session, LoginResponseDto, MeDto as Moi};
+pub use ent_types::auth::{
+    AuthSessionDto as Session, LoginResponseDto, MeDto as Moi, PasskeyChallengeDto,
+};
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 
 /// Issue d'une connexion par mot de passe.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Connexion {
     Ouverte(Session),
-    /// Le compte a une passkey : le second facteur n'est pas géré par ce prototype
-    /// (l'auth n'est pas modifiée dans cette mission).
-    PasskeyRequise,
+    /// Le compte a une passkey : second facteur exigé (défi WebAuthn à signer).
+    PasskeyRequise(Box<PasskeyChallengeDto>),
 }
 
 /// État d'une ligne tel que l'API le connaît (`present|absent|retard`).
@@ -100,6 +107,22 @@ pub enum ApiError {
     Indisponible,
 }
 
+/// Longueur maximale (en caractères) d'un message serveur repris à l'écran.
+const LONGUEUR_MAX_MESSAGE: usize = 160;
+
+/// Message serveur ramené à une seule ligne de longueur bornée (le serveur reste
+/// responsable de son contenu ; le client n'affiche jamais un corps brut sans limite).
+fn ligne_bornee(texte: &str) -> String {
+    let une_ligne = texte.split_whitespace().collect::<Vec<_>>().join(" ");
+    let une_ligne = une_ligne.trim_end_matches(['.', ' ']);
+    if une_ligne.chars().count() > LONGUEUR_MAX_MESSAGE {
+        let coupe: String = une_ligne.chars().take(LONGUEUR_MAX_MESSAGE).collect();
+        format!("{}…", coupe.trim_end())
+    } else {
+        une_ligne.to_string()
+    }
+}
+
 impl ApiError {
     /// Message destiné à l'utilisateur (français, sans détail technique inutile).
     pub fn message_utilisateur(&self) -> String {
@@ -109,7 +132,9 @@ impl ApiError {
                 "Vous n'avez pas les droits nécessaires pour cette action.".into()
             }
             ApiError::Introuvable(_) => "Élément introuvable.".into(),
-            ApiError::Invalide(m) | ApiError::Conflit(m) => format!("Action refusée : {m}."),
+            ApiError::Invalide(m) | ApiError::Conflit(m) => {
+                format!("Action refusée : {}.", ligne_bornee(m))
+            }
             ApiError::TropDeRequetes => "Trop de tentatives. Patientez avant de réessayer.".into(),
             ApiError::Serveur(..) => "Le serveur a rencontré une erreur. Réessayez.".into(),
             ApiError::Reseau(_) => {
@@ -139,10 +164,20 @@ impl ApiError {
 // ---------------------------------------------------------------------------
 
 /// Client HTTP. `base` vide = même origine (navigateur).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct ApiClient {
     base: String,
     jeton: Option<String>,
+}
+
+// `Debug` manuel : le jeton de session ne doit jamais apparaître dans un journal ou une panique.
+impl std::fmt::Debug for ApiClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApiClient")
+            .field("base", &self.base)
+            .field("jeton", &self.jeton.as_ref().map(|_| "<masqué>"))
+            .finish()
+    }
 }
 
 pub(crate) enum Methode {
@@ -193,90 +228,6 @@ impl ApiClient {
         }
     }
 
-    /// `POST /auth/login` (mot de passe). Comptes de labo sans passkey uniquement.
-    pub async fn connexion(
-        &self,
-        email: &str,
-        mot_de_passe: &str,
-        etablissement_id: Uuid,
-    ) -> Result<Connexion, ApiError> {
-        let corps = serde_json::json!({
-            "email": email,
-            "password": mot_de_passe,
-            "etablissement_id": etablissement_id,
-        });
-        let r: LoginResponseDto = self
-            .appel(Methode::Post, "/auth/login", Some(corps))
-            .await?;
-        match (r.mfa_required, r.session) {
-            (false, Some(s)) => Ok(Connexion::Ouverte(s)),
-            (true, _) => Ok(Connexion::PasskeyRequise),
-            (false, None) => Err(ApiError::Decodage("session absente".into())),
-        }
-    }
-
-    /// `POST /auth/logout`
-    pub async fn deconnexion(&self) -> Result<(), ApiError> {
-        let _: serde_json::Value = self.appel(Methode::Post, "/auth/logout", None).await?;
-        Ok(())
-    }
-
-    /// `GET /auth/me`
-    pub async fn moi(&self) -> Result<Moi, ApiError> {
-        self.appel(Methode::Get, "/auth/me", None).await
-    }
-
-    /// `GET /edt/mes-creneaux?jour=AAAA-MM-JJ`
-    pub async fn mes_creneaux(&self, jour: NaiveDate) -> Result<Vec<Creneau>, ApiError> {
-        self.appel(
-            Methode::Get,
-            &format!("/edt/mes-creneaux?jour={jour}"),
-            None,
-        )
-        .await
-    }
-
-    /// `POST /appels` — ouvre (ou retrouve) l'appel du créneau ce jour-là.
-    pub async fn ouvrir_appel(
-        &self,
-        creneau_id: Uuid,
-        jour: NaiveDate,
-    ) -> Result<AppelApi, ApiError> {
-        let corps = serde_json::json!({ "creneau_id": creneau_id, "jour": jour });
-        self.appel(Methode::Post, "/appels", Some(corps)).await
-    }
-
-    /// `GET /appels/{id}`
-    pub async fn appel_par_id(&self, appel_id: Uuid) -> Result<AppelApi, ApiError> {
-        self.appel(Methode::Get, &format!("/appels/{appel_id}"), None)
-            .await
-    }
-
-    /// `POST /appels/{id}/lignes`
-    pub async fn marquer(
-        &self,
-        appel_id: Uuid,
-        eleve_id: Uuid,
-        etat: EtatApi,
-    ) -> Result<(), ApiError> {
-        let corps = serde_json::json!({ "eleve_id": eleve_id, "etat": etat.as_str() });
-        let _: serde_json::Value = self
-            .appel(
-                Methode::Post,
-                &format!("/appels/{appel_id}/lignes"),
-                Some(corps),
-            )
-            .await?;
-        Ok(())
-    }
-
-    /// `POST /appels/{id}/clore` — l'appel devient définitif ; les absences
-    /// partent vers la vie scolaire (réaction métier côté serveur).
-    pub async fn clore(&self, appel_id: Uuid) -> Result<AppelApi, ApiError> {
-        self.appel(Methode::Post, &format!("/appels/{appel_id}/clore"), None)
-            .await
-    }
-
     /// Accès générique (tests et futurs modules) : `GET` d'un chemin JSON.
     pub async fn get_json(&self, chemin: &str) -> Result<serde_json::Value, ApiError> {
         self.appel(Methode::Get, chemin, None).await
@@ -295,6 +246,37 @@ impl ApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn le_jeton_n_apparait_pas_dans_debug() {
+        let c = ApiClient::new("http://x", Some("SECRET-TOKEN-123".into()));
+        let d = format!("{c:?}");
+        assert!(!d.contains("SECRET-TOKEN-123"), "{d}");
+        assert!(d.contains("masqué") && d.contains("http://x"));
+        assert!(!format!("{:?}", ApiClient::default()).contains("masqué"));
+        let s = Session {
+            token: "SECRET-TOKEN-456".into(),
+            user_id: uuid::Uuid::nil(),
+            email: "a@b".into(),
+            etablissement_id: uuid::Uuid::nil(),
+            role: "prof".into(),
+            expires_at: chrono::Utc::now(),
+        };
+        assert!(!format!("{s:?}").contains("SECRET-TOKEN-456"));
+    }
+
+    #[test]
+    fn message_serveur_borne_et_sur_une_ligne() {
+        let long = format!("ligne un\n<script>alert(1)</script>\n{}", "x".repeat(1000));
+        let m = ApiError::Invalide(long).message_utilisateur();
+        assert!(!m.contains('\n'));
+        assert!(m.chars().count() < 200, "{}", m.chars().count());
+        assert!(m.ends_with("…."));
+        assert_eq!(
+            ApiError::Conflit("déjà clos.".into()).message_utilisateur(),
+            "Action refusée : déjà clos."
+        );
+    }
 
     #[test]
     fn statuts_http_vers_erreurs() {

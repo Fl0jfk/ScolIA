@@ -1,6 +1,6 @@
 [package]
 name = "ent-web-app"
-description = "Application Leptos de l'ENT (prototype : module d'appel)"
+description = "Application Leptos de l'ENT (tranche 1 : parcours enseignant)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -31,6 +31,11 @@ ent-web-api = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+serde_json = { workspace = true }
 wasm-bindgen = { workspace = true, optional = true }
 console_error_panic_hook = { workspace = true, optional = true }
-web-sys = { workspace = true, features = ["Window", "Storage", "KeyboardEvent", "Event", "EventTarget", "HtmlElement", "HtmlInputElement"] }
+web-sys = { workspace = true, features = ["Window", "Storage", "StorageEvent", "KeyboardEvent", "Event", "EventTarget", "HtmlElement", "HtmlInputElement", "Navigator", "CredentialsContainer", "CredentialRequestOptions"] }
+
+# Navigateur uniquement : passkey (WebAuthn) via les API du navigateur.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = { workspace = true }

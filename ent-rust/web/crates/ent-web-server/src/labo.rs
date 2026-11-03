@@ -30,12 +30,24 @@ pub struct Personnel {
 }
 
 /// Réponse de `POST /labo/bootstrap` (champs utiles).
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Labo {
     pub etablissement_id: Uuid,
     pub password: String,
     pub personas: Vec<Persona>,
     pub personnel: Vec<Personnel>,
+}
+
+// `Debug` manuel : le mot de passe de labo ne doit pas fuiter dans un journal ou une panique.
+impl std::fmt::Debug for Labo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Labo")
+            .field("etablissement_id", &self.etablissement_id)
+            .field("password", &"<masqué>")
+            .field("personas", &self.personas)
+            .field("personnel", &self.personnel)
+            .finish()
+    }
 }
 
 impl Labo {
@@ -46,6 +58,46 @@ impl Labo {
     pub fn persona(&self, role: &str) -> Option<&Persona> {
         self.personas.iter().find(|p| p.role == role)
     }
+}
+
+/// Vrai seulement si `base` est une URL `http://` dont l'hôte est **exactement**
+/// `127.0.0.1`, `localhost` ou `[::1]` (port numérique optionnel, pas d'identifiants).
+/// Analyse stricte : `http://127.0.0.1.evil.com`, `http://localhost@evil.com` ou
+/// `http://127.0.0.1\@evil.com` sont refusées.
+pub fn est_serveur_local(base: &str) -> bool {
+    let Some(reste) = base.strip_prefix("http://") else {
+        return false;
+    };
+    let autorite = reste.split(['/', '?', '#']).next().unwrap_or("");
+    if autorite.is_empty()
+        || autorite.contains(['@', '\\', '%'])
+        || autorite
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace())
+    {
+        return false;
+    }
+    let (hote, port) = if let Some(apres) = autorite.strip_prefix('[') {
+        match apres.split_once(']') {
+            Some((h, p)) => (
+                format!("[{h}]"),
+                p.strip_prefix(':').or(p.is_empty().then_some("")),
+            ),
+            None => return false,
+        }
+    } else {
+        match autorite.split_once(':') {
+            Some((h, p)) => (h.to_string(), Some(p)),
+            None => (autorite.to_string(), Some("")),
+        }
+    };
+    let Some(port) = port else { return false };
+    let port_ok = port.is_empty() || (port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit()));
+    port_ok
+        && matches!(
+            hote.to_ascii_lowercase().as_str(),
+            "127.0.0.1" | "localhost" | "[::1]"
+        )
 }
 
 pub async fn bootstrap(base: &str) -> Result<Labo, ApiError> {
@@ -61,7 +113,7 @@ pub async fn connecter(base: &str, labo: &Labo, email: &str) -> Result<Session, 
         .await?
     {
         Connexion::Ouverte(s) => Ok(s),
-        Connexion::PasskeyRequise => Err(ApiError::Invalide("passkey requise".into())),
+        Connexion::PasskeyRequise(_) => Err(ApiError::Invalide("passkey requise".into())),
     }
 }
 
@@ -178,4 +230,59 @@ pub async fn preparer_classes(
         rapport.push("séances déjà présentes".into());
     }
     Ok(rapport)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_masque_le_mot_de_passe() {
+        let l = Labo {
+            etablissement_id: Uuid::nil(),
+            password: "MOT-DE-PASSE-SECRET".into(),
+            personas: vec![],
+            personnel: vec![],
+        };
+        let d = format!("{l:?}");
+        assert!(!d.contains("MOT-DE-PASSE-SECRET"), "{d}");
+        assert!(d.contains("masqué"));
+    }
+
+    #[test]
+    fn seuls_les_hotes_locaux_exacts_sont_acceptes() {
+        for ok in [
+            "http://127.0.0.1",
+            "http://127.0.0.1:8090",
+            "http://127.0.0.1:8090/",
+            "http://localhost:8090",
+            "http://LOCALHOST",
+            "http://[::1]:8090",
+            "http://[::1]",
+        ] {
+            assert!(est_serveur_local(ok), "{ok}");
+        }
+        for ko in [
+            "http://127.0.0.1.evil.com",
+            "http://127.0.0.1.evil.com:8090",
+            "http://localhost.evil.com",
+            "http://localhostx",
+            "http://localhost@evil.com",
+            "http://127.0.0.1@evil.com",
+            "http://127.0.0.1\\@evil.com",
+            "http://evil.com/127.0.0.1",
+            "http://evil.com?h=127.0.0.1",
+            "http://127.0.0.1:80a",
+            "http://127.0.0.1:123456",
+            "http://[::1]x",
+            "http://[::2]",
+            "https://127.0.0.1",
+            "ftp://127.0.0.1",
+            "127.0.0.1",
+            "http://",
+            "",
+        ] {
+            assert!(!est_serveur_local(ko), "{ko}");
+        }
+    }
 }

@@ -919,8 +919,10 @@ dependencies = [
  "leptos_meta",
  "leptos_router",
  "serde",
+ "serde_json",
  "uuid",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 
@@ -931,6 +933,8 @@ dependencies = [
  "axum",
  "chrono",
  "ent-api",
+ "ent-auth",
+ "ent-db",
  "ent-types",
  "ent-web-api",
  "ent-web-app",
@@ -952,6 +956,7 @@ dependencies = [
  "axum",
  "chrono",
  "ent-api",
+ "ent-db",
  "reqwest",
  "serde",
  "serde_json",

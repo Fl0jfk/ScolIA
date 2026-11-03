@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::time::Instant;
 
 use chrono::{Datelike, Duration, NaiveDate};
-use ent_web_api::{ApiClient, ApiError, AppelApi, CAPACITES_API_ACTUELLE};
+use ent_web_api::{ApiClient, ApiError, AppelApi, EtatApi, CAPACITES_API_ACTUELLE};
 use ent_web_app::appel::modele::{changements, visibles, Feuille, Filtre, Saisie, Statut};
 use ent_web_server::labo::{self, Labo};
 
@@ -20,9 +20,14 @@ async fn demarrer() -> Option<String> {
         eprintln!("SKIP : ENT_DATABASE_URL absent (sourcer scripts/env.sh)");
         return None;
     };
+    let parsed = ent_db::assert_local_postgres_url(&url)
+        .unwrap_or_else(|e| panic!("base de test locale uniquement : {e}"));
+    let nom_base = parsed.path().trim_start_matches('/').to_ascii_lowercase();
     assert!(
-        url.contains("@127.0.0.1:"),
-        "base de test locale uniquement"
+        ["test", "proto", "lab"]
+            .iter()
+            .any(|m| nom_base.contains(m)),
+        "le nom de la base doit contenir test, proto ou lab (refusé : {nom_base})"
     );
     let (app, _) = ent_web_server::routeur_complet()
         .await
@@ -116,7 +121,10 @@ async fn pages_rendues_par_le_serveur() {
     assert!(html.contains("/pkg/ent-web.js"), "script d'hydratation");
     assert!(html.contains("/pkg/ent-web.css"), "feuille de style");
     assert!(html.contains("Aller au contenu"), "lien d'évitement");
-    assert!(html.contains(r#"for="jour""#), "champ date étiqueté");
+    assert!(
+        html.contains("Date de l'appel") && html.contains(r#"id="jour""#),
+        "champ date étiqueté (label englobant, nom accessible)"
+    );
 
     let html = http
         .get(format!("{base}/web/connexion"))
@@ -276,15 +284,68 @@ async fn permissions_respectees() {
     ));
 
     // CPE : peut ouvrir l'appel d'une séance (remplacement / vie scolaire).
-    if let Some(cpe) = l.premier("cpe") {
+    {
+        let cpe = l.premier("cpe").expect("CPE de labo");
         let s = labo::connecter(&base, &l, &cpe.email).await.unwrap();
         let api_cpe = ApiClient::new(&base, Some(s.token));
         let r = api_cpe.ouvrir_appel(c.id, jour).await;
-        println!(
-            "CPE ouvre l'appel de la 4B : {}",
-            if r.is_ok() { "autorisé" } else { "refusé" }
-        );
+        // Règle d'ent-api : `role_peut_ouvrir_appel_remplacant` (admin, direction,
+        // administratif, CPE) lève l'exigence « titulaire ou remplaçant ».
+        let appel = r.expect("le CPE peut ouvrir l'appel d'une séance qui n'est pas la sienne");
+        assert!(!appel.lignes.is_empty());
     }
+}
+
+/// Contrôle d'accès horizontal : un professeur qui connaît l'identifiant de l'appel
+/// d'un collègue ne peut ni le lire, ni le modifier, ni le clore (403) ; la
+/// supervision (CPE) reste autorisée.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn appel_d_un_collegue_inaccessible() {
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let jour = jour_neuf();
+    let rogue = prof(&base, &l, 0).await;
+    let autre = prof(&base, &l, 1).await;
+    let c = creneau_4b(&rogue, jour).await;
+    let appel = rogue.ouvrir_appel(c.id, jour).await.expect("ouverture");
+    let eleve = appel.lignes.first().expect("une ligne").eleve_id;
+
+    assert!(
+        matches!(
+            autre.appel_par_id(appel.id).await,
+            Err(ApiError::Interdit(_))
+        ),
+        "lecture par un autre prof"
+    );
+    assert!(
+        matches!(
+            autre.marquer(appel.id, eleve, EtatApi::Absent).await,
+            Err(ApiError::Interdit(_))
+        ),
+        "pointage par un autre prof"
+    );
+    assert!(
+        matches!(autre.clore(appel.id).await, Err(ApiError::Interdit(_))),
+        "clôture par un autre prof"
+    );
+
+    // L'appel n'a pas été altéré et reste ouvert pour son titulaire.
+    let relu = rogue
+        .appel_par_id(appel.id)
+        .await
+        .expect("lecture titulaire");
+    assert!(!relu.est_clos());
+
+    // Supervision : le CPE lit, pointe et clôt.
+    let cpe = l.premier("cpe").expect("CPE de labo");
+    let s = labo::connecter(&base, &l, &cpe.email).await.unwrap();
+    let api_cpe = ApiClient::new(&base, Some(s.token));
+    api_cpe.appel_par_id(appel.id).await.expect("CPE lit");
+    api_cpe
+        .marquer(appel.id, eleve, EtatApi::Absent)
+        .await
+        .expect("CPE pointe");
+    assert!(api_cpe.clore(appel.id).await.expect("CPE clôt").est_clos());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -725,4 +786,68 @@ async fn contrat_json_appel_edt_instantane() {
         println!("instantané écrit : {chemin}");
     }
     println!("contrat appel/EDT : {} cas enregistrés", instantane.len());
+}
+
+/// Tranche 1 : déconnexion, annonces, fils de messages, défi passkey.
+/// Le parcours WebAuthn complet exige un authentificateur (clé/navigateur) : il n'est pas
+/// testé ici (couvert côté navigateur ; `ent-web-session` embarque un authentificateur
+/// logiciel pour le prototype cookie). On vérifie seulement ce qui ne le requiert pas.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tranche1_deconnexion_annonces_messages_passkey() {
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let api = prof(&base, &l, 0).await;
+
+    // Annonces : lecture autorisée pour un professeur.
+    let annonces = api.annonces().await.expect("annonces (prof)");
+    for a in &annonces {
+        assert!(!a.titre.trim().is_empty(), "titre d'annonce non vide");
+    }
+    println!("annonces visibles du prof : {}", annonces.len());
+
+    // Fils de messages : lecture OK, forme cohérente.
+    let fils = api.fils_messages().await.expect("fils (prof)");
+    for f in &fils {
+        assert!(!f.sujet.is_empty() || f.id != uuid::Uuid::nil());
+        assert!(f.nb_non_lus >= 0);
+    }
+    println!("fils visibles du prof : {}", fils.len());
+
+    // Rôle non autorisé : un parent n'a pas les annonces d'établissement (403).
+    let parent = l.persona("parent").expect("persona parent");
+    let sp = labo::connecter(&base, &l, &parent.email).await.unwrap();
+    let api_parent = ApiClient::new(&base, Some(sp.token));
+    assert!(matches!(
+        api_parent.annonces().await,
+        Err(ApiError::Interdit(_))
+    ));
+    // Sans session : 401.
+    let anonyme = ApiClient::new(&base, None);
+    assert_eq!(anonyme.annonces().await.unwrap_err(), ApiError::NonConnecte);
+    assert_eq!(
+        anonyme.fils_messages().await.unwrap_err(),
+        ApiError::NonConnecte
+    );
+
+    // Passkey : compte de labo sans passkey enregistrée -> 401 (pas de défi, pas de fuite
+    // d'existence du compte : même réponse qu'un compte inconnu).
+    let p = l.personnel.iter().find(|p| p.role == "prof").unwrap();
+    let r = anonyme
+        .connexion_passkey_debut(&p.email, l.etablissement_id)
+        .await;
+    println!("passkey/login/start sans passkey enregistrée : {r:?}");
+    assert_eq!(r.unwrap_err(), ApiError::NonConnecte);
+    let r = anonyme
+        .connexion_passkey_debut("inconnu@example.invalid", l.etablissement_id)
+        .await;
+    assert_eq!(r.unwrap_err(), ApiError::NonConnecte);
+
+    // Déconnexion : la session est révoquée, `moi()` répond 401.
+    let s = labo::connecter(&base, &l, &p.email).await.unwrap();
+    let api2 = ApiClient::new(&base, Some(s.token));
+    assert_eq!(api2.moi().await.unwrap().role, "prof");
+    api2.deconnexion().await.expect("déconnexion");
+    assert_eq!(api2.moi().await.unwrap_err(), ApiError::NonConnecte);
+    // La première session (autre jeton) reste valable.
+    assert!(api.moi().await.is_ok());
 }
