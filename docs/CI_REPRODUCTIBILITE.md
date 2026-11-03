@@ -1,7 +1,7 @@
 # Reproductibilité et CI de l'ENT Rust
 
 Date : 2026-11-03 — Statut : **en place** (D-015) : lockfiles versionnés, profil allégé, audits, workflow CI.
-Le workflow n'a pas encore tourné sur GitHub (aucun push) : toutes ses étapes ont été **rejouées localement** (§6).
+Premier passage sur GitHub le 2026-11-03 (run 41599498046) : formatage, audits et backend **verts** ; frontend en échec (variable Leptos manquante, F-003), corrigé localement, **correction non poussée**.
 
 ## 1. Workspaces concernés
 

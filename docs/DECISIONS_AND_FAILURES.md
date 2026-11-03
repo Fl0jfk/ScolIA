@@ -26,3 +26,11 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Cause :** `cargo fmt --all` formate aussi les dépendances locales par chemin ; le workspace `web` dépend d'`ent-api` et d'`ent-types`.
 - **Correction :** commande limitée aux crates du frontend (`cargo fmt -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server`) dans la CI, `CI_REPRODUCTIBILITE.md` et `FRONTEND_LEPTOS.md`.
 - **Apprentissage :** toujours relire `git status` avant un commit ; dans un workspace qui dépend d'autres crates locales, ne jamais utiliser `--all` avec un outil qui modifie les fichiers.
+
+## F-003 — Premier passage de la CI sur GitHub : échec des tests frontend contre le backend
+
+- **Date / contexte :** 2026-11-03, premier push du workflow `ent-rust.yml` (run 41599498046).
+- **Résultat observé (faits) :** formatage, audits et backend verts ; job frontend en échec à l'étape « Tests contre le vrai backend ». Journaux GitHub illisibles sans compte connecté ; échec **reproduit localement** sur une base PostgreSQL vierge, sans variables `LEPTOS_*` : `pages_rendues_par_le_serveur` ne trouvait pas `/pkg/ent-web.js` dans la page.
+- **Cause :** Leptos lit `LEPTOS_OUTPUT_NAME` **à la compilation** pour nommer le script d'hydratation. `scripts/env.sh` la pose en local, le workflow non : la simulation locale du 2026-11-03 n'était donc pas identique à la CI.
+- **Correction :** `LEPTOS_OUTPUT_NAME` et `LEPTOS_SITE_PKG_DIR` ajoutées à l'environnement du job frontend ; 6/6 tests verts en local dans les conditions de la CI (base vierge, sans autres variables). Correction **non poussée** (attente d'autorisation).
+- **Apprentissage :** une simulation locale de CI doit partir d'un environnement vide (base vierge, variables de `env.sh` retirées), sinon elle masque les différences.

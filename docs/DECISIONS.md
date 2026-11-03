@@ -9,7 +9,7 @@
 | Frontend | Rust, comme le backend ; l'UI JS actuelle (`ent-api/src/ui.rs`) sera remplacée | **Validé** | D-002 |
 | Framework frontend | **Leptos 0.8** (0.8.23), rendu serveur + hydratation / îlots, intégré à axum ; validé techniquement par le prototype d'appel ; pas de migration générale immédiate | **Validé** (socle confirmé) | D-008, D-010 |
 | Types partagés front/back | Crate `ent-types` sans dépendance serveur ; lot 1 créé (appel, EDT, session), utilisé par le frontend ; **`ent-api` migré pour l'appel et l'EDT** (5 DTO), DTO d'authentification pas encore | Lot 1 appel/EDT migré (D-016) | D-015, D-016, `docs/ENT_TYPES_PROPOSITION.md` §8 |
-| Reproductibilité et CI | `Cargo.lock` versionnés, profil de développement allégé, workflow `ent-rust.yml`, `cargo fmt` / Clippy / `cargo deny` / `cargo audit` | **Validé** (mis en place, non poussé) | D-015 |
+| Reproductibilité et CI | `Cargo.lock` versionnés, profil de développement allégé, workflow `ent-rust.yml`, `cargo fmt` / Clippy / `cargo deny` / `cargo audit` | **Validé** (poussé sur `ENT` le 2026-11-03) ; MPL-2.0 approuvée (D-016) | D-015, D-016 |
 | Session web | Cookie `HttpOnly` ; 2 h d'inactivité, 12 h maximum, **à condition** d'un parcours de reconnexion rapide (passkey en un geste, reconnexion sans quitter la page) | **Validé** (principe) | D-011 |
 | Session mobile | Longue (plusieurs mois, prolongée à l'usage), déverrouillage biométrique, révocable à distance | **Validé** (principe) | D-011 |
 | Adresse par établissement | Un sous-domaine par établissement (tenant), ex. `lpnb.scolia.fr` | **Validé** | D-012 |

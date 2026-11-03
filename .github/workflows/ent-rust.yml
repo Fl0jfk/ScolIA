@@ -42,7 +42,7 @@ jobs:
       - name: Frontend Leptos et ent-types (bloquant)
         run: |
           # -p explicite : `--all` formaterait aussi les crates du backend (dépendances par chemin).
-          cargo fmt --manifest-path ent-rust/web/Cargo.toml -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server --check
+          cargo fmt --manifest-path ent-rust/web/Cargo.toml -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server -p ent-web-session --check
           cargo fmt --manifest-path ent-rust/Cargo.toml -p ent-types --check
       - name: Backend existant (dette de formatage connue, non bloquant)
         # 706 écarts recensés le 2026-11-03 (code antérieur jamais formaté).
@@ -128,6 +128,11 @@ jobs:
       ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci
       ENT_ENV: lab
       ENT_ALLOW_LABO: "1"
+      # Lus à la COMPILATION par Leptos (nom du script d'hydratation) : sans eux, les pages
+      # rendues par `cargo test` ne référencent pas /pkg/ent-web.js (échec du 1er run CI,
+      # reproduit localement sur base vierge). Mêmes valeurs que scripts/env.sh.
+      LEPTOS_OUTPUT_NAME: ent-web
+      LEPTOS_SITE_PKG_DIR: pkg
     defaults:
       run:
         working-directory: ent-rust/web
@@ -155,7 +160,7 @@ jobs:
       - name: Clippy (bloquant sur les avertissements)
         run: |
           cargo clippy --locked -p ent-web-ui -p ent-web-api -p ent-web-app --all-targets --features ent-web-app/ssr -- -D warnings
-          cargo clippy --locked -p ent-web-server --all-targets -- -D warnings
+          cargo clippy --locked -p ent-web-server -p ent-web-session --all-targets -- -D warnings
           cargo clippy --locked -p ent-web-app --lib --target wasm32-unknown-unknown --features hydrate -- -D warnings
       - name: Tests unitaires (design system, client API, modèle d'appel)
         run: cargo test --locked -p ent-web-ui -p ent-web-api -p ent-web-app --features ent-web-app/ssr
@@ -163,5 +168,7 @@ jobs:
         run: cargo leptos build --release --precompress
       - name: Tests contre le vrai backend (PostgreSQL éphémère, données de labo fictives)
         run: cargo test --locked -p ent-web-server --test contre_backend -- --test-threads=1
+      - name: Prototype isolé de session par cookie (D-016, contre le vrai backend)
+        run: cargo test --locked -p ent-web-session -- --test-threads=1
       - name: Taille des fichiers envoyés au navigateur
         run: ls -l target/site/pkg
