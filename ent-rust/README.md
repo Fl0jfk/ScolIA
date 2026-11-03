@@ -57,9 +57,10 @@ cargo run -p ent-api
 sécurité, limite de corps, timeout requête, CORS opt-in, arrêt gracieux
 `SIGTERM`, anti-force brute (verrous Postgres partagés **par compte et par IP**), sessions à TTL
 configurable, changement de mot de passe (révoque les autres sessions) et audit
-d'accès (`ent_journal_modif` domaine `auth` + `GET /audit/journal`). En
-`ENT_ENV=prod`, `POST /auth/register` et `POST /labo/bootstrap` sont fermés
-(403) sauf dérogation explicite ; les comptes **staff** s'ouvrent alors via
+d'accès (`ent_journal_modif` domaine `auth` + `GET /audit/journal`). `POST /auth/register` et `POST /labo/bootstrap` sont **fermés par défaut**
+(403, fail-closed) : ils ne s'ouvrent que si `ENT_ENV` vaut explicitement
+`lab`, `labo`, `dev`, `local` ou `test`, ou par dérogation explicite
+(`ENT_ALLOW_REGISTRATION=1` / `ENT_ALLOW_LABO=1`) ; les comptes **staff** s'ouvrent alors via
 `POST /etablissement/personnel` (Direction / Admin). Détails :
 [`../docs/ent-rust-prod-runbook.md`](../docs/ent-rust-prod-runbook.md).
 

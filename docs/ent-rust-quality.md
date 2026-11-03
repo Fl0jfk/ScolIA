@@ -106,7 +106,7 @@ Voir le runbook complet : [`ent-rust-prod-runbook.md`](ent-rust-prod-runbook.md)
 | Délai requête | `TimeoutLayer` → 408 (`ENT_REQUEST_TIMEOUT_SECS`) | couche globale |
 | CORS | opt-in `ENT_CORS_ORIGINS` (défaut same-origin) | `cors_layer_from_env` |
 | Arrêt gracieux | `SIGTERM` / `SIGINT` → fin des requêtes en cours | smoke `target/release/ent-api` |
-| Portes de dev | `ENT_ENV=prod` ferme `register` / `labo/bootstrap` (403) | tests `gate_*` + smoke prod |
+| Portes de dev | fail-closed : `register` / `labo/bootstrap` fermés (403) sauf `ENT_ENV` ∈ lab/labo/dev/local/test ou dérogation `=1` | tests `gate_*` + smoke prod |
 | Force brute | verrou Postgres partagé **par compte** (`ent_login_guard`) → 429 | test `login_locked_after_repeated_failures` |
 | Force brute (IP) | verrou par **IP** (clé `ip:`, seuil `ENT_LOGIN_MAX_FAILED_IP`, actif si `ENT_TRUST_PROXY=1`) | tests `garde_login_par_ip`, `extraction_ip_cliente_selon_confiance_proxy` |
 | Sessions | TTL configurable + purge boot + révocation autres sessions au changement de mdp | test `api_change_password_et_audit_connexion` |

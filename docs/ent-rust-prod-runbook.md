@@ -45,7 +45,7 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 |---|---|---|
 | `ENT_DATABASE_URL` | — (requis) | Postgres `ent_*`. Local uniquement hors prod. |
 | `ENT_API_BIND` | `127.0.0.1:8088` | Adresse d'écoute. En conteneur : `0.0.0.0:8088`. |
-| `ENT_ENV` | *(vide)* | `prod` / `production` → ferme les portes de dev (voir ci-dessous). |
+| `ENT_ENV` | *(vide)* | Fail-closed : portes de dev ouvertes seulement pour `lab`/`labo`/`dev`/`local`/`test` ; vide, `prod`, `production` ou inconnu → fermées (voir ci-dessous). Mettre `prod` en production. |
 | `ENT_ALLOW_REGISTRATION` | — | `1` → réautorise `POST /auth/register` même en prod (provisioning contrôlé). |
 | `ENT_ALLOW_LABO` | — | `1` → réautorise `POST /labo/bootstrap` même en prod (démo). |
 | `ENT_SESSION_TTL_DAYS` | `14` | Durée de vie d'une session. |
@@ -127,7 +127,10 @@ refusée sans `ALLOW_PROD_BACKUP=1`. Procédure complète :
 
 ### Profil prod (`ENT_ENV=prod`)
 
-Fermé par défaut, réouvrable par dérogation explicite :
+Fail-closed : les portes de dev ne s'ouvrent que si `ENT_ENV` (trim, insensible
+à la casse) vaut explicitement `lab`, `labo`, `dev`, `local` ou `test`. `ENT_ENV`
+absent, vide, `prod`, `production` ou inconnu → fermé. Réouvrable par dérogation
+explicite (`=1`), y compris en prod :
 
 - `POST /auth/register` → **403** sauf `ENT_ALLOW_REGISTRATION=1`
   (l'inscription libre n'a pas sa place en prod ; les comptes sont provisionnés).

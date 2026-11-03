@@ -8,7 +8,7 @@
 #     ent-api:local
 #
 # Migrations : embarquées dans le binaire (`include_str!`) — appliquées au
-# démarrage. `ENT_ENV=prod` ferme l'inscription libre et le labo (voir plus bas).
+# démarrage. l'inscription libre et le labo sont fermés par défaut (fail-closed ; ouverts seulement si `ENT_ENV` = lab/dev/local/test, voir plus bas).
 
 FROM rust:1.99-slim-bookworm AS builder
 WORKDIR /app

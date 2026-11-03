@@ -7240,7 +7240,7 @@ async fn get_appel(
     session.require_faire_appel()?;
     let (appel, lignes) = state
         .ent
-        .get_appel(session.etablissement_id, id)
+        .get_appel(session.etablissement_id, id, session.user_id, &session.role)
         .await
         .map_err(map_db)?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "appel introuvable".into()))?;
@@ -7264,7 +7264,14 @@ async fn marquer_appel_ligne(
     })?;
     state
         .ent
-        .marquer_appel_ligne(session.etablissement_id, id, body.eleve_id, etat)
+        .marquer_appel_ligne(
+            session.etablissement_id,
+            id,
+            session.user_id,
+            &session.role,
+            body.eleve_id,
+            etat,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -7281,13 +7288,15 @@ async fn clore_appel(
         .clore_appel(
             session.etablissement_id,
             id,
+            session.user_id,
+            &session.role,
             Some(session.actor_user_id),
         )
         .await
         .map_err(map_db)?;
     let lignes = state
         .ent
-        .get_appel(session.etablissement_id, id)
+        .get_appel(session.etablissement_id, id, session.user_id, &session.role)
         .await
         .map_err(map_db)?
         .map(|(_, l)| l)
@@ -8671,16 +8680,22 @@ async fn signer_carnet(
     Ok(Json(enriched.remove(0)))
 }
 
-/// Porte logique pure : ouverte sauf en prod, sauf dérogation explicite.
+/// Valeurs de `ENT_ENV` (après trim, insensible à la casse) désignant un
+/// environnement explicitement NON productif. Toute autre valeur (absente,
+/// vide, `prod`, `production`, inconnue) est traitée comme productive.
+pub const ENVS_NON_PROD: [&str; 5] = ["lab", "labo", "dev", "local", "test"];
+
+/// Porte logique pure, fail-closed : ouverte seulement si `ENT_ENV` vaut
+/// explicitement un environnement non productif (`ENVS_NON_PROD`) ou si la
+/// dérogation explicite vaut `"1"` (y compris en prod).
 fn gate_open(env: Option<&str>, allow: Option<&str>) -> bool {
-    let prod = matches!(
-        env.map(|e| e.trim().to_ascii_lowercase()),
-        Some(ref v) if v == "prod" || v == "production"
-    );
-    !prod || allow == Some("1")
+    let non_prod = env
+        .map(|e| e.trim().to_ascii_lowercase())
+        .is_some_and(|v| ENVS_NON_PROD.contains(&v.as_str()));
+    non_prod || allow == Some("1")
 }
 
-/// Inscription libre : fermée en prod sauf `ENT_ALLOW_REGISTRATION=1`.
+/// Inscription libre : fermée sauf `ENT_ENV` non productif explicite ou `ENT_ALLOW_REGISTRATION=1`.
 fn registration_open() -> bool {
     gate_open(
         std::env::var("ENT_ENV").ok().as_deref(),
@@ -8688,7 +8703,7 @@ fn registration_open() -> bool {
     )
 }
 
-/// Seed de démo / labo : fermé en prod sauf `ENT_ALLOW_LABO=1`.
+/// Seed de démo / labo : fermé sauf `ENT_ENV` non productif explicite ou `ENT_ALLOW_LABO=1`.
 fn labo_open() -> bool {
     gate_open(
         std::env::var("ENT_ENV").ok().as_deref(),
@@ -10872,10 +10887,19 @@ mod tests {
     use super::gate_open;
 
     #[test]
-    fn gate_defaults_open_hors_prod() {
-        assert!(gate_open(None, None));
-        assert!(gate_open(Some("dev"), None));
-        assert!(gate_open(Some("Labo"), None));
+    fn gate_ouverte_seulement_si_env_non_prod_explicite() {
+        for v in ["lab", "labo", "dev", "local", "test", "Labo", "  LAB  "] {
+            assert!(gate_open(Some(v), None), "{v:?} doit ouvrir");
+        }
+    }
+
+    #[test]
+    fn gate_fermee_si_absent_vide_ou_inconnu() {
+        assert!(!gate_open(None, None));
+        assert!(!gate_open(Some(""), None));
+        assert!(!gate_open(Some("   "), None));
+        assert!(!gate_open(Some("staging"), None));
+        assert!(!gate_open(Some("laboratoire"), Some("0")));
     }
 
     #[test]
@@ -10883,6 +10907,7 @@ mod tests {
         assert!(!gate_open(Some("prod"), None));
         assert!(!gate_open(Some("PRODUCTION"), Some("0")));
         assert!(gate_open(Some("prod"), Some("1")));
+        assert!(gate_open(None, Some("1")));
     }
 }
 

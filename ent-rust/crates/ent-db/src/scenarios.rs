@@ -248,6 +248,8 @@ async fn justif_parent_apres_appel() {
     ent.marquer_appel_ligne(
         cast.etablissement_id,
         appel.id,
+        cast.prof.user_id,
+        Role::Prof.as_str(),
         cast.eleve_lea_id,
         LigneEtat::Absent,
     )
@@ -256,6 +258,8 @@ async fn justif_parent_apres_appel() {
     ent.clore_appel(
         cast.etablissement_id,
         appel.id,
+        cast.prof.user_id,
+        Role::Prof.as_str(),
         Some(cast.prof.user_id.to_string()),
     )
     .await
@@ -321,6 +325,85 @@ async fn justif_parent_apres_appel() {
     assert!(!after.iter().any(|a| a.id == abs.id));
 }
 
+/// Contrôle d'accès horizontal : seul le titulaire (ou la supervision) lit,
+/// pointe et clôt l'appel ; un collègue reçoit `Forbidden`.
+#[tokio::test]
+async fn appel_d_un_collegue_inaccessible() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip scénario: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as i64;
+    let jour = today_utc() + Duration::weeks(1 + n.rem_euclid(2000));
+    let (appel, lignes) = ent
+        .ouvrir_appel(
+            etab,
+            cast.creneau_rogue_4b,
+            jour,
+            cast.prof.user_id,
+            Role::Prof.as_str(),
+        )
+        .await
+        .expect("titulaire ouvre");
+    let eleve = lignes.first().expect("effectif").eleve_id;
+    let autre = cast.profs[1].user_id;
+    assert_ne!(autre, cast.prof.user_id);
+    let prof = Role::Prof.as_str();
+
+    assert!(matches!(
+        ent.get_appel(etab, appel.id, autre, prof).await,
+        Err(EntDbError::Forbidden)
+    ));
+    assert!(matches!(
+        ent.marquer_appel_ligne(etab, appel.id, autre, prof, eleve, LigneEtat::Absent)
+            .await,
+        Err(EntDbError::Forbidden)
+    ));
+    assert!(matches!(
+        ent.clore_appel(etab, appel.id, autre, prof, Some(autre.to_string()))
+            .await,
+        Err(EntDbError::Forbidden)
+    ));
+    // Rôle sans droit d'appel (parent) : refusé aussi.
+    assert!(matches!(
+        ent.get_appel(etab, appel.id, autre, Role::Parent.as_str())
+            .await,
+        Err(EntDbError::Forbidden)
+    ));
+
+    // Titulaire : lecture OK, appel toujours ouvert et inchangé.
+    let (relu, l) = ent
+        .get_appel(etab, appel.id, cast.prof.user_id, prof)
+        .await
+        .unwrap()
+        .expect("appel");
+    assert_eq!(relu.statut, AppelStatut::Ouvert);
+    assert!(l.iter().all(|x| x.etat == LigneEtat::Present));
+
+    // Supervision (CPE) : lit, pointe, clôt.
+    let cpe = Role::Cpe.as_str();
+    ent.get_appel(etab, appel.id, cast.cpe.user_id, cpe)
+        .await
+        .unwrap()
+        .expect("CPE lit");
+    ent.marquer_appel_ligne(etab, appel.id, cast.cpe.user_id, cpe, eleve, LigneEtat::Absent)
+        .await
+        .expect("CPE pointe");
+    ent.clore_appel(
+        etab,
+        appel.id,
+        cast.cpe.user_id,
+        cpe,
+        Some(cast.cpe.user_id.to_string()),
+    )
+    .await
+    .expect("CPE clôt");
+}
+
 /// Preuve Brain : clôture d'appel → absents écrits dans `ent_absence` (une vérité).
 #[tokio::test]
 async fn appel_cloture_remonte_dans_ent_absence() {
@@ -349,6 +432,8 @@ async fn appel_cloture_remonte_dans_ent_absence() {
     ent.marquer_appel_ligne(
         cast.etablissement_id,
         appel.id,
+        cast.prof.user_id,
+        Role::Prof.as_str(),
         cast.eleve_lea_id,
         LigneEtat::Absent,
     )
@@ -358,6 +443,8 @@ async fn appel_cloture_remonte_dans_ent_absence() {
     ent.clore_appel(
         cast.etablissement_id,
         appel.id,
+        cast.prof.user_id,
+        Role::Prof.as_str(),
         Some(cast.prof.user_id.to_string()),
     )
     .await
@@ -1678,10 +1765,10 @@ async fn retard_pointe_a_l_appel_devient_fait_vs_persistant() {
         )
         .await
         .expect("ouvrir");
-    ent.marquer_appel_ligne(etab, appel.id, lea, LigneEtat::Retard)
+    ent.marquer_appel_ligne(etab, appel.id, cast.prof.user_id, Role::Prof.as_str(), lea, LigneEtat::Retard)
         .await
         .expect("pointer retard");
-    ent.clore_appel(etab, appel.id, Some(cast.prof.user_id.to_string()))
+    ent.clore_appel(etab, appel.id, cast.prof.user_id, Role::Prof.as_str(), Some(cast.prof.user_id.to_string()))
         .await
         .expect("clore");
 
@@ -1766,7 +1853,7 @@ async fn retard_pointe_a_l_appel_devient_fait_vs_persistant() {
 
     // Re-jouer la clôture du même appel n'ajoute pas de doublon.
     assert!(
-        ent.clore_appel(etab, appel.id, Some(cast.prof.user_id.to_string()))
+        ent.clore_appel(etab, appel.id, cast.prof.user_id, Role::Prof.as_str(), Some(cast.prof.user_id.to_string()))
             .await
             .is_err(),
         "un appel clos ne se re-clôture pas"

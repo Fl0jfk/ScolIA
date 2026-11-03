@@ -4840,6 +4840,59 @@ impl PgEnt {
             .unwrap_or(false)
     }
 
+    /// Règle d'accès à un appel (ouverture, lecture, pointage, clôture) :
+    /// titulaire du créneau (sans remplaçant ce jour), remplaçant désigné par
+    /// l'exception du jour, ou rôle de supervision.
+    fn autoriser_acteur_appel(
+        creneau: &EdtCreneau,
+        exception: Option<&EdtException>,
+        acteur_user_id: Uuid,
+        role: &str,
+    ) -> Result<(), EntDbError> {
+        let remplacant = exception.and_then(|e| e.remplacant_user_id);
+        let est_remplacant = remplacant.is_some_and(|r| r == acteur_user_id);
+        let est_titulaire = creneau.prof_user_id == acteur_user_id && remplacant.is_none();
+        if est_titulaire || est_remplacant || Self::role_peut_ouvrir_appel_remplacant(role) {
+            Ok(())
+        } else {
+            Err(EntDbError::Forbidden)
+        }
+    }
+
+    /// Contrôle d'accès à un appel **existant** (même règle que l'ouverture).
+    /// Un appel sans créneau (historique) n'est accessible qu'à son auteur
+    /// ou à la supervision.
+    async fn autoriser_acces_appel(
+        &self,
+        appel: &Appel,
+        acteur_user_id: Uuid,
+        role: &str,
+    ) -> Result<(), EntDbError> {
+        if !Self::role_can_faire_appel(role) {
+            return Err(EntDbError::Forbidden);
+        }
+        let superviseur = Self::role_peut_ouvrir_appel_remplacant(role);
+        let Some(creneau_id) = appel.creneau_id else {
+            return if appel.auteur_user_id == acteur_user_id || superviseur {
+                Ok(())
+            } else {
+                Err(EntDbError::Forbidden)
+            };
+        };
+        let Some(creneau) = self.edt.get(appel.etablissement_id, creneau_id).await? else {
+            return if superviseur {
+                Ok(())
+            } else {
+                Err(EntDbError::Forbidden)
+            };
+        };
+        let exception = self
+            .edt
+            .get_exception(appel.etablissement_id, creneau_id, appel.jour)
+            .await?;
+        Self::autoriser_acteur_appel(&creneau, exception.as_ref(), acteur_user_id, role)
+    }
+
     pub async fn creer_edt_creneau(&self, c: EdtCreneau) -> Result<EdtCreneau, EntDbError> {
         if c.classe.trim().is_empty() || c.matiere_libelle.trim().is_empty() {
             return Err(EntDbError::AppelInvalide);
@@ -5438,18 +5491,7 @@ impl PgEnt {
         {
             return Err(EntDbError::AppelInvalide);
         }
-        let est_remplacant = exception
-            .as_ref()
-            .and_then(|e| e.remplacant_user_id)
-            .is_some_and(|r| r == auteur_user_id);
-        let est_titulaire = creneau.prof_user_id == auteur_user_id
-            && exception
-                .as_ref()
-                .and_then(|e| e.remplacant_user_id)
-                .is_none();
-        if !est_titulaire && !est_remplacant && !Self::role_peut_ouvrir_appel_remplacant(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        Self::autoriser_acteur_appel(&creneau, exception.as_ref(), auteur_user_id, role)?;
 
         if let Some(existing) = self
             .appels
@@ -5547,6 +5589,8 @@ impl PgEnt {
         &self,
         etablissement_id: Uuid,
         appel_id: Uuid,
+        acteur_user_id: Uuid,
+        role: &str,
         eleve_id: Uuid,
         etat: LigneEtat,
     ) -> Result<(), EntDbError> {
@@ -5555,6 +5599,8 @@ impl PgEnt {
             .get(etablissement_id, appel_id)
             .await?
             .ok_or(EntDbError::AppelInvalide)?;
+        self.autoriser_acces_appel(&appel, acteur_user_id, role)
+            .await?;
         if appel.statut != AppelStatut::Ouvert {
             return Err(EntDbError::AppelInvalide);
         }
@@ -5570,6 +5616,8 @@ impl PgEnt {
         &self,
         etablissement_id: Uuid,
         appel_id: Uuid,
+        acteur_user_id: Uuid,
+        role: &str,
         actor_user_id: Option<String>,
     ) -> Result<Appel, EntDbError> {
         let appel = self
@@ -5577,6 +5625,8 @@ impl PgEnt {
             .get(etablissement_id, appel_id)
             .await?
             .ok_or(EntDbError::AppelInvalide)?;
+        self.autoriser_acces_appel(&appel, acteur_user_id, role)
+            .await?;
         if appel.statut != AppelStatut::Ouvert {
             return Err(EntDbError::AppelInvalide);
         }
@@ -5644,10 +5694,14 @@ impl PgEnt {
         &self,
         etablissement_id: Uuid,
         appel_id: Uuid,
+        acteur_user_id: Uuid,
+        role: &str,
     ) -> Result<Option<(Appel, Vec<AppelLigne>)>, EntDbError> {
         let Some(appel) = self.appels.get(etablissement_id, appel_id).await? else {
             return Ok(None);
         };
+        self.autoriser_acces_appel(&appel, acteur_user_id, role)
+            .await?;
         let lignes = self.appels.list_lignes(etablissement_id, appel_id).await?;
         Ok(Some((appel, lignes)))
     }

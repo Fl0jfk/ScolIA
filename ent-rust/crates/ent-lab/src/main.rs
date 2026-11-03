@@ -2256,6 +2256,8 @@ async fn explorer_appels_et_absences(
         ent.marquer_appel_ligne(
             cast.etablissement_id,
             appel.id,
+            cast.profs[0].user_id,
+            Role::Prof.as_str(),
             eleve.id,
             LigneEtat::Absent,
         )
@@ -2266,6 +2268,8 @@ async fn explorer_appels_et_absences(
     ent.clore_appel(
         cast.etablissement_id,
         appel.id,
+        cast.profs[0].user_id,
+        Role::Prof.as_str(),
         Some(cast.profs[0].user_id.to_string()),
     )
     .await
@@ -10264,7 +10268,7 @@ async fn explorer_retards_vie_scolaire(
         )
         .await
         .map_err(|e| e.to_string())?;
-    ent.marquer_appel_ligne(etab, appel.id, lea, LigneEtat::Retard)
+    ent.marquer_appel_ligne(etab, appel.id, cast.prof.user_id, Role::Prof.as_str(), lea, LigneEtat::Retard)
         .await
         .map_err(|e| e.to_string())?;
     let avant = ent
@@ -10274,7 +10278,7 @@ async fn explorer_retards_vie_scolaire(
         .into_iter()
         .filter(|a| a.eleve_id == lea)
         .count();
-    ent.clore_appel(etab, appel.id, Some(cast.prof.user_id.to_string()))
+    ent.clore_appel(etab, appel.id, cast.prof.user_id, Role::Prof.as_str(), Some(cast.prof.user_id.to_string()))
         .await
         .map_err(|e| e.to_string())?;
     r.geste("prof pointe Harry en retard à l'appel 4B puis clôture");

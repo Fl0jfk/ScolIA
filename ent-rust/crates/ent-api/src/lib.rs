@@ -9,6 +9,9 @@ mod routes;
 mod ui;
 
 pub use auth::EntSession;
+/// Environnements non productifs (porte du labo et de l'inscription libre) ;
+/// exposé pour le test de parité avec le bandeau labo du frontend.
+pub use routes::ENVS_NON_PROD;
 
 use axum::Router;
 use ent_db::PgEnt;
