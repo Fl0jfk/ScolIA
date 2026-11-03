@@ -1,167 +1,125 @@
-# Reproductibilité et CI de l'ENT Rust (proposition)
+# Reproductibilité et CI de l'ENT Rust
 
-Date : 2026-11-02 — Statut : **proposition** ; aucun fichier suivi par Git n'est modifié, aucun workflow créé, aucun paramètre global de la machine changé.
+Date : 2026-11-03 — Statut : **en place** (D-015) : lockfiles versionnés, profil allégé, audits, workflow CI.
+Le workflow n'a pas encore tourné sur GitHub (aucun push) : toutes ses étapes ont été **rejouées localement** (§6).
 
-## 1. Constat
+## 1. Workspaces concernés
 
-- `ent-rust/.gitignore` contient `Cargo.lock` : **aucun fichier de verrouillage n'est versionné**, ni pour le workspace principal ni pour `ent-rust/web/`. Deux compilations à des dates différentes peuvent donc utiliser des versions de dépendances différentes (comportement et sécurité non reproductibles).
-- **Aucune CI Rust** : les workflows (`ci.yml`, `deploy-*.yml`) ne concernent que Next.js, sur `main` / `dev`. Rien ne s'exécute sur `ENT`.
-- Compilations de développement très lourdes : `target-web` a atteint 25 Go (détail dans `LEPTOS_CALL_PROTOTYPE.md` §8.4), dont l'essentiel en informations de débogage.
+| Workspace | Manifeste | Contenu |
+|---|---|---|
+| Backend | `ent-rust/Cargo.toml` | 15 crates dont `ent-api`, `ent-db`, `ent-auth`, et la nouvelle `ent-types` |
+| Frontend | `ent-rust/web/Cargo.toml` | `ent-web-ui`, `ent-web-api`, `ent-web-app`, `ent-web-server` (dépend d'`ent-api` et d'`ent-types` par chemin) |
 
-## 2. Versionner `Cargo.lock`
+Aucun autre projet Rust dans le dépôt (vérifié : seuls ces deux manifestes ont une section `[workspace]`).
 
-L'ENT est une **application** (pas une bibliothèque publiée) : la règle Cargo est de versionner le fichier de verrouillage.
+## 2. `Cargo.lock`
 
-Proposition :
-1. retirer la ligne `Cargo.lock` de `ent-rust/.gitignore` ;
-2. générer et versionner `ent-rust/Cargo.lock` (workspace principal) et `ent-rust/web/Cargo.lock` (prototype, déjà présent sur le disque) ;
-3. compiler en CI avec `--locked` (échec si le fichier n'est pas à jour) ;
-4. mises à jour volontaires : `cargo update` dans un commit dédié, relu, tests verts ; option : un outil d'alerte de vulnérabilités (`cargo audit` / `cargo deny`) en CI.
+- Avant : `ent-rust/.gitignore` contenait `Cargo.lock` (tous les lockfiles ignorés).
+- Après (règle ciblée) :
+  ```
+  Cargo.lock
+  !/Cargo.lock
+  !/web/Cargo.lock
+  ```
+  Les deux lockfiles des workspaces sont versionnés ; tout autre `Cargo.lock` (crate compilée isolément) reste ignoré (vérifié avec `git check-ignore`).
+- `ent-rust/Cargo.lock` (≈ 84 Ko, 340 crates) généré le 2026-11-03 ; `ent-rust/web/Cargo.lock` (437 crates).
+- CI : toutes les commandes Cargo utilisent `--locked`.
+- Mises à jour : `cargo update` dans un commit dédié, relu, CI verte.
 
-Conséquence : le premier `Cargo.lock` du workspace principal figera les versions **du jour de sa génération** (celles déjà résolues localement pour les tests du prototype).
+## 3. Profil de développement allégé
 
-## 3. Compilation de développement allégée
-
-Proposition pour `ent-rust/web/Cargo.toml` (et à terme `ent-rust/Cargo.toml`) :
+Dans les deux workspaces :
 
 ```toml
 [profile.dev]
-debug = "line-tables-only"     # numéros de ligne dans les traces, sans variables détaillées
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
-debug = false                  # aucune info de débogage pour les dépendances
+debug = false        # (+ opt-level = 1 côté frontend, déjà présent)
 ```
 
-Effets attendus : fichiers `.pdb` et bibliothèques beaucoup plus petits, édition de liens plus rapide ; les traces d'erreur gardent les numéros de ligne de notre code. Inconvénient : moins d'informations dans un débogueur pas à pas (réactivable ponctuellement).
+| Vérification (2026-11-03) | Résultat |
+|---|---|
+| Build debug backend (à froid, OpenSSL compris) | OK, 413 s ; dossier complet 3,2 Go |
+| Tests backend (270) | OK |
+| Build debug frontend (`cargo leptos build`) | OK |
+| Tests frontend (unitaires + contre le vrai backend) | OK |
+| Build release (`cargo leptos build --release --precompress`) | OK (le profil release n'est pas modifié) |
+| Informations de débogage | **suffisantes** : une erreur volontaire affiche `seed_labo_web.rs:14:42` et la pile avec fichiers et lignes de notre code |
+| Taille (mesure du 2026-11-03, même périmètre) | `.pdb` des tests 1 248 → 277 Mo ; `.pdb` serveur 1 025 → 276 Mo ; bibliothèque serveur 2 219 → 218 Mo ; dossier ≈ 21 → 3,6 Go |
 
-Mesure réalisée (même périmètre que les tests du prototype, dossier séparé `_outils-scolia/target-mesure-debug`, options passées en ligne de commande, aucun fichier modifié) : voir §3 bis.
+Conséquence : dans un débogueur pas à pas, les variables des dépendances ne sont plus inspectables. Réactivable ponctuellement : `cargo --config 'profile.dev.debug=true' …` (sans modifier les fichiers).
 
-### 3 bis. Mesure
+Dossiers de compilation locaux (outillage isolé, `_outils-scolia`) : `target-ent` (backend), `target-web-leger` (frontend). L'ancien `target-web` (profil complet) n'est plus utilisé ; sa suppression attend une validation.
 
-_(complétée ci-dessous)_
+## 4. Audits des dépendances
 
-## 4. CI proposée
+Règles : `ent-rust/deny.toml` et `ent-rust/web/deny.toml` (identiques), `ent-rust/.cargo/audit.toml` et `ent-rust/web/.cargo/audit.toml` (identiques). **Rien n'est masqué** : chaque exception a sa raison et une date de revue.
 
-Fichier proposé : `.github/workflows/ent-rust.yml`, **distinct** des workflows Next.js, déclenché uniquement sur la branche `ENT` et les chemins `ent-rust/**`. Permissions en lecture seule, **aucun secret**, **aucun déploiement**.
+| Thème | Règle | Outil |
+|---|---|---|
+| Vulnérabilités connues | toujours bloquantes | `cargo deny` (graphe réellement compilé) + `cargo audit` (lockfile complet) |
+| Licences | liste permissive explicite ; **pas de copyleft fort** (GPL, AGPL, LGPL — cohérent avec D-005) ; MPL-2.0 seulement en exception ciblée | `cargo deny` |
+| Non maintenues | bloquant pour nos dépendances directes ; transitives signalées en avertissement | `cargo deny` (`unmaintained = "workspace"`) + `cargo audit` |
+| Versions retirées (yanked) | bloquant | `cargo deny` |
+| Doublons de versions | avertissement (souvent imposés par des tiers), suivi ici | `cargo deny` (`multiple-versions = "warn"`) |
+| Versions `*` | interdites (sauf chemins) | `cargo deny` |
+| Provenance | crates.io uniquement, pas de Git ni de registre inconnu | `cargo deny` |
 
-```yaml
-name: ENT Rust
+### Résultats (2026-11-03)
 
-on:
-  push:
-    branches: [ENT]
-    paths: ["ent-rust/**", ".github/workflows/ent-rust.yml"]
-  pull_request:
-    branches: [ENT]
-    paths: ["ent-rust/**", ".github/workflows/ent-rust.yml"]
+| | Backend | Frontend |
+|---|---|---|
+| `cargo deny check` | advisories ok, bans ok, licenses ok, sources ok | idem |
+| Doublons signalés | 23 (crates Windows `windows-*`, `rand`, `getrandom`, `base64`, `thiserror`, `syn`, `hashbrown`…) | 25 |
+| `cargo audit` | 340 crates, 0 vulnérabilité applicable | 437 crates, 0 vulnérabilité ; **1 avertissement** |
 
-permissions:
-  contents: read
+Points relevés :
+1. **RUSTSEC-2023-0071 (`rsa`, attaque « Marvin », pas de correctif)** — signalé par `cargo audit`. `rsa` n'est présent dans le lockfile que via `sqlx-mysql` (pilote MySQL de sqlx), **jamais activé ni compilé** (l'ENT n'utilise que PostgreSQL ; `cargo tree -i rsa` vide ; aucun artefact compilé ; `cargo deny` ne le voit pas). Exception documentée dans `.cargo/audit.toml`, revue le 2027-02-01.
+2. **Licence MPL-2.0** — `webauthn-rs` et 5 crates associées (passkeys, D-009). Copyleft faible au niveau du fichier : utilisation sans modification compatible avec un logiciel non libre ; une modification de ces fichiers devrait être publiée. **Exception ciblée sur ces 6 crates, à approuver** ; MPL-2.0 n'est pas autorisée ailleurs.
+3. **Licence 0BSD** (`quoted_printable`, via l'envoi d'e-mails) — permissive sans condition : ajoutée à la liste.
+4. **`paste` non maintenue (RUSTSEC-2024-0436)** — macro de compilation utilisée par Leptos (`either_of`), aucune vulnérabilité ; avertissement visible, suivi (dépend d'une évolution de Leptos).
 
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: "0"              # inutile en CI, alourdit le cache
-  CARGO_PROFILE_DEV_DEBUG: "0"        # pas d'info de débogage en CI
-  RUST_MIN_STACK: "16777216"          # même réglage qu'ent-api (ui.rs)
+## 5. Formatage et Clippy
 
-jobs:
-  backend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: ent_ci
-          POSTGRES_PASSWORD: ent_ci       # base jetable du runner, pas un secret
-          POSTGRES_DB: ent_ci
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-retries 20
-    env:
-      ENT_DATABASE_URL: postgres://ent_ci:ent_ci@127.0.0.1:5432/ent_ci
-    defaults:
-      run:
-        working-directory: ent-rust
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.99.0"
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "ent-rust -> target"
-      - run: cargo build --locked --workspace
-      - run: cargo test --locked --workspace
-      - run: cargo clippy --locked --workspace     # d'abord informatif, bloquant plus tard
+| Contrôle | Frontend + `ent-types` | Backend existant |
+|---|---|---|
+| `cargo fmt --check` | **bloquant** ; code formaté | **706 écarts** dans 12 crates (code jamais formaté) → étape non bloquante, signalée ; un commit de formatage dédié est proposé (décision en attente) |
+| Clippy | **bloquant sur les avertissements** (`-D warnings`), en rendu serveur et en WebAssembly ; 0 avertissement (1 défaut corrigé : durée de vie inutile) | erreurs bloquantes ; **0 erreur, ≈ 65 avertissements** existants (`ent-db` 31, `domain-eleve` 16 dans les tests, `ent-api` 9, `ent-lab` 5, `ent-mail` 1) signalés, à résorber progressivement |
 
-  web:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    services:
-      postgres:
-        image: postgres:18
-        env: { POSTGRES_USER: ent_ci, POSTGRES_PASSWORD: ent_ci, POSTGRES_DB: ent_ci }
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-retries 20
-    env:
-      ENT_DATABASE_URL: postgres://ent_ci:ent_ci@127.0.0.1:5432/ent_ci
-      ENT_ENV: lab
-      ENT_ALLOW_LABO: "1"
-    defaults:
-      run:
-        working-directory: ent-rust/web
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.99.0"
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "ent-rust/web -> target"   # inclut target/front (WebAssembly)
-      - name: Outils Leptos (versions épinglées, mis en cache)
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-leptos@0.3.11,wasm-bindgen-cli@0.2.130
-      - name: wasm-opt (binaryen version_123)
-        run: |
-          curl -sSL https://github.com/WebAssembly/binaryen/releases/download/version_123/binaryen-version_123-x86_64-linux.tar.gz | tar xz
-          echo "$PWD/binaryen-version_123/bin" >> "$GITHUB_PATH"
-      - run: cargo test --locked -p ent-web-api -p ent-web-app --features ent-web-app/ssr
-      - run: cargo leptos build --release --precompress
-      - run: cargo test --locked -p ent-web-server --test contre_backend -- --test-threads=1
-      - name: Taille des fichiers envoyés au navigateur
-        run: ls -l target/site/pkg
-```
+## 6. Workflow `.github/workflows/ent-rust.yml`
 
-### Stratégie de cache
-- `Swatinem/rust-cache` : met en cache le registre Cargo et `target/` **par workspace**, avec une clé qui inclut le `Cargo.lock`, la version de Rust et le système. Les compilations WebAssembly de `cargo-leptos` (`target/front/…`) sont dans le même dossier, donc couvertes.
-- `CARGO_INCREMENTAL=0` et pas d'info de débogage en CI : cache plus petit et plus rapide à restaurer.
-- Outils (`cargo-leptos`, `wasm-bindgen-cli`) installés en binaires précompilés par version épinglée ; `wasm-opt` téléchargé à version fixe. **Les versions doivent rester alignées** avec D-010 (`wasm-bindgen` CLI = crate).
-- Pas de cache des artefacts release : reconstruits à chaque exécution (évite de publier un binaire périmé).
+- Déclenchement : `push` et `pull_request` sur **`ENT`**, uniquement si `ent-rust/**` ou le workflow changent ; `workflow_dispatch`. Les workflows Next.js (`main`/`dev`) ne sont pas touchés.
+- Permissions en lecture seule ; **aucun secret** ; **aucun déploiement** ; annulation des exécutions obsolètes.
+- PostgreSQL 18 **éphémère** (service du runner, `127.0.0.1`, authentification `trust` sur un conteneur jetable, sans mot de passe) ; données de labo fictives ; `ent-db` refuse toute autre base.
 
-### Points d'attention
-- Sur Linux, la compilation d'OpenSSL (`webauthn-rs`) utilise le Perl et le compilateur du runner : pas de Strawberry Perl nécessaire.
-- `ent-db` refuse toute base non locale : la base de service de CI est en `127.0.0.1`, donc acceptée.
-- Durée estimée à froid : 15 à 25 min par job ; avec cache : quelques minutes.
-- Le fichier de workflow doit exister sur la branche `ENT` pour s'y déclencher ; il n'affecte pas `main` / `dev`.
+| Job | Étapes |
+|---|---|
+| `formatage` | frontend + `ent-types` (bloquant) ; backend existant (non bloquant, dette connue) |
+| `audits` | `cargo deny` (2 workspaces), `cargo audit` (2 workspaces) |
+| `backend` | Clippy (workspace ; `ent-types` en `-D warnings`), build, tests (unitaires + intégration sur PostgreSQL) |
+| `frontend` | `ent-types` en wasm32, Clippy `-D warnings` (SSR, serveur, wasm), tests unitaires, `cargo leptos build --release --precompress`, tests contre le vrai backend, taille des fichiers |
 
-## 5. Commandes locales (Windows, environnement isolé)
+Cache : `Swatinem/rust-cache` par workspace (registre + `target/`, y compris `target/front` du WebAssembly) ; `CARGO_INCREMENTAL=0` et pas d'info de débogage en CI. Outils épinglés : `cargo-leptos` 0.3.11, `wasm-bindgen-cli` 0.2.130, `wasm-opt` version_123, `cargo-deny` 0.20.2, `cargo-audit` 0.22.2, Rust 1.99.0.
+
+### Validation locale (le workflow n'a pas tourné sur GitHub)
+- `actionlint` 1.7.12 : aucune erreur.
+- Chaque étape rejouée localement avec les mêmes commandes et `--locked` (résultats dans le bilan de la mission et `_outils-scolia/ci-locale.log`).
+- Différences avec GitHub : Windows au lieu de Linux ; base PostgreSQL 18.4 portable locale au lieu du conteneur ; outils installés depuis `_outils-scolia`.
+
+## 7. Commandes locales (Git Bash)
 
 ```bash
-. ent-rust/web/scripts/env.sh
+. ent-rust/web/scripts/env.sh                 # environnement isolé (_outils-scolia)
 bash ent-rust/web/scripts/pg.sh start
+# Backend
+cd ent-rust && CARGO_TARGET_DIR="$SCOLIA_TARGET_ENT" cargo test --locked --workspace && cd ..
+# Frontend
 cd ent-rust/web
-cargo test --locked -p ent-web-api -p ent-web-app --features ent-web-app/ssr
+cargo fmt -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server --check   # pas --all : il toucherait le backend
+cargo clippy --locked -p ent-web-ui -p ent-web-api -p ent-web-app --all-targets --features ent-web-app/ssr -- -D warnings
+cargo test --locked -p ent-web-ui -p ent-web-api -p ent-web-app --features ent-web-app/ssr
 cargo leptos build --release --precompress
 cargo test --locked -p ent-web-server --test contre_backend -- --test-threads=1
+cargo deny check && cargo audit
 ```
-
-## 6. Décisions à prendre
-1. Versionner les `Cargo.lock` (recommandé) — modification de `ent-rust/.gitignore`.
-2. Adopter le profil de développement allégé (§3).
-3. Créer le workflow `ent-rust.yml` (§4) ; `clippy` informatif puis bloquant.
-4. Ajouter `cargo audit` / `cargo deny` (vulnérabilités, licences — utile aussi pour D-005 et D-006).

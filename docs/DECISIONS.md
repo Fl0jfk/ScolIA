@@ -8,7 +8,8 @@
 | Backend | Rust (axum, sqlx — existant dans `ent-rust/`) | **Validé** | D-002 |
 | Frontend | Rust, comme le backend ; l'UI JS actuelle (`ent-api/src/ui.rs`) sera remplacée | **Validé** | D-002 |
 | Framework frontend | **Leptos 0.8** (0.8.23), rendu serveur + hydratation / îlots, intégré à axum ; validé techniquement par le prototype d'appel ; pas de migration générale immédiate | **Validé** (socle confirmé) | D-008, D-010 |
-| Types partagés front/back | Crate `ent-types` sans dépendance serveur, migration progressive des DTO | Proposé (étude) | `docs/ENT_TYPES_PROPOSITION.md` |
+| Types partagés front/back | Crate `ent-types` sans dépendance serveur ; lot 1 créé (appel, EDT, session), utilisé par le frontend, **pas encore par `ent-api`** | Lot 1 préparé ; migration backend à approuver | D-015, `docs/ENT_TYPES_PROPOSITION.md` |
+| Reproductibilité et CI | `Cargo.lock` versionnés, profil de développement allégé, workflow `ent-rust.yml`, `cargo fmt` / Clippy / `cargo deny` / `cargo audit` | **Validé** (mis en place, non poussé) | D-015 |
 | Session web | Cookie `HttpOnly` ; 2 h d'inactivité, 12 h maximum, **à condition** d'un parcours de reconnexion rapide (passkey en un geste, reconnexion sans quitter la page) | **Validé** (principe) | D-011 |
 | Session mobile | Longue (plusieurs mois, prolongée à l'usage), déverrouillage biométrique, révocable à distance | **Validé** (principe) | D-011 |
 | Adresse par établissement | Un sous-domaine par établissement (tenant), ex. `lpnb.scolia.fr` | **Validé** | D-012 |
@@ -203,3 +204,15 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
   - second parent : e-mail indiqué par le premier, **invitation** envoyée à la validation du dossier pour confirmer l'adresse et créer (ou rattacher) son compte ;
   - **IBAN** : pas à la préinscription ; à la **validation de l'inscription**, si le parent a accepté de réutiliser son identité, proposition de reprendre ses coordonnées bancaires, affichées masquées (`FR76 •••• 1234`) ; **nouveau mandat SEPA** à signer pour chaque établissement.
 - **Impacts :** vérification d'e-mail par code, profil personnel, parcours de préinscription, invitation du second parent, séparation des fiches, reprise d'IBAN tracée. Détail et règles : `docs/IDENTITE_ET_PROFILS_FAMILLES.md`. Réalisation en second temps (avec les modules préinscription / inscription).
+
+## D-015 — Reproductibilité, CI et audits de l'ENT Rust
+
+- **Date :** 2026-11-03 — **Validateur :** Florian (autorisation explicite de la mission « Reproductibilité et industrialisation »)
+- **Décision et mise en place :**
+  - `Cargo.lock` versionnés pour les deux workspaces (`ent-rust`, `ent-rust/web`) ; règle `.gitignore` ciblée ; CI en `--locked` ;
+  - profil de développement allégé (`debug = "line-tables-only"`, dépendances sans info de débogage) dans les deux workspaces, après vérification debug / tests / release / traces ;
+  - workflow `.github/workflows/ent-rust.yml` (branche `ENT` seulement) : formatage, Clippy, compilation backend et Leptos, tests unitaires et d'intégration sur PostgreSQL éphémère, audits ;
+  - audits : `cargo deny` + `cargo audit`, règles documentées dans `deny.toml` / `.cargo/audit.toml` ;
+  - crate `ent-types` (lot 1) créée et branchée sur le frontend ; `ent-api` non modifié.
+- **Détails et résultats :** `docs/CI_REPRODUCTIBILITE.md`.
+- **Restent à approuver :** exception de licence MPL-2.0 pour `webauthn-rs` ; commit de formatage du backend existant (706 écarts) ; plan de résorption des ≈ 65 avertissements Clippy du backend ; exception `cargo audit` RUSTSEC-2023-0071 (faux positif `rsa`) ; premier push sur `ENT` (déclenchera la CI).

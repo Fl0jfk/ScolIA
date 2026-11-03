@@ -1,6 +1,6 @@
 # Design system Leptos — fondations (proposition)
 
-Date : 2026-11-02 — Statut : **proposition** (architecture et ordre de réalisation ; bibliothèque non développée).
+Date : 2026-11-02 (mise à jour 2026-11-03) — Statut : **étapes 1 et 2 commencées** (fondations réalisées, voir §7) ; tableaux, recherche avancée et navigation non commencés.
 Complète `docs/DESIGN_SYSTEM.md` (principes) et `docs/FRONTEND_LEPTOS.md` (conventions).
 
 ## 1. Point de départ : ce qui existe dans `ent-web-ui`
@@ -93,3 +93,25 @@ Chaque étape est livrée avec ses tests (§4) et migrée dans le prototype d'ap
 2. **Icônes** : jeu d'icônes libre à choisir (SVG en ligne, licence à vérifier) ou icônes dessinées en interne ?
 3. **Thème sombre** : dès maintenant (les jetons le permettent) ou plus tard ?
 4. Référence `emilkowalski/skills` citée dans `DESIGN_SYSTEM.md` : à étudier sélectivement (licence et pertinence pour Leptos) avant usage.
+
+## 7. Fondations réalisées (2026-11-03)
+
+Architecture CSS : `ent-rust/web/crates/ent-web-ui/style/ui.css` (1. jetons, 2. base, 3. composants `ui-*`), importée par `ent-rust/web/style/ent-web.css` (styles de l'application) ; cargo-leptos fusionne les `@import` en **un seul fichier** (`style-bundle = true`). Choix « CSS simple » appliqué (décision §6.1 implicite de la mission ; Tailwind non retenu à ce stade).
+
+| Famille | Composants (`ent-web-ui`) | Accessibilité |
+|---|---|---|
+| Jetons | typographie, couleurs (contraste ≥ 4,5:1), espacements, rayons, ombres, focus, cible tactile 44 px, durées, z-index | `prefers-reduced-motion` respecté |
+| Boutons | `Bouton` (4 variantes, 2 tailles, désactivé, **en cours** `aria-busy`), `LienBouton` | natif, `type="button"` par défaut |
+| Champs | `ChampTexte`, `ZoneTexte`, `Selection`, `Case`, `GroupeChoix`, `ResumeErreurs` | étiquette visible, aide et erreur reliées (`aria-describedby`), `aria-invalid`, « obligatoire » annoncé |
+| Alertes | `Alerte` (4 niveaux, fermable), `Annonce` (`aria-live`) | `role="alert"` pour les erreurs, `status` sinon |
+| Dialogues | `Dialogue` (`<dialog>` natif), `Confirmation` (« Annuler » en premier, variante danger) | focus, Échap, retour du focus par le navigateur |
+| Notifications | `fournir_notifications`, `use_notifications`, `ZoneNotifications` (succès, info, fermeture, disparition après 6 s) | zone `role="status"` `aria-live="polite"` |
+| États | `Chargement`, `Squelette`, `EtatVide`, `EtatErreur` (avec « Réessayer »), `AccesRefuse` | textes toujours présents |
+
+Vérification :
+- 9 tests de rendu (attributs ARIA, états) dans `ent-web-ui` ;
+- page de démonstration `/web/_composants` (tous les composants et leurs états) ;
+- la page de connexion du prototype utilise désormais `ChampTexte` et `Bouton` (`en_cours`) ;
+- audit axe-core et parcours clavier de la page de démonstration : voir le bilan de la mission.
+
+Non commencés (volontairement) : tableaux, pagination, virtualisation, recherche avancée, navigation, menus.

@@ -205,3 +205,21 @@ La vérification reste **côté serveur à chaque requête** (`resolve_bearer` l
 | Frontend | suppression de `localStorage`, en-tête `X-ENT-CSRF`, rendu serveur avec données, fenêtre de reconnexion | `ent-web-app`, `ent-web-api` |
 | Applis | inchangées au lot A ; « Mes appareils » et passkeys natives plus tard | `ent-rust/apps/` |
 | Tests | voir §9 | `ent-api` (intégration), `ent-web-server/tests` |
+
+## 13. Points complémentaires identifiés (2026-11-03)
+
+Toujours au stade de l'étude : aucune modification d'`ent-auth` ni d'`ent-api`.
+
+| Point | Risque | Proposition |
+|---|---|---|
+| **Cache du navigateur** sur postes partagés | après déconnexion, le bouton « Précédent » réaffiche une page déjà chargée avec des données d'élèves | `Cache-Control: no-store` sur toutes les réponses authentifiées (API et pages `/web` rendues avec données) ; `Vary: Cookie` |
+| **Déconnexion dans tous les onglets** | un onglet resté ouvert continue d'afficher des données | côté serveur la session est révoquée (requêtes suivantes refusées) ; côté navigateur, prévenir les autres onglets (`BroadcastChannel`) et afficher la reconnexion |
+| **CSRF à la connexion** (« login CSRF ») | un site tiers connecte la victime à un compte de l'attaquant | le contrôle d'origine du §4 s'applique **aussi** à `POST /auth/login`, aux routes passkey et à `/auth/oidc/complete` |
+| **CSRF sur la déconnexion** | déconnexion forcée (gêne) | `POST` uniquement + contrôle d'origine |
+| **Clickjacking** | page de l'ENT intégrée dans un cadre malveillant | `frame-ancestors 'self'` dans la CSP (en plus de `X-Frame-Options: SAMEORIGIN` déjà présent) |
+| **Fuite du jeton dans les journaux** | jeton écrit dans des logs (en-têtes, corps de réponse) | ne jamais journaliser `Authorization`, `Cookie`, ni le corps des réponses de connexion ; `ent-types` masque déjà jeton et mot de passe dans `Debug` |
+| **Sessions sur plusieurs établissements** (D-012, D-013) | confusion de session entre sous-domaines | cookie `__Host-` par sous-domaine ; vérifier à chaque requête que `ent_session.etablissement_id` correspond au domaine appelé |
+| **Journal des sessions** | impossible de savoir qui s'est connecté d'où | tracer connexion, déconnexion, expiration, révocation (sans jeton), consultable dans « Mes appareils » et par l'administration |
+| **Durée du cookie vs durée serveur** | cookie conservé plus longtemps que la session | `Max-Age` ≤ durée absolue (12 h) ; la vérité reste en base |
+
+Tests à ajouter au §9 : `Cache-Control: no-store` présent sur les réponses authentifiées ; refus d'une connexion venant d'une autre origine ; session d'un établissement refusée sur le sous-domaine d'un autre.

@@ -16,3 +16,13 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Coût / risque :** UI difficile à maintenir et à tester ; contraire à l'objectif « tout en Rust ».
 - **Décision :** remplacer par un frontend Rust (D-002 dans `DECISIONS.md`) ; framework à choisir.
 - **Apprentissage :** une décision d'architecture écrite doit être vérifiée dans le code à chaque lot ; un fichier qui dépasse quelques milliers de lignes est un signal d'alerte à traiter tout de suite.
+
+## F-002 — Reformatage involontaire du backend par `cargo fmt --all`
+
+- **Date / contexte :** 2026-11-03, mission « Reproductibilité et industrialisation ».
+- **Objectif :** formater uniquement le code du frontend (`ent-rust/web`).
+- **Approche :** `cargo fmt --all` lancé dans le workspace `ent-rust/web`.
+- **Résultat observé (faits) :** 76 fichiers du backend (`ent-api`, `ent-db`, `domain-eleve`…) reformatés, alors que le formatage du backend attend une décision. Détecté avant commit (relecture de `git status`), fichiers restaurés à l'identique (`git checkout`), aucune modification commitée.
+- **Cause :** `cargo fmt --all` formate aussi les dépendances locales par chemin ; le workspace `web` dépend d'`ent-api` et d'`ent-types`.
+- **Correction :** commande limitée aux crates du frontend (`cargo fmt -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server`) dans la CI, `CI_REPRODUCTIBILITE.md` et `FRONTEND_LEPTOS.md`.
+- **Apprentissage :** toujours relire `git status` avant un commit ; dans un workspace qui dépend d'autres crates locales, ne jamais utiliser `--all` avec un outil qui modifie les fichiers.

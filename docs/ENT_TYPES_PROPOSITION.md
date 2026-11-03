@@ -1,6 +1,6 @@
 # Proposition — crate `ent-types` (types partagés frontend / backend)
 
-Date : 2026-11-02 — Statut : **proposition, non implémentée** (aucun fichier du backend modifié).
+Date : 2026-11-02 (mise à jour 2026-11-03) — Statut : **lot 1 préparé** : crate créée, utilisée par le frontend, contrat vérifié contre le vrai backend ; **`ent-api` pas encore migré** (aucune modification du backend).
 Contexte : D-008, D-010 ; prototype Leptos (`ent-rust/web/`) qui recopie aujourd'hui les types JSON d'`ent-api`.
 
 ## 1. Constat (vérifié dans le code)
@@ -96,3 +96,17 @@ Les types de `routes.rs` (labo, personnel, auth) suivent le même chemin dans le
 ## 6. Estimation
 
 Lot 0 + lot 1 : environ une demi-journée à une journée (création de la crate, ~4 tests de contrat, ~9 types, 2 conversions, adaptation du prototype). Modification du backend : **validation nécessaire** avant de commencer.
+
+## 7. État au 2026-11-03 (lot 1 préparé)
+
+| Élément | État |
+|---|---|
+| Crate `ent-rust/crates/ent-types` | créée, membre du workspace principal ; dépendances : `serde`, `serde_json`, `uuid` (sans `v4`), `chrono` (sans `clock`) |
+| Types du lot 1 | `appel` (`AppelDto`, `AppelLigneDto`, `OuvrirAppelBody`, `MarquerAppelLigneBody`), `edt` (`EdtCreneauDto`), `auth` (`LoginBody`, `LoginResponseDto`, `AuthSessionDto`, `PasskeyChallengeDto`, `MeDto`) ; `Debug` masque le mot de passe et le jeton |
+| Règle « aucune dépendance serveur » | vérifiée (`cargo tree` : ni sqlx, ni ent-db, ni axum, ni tokio, ni openssl) ; contrôlée en CI |
+| WebAssembly | compile pour `wasm32-unknown-unknown` (local + CI) |
+| Tests | 4 tests d'aller-retour JSON ; **test de contrat contre le vrai backend** (`contrat_json_ent_types_lot1`) : 5 routes (`/auth/login`, `/auth/me`, `/edt/mes-creneaux`, `POST /appels`, `/appels/{id}/clore`), JSON relu puis re-sérialisé **identique** |
+| Frontend | `ent-web-api` utilise `ent-types` (alias des anciens noms) : copies manuelles supprimées |
+| `ent-api` | **non modifié** ; la bascule (réexport dans `dto.rs`, trait `VersDto`) attend l'approbation |
+
+Prochaine étape (à approuver) : migration du lot 1 dans `ent-api` suivant le déroulé du §4, le test de contrat servant de filet de sécurité.

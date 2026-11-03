@@ -86,3 +86,13 @@ Dans chaque module métier :
 1. Modèle d'écran : tests unitaires natifs (dont un test par anomalie corrigée).
 2. Contre le vrai backend (`ent-web-server/tests/`, base locale de labo) : rendu serveur, parcours principal, erreurs API, **permissions** (au moins un rôle refusé).
 3. Navigateur : clavier, mobile 375 px, axe-core, mesures (affichage, clic, recherche) à processeur normal et ralenti ×4.
+
+## 10. Compléments (2026-11-03)
+
+- `#![recursion_limit = "512"]` est nécessaire **aussi dans `ent-web-server`** : le serveur calcule la disposition des types de vues de toute l'application (erreur « queries overflow the depth limit » apparue avec les composants du design system).
+- Dans `view!`, ne pas réutiliser une variable déjà passée à un attribut (`for=id.clone()` puis `id=id` peut échouer selon l'ordre d'évaluation) : créer les copies **avant** la vue (`let pour = id.clone();`).
+- CSS : le design system vit dans `ent-web-ui/style/ui.css`, importé par la feuille de l'application ; `style-bundle = true` produit un seul fichier.
+- Notifications : `fournir_notifications()` à la racine de `App`, `<ZoneNotifications/>` **à l'intérieur** de `<Router>` (pas directement après les balises `leptos_meta`, voir §8).
+- Types de l'API : utiliser `ent-types` (via `ent-web-api`), jamais une copie locale.
+- **Ne jamais lancer `cargo fmt --all` dans `ent-rust/web`** : il reformate aussi les crates du backend (dépendances par chemin). Utiliser `cargo fmt -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server`.
+- Avant de proposer un changement : formatage (commande ci-dessus), Clippy `-D warnings` (SSR, serveur, wasm), tests — comme la CI (`docs/CI_REPRODUCTIBILITE.md`).
