@@ -8,6 +8,7 @@ members = [
     "crates/ent-web-api",
     "crates/ent-web-app",
     "crates/ent-web-server",
+    "crates/ent-web-session",
 ]
 
 [workspace.package]

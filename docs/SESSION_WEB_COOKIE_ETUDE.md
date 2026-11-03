@@ -223,3 +223,59 @@ Toujours au stade de l'étude : aucune modification d'`ent-auth` ni d'`ent-api`.
 | **Durée du cookie vs durée serveur** | cookie conservé plus longtemps que la session | `Max-Age` ≤ durée absolue (12 h) ; la vérité reste en base |
 
 Tests à ajouter au §9 : `Cache-Control: no-store` présent sur les réponses authentifiées ; refus d'une connexion venant d'une autre origine ; session d'un établissement refusée sur le sous-domaine d'un autre.
+
+## 14. Prototype isolé (2026-11-03, D-016)
+
+**Aucune modification d'`ent-auth` ni d'`ent-api`.** Crate séparée `ent-rust/web/crates/ent-web-session`, qui n'est pas branchée sur `ent-web-server`. Statut : **prototype testé, PAS prêt pour la production** (limites ci-dessous), non déployé et non branché.
+
+### Conception : une passerelle devant l'API existante
+| Route du prototype | Rôle |
+|---|---|
+| `POST /web/session/connexion` | appelle `/auth/login` existant ; si la session est ouverte : **cookie posé, jeton retiré du corps** ; si une passkey est exigée : défi renvoyé, aucun cookie |
+| `POST /web/session/passkey/debut` · `/fin` | connexion par passkey sans mot de passe (et fin du second facteur) ; `/fin` pose le cookie |
+| `POST /web/session/deconnexion` | `/auth/logout` existant (révocation en base) + effacement du cookie |
+| `/web/api/…` | relais vers l'API existante : cookie → `Authorization: Bearer` ; refuse les routes qui émettent un jeton (`/auth/login`, `/auth/register`, `/auth/passkey/login/…`, `/auth/oidc/…`) |
+| `/web/_session` | page d'essai, CSP stricte, sans script en ligne |
+
+- Cookie : `__Host-ent_session=…; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age` ≤ 12 h et ≤ expiration réelle en base.
+- CSRF (toutes les requêtes qui modifient, **connexion et déconnexion comprises**) : `Origin` dans la liste autorisée (ou, sans `Origin`, `Sec-Fetch-Site: same-origin`) **et** `X-ENT-CSRF: 1`.
+- Durées D-011 : inactivité 2 h et maximum 12 h, contrôlés par la passerelle. Une session dépassée est **aussi révoquée en base**.
+- Réponses relayées : `Cache-Control: no-store`, `Vary: Cookie`. L'adresse du client est transmise à `ent-api`, ce qui conserve son anti-force brute.
+- Le cookie n'est lu **que** sous `/web/…`. Les routes existantes, `/app` et les applis mobiles l'ignorent : leur comportement est inchangé par construction.
+
+### Résultats
+**9 tests d'intégration** (`tests/session_cookie.rs`, contre le vrai `ent-api` et PostgreSQL local, sur base existante **et** sur base vierge), tous verts :
+
+| Exigence | Vérifié |
+|---|---|
+| Connexion mot de passe | cookie aux bons attributs, pas de `Domain`, `Max-Age` ≤ 12 h, **pas de jeton dans le corps**, `no-store` ; mauvais mot de passe → 401 sans cookie |
+| Connexion passkey | second facteur (mot de passe → défi, aucun cookie → passkey → cookie) **et** connexion sans mot de passe ; enrôlement par le relais |
+| CSRF | connexion refusée sans origine, avec une origine étrangère ou sans en-tête (« login CSRF ») ; écriture relayée refusée dans les mêmes cas ; lecture (GET) acceptée ; fin de passkey sans en-tête refusée |
+| Révocation | déconnexion : cookie effacé, ancien cookie refusé **et** jeton refusé en base ; déconnexion forcée depuis un autre site refusée ; changement de mot de passe : autres sessions révoquées, session courante conservée |
+| Expiration | inactivité dépassée → 401, cookie effacé, session révoquée en base ; activité régulière refusée après la durée maximale, jamais avant |
+| Coexistence Bearer (mobile) | `/auth/login` renvoie toujours le jeton, sans cookie et sans contrôle CSRF ; Bearer accepté |
+| Coexistence `/app` / `/web` | `/app` servie comme avant ; le cookie n'ouvre pas les routes existantes ; fermer la session web ne ferme pas celle de `/app`, et inversement |
+| Page | CSP stricte, aucun accès à `localStorage`, `sessionStorage` ou `document.cookie` |
+
+**Essai dans un vrai Chrome** (sans fenêtre, 2 onglets, authentificateur WebAuthn virtuel), `_outils-scolia/test-session-navigateur.json` :
+- `document.cookie` vide, `localStorage` vide ; cookie `HttpOnly`, `Secure`, `SameSite=Lax`, 12 h (accepté par Chrome sur `http://localhost`) ;
+- connexion dans l'onglet A, B est connecté aussitôt ; **déconnexion dans B, A est prévenu en moins de 1 ms** (`BroadcastChannel`) et l'API lui répond 401 ; plus aucun cookie ;
+- enrôlement d'une passkey, connexion sans mot de passe, puis mot de passe + passkey : OK ;
+- `fetch` forgé sans `X-ENT-CSRF` : 403 ; avec : 200 ;
+- aucune exception JavaScript, aucune violation CSP (seules les réponses 401, 403 et 404 attendues).
+
+### Risques et limites
+| # | Point | Gravité | Piste |
+|---|---|---|---|
+| 1 | Suivi d'inactivité **en mémoire** : perdu au redémarrage (tout le monde est déconnecté), et faux avec plusieurs serveurs | bloquant pour la production | colonnes `last_seen_at` / type de client dans `ent_session` (lot C) |
+| 2 | Liste des routes **interdites au relais** à tenir à jour : une nouvelle route qui renvoie un jeton serait exposée au JavaScript | élevé | relais par **liste autorisée**, ou contrôle dans `ent-api` (lot A) ; test qui échoue si une réponse relayée contient `token` de session |
+| 3 | Une session expirée n'est révoquée en base qu'à la requête suivante ; sinon elle reste valable 14 jours pour un client Bearer qui connaîtrait le jeton | moyen (le jeton n'est jamais exposé au JS) | purge périodique + durée serveur alignée (lot C) |
+| 4 | XSS : le cookie empêche le **vol** du jeton, pas les **actions** dans la page ouverte | inhérent | CSP sur les pages Leptos (nonce), règle « pas d'`inner_html` » |
+| 5 | Pendant la transition, `/app` et `/web` ont deux sessions distinctes : reconnexion pour passer de l'une à l'autre | faible, attendu (§12.4) | retrait de `/app` module par module |
+| 6 | Testé uniquement sous Chrome, sur `localhost`, sans HTTPS réel ni sous-domaines par établissement (D-012) ni `rp_id = scolia.fr` (D-013) | à couvrir | essais Firefox / Safari ; environnement HTTPS de recette avec deux sous-domaines |
+| 7 | Rendu serveur Leptos avec données grâce au cookie : non démontré | — | lot B |
+
+### Deux façons de passer en production (décision à prendre)
+- **A. Passerelle** (ce prototype, intégrée à `ent-web-server`) : `ent-auth` et `ent-api` restent inchangés ; risque n° 2 à traiter par une liste autorisée ; les durées demandent tout de même une migration (risque n° 1).
+- **B. Dans `ent-api`** (§8, lot A) : l'extracteur `EntSession` lit aussi le cookie ; un seul endroit pour les règles, mais il faut modifier l'authentification existante et tester tous ses clients.
+- Recommandation : **A pour le transport et le CSRF** (le risque est cantonné à `/web`), **plus** une migration `ent_session` pour les durées. Rien n'est engagé sans ta décision.
