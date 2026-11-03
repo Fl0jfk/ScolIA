@@ -11,7 +11,11 @@ export SCOLIA_OUTILS="${SCOLIA_OUTILS:-$(cd "$REPO_DIR/.." && pwd)/_outils-scoli
 export RUSTUP_HOME="$SCOLIA_OUTILS/rustup"
 export CARGO_HOME="$SCOLIA_OUTILS/cargo"
 export RUSTUP_TOOLCHAIN="1.99.0"
-export CARGO_TARGET_DIR="$SCOLIA_OUTILS/target-web"
+# Compilations du frontend (profil allégé). L'ancien dossier `target-web` (profil complet)
+# n'est plus utilisé ; sa suppression attend une validation.
+export CARGO_TARGET_DIR="$SCOLIA_OUTILS/target-web-leger"
+# Compilations du workspace principal (backend), séparées.
+export SCOLIA_TARGET_ENT="$SCOLIA_OUTILS/target-ent"
 
 # cargo-leptos, Perl portable (compilation d'OpenSSL pour webauthn-rs), PostgreSQL portable.
 # Seul perl/perl/bin est ajouté (pas perl/c/bin, pour ne pas masquer le compilateur MSVC).

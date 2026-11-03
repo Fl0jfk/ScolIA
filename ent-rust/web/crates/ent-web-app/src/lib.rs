@@ -10,6 +10,7 @@
 #![recursion_limit = "512"]
 
 pub mod appel;
+mod composants;
 mod connexion;
 mod entete;
 pub mod session;
@@ -46,6 +47,8 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();
+    ent_web_ui::fournir_notifications();
+    // À la racine : uniquement les balises leptos_meta et <Router> (voir FRONTEND_LEPTOS.md §8).
     view! {
         <Stylesheet id="ent-web" href="/pkg/ent-web.css"/>
         <Title formatter=|titre: String| format!("{titre} · ScolIA")/>
@@ -54,7 +57,9 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/web") view=|| view! { <Redirect path="/web/appel"/> }/>
                 <Route path=path!("/web/connexion") view=connexion::PageConnexion/>
                 <Route path=path!("/web/appel") view=appel::PageAppel/>
+                <Route path=path!("/web/_composants") view=composants::PageComposants/>
             </Routes>
+            <ent_web_ui::ZoneNotifications/>
         </Router>
     }
 }

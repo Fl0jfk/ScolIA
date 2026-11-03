@@ -1,48 +1,10 @@
-/* ENT — styles du frontend Leptos (prototype).
-   Jetons repris de ent-api/styles/input.css (thème Tailwind existant) pour garder
-   la continuité visuelle. CSS simple, sans outil de build : une seule feuille. */
+/* ENT — feuille de l'application.
+   1. Design system (jetons, base, composants `ui-*`) importé depuis ent-web-ui.
+   2. Styles propres à l'application (mise en page, écran d'appel).
+   cargo-leptos fusionne les @import en un seul fichier (`style-bundle = true`). */
 
-:root {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-  --c-fond: #f2f2f7;
-  --c-surface: #ffffff;
-  --c-encre: #1d1d1f;
-  --c-attenue: #5f5f64;          /* #6e6e73 éclairci trop pâle pour du petit texte : contraste ≥ 4.5:1 */
-  --c-ligne: rgba(0, 0, 0, 0.1);
-  --c-acc: #0066cc;
-  --c-acc-doux: rgba(0, 102, 204, 0.1);
-  --c-ok: #1e7a34;
-  --c-ok-doux: #e6f4ea;
-  --c-mal: #c4001a;
-  --c-mal-doux: #fde8ea;
-  --c-avert: #9a4500;
-  --c-avert-doux: #fff1e0;
-  --c-neutre-doux: #eef0f4;
-  --rayon: 14px;
-  --rayon-petit: 8px;
-  --ombre: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 28px rgba(0, 0, 0, 0.06);
-  --focus: 0 0 0 3px #fff, 0 0 0 5px var(--c-acc);
-}
+@import "../crates/ent-web-ui/style/ui.css";
 
-*, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.45;
-  color: var(--c-encre);
-  background: var(--c-fond);
-}
-h1 { font-size: 1.6rem; margin: 0; letter-spacing: -0.01em; }
-h2 { font-size: 1.15rem; margin: 0; }
-a { color: var(--c-acc); }
-:focus-visible { outline: none; box-shadow: var(--focus); border-radius: 6px; }
-
-.ui-sr {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-}
 .lien-evitement { position: absolute; left: 8px; top: -48px; background: var(--c-surface); padding: 8px 12px; border-radius: 8px; z-index: 10; }
 .lien-evitement:focus { top: 8px; }
 
@@ -50,67 +12,40 @@ a { color: var(--c-acc); }
 .barre {
   display: flex; align-items: center; gap: 20px;
   padding: 10px 24px; background: var(--c-surface); border-bottom: 1px solid var(--c-ligne);
-  position: sticky; top: 0; z-index: 5;
+  position: sticky; top: 0; z-index: var(--z-barre);
 }
 .barre__marque { font-weight: 700; font-size: 1.05rem; color: var(--c-encre); text-decoration: none; }
 .barre__nav a { color: var(--c-encre); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
 .barre__nav a[aria-current="page"] { background: var(--c-acc-doux); color: var(--c-acc); font-weight: 600; }
 .barre__compte { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .barre__identite { display: flex; flex-direction: column; text-align: right; line-height: 1.2; }
-.barre__email { font-size: 0.85rem; }
-.barre__role { font-size: 0.78rem; color: var(--c-attenue); }
+.barre__email { font-size: var(--taille-s); }
+.barre__role { font-size: var(--taille-xs); color: var(--c-attenue); }
 
 /* --- Page ---------------------------------------------------------------- */
 .page { max-width: 1100px; margin: 0 auto; padding: 24px 24px 120px; display: grid; gap: 16px; }
 .page--etroite { max-width: 440px; padding-top: 64px; }
+.page--large { max-width: 900px; }
 .page__entete { display: grid; gap: 4px; }
 .page__soustitre { margin: 0; color: var(--c-attenue); }
 .carte { background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre); padding: 20px; }
 .marque { margin: 0 0 4px; font-weight: 700; color: var(--c-acc); }
 .bandeau-labo { background: var(--c-avert-doux); color: var(--c-avert); padding: 8px 12px; border-radius: var(--rayon-petit); font-size: 0.88rem; }
+.grille-demo { display: flex; flex-wrap: wrap; gap: var(--esp-3); align-items: center; }
+.pile { display: grid; gap: var(--esp-3); }
 
-/* --- Champs -------------------------------------------------------------- */
+/* --- Champs de l'écran d'appel (historiques, avant ui-champ) -------------- */
 .champ { display: grid; gap: 4px; min-width: 160px; }
 .champ--large { flex: 1 1 320px; }
-.champ label { font-size: 0.85rem; font-weight: 600; }
+.champ label { font-size: var(--taille-s); font-weight: 600; }
 .champ__aide { margin: 0; font-size: 0.8rem; color: var(--c-attenue); }
-input[type="text"], input[type="email"], input[type="password"], input[type="search"], input[type="date"], select {
-  font: inherit; color: inherit; background: var(--c-surface);
-  border: 1px solid rgba(0, 0, 0, 0.22); border-radius: var(--rayon-petit);
+.champ input, .champ select {
+  background: var(--c-surface); border: 1px solid var(--c-bord-champ); border-radius: var(--rayon-petit);
   padding: 8px 10px; min-height: 40px; width: 100%;
 }
-input:disabled { background: var(--c-neutre-doux); color: var(--c-attenue); }
 .formulaire { display: grid; gap: 14px; margin-top: 16px; }
 .selection { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
-
-/* --- Boutons ------------------------------------------------------------- */
-.ui-btn {
-  font: inherit; font-weight: 600; border-radius: var(--rayon-petit); border: 1px solid transparent;
-  padding: 8px 16px; min-height: 40px; cursor: pointer; white-space: nowrap;
-}
-.ui-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.ui-btn--primaire { background: var(--c-acc); color: #fff; }
-.ui-btn--primaire:hover:not(:disabled) { background: #0057ad; }
-.ui-btn--secondaire { background: var(--c-surface); color: var(--c-encre); border-color: rgba(0, 0, 0, 0.22); }
-.ui-btn--secondaire:hover:not(:disabled) { background: var(--c-neutre-doux); }
-.ui-btn--discret { background: transparent; color: var(--c-acc); }
-.ui-btn--discret:hover:not(:disabled) { background: var(--c-acc-doux); }
-.ui-btn--danger { background: var(--c-mal); color: #fff; }
-
-/* --- Messages et états --------------------------------------------------- */
-.ui-alerte { border-radius: var(--rayon-petit); padding: 12px 14px; border-left: 4px solid; }
-.ui-alerte p, .ui-alerte ul { margin: 4px 0 0; }
-.ui-alerte__titre { margin: 0; font-weight: 600; }
-.ui-alerte--info { background: var(--c-acc-doux); border-color: var(--c-acc); }
-.ui-alerte--succes { background: var(--c-ok-doux); border-color: var(--c-ok); }
-.ui-alerte--avert { background: var(--c-avert-doux); border-color: var(--c-avert); }
-.ui-alerte--erreur { background: var(--c-mal-doux); border-color: var(--c-mal); }
-.ui-squelette { display: grid; gap: 10px; width: 100%; }
-.ui-squelette__ligne { height: 40px; border-radius: var(--rayon-petit); background: linear-gradient(90deg, #eceef2, #f6f7f9, #eceef2); }
-.ui-vide { text-align: center; padding: 28px 12px; color: var(--c-attenue); width: 100%; }
-.ui-vide__titre { margin: 0; font-weight: 600; color: var(--c-encre); }
-.ui-vide__message { margin: 4px 0 0; }
-.note-capacite { margin: 0; font-size: 0.85rem; color: var(--c-attenue); }
+.note-capacite { margin: 0; font-size: var(--taille-s); color: var(--c-attenue); }
 
 /* --- Feuille d'appel ----------------------------------------------------- */
 .feuille { display: grid; gap: 14px; }
@@ -119,18 +54,12 @@ input:disabled { background: var(--c-neutre-doux); color: var(--c-attenue); }
 .outils { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
 .champ--recherche { flex: 1 1 260px; }
 .pastilles { display: flex; flex-wrap: wrap; gap: 6px; }
-.ui-pastille {
-  font: inherit; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
-  border: 1px solid rgba(0, 0, 0, 0.15); background: var(--c-surface); border-radius: 999px;
-  padding: 6px 12px; min-height: 36px;
-}
-.ui-pastille__nombre { font-variant-numeric: tabular-nums; font-weight: 700; }
-.ui-pastille[aria-pressed="true"] { background: var(--c-encre); color: #fff; border-color: var(--c-encre); }
 .lot {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
   background: var(--c-acc-doux); border-radius: var(--rayon-petit); padding: 8px 10px;
 }
 .lot__compte { font-weight: 600; margin-right: 6px; }
+.lot__masques { font-size: 0.82rem; color: var(--c-attenue); margin-right: 6px; }
 .aide-clavier { margin: 0; font-size: 0.8rem; color: var(--c-attenue); }
 
 .liste { width: 100%; border-collapse: collapse; }
@@ -143,7 +72,8 @@ input:disabled { background: var(--c-neutre-doux); color: var(--c-attenue); }
 .liste__ligne--selection { background: var(--c-acc-doux); }
 .liste__ligne[data-statut="absent"] .liste__nom { color: var(--c-mal); }
 .liste__ligne[data-statut="retard"] .liste__nom { color: var(--c-avert); }
-.liste__commentaire input { min-height: 34px; padding: 4px 8px; }
+.liste__commentaire input { min-height: 34px; padding: 4px 8px; width: 100%; border: 1px solid var(--c-bord-champ); border-radius: var(--rayon-petit); }
+.liste__commentaire input:disabled { background: var(--c-neutre-doux); color: var(--c-attenue); }
 .marque-modif { color: var(--c-acc); margin-left: 6px; font-size: 0.7rem; vertical-align: middle; }
 
 .statuts { border: 0; margin: 0; padding: 0; display: inline-flex; gap: 4px; flex-wrap: wrap; }
@@ -171,10 +101,6 @@ input:disabled { background: var(--c-neutre-doux); color: var(--c-attenue); }
 }
 .pied__etat { margin: 0; color: var(--c-attenue); }
 
-/* --- Dialogue ------------------------------------------------------------ */
-.ui-dialogue { border: 0; border-radius: var(--rayon); padding: 20px; width: min(520px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25); }
-.ui-dialogue::backdrop { background: rgba(0, 0, 0, 0.35); }
-.ui-dialogue__titre { margin-bottom: 8px; }
 .dialogue__liste { max-height: 40vh; overflow: auto; margin: 8px 0; padding-left: 20px; }
 .dialogue__avert { font-size: 0.88rem; color: var(--c-attenue); }
 .dialogue__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
@@ -195,10 +121,10 @@ input:disabled { background: var(--c-neutre-doux); color: var(--c-attenue); }
   .liste__ligne td, .liste__ligne th { border: 0; padding: 0; }
   .liste__statut, .liste__commentaire { grid-column: 1 / -1; }
   .statuts { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
-  .statut span { min-width: 0; width: 100%; padding: 10px 4px; }
+  /* Cibles tactiles ≥ 44 px (le prototype était à 42 px). */
+  .statut span { min-width: 0; width: 100%; padding: 10px 4px; min-height: var(--cible); display: flex; align-items: center; justify-content: center; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .ui-btn, .ui-pastille, .statut span { transition: background-color 0.12s, border-color 0.12s; }
+  .statut span { transition: background-color var(--duree), border-color var(--duree); }
 }
-.lot__masques { font-size: 0.82rem; color: var(--c-attenue); margin-right: 6px; }

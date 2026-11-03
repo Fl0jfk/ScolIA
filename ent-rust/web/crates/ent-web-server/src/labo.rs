@@ -74,8 +74,18 @@ pub struct ClasseTest {
 }
 
 pub const CLASSES_TEST: [ClasseTest; 2] = [
-    ClasseTest { classe: "PROTO38", effectif: 38, heure_debut: "13:00", heure_fin: "14:00" },
-    ClasseTest { classe: "PROTO400", effectif: 400, heure_debut: "14:00", heure_fin: "15:00" },
+    ClasseTest {
+        classe: "PROTO38",
+        effectif: 38,
+        heure_debut: "13:00",
+        heure_fin: "14:00",
+    },
+    ClasseTest {
+        classe: "PROTO400",
+        effectif: 400,
+        heure_debut: "14:00",
+        heure_fin: "15:00",
+    },
 ];
 
 const PRENOMS: [&str; 20] = [
@@ -120,19 +130,36 @@ pub async fn preparer_classes(
             )
             .await?;
         }
-        rapport.push(format!("{} : {} élèves ({} créés)", c.classe, c.effectif.max(deja), c.effectif.saturating_sub(deja)));
+        rapport.push(format!(
+            "{} : {} élèves ({} créés)",
+            c.classe,
+            c.effectif.max(deja),
+            c.effectif.saturating_sub(deja)
+        ));
     }
 
     // Séances : créées seulement si absentes pour ce jour.
-    let existants = api.get_json(&format!("/edt/creneaux?jour={jour}")).await.unwrap_or_default();
+    let existants = api
+        .get_json(&format!("/edt/creneaux?jour={jour}"))
+        .await
+        .unwrap_or_default();
     let deja: Vec<String> = existants
         .as_array()
-        .map(|a| a.iter().filter_map(|c| c["classe"].as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| c["classe"].as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     let jour_iso = jour.weekday().number_from_monday();
-    let mut csv = String::from("classe;matiere;prof_user_id;jour_semaine;heure_debut;heure_fin;salle;semaine_ab\n");
+    let mut csv = String::from(
+        "classe;matiere;prof_user_id;jour_semaine;heure_debut;heure_fin;salle;semaine_ab\n",
+    );
     let mut a_creer = 0;
-    for c in CLASSES_TEST.iter().filter(|c| !deja.iter().any(|d| d == c.classe)) {
+    for c in CLASSES_TEST
+        .iter()
+        .filter(|c| !deja.iter().any(|d| d == c.classe))
+    {
         csv.push_str(&format!(
             "{};Sciences;{prof_id};{jour_iso};{};{};Labo 1;toutes\n",
             c.classe, c.heure_debut, c.heure_fin
@@ -141,7 +168,10 @@ pub async fn preparer_classes(
     }
     if a_creer > 0 {
         let r = api
-            .post_json("/edt/import", serde_json::json!({ "csv": csv, "dry_run": false }))
+            .post_json(
+                "/edt/import",
+                serde_json::json!({ "csv": csv, "dry_run": false }),
+            )
             .await?;
         rapport.push(format!("séances importées : {}", r["ok_count"]));
     } else {

@@ -29,8 +29,11 @@ fn main() {
         }
         let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
         println!("prototype ENT : http://{addr}/web/appel");
-        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-            .await
-            .expect("serveur");
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .expect("serveur");
     });
 }

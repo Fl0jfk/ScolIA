@@ -6,7 +6,9 @@
 
 use chrono::NaiveDate;
 use ent_web_api::{ApiError, Capacites, Creneau, CAPACITES_API_ACTUELLE};
-use ent_web_ui::{Alerte, Annonce, Bouton, Dialogue, EtatVide, FiltrePastille, Niveau, Squelette, Variante};
+use ent_web_ui::{
+    Alerte, Annonce, Bouton, Dialogue, EtatVide, FiltrePastille, Niveau, Squelette, Variante,
+};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos::wasm_bindgen::JsCast;
@@ -86,12 +88,22 @@ pub fn FeuilleAppel(creneau_id: Uuid, jour: NaiveDate, creneau: Creneau) -> impl
 #[derive(Clone, Debug, PartialEq)]
 enum Envoi {
     Inactif,
-    EnCours { fait: usize, total: usize },
-    Echec { message: String, echecs: Vec<(String, String)> },
+    EnCours {
+        fait: usize,
+        total: usize,
+    },
+    Echec {
+        message: String,
+        echecs: Vec<(String, String)>,
+    },
 }
 
 #[component]
-fn EcranSaisie(feuille: Feuille, capacites: Capacites, on_termine: Callback<Bilan>) -> impl IntoView {
+fn EcranSaisie(
+    feuille: Feuille,
+    capacites: Capacites,
+    on_termine: Callback<Bilan>,
+) -> impl IntoView {
     let close = feuille.close;
     let appel_id = feuille.appel_id;
     let eleves = StoredValue::new(feuille.eleves.clone());
@@ -114,31 +126,44 @@ fn EcranSaisie(feuille: Feuille, capacites: Capacites, on_termine: Callback<Bila
     let confirmation = RwSignal::new(false);
     let a_valider = RwSignal::new(Vec::<Changement>::new());
 
-    let statuts = Memo::new(move |_| lignes.with_value(|l| l.iter().map(|x| x.statut.get()).collect::<Vec<_>>()));
+    let statuts = Memo::new(move |_| {
+        lignes.with_value(|l| l.iter().map(|x| x.statut.get()).collect::<Vec<_>>())
+    });
     let compteurs = Memo::new(move |_| Compteurs::de(statuts.get()));
     let indices_visibles = Memo::new(move |_| {
-        let filtre = Filtre { recherche: recherche.get(), statut: filtre_statut.get() };
+        let filtre = Filtre {
+            recherche: recherche.get(),
+            statut: filtre_statut.get(),
+        };
         eleves.with_value(|e| statuts.with(|s| visibles(e, s, &filtre)))
     });
-    let selection = Memo::new(move |_| lignes.with_value(|l| l.iter().map(|x| x.selection.get()).collect::<Vec<_>>()));
+    let selection = Memo::new(move |_| {
+        lignes.with_value(|l| l.iter().map(|x| x.selection.get()).collect::<Vec<_>>())
+    });
     // Seules les lignes sélectionnées ET affichées sont concernées par une action groupée.
     let nb_selection = Memo::new(move |_| {
         selection.with(|s| indices_visibles.with(|v| cibles_action_groupee(s, v).len()))
     });
-    let nb_masquees = Memo::new(move |_| selection.with(|s| indices_visibles.with(|v| selection_masquee(s, v))));
+    let nb_masquees =
+        Memo::new(move |_| selection.with(|s| indices_visibles.with(|v| selection_masquee(s, v))));
     let nb_modifications = Memo::new(move |_| {
         eleves.with_value(|e| {
             lignes.with_value(|l| {
                 e.iter()
                     .zip(l)
-                    .filter(|(e, l)| l.statut.get() != e.statut_enregistre || !l.commentaire.get().trim().is_empty())
+                    .filter(|(e, l)| {
+                        l.statut.get() != e.statut_enregistre
+                            || !l.commentaire.get().trim().is_empty()
+                    })
                     .count()
             })
         })
     });
 
     let appliquer_lot = move |s: Statut| {
-        let cibles = selection.with_untracked(|sel| indices_visibles.with_untracked(|v| cibles_action_groupee(sel, v)));
+        let cibles = selection.with_untracked(|sel| {
+            indices_visibles.with_untracked(|v| cibles_action_groupee(sel, v))
+        });
         let n = cibles.len();
         lignes.with_value(|l| {
             for i in cibles {
@@ -146,7 +171,10 @@ fn EcranSaisie(feuille: Feuille, capacites: Capacites, on_termine: Callback<Bila
                 l[i].selection.set(false);
             }
         });
-        annonce.set(format!("{n} élève(s) marqué(s) {}", s.libelle().to_lowercase()));
+        annonce.set(format!(
+            "{n} élève(s) marqué(s) {}",
+            s.libelle().to_lowercase()
+        ));
     };
     let tout_selectionner = move |valeur: bool| {
         let visibles = indices_visibles.get_untracked();
@@ -203,7 +231,9 @@ fn EcranSaisie(feuille: Feuille, capacites: Capacites, on_termine: Callback<Bila
             }
             if !echecs.is_empty() {
                 envoi.set(Envoi::Echec {
-                    message: "Certaines lignes n'ont pas été enregistrées. L'appel n'a pas été clos.".into(),
+                    message:
+                        "Certaines lignes n'ont pas été enregistrées. L'appel n'a pas été clos."
+                            .into(),
                     echecs,
                 });
                 return;
@@ -211,10 +241,17 @@ fn EcranSaisie(feuille: Feuille, capacites: Capacites, on_termine: Callback<Bila
             match client.clore(appel_id).await {
                 Ok(_) => {
                     envoi.set(Envoi::Inactif);
-                    on_termine.run(Bilan { envoyes: total, echecs: vec![], clos: true });
+                    on_termine.run(Bilan {
+                        envoyes: total,
+                        echecs: vec![],
+                        clos: true,
+                    });
                 }
                 Err(e) => envoi.set(Envoi::Echec {
-                    message: format!("Les lignes sont enregistrées mais l'appel n'a pas pu être clos : {}", e.message_utilisateur()),
+                    message: format!(
+                        "Les lignes sont enregistrées mais l'appel n'a pas pu être clos : {}",
+                        e.message_utilisateur()
+                    ),
                     echecs: vec![],
                 }),
             }
@@ -490,7 +527,12 @@ fn LigneEleve(
             }
             return;
         }
-        if let Some(s) = touche.chars().next().filter(|_| touche.chars().count() == 1).and_then(Statut::depuis_touche) {
+        if let Some(s) = touche
+            .chars()
+            .next()
+            .filter(|_| touche.chars().count() == 1)
+            .and_then(Statut::depuis_touche)
+        {
             ev.prevent_default();
             choisir_clavier(s);
         }

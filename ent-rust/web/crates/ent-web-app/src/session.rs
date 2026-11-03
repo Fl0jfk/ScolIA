@@ -18,7 +18,11 @@ pub fn jeton() -> Option<String> {
     #[cfg(target_arch = "wasm32")]
     {
         let stockage = leptos::prelude::window().local_storage().ok().flatten()?;
-        stockage.get_item(CLE_JETON).ok().flatten().filter(|j| !j.is_empty())
+        stockage
+            .get_item(CLE_JETON)
+            .ok()
+            .flatten()
+            .filter(|j| !j.is_empty())
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

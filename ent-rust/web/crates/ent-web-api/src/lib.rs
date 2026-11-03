@@ -21,36 +21,11 @@ mod transport;
 // Types (contrat JSON d'ent-api)
 // ---------------------------------------------------------------------------
 
-/// `GET /auth/me`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Moi {
-    pub user_id: Uuid,
-    pub email: String,
-    pub etablissement_id: Uuid,
-    pub role: String,
-    #[serde(default)]
-    pub eleve_id: Option<Uuid>,
-    #[serde(default)]
-    pub passkey_count: i64,
-}
-
-/// Session renvoyée par `POST /auth/login` (champs aplatis).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Session {
-    pub token: String,
-    pub user_id: Uuid,
-    pub email: String,
-    pub etablissement_id: Uuid,
-    pub role: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct ReponseConnexion {
-    #[serde(default)]
-    mfa_required: bool,
-    #[serde(flatten)]
-    session: Option<Session>,
-}
+// Types partagés avec ent-api : crate `ent-types` (lot 1). Les noms historiques
+// du prototype sont conservés comme alias.
+pub use ent_types::appel::{AppelDto as AppelApi, AppelLigneDto as LigneAppelApi};
+pub use ent_types::auth::{AuthSessionDto as Session, LoginResponseDto, MeDto as Moi};
+pub use ent_types::edt::EdtCreneauDto as Creneau;
 
 /// Issue d'une connexion par mot de passe.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,24 +34,6 @@ pub enum Connexion {
     /// Le compte a une passkey : le second facteur n'est pas géré par ce prototype
     /// (l'auth n'est pas modifiée dans cette mission).
     PasskeyRequise,
-}
-
-/// `GET /edt/mes-creneaux` (EdtCreneauDto)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Creneau {
-    pub id: Uuid,
-    pub classe: String,
-    pub matiere_libelle: String,
-    pub prof_user_id: Uuid,
-    #[serde(default)]
-    pub prof_label: Option<String>,
-    pub jour_semaine: i16,
-    pub heure_debut: String,
-    pub heure_fin: String,
-    #[serde(default)]
-    pub salle: Option<String>,
-    #[serde(default)]
-    pub semaine_ab: String,
 }
 
 /// État d'une ligne tel que l'API le connaît (`present|absent|retard`).
@@ -95,36 +52,6 @@ impl EtatApi {
             EtatApi::Absent => "absent",
             EtatApi::Retard => "retard",
         }
-    }
-}
-
-/// Ligne d'appel (AppelLigneDto).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LigneAppelApi {
-    pub eleve_id: Uuid,
-    #[serde(default)]
-    pub eleve_label: Option<String>,
-    pub etat: String,
-}
-
-/// Appel (AppelDto).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AppelApi {
-    pub id: Uuid,
-    pub classe: String,
-    pub jour: NaiveDate,
-    /// `ouvert` ou `clos`
-    pub statut: String,
-    #[serde(default)]
-    pub creneau_id: Option<Uuid>,
-    #[serde(default)]
-    pub matiere_libelle: Option<String>,
-    pub lignes: Vec<LigneAppelApi>,
-}
-
-impl AppelApi {
-    pub fn est_clos(&self) -> bool {
-        self.statut == "clos"
     }
 }
 
@@ -255,7 +182,11 @@ impl ApiClient {
         let (statut, texte) =
             transport::envoyer(methode, &self.url(chemin), self.jeton.as_deref(), corps).await?;
         if (200..300).contains(&statut) {
-            let texte = if texte.trim().is_empty() { "null".to_string() } else { texte };
+            let texte = if texte.trim().is_empty() {
+                "null".to_string()
+            } else {
+                texte
+            };
             serde_json::from_str(&texte).map_err(|e| ApiError::Decodage(e.to_string()))
         } else {
             Err(ApiError::depuis_statut(statut, texte))
@@ -274,7 +205,9 @@ impl ApiClient {
             "password": mot_de_passe,
             "etablissement_id": etablissement_id,
         });
-        let r: ReponseConnexion = self.appel(Methode::Post, "/auth/login", Some(corps)).await?;
+        let r: LoginResponseDto = self
+            .appel(Methode::Post, "/auth/login", Some(corps))
+            .await?;
         match (r.mfa_required, r.session) {
             (false, Some(s)) => Ok(Connexion::Ouverte(s)),
             (true, _) => Ok(Connexion::PasskeyRequise),
@@ -295,26 +228,44 @@ impl ApiClient {
 
     /// `GET /edt/mes-creneaux?jour=AAAA-MM-JJ`
     pub async fn mes_creneaux(&self, jour: NaiveDate) -> Result<Vec<Creneau>, ApiError> {
-        self.appel(Methode::Get, &format!("/edt/mes-creneaux?jour={jour}"), None)
-            .await
+        self.appel(
+            Methode::Get,
+            &format!("/edt/mes-creneaux?jour={jour}"),
+            None,
+        )
+        .await
     }
 
     /// `POST /appels` — ouvre (ou retrouve) l'appel du créneau ce jour-là.
-    pub async fn ouvrir_appel(&self, creneau_id: Uuid, jour: NaiveDate) -> Result<AppelApi, ApiError> {
+    pub async fn ouvrir_appel(
+        &self,
+        creneau_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<AppelApi, ApiError> {
         let corps = serde_json::json!({ "creneau_id": creneau_id, "jour": jour });
         self.appel(Methode::Post, "/appels", Some(corps)).await
     }
 
     /// `GET /appels/{id}`
     pub async fn appel_par_id(&self, appel_id: Uuid) -> Result<AppelApi, ApiError> {
-        self.appel(Methode::Get, &format!("/appels/{appel_id}"), None).await
+        self.appel(Methode::Get, &format!("/appels/{appel_id}"), None)
+            .await
     }
 
     /// `POST /appels/{id}/lignes`
-    pub async fn marquer(&self, appel_id: Uuid, eleve_id: Uuid, etat: EtatApi) -> Result<(), ApiError> {
+    pub async fn marquer(
+        &self,
+        appel_id: Uuid,
+        eleve_id: Uuid,
+        etat: EtatApi,
+    ) -> Result<(), ApiError> {
         let corps = serde_json::json!({ "eleve_id": eleve_id, "etat": etat.as_str() });
         let _: serde_json::Value = self
-            .appel(Methode::Post, &format!("/appels/{appel_id}/lignes"), Some(corps))
+            .appel(
+                Methode::Post,
+                &format!("/appels/{appel_id}/lignes"),
+                Some(corps),
+            )
             .await?;
         Ok(())
     }
@@ -347,10 +298,22 @@ mod tests {
 
     #[test]
     fn statuts_http_vers_erreurs() {
-        assert_eq!(ApiError::depuis_statut(401, "x".into()), ApiError::NonConnecte);
-        assert!(matches!(ApiError::depuis_statut(403, "x".into()), ApiError::Interdit(_)));
-        assert!(matches!(ApiError::depuis_statut(400, "x".into()), ApiError::Invalide(_)));
-        assert!(matches!(ApiError::depuis_statut(503, "x".into()), ApiError::Serveur(503, _)));
+        assert_eq!(
+            ApiError::depuis_statut(401, "x".into()),
+            ApiError::NonConnecte
+        );
+        assert!(matches!(
+            ApiError::depuis_statut(403, "x".into()),
+            ApiError::Interdit(_)
+        ));
+        assert!(matches!(
+            ApiError::depuis_statut(400, "x".into()),
+            ApiError::Invalide(_)
+        ));
+        assert!(matches!(
+            ApiError::depuis_statut(503, "x".into()),
+            ApiError::Serveur(503, _)
+        ));
     }
 
     #[test]
@@ -369,10 +332,10 @@ mod tests {
         let json = r#"{"mfa_required":false,"token":"t","user_id":"6f1c3c80-0000-4000-8000-000000000001",
             "email":"a@b","etablissement_id":"6f1c3c80-0000-4000-8000-000000000002","role":"prof",
             "expires_at":"2026-11-03T00:00:00Z"}"#;
-        let r: ReponseConnexion = serde_json::from_str(json).unwrap();
+        let r: LoginResponseDto = serde_json::from_str(json).unwrap();
         assert!(r.session.is_some());
-        let json2 = r#"{"mfa_required":true,"passkey":{"token":"x"}}"#;
-        let r2: ReponseConnexion = serde_json::from_str(json2).unwrap();
+        let json2 = r#"{"mfa_required":true,"passkey":{"token":"x","options":{},"expires_at":"2026-11-03T00:00:00Z"}}"#;
+        let r2: LoginResponseDto = serde_json::from_str(json2).unwrap();
         assert!(r2.mfa_required);
     }
 }

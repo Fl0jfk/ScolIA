@@ -20,14 +20,22 @@ async fn demarrer() -> Option<String> {
         eprintln!("SKIP : ENT_DATABASE_URL absent (sourcer scripts/env.sh)");
         return None;
     };
-    assert!(url.contains("@127.0.0.1:"), "base de test locale uniquement");
-    let (app, _) = ent_web_server::routeur_complet().await.expect("démarrage ent-api + web");
+    assert!(
+        url.contains("@127.0.0.1:"),
+        "base de test locale uniquement"
+    );
+    let (app, _) = ent_web_server::routeur_complet()
+        .await
+        .expect("démarrage ent-api + web");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-            .unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
     Some(format!("http://{addr}"))
 }
@@ -43,8 +51,15 @@ fn jour_neuf() -> NaiveDate {
 }
 
 async fn prof(base: &str, l: &Labo, index: usize) -> ApiClient {
-    let p = l.personnel.iter().filter(|p| p.role == "prof").nth(index).expect("prof de labo");
-    let s = labo::connecter(base, l, &p.email).await.expect("connexion prof");
+    let p = l
+        .personnel
+        .iter()
+        .filter(|p| p.role == "prof")
+        .nth(index)
+        .expect("prof de labo");
+    let s = labo::connecter(base, l, &p.email)
+        .await
+        .expect("connexion prof");
     ApiClient::new(base, Some(s.token))
 }
 
@@ -59,20 +74,30 @@ async fn creneau_4b(api: &ApiClient, jour: NaiveDate) -> ent_web_api::Creneau {
 
 /// Refus métier d'ent-api : 400, ou 404 quand son message contient « introuvable ».
 fn refus_metier<T>(r: &Result<T, ApiError>) -> bool {
-    matches!(r, Err(ApiError::Invalide(_)) | Err(ApiError::Introuvable(_)))
+    matches!(
+        r,
+        Err(ApiError::Invalide(_)) | Err(ApiError::Introuvable(_))
+    )
 }
 
 fn saisies_initiales(f: &Feuille) -> Vec<Saisie> {
     f.eleves
         .iter()
-        .map(|e| Saisie { eleve_id: e.eleve_id, statut: e.statut_enregistre, commentaire: String::new() })
+        .map(|e| Saisie {
+            eleve_id: e.eleve_id,
+            statut: e.statut_enregistre,
+            commentaire: String::new(),
+        })
         .collect()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pages_rendues_par_le_serveur() {
     let Some(base) = demarrer().await else { return };
-    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+    let http = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
 
     let r = http.get(format!("{base}/web/appel")).send().await.unwrap();
     assert_eq!(r.status(), 200);
@@ -80,23 +105,52 @@ async fn pages_rendues_par_le_serveur() {
     assert_eq!(r.headers()["x-content-type-options"], "nosniff");
     let html = r.text().await.unwrap();
     assert!(html.contains(r#"<html lang="fr""#), "langue de la page");
-    assert!(html.contains("Faire l&#x27;appel") || html.contains("Faire l'appel"), "titre");
-    assert!(html.contains("Chargement des séances"), "état de chargement rendu côté serveur");
+    assert!(
+        html.contains("Faire l&#x27;appel") || html.contains("Faire l'appel"),
+        "titre"
+    );
+    assert!(
+        html.contains("Chargement des séances"),
+        "état de chargement rendu côté serveur"
+    );
     assert!(html.contains("/pkg/ent-web.js"), "script d'hydratation");
     assert!(html.contains("/pkg/ent-web.css"), "feuille de style");
     assert!(html.contains("Aller au contenu"), "lien d'évitement");
     assert!(html.contains(r#"for="jour""#), "champ date étiqueté");
 
-    let html = http.get(format!("{base}/web/connexion")).send().await.unwrap().text().await.unwrap();
-    for attendu in ["Adresse e-mail", "Mot de passe", "Établissement", r#"autocomplete="current-password""#] {
+    let html = http
+        .get(format!("{base}/web/connexion"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    for attendu in [
+        "Adresse e-mail",
+        "Mot de passe",
+        "Établissement",
+        r#"autocomplete="current-password""#,
+    ] {
         assert!(html.contains(attendu), "page de connexion : {attendu}");
     }
-    assert!(html.contains("Environnement de test"), "fonction serveur exécutée au rendu");
+    assert!(
+        html.contains("Environnement de test"),
+        "fonction serveur exécutée au rendu"
+    );
 
     let r = http.get(format!("{base}/web")).send().await.unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200, "redirection /web → /web/appel ({})", r.status());
+    assert!(
+        r.status().is_redirection() || r.status() == 200,
+        "redirection /web → /web/appel ({})",
+        r.status()
+    );
 
-    let r = http.get(format!("{base}/web/inconnue")).send().await.unwrap();
+    let r = http
+        .get(format!("{base}/web/inconnue"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(r.status(), 404);
 
     // L'API existante répond toujours sur la même origine.
@@ -116,7 +170,9 @@ async fn appel_complet_contre_vrai_backend() {
     let anonyme = ApiClient::new(&base, None);
     assert_eq!(anonyme.moi().await.unwrap_err(), ApiError::NonConnecte);
     let p0 = l.personnel.iter().find(|p| p.role == "prof").unwrap();
-    let r = anonyme.connexion(&p0.email, "mauvais-mot-de-passe", l.etablissement_id).await;
+    let r = anonyme
+        .connexion(&p0.email, "mauvais-mot-de-passe", l.etablissement_id)
+        .await;
     assert_eq!(r.unwrap_err(), ApiError::NonConnecte);
 
     let api = prof(&base, &l, 0).await;
@@ -129,8 +185,14 @@ async fn appel_complet_contre_vrai_backend() {
     let appel: AppelApi = api.ouvrir_appel(c.id, jour).await.expect("ouverture");
     assert!(!appel.est_clos());
     assert!(!appel.lignes.is_empty(), "élèves de 4B");
-    assert!(appel.lignes.iter().all(|l| l.etat == "present"), "présent par défaut");
-    assert!(appel.lignes.iter().all(|l| l.eleve_label.is_some()), "noms fournis");
+    assert!(
+        appel.lignes.iter().all(|l| l.etat == "present"),
+        "présent par défaut"
+    );
+    assert!(
+        appel.lignes.iter().all(|l| l.eleve_label.is_some()),
+        "noms fournis"
+    );
 
     // Ré-ouvrir renvoie le même appel (idempotent).
     assert_eq!(api.ouvrir_appel(c.id, jour).await.unwrap().id, appel.id);
@@ -151,7 +213,9 @@ async fn appel_complet_contre_vrai_backend() {
     let liste = changements(&f.eleves, &s, CAPACITES_API_ACTUELLE).unwrap();
     assert_eq!(liste.len(), s.len().min(2));
     for ch in &liste {
-        api.marquer(appel.id, ch.eleve_id, ch.etat).await.expect("marquer");
+        api.marquer(appel.id, ch.eleve_id, ch.etat)
+            .await
+            .expect("marquer");
     }
 
     // « dispensé » : refusé par l'API actuelle (écart documenté).
@@ -170,7 +234,13 @@ async fn appel_complet_contre_vrai_backend() {
     let clos = api.clore(appel.id).await.expect("clôture");
     assert!(clos.est_clos());
     // Après clôture : plus de modification possible.
-    let r = api.marquer(appel.id, f.eleves[0].eleve_id, ent_web_api::EtatApi::Present).await;
+    let r = api
+        .marquer(
+            appel.id,
+            f.eleves[0].eleve_id,
+            ent_web_api::EtatApi::Present,
+        )
+        .await;
     assert!(refus_metier(&r), "{r:?}");
     println!("marquer après clôture : {:?}", r.unwrap_err());
     let r = api.clore(appel.id).await;
@@ -189,19 +259,31 @@ async fn permissions_respectees() {
     let parent = l.persona("parent").expect("persona parent");
     let sp = labo::connecter(&base, &l, &parent.email).await.unwrap();
     let api_parent = ApiClient::new(&base, Some(sp.token));
-    assert!(matches!(api_parent.mes_creneaux(jour).await, Err(ApiError::Interdit(_))));
-    assert!(matches!(api_parent.ouvrir_appel(c.id, jour).await, Err(ApiError::Interdit(_))));
+    assert!(matches!(
+        api_parent.mes_creneaux(jour).await,
+        Err(ApiError::Interdit(_))
+    ));
+    assert!(matches!(
+        api_parent.ouvrir_appel(c.id, jour).await,
+        Err(ApiError::Interdit(_))
+    ));
 
     // Autre professeur : pas l'appel d'une séance dont il n'est ni titulaire ni remplaçant.
     let autre = prof(&base, &l, 1).await;
-    assert!(matches!(autre.ouvrir_appel(c.id, jour).await, Err(ApiError::Interdit(_))));
+    assert!(matches!(
+        autre.ouvrir_appel(c.id, jour).await,
+        Err(ApiError::Interdit(_))
+    ));
 
     // CPE : peut ouvrir l'appel d'une séance (remplacement / vie scolaire).
     if let Some(cpe) = l.premier("cpe") {
         let s = labo::connecter(&base, &l, &cpe.email).await.unwrap();
         let api_cpe = ApiClient::new(&base, Some(s.token));
         let r = api_cpe.ouvrir_appel(c.id, jour).await;
-        println!("CPE ouvre l'appel de la 4B : {}", if r.is_ok() { "autorisé" } else { "refusé" });
+        println!(
+            "CPE ouvre l'appel de la 4B : {}",
+            if r.is_ok() { "autorisé" } else { "refusé" }
+        );
     }
 }
 
@@ -209,13 +291,16 @@ async fn permissions_respectees() {
 async fn classes_nombreuses_38_et_400() {
     let Some(base) = demarrer().await else { return };
     let l = labo::bootstrap(&base).await.expect("labo");
-    let admin = labo::connecter(&base, &l, &l.persona("admin").unwrap().email).await.unwrap();
+    let admin = labo::connecter(&base, &l, &l.persona("admin").unwrap().email)
+        .await
+        .unwrap();
     let p = l.personnel.iter().find(|p| p.role == "prof").unwrap();
     let jour = jour_neuf();
     let t = Instant::now();
-    let rapport = labo::preparer_classes(&base, &admin, p.user_id, chrono::Local::now().date_naive())
-        .await
-        .expect("classes de test");
+    let rapport =
+        labo::preparer_classes(&base, &admin, p.user_id, chrono::Local::now().date_naive())
+            .await
+            .expect("classes de test");
     println!("préparation des classes : {:?} {rapport:?}", t.elapsed());
     assert_eq!(jour.weekday(), chrono::Local::now().date_naive().weekday());
 
@@ -231,7 +316,14 @@ async fn classes_nombreuses_38_et_400() {
         let t = Instant::now();
         let f = Feuille::depuis_api(&appel);
         let statuts: Vec<_> = f.eleves.iter().map(|e| e.statut_enregistre).collect();
-        let v = visibles(&f.eleves, &statuts, &Filtre { recherche: "mart".into(), statut: None });
+        let v = visibles(
+            &f.eleves,
+            &statuts,
+            &Filtre {
+                recherche: "mart".into(),
+                statut: None,
+            },
+        );
         let t_modele = t.elapsed();
         assert!(!v.is_empty());
 
@@ -259,4 +351,100 @@ async fn classes_nombreuses_38_et_400() {
             t_clore
         );
     }
+}
+
+/// Contrat JSON du lot 1 d'`ent-types` : chaque réponse réelle d'`ent-api` est relue
+/// dans le type partagé puis re-sérialisée ; le JSON doit être **identique**
+/// (mêmes champs, mêmes absences de champs facultatifs, mêmes formats).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn contrat_json_ent_types_lot1() {
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let http = reqwest::Client::new();
+    fn identique<T: serde::Serialize + serde::de::DeserializeOwned>(
+        nom: &str,
+        brut: &serde_json::Value,
+    ) {
+        let t: T = serde_json::from_value(brut.clone())
+            .unwrap_or_else(|e| panic!("{nom} illisible : {e}"));
+        let relu = serde_json::to_value(&t).unwrap();
+        assert_eq!(
+            &relu, brut,
+            "{nom} : le JSON d'ent-types diffère de celui d'ent-api"
+        );
+    }
+
+    let p = l.personnel.iter().find(|p| p.role == "prof").unwrap();
+    let login: serde_json::Value = http
+        .post(format!("{base}/auth/login"))
+        .json(&ent_types::auth::LoginBody {
+            email: p.email.clone(),
+            password: l.password.clone(),
+            etablissement_id: l.etablissement_id,
+        })
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    identique::<ent_types::auth::LoginResponseDto>("POST /auth/login", &login);
+    let jeton = login["token"].as_str().expect("jeton").to_string();
+    let get = |chemin: String| {
+        let http = http.clone();
+        let jeton = jeton.clone();
+        async move {
+            http.get(chemin)
+                .bearer_auth(jeton)
+                .send()
+                .await
+                .unwrap()
+                .json::<serde_json::Value>()
+                .await
+                .unwrap()
+        }
+    };
+
+    let moi = get(format!("{base}/auth/me")).await;
+    identique::<ent_types::auth::MeDto>("GET /auth/me", &moi);
+
+    let jour = jour_neuf();
+    let creneaux = get(format!("{base}/edt/mes-creneaux?jour={jour}")).await;
+    for c in creneaux.as_array().expect("liste") {
+        identique::<ent_types::edt::EdtCreneauDto>("GET /edt/mes-creneaux", c);
+    }
+    let c4b = creneaux
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["classe"] == "4B")
+        .expect("4B");
+
+    let ouvert: serde_json::Value = http
+        .post(format!("{base}/appels"))
+        .bearer_auth(&jeton)
+        .json(&ent_types::appel::OuvrirAppelBody {
+            creneau_id: c4b["id"].as_str().unwrap().parse().unwrap(),
+            jour,
+        })
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    identique::<ent_types::appel::AppelDto>("POST /appels", &ouvert);
+    let id = ouvert["id"].as_str().unwrap();
+    let clos: serde_json::Value = http
+        .post(format!("{base}/appels/{id}/clore"))
+        .bearer_auth(&jeton)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    identique::<ent_types::appel::AppelDto>("POST /appels/{id}/clore", &clos);
+    assert_eq!(clos["statut"], "clos");
+    println!("contrat ent-types lot 1 : 5 routes vérifiées, JSON identique");
 }

@@ -18,7 +18,12 @@ pub enum Statut {
 }
 
 impl Statut {
-    pub const TOUS: [Statut; 4] = [Statut::Present, Statut::Absent, Statut::Retard, Statut::Dispense];
+    pub const TOUS: [Statut; 4] = [
+        Statut::Present,
+        Statut::Absent,
+        Statut::Retard,
+        Statut::Dispense,
+    ];
 
     pub fn libelle(self) -> &'static str {
         match self {
@@ -192,7 +197,7 @@ pub struct Compteurs {
 }
 
 impl Compteurs {
-    pub fn de<'a>(statuts: impl IntoIterator<Item = Statut>) -> Compteurs {
+    pub fn de(statuts: impl IntoIterator<Item = Statut>) -> Compteurs {
         let mut c = Compteurs::default();
         for s in statuts {
             match s {
@@ -288,7 +293,8 @@ pub fn visibles(eleves: &[EleveAppel], statuts: &[Statut], filtre: &Filtre) -> V
         .enumerate()
         .filter(|(_, (e, s))| {
             filtre.statut.is_none_or(|f| f == **s)
-                && (filtre.recherche.trim().is_empty() || correspond(&e.cle_recherche, &filtre.recherche))
+                && (filtre.recherche.trim().is_empty()
+                    || correspond(&e.cle_recherche, &filtre.recherche))
         })
         .map(|(i, _)| i)
         .collect()
@@ -349,7 +355,10 @@ mod tests {
         }
     }
 
-    const TOUT: Capacites = Capacites { dispense: true, commentaire: true };
+    const TOUT: Capacites = Capacites {
+        dispense: true,
+        commentaire: true,
+    };
 
     #[test]
     fn normalisation_sans_accents() {
@@ -360,7 +369,11 @@ mod tests {
 
     #[test]
     fn feuille_triee_et_statuts_relus() {
-        let f = Feuille::depuis_api(&appel(&[("WEASLEY Ron", "retard"), ("ÉLÉONORE Zoé", "absent"), ("BLACK Sirius", "present")]));
+        let f = Feuille::depuis_api(&appel(&[
+            ("WEASLEY Ron", "retard"),
+            ("ÉLÉONORE Zoé", "absent"),
+            ("BLACK Sirius", "present"),
+        ]));
         let noms: Vec<_> = f.eleves.iter().map(|e| e.nom_affiche.as_str()).collect();
         assert_eq!(noms, ["BLACK Sirius", "ÉLÉONORE Zoé", "WEASLEY Ron"]);
         assert_eq!(f.eleves[2].statut_enregistre, Statut::Retard);
@@ -369,25 +382,61 @@ mod tests {
 
     #[test]
     fn filtre_recherche_et_statut() {
-        let f = Feuille::depuis_api(&appel(&[("POTTER Harry", "present"), ("POTTER Lily", "absent"), ("MALFOY Drago", "absent")]));
+        let f = Feuille::depuis_api(&appel(&[
+            ("POTTER Harry", "present"),
+            ("POTTER Lily", "absent"),
+            ("MALFOY Drago", "absent"),
+        ]));
         let statuts: Vec<_> = f.eleves.iter().map(|e| e.statut_enregistre).collect();
-        let v = visibles(&f.eleves, &statuts, &Filtre { recherche: "potter".into(), statut: None });
+        let v = visibles(
+            &f.eleves,
+            &statuts,
+            &Filtre {
+                recherche: "potter".into(),
+                statut: None,
+            },
+        );
         assert_eq!(v.len(), 2);
-        let v = visibles(&f.eleves, &statuts, &Filtre { recherche: "".into(), statut: Some(Statut::Absent) });
+        let v = visibles(
+            &f.eleves,
+            &statuts,
+            &Filtre {
+                recherche: "".into(),
+                statut: Some(Statut::Absent),
+            },
+        );
         assert_eq!(v.len(), 2);
-        let v = visibles(&f.eleves, &statuts, &Filtre { recherche: "potter".into(), statut: Some(Statut::Absent) });
+        let v = visibles(
+            &f.eleves,
+            &statuts,
+            &Filtre {
+                recherche: "potter".into(),
+                statut: Some(Statut::Absent),
+            },
+        );
         assert_eq!(v.len(), 1);
     }
 
     #[test]
     fn changements_seulement_les_lignes_modifiees() {
-        let f = Feuille::depuis_api(&appel(&[("A a", "present"), ("B b", "present"), ("C c", "absent")]));
+        let f = Feuille::depuis_api(&appel(&[
+            ("A a", "present"),
+            ("B b", "present"),
+            ("C c", "absent"),
+        ]));
         let mut saisies: Vec<Saisie> = f
             .eleves
             .iter()
-            .map(|e| Saisie { eleve_id: e.eleve_id, statut: e.statut_enregistre, commentaire: String::new() })
+            .map(|e| Saisie {
+                eleve_id: e.eleve_id,
+                statut: e.statut_enregistre,
+                commentaire: String::new(),
+            })
             .collect();
-        assert_eq!(changements(&f.eleves, &saisies, CAPACITES_API_ACTUELLE).unwrap(), vec![]);
+        assert_eq!(
+            changements(&f.eleves, &saisies, CAPACITES_API_ACTUELLE).unwrap(),
+            vec![]
+        );
         saisies[1].statut = Statut::Retard;
         saisies[2].statut = Statut::Present;
         let c = changements(&f.eleves, &saisies, CAPACITES_API_ACTUELLE).unwrap();
@@ -402,7 +451,11 @@ mod tests {
         let mut saisies: Vec<Saisie> = f
             .eleves
             .iter()
-            .map(|e| Saisie { eleve_id: e.eleve_id, statut: e.statut_enregistre, commentaire: String::new() })
+            .map(|e| Saisie {
+                eleve_id: e.eleve_id,
+                statut: e.statut_enregistre,
+                commentaire: String::new(),
+            })
             .collect();
         saisies[0].statut = Statut::Dispense;
         saisies[1].commentaire = "infirmerie".into();
@@ -411,13 +464,27 @@ mod tests {
         // Avec une API qui les gérerait, le commentaire ne bloque plus ; « dispensé »
         // n'a pas encore d'équivalent API côté client, il reste signalé.
         let b = changements(&f.eleves, &saisies, TOUT).unwrap_err();
-        assert_eq!(b, vec![Blocage::StatutNonPrisEnCharge { nom: "A a".into(), statut: Statut::Dispense }]);
+        assert_eq!(
+            b,
+            vec![Blocage::StatutNonPrisEnCharge {
+                nom: "A a".into(),
+                statut: Statut::Dispense
+            }]
+        );
     }
 
     #[test]
     fn compteurs_et_touches() {
-        let c = Compteurs::de([Statut::Present, Statut::Absent, Statut::Absent, Statut::Retard]);
-        assert_eq!((c.present, c.absent, c.retard, c.dispense, c.total()), (1, 2, 1, 0, 4));
+        let c = Compteurs::de([
+            Statut::Present,
+            Statut::Absent,
+            Statut::Absent,
+            Statut::Retard,
+        ]);
+        assert_eq!(
+            (c.present, c.absent, c.retard, c.dispense, c.total()),
+            (1, 2, 1, 0, 4)
+        );
         assert_eq!(Statut::depuis_touche('A'), Some(Statut::Absent));
         assert_eq!(Statut::depuis_touche('x'), None);
         assert!(!Statut::Dispense.disponible(CAPACITES_API_ACTUELLE));
@@ -427,17 +494,32 @@ mod tests {
     /// modifiait aussi un élève sélectionné puis masqué par la recherche.
     #[test]
     fn action_groupee_ignore_les_eleves_masques_par_la_recherche() {
-        let f = Feuille::depuis_api(&appel(&[("ROUX Adèle", "present"), ("BERTRAND Anaïs", "present"), ("MICHEL Anaïs", "present")]));
+        let f = Feuille::depuis_api(&appel(&[
+            ("ROUX Adèle", "present"),
+            ("BERTRAND Anaïs", "present"),
+            ("MICHEL Anaïs", "present"),
+        ]));
         let statuts: Vec<_> = f.eleves.iter().map(|e| e.statut_enregistre).collect();
         // Tri : BERTRAND (0), MICHEL (1), ROUX (2). ROUX est sélectionné, puis on cherche « anais ».
         let mut selection = vec![false, false, true];
-        let v = visibles(&f.eleves, &statuts, &Filtre { recherche: "anais".into(), statut: None });
+        let v = visibles(
+            &f.eleves,
+            &statuts,
+            &Filtre {
+                recherche: "anais".into(),
+                statut: None,
+            },
+        );
         assert_eq!(v, vec![0, 1]);
         // « Tout sélectionner » ne coche que les lignes affichées.
         for &i in &v {
             selection[i] = true;
         }
-        assert_eq!(cibles_action_groupee(&selection, &v), vec![0, 1], "ROUX, masqué, n'est pas concerné");
+        assert_eq!(
+            cibles_action_groupee(&selection, &v),
+            vec![0, 1],
+            "ROUX, masqué, n'est pas concerné"
+        );
         assert_eq!(selection_masquee(&selection, &v), 1);
         // Sans filtre, la même sélection concerne bien les trois.
         let tous = visibles(&f.eleves, &statuts, &Filtre::default());
@@ -453,7 +535,14 @@ mod tests {
         let statuts: Vec<_> = f.eleves.iter().map(|e| e.statut_enregistre).collect();
         let debut = std::time::Instant::now();
         for _ in 0..100 {
-            let v = visibles(&f.eleves, &statuts, &Filtre { recherche: "prenom12".into(), statut: None });
+            let v = visibles(
+                &f.eleves,
+                &statuts,
+                &Filtre {
+                    recherche: "prenom12".into(),
+                    statut: None,
+                },
+            );
             assert_eq!(v.len(), 11);
         }
         // 100 filtrages de 400 lignes : très en dessous d'une image (16 ms) en natif.

@@ -20,11 +20,12 @@ pub(crate) async fn envoyer(
         req = req.header("Authorization", &format!("Bearer {j}"));
     }
     let reponse = match corps {
-        Some(c) => req
-            .json(&c)
-            .map_err(|e| ApiError::Reseau(e.to_string()))?
-            .send()
-            .await,
+        Some(c) => {
+            req.json(&c)
+                .map_err(|e| ApiError::Reseau(e.to_string()))?
+                .send()
+                .await
+        }
         None => req.send().await,
     }
     .map_err(|e| ApiError::Reseau(e.to_string()))?;
@@ -52,7 +53,10 @@ pub(crate) async fn envoyer(
     if let Some(c) = corps {
         req = req.json(&c);
     }
-    let reponse = req.send().await.map_err(|e| ApiError::Reseau(e.to_string()))?;
+    let reponse = req
+        .send()
+        .await
+        .map_err(|e| ApiError::Reseau(e.to_string()))?;
     let statut = reponse.status().as_u16();
     let texte = reponse.text().await.unwrap_or_default();
     Ok((statut, texte))

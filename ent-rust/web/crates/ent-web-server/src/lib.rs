@@ -8,6 +8,10 @@
 //! Même origine ⇒ pas de CORS, et le jeton de l'interface actuelle (`localStorage`)
 //! est partagé.
 
+// Le serveur calcule la disposition des types de vues de toute l'application :
+// même limite que `ent-web-app` (voir docs/FRONTEND_LEPTOS.md §8).
+#![recursion_limit = "512"]
+
 pub mod labo;
 
 use std::net::SocketAddr;
@@ -53,7 +57,12 @@ pub fn routeur_web(options: LeptosOptions) -> Router {
         .with_state(options)
         // Fichiers .br / .gz produits par `cargo leptos build --release --precompress` ;
         // repli sur le fichier brut s'ils sont absents (développement).
-        .nest_service(&pkg_url, ServeDir::new(pkg_dir).precompressed_br().precompressed_gzip())
+        .nest_service(
+            &pkg_url,
+            ServeDir::new(pkg_dir)
+                .precompressed_br()
+                .precompressed_gzip(),
+        )
         .layer(SetResponseHeaderLayer::overriding(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),

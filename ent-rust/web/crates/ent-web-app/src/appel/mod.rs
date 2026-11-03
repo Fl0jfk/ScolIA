@@ -1,7 +1,7 @@
 //! Module d'appel : choix de la séance puis feuille d'appel.
 
-pub mod modele;
 mod feuille;
+pub mod modele;
 
 use chrono::NaiveDate;
 use ent_web_api::{ApiError, Creneau};
@@ -67,7 +67,11 @@ pub fn PageAppel() -> impl IntoView {
         let j = jour.get();
         async move {
             let mut list = session::client().mes_creneaux(j).await?;
-            list.sort_by(|a, b| a.heure_debut.cmp(&b.heure_debut).then(a.classe.cmp(&b.classe)));
+            list.sort_by(|a, b| {
+                a.heure_debut
+                    .cmp(&b.heure_debut)
+                    .then(a.classe.cmp(&b.classe))
+            });
             Ok::<_, ApiError>(list)
         }
     });
@@ -144,7 +148,11 @@ pub fn PageAppel() -> impl IntoView {
 }
 
 #[component]
-fn ChoixSeance(creneaux: Vec<Creneau>, classe: RwSignal<String>, seance: RwSignal<Option<Uuid>>) -> impl IntoView {
+fn ChoixSeance(
+    creneaux: Vec<Creneau>,
+    classe: RwSignal<String>,
+    seance: RwSignal<Option<Uuid>>,
+) -> impl IntoView {
     let classes = classes_de(&creneaux);
     let plusieurs_classes = classes.len() > 1;
     let creneaux = StoredValue::new(creneaux);

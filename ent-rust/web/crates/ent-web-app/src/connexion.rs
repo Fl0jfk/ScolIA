@@ -5,7 +5,7 @@
 //! pas dans le périmètre de cette mission.
 
 use ent_web_api::Connexion;
-use ent_web_ui::{Alerte, Bouton, Niveau};
+use ent_web_ui::{Alerte, Bouton, ChampTexte, Niveau};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
@@ -31,7 +31,9 @@ pub async fn config_connexion() -> Result<ParametresConnexion, ServerFnError> {
     let etablissement_id = std::env::var("ENT_WEB_ETABLISSEMENT_ID")
         .ok()
         .and_then(|v| v.trim().parse().ok());
-    let env = std::env::var("ENT_ENV").unwrap_or_default().to_ascii_lowercase();
+    let env = std::env::var("ENT_ENV")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     Ok(ParametresConnexion {
         etablissement_id,
         labo: !matches!(env.as_str(), "prod" | "production"),
@@ -83,7 +85,11 @@ pub fn PageConnexion() -> impl IntoView {
             .unwrap_or_else(|| "/web/appel".into());
         spawn_local(async move {
             let resultat = session::client()
-                .connexion(email.get_untracked().trim(), &mot_de_passe.get_untracked(), etab)
+                .connexion(
+                    email.get_untracked().trim(),
+                    &mot_de_passe.get_untracked(),
+                    etab,
+                )
                 .await;
             en_cours.set(false);
             match resultat {
@@ -127,49 +133,19 @@ pub fn PageConnexion() -> impl IntoView {
                     }}
                 </Suspense>
                 <form class="formulaire" on:submit=soumettre novalidate>
-                    <div class="champ">
-                        <label for="email">"Adresse e-mail"</label>
-                        <input
-                            id="email"
-                            type="email"
-                            autocomplete="username"
-                            required
-                            prop:value=move || email.get()
-                            on:input=move |ev| email.set(event_target_value(&ev))
-                        />
-                    </div>
-                    <div class="champ">
-                        <label for="mdp">"Mot de passe"</label>
-                        <input
-                            id="mdp"
-                            type="password"
-                            autocomplete="current-password"
-                            required
-                            prop:value=move || mot_de_passe.get()
-                            on:input=move |ev| mot_de_passe.set(event_target_value(&ev))
-                        />
-                    </div>
-                    <div class="champ">
-                        <label for="etab">"Établissement"</label>
-                        <input
-                            id="etab"
-                            type="text"
-                            inputmode="text"
-                            spellcheck="false"
-                            aria-describedby="etab-aide"
-                            prop:value=move || etablissement.get()
-                            on:input=move |ev| etablissement.set(event_target_value(&ev))
-                        />
-                        <p id="etab-aide" class="champ__aide">
-                            "Identifiant fourni par votre établissement."
-                        </p>
-                    </div>
+                    <ChampTexte id="email" libelle="Adresse e-mail" valeur=email genre="email"
+                        requis=true autocomplete="username"/>
+                    <ChampTexte id="mdp" libelle="Mot de passe" valeur=mot_de_passe genre="password"
+                        requis=true autocomplete="current-password"/>
+                    // Transitoire : l'établissement sera déduit de l'adresse (D-012).
+                    <ChampTexte id="etab" libelle="Établissement" valeur=etablissement
+                        aide="Identifiant fourni par votre établissement."/>
                     {move || {
                         erreur
                             .get()
                             .map(|m| view! { <Alerte niveau=Niveau::Erreur titre=m/> })
                     }}
-                    <Bouton soumettre=true desactive=Signal::derive(move || en_cours.get())>
+                    <Bouton soumettre=true en_cours=Signal::derive(move || en_cours.get())>
                         {move || if en_cours.get() { "Connexion…" } else { "Se connecter" }}
                     </Bouton>
                 </form>

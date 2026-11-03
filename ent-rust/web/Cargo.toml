@@ -36,14 +36,22 @@ web-sys = "0.3"
 console_error_panic_hook = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 
+# Types partagés avec ent-api (workspace principal).
+ent-types = { path = "../crates/ent-types" }
 ent-web-ui = { path = "crates/ent-web-ui" }
 ent-web-api = { path = "crates/ent-web-api" }
 ent-web-app = { path = "crates/ent-web-app", default-features = false }
 # Backend existant, réutilisé sans modification.
 ent-api = { path = "../crates/ent-api" }
 
+# Profil de développement allégé (D-015, mesuré : ≈ −80 % d'espace disque) :
+# numéros de ligne conservés pour notre code, pas d'info de débogage pour les dépendances.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 1
+debug = false
 
 # Profil du WebAssembly envoyé au navigateur (taille minimale).
 [profile.wasm-release]
@@ -60,6 +68,8 @@ lib-package = "ent-web-app"
 site-root = "target/site"
 site-pkg-dir = "pkg"
 style-file = "style/ent-web.css"
+# Fusionne les @import (design system ent-web-ui) en un seul fichier CSS.
+style-bundle = true
 site-addr = "127.0.0.1:8090"
 reload-port = 8091
 lib-features = ["hydrate"]
