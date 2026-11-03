@@ -24,19 +24,35 @@ import DirectoryPersonSelect, {
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import {
   PHOTOCOPIES_MAX_DOCUMENTS,
+  PHOTOCOPIE_FINITIONS,
   getPhotocopieDocuments,
   hasPhotocopieDocuments,
   isPhotoCopieDirectionCircuit,
   isPhotoCopieNoirBlanc,
   normalizePhotoCopieTypeImpression,
   photoCopieStatusBadgeClass,
+  photoCopieOptionsLabel,
   photoCopieStatusLabel,
   photoCopieTypeImpressionLabel,
+  type PhotoCopieFaces,
+  type PhotoCopieFinition,
   type PhotoCopieRecord,
   type PhotoCopieStatus,
   type PhotoCopieTypeImpression,
 } from "@/app/lib/photocopies-couleur-types";
 import { clearDashboardSignalsCache } from "@/app/lib/dashboard-signals-cache";
+
+/** Ligne « Options » d'une carte de demande (rien pour les anciennes demandes). */
+function PhotocopieOptionsRow({ item }: { item: PhotoCopieRecord }) {
+  const label = photoCopieOptionsLabel(item);
+  if (!label) return null;
+  return (
+    <div>
+      <dt className="inline text-slate-500">Options · </dt>
+      <dd className="inline font-medium text-slate-800">{label}</dd>
+    </div>
+  );
+}
 
 async function openPhotocopieDocument(id: string, index = 0): Promise<void> {
   const res = await fetch(
@@ -129,6 +145,8 @@ export default function PhotocopiesCouleurPage() {
   const [classesOuMatiere, setClassesOuMatiere] = useState("");
   const [nombrePhotocopies, setNombrePhotocopies] = useState("");
   const [typeImpression, setTypeImpression] = useState<PhotoCopieTypeImpression>("COULEUR");
+  const [faces, setFaces] = useState<PhotoCopieFaces>("RECTO");
+  const [finitions, setFinitions] = useState<PhotoCopieFinition[]>([]);
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [directionNotes, setDirectionNotes] = useState<Record<string, string>>({});
   const [patchingId, setPatchingId] = useState<string | null>(null);
@@ -372,6 +390,8 @@ export default function PhotocopiesCouleurPage() {
           classesOuMatiere: classesOuMatiere.trim(),
           nombrePhotocopies: n,
           typeImpression,
+          faces,
+          finitions,
           ...(forOther && colleague ? { onBehalfOf: { userId: colleague.externalUserId } } : {}),
           ...(documents.length > 0 ? { documents } : {}),
         }),
@@ -384,6 +404,8 @@ export default function PhotocopiesCouleurPage() {
       setClassesOuMatiere("");
       setNombrePhotocopies("");
       setTypeImpression("COULEUR");
+      setFaces("RECTO");
+      setFinitions([]);
       setDocumentFiles([]);
       setForOther(false);
       setColleague(null);
@@ -481,6 +503,7 @@ export default function PhotocopiesCouleurPage() {
           <dt className="inline text-slate-500">Classes / matière · </dt>
           <dd className="inline">{item.classesOuMatiere}</dd>
         </div>
+        <PhotocopieOptionsRow item={item} />
       </dl>
       {hasPhotocopieDocuments(item) ? <PhotocopieDocumentButton item={item} /> : null}
       {item.directionNote ? (
@@ -669,6 +692,55 @@ export default function PhotocopiesCouleurPage() {
                       </span>
                     </span>
                   </label>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend className={`mb-2 block ${dash.fieldLabel}`}>Impression</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["RECTO", "RECTO_VERSO"] as const).map((value) => (
+                    <label
+                      key={value}
+                      className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 cursor-pointer has-[:checked]:border-slate-400 has-[:checked]:bg-slate-50"
+                    >
+                      <input
+                        type="radio"
+                        name="faces"
+                        className="h-4 w-4 border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={faces === value}
+                        onChange={() => setFaces(value)}
+                      />
+                      <span className="text-sm font-semibold text-slate-900">
+                        {value === "RECTO" ? "Recto seul" : "Recto verso"}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend className={`mb-2 block ${dash.fieldLabel}`}>
+                  Finitions <span className="font-normal text-slate-500">(facultatif, plusieurs choix possibles)</span>
+                </legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {PHOTOCOPIE_FINITIONS.map((f) => (
+                    <label
+                      key={f.value}
+                      className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 cursor-pointer has-[:checked]:border-slate-400 has-[:checked]:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={finitions.includes(f.value)}
+                        onChange={(e) =>
+                          setFinitions((prev) =>
+                            e.target.checked
+                              ? [...prev.filter((v) => v !== f.value), f.value]
+                              : prev.filter((v) => v !== f.value),
+                          )
+                        }
+                      />
+                      <span className="text-sm font-semibold text-slate-900">{f.label}</span>
+                    </label>
+                  ))}
                 </div>
               </fieldset>
               <div>
@@ -879,6 +951,7 @@ export default function PhotocopiesCouleurPage() {
                                 <dt className="inline text-slate-500">Classes / matière · </dt>
                                 <dd className="inline">{item.classesOuMatiere}</dd>
                               </div>
+                              <PhotocopieOptionsRow item={item} />
                             </dl>
                             <PhotocopieDocumentButton item={item} emphasize />
                             {item.directionNote ? (
@@ -1003,6 +1076,7 @@ export default function PhotocopiesCouleurPage() {
                                 <dt className="inline text-slate-500">Classes / matière · </dt>
                                 <dd className="inline">{item.classesOuMatiere}</dd>
                               </div>
+                              <PhotocopieOptionsRow item={item} />
                             </dl>
                             <PhotocopieDocumentButton item={item} emphasize />
                             <label className={`mb-2 block ${dash.fieldLabel}`}>

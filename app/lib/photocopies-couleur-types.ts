@@ -5,6 +5,61 @@ export type PhotoCopieTypeImpression = "COULEUR" | "NOIR_BLANC";
 
 export type PhotoCopieEtablissement = string;
 
+/** Impression sur une face ou les deux. */
+export type PhotoCopieFaces = "RECTO" | "RECTO_VERSO";
+
+/** Finitions cumulables (cases à cocher). */
+export type PhotoCopieFinition = "PLASTIFICATION" | "AGRAFAGE" | "PERFORATION" | "RELIURE";
+
+/** Ordre d'affichage des finitions dans le formulaire. */
+export const PHOTOCOPIE_FINITIONS: readonly { value: PhotoCopieFinition; label: string }[] = [
+  { value: "PLASTIFICATION", label: "Plastification" },
+  { value: "AGRAFAGE", label: "Agrafage" },
+  { value: "PERFORATION", label: "Perforation" },
+  { value: "RELIURE", label: "Reliure" },
+];
+
+/** Valeur inconnue ou absente → `RECTO` (impression simple). */
+export function normalizePhotoCopieFaces(value: unknown): PhotoCopieFaces {
+  const raw = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+  return raw === "RECTO_VERSO" ? "RECTO_VERSO" : "RECTO";
+}
+
+export function photoCopieFacesLabel(faces: PhotoCopieFaces): string {
+  return faces === "RECTO_VERSO" ? "Recto verso" : "Recto";
+}
+
+/** Garde uniquement les finitions connues, sans doublon, dans l'ordre du formulaire. */
+export function normalizePhotoCopieFinitions(value: unknown): PhotoCopieFinition[] {
+  if (!Array.isArray(value)) return [];
+  const wanted = new Set(value.map((v) => String(v || "").trim().toUpperCase()));
+  return PHOTOCOPIE_FINITIONS.map((f) => f.value).filter((v) => wanted.has(v));
+}
+
+/**
+ * Résumé lisible des options (« Recto verso · Plastification, Agrafage »).
+ * Chaîne vide pour les anciennes demandes sans options.
+ */
+export function photoCopieOptionsLabel(record: {
+  faces?: PhotoCopieFaces | string | null;
+  finitions?: PhotoCopieFinition[] | string[] | null;
+}): string {
+  const parts: string[] = [];
+  if (record.faces) parts.push(photoCopieFacesLabel(normalizePhotoCopieFaces(record.faces)));
+  const finitions = normalizePhotoCopieFinitions(record.finitions);
+  if (finitions.length > 0) {
+    parts.push(
+      finitions
+        .map((v) => PHOTOCOPIE_FINITIONS.find((f) => f.value === v)?.label ?? v)
+        .join(", "),
+    );
+  }
+  return parts.join(" · ");
+}
+
 export type PhotoCopieActor = {
   userId: string;
   name: string;
@@ -56,6 +111,10 @@ export type PhotoCopieRecord = {
   motif: string;
   classesOuMatiere: string;
   nombrePhotocopies: number;
+  /** Absent sur les anciennes demandes (non précisé). */
+  faces?: PhotoCopieFaces;
+  /** Finitions demandées (plastification, agrafage…). Absent ou vide = aucune. */
+  finitions?: PhotoCopieFinition[];
   /** @deprecated Préférer `documents` — conservé pour compat lectures anciennes. */
   documentKey?: string;
   /** @deprecated Préférer `documents`. */

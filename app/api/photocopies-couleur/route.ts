@@ -35,7 +35,10 @@ import {
   PHOTOCOPIES_MAX_DOCUMENTS,
   getPhotocopieDocuments,
   isPhotoCopieNoirBlanc,
+  normalizePhotoCopieFaces,
+  normalizePhotoCopieFinitions,
   normalizePhotoCopieTypeImpression,
+  photoCopieOptionsLabel,
   photoCopieTypeImpressionLabel,
   photocopieDocumentFields,
   photocopiePersonLabel,
@@ -181,6 +184,7 @@ async function notifyOpsPrintQueue(opts: {
   const opsAttachments = await loadDocumentAttachments(record);
   const opsDocs = getPhotocopieDocuments(record);
   const opsLink = `${baseUrl}#file-impression`;
+  const optionsLabel = photoCopieOptionsLabel(record);
   const attachmentLabel =
     opsAttachments.length === 1
       ? `Le document à imprimer est joint à cet e-mail (${opsDocs[0]?.fileName || "PDF"}).`
@@ -215,6 +219,7 @@ async function notifyOpsPrintQueue(opts: {
         ? `Décision par : ${record.decidedBy.name}`
         : "",
       `Nombre : ${record.nombrePhotocopies}`,
+      optionsLabel ? `Options : ${optionsLabel}` : "",
       `Motif : ${record.motif}`,
       `Classes / matière : ${record.classesOuMatiere}`,
       directionNote ? `Note direction : ${directionNote}` : "",
@@ -235,6 +240,7 @@ async function notifyOpsPrintQueue(opts: {
 ${record.submittedBy ? `<li>Déposée par : ${record.submittedBy.name}</li>` : ""}
 <li>Établissement : ${record.etablissement}</li>
 <li>Nombre : ${record.nombrePhotocopies}</li>
+${optionsLabel ? `<li>Options : <strong>${optionsLabel}</strong></li>` : ""}
 <li>Classes / matière : ${record.classesOuMatiere}</li>
 ${opsDocs.length > 0 ? `<li>PDF : ${opsDocs.map((d) => d.fileName).join(", ")}</li>` : ""}
 </ul>
@@ -437,6 +443,8 @@ export async function POST(req: Request) {
     body.typeImpression ?? body.type ?? body.modeImpression,
   );
   const isNoirBlanc = typeImpression === "NOIR_BLANC";
+  const faces = normalizePhotoCopieFaces(body.faces);
+  const finitions = normalizePhotoCopieFinitions(body.finitions);
   const nowIso = new Date().toISOString();
 
   const record: PhotoCopieRecord = {
@@ -455,8 +463,11 @@ export async function POST(req: Request) {
     motif,
     classesOuMatiere: classeField,
     nombrePhotocopies: nb,
+    faces,
+    ...(finitions.length > 0 ? { finitions } : {}),
     ...documentFields,
   };
+  const optionsLabel = photoCopieOptionsLabel(record);
 
   try {
     const all = await getIndex();
@@ -500,6 +511,7 @@ export async function POST(req: Request) {
                 ``,
                 `Établissement : ${etablissement}`,
                 `Nombre : ${nb}`,
+                `Options : ${optionsLabel}`,
                 `Classes / matière : ${classeField}`,
                 `Motif : ${motif}`,
                 ``,
@@ -545,6 +557,7 @@ export async function POST(req: Request) {
             `Motif : ${motif}`,
             `Classes / matière : ${classeField}`,
             `Nombre de photocopies : ${nb}`,
+            `Options : ${optionsLabel}`,
             docAttachments.length === 1
               ? `Document à imprimer : joint à cet e-mail.`
               : docAttachments.length > 1
