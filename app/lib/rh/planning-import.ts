@@ -1,4 +1,5 @@
 import "server-only";
+import { MISTRAL_LARGE_MODEL, MISTRAL_LARGE_OPTIONS, mistralMessageText } from "@/app/lib/mistral-models";
 
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { runTextractForPdfBytes } from "@/app/lib/ocr-textract";
@@ -56,8 +57,9 @@ async function chatJson(system: string, user: string): Promise<Record<string, un
       Authorization: `Bearer ${mistralKey}`,
     },
     body: JSON.stringify({
-      model: "mistral-medium",
+      model: MISTRAL_LARGE_MODEL,
       temperature: 0.1,
+      ...MISTRAL_LARGE_OPTIONS,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
@@ -67,13 +69,13 @@ async function chatJson(system: string, user: string): Promise<Record<string, un
   });
 
   const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
+    choices?: { message?: { content?: unknown } }[];
     error?: { message?: string };
   };
   if (!res.ok) {
     throw new Error(data.error?.message || `Mistral HTTP ${res.status}`);
   }
-  const content = data.choices?.[0]?.message?.content?.trim() || "";
+  const content = mistralMessageText(data.choices?.[0]?.message?.content).trim();
   if (!content) throw new Error("Réponse IA vide.");
   return cleanMistralJson(content);
 }

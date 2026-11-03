@@ -132,7 +132,7 @@ async function callMistral(apiKey: string, ocrText: string, singleWeek: boolean)
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: buildPrompt(ocrText, singleWeek) }],

@@ -350,7 +350,7 @@ async function extractQuoteAmountWithMistral(
         Authorization: `Bearer ${mistralKey}`,
       },
       body: JSON.stringify({
-        model: "mistral-small-latest",
+        model: "mistral-small-2603",
         temperature: 0.1,
         response_format: { type: "json_object" },
         messages: [
@@ -642,7 +642,7 @@ async function extractComptaSheetWithAi(
         Authorization: `Bearer ${mistralKey}`,
       },
       body: JSON.stringify({
-        model: "mistral-small-latest",
+        model: "mistral-small-2603",
         temperature: 0.1,
         response_format: { type: "json_object" },
         messages: [

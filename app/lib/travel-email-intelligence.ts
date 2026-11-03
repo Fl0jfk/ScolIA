@@ -132,7 +132,7 @@ export async function analyzeTravelEmailWithMistral(input: {
         Authorization: `Bearer ${mistralKey}`,
       },
       body: JSON.stringify({
-        model: "mistral-small-latest",
+        model: "mistral-small-2603",
         messages: [
           {
             role: "system",

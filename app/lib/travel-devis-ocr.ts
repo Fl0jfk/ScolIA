@@ -29,7 +29,7 @@ type SignatureFieldBBoxNormalized = {
 
 /**
  * Détecte TOUTES les zones de signature client/direction d'un devis (multi-page).
- * Utilise Mistral Vision (pixtral-large) + rasterisation page + filtres anti faux-positifs.
+ * Utilise Mistral Large 4 (vision) + rasterisation page + filtres anti faux-positifs.
  */
 export async function findAllDevisSignatureZones(
   pdfBytes: Buffer | Uint8Array,
@@ -137,7 +137,7 @@ export async function extractDevisMetadataWithMistral(ocrText: string): Promise<
         Authorization: `Bearer ${mistralKey}`,
       },
       body: JSON.stringify({
-        model: "mistral-small-latest",
+        model: "mistral-small-2603",
         messages: [
           {
             role: "system",
@@ -206,7 +206,7 @@ async function callMistralDevisTripMatch(
       Authorization: `Bearer ${mistralKey}`,
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       messages: [
         {
           role: "system",

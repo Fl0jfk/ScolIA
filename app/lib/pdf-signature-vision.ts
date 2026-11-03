@@ -1,8 +1,9 @@
 import "server-only";
+import { MISTRAL_LARGE_MODEL, MISTRAL_LARGE_OPTIONS, mistralMessageText } from "@/app/lib/mistral-models";
 
 /**
  * Détection précise des zones de signature dans un PDF (devis, etc.)
- * via rasterisation page + Mistral Vision (pixtral-large-latest).
+ * via rasterisation page + Mistral Large 4 (vision).
  *
  * pdfjs / @napi-rs/canvas sont chargés en lazy (dynamic import) pour ne pas
  * casser `next build` (collecte des routes API).
@@ -12,7 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 const MISTRAL_CHAT_ENDPOINT = "https://api.mistral.ai/v1/chat/completions";
-const MISTRAL_VISION_MODEL = "pixtral-large-latest";
+const MISTRAL_VISION_MODEL = MISTRAL_LARGE_MODEL;
 
 /** Coordonnées normalisées (0–1) d'une zone de signature. */
 export type SignatureBBox = {
@@ -193,6 +194,7 @@ async function detectZonesOnPageImage(
         },
       ],
       temperature: 0.0,
+      ...MISTRAL_LARGE_OPTIONS,
       response_format: { type: "json_object" },
     }),
   });
@@ -204,9 +206,9 @@ async function detectZonesOnPageImage(
   }
 
   const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
+    choices?: { message?: { content?: unknown } }[];
   };
-  const raw = data.choices?.[0]?.message?.content?.trim() || "";
+  const raw = mistralMessageText(data.choices?.[0]?.message?.content).trim();
 
   try {
     const parsed = JSON.parse(raw) as unknown;

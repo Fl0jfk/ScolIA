@@ -1,4 +1,5 @@
 import type { PersonnelRecord } from "@/app/lib/personnel-types";
+import { MISTRAL_LARGE_MODEL, MISTRAL_LARGE_OPTIONS, mistralMessageText } from "@/app/lib/mistral-models";
 import { requireMistralApiKey } from "@/app/lib/tenant-config";
 
 export type PersonnelExtracted = {
@@ -67,15 +68,16 @@ async function mistralJson(prompt: string): Promise<Record<string, unknown>> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "mistral-medium",
+      model: MISTRAL_LARGE_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
+      ...MISTRAL_LARGE_OPTIONS,
       response_format: { type: "json_object" },
     }),
   });
   if (!res.ok) throw new Error(`Erreur Mistral: ${await res.text()}`);
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content || "";
+  const content = mistralMessageText(data.choices?.[0]?.message?.content);
   return parseMistralJson(content);
 }
 

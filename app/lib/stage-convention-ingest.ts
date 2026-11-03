@@ -1,4 +1,5 @@
 import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { MISTRAL_LARGE_MODEL, MISTRAL_LARGE_OPTIONS, mistralMessageText } from "@/app/lib/mistral-models";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { extractPdfTextFromS3 } from "@/app/lib/dashboard-week-sheet-ocr";
@@ -175,16 +176,17 @@ Réponds UNIQUEMENT avec du JSON valide :
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "mistral-medium",
+      model: MISTRAL_LARGE_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
+      ...MISTRAL_LARGE_OPTIONS,
       response_format: { type: "json_object" },
     }),
   });
   if (!res.ok) throw new Error(`Erreur IA : ${await res.text()}`);
 
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content || "";
+  const content = mistralMessageText(data.choices?.[0]?.message?.content);
   const parsed = cleanMistralJson(content);
 
   return {
@@ -283,16 +285,17 @@ Réponds UNIQUEMENT avec du JSON valide :
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "mistral-medium",
+      model: MISTRAL_LARGE_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
+      ...MISTRAL_LARGE_OPTIONS,
       response_format: { type: "json_object" },
     }),
   });
   if (!res.ok) throw new Error(`Erreur IA validation : ${await res.text()}`);
 
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content || "";
+  const content = mistralMessageText(data.choices?.[0]?.message?.content);
   const parsed = cleanMistralJson(content);
 
   const missingSigs = Array.isArray(parsed.signatures_manquantes)

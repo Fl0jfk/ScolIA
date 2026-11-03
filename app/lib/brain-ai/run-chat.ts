@@ -167,7 +167,7 @@ async function classifyDomainWithMistral(
     `Question:\n${message}`;
   const res = await fetchMistralWithRetry(
     {
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: prompt }],
@@ -901,7 +901,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const body: Record<string, unknown> = {
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       temperature: 0.2,
       messages,
     };

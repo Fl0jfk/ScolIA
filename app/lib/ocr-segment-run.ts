@@ -35,7 +35,7 @@ async function fetchMistralWithRetry(
 }
 
 const MISTRAL_TIMEOUT_MS = 22_000;
-const SEGMENTATION_MODEL = "mistral-small-latest";
+const SEGMENTATION_MODEL = "mistral-small-2603";
 const DIGEST_PROMPT_LIMIT = 32_000;
 /** Appel Mistral unique si le PDF tient dans une requête. */
 export const MISTRAL_SINGLE_CALL_MAX_PAGES = 30;

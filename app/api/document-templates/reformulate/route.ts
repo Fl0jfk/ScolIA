@@ -59,7 +59,7 @@ ${text}`;
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "mistral-small-latest",
+        model: "mistral-small-2603",
         temperature: 0.35,
         messages: [{ role: "user", content: prompt }],
       }),

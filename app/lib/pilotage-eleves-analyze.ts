@@ -43,7 +43,7 @@ async function mistralJson(prompt: string): Promise<Record<string, unknown> | nu
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
       response_format: { type: "json_object" },
