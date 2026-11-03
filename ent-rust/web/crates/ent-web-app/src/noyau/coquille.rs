@@ -2,6 +2,9 @@
 //! pages, construit la navigation selon les droits, gère la déconnexion (y compris
 //! dans les autres onglets).
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use ent_web_api::ApiError;
 use ent_web_ui::{Coquille, Identite};
 use leptos::prelude::*;
@@ -128,28 +131,72 @@ pub fn AppCoquille() -> impl IntoView {
         _ => String::new(),
     });
 
+    let en_deconnexion = RwSignal::new(false);
     let deconnecter = Callback::new(move |_| {
+        if en_deconnexion.get_untracked() {
+            return;
+        }
+        en_deconnexion.set(true);
+        // Le client a copié le jeton : on efface la session locale tout de suite (les
+        // autres onglets le voient par l'événement `storage`), puis on attend la
+        // révocation en base, au plus `DELAI_REVOCATION`. L'écran « Déconnexion… »
+        // masque l'interface pendant l'attente.
+        let client = session::client();
+        session::effacer();
+        let fini = Rc::new(Cell::new(false));
+        {
+            let navigate = navigate.clone();
+            let fini = fini.clone();
+            spawn_local(async move {
+                let resultat = client.deconnexion().await;
+                if !fini.replace(true) {
+                    navigate(
+                        session::adresse_apres_deconnexion(Some(&resultat)),
+                        Default::default(),
+                    );
+                }
+            });
+        }
         let navigate = navigate.clone();
-        spawn_local(async move {
-            // Révocation en base ; même en cas d'échec réseau, la session locale est effacée.
-            let _ = session::client().deconnexion().await;
-            session::effacer();
-            navigate("/web/connexion?fin=deconnexion", Default::default());
-        });
+        set_timeout(
+            move || {
+                if !fini.replace(true) {
+                    navigate(session::adresse_apres_deconnexion(None), Default::default());
+                }
+            },
+            session::DELAI_REVOCATION,
+        );
     });
 
+    // Pendant la révocation, toute l'interface est démontée : aucune donnée de la
+    // personne ni aucun bouton ne reste dans la page (la CSP interdit les styles en
+    // ligne, donc pas de simple recouvrement).
     view! {
-        <Coquille
-            entrees=entrees
-            courant=courant
-            etablissement=etablissement
-            identite=identite
-            rail=rail
-            on_deconnexion=deconnecter
-        >
-            <div id="annonce-page" class="ui-sr" role="status" aria-live="polite" aria-atomic="true"></div>
-            <Outlet/>
-        </Coquille>
+        {move || {
+            if en_deconnexion.get() {
+                view! {
+                    <main id="contenu" class="connexion" tabindex="-1">
+                        <p class="connexion__aide" role="status">"Déconnexion…"</p>
+                    </main>
+                }
+                    .into_any()
+            } else {
+                view! {
+                    <Coquille
+                        entrees=entrees
+                        courant=courant
+                        etablissement=etablissement
+                        identite=identite
+                        rail=rail
+                        on_deconnexion=deconnecter
+                    >
+                        <div id="annonce-page" class="ui-sr" role="status" aria-live="polite" aria-atomic="true"></div>
+                        <Outlet/>
+                    </Coquille>
+                }
+                    .into_any()
+            }
+        }}
     }
 }
 

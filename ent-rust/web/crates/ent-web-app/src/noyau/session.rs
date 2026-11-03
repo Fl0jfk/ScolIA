@@ -65,6 +65,24 @@ pub fn enregistrer(jeton: &str) -> Result<(), StockageIndisponible> {
     }
 }
 
+/// Message de la page de connexion quand la révocation serveur n'a pas pu être confirmée.
+pub const MESSAGE_DECONNEXION_LOCALE: &str = "Déconnexion locale effectuée. Le serveur n'a pas pu confirmer la fin de la session : elle expirera automatiquement. Si vous êtes sur un poste partagé, prévenez l'établissement.";
+
+/// Adresse de la page de connexion après une déconnexion demandée par la personne.
+/// Succès (204) et 401 (session déjà invalide côté serveur) : `deconnexion` ; réseau,
+/// 5xx, autre échec ou délai dépassé (`None`) : `locale`. Dans tous les cas le jeton
+/// local est effacé avant d'attendre la révocation.
+pub fn adresse_apres_deconnexion(resultat: Option<&Result<(), ApiError>>) -> &'static str {
+    match resultat {
+        Some(Ok(())) | Some(Err(ApiError::NonConnecte)) => "/web/connexion?fin=deconnexion",
+        Some(Err(_)) | None => "/web/connexion?fin=locale",
+    }
+}
+
+/// Durée maximale d'attente de la révocation serveur lors d'une déconnexion.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub const DELAI_REVOCATION: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Efface la session locale. Les autres onglets le voient (événement `storage`).
 pub fn effacer() {
     #[cfg(target_arch = "wasm32")]
@@ -223,6 +241,31 @@ pub fn use_session() -> ContexteSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adresse_apres_deconnexion_selon_la_revocation() {
+        let normale = "/web/connexion?fin=deconnexion";
+        let locale = "/web/connexion?fin=locale";
+        assert_eq!(adresse_apres_deconnexion(Some(&Ok(()))), normale);
+        assert_eq!(
+            adresse_apres_deconnexion(Some(&Err(ApiError::NonConnecte))),
+            normale
+        );
+        assert_eq!(
+            adresse_apres_deconnexion(Some(&Err(ApiError::Reseau("hors ligne".into())))),
+            locale
+        );
+        assert_eq!(
+            adresse_apres_deconnexion(Some(&Err(ApiError::Serveur(503, "x".into())))),
+            locale
+        );
+        assert_eq!(
+            adresse_apres_deconnexion(Some(&Err(ApiError::Decodage("x".into())))),
+            locale
+        );
+        // Délai dépassé : révocation non confirmée.
+        assert_eq!(adresse_apres_deconnexion(None), locale);
+    }
 
     #[test]
     fn retour_limite_aux_pages_internes() {

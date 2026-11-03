@@ -5604,10 +5604,16 @@ impl PgEnt {
         if appel.statut != AppelStatut::Ouvert {
             return Err(EntDbError::AppelInvalide);
         }
-        self.appels
-            .set_etat(etablissement_id, appel_id, eleve_id, &etat)
-            .await
-            .map_err(|_| EntDbError::AppelInvalide)?;
+        // Contrôle du statut + écriture sous verrou de ligne (sérialisé avec la clôture).
+        // Seul « appel absent / non ouvert / ligne inexistante » devient `AppelInvalide` ;
+        // une panne base ou un deadlock reste une erreur serveur (`EntDbError::Sqlx`).
+        let ecrit = self
+            .appels
+            .set_etat_si_ouvert(etablissement_id, appel_id, eleve_id, &etat)
+            .await?;
+        if !ecrit {
+            return Err(EntDbError::AppelInvalide);
+        }
         Ok(())
     }
 
@@ -5630,7 +5636,13 @@ impl PgEnt {
         if appel.statut != AppelStatut::Ouvert {
             return Err(EntDbError::AppelInvalide);
         }
-        let lignes = self.appels.list_lignes(etablissement_id, appel_id).await?;
+        // Lignes lues sous verrou, dans la transaction qui passe l'appel à « clos » :
+        // aucune modification concurrente ne peut s'intercaler.
+        let lignes = self
+            .appels
+            .clore_avec_lignes(etablissement_id, appel_id)
+            .await?
+            .ok_or(EntDbError::AppelInvalide)?;
         let absents: Vec<Uuid> = lignes
             .iter()
             .filter(|l| l.etat == LigneEtat::Absent)
@@ -5641,11 +5653,6 @@ impl PgEnt {
             .filter(|l| l.etat == LigneEtat::Retard)
             .map(|l| l.eleve_id)
             .collect();
-
-        self.appels
-            .clore(etablissement_id, appel_id)
-            .await
-            .map_err(|_| EntDbError::AppelInvalide)?;
 
         let event = self
             .events

@@ -404,6 +404,225 @@ async fn appel_d_un_collegue_inaccessible() {
     .expect("CPE clôt");
 }
 
+/// Créneau DÉDIÉ au test (4B, titulaire = prof du cast, jour courant) : chaque appel
+/// du test porte ainsi un couple (créneau, jour) neuf, sans collision avec un run
+/// précédent. Pas de nettoyage : le crate n'en a pas la convention (base de labo).
+async fn creneau_dedie(ent: &PgEnt, cast: &LaboCast) -> Uuid {
+    ent.seed_creneau_du_jour(
+        cast.etablissement_id,
+        "4B",
+        "Potions (test appel)",
+        cast.prof.user_id,
+        today_utc(),
+        NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
+        None,
+    )
+    .await
+    .expect("créneau dédié")
+    .id
+}
+
+/// Jour unique (même jour de semaine que `today_utc`) pour isoler les absences
+/// d'un test de celles des autres tests sur la même base.
+fn jour_appel_unique(decalage: i64) -> NaiveDate {
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as i64;
+    today_utc() + Duration::weeks(3000 + n.rem_euclid(200_000) + decalage)
+}
+
+/// Séquentiel : après clôture, pointer une ligne est refusé (`AppelInvalide`)
+/// et la ligne reste inchangée ; une seconde clôture est refusée aussi.
+#[tokio::test]
+async fn appel_marquer_apres_cloture_refuse() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip scénario: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let prof = Role::Prof.as_str();
+    let (appel, lignes) = ent
+        .ouvrir_appel(
+            etab,
+            creneau_dedie(&ent, &cast).await,
+            jour_appel_unique(0),
+            cast.prof.user_id,
+            prof,
+        )
+        .await
+        .expect("ouvrir");
+    let eleve = lignes.first().expect("effectif").eleve_id;
+    ent.marquer_appel_ligne(etab, appel.id, cast.prof.user_id, prof, eleve, LigneEtat::Retard)
+        .await
+        .expect("marquer avant clôture");
+    ent.clore_appel(etab, appel.id, cast.prof.user_id, prof, None)
+        .await
+        .expect("clore");
+
+    assert!(matches!(
+        ent.marquer_appel_ligne(etab, appel.id, cast.prof.user_id, prof, eleve, LigneEtat::Absent)
+            .await,
+        Err(EntDbError::AppelInvalide)
+    ));
+    assert!(matches!(
+        ent.clore_appel(etab, appel.id, cast.prof.user_id, prof, None)
+            .await,
+        Err(EntDbError::AppelInvalide)
+    ));
+    let (relu, l) = ent
+        .get_appel(etab, appel.id, cast.prof.user_id, prof)
+        .await
+        .unwrap()
+        .expect("appel");
+    assert_eq!(relu.statut, AppelStatut::Clos);
+    let ligne = l.iter().find(|x| x.eleve_id == eleve).expect("ligne");
+    assert_eq!(ligne.etat, LigneEtat::Retard, "ligne inchangée après clôture");
+}
+
+/// Concurrence : des pointages lancés en parallèle de la clôture ne peuvent pas
+/// s'intercaler entre la lecture des lignes par la clôture et le passage à « clos ».
+/// Invariants : (a) l'état final des lignes == ce que la clôture a publié
+/// (absences dans `ent_absence`) ; (b) tout pointage perdu → `AppelInvalide`.
+#[tokio::test]
+async fn appel_marquer_et_clore_concurrents() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip scénario: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let prof = Role::Prof.as_str();
+    let acteur = cast.prof.user_id;
+
+    let (mut ok_total, mut refuses_total) = (0_u32, 0_u32);
+    for tour in 0..20_i64 {
+        let jour = jour_appel_unique(tour * 1000);
+        let (appel, lignes) = ent
+            .ouvrir_appel(etab, creneau_dedie(&ent, &cast).await, jour, acteur, prof)
+            .await
+            .expect("ouvrir");
+        let eleves: Vec<Uuid> = lignes.iter().map(|l| l.eleve_id).take(6).collect();
+        assert!(!eleves.is_empty());
+
+        let marqueur = |etat: LigneEtat| {
+            let ent = &ent;
+            let eleves = eleves.clone();
+            async move {
+                let mut res = Vec::new();
+                for e in eleves {
+                    res.push(
+                        ent.marquer_appel_ligne(etab, appel.id, acteur, prof, e, etat.clone())
+                            .await,
+                    );
+                }
+                res
+            }
+        };
+        let clore = async {
+            // Décalage variable pour balayer plusieurs entrelacements.
+            tokio::time::sleep(std::time::Duration::from_micros((tour as u64 % 7) * 3000)).await;
+            ent.clore_appel(etab, appel.id, acteur, prof, None).await
+        };
+        let (r1, r2, rc) = tokio::join!(marqueur(LigneEtat::Absent), marqueur(LigneEtat::Retard), clore);
+        rc.expect("la clôture réussit (aucun autre clôtureur)");
+        for r in r1.iter().chain(r2.iter()) {
+            match r {
+                Ok(()) => ok_total += 1,
+                Err(EntDbError::AppelInvalide) => refuses_total += 1,
+                autre => panic!("tour {tour}: erreur inattendue {autre:?}"),
+            }
+        }
+
+        // (b) après clôture : refus systématique.
+        for e in &eleves {
+            assert!(matches!(
+                ent.marquer_appel_ligne(etab, appel.id, acteur, prof, *e, LigneEtat::Present)
+                    .await,
+                Err(EntDbError::AppelInvalide)
+            ));
+        }
+
+        // (a) état final des lignes == absents publiés par la clôture.
+        let (relu, finales) = ent
+            .get_appel(etab, appel.id, acteur, prof)
+            .await
+            .unwrap()
+            .expect("appel");
+        assert_eq!(relu.statut, AppelStatut::Clos);
+        for l in &finales {
+            let publie = ent
+                .eleve_est_absent(etab, l.eleve_id, jour)
+                .await
+                .expect("absent?");
+            assert_eq!(
+                publie,
+                l.etat == LigneEtat::Absent,
+                "tour {tour}: ligne {:?} modifiée après (ou hors) lecture de la clôture",
+                l.etat
+            );
+        }
+    }
+    // Distribution : des pointages ont bien précédé la clôture ET d'autres l'ont suivie.
+    assert!(ok_total > 0, "aucun pointage accepté avant la clôture : test non significatif");
+    assert!(refuses_total > 0, "aucun pointage refusé après la clôture : test non significatif");
+}
+
+/// Déterministe : un pointage en cours (verrou partagé sur l'appel, simulé en SQL)
+/// BLOQUE la clôture ; celle-ci voit donc la modification une fois validée.
+/// Avec l'ancien code (lecture des lignes sans verrou) la clôture se terminerait
+/// aussitôt et publierait sans la modification → ce test échoue.
+#[tokio::test]
+async fn appel_cloture_attend_pointage_en_cours() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip scénario: ENT_DATABASE_URL");
+        return;
+    };
+    let url = std::env::var("ENT_DATABASE_URL").expect("url");
+    let pool = sqlx::PgPool::connect(&url).await.expect("pool test");
+    let etab = cast.etablissement_id;
+    let prof = Role::Prof.as_str();
+    let acteur = cast.prof.user_id;
+    let jour = jour_appel_unique(777);
+    let (appel, lignes) = ent
+        .ouvrir_appel(etab, creneau_dedie(&ent, &cast).await, jour, acteur, prof)
+        .await
+        .expect("ouvrir");
+    let eleve = lignes.first().expect("effectif").eleve_id;
+
+    // Pointage « en vol » : verrou partagé, modification non encore validée.
+    let mut tx = pool.begin().await.expect("tx");
+    sqlx::query("SELECT 1 FROM ent_appel WHERE etablissement_id = $1 AND id = $2 FOR SHARE")
+        .bind(etab)
+        .bind(appel.id)
+        .execute(&mut *tx)
+        .await
+        .expect("verrou");
+    sqlx::query(
+        "UPDATE ent_appel_ligne SET etat = 'absent' \
+         WHERE etablissement_id = $1 AND appel_id = $2 AND eleve_id = $3",
+    )
+    .bind(etab)
+    .bind(appel.id)
+    .bind(eleve)
+    .execute(&mut *tx)
+    .await
+    .expect("update en vol");
+
+    let clore = ent.clore_appel(etab, appel.id, acteur, prof, None);
+    tokio::pin!(clore);
+    let attente = tokio::time::timeout(std::time::Duration::from_millis(500), &mut clore).await;
+    assert!(attente.is_err(), "la clôture doit attendre le pointage en cours");
+
+    tx.commit().await.expect("commit pointage");
+    clore.await.expect("clore après commit");
+
+    assert!(
+        ent.eleve_est_absent(etab, eleve, jour).await.expect("absent?"),
+        "la clôture doit publier l'absence validée avant elle"
+    );
+}
+
 /// Preuve Brain : clôture d'appel → absents écrits dans `ent_absence` (une vérité).
 #[tokio::test]
 async fn appel_cloture_remonte_dans_ent_absence() {

@@ -168,31 +168,113 @@ impl PgAppelRepo {
         Ok(())
     }
 
-    pub async fn set_etat(
+    /// Modifie l'état d'une ligne **uniquement si l'appel est ouvert**, de façon
+    /// sérialisée avec la clôture : verrou partagé (`FOR SHARE`) sur la ligne de
+    /// l'appel, statut contrôlé sur la ligne verrouillée, écriture dans la même
+    /// transaction. `FOR SHARE` (et non `FOR UPDATE`) suffit : il bloque la clôture
+    /// (`FOR UPDATE`) tant que la modification n'est pas validée, sans sérialiser
+    /// inutilement les marquages d'élèves différents. `Ok(false)` si l'appel est
+    /// absent ou clos, ou si la ligne n'existe pas.
+    pub async fn set_etat_si_ouvert(
         &self,
         etablissement_id: Uuid,
         appel_id: Uuid,
         eleve_id: Uuid,
         etat: &LigneEtat,
-    ) -> Result<(), DomainError> {
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let statut: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT statut FROM ent_appel
+            WHERE etablissement_id = $1 AND id = $2
+            FOR SHARE
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(appel_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if statut.as_ref().map(|s| s.0.as_str()) != Some("ouvert") {
+            return Ok(false);
+        }
+        // Défense en profondeur : la condition de statut est aussi portée par l'écriture.
         let result = sqlx::query(
             r#"
-            UPDATE ent_appel_ligne
+            UPDATE ent_appel_ligne l
             SET etat = $4
-            WHERE etablissement_id = $1 AND appel_id = $2 AND eleve_id = $3
+            WHERE l.etablissement_id = $1 AND l.appel_id = $2 AND l.eleve_id = $3
+              AND EXISTS (
+                SELECT 1 FROM ent_appel a
+                WHERE a.id = l.appel_id AND a.etablissement_id = l.etablissement_id
+                  AND a.statut = 'ouvert'
+              )
             "#,
         )
         .bind(etablissement_id)
         .bind(appel_id)
         .bind(eleve_id)
         .bind(etat.as_str())
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
+        .execute(&mut *tx)
+        .await?;
         if result.rows_affected() == 0 {
-            return Err(DomainError::NotFound);
+            return Ok(false);
         }
-        Ok(())
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Clôture atomique : verrou exclusif (`FOR UPDATE`) sur l'appel, statut
+    /// contrôlé, lignes lues **sous verrou**, passage à « clos », commit. Aucune
+    /// modification de ligne ne peut s'intercaler : les lignes retournées sont
+    /// exactement celles figées par la clôture. `Ok(None)` si absent ou déjà clos.
+    pub async fn clore_avec_lignes(
+        &self,
+        etablissement_id: Uuid,
+        appel_id: Uuid,
+    ) -> Result<Option<Vec<AppelLigne>>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let statut: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT statut FROM ent_appel
+            WHERE etablissement_id = $1 AND id = $2
+            FOR UPDATE
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(appel_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if statut.as_ref().map(|s| s.0.as_str()) != Some("ouvert") {
+            return Ok(None);
+        }
+        let rows = sqlx::query_as::<_, LigneRow>(
+            r#"
+            SELECT id, etablissement_id, appel_id, eleve_id, etat
+            FROM ent_appel_ligne
+            WHERE etablissement_id = $1 AND appel_id = $2
+            ORDER BY eleve_id
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(appel_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let result = sqlx::query(
+            r#"
+            UPDATE ent_appel
+            SET statut = 'clos', closed_at = now()
+            WHERE etablissement_id = $1 AND id = $2 AND statut = 'ouvert'
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(appel_id)
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        tx.commit().await?;
+        Ok(Some(rows.into_iter().map(LigneRow::into_ligne).collect()))
     }
 
     pub async fn list_lignes(
@@ -214,29 +296,6 @@ impl PgAppelRepo {
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(LigneRow::into_ligne).collect())
-    }
-
-    pub async fn clore(
-        &self,
-        etablissement_id: Uuid,
-        appel_id: Uuid,
-    ) -> Result<(), DomainError> {
-        let result = sqlx::query(
-            r#"
-            UPDATE ent_appel
-            SET statut = 'clos', closed_at = now()
-            WHERE etablissement_id = $1 AND id = $2 AND statut = 'ouvert'
-            "#,
-        )
-        .bind(etablissement_id)
-        .bind(appel_id)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-        if result.rows_affected() == 0 {
-            return Err(DomainError::NotFound);
-        }
-        Ok(())
     }
 }
 

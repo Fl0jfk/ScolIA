@@ -77,6 +77,97 @@ fn message_erreur(e: &ApiError) -> String {
     }
 }
 
+/// Message générique quand le second facteur est abandonné.
+const MESSAGE_SECOND_FACTEUR_ECHOUE: &str =
+    "La vérification par passkey a échoué. Saisissez à nouveau votre mot de passe.";
+
+/// Échec du second facteur, selon l'endroit où il survient.
+#[derive(Clone, Debug)]
+enum EchecSecondFacteur {
+    /// Avant tout envoi au serveur (annulation, refus ou délai de l'appareil) : message
+    /// déjà formulé.
+    Navigateur(String),
+    /// Après envoi : refus (401, 400, 429…) ou erreur réseau. Le défi est à usage unique
+    /// côté serveur : on ne sait pas s'il est consommé, on ne le rejoue pas.
+    Serveur(ApiError),
+}
+
+/// Suite à donner à un échec du second facteur (avec le message à afficher).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Suite {
+    /// Même défi, bouton « Réessayer avec ma passkey ».
+    Reessayer(String),
+    /// Défi inutilisable : retour au mot de passe.
+    Abandonner(String),
+}
+
+/// Décision unique (utilisée par l'écran et testée) : seul un échec local avant envoi
+/// autorise à rejouer le défi. Aucune horloge du poste n'intervient : si le défi a
+/// expiré côté serveur, c'est le serveur qui le refusera, et on abandonnera alors.
+fn suite_echec_second_facteur(echec: &EchecSecondFacteur) -> Suite {
+    match echec {
+        EchecSecondFacteur::Navigateur(m) => Suite::Reessayer(m.clone()),
+        EchecSecondFacteur::Serveur(ApiError::TropDeRequetes) => Suite::Abandonner(
+            "Trop de tentatives. Patientez quelques minutes puis saisissez à nouveau votre mot de passe."
+                .into(),
+        ),
+        EchecSecondFacteur::Serveur(ApiError::Reseau(_) | ApiError::Indisponible) => {
+            Suite::Abandonner(
+                "Le serveur est injoignable. Vérifiez la connexion puis saisissez à nouveau votre mot de passe."
+                    .into(),
+            )
+        }
+        EchecSecondFacteur::Serveur(_) => Suite::Abandonner(MESSAGE_SECOND_FACTEUR_ECHOUE.into()),
+    }
+}
+
+/// Événements qui font évoluer le défi de second facteur conservé.
+enum EvenementSecondFacteur<'a> {
+    /// Nouvelle soumission, connexion passkey directe ou changement d'e-mail.
+    NouvelleTentative,
+    /// Le serveur demande un second facteur.
+    DefiRecu(PasskeyChallengeDto),
+    /// Connexion réussie.
+    Reussite,
+    Echec(&'a Suite),
+}
+
+/// Transition pure du défi conservé (`None` = aucun second facteur en attente).
+fn second_facteur_suivant(
+    courant: Option<PasskeyChallengeDto>,
+    ev: EvenementSecondFacteur<'_>,
+) -> Option<PasskeyChallengeDto> {
+    match ev {
+        EvenementSecondFacteur::NouvelleTentative | EvenementSecondFacteur::Reussite => None,
+        EvenementSecondFacteur::DefiRecu(d) => Some(d),
+        EvenementSecondFacteur::Echec(Suite::Reessayer(_)) => courant,
+        EvenementSecondFacteur::Echec(Suite::Abandonner(_)) => None,
+    }
+}
+
+/// Applique un événement au signal du défi.
+fn appliquer(
+    second_facteur: RwSignal<Option<PasskeyChallengeDto>>,
+    ev: EvenementSecondFacteur<'_>,
+) {
+    second_facteur.update(|c| *c = second_facteur_suivant(c.take(), ev));
+}
+
+/// Second facteur abandonné : mot de passe vidé et focalisé, e-mail conservé.
+fn revenir_au_mot_de_passe(mot_de_passe: RwSignal<String>) {
+    mot_de_passe.set(String::new());
+    #[cfg(target_arch = "wasm32")]
+    {
+        use leptos::wasm_bindgen::JsCast;
+        if let Some(c) = document()
+            .get_element_by_id("mdp")
+            .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+        {
+            let _ = c.focus();
+        }
+    }
+}
+
 #[component]
 pub fn PageConnexion() -> impl IntoView {
     let navigate = use_navigate();
@@ -92,6 +183,17 @@ pub fn PageConnexion() -> impl IntoView {
     let erreur_email = RwSignal::new(None::<String>);
     // Défi du second facteur, conservé pour « Réessayer ».
     let second_facteur = RwSignal::new(None::<PasskeyChallengeDto>);
+
+    // Adresse modifiée pendant qu'un second facteur est en attente : le défi appartient
+    // à l'ancien compte, plus de « Réessayer » (et le message qui l'accompagnait part).
+    Effect::new(move |precedent: Option<String>| {
+        let courant = email.get();
+        if precedent.is_some_and(|p| p != courant) && second_facteur.get_untracked().is_some() {
+            appliquer(second_facteur, EvenementSecondFacteur::NouvelleTentative);
+            erreur.set(None);
+        }
+        courant
+    });
 
     // Préremplit l'établissement depuis l'URL (?etab=) ou la configuration serveur.
     Effect::new(move |_| {
@@ -110,6 +212,7 @@ pub fn PageConnexion() -> impl IntoView {
     let info_fin = move || {
         query.with(|q| match q.get("fin").as_deref() {
             Some("deconnexion") => Some("Vous êtes déconnecté."),
+            Some("locale") => Some(session::MESSAGE_DECONNEXION_LOCALE),
             Some("autre-onglet") => Some("Vous avez été déconnecté depuis un autre onglet."),
             Some("expiree-saisie") => Some(
                 "Votre session a expiré pendant la saisie : les modifications non enregistrées ont été perdues. Reconnectez-vous puis refaites-les.",
@@ -149,30 +252,48 @@ pub fn PageConnexion() -> impl IntoView {
     // Signature du défi par l'appareil, puis ouverture de la session.
     let finir_passkey = {
         let ouvrir_session = ouvrir_session.clone();
-        move |defi: PasskeyChallengeDto| {
+        // `second` : le défi vient d'un mot de passe valide (second facteur) ; il est à
+        // usage unique et sa suite est décidée par `suite_echec_second_facteur`.
+        move |defi: PasskeyChallengeDto, second: bool| {
             let ouvrir_session = ouvrir_session.clone();
-            en_cours.set(true);
             erreur.set(None);
+            en_cours.set(true);
             spawn_local(async move {
                 let resultat = match webauthn::signer_defi(&defi.options).await {
                     Ok(assertion) => session::client()
                         .connexion_passkey_fin(&defi.token, assertion)
                         .await
-                        .map_err(|e| match e {
-                            ApiError::NonConnecte | ApiError::Interdit(_) => {
-                                "La passkey n'a pas été reconnue.".to_string()
-                            }
-                            autre => autre.message_utilisateur(),
-                        }),
-                    Err(m) => Err(format!("{}.", capitaliser(&m))),
+                        .map_err(EchecSecondFacteur::Serveur),
+                    Err(m) => Err(EchecSecondFacteur::Navigateur(format!(
+                        "{}.",
+                        capitaliser(&m)
+                    ))),
                 };
                 en_cours.set(false);
                 match resultat {
                     Ok(s) => {
-                        second_facteur.set(None);
+                        appliquer(second_facteur, EvenementSecondFacteur::Reussite);
                         ouvrir_session(s);
                     }
-                    Err(m) => erreur.set(Some(m)),
+                    Err(echec) if second => {
+                        let suite = suite_echec_second_facteur(&echec);
+                        appliquer(second_facteur, EvenementSecondFacteur::Echec(&suite));
+                        match suite {
+                            Suite::Reessayer(m) => erreur.set(Some(m)),
+                            Suite::Abandonner(m) => {
+                                revenir_au_mot_de_passe(mot_de_passe);
+                                erreur.set(Some(m));
+                            }
+                        }
+                    }
+                    // Connexion directe par passkey : un nouvel essai repart de zéro.
+                    Err(EchecSecondFacteur::Navigateur(m)) => erreur.set(Some(m)),
+                    Err(EchecSecondFacteur::Serveur(
+                        ApiError::NonConnecte | ApiError::Interdit(_),
+                    )) => erreur.set(Some("La passkey n'a pas été reconnue.".into())),
+                    Err(EchecSecondFacteur::Serveur(e)) => {
+                        erreur.set(Some(e.message_utilisateur()))
+                    }
                 }
             });
         }
@@ -194,6 +315,7 @@ pub fn PageConnexion() -> impl IntoView {
             erreur_email.set(None);
             let Some(etab) = etab_valide() else { return };
             let finir_passkey = finir_passkey.clone();
+            appliquer(second_facteur, EvenementSecondFacteur::NouvelleTentative);
             en_cours.set(true);
             erreur.set(None);
             spawn_local(async move {
@@ -201,7 +323,7 @@ pub fn PageConnexion() -> impl IntoView {
                     .connexion_passkey_debut(&adresse, etab)
                     .await
                 {
-                    Ok(defi) => finir_passkey(defi),
+                    Ok(defi) => finir_passkey(defi, false),
                     Err(e) => {
                         en_cours.set(false);
                         erreur.set(Some(match e {
@@ -228,6 +350,7 @@ pub fn PageConnexion() -> impl IntoView {
             let Some(etab) = etab_valide() else { return };
             erreur.set(None);
             erreur_email.set(None);
+            appliquer(second_facteur, EvenementSecondFacteur::NouvelleTentative);
             en_cours.set(true);
             let ouvrir_session = ouvrir_session.clone();
             let finir_passkey = finir_passkey.clone();
@@ -243,8 +366,11 @@ pub fn PageConnexion() -> impl IntoView {
                 match resultat {
                     Ok(Connexion::Ouverte(s)) => ouvrir_session(s),
                     Ok(Connexion::PasskeyRequise(defi)) => {
-                        second_facteur.set(Some((*defi).clone()));
-                        finir_passkey(*defi);
+                        appliquer(
+                            second_facteur,
+                            EvenementSecondFacteur::DefiRecu((*defi).clone()),
+                        );
+                        finir_passkey(*defi, true);
                     }
                     Err(e) => erreur.set(Some(message_erreur(&e))),
                 }
@@ -256,7 +382,7 @@ pub fn PageConnexion() -> impl IntoView {
         let finir_passkey = finir_passkey.clone();
         Callback::new(move |_| {
             if let Some(d) = second_facteur.get_untracked() {
-                finir_passkey(d);
+                finir_passkey(d, true);
             }
         })
     };
@@ -399,4 +525,104 @@ fn capitaliser(s: &str) -> String {
     c.next()
         .map(|p| p.to_uppercase().collect::<String>() + c.as_str())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests_second_facteur {
+    use super::*;
+
+    fn defi() -> PasskeyChallengeDto {
+        PasskeyChallengeDto {
+            token: "t".into(),
+            options: serde_json::json!({}),
+            expires_at: chrono::Utc::now(),
+        }
+    }
+
+    fn local() -> EchecSecondFacteur {
+        EchecSecondFacteur::Navigateur("Annulée.".into())
+    }
+
+    #[test]
+    fn echec_local_reessaie_avec_le_meme_message() {
+        assert_eq!(
+            suite_echec_second_facteur(&local()),
+            Suite::Reessayer("Annulée.".into())
+        );
+    }
+
+    #[test]
+    fn horloge_du_poste_sans_effet_sur_la_decision() {
+        // Défi « expiré » selon l'horloge locale (expires_at = maintenant) : un échec
+        // local propose toujours de réessayer et conserve le même défi ; le serveur
+        // tranchera.
+        let d = defi();
+        let suite = suite_echec_second_facteur(&local());
+        assert!(matches!(suite, Suite::Reessayer(_)));
+        assert_eq!(
+            second_facteur_suivant(Some(d.clone()), EvenementSecondFacteur::Echec(&suite)),
+            Some(d)
+        );
+    }
+
+    #[test]
+    fn refus_serveur_abandonne_avec_message_generique() {
+        for e in [
+            ApiError::NonConnecte,
+            ApiError::Interdit("x".into()),
+            ApiError::Invalide("x".into()),
+            ApiError::Serveur(500, "x".into()),
+        ] {
+            assert_eq!(
+                suite_echec_second_facteur(&EchecSecondFacteur::Serveur(e)),
+                Suite::Abandonner(MESSAGE_SECOND_FACTEUR_ECHOUE.into())
+            );
+        }
+    }
+
+    #[test]
+    fn limitation_et_reseau_ont_un_message_precis() {
+        let Suite::Abandonner(m) =
+            suite_echec_second_facteur(&EchecSecondFacteur::Serveur(ApiError::TropDeRequetes))
+        else {
+            panic!("abandon attendu")
+        };
+        assert!(m.starts_with("Trop de tentatives. Patientez quelques minutes puis saisissez"));
+        let Suite::Abandonner(m) = suite_echec_second_facteur(&EchecSecondFacteur::Serveur(
+            ApiError::Reseau("hors ligne".into()),
+        )) else {
+            panic!("abandon attendu")
+        };
+        assert!(m.starts_with("Le serveur est injoignable."));
+    }
+
+    #[test]
+    fn reussite_vide_le_defi() {
+        assert_eq!(
+            second_facteur_suivant(Some(defi()), EvenementSecondFacteur::Reussite),
+            None
+        );
+    }
+
+    #[test]
+    fn abandon_vide_le_defi() {
+        let suite = suite_echec_second_facteur(&EchecSecondFacteur::Serveur(ApiError::NonConnecte));
+        assert_eq!(
+            second_facteur_suivant(Some(defi()), EvenementSecondFacteur::Echec(&suite)),
+            None
+        );
+    }
+
+    #[test]
+    fn nouvelle_tentative_ou_changement_d_email_reinitialise() {
+        assert_eq!(
+            second_facteur_suivant(Some(defi()), EvenementSecondFacteur::NouvelleTentative),
+            None
+        );
+        let d = defi();
+        assert_eq!(
+            second_facteur_suivant(None, EvenementSecondFacteur::DefiRecu(d.clone())),
+            Some(d)
+        );
+    }
 }
