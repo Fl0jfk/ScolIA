@@ -362,6 +362,8 @@ export async function PUT(req: Request) {
         location: typeof dir.location === "string" ? dir.location : undefined,
         consentLabel: typeof dir.consentLabel === "string" ? dir.consentLabel : undefined,
         horizonDays: typeof dir.horizonDays === "number" ? dir.horizonDays : undefined,
+        releaseMinHours:
+          typeof dir.releaseMinHours === "number" ? dir.releaseMinHours : undefined,
         active: dir.active === true || dir.active === 1 || dir.active === "true",
         sortOrder: typeof dir.sortOrder === "number" ? dir.sortOrder : undefined,
       });

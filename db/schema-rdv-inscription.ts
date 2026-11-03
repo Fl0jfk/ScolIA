@@ -71,6 +71,8 @@ export const rdvInscriptionDirection = pgTable(
       "J’accepte que mes coordonnées soient utilisées pour organiser ce rendez-vous d’inscription.",
     ),
     horizonDays: integer("horizon_days").notNull().default(60),
+    /** Heures avant le RDV en deçà desquelles une annulation famille retire le créneau. */
+    releaseMinHours: integer("release_min_hours").notNull().default(48),
     active: integer("active").notNull().default(1),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

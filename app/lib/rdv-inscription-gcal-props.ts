@@ -32,6 +32,22 @@ export function privatePatchClearingAllScola(
   ]);
 }
 
+/**
+ * Après une annulation / modification par la famille : vrai = remettre le créneau libre,
+ * faux = le retirer (trop proche du RDV, la direction doit le voir). 0 h = toujours libre.
+ */
+export function shouldReleaseFreedSlot(opts: {
+  startAt: string | Date;
+  releaseMinHours: number;
+  now?: Date;
+}): boolean {
+  const start = new Date(opts.startAt).getTime();
+  if (!Number.isFinite(start)) return false;
+  const minHours = Number.isFinite(opts.releaseMinHours) ? Math.max(0, opts.releaseMinHours) : 48;
+  const now = (opts.now ?? new Date()).getTime();
+  return start - now >= minHours * 60 * 60 * 1000;
+}
+
 /** Vrai si l'événement porte encore une marque ScolIA (réservé ou en attente). */
 export function hasScolaHoldMarker(priv: Record<string, string> | undefined): boolean {
   const p = priv || {};

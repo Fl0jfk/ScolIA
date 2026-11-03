@@ -13,6 +13,8 @@ import {
   DEFAULT_RDV_INSCRIPTION_CONSENT,
   DEFAULT_RDV_INSCRIPTION_PATTERN,
   DEFAULT_RDV_INSCRIPTION_TITLE,
+  DEFAULT_RDV_RELEASE_MIN_HOURS,
+  MAX_RDV_RELEASE_MIN_HOURS,
   isValidDirectionSlug,
   type RdvInscriptionBookingRow,
   type RdvInscriptionBookingStatus,
@@ -92,6 +94,10 @@ function mapDirection(row: typeof rdvInscriptionDirection.$inferSelect): RdvInsc
     location: row.location || "",
     consentLabel: row.consentLabel?.trim() || DEFAULT_RDV_INSCRIPTION_CONSENT,
     horizonDays: row.horizonDays > 0 ? row.horizonDays : 60,
+    releaseMinHours:
+      Number.isFinite(row.releaseMinHours) && row.releaseMinHours >= 0
+        ? row.releaseMinHours
+        : DEFAULT_RDV_RELEASE_MIN_HOURS,
     active: row.active === 1,
     sortOrder: row.sortOrder,
   };
@@ -410,6 +416,7 @@ export async function upsertRdvInscriptionDirection(
     location?: string;
     consentLabel?: string;
     horizonDays?: number;
+    releaseMinHours?: number;
     active: boolean;
     sortOrder?: number;
   },
@@ -443,6 +450,12 @@ export async function upsertRdvInscriptionDirection(
   }
   if (typeof input.horizonDays === "number" && Number.isFinite(input.horizonDays)) {
     pageFields.horizonDays = Math.min(180, Math.max(7, Math.round(input.horizonDays)));
+  }
+  if (typeof input.releaseMinHours === "number" && Number.isFinite(input.releaseMinHours)) {
+    pageFields.releaseMinHours = Math.min(
+      MAX_RDV_RELEASE_MIN_HOURS,
+      Math.max(0, Math.round(input.releaseMinHours)),
+    );
   }
 
   if (input.id) {
@@ -511,6 +524,7 @@ export async function upsertRdvInscriptionDirection(
     location: pageFields.location ?? seed.location,
     consentLabel: pageFields.consentLabel ?? seed.consentLabel,
     horizonDays: pageFields.horizonDays ?? seed.horizonDays,
+    releaseMinHours: pageFields.releaseMinHours ?? DEFAULT_RDV_RELEASE_MIN_HOURS,
   });
 
   if (input.active) {

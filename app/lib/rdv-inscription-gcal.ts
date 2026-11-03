@@ -881,6 +881,8 @@ export async function restoreInscriptionCalendarSlot(opts: {
   eventId: string;
   bookingId: string;
   restoreTitle: string;
+  /** Ligne de trace laissée dans la description (sinon description vidée). */
+  traceLine?: string;
   accessToken?: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
@@ -904,6 +906,7 @@ export async function restoreInscriptionCalendarSlot(opts: {
       message: "Créneau rattaché à une autre réservation — restauration refusée.",
     };
   }
+  const description = opts.traceLine?.trim() || "";
 
   const restoreTitle = opts.restoreTitle.trim() || "Rendez-vous inscription";
   const res = await gcalFetch(
@@ -913,7 +916,7 @@ export async function restoreInscriptionCalendarSlot(opts: {
       method: "PATCH",
       body: JSON.stringify({
         summary: restoreTitle,
-        description: "",
+        description,
         transparency: "opaque",
         attendees: [],
         extendedProperties: {

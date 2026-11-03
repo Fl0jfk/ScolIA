@@ -651,7 +651,7 @@ export default function RdvInscriptionAdminClient() {
             <div className="grid gap-4 xl:grid-cols-2">
               {directions.map((d) => (
                 <ModuleCard
-                  key={`${d.id}-${d.eventTitlePattern}-${d.notifyEmail || ""}-${d.horizonDays}-${d.title}`}
+                  key={`${d.id}-${d.eventTitlePattern}-${d.notifyEmail || ""}-${d.horizonDays}-${d.releaseMinHours}-${d.title}`}
                   bodyClassName="p-5 sm:p-6"
                 >
                   <form
@@ -675,6 +675,7 @@ export default function RdvInscriptionAdminClient() {
                           location: String(fd.get("location") || ""),
                           consentLabel: String(fd.get("consentLabel") || ""),
                           horizonDays: Number(fd.get("horizonDays") || 60),
+                          releaseMinHours: Number(fd.get("releaseMinHours") || 48),
                           active: fd.get("active") === "on",
                           sortOrder: Number(fd.get("sortOrder") || d.sortOrder),
                         },
@@ -771,6 +772,22 @@ export default function RdvInscriptionAdminClient() {
                         defaultValue={d.horizonDays}
                         className={`mt-1.5 ${FIELD}`}
                       />
+                    </label>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Délai pour remettre libre (heures)</span>
+                      <input
+                        name="releaseMinHours"
+                        type="number"
+                        min={0}
+                        max={336}
+                        defaultValue={d.releaseMinHours}
+                        className={`mt-1.5 ${FIELD}`}
+                      />
+                      <span className={`mt-1 block text-xs ${dash.textMid}`}>
+                        Si la famille annule ou change son RDV plus de ce nombre d’heures avant,
+                        le créneau redevient libre. Plus tard, il est retiré (« ANNULÉ ») pour que
+                        la direction le voie. 0 = remettre libre jusqu’à l’heure du RDV.
+                      </span>
                     </label>
                     <label className="block">
                       <span className={FIELD_LABEL}>E-mail notif secrétariat</span>

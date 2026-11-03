@@ -7,7 +7,19 @@ import {
   hasScolaHoldMarker,
   privatePatchClearing,
   privatePatchClearingAllScola,
+  shouldReleaseFreedSlot,
 } from "@/app/lib/rdv-inscription-gcal-props";
+
+test("délai de remise en libre après annulation famille", () => {
+  const now = new Date("2026-11-10T10:00:00Z");
+  const at = (h: number) => new Date(now.getTime() + h * 3600_000).toISOString();
+  assert.equal(shouldReleaseFreedSlot({ startAt: at(72), releaseMinHours: 48, now }), true);
+  assert.equal(shouldReleaseFreedSlot({ startAt: at(48), releaseMinHours: 48, now }), true);
+  assert.equal(shouldReleaseFreedSlot({ startAt: at(47.9), releaseMinHours: 48, now }), false);
+  assert.equal(shouldReleaseFreedSlot({ startAt: at(20), releaseMinHours: 48, now }), false);
+  assert.equal(shouldReleaseFreedSlot({ startAt: at(1), releaseMinHours: 0, now }), true);
+  assert.equal(shouldReleaseFreedSlot({ startAt: "invalide", releaseMinHours: 48, now }), false);
+});
 import { parseManualRdvSlot } from "@/app/lib/rdv-inscription-manual-slot";
 
 test("libération : les marques ScolIA sont envoyées à null (Google conserve une clé omise)", () => {

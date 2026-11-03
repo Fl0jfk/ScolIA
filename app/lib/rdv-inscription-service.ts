@@ -58,6 +58,7 @@ import {
 } from "@/app/lib/document-templates/inscription-levels";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { parseManualRdvSlot } from "@/app/lib/rdv-inscription-manual-slot";
+import { shouldReleaseFreedSlot } from "@/app/lib/rdv-inscription-gcal-props";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import type {
   RdvInscriptionBookInput,
@@ -282,15 +283,60 @@ function restoreTitleForDirection(eventTitlePattern: string): string {
   return first || DEFAULT_RDV_INSCRIPTION_TITLE;
 }
 
+function formatParisStamp(d: Date): string {
+  return d.toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Créneau d’un RDV confirmé que la famille abandonne (annulation J-7, changement de créneau).
+ * Assez loin du RDV (≥ délai de la direction) : remis libre, avec une ligne de trace.
+ * Trop proche : retiré (« ANNULÉ ») pour que la direction le voie dans son agenda.
+ */
+async function freeSlotAfterFamilyChange(opts: {
+  booking: RdvInscriptionBookingRow;
+  titlePattern: string;
+  releaseMinHours: number;
+  reason: string;
+}): Promise<{ ok: true; released: boolean } | { ok: false; message: string }> {
+  const b = opts.booking;
+  const now = new Date();
+  const studentLabel = `${b.studentLastName.trim().toUpperCase()} ${b.studentFirstName.trim()}`.trim();
+  if (shouldReleaseFreedSlot({ startAt: b.startAt, releaseMinHours: opts.releaseMinHours, now })) {
+    const restored = await restoreInscriptionCalendarSlot({
+      calendarId: b.googleCalendarId,
+      eventId: b.googleEventId,
+      bookingId: b.id,
+      restoreTitle: restoreTitleForDirection(opts.titlePattern),
+      traceLine: `Créneau libéré le ${formatParisStamp(now)} — ${opts.reason} (${studentLabel}).`,
+    });
+    return restored.ok ? { ok: true, released: true } : restored;
+  }
+  const retired = await retireInscriptionCalendarSlot({
+    calendarId: b.googleCalendarId,
+    eventId: b.googleEventId,
+    bookingId: b.id,
+    reasonLine: `${opts.reason} le ${formatParisStamp(now)}, moins de ${opts.releaseMinHours} h avant le RDV : créneau non remis en ligne.`,
+  });
+  return retired.ok ? { ok: true, released: false } : retired;
+}
+
 /**
  * Libère les RDV actifs du même élève (même direction) pour permettre un changement de créneau.
- * Remet l’événement Google à l’état libre (titre motif).
+ * Ancien créneau confirmé : remis libre ou retiré selon le délai de la direction.
  */
 async function supersedeActiveBookingsForEleve(opts: {
   eleveId: string;
   directionSlug: string;
   etablissementId: string;
   titlePattern: string;
+  releaseMinHours: number;
   keepEventId?: string | null;
 }): Promise<{ supersededIds: string[]; warnings: string[] }> {
   const active = await listActiveBookingsForEleve({
@@ -300,7 +346,6 @@ async function supersedeActiveBookingsForEleve(opts: {
   });
   const supersededIds: string[] = [];
   const warnings: string[] = [];
-  const restoreTitle = restoreTitleForDirection(opts.titlePattern);
   const keepEventId = opts.keepEventId?.trim() || "";
 
   for (const prev of active) {
@@ -321,14 +366,18 @@ async function supersedeActiveBookingsForEleve(opts: {
           warnings.push(`${prev.id}: ${e instanceof Error ? e.message : String(e)}`);
         }
       } else if (prev.status === "confirmed") {
-        const restored = await restoreInscriptionCalendarSlot({
-          calendarId: prev.googleCalendarId,
-          eventId: prev.googleEventId,
-          bookingId: prev.id,
-          restoreTitle,
-        });
-        if (!restored.ok) {
-          warnings.push(`${prev.id}: ${restored.message}`);
+        try {
+          const freed = await freeSlotAfterFamilyChange({
+            booking: prev,
+            titlePattern: opts.titlePattern,
+            releaseMinHours: opts.releaseMinHours,
+            reason: "Changement de créneau par la famille",
+          });
+          if (!freed.ok) {
+            warnings.push(`${prev.id}: ${freed.message}`);
+          }
+        } catch (e) {
+          warnings.push(`${prev.id}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
       await markRdvInscriptionBookingCancelled({
@@ -1199,6 +1248,7 @@ export async function bookPublicRdvInscription(
     directionSlug: direction.slug,
     etablissementId: etabId,
     titlePattern: direction.eventTitlePattern,
+    releaseMinHours: direction.releaseMinHours,
     keepEventId: eventId,
   });
   if (supersede.warnings.length) {
@@ -1574,16 +1624,11 @@ export async function reconfirmPublicRdvInscription(opts: {
     return { ok: true, booking, action: "ok" };
   }
 
-  try {
-    await cancelConfirmedInscriptionEvent({
-      calendarId: found.googleCalendarId,
-      eventId: found.googleEventId,
-      bookingId: found.id,
-    });
-  } catch (e) {
-    console.error("[rdv-inscription] cancel GCal:", e);
-  }
+  const direction = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+    etablissementId: found.etablissementId,
+  });
 
+  // Base d'abord : un créneau remis libre ne doit plus être rattaché à un RDV actif.
   const booking = await markRdvInscriptionReconfirm({
     bookingId: found.id,
     etablissementId: found.etablissementId,
@@ -1593,9 +1638,29 @@ export async function reconfirmPublicRdvInscription(opts: {
     return { ok: false, error: "error", message: "Annulation impossible." };
   }
 
-  const direction = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
-    etablissementId: found.etablissementId,
-  });
+  try {
+    if (direction) {
+      const freed = await freeSlotAfterFamilyChange({
+        booking: found,
+        titlePattern: direction.eventTitlePattern,
+        releaseMinHours: direction.releaseMinHours,
+        reason: "Annulé par la famille (reconfirmation)",
+      });
+      if (!freed.ok) {
+        // Créneau resté masqué : réparable via « Créneaux masqués » dans le paramétrage.
+        console.error("[rdv-inscription] cancel GCal:", { eventId: found.googleEventId }, freed.message);
+      }
+    } else {
+      await cancelConfirmedInscriptionEvent({
+        calendarId: found.googleCalendarId,
+        eventId: found.googleEventId,
+        bookingId: found.id,
+      });
+    }
+  } catch (e) {
+    console.error("[rdv-inscription] cancel GCal:", e);
+  }
+
   if (direction?.notifyEmail) {
     const { sendRdvInscriptionCancelledByParentNotify } = await import(
       "@/app/lib/rdv-inscription-mail"

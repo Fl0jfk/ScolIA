@@ -21,9 +21,17 @@ export type RdvInscriptionDirectionRow = {
   location: string;
   consentLabel: string;
   horizonDays: number;
+  /**
+   * Heures avant le RDV : une annulation / modification famille faite plus tôt remet le
+   * créneau libre ; plus tard, il est retiré (« ANNULÉ ») pour que la direction le voie.
+   */
+  releaseMinHours: number;
   active: boolean;
   sortOrder: number;
 };
+
+export const DEFAULT_RDV_RELEASE_MIN_HOURS = 48;
+export const MAX_RDV_RELEASE_MIN_HOURS = 14 * 24;
 
 /** Sous-ensemble utilisé pour les mails / page publique d’une direction. */
 export type RdvInscriptionDirectionPageSettings = {
