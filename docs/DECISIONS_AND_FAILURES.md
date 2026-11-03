@@ -34,3 +34,23 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Cause :** Leptos lit `LEPTOS_OUTPUT_NAME` **à la compilation** pour nommer le script d'hydratation. `scripts/env.sh` la pose en local, le workflow non : la simulation locale du 2026-11-03 n'était donc pas identique à la CI.
 - **Correction :** `LEPTOS_OUTPUT_NAME` et `LEPTOS_SITE_PKG_DIR` ajoutées à l'environnement du job frontend ; 6/6 tests verts en local dans les conditions de la CI (base vierge, sans autres variables). Correction **non poussée** (attente d'autorisation).
 - **Apprentissage :** une simulation locale de CI doit partir d'un environnement vide (base vierge, variables de `env.sh` retirées), sinon elle masque les différences.
+
+## F-004 — Tranche 1 du frontend : compilation interrompue, mauvaise chaîne Rust, pièges Leptos
+
+- **Date / contexte :** 2026-11-03, tranche 1 (parcours enseignant, `FRONTEND_CIBLE.md`).
+- **Résultat observé (faits) :**
+  - la 1re compilation de la tranche avait été interrompue lors de la session précédente ; reprise en nouvelle session ;
+  - compilation tentée avec la chaîne Rust système : échec (pas de cible `wasm32`, Perl MSYS sans module pour `openssl-src`) ;
+  - lecture d'une ressource Leptos hors `<Suspense/>` (avertissement d'hydratation) ; `location.search` sans « ? » initial a cassé l'adresse de retour ; `Uuid::new_v4` indisponible (feature `v4` non activée) ; test `pages_rendues` cassé par un changement de balisage ;
+  - la restriction des agents `explore-haiku` / `review-sonnet` à `tools: Read, Grep, Glob` n'a pas été prise en compte dans la session où les fichiers ont été modifiés (définitions lues au démarrage).
+- **Cause :** chaîne non dédiée utilisée (fait) ; définitions d'agents lues au démarrage (hypothèse à confirmer).
+- **Correction :** règle « toujours `. ent-rust/web/scripts/env.sh` » (chaîne `_outils-scolia` : Rust 1.99 + wasm32, Strawberry Perl, cargo-leptos) ; conventions ajoutées à `FRONTEND_LEPTOS.md` (§ 11) ; restriction des agents **à vérifier dans une nouvelle session**.
+- **Apprentissage :** ne jamais compiler avec la chaîne système ; relire les assertions des tests de rendu quand le balisage change.
+
+## F-005 — Défauts de sécurité trouvés par revue pendant la tranche 1
+
+- **Date / contexte :** 2026-11-03, revue de la tranche 1.
+- **Résultat observé (faits) :** (1) porte du labo (`POST /labo/bootstrap`) et inscription libre **fail-open** : `ENT_ENV` absent = ouvert ; (2) accès horizontal sur l'appel : seul `ouvrir_appel` contrôlait titulaire / remplaçant / supervision, lire, pointer et clore étaient permis à tout professeur de l'établissement connaissant l'`appel_id` ; (3) garde « base locale uniquement » des tests par sous-chaîne (`contains("@127.0.0.1:")`), contournable.
+- **Cause probable (hypothèse) :** contrôle écrit sur le point d'entrée seulement ; garde par motif textuel au lieu d'une analyse d'URL.
+- **Correction (implémentée, testée en local, non poussée) :** `gate_open` fail-closed (`ENVS_NON_PROD`) ; `autoriser_acces_appel` appliqué partout (403) avec tests ent-db et `appel_d_un_collegue_inaccessible` ; `ent_db::assert_local_postgres_url` + nom de base test/proto/lab ; hôte exact dans `seed_labo_web`.
+- **Apprentissage :** une règle d'autorisation doit être portée par une fonction unique appelée par chaque opération ; défaut sûr = fermé ; faire relire toute porte de dev par un second regard.
