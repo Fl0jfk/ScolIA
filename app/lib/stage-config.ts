@@ -169,11 +169,6 @@ export async function resolveStagesDirectorName(
   return est?.directorName?.trim() || undefined;
 }
 
-export async function resolveStagesConventionTemplateUrl(): Promise<string | undefined> {
-  const bundle = await loadAppConfig();
-  return bundle.notifications.stagesConventionTemplateUrl?.trim() || undefined;
-}
-
 /**
  * URL signée de la signature direction (dataBucket privé).
  * Plus de fallback CDN public / chemins en dur.

@@ -1,6 +1,5 @@
 import { DeleteObjectsCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { putObject, getS3Client, getBucketName, getObjectBytes } from "@/app/lib/s3-storage";
-import { getMistralApiKey } from "@/app/lib/tenant-config";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
@@ -199,7 +198,6 @@ type RequestCreateInput = {
   userId?: string | null;
 };
 
-const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 export const REQUEST_STATUSES: RequestStatus[] = ["NOUVELLE", "EN_COURS", "EN_ATTENTE", "TERMINEE"];
 const REQUEST_TERMINATED_RETENTION_DAYS = 30;
 function computePurgeAtForTerminated(fromIso: string): string {
@@ -363,7 +361,6 @@ function normalizeForMatch(input: string) {
   return input.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-const ROUTING_CONFIDENCE_MIN = 0.52;
 
 /** Jamais assignées automatiquement — réservées au transfert manuel admin. */
 export { isManualOnlyDirectionRoute };
@@ -588,90 +585,6 @@ async function computeFallbackRouting(subject: string, description: string) {
     confidence: bestScore > 0 ? Math.min(0.75, 0.45 + bestScore * 0.08) : 0.32,
     reason: bestScore > 0 ? `Routage par mots-clés (score ${bestScore}) vers ${chosen.id}.` : "Aucun mot-clé fort : file de tri.",
   };
-}
-
-type MistralRouteResult = {
-  category: string;
-  assignedTo: RequestRecord["assignedTo"];
-  source: "ai";
-  confidence: number;
-  reason: string;
-  suggestedRouteId?: string;
-};
-
-async function routeWithMistral(subject: string, description: string): Promise<MistralRouteResult | null> {
-  const mistralKey = await getMistralApiKey();
-  if (!mistralKey) return null;
-  const { routes, map } = await ensureRequestRoutes();
-  const routeList = routes.map((r) => `- ${r.id}: ${r.promptLine}`).join("\n");
-  const prompt = `Tu es un classificateur pour un établissement scolaire. Choisis UNE SEULE routeId parmi la liste (identifiant exact).
-Routes possibles:
-${routeList}
-Réponds uniquement en JSON:
-{
-  "routeId": "l'identifiant exact",
-  "confidence": 0.0,
-  "reason": "une courte phrase en français"
-}
-Règles (identifiants exacts):
-- papier, toner, lampe, fuite, salle, bricolage, PC, mot de passe, Wi‑Fi, imprimante => maintenance
-- facture, paiement, compta => comptabilite
-- absence, justificatif, appel, infirmerie => vie_scolaire_infirmerie
-- discipline CPE collège 5e/6e => cpe_5e6e ; 3e/4e => cpe_3e4e ; lycée => cpe_lycee
-- secrétariat / bulletins école => admin_ecole ; collège => admin_college ; lycée => admin_lycee
-- recours direction, plainte grave, décision directionnelle => direction_ecole / direction_college / direction_lycee (selon le pôle) — ces routes ne reçoivent jamais la demande directement, elles servent d'indicateur
-- accueil, photocopieur panne côté accueil => accueil
-- inscription / réinscription globale => admin_ecole ou admin_lycee selon le texte ; doute => corbeille
-- si doute ou texte trop vague => corbeille avec confidence <= 0.4
-Sujet: ${subject}
-Demande: ${description}`;
-  const res = await fetch(MISTRAL_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${mistralKey}`,
-    },
-    body: JSON.stringify({
-      model: "mistral-small-2603",
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  try {
-    const parsed = JSON.parse(data?.choices?.[0]?.message?.content ?? "{}") as {
-      routeId?: string;
-      reason?: string;
-      confidence?: number;
-    };
-    const rawId = typeof parsed.routeId === "string" ? parsed.routeId.trim() : "";
-    const routeId = LEGACY_ROUTE_TO_BRANCH[rawId] ?? rawId;
-    const def = map.get(routeId);
-    if (!def) return null;
-    const confidence = typeof parsed.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0.65;
-    const corb = map.get("corbeille");
-    if (!corb) return null;
-    let chosen = def;
-    let suggestedRouteId: string | undefined;
-    let reason = parsed.reason || "Routage IA Mistral.";
-    if (confidence < ROUTING_CONFIDENCE_MIN && def.id !== "corbeille") {
-      suggestedRouteId = def.id;
-      chosen = corb;
-      reason = `Confiance ${Math.round(confidence * 100)}% < seuil : corbeille. Hypothèse IA : ${suggestedRouteId}. ${parsed.reason || ""}`.trim();
-    }
-    return {
-      category: chosen.category,
-      assignedTo: materializeAssigned(chosen),
-      source: "ai",
-      confidence,
-      reason,
-      ...(suggestedRouteId ? { suggestedRouteId } : {}),
-    };
-  } catch {
-    return null;
-  }
 }
 
 export type ResolvedRequestRouting = {

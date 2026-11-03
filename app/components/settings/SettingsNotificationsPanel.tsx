@@ -457,18 +457,6 @@ export default function SettingsNotificationsPanel({
             Établissements pour configurer les destinataires stages.
           </p>
         ) : null}
-        <SettingsField label="Modèle de convention vierge (URL PDF)">
-          <input
-            className={settingsInputClass}
-            type="url"
-            value={String(notifications.stagesConventionTemplateUrl || "")}
-            onChange={(e) => patch({ stagesConventionTemplateUrl: e.target.value.trim() })}
-            placeholder="https://…/convention-stage-vierge.pdf"
-          />
-        </SettingsField>
-        <p className={`text-xs ${dash.textMid}`}>
-          PDF remplissable (Adobe) hébergé sur S3 ou autre — lien affiché sur /stages/deposer.
-        </p>
         <SettingsField label="Référence assurance RC (convention de stage, art. 9)">
           <input
             className={settingsInputClass}

@@ -364,12 +364,6 @@ export function heuristicClassSegments(
   return { mode: "multi", segments };
 }
 
-/** Pages couvertes par les segments (1-indexées). */
-export function maxSegmentPageEnd(segments: OcrDocumentSegment[]): number {
-  if (segments.length === 0) return 0;
-  return Math.max(...segments.map((s) => s.pageEnd));
-}
-
 /**
  * Complète les segments si l'IA n'a vu qu'une partie du PDF (digest tronqué).
  * Les pages manquantes sont RATTACHÉES au segment voisin (continuation du même document),

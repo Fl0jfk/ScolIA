@@ -217,8 +217,6 @@ export type NotificationsConfig = {
   stagesDirectionEmail?: string;
   /** Override signature direction stages, par cycle. */
   stagesDirectionEmailByKind?: Partial<Record<"ecole" | "college" | "lycee", string>>;
-  /** PDF vierge remplissable — lien de téléchargement sur /stages/deposer */
-  stagesConventionTemplateUrl?: string;
   /**
    * Référence assurance RC établissement affichée dans la convention de stage (art. 9).
    * Ex. « Mutuelles Saint-Christophe — Police n° … ».
@@ -629,10 +627,6 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
         if (e && isEmail(e)) out[kind] = e;
       }
       return Object.keys(out).length ? out : undefined;
-    })(),
-    stagesConventionTemplateUrl: (() => {
-      const u = str(o.stagesConventionTemplateUrl).trim();
-      return u.startsWith("http") ? u : undefined;
     })(),
     stagesInsuranceText: (() => {
       const t = str(o.stagesInsuranceText).trim();
