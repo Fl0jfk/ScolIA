@@ -632,7 +632,7 @@ Demande: ${description}`;
       Authorization: `Bearer ${mistralKey}`,
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: prompt }],

@@ -1,4 +1,5 @@
 import "server-only";
+import { MISTRAL_LARGE_MODEL, mistralMessageText, mistralModelOptions } from "@/app/lib/mistral-models";
 
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { runTextractForPdfBytes } from "@/app/lib/ocr-textract";
@@ -69,6 +70,7 @@ async function mistralJsonCompletion(
       model,
       messages,
       temperature: 0,
+      ...mistralModelOptions(model),
       response_format: { type: "json_object" },
     }),
   });
@@ -77,9 +79,9 @@ async function mistralJsonCompletion(
     throw new Error(`Mistral classify HTTP ${res.status}: ${body.slice(0, 240)}`);
   }
   const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{ message?: { content?: unknown } }>;
   };
-  let raw = data.choices?.[0]?.message?.content || "";
+  let raw = mistralMessageText(data.choices?.[0]?.message?.content);
   raw = raw.trim().replace(/```json/gi, "").replace(/```/g, "").trim();
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -183,7 +185,7 @@ ${text.slice(0, 12_000)}
 ---`,
         },
       ],
-      "mistral-medium",
+      MISTRAL_LARGE_MODEL,
     );
     return classificationFromExtracted(extracted, opts);
   } catch (err) {
@@ -221,7 +223,7 @@ async function classifyInscriptionImageBytes(
           ],
         },
       ],
-      "mistral-medium",
+      MISTRAL_LARGE_MODEL,
     );
     return classificationFromExtracted(extracted, opts);
   } catch (err) {

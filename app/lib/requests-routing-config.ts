@@ -498,7 +498,7 @@ Réponds UNIQUEMENT en JSON valide : {"assignmentId":"...","confidence":0.0-1.0,
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [
@@ -702,7 +702,7 @@ Réponds UNIQUEMENT en JSON valide : {"unitId":"...","taskId":"...","confidence"
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [

@@ -13,7 +13,7 @@ import { getMistralApiKey } from "@/app/lib/tenant-config";
 export const maxDuration = 60;
 
 const MISTRAL_TIMEOUT_MS = 22_000;
-const SEGMENTATION_MODEL = "mistral-small-latest";
+const SEGMENTATION_MODEL = "mistral-small-2603";
 /** Résumé OCR envoyé à Mistral — au-delà, l'IA ne voit pas toutes les pages. */
 const DIGEST_PROMPT_LIMIT = 32_000;
 /** Au-dessus de ce seuil, on préfère l'heuristique (toutes les pages). */

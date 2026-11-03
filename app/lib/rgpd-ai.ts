@@ -1,4 +1,5 @@
 import "server-only";
+import { MISTRAL_LARGE_MODEL, MISTRAL_SMALL_MODEL, mistralMessageText, mistralModelOptions } from "@/app/lib/mistral-models";
 
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { getEnabledPlatformDpas } from "@/app/lib/rgpd-platform-dpas";
@@ -24,7 +25,8 @@ export const RGPD_FICHE_ANALYSIS_CHECKLIST = [
 ] as const;
 
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
-const MISTRAL_MODELS = ["mistral-small-latest", "mistral-medium"] as const;
+/** Large 4 d'abord ; Small 4 en secours si Large 4 est saturé. */
+const MISTRAL_MODELS = [MISTRAL_LARGE_MODEL, MISTRAL_SMALL_MODEL] as const;
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 
 function sleep(ms: number): Promise<void> {
@@ -63,6 +65,7 @@ async function mistralJson<T>(prompt: string): Promise<T> {
         body: JSON.stringify({
           model,
           temperature: 0.1,
+          ...mistralModelOptions(model),
           response_format: { type: "json_object" },
           messages: [{ role: "user", content: prompt }],
         }),
@@ -70,7 +73,7 @@ async function mistralJson<T>(prompt: string): Promise<T> {
 
       if (res.ok) {
         const data = await res.json();
-        const content = data.choices?.[0]?.message?.content;
+        const content = mistralMessageText(data.choices?.[0]?.message?.content);
         if (!content) throw new Error("Réponse Mistral vide.");
         return JSON.parse(content) as T;
       }

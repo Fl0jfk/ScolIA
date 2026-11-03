@@ -36,7 +36,7 @@ export async function mistralChatText(
 ): Promise<string | null> {
   const res = await fetchMistralWithRetry(
     {
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       temperature,
       messages,
     },
@@ -54,7 +54,7 @@ export async function mistralJsonObject<T>(
 ): Promise<T | null> {
   const res = await fetchMistralWithRetry(
     {
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: prompt }],

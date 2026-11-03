@@ -55,7 +55,7 @@ Contraintes :
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "mistral-small-latest",
+        model: "mistral-small-2603",
         temperature: 0.4,
         response_format: { type: "json_object" },
         messages: [{ role: "user", content: prompt }],

@@ -154,7 +154,7 @@ Pour chaque saisie parent, trouve l'élève correspondant le plus probable dans 
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
       response_format: { type: "json_object" },
@@ -200,7 +200,7 @@ Réponds UNIQUEMENT en JSON : { "matchedName": "nom exact du catalogue ou null" 
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: "mistral-small-2603",
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
       response_format: { type: "json_object" },

@@ -1,4 +1,5 @@
 import "server-only";
+import { MISTRAL_LARGE_MODEL, MISTRAL_LARGE_OPTIONS, MISTRAL_SMALL_MODEL, mistralMessageText, mistralModelOptions } from "@/app/lib/mistral-models";
 
 /** Appelle Mistral avec retry automatique sur erreurs transitoires (503, 429, 500). */
 async function fetchMistralWithRetry(
@@ -285,7 +286,7 @@ export async function analyzeDocMatchEleve(
   options?: AnalyzeDocMatchOptions,
 ): Promise<OcrAnalyzeResult> {
   const segmentMode = Boolean(options?.segmentMode);
-  const extractModel = segmentMode ? "mistral-small-latest" : "mistral-medium";
+  const extractModel = segmentMode ? MISTRAL_SMALL_MODEL : MISTRAL_LARGE_MODEL;
   ocrTraceCtx(trace, "classify", "start", "analyzeDocMatchEleve", {
     textChars: text.length,
     odSecteur: odProfile?.secteur ?? null,
@@ -353,6 +354,7 @@ export async function analyzeDocMatchEleve(
       model: extractModel,
       messages: [{ role: "user", content: extractionPrompt }],
       temperature: 0,
+      ...mistralModelOptions(extractModel),
       response_format: { type: "json_object" },
     }),
   });
@@ -366,7 +368,7 @@ export async function analyzeDocMatchEleve(
   }
 
   const extractionData = await extractionResponse.json();
-  let extractionResult = extractionData.choices?.[0]?.message?.content || "";
+  let extractionResult = mistralMessageText(extractionData.choices?.[0]?.message?.content);
   extractionResult = extractionResult.trim().replace(/`{3}json/gi, "").replace(/`{3}/g, "");
   extractionResult = extractionResult.replace(/\n/g, " ").trim();
   extractionResult = extractionResult
@@ -501,15 +503,16 @@ JSON uniquement : {"index":0,"confidence":0}`;
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "mistral-medium",
+            model: MISTRAL_LARGE_MODEL,
             messages: [{ role: "user", content: selectionPrompt }],
             temperature: 0,
+            ...MISTRAL_LARGE_OPTIONS,
             response_format: { type: "json_object" },
           }),
         });
         if (selectionResponse.ok) {
           const selectionData = await selectionResponse.json();
-          const content = (selectionData.choices?.[0]?.message?.content || "").trim();
+          const content = mistralMessageText(selectionData.choices?.[0]?.message?.content).trim();
           const parsed = JSON.parse(content) as { index?: number; confidence?: number };
           const selectedIndex = Number(parsed.index ?? 0);
           const confidence = Number(parsed.confidence ?? 0);
