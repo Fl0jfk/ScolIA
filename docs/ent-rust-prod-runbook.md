@@ -127,6 +127,8 @@ refusée sans `ALLOW_PROD_BACKUP=1`. Procédure complète :
 
 ### Profil prod (`ENT_ENV=prod`)
 
+**L4 : sans la feature Cargo `labo` (image de production), `POST /auth/register` et `POST /labo/bootstrap` ne sont pas enregistrés (404) ; `ENT_ALLOW_REGISTRATION` / `ENT_ALLOW_LABO` sont sans effet. Les lignes ci-dessous ne valent que pour un binaire compilé avec `--features labo`.**
+
 Fail-closed : les portes de dev ne s'ouvrent que si `ENT_ENV` (trim, insensible
 à la casse) vaut explicitement `lab`, `labo`, `dev`, `local` ou `test`. `ENT_ENV`
 absent, vide, `prod`, `production` ou inconnu → fermé. Réouvrable par dérogation

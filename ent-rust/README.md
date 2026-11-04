@@ -19,7 +19,7 @@ Workspace Cargo du chantier **Rust partout + PostgreSQL**.
 | `ent-api` | HTTP **axum** — register/login/session PG ; lit le noyau |
 | `ent-lab` | Runner labo : fait vivre le cast multi-personas et rapporte ce qui remonte |
 
-**Auth = cible prod** (pas un bricolage) : `POST /auth/register`, `/auth/login` → Bearer token opaque ; tenant = `ent_session.etablissement_id`.
+**Auth = cible prod** (pas un bricolage) : `POST /auth/login` → Bearer token opaque ; tenant = `ent_session.etablissement_id`. L'inscription libre `POST /auth/register` est **absente des builds sans feature `labo`**.
 
 **2ᵉ facteur = passkey (WebAuthn) uniquement** — aucun TOTP, aucune application
 d'authentification : `ent_passkey_credential` + challenge à usage unique ; dès
@@ -57,7 +57,7 @@ cargo run -p ent-api
 sécurité, limite de corps, timeout requête, CORS opt-in, arrêt gracieux
 `SIGTERM`, anti-force brute (verrous Postgres partagés **par compte et par IP**), sessions à TTL
 configurable, changement de mot de passe (révoque les autres sessions) et audit
-d'accès (`ent_journal_modif` domaine `auth` + `GET /audit/journal`). `POST /auth/register` et `POST /labo/bootstrap` sont **fermés par défaut**
+d'accès (`ent_journal_modif` domaine `auth` + `GET /audit/journal`). `POST /auth/register` et `POST /labo/bootstrap` sont **absents des builds sans feature `labo`** (404, aucun code ni mot de passe de labo dans le binaire de production). Compilés avec la feature `labo` (désactivée par défaut ; `ent-lab` et les tests la demandent : `--features ent-api/labo`), ils restent fermés par défaut
 (403, fail-closed) : ils ne s'ouvrent que si `ENT_ENV` vaut explicitement
 `lab`, `labo`, `dev`, `local` ou `test`, ou par dérogation explicite
 (`ENT_ALLOW_REGISTRATION=1` / `ENT_ALLOW_LABO=1`) ; les comptes **staff** s'ouvrent alors via

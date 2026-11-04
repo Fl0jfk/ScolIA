@@ -12,12 +12,62 @@
 | **Liveness** | `GET /health` | `{ ok, service, version, git_sha, migration_tag }` — ne touche pas la base |
 | **Readiness** | `GET /ready` | + `db: "up"` après un `SELECT 1` ; **503** si la base ne répond pas (retire l'instance du LB) |
 | **Métriques** | `GET /metrics` | format texte Prometheus (`version=0.0.4`), registre `crate ent-obs` |
-| **Journaux** | stdout | `tracing` : méthode, chemin, statut, latence, `x-request-id` ; `ENT_LOG_FORMAT=json` pour un collecteur |
+| **Journaux** | stdout | `tracing`, un span INFO par requête : `methode`, `route` (gabarit `MatchedPath`), `request_id`, puis à la fin de la requête `status` et `latency` (voir §1 bis) ; `ENT_LOG_FORMAT=json` pour un collecteur (API seule : `ent-api`) |
 
 `migration_tag` est la **dernière migration compilée** (`ent-db/src/migrate.rs`,
 constante `MIGRATION_TAG`). Un test (`migration_tag_suit_la_derniere_migration`)
 échoue si on ajoute un fichier `0NN_*.sql` sans bumper la constante : le tag ne
 peut pas mentir.
+
+### 1 bis. Journaux, erreurs, en-têtes et traçabilité (état réel)
+
+**Journal applicatif (`tracing`).** Chaque requête ouvre un span `requete` avec
+`methode`, `route` et `request_id` (valeur de `x-request-id`, reprise dans la
+réponse). La route est le **gabarit** (`/personnel/{id}`), jamais l'URI brute :
+la query (`?token=` des liens de réinitialisation, `?q=<nom d'élève>`) n'est
+donc jamais journalisée. L'événement de fin de requête ajoute `status` et
+`latency`. Avec `ENT_LOG_FORMAT=json` (binaire `ent-api`), chaque ligne est un
+objet JSON avec le span courant (`span.methode`, `span.route`, `span.request_id`).
+Test : `ent-api/tests/span_requete.rs` (`span_de_requete_sans_query_ni_uri_brute`). Le binaire
+`ent-web-server` initialise encore un journal texte seulement.
+
+**Erreurs.** Une panne d'infrastructure (base injoignable, pool fermé, timeout,
+SQL invalide…) n'est plus un « introuvable » : `ent-db` la classe en
+`DomainError::Infrastructure` (seul `RowNotFound` donne `NotFound`), l'API répond
+**500** et le détail (code SQLSTATE ou nature de la panne, jamais les valeurs)
+va au journal en `ERROR`. Le client reçoit uniquement
+`Erreur interne. Référence : <x-request-id>` : une couche HTTP remplace le corps
+de **toute** réponse 500, quelle que soit sa source (garde-fou). Un jeton de
+session dont la résolution échoue parce que la base est en panne donne 500 et
+non 401 (pas de déconnexion massive pendant un incident).
+
+**En-têtes.** Toutes les réponses de l'API et des pages `/web` portent
+`Cache-Control: no-store` et `Pragma: no-cache`. Exceptions volontaires :
+`/static` (polices, scripts de l'API) et `/pkg` (paquet WebAssembly versionné de
+`/web`) gardent leur cache. L'API ajoute `Referrer-Policy: same-origin` et
+`Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`.
+
+**Traçabilité (journal `ent_journal_modif`, domaine / action).** Sans contenu
+sensible : acteur, rôle, élève concerné ou identifiant de pièce.
+
+| Évènement | Domaine / action |
+|---|---|
+| échec de connexion, verrouillage (déduplication : 1 par compte et par 5 min) | `auth` / `connexion_echec`, `connexion_verrou` (e-mail remplacé par une empreinte SHA-256 tronquée) |
+| fiche santé, PAI (et sa pièce), passages infirmerie, dossier et entretiens psy | `consultation` / `fiche_sante`, `pai`, `pai_piece`, `passages_infirmerie`, `dossier_psy`, `entretiens_psy` |
+| téléchargement d'un document ou d'une pièce de message | `telechargement` / `document`, `piece_message` |
+| exports LSL, LSUN, ONDE, Notanet, Parcoursup, OGEC, SEPA, volumes cuisine | `export` / `lsl`, `lsun`, `onde`, `notanet`, `parcoursup`, `ogec`, `sepa`, `volumes_cuisine` |
+
+L'écriture est *best-effort* : un échec d'écriture du journal (ou de
+`audit_acces`) est consigné en `ERROR` mais ne fait pas échouer la requête
+métier. Le journal est en **ajout seul** : un trigger (migration
+`091_journal_ajout_seul`) refuse tout `UPDATE`/`DELETE` (SQLSTATE `42501`).
+Aucun code applicatif ne modifie ni ne supprime ces lignes ; une purge de
+rétention devra passer par une procédure dédiée, décidée et auditée.
+
+Limites connues : les échecs de connexion par passkey ne sont pas encore tracés ;
+une panne base pendant la vérification du mot de passe est encore remontée comme
+« identifiants invalides » (401) car `auth_repo` convertit les erreurs SQL en
+`AuthError` ; `TRUNCATE` n'est pas bloqué par le trigger.
 
 ### Accès à `/metrics`
 

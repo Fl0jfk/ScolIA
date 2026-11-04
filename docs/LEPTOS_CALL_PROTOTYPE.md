@@ -125,12 +125,13 @@ bash ent-rust/web/scripts/pg.sh start      # démarrer PostgreSQL
 bash ent-rust/web/scripts/pg.sh stop       # arrêter PostgreSQL
 bash ent-rust/web/scripts/pg.sh reset      # recréer la base de test vide
 cd ent-rust/web
-cargo leptos build                          # développement (WebAssembly + serveur)
-cargo leptos build --release --precompress  # production (+ fichiers .br/.gz)
+cargo leptos build --bin-features labo     # développement LABO (WebAssembly + serveur ; feature labo = /labo/bootstrap, L4)
+cargo leptos build --release --precompress  # production (+ fichiers .br/.gz) — SANS la feature labo ; pour un serveur de labo en release, ajouter --bin-features labo
 "$CARGO_TARGET_DIR/release/ent-web-server.exe"     # serveur sur http://127.0.0.1:8090
+cargo build --release -p ent-web-server --features labo --bin seed-labo-web   # (une fois) puis :
 "$CARGO_TARGET_DIR/release/seed-labo-web.exe"      # données de labo (affiche l'URL de connexion)
 cargo test -p ent-web-api -p ent-web-app --features ent-web-app/ssr                        # tests unitaires
-cargo test -p ent-web-server --test contre_backend -- --test-threads=1 --nocapture          # tests contre le vrai backend
+cargo test -p ent-web-server --features labo --test contre_backend -- --test-threads=1 --nocapture          # tests contre le vrai backend
 ```
 
 ### Retrait complet

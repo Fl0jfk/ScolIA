@@ -14,6 +14,40 @@ Référence audit : https://github.com/cloudflare/security-audit-skill. Vérifie
 
 Chaque constat indique gravité, exploitabilité, actif exposé, scénario, preuve, impact, recommandation et confiance. Aucun test destructif, exploitation réelle ou scan externe sans autorisation.
 
+## Vague 1 du socle de confiance (2026-11-04) — tranche 2
+
+Niveau : **implémenté + testé en local** ; non commitée à la date de rédaction (commit local prévu sur `ENT`, non poussé) ; non validé pilote ; non prêt production ; aucun audit complet.
+
+**Constats corrigés**
+
+| Constat | Gravité | Correction | Preuve |
+|---|---|---|---|
+| `storage_key` fourni par le client et lecture de fichiers hors de leur document (lot L1) | Critique | Clé jamais fournie par le client (retirée de `DeposerDocumentBody`, forcée à `None` dans le dépôt public). Lecture seulement si la clé appartient au document et à son établissement (`document_storage_key_is_owned`, `photo_storage_key_is_owned`, `pai_storage_key_is_owned`). `ent-object` `assert_safe_key` refuse `:`, `\`, `..`, segments vides ou `.`, NUL, chemins absolus, plus de 512 caractères. `NotFound` sans clé dans le message. Clés retirées des réponses (dossier ; trombinoscope : marqueur) | Suite backend du 2026-11-04. 22 documents de test à clé hostile neutralisés (sans modification de données) |
+| Accès aux données personnelles de l'annuaire (lot L2) | À qualifier | `/eleves/search` et `/eleves/labels` réservés au personnel. `/eleves/{id}/absent` : personnel, parent lié, élève lui-même. Identité par niveau en un point (`PgEnt::niveau_identite`) : Complet (Admin, Direction, Administratif, parent pour ses enfants, élève pour lui-même), Sante (Infirmerie : sexe et date de naissance), Reduit (Prof, Compta, Cpe, Psy), appliqué à la recherche, à la fiche élève, à l'effectif de classe et au dossier (continuum mef/régime/redoublement masqué hors Complet ; `redoublant` à null). Recherche par badge réservée au niveau Complet. Jokers LIKE échappés. Foyers réservés à Admin, Direction, Administratif, Compta, Cpe. Journal et points de vie scolaire : `peut_voir_vs` exigé pour un parent. Dossier de la Compta réduit (identité, scolarité, famille, repas, bourses) | Matrice L8 ; tests ent-api |
+| Labo et inscription libre accessibles hors production (lot L4, reprise de F-005) | Élevée | Feature Cargo `labo` désactivée par défaut (ent-db, ent-api, ent-lab, ent-web-server). Sans elle, `/labo/bootstrap` et `/auth/register` répondent 404 ; aucune constante ni aide de labo. Binaire de production vérifié : sans mot de passe de développement du labo, sans `/labo/bootstrap`, sans `seed_labo_cast`, sans `/auth/register` (contrôle automatique en CI et dans le Dockerfile). Rattachement d'un parent sans mot de passe : secret aléatoire inconnu (plus de mot de passe public). Provisionnement du personnel via `POST /etablissement/personnel` | Contrôle CI et Dockerfile ; tests avec et sans `labo` |
+| Erreurs internes, en-têtes et journaux (lot L6) | À qualifier | `DomainError::Infrastructure` et `Reessayer`. SQLSTATE classe 22 → 400, classe 40 → 503, reste → 500 générique « Erreur interne. Référence : <request id> » (détail au journal seulement). `Cache-Control: no-store` et `Pragma` sur l'API et `/web` (pas sur les statiques). Referrer-Policy et Permissions-Policy. Journal : span INFO avec méthode, route gabarit (MatchedPath, jamais la query), request id assaini. Traçabilité des consultations santé et psy (fiche santé, PAI, pièces PAI, passages infirmerie, entretiens, dossier psy), des téléchargements et des exports réglementaires. Échecs de connexion et verrous journalisés seulement pour un compte membre de l'établissement, au plus une fois par 5 min, avec empreinte SHA-256 tronquée de l'e-mail. Journal `ent_journal_modif` en ajout seul (migration 091, trigger anti UPDATE/DELETE). `Debug` masqué pour les types à secrets | Suite backend du 2026-11-04 |
+| Séparation inter-établissements non couverte par des tests systématiques (lot L8) | — | Matrice `ent-rust/crates/ent-api/tests/separation.rs` : 27 tests, plus de 1 700 cas rôles × ressources × établissements ; invariants 401 sur toutes les routes non publiques ; `etablissement_id` ignoré ; oracle de fuite | Matrice L8 |
+
+**Validation (2026-11-04, base de test locale, conditions du job CI backend `ENT_ENV=test`)**
+- Backend : `cargo test --workspace --features ent-api/labo,ent-lab/labo` : 344 réussis, 0 échec. Sans `labo`, sous-ensemble `ent-api` + `ent-db` + `ent-object` : 51 réussis (les tests qui exigent le labo sont exclus par construction ; la suite complète est celle avec `labo`).
+- Web : 89 réussis ; WASM OK ; clippy 0 erreur.
+- Ancienne interface vérifiée au navigateur : aucune régression bloquante.
+- Revues Sonnet : 1 bloquant trouvé et corrigé ; plus aucun bloquant à la date de rédaction.
+- Non fait : exécution de la CI GitHub sur ces changements ; test pilote.
+
+**Limites restantes** (gravité indicative)
+
+| Gravité | Limite |
+|---|---|
+| Élevée | L3 non traité : e-mail de l'administrateur modifiable par un administratif ; réinitialisation du mot de passe d'un parent par la direction ; champ `password` du rattachement. Deux cas de test L3 restent ignorés |
+| Moyenne | Journal : l'application peut encore désactiver le trigger (pas de rôle de migration séparé) ; `TRUNCATE` non bloqué ; durée de conservation non définie ; e-mail en clair pour les connexions réussies (`audit_acces`) |
+| Faible | Empreinte e-mail non salée (HMAC à décider) ; libellés « Seed labo » dans l'ancienne UI ; mots de passe préremplis dans les applis mobiles ; date de début des périodes de classe visible aux rôles réduits |
+| Importante (avant pilote), inchangée | Jeton de session en `localStorage` ; `/app` sans CSP |
+
+**Non fait** : audit complet ; L3 ; durée de conservation du journal ; aucun changement documenté sur la limitation de débit.
+
+**Hypothèse / recommandation** : la matrice L8 couvre les routes qu'elle énumère ; elle ne prouve pas l'absence de défaut de séparation ailleurs. Étendre la matrice à chaque domaine avant pilote. Trancher les décisions en attente (rôle de migration, durée de conservation, HMAC de l'empreinte) listées dans `PROJECT_STATUS.md`.
+
 ## État vérifié (2026-11-03) — tranche 1 du frontend
 
 Niveau : **implémenté + testé en local** ; aucun audit complet, non validé pilote, non prêt production. Rien poussé.
