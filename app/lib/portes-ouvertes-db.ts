@@ -19,8 +19,8 @@ import type {
 } from "@/app/lib/portes-ouvertes-types";
 import { isPortesOuvertesCycle } from "@/app/lib/portes-ouvertes-types";
 import {
-  PORTES_OUVERTES_MAX_AMBASSADEURS,
-  PORTES_OUVERTES_MAX_ENCADRANTS,
+  PORTES_OUVERTES_MAX_PAR_ROLE,
+  PORTES_OUVERTES_STAFF_ROLE_LABELS,
 } from "@/app/lib/portes-ouvertes-types";
 
 export type { PortesOuvertesStaffRole, PortesOuvertesStaffRow };
@@ -626,20 +626,11 @@ export async function addPortesOuvertesStaff(
   const existing = await listPortesOuvertesStaff(etabId, slotId);
   const alreadySame = existing.some((s) => s.role === input.role && s.refId === refId);
   if (!alreadySame) {
-    if (input.role === "ambassadeur") {
-      const n = existing.filter((s) => s.role === "ambassadeur").length;
-      if (n >= PORTES_OUVERTES_MAX_AMBASSADEURS) {
-        throw new Error(
-          `Maximum ${PORTES_OUVERTES_MAX_AMBASSADEURS} élèves ambassadeurs par créneau.`,
-        );
-      }
-    } else {
-      const n = existing.filter((s) => s.role === "enseignant" || s.role === "personnel").length;
-      if (n >= PORTES_OUVERTES_MAX_ENCADRANTS) {
-        throw new Error(
-          `Maximum ${PORTES_OUVERTES_MAX_ENCADRANTS} encadrants (professeur ou personnel OGEC) par créneau.`,
-        );
-      }
+    const n = existing.filter((s) => s.role === input.role).length;
+    if (n >= PORTES_OUVERTES_MAX_PAR_ROLE) {
+      throw new Error(
+        `Maximum ${PORTES_OUVERTES_MAX_PAR_ROLE} « ${PORTES_OUVERTES_STAFF_ROLE_LABELS[input.role]} » par créneau.`,
+      );
     }
   }
 

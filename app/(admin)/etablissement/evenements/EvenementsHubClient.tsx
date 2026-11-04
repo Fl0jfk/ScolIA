@@ -30,8 +30,7 @@ import {
 } from "@/app/lib/portes-ouvertes-slots";
 import {
   PORTES_OUVERTES_CYCLE_LABELS,
-  PORTES_OUVERTES_MAX_AMBASSADEURS,
-  PORTES_OUVERTES_MAX_ENCADRANTS,
+  PORTES_OUVERTES_MAX_PAR_ROLE,
   type PortesOuvertesCycle,
   type PortesOuvertesStaffRole,
   type PortesOuvertesStaffRow,
@@ -1264,8 +1263,8 @@ function SlotEditorRow({
     setEndLocal(toDatetimeLocalValue(slot.endAt));
   }, [slot.id, slot.label, slot.maxPlaces, slot.startAt, slot.endAt]);
 
-  const ambassadeurs = staff.filter((s) => s.role === "ambassadeur");
-  const encadrants = staff.filter((s) => s.role === "enseignant" || s.role === "personnel");
+  const countRole = (role: PortesOuvertesStaffRole) =>
+    staff.filter((s) => s.role === role).length;
 
   return (
     <div className="rounded-xl border border-slate-100 bg-white p-4 space-y-3">
@@ -1312,9 +1311,8 @@ function SlotEditorRow({
           Inscrits : {registered}
           {maxPlaces > 0 ? ` — plafond ${maxPlaces}` : ""}
           {" · "}
-          Encadrants {encadrants.length}/{PORTES_OUVERTES_MAX_ENCADRANTS}
-          {" · "}
-          Ambassadeurs {ambassadeurs.length}/{PORTES_OUVERTES_MAX_AMBASSADEURS}
+          Profs {countRole("enseignant")} · OGEC {countRole("personnel")} · Ambassadeurs{" "}
+          {countRole("ambassadeur")}
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -1353,86 +1351,64 @@ function SlotEditorRow({
       {staffOpen ? (
         <div className="rounded-lg border border-violet-100 bg-violet-50/50 p-3 space-y-3">
           <p className="text-xs text-violet-900">
-            Typiquement 1–2 encadrants (professeur ou personnel OGEC) et 2 élèves ambassadeurs.
+            Ajoutez autant de professeurs, personnels OGEC et élèves ambassadeurs que nécessaire :
+            recherchez une personne, cliquez sur son nom, puis recommencez pour la suivante.
           </p>
           <div className="grid gap-3 lg:grid-cols-3">
-            <AdminStaffSearchPicker
-              kind="enseignant"
-              label="Professeur"
-              disabled={saving || encadrants.length >= PORTES_OUVERTES_MAX_ENCADRANTS}
-              onPick={(hit) =>
-                onAddStaff({
-                  slotId: slot.id,
-                  role: "enseignant",
-                  refId: hit.refId,
-                  displayName: hit.displayName,
-                  meta: hit.meta,
-                })
-              }
-            />
-            <AdminStaffSearchPicker
-              kind="personnel"
-              label="Personnel OGEC"
-              disabled={saving || encadrants.length >= PORTES_OUVERTES_MAX_ENCADRANTS}
-              onPick={(hit) =>
-                onAddStaff({
-                  slotId: slot.id,
-                  role: "personnel",
-                  refId: hit.refId,
-                  displayName: hit.displayName,
-                  meta: hit.meta,
-                })
-              }
-            />
-            <AdminStaffSearchPicker
-              kind="eleve"
-              label="Élève ambassadeur"
-              disabled={saving || ambassadeurs.length >= PORTES_OUVERTES_MAX_AMBASSADEURS}
-              onPick={(hit) =>
-                onAddStaff({
-                  slotId: slot.id,
-                  role: "ambassadeur",
-                  refId: hit.refId,
-                  displayName: hit.displayName,
-                  meta: hit.meta,
-                })
-              }
-            />
-          </div>
-          {staff.length === 0 ? (
-            <p className="text-sm text-slate-500">Personne assignée pour l’instant.</p>
-          ) : (
-            <ul className="divide-y divide-violet-100 rounded-lg border border-violet-100 bg-white">
-              {staff.map((row) => (
-                <li
-                  key={row.id}
-                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+            {STAFF_GROUPS.map((group) => {
+              const rows = staff.filter((s) => s.role === group.role);
+              const full = rows.length >= PORTES_OUVERTES_MAX_PAR_ROLE;
+              return (
+                <div
+                  key={group.role}
+                  className="space-y-2 rounded-lg border border-violet-100 bg-white p-2.5"
                 >
-                  <div>
-                    <span className="font-semibold text-slate-900">{row.displayName}</span>
-                    <span className="ml-2 text-xs font-semibold text-violet-700">
-                      {row.role === "ambassadeur"
-                        ? "Ambassadeur"
-                        : row.role === "enseignant"
-                          ? "Professeur"
-                          : "Personnel OGEC"}
-                    </span>
-                    {row.meta?.classe ? (
-                      <span className="ml-2 text-xs text-slate-500">{row.meta.classe}</span>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    className="text-xs font-bold text-rose-600 disabled:opacity-50"
-                    onClick={() => onRemoveStaff(row.id)}
-                  >
-                    Retirer
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+                  <AdminStaffSearchPicker
+                    kind={group.kind}
+                    label={`${group.label} (${rows.length})`}
+                    disabled={saving || full}
+                    excludeRefIds={rows.map((r) => r.refId)}
+                    onPick={(hit) =>
+                      onAddStaff({
+                        slotId: slot.id,
+                        role: group.role,
+                        refId: hit.refId,
+                        displayName: hit.displayName,
+                        meta: hit.meta,
+                      })
+                    }
+                  />
+                  {rows.length === 0 ? (
+                    <p className="text-xs text-slate-400">Personne pour l’instant.</p>
+                  ) : (
+                    <ul className="divide-y divide-violet-50">
+                      {rows.map((row) => (
+                        <li
+                          key={row.id}
+                          className="flex items-center justify-between gap-2 py-1.5 text-sm"
+                        >
+                          <span className="min-w-0">
+                            <span className="font-semibold text-slate-900">{row.displayName}</span>
+                            {row.meta?.classe ? (
+                              <span className="ml-2 text-xs text-slate-500">{row.meta.classe}</span>
+                            ) : null}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            className="shrink-0 text-xs font-bold text-rose-600 disabled:opacity-50"
+                            onClick={() => onRemoveStaff(row.id)}
+                          >
+                            Retirer
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : null}
     </div>
@@ -1445,15 +1421,28 @@ type StaffSearchHit = {
   meta?: Record<string, string>;
 };
 
+const STAFF_GROUPS: {
+  role: PortesOuvertesStaffRole;
+  kind: "eleve" | "enseignant" | "personnel";
+  label: string;
+}[] = [
+  { role: "enseignant", kind: "enseignant", label: "Professeurs" },
+  { role: "personnel", kind: "personnel", label: "Personnels OGEC" },
+  { role: "ambassadeur", kind: "eleve", label: "Élèves ambassadeurs" },
+];
+
 function AdminStaffSearchPicker({
   kind,
   label,
   disabled,
+  excludeRefIds = [],
   onPick,
 }: {
   kind: "eleve" | "enseignant" | "personnel";
   label: string;
   disabled: boolean;
+  /** Personnes déjà dans l’équipe, masquées des résultats. */
+  excludeRefIds?: string[];
   onPick: (hit: StaffSearchHit) => void;
 }) {
   const [q, setQ] = useState("");
@@ -1491,21 +1480,23 @@ function AdminStaffSearchPicker({
     };
   }, [q, kind, disabled]);
 
+  const visible = results.filter((hit) => !excludeRefIds.includes(hit.refId));
+
   return (
     <div className="space-y-1.5">
       <label className="block text-[11px] font-bold uppercase text-violet-800">{label}</label>
       <input
         type="search"
         disabled={disabled}
-        placeholder={disabled ? "Plafond atteint" : "Rechercher (2 lettres min.)"}
+        placeholder="Ajouter : rechercher (2 lettres min.)"
         className="w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
       {searching ? <p className="text-[11px] text-slate-500">Recherche…</p> : null}
-      {results.length > 0 ? (
+      {visible.length > 0 ? (
         <ul className="max-h-36 overflow-auto rounded-lg border border-violet-100 bg-white text-sm">
-          {results.map((hit) => (
+          {visible.map((hit) => (
             <li key={`${hit.refId}-${hit.displayName}`}>
               <button
                 type="button"

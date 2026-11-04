@@ -11,9 +11,7 @@ import type { PortesOuvertesRegistration } from "@/app/lib/portes-ouvertes-types
 import {
   PORTES_OUVERTES_CYCLE_LABELS,
   PORTES_OUVERTES_CYCLES,
-  PORTES_OUVERTES_MAX_AMBASSADEURS,
-  PORTES_OUVERTES_MAX_ENCADRANTS,
-  PORTES_OUVERTES_STAFF_ROLE_LABELS,
+  PORTES_OUVERTES_MAX_PAR_ROLE,
   portesOuvertesRegistrationFingerprint,
   type PortesOuvertesCycle,
   type PortesOuvertesStaffRole,
@@ -92,8 +90,6 @@ type EditDraft = {
   slotId: string;
   notifyVisitor: boolean;
 };
-
-const ROLE_LABELS = PORTES_OUVERTES_STAFF_ROLE_LABELS;
 
 function slotMatchesCycle(s: SlotWithCount, forCycle: PortesOuvertesCycle): boolean {
   return !s.cycle || s.cycle === forCycle;
@@ -951,8 +947,8 @@ export default function AccueilPortesOuvertesClient({
             <div>
               <h2 className="text-lg font-bold text-slate-900">Équipe des créneaux</h2>
               <p className="text-sm text-slate-600">
-                1–2 encadrants (professeur ou personnel OGEC) et jusqu’à 2 élèves ambassadeurs
-                par départ.
+                Plusieurs professeurs, personnels OGEC et élèves ambassadeurs possibles par
+                départ : recherchez une personne, cliquez sur son nom, puis recommencez.
               </p>
             </div>
             {staffingSlots.length === 0 ? (
@@ -961,10 +957,8 @@ export default function AccueilPortesOuvertesClient({
               staffingSlots.map((s) => {
                 const open = staffOpenSlotId === s.id;
                 const slotStaff = (board.staff || []).filter((x) => x.slotId === s.id);
-                const ambassadeurs = slotStaff.filter((x) => x.role === "ambassadeur");
-                const encadrants = slotStaff.filter(
-                  (x) => x.role === "enseignant" || x.role === "personnel",
-                );
+                const countRole = (role: PortesOuvertesStaffRole) =>
+                  slotStaff.filter((x) => x.role === role).length;
                 return (
                   <div
                     key={s.id}
@@ -983,9 +977,8 @@ export default function AccueilPortesOuvertesClient({
                             : ""}
                         </h3>
                         <p className="text-xs text-slate-500">
-                          {formatParisTimeLabel(s.startAt)} · encadrants {encadrants.length}/
-                          {PORTES_OUVERTES_MAX_ENCADRANTS} · ambassadeurs {ambassadeurs.length}/
-                          {PORTES_OUVERTES_MAX_AMBASSADEURS}
+                          {formatParisTimeLabel(s.startAt)} · profs {countRole("enseignant")} ·
+                          OGEC {countRole("personnel")} · ambassadeurs {countRole("ambassadeur")}
                         </p>
                       </div>
                       <span className="text-xs font-bold text-violet-700">
@@ -993,78 +986,63 @@ export default function AccueilPortesOuvertesClient({
                       </span>
                     </button>
                     {open ? (
-                      <div className="p-4 space-y-4">
-                        <StaffSearchPicker
-                          kind="enseignant"
-                          title="Professeur"
-                          disabled={busy || encadrants.length >= PORTES_OUVERTES_MAX_ENCADRANTS}
-                          onPick={(hit) =>
-                            void addStaff({
-                              slotId: s.id,
-                              role: "enseignant",
-                              refId: hit.refId,
-                              displayName: hit.displayName,
-                              meta: hit.meta,
-                            })
-                          }
-                        />
-                        <StaffSearchPicker
-                          kind="personnel"
-                          title="Personnel OGEC"
-                          disabled={busy || encadrants.length >= PORTES_OUVERTES_MAX_ENCADRANTS}
-                          onPick={(hit) =>
-                            void addStaff({
-                              slotId: s.id,
-                              role: "personnel",
-                              refId: hit.refId,
-                              displayName: hit.displayName,
-                              meta: hit.meta,
-                            })
-                          }
-                        />
-                        <StaffSearchPicker
-                          kind="eleve"
-                          title="Élève ambassadeur"
-                          disabled={busy || ambassadeurs.length >= PORTES_OUVERTES_MAX_AMBASSADEURS}
-                          onPick={(hit) =>
-                            void addStaff({
-                              slotId: s.id,
-                              role: "ambassadeur",
-                              refId: hit.refId,
-                              displayName: hit.displayName,
-                              meta: hit.meta,
-                            })
-                          }
-                        />
-                        {slotStaff.length === 0 ? (
-                          <p className="text-sm text-slate-500">Personne assignée.</p>
-                        ) : (
-                          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100">
-                            {slotStaff.map((row) => (
-                              <li
-                                key={row.id}
-                                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                              >
-                                <div>
-                                  <span className="font-semibold text-slate-900">
-                                    {row.displayName}
-                                  </span>
-                                  <span className="ml-2 text-xs font-semibold text-violet-700">
-                                    {ROLE_LABELS[row.role]}
-                                  </span>
-                                </div>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  className="text-xs font-bold text-rose-600 disabled:opacity-50"
-                                  onClick={() => void removeStaff(row.id)}
-                                >
-                                  Retirer
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
+                      <div className="grid gap-4 p-4 lg:grid-cols-3">
+                        {STAFF_GROUPS.map((group) => {
+                          const rows = slotStaff.filter((x) => x.role === group.role);
+                          return (
+                            <div
+                              key={group.role}
+                              className="space-y-2 rounded-xl border border-slate-100 p-3"
+                            >
+                              <StaffSearchPicker
+                                kind={group.kind}
+                                title={`${group.label} (${rows.length})`}
+                                disabled={busy || rows.length >= PORTES_OUVERTES_MAX_PAR_ROLE}
+                                excludeRefIds={rows.map((r) => r.refId)}
+                                onPick={(hit) =>
+                                  void addStaff({
+                                    slotId: s.id,
+                                    role: group.role,
+                                    refId: hit.refId,
+                                    displayName: hit.displayName,
+                                    meta: hit.meta,
+                                  })
+                                }
+                              />
+                              {rows.length === 0 ? (
+                                <p className="text-xs text-slate-400">Personne pour l’instant.</p>
+                              ) : (
+                                <ul className="divide-y divide-slate-100">
+                                  {rows.map((row) => (
+                                    <li
+                                      key={row.id}
+                                      className="flex items-center justify-between gap-2 py-1.5 text-sm"
+                                    >
+                                      <span className="min-w-0">
+                                        <span className="font-semibold text-slate-900">
+                                          {row.displayName}
+                                        </span>
+                                        {row.meta?.classe ? (
+                                          <span className="ml-2 text-xs text-slate-500">
+                                            {row.meta.classe}
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        className="shrink-0 text-xs font-bold text-rose-600 disabled:opacity-50"
+                                        onClick={() => void removeStaff(row.id)}
+                                      >
+                                        Retirer
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : null}
                   </div>
@@ -1380,15 +1358,24 @@ export default function AccueilPortesOuvertesClient({
   );
 }
 
+const STAFF_GROUPS: { role: PortesOuvertesStaffRole; kind: SearchKind; label: string }[] = [
+  { role: "enseignant", kind: "enseignant", label: "Professeurs" },
+  { role: "personnel", kind: "personnel", label: "Personnels OGEC" },
+  { role: "ambassadeur", kind: "eleve", label: "Élèves ambassadeurs" },
+];
+
 function StaffSearchPicker({
   kind,
   title,
   disabled,
+  excludeRefIds = [],
   onPick,
 }: {
   kind: SearchKind;
   title?: string;
   disabled: boolean;
+  /** Personnes déjà dans l’équipe, masquées des résultats. */
+  excludeRefIds?: string[];
   onPick: (hit: SearchHit) => void;
 }) {
   const [q, setQ] = useState("");
@@ -1433,6 +1420,7 @@ function StaffSearchPicker({
       : kind === "enseignant"
         ? "Professeur"
         : "Personnel OGEC");
+  const visible = results.filter((hit) => !excludeRefIds.includes(hit.refId));
 
   return (
     <div className="space-y-1.5">
@@ -1440,15 +1428,15 @@ function StaffSearchPicker({
       <input
         type="search"
         disabled={disabled}
-        placeholder={disabled ? "Plafond atteint" : "Rechercher (2 lettres min.)"}
+        placeholder="Ajouter : rechercher (2 lettres min.)"
         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
       {searching ? <p className="text-[11px] text-slate-500">Recherche…</p> : null}
-      {results.length > 0 ? (
+      {visible.length > 0 ? (
         <ul className="max-h-40 overflow-auto rounded-xl border border-slate-100 bg-white text-sm">
-          {results.map((hit) => (
+          {visible.map((hit) => (
             <li key={`${hit.refId}-${hit.displayName}`}>
               <button
                 type="button"

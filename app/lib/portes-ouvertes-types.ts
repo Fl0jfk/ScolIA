@@ -52,9 +52,11 @@ export const PORTES_OUVERTES_CYCLE_LABELS: Record<PortesOuvertesCycle, string> =
 
 export const PORTES_OUVERTES_CYCLES: PortesOuvertesCycle[] = ["ecole", "college", "lycee"];
 
-/** Plafonds soft par créneau : 1–2 encadrants (prof ou OGEC) + 1–2 élèves ambassadeurs. */
-export const PORTES_OUVERTES_MAX_ENCADRANTS = 2;
-export const PORTES_OUVERTES_MAX_AMBASSADEURS = 2;
+/**
+ * Garde-fou par créneau et par type (professeurs, personnels OGEC, ambassadeurs) :
+ * on peut en mettre plusieurs de chaque type, ce plafond évite seulement les abus.
+ */
+export const PORTES_OUVERTES_MAX_PAR_ROLE = 30;
 
 export type PortesOuvertesStaffRole = "ambassadeur" | "enseignant" | "personnel";
 
