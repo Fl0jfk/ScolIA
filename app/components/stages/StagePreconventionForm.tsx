@@ -53,7 +53,10 @@ export default function StagePreconventionForm({
   submitLabel = "Envoyer à l'administratif",
   scheduleConstraints,
   cycleLabel,
+  contactsLocked = false,
 }: {
+  /** Page publique : e-mails élève / responsables affichés masqués, en lecture seule. */
+  contactsLocked?: boolean;
   convention: StageConvention;
   onChange: (next: StageConvention) => void;
   onSave: () => void;
@@ -230,6 +233,7 @@ export default function StagePreconventionForm({
           <input
             className={fieldInputClass}
             type="email"
+            disabled={contactsLocked}
             value={convention.student.email || ""}
             onChange={(e) =>
               onChange({
@@ -256,6 +260,7 @@ export default function StagePreconventionForm({
               className={fieldInputClass}
               type="email"
               value={parent1Value}
+              disabled={contactsLocked}
               onChange={(e) => updateParent1Email(e.target.value)}
             />
           </Field>
@@ -267,10 +272,11 @@ export default function StagePreconventionForm({
               className={fieldInputClass}
               type="email"
               value={parent2Value}
+              disabled={contactsLocked}
               onChange={(e) => updateParent2Email(e.target.value)}
             />
           </Field>
-          {parent2Value.trim() ? (
+          {parent2Value.trim() && !contactsLocked ? (
             <button
               type="button"
               className="text-xs font-semibold text-stone-600 underline"

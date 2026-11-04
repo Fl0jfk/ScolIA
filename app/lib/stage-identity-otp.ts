@@ -24,12 +24,22 @@ export type StageIdentityOtpChallenge = {
   sentAt: string;
   recipients: string[];
   subject: StageIdentitySubject;
+  /** Codes incorrects déjà saisis (indépendant de l'IP). */
+  attempts?: number;
 };
+
+/** Essais incorrects maximum par challenge avant invalidation. */
+export const IDENTITY_OTP_MAX_ATTEMPTS = 5;
 
 export type StageIdentityProof = {
   proofToken: string;
   issuedAt: string;
   subject: StageIdentitySubject;
+  /**
+   * Adresses (minuscules) qui ont reçu le code et l'ont validé. Serveur uniquement :
+   * jamais renvoyé au client. Absent sur les anciennes preuves (pas de fratrie).
+   */
+  verifiedEmails?: string[];
 };
 
 function isValidEmail(email: string): boolean {
@@ -66,21 +76,25 @@ export function maskEmailAddress(email: string): string {
   const local = trimmed.slice(0, at);
   const domain = trimmed.slice(at + 1);
 
-  function maskPart(part: string, head: number, tail: number): string {
-    if (part.length <= 2) return `${part[0] ?? "*"}*`;
-    if (part.length <= head + tail) {
-      return `${part.slice(0, 1)}***${part.slice(-1)}`;
-    }
-    return `${part.slice(0, head)}***${part.slice(-tail)}`;
+  // Au plus floor(n/4) caractères visibles au début et à la fin (au moins 1 au début),
+  // et jamais plus de n-3 au total : au moins la moitié de chaque partie est masquée.
+  function maskPart(part: string): string {
+    const n = part.length;
+    if (n <= 3) return `${part[0] ?? "*"}***`;
+    const quarter = Math.floor(n / 4);
+    const head = Math.max(1, quarter);
+    let tail = quarter;
+    while (head + tail > n - 3 && tail > 0) tail -= 1;
+    return `${part.slice(0, head)}***${tail > 0 ? part.slice(-tail) : ""}`;
   }
 
   const domainDot = domain.lastIndexOf(".");
   if (domainDot <= 0) {
-    return `${maskPart(local, 3, 3)}@${maskPart(domain, 2, 2)}`;
+    return `${maskPart(local)}@${maskPart(domain)}`;
   }
   const domainName = domain.slice(0, domainDot);
   const tld = domain.slice(domainDot + 1);
-  return `${maskPart(local, 3, 3)}@${maskPart(domainName, 2, 2)}.${tld}`;
+  return `${maskPart(local)}@${maskPart(domainName)}.${tld}`;
 }
 
 function newId(prefix: string): string {
@@ -179,7 +193,7 @@ export async function confirmIdentityOtpCode(params: {
   challengeId: string;
   code: string;
 }): Promise<
-  | { ok: true; subject: StageIdentitySubject; proofToken: string }
+  | { ok: true; subject: StageIdentitySubject; proofToken: string; recipients: string[] }
   | { ok: false; error: string }
 > {
   const challenge = await loadIdentityOtpChallenge(params.challengeId);
@@ -194,6 +208,17 @@ export async function confirmIdentityOtpCode(params: {
   const expected = challenge.code.replace(/\D/g, "");
   const given = params.code.replace(/\D/g, "").trim();
   if (!expected || expected !== given) {
+    const attempts = (challenge.attempts ?? 0) + 1;
+    if (attempts >= IDENTITY_OTP_MAX_ATTEMPTS) {
+      await deleteJson(STAGE_S3.identityOtpChallenge(challenge.challengeId)).catch(
+        () => undefined,
+      );
+      return { ok: false, error: "Trop d'essais. Demandez un nouveau code." };
+    }
+    await putJson(STAGE_S3.identityOtpChallenge(challenge.challengeId), {
+      ...challenge,
+      attempts,
+    });
     return { ok: false, error: "Code incorrect." };
   }
 
@@ -202,11 +227,48 @@ export async function confirmIdentityOtpCode(params: {
     proofToken,
     issuedAt: new Date().toISOString(),
     subject: challenge.subject,
+    verifiedEmails: normalizeVerifiedEmails(challenge.recipients),
   };
   await putJson(STAGE_S3.identityProof(proofToken), proof);
   await deleteJson(STAGE_S3.identityOtpChallenge(challenge.challengeId)).catch(() => undefined);
 
-  return { ok: true, subject: challenge.subject, proofToken };
+  return {
+    ok: true,
+    subject: challenge.subject,
+    proofToken,
+    recipients: proof.verifiedEmails ?? [],
+  };
+}
+
+function normalizeVerifiedEmails(emails: unknown): string[] {
+  if (!Array.isArray(emails)) return [];
+  const out = new Set<string>();
+  for (const raw of emails) {
+    const email = String(raw ?? "")
+      .trim()
+      .toLowerCase();
+    if (email) out.add(email);
+  }
+  return [...out];
+}
+
+/**
+ * Écrit une preuve dérivée pour un autre élève (fratrie) : mêmes adresses vérifiées et
+ * MÊME `issuedAt` que la preuve d'origine, pour ne jamais prolonger la validité par chaînage.
+ */
+export async function createDerivedIdentityProof(params: {
+  source: StageIdentityProof;
+  subject: StageIdentitySubject;
+}): Promise<StageIdentityProof> {
+  const proofToken = newId("proof");
+  const proof: StageIdentityProof = {
+    proofToken,
+    issuedAt: params.source.issuedAt,
+    subject: normalizeSubject(params.subject),
+    verifiedEmails: normalizeVerifiedEmails(params.source.verifiedEmails),
+  };
+  await putJson(STAGE_S3.identityProof(proofToken), proof);
+  return proof;
 }
 
 export async function loadIdentityProof(proofToken: string): Promise<StageIdentityProof | null> {
@@ -229,7 +291,7 @@ export async function loadIdentityProof(proofToken: string): Promise<StageIdenti
 export async function assertIdentityProof(
   proofToken: string | undefined,
   subject: StageIdentitySubject,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; proof: StageIdentityProof } | { ok: false; error: string }> {
   if (!proofToken?.trim()) {
     return {
       ok: false,
@@ -249,5 +311,5 @@ export async function assertIdentityProof(
       error: "La preuve d'identité ne correspond pas. Identifiez-vous à nouveau.",
     };
   }
-  return { ok: true };
+  return { ok: true, proof };
 }

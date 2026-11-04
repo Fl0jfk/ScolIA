@@ -10,11 +10,17 @@ export function clientIpFromRequest(req: Request): string {
   );
 }
 
-export function createMemoryRateLimiter(options: { windowMs: number; max: number }) {
+export function createMemoryRateLimiter(options: {
+  windowMs: number;
+  max: number;
+  /** Nom optionnel inclus dans la clé : évite la collision entre limiteurs de mêmes paramètres. */
+  name?: string;
+}) {
   return {
     async allow(key: string): Promise<boolean> {
+      const namePart = options.name ? `${options.name}:` : "";
       const result = await consumeRateLimit({
-        key: `rl:${options.windowMs}:${options.max}:${key}`,
+        key: `rl:${namePart}${options.windowMs}:${options.max}:${key}`,
         limit: options.max,
         windowMs: options.windowMs,
       });

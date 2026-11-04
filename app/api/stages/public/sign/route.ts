@@ -27,6 +27,9 @@ import {
 import { getStageConstraintsPublicContext } from "@/app/lib/stage-constraints-config";
 import { stageCycleLabel } from "@/app/lib/stage-config";
 import { assessConventionPeriodAlignment } from "@/app/lib/stage-period-alignment-server";
+import { buildEmergencyContacts } from "@/app/lib/stage-contacts-mask";
+import { findEleveByIne } from "@/app/lib/eleves-registry";
+import { loadAppConfig } from "@/app/lib/app-config";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
 const signPublicLimiter = createMemoryRateLimiter({
@@ -142,7 +145,40 @@ export async function GET(req: Request) {
       });
     }
 
+    // Contacts d'urgence : réservés au tuteur de stage (rôle tuteur_entreprise), jamais aux autres.
+    let emergencyContacts: ReturnType<typeof buildEmergencyContacts> = null;
+    if (signature.role === "tuteur_entreprise") {
+      try {
+        const ine = convention.ocrMeta?.matchedEleveIne?.trim();
+        const [eleve, config] = await Promise.all([
+          ine ? findEleveByIne(ine).catch(() => null) : Promise.resolve(null),
+          loadAppConfig().catch(() => null),
+        ]);
+        emergencyContacts = buildEmergencyContacts({
+          role: signature.role,
+          parent1: {
+            email:
+              convention.parentSignerEmail ||
+              convention.student.parent1Email ||
+              convention.student.parentEmail ||
+              eleve?.parent1Email ||
+              eleve?.parentEmail,
+            phone: eleve?.parent1Phone || eleve?.parentPhone,
+          },
+          parent2: {
+            email:
+              convention.parent2SignerEmail || convention.student.parent2Email || eleve?.parent2Email,
+            phone: eleve?.parent2Phone,
+          },
+          school: { phone: config?.identity.phone?.display || config?.identity.phone?.tel },
+        });
+      } catch (error) {
+        console.error("[stages/public/sign] emergency contacts failed", error);
+      }
+    }
+
     return NextResponse.json({
+      ...(emergencyContacts ? { emergencyContacts } : {}),
       convention: {
         id: convention.id,
         studentName: `${convention.student.firstName} ${convention.student.lastName}`.trim(),
@@ -213,7 +249,11 @@ export async function GET(req: Request) {
         : null,
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error("[stages/public/sign] unexpected error", error);
+    return NextResponse.json(
+      { error: "Une erreur est survenue. Réessayez dans quelques minutes." },
+      { status: 500 },
+    );
   }
 }
 
@@ -321,6 +361,10 @@ export async function POST(req: Request) {
       reviewStatus: result.convention.signatures.find((s) => s.signToken === token)?.reviewStatus,
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error("[stages/public/sign] unexpected error", error);
+    return NextResponse.json(
+      { error: "Une erreur est survenue. Réessayez dans quelques minutes." },
+      { status: 500 },
+    );
   }
 }

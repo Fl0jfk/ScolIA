@@ -19,6 +19,10 @@ import { scheduleSummary } from "@/app/lib/stage-schedule";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import type { StageConvention } from "@/app/lib/stage-types";
+import {
+  redactConventionForPublicStudent,
+  restoreStoredParentContacts,
+} from "@/app/lib/stage-contacts-mask";
 import { findEleveByIne } from "@/app/lib/eleves-registry";
 import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
@@ -76,7 +80,8 @@ export async function GET(req: Request) {
         convention.student.level,
       );
       return NextResponse.json({
-        convention,
+        convention: redactConventionForPublicStudent(convention),
+        identityLocked: Boolean(convention.ocrMeta?.matchedEleveIne),
         readOnly: true,
         canRequestTutorEmailChange:
           canRequestTutorEmailChange(convention) && !convention.tutorEmailChangeRequest,
@@ -96,14 +101,19 @@ export async function GET(req: Request) {
     );
 
     return NextResponse.json({
-      convention,
+      convention: redactConventionForPublicStudent(convention),
+      identityLocked: Boolean(convention.ocrMeta?.matchedEleveIne),
       readOnly: false,
       stageContext,
       signatureSummary: buildSignatureSummary(convention),
       studentPhotoUrl,
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error("[stages/public/student] unexpected error", error);
+    return NextResponse.json(
+      { error: "Une erreur est survenue. Réessayez dans quelques minutes." },
+      { status: 500 },
+    );
   }
 }
 
@@ -153,7 +163,7 @@ export async function PATCH(req: Request) {
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
       return NextResponse.json({
         success: true,
-        convention: result.convention,
+        convention: redactConventionForPublicStudent(result.convention),
         message:
           "Demande enregistrée. L'établissement doit la valider avant de relancer le tuteur.",
       });
@@ -174,6 +184,8 @@ export async function PATCH(req: Request) {
     }
 
     let convention = normalizeConventionInput(body.convention ?? body, existing);
+    // Page publique : coordonnées des responsables non modifiables (valeurs enregistrées conservées).
+    convention = restoreStoredParentContacts(convention, existing);
     convention = {
       ...convention,
       createdBy: { ...convention.createdBy, role: "eleve" },
@@ -187,12 +199,22 @@ export async function PATCH(req: Request) {
         `${convention.student.firstName} ${convention.student.lastName}`.trim(),
       );
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-      return NextResponse.json({ success: true, convention: result.convention });
+      return NextResponse.json({
+        success: true,
+        convention: redactConventionForPublicStudent(result.convention),
+      });
     }
 
     await saveStageConvention(convention);
-    return NextResponse.json({ success: true, convention });
+    return NextResponse.json({
+      success: true,
+      convention: redactConventionForPublicStudent(convention),
+    });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error("[stages/public/student] unexpected error", error);
+    return NextResponse.json(
+      { error: "Une erreur est survenue. Réessayez dans quelques minutes." },
+      { status: 500 },
+    );
   }
 }

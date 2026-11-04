@@ -14,7 +14,9 @@ import {
   assertIdentityProof,
   confirmIdentityOtpCode,
   createAndSendIdentityOtp,
+  createDerivedIdentityProof,
   loadIdentityProof,
+  type StageIdentityProof,
   subjectsMatch,
   type StageIdentitySubject,
 } from "@/app/lib/stage-identity-otp";
@@ -25,6 +27,19 @@ import {
   loadIdentityRecipientChoiceSession,
   resolveSelectedRecipientEmails,
 } from "@/app/lib/stage-identity-recipients";
+import {
+  enrichStageSiblings,
+  listStageSiblingsForEmails,
+  type StageSiblingCard,
+} from "@/app/lib/stage-siblings";
+import {
+  buildPublicContacts,
+  resolveCreateParentEmails,
+} from "@/app/lib/stage-contacts-mask";
+import { maskEmailAddress } from "@/app/lib/stage-identity-otp";
+import { isEcoleEleve } from "@/app/lib/stage-siblings-filter";
+import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 
 const preconventionLimiter = createMemoryRateLimiter({
   windowMs: 10 * 60 * 1000,
@@ -36,7 +51,14 @@ const identityLimiter = createMemoryRateLimiter({
   max: 20,
 });
 
+const switchChildLimiter = createMemoryRateLimiter({
+  name: "stage-switch-child",
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+});
+
 const otpConfirmLimiter = createMemoryRateLimiter({
+  name: "stage-otp-confirm",
   windowMs: 15 * 60 * 1000,
   max: 30,
 });
@@ -59,6 +81,14 @@ async function verifyAndLoadStudent(params: {
   }
 
   const { eleve, ...student } = verified.student;
+  const mefMap = await loadMefSecteurMap().catch(() => null);
+  if (isEcoleEleve(eleve, mefMap)) {
+    return {
+      ok: false as const,
+      error: "Les élèves d'école maternelle et élémentaire ne sont pas concernés par les stages.",
+      status: 403 as const,
+    };
+  }
   const eligibility = await isClassEligibleForStage(student.className);
   if (!eligibility.ok) {
     return { ok: false as const, error: eligibility.reason, status: 403 as const };
@@ -103,27 +133,48 @@ function identitySubjectFromLoaded(
   };
 }
 
+/** Fratrie recalculée côté serveur depuis les adresses vérifiées de la preuve (jamais depuis le client). */
+async function siblingsForProof(
+  proof: StageIdentityProof | null | undefined,
+  currentEleveId: string | undefined,
+): Promise<StageSiblingCard[]> {
+  if (!proof?.verifiedEmails?.length) return [];
+  try {
+    const list = await listStageSiblingsForEmails(proof.verifiedEmails, { currentEleveId });
+    return await enrichStageSiblings(list, currentEleveId);
+  } catch (error) {
+    console.error("[stages/preconvention] siblings lookup failed", error);
+    return [];
+  }
+}
+
 function buildIdentifySuccessPayload(
   loaded: Extract<Awaited<ReturnType<typeof verifyAndLoadStudent>>, { ok: true }>,
   identityProof?: string,
+  siblings: StageSiblingCard[] = [],
+  verifiedEmails: string[] | undefined = undefined,
 ) {
   return {
     success: true as const,
     mode: "dashboard" as const,
     identityProof: identityProof || undefined,
+    siblings,
     studentPreview: {
       firstName: loaded.student.firstName,
       lastName: loaded.student.lastName,
       className: loaded.student.className,
       photoUrl: loaded.photoUrl || null,
-      parent1Email: loaded.parent1Email || null,
-      parent2Email: loaded.parent2Email || null,
-      parentPhone:
-        loaded.eleve.parent1Phone?.trim() ||
-        loaded.eleve.parentPhone?.trim() ||
-        null,
-      parent2Phone: loaded.eleve.parent2Phone?.trim() || null,
-      studentEmail: loaded.eleve.email?.trim() || null,
+      // Coordonnées masquées côté serveur ; en clair seulement l'adresse vérifiée par code.
+      contacts: buildPublicContacts({
+        parent1Email: loaded.parent1Email,
+        parent1Phone: loaded.eleve.parent1Phone?.trim() || loaded.eleve.parentPhone?.trim(),
+        parent2Email: loaded.parent2Email,
+        parent2Phone: loaded.eleve.parent2Phone?.trim(),
+        verifiedEmails,
+      }),
+      studentEmailMasked: loaded.eleve.email?.trim()
+        ? maskEmailAddress(loaded.eleve.email)
+        : null,
     },
     dossier: {
       schoolYear: loaded.dossier.schoolYear,
@@ -249,7 +300,13 @@ export async function POST(req: Request) {
         await discardIdentityRecipientChoiceSession(recipientSessionId);
       }
 
-      return NextResponse.json(buildIdentifySuccessPayload(loaded, confirmed.proofToken));
+      const siblings = await siblingsForProof(
+        { proofToken: confirmed.proofToken, issuedAt: "", subject: confirmed.subject, verifiedEmails: confirmed.recipients },
+        loaded.eleve.id,
+      );
+      return NextResponse.json(
+        buildIdentifySuccessPayload(loaded, confirmed.proofToken, siblings, confirmed.recipients),
+      );
     }
 
     if (action === "send_identity_otp") {
@@ -276,6 +333,67 @@ export async function POST(req: Request) {
         message:
           "Le code a été envoyé. Vérifiez aussi vos spams / courriers indésirables.",
       });
+    }
+
+    if (action === "switch_child") {
+      if (!(await switchChildLimiter.allow(clientIpFromRequest(req)))) {
+        return NextResponse.json(
+          { error: "Trop de changements d'enfant. Réessayez dans quelques minutes." },
+          { status: 429 },
+        );
+      }
+      const proofToken = String(body.identityProof ?? "").trim();
+      const siblingId = String(body.siblingId ?? "").trim();
+      const denied = () =>
+        NextResponse.json({ error: "Accès à cet enfant refusé." }, { status: 403 });
+      if (!proofToken || !siblingId) return denied();
+
+      const sourceProof = await loadIdentityProof(proofToken);
+      if (!sourceProof?.verifiedEmails?.length) return denied();
+
+      try {
+        const siblings = await listStageSiblingsForEmails(sourceProof.verifiedEmails);
+        if (!siblings.some((s) => s.id === siblingId)) return denied();
+
+        const registry = await loadElevesActifsRegistry();
+        const target = registry.find((e) => e.id === siblingId);
+        if (!target) return denied();
+
+        const loadedSibling = await verifyAndLoadStudent({
+          nom: target.nom,
+          prenom: target.prenom,
+          dateNaissance: target.dateNaissance ?? "",
+          classe: target.classe,
+        });
+        if (!loadedSibling.ok || loadedSibling.eleve.id !== siblingId) return denied();
+
+        const siblingSubject = identitySubjectFromLoaded(loadedSibling, target.dateNaissance ?? "");
+        const derived = await createDerivedIdentityProof({
+          source: sourceProof,
+          subject: siblingSubject,
+        });
+        const updatedSiblings = await enrichStageSiblings(siblings, siblingId);
+        return NextResponse.json({
+          ...buildIdentifySuccessPayload(
+            loadedSibling,
+            derived.proofToken,
+            updatedSiblings,
+            derived.verifiedEmails,
+          ),
+          identity: {
+            nom: loadedSibling.student.lastName,
+            prenom: loadedSibling.student.firstName,
+            dateNaissance: siblingSubject.dateNaissance,
+            classe: loadedSibling.student.className,
+          },
+        });
+      } catch (error) {
+        console.error("[stages/preconvention] switch_child failed", error);
+        return NextResponse.json(
+          { error: "Le service est temporairement indisponible. Réessayez dans quelques minutes." },
+          { status: 503 },
+        );
+      }
     }
 
     const nom = String(body.nom ?? "").trim();
@@ -330,7 +448,10 @@ export async function POST(req: Request) {
       if (identityProof) {
         const proof = await loadIdentityProof(identityProof);
         if (proof && subjectsMatch(proof.subject, subject)) {
-          return NextResponse.json(buildIdentifySuccessPayload(loaded, identityProof));
+          const siblings = await siblingsForProof(proof, loaded.eleve.id);
+          return NextResponse.json(
+            buildIdentifySuccessPayload(loaded, identityProof, siblings, proof.verifiedEmails),
+          );
         }
       }
 
@@ -451,8 +572,16 @@ export async function POST(req: Request) {
         );
       }
 
-      const parent1Override = String(body.parent1Email ?? "").trim() || undefined;
-      const parent2Override = String(body.parent2Email ?? "").trim() || undefined;
+      // Modification acceptée uniquement pour une adresse du registre vérifiée par code.
+      const resolvedEmails = resolveCreateParentEmails({
+        registryParent1: loaded.parent1Email,
+        registryParent2: loaded.parent2Email,
+        requestedParent1: String(body.parent1Email ?? ""),
+        requestedParent2: String(body.parent2Email ?? ""),
+        verifiedEmails: proofCheck.proof.verifiedEmails,
+      });
+      const parent1Override = resolvedEmails.parent1;
+      const parent2Override = resolvedEmails.parent2;
 
       const { convention, studentLink } = await createPublicPreconventionDraft({
         ...loaded.student,
@@ -479,6 +608,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error("[stages/preconvention] unexpected error", error);
+    return NextResponse.json(
+      { error: "Une erreur est survenue. Réessayez dans quelques minutes." },
+      { status: 500 },
+    );
   }
 }

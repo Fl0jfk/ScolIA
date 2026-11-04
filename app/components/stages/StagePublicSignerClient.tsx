@@ -49,6 +49,11 @@ type SignView = {
     reviewStatus?: string;
     signMethod?: string;
   };
+  /** Présent uniquement pour le tuteur de stage. */
+  emergencyContacts?: {
+    parents: Array<{ label: string; phone?: string; email?: string }>;
+    school?: { phone?: string; email?: string };
+  };
   isExternalSigner: boolean;
   stampsPdf: boolean;
   needsDrawnSignature: boolean;
@@ -426,6 +431,69 @@ export default function StagePublicSignerClient() {
             </p>
           </div>
         </div>
+
+        {view.emergencyContacts &&
+          (view.emergencyContacts.parents.length > 0 || view.emergencyContacts.school) && (
+            <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50/70 px-4 py-3 text-sm text-rose-950">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-800/80">
+                En cas d&apos;urgence
+              </p>
+              <ul className="mt-2 space-y-2">
+                {view.emergencyContacts.parents.map((p) => (
+                  <li key={p.label}>
+                    <span className="font-semibold">{p.label}</span>
+                    {p.phone && (
+                      <>
+                        {" · "}
+                        <a
+                          className="underline"
+                          href={`tel:${p.phone.replace(/[^+0-9]/g, "")}`}
+                        >
+                          {p.phone}
+                        </a>
+                      </>
+                    )}
+                    {p.email && (
+                      <>
+                        {" · "}
+                        <a className="underline" href={`mailto:${p.email}`}>
+                          {p.email}
+                        </a>
+                      </>
+                    )}
+                  </li>
+                ))}
+                {view.emergencyContacts.school && (
+                  <li>
+                    <span className="font-semibold">Établissement</span>
+                    {view.emergencyContacts.school.phone && (
+                      <>
+                        {" · "}
+                        <a
+                          className="underline"
+                          href={`tel:${view.emergencyContacts.school.phone.replace(/[^+0-9]/g, "")}`}
+                        >
+                          {view.emergencyContacts.school.phone}
+                        </a>
+                      </>
+                    )}
+                    {view.emergencyContacts.school.email && (
+                      <>
+                        {" · "}
+                        <a className="underline" href={`mailto:${view.emergencyContacts.school.email}`}>
+                          {view.emergencyContacts.school.email}
+                        </a>
+                      </>
+                    )}
+                  </li>
+                )}
+              </ul>
+              <p className="mt-2 text-xs text-rose-900/80">
+                Prévenez l&apos;établissement et les responsables de l&apos;élève. Ces coordonnées
+                sont confidentielles et réservées au suivi du stage.
+              </p>
+            </div>
+          )}
 
         <div className="mt-3 rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800/70">

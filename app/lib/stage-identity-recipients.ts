@@ -12,6 +12,7 @@ import {
   maskEmailAddress,
   type StageIdentitySubject,
 } from "@/app/lib/stage-identity-otp";
+import { disambiguateMaskedLabels } from "@/app/lib/stage-contacts-mask";
 import { STAGE_S3 } from "@/app/lib/stage-types";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 
@@ -120,10 +121,11 @@ export async function createIdentityRecipientChoiceSession(params: {
   }
 
   const sessionId = newId("rcp");
-  const options = emails.map((email) => ({
+  const labels = disambiguateMaskedLabels(emails.map((email) => maskEmailAddress(email)));
+  const options = emails.map((email, i) => ({
     id: optionIdFor(sessionId, email),
     email,
-    masked: maskEmailAddress(email),
+    masked: labels[i]!,
   }));
 
   const session: StageIdentityRecipientChoiceSession = {

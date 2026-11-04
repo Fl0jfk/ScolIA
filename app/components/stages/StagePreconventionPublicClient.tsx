@@ -13,8 +13,11 @@ import {
 import { formatPeriodRangeFr } from "@/app/lib/stage-schedule";
 import {
   clearPreconventionDeviceMemory,
-  readPreconventionDeviceMemory,
+  findPreconventionDeviceMemory,
+  forgetPreconventionDeviceMemory,
+  readPreconventionDeviceMemories,
   writePreconventionDeviceMemory,
+  type StagePreconventionDeviceMemory,
 } from "@/app/lib/stage-preconvention-device-memory";
 import StageCancelledPublicPage from "@/app/components/stages/StageCancelledPublicPage";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
@@ -43,11 +46,35 @@ type StudentPreview = {
   lastName: string;
   className: string;
   photoUrl?: string | null;
-  parent1Email?: string | null;
-  parent2Email?: string | null;
-  parentPhone?: string | null;
-  parent2Phone?: string | null;
-  studentEmail?: string | null;
+  /** Coordonnées masquées par le serveur ; `email` en clair seulement si `editable`. */
+  contacts?: PublicContact[];
+  studentEmailMasked?: string | null;
+};
+
+type PublicContact = {
+  slot: "parent1" | "parent2";
+  emailMasked: string;
+  email?: string;
+  editable: boolean;
+  phoneMasked?: string;
+};
+
+type SiblingStageSummary = {
+  periods: Array<{
+    id: string;
+    label: string;
+    periodStart: string;
+    periodEnd: string;
+    chosen: boolean;
+    companyName?: string;
+  }>;
+  conventions: Array<{
+    id: string;
+    label?: string;
+    companyName?: string;
+    status: string;
+    statusLabel?: string;
+  }>;
 };
 
 function formatIsoDateFr(iso: string): string {
@@ -74,6 +101,73 @@ function extractTokenFromStudentLink(studentLink: string): string | null {
   }
 }
 
+type SiblingChild = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  className: string;
+  current: boolean;
+  photoUrl: string | null;
+  stageSummary: SiblingStageSummary;
+};
+
+function parseStageSummary(raw: unknown): SiblingStageSummary {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const periods = Array.isArray(o.periods) ? o.periods : [];
+  const conventions = Array.isArray(o.conventions) ? o.conventions : [];
+  return {
+    periods: periods
+      .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === "object")
+      .map((x) => ({
+        id: String(x.id ?? ""),
+        label: String(x.label ?? ""),
+        periodStart: String(x.periodStart ?? ""),
+        periodEnd: String(x.periodEnd ?? ""),
+        chosen: x.chosen === true,
+        companyName: x.companyName ? String(x.companyName) : undefined,
+      })),
+    conventions: conventions
+      .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === "object")
+      .map((x) => ({
+        id: String(x.id ?? ""),
+        label: x.label ? String(x.label) : undefined,
+        companyName: x.companyName ? String(x.companyName) : undefined,
+        status: String(x.status ?? ""),
+        statusLabel: x.statusLabel ? String(x.statusLabel) : undefined,
+      })),
+  };
+}
+
+function formatShortDateFr(iso: string): string {
+  const raw = iso.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return iso;
+  return new Date(`${raw}T12:00:00`).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+function parseSiblings(raw: unknown): SiblingChild[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SiblingChild[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const id = String(o.id ?? "").trim();
+    if (!id) continue;
+    out.push({
+      id,
+      firstName: String(o.firstName ?? "").trim(),
+      lastName: String(o.lastName ?? "").trim(),
+      className: String(o.className ?? "").trim(),
+      current: o.current === true,
+      photoUrl: o.photoUrl ? String(o.photoUrl) : null,
+      stageSummary: parseStageSummary(o.stageSummary),
+    });
+  }
+  return out;
+}
+
 function StagePreconventionPublicContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -81,9 +175,9 @@ function StagePreconventionPublicContent() {
   const contextIdentity = usePublicSiteIdentity();
   const [fetchedIdentity, setFetchedIdentity] = useState<PublicSiteIdentity | null>(null);
 
-  const [step, setStep] = useState<"identity" | "otp_recipients" | "otp" | "dashboard" | "form">(
-    tokenFromUrl ? "form" : "identity",
-  );
+  const [step, setStep] = useState<
+    "choose" | "family" | "identity" | "otp_recipients" | "otp" | "dashboard" | "form"
+  >(tokenFromUrl ? "form" : "identity");
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
   const [dateNaissance, setDateNaissance] = useState("");
@@ -124,6 +218,12 @@ function StagePreconventionPublicContent() {
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [tutorEmailEdit, setTutorEmailEdit] = useState("");
   const [identityProof, setIdentityProof] = useState<string | null>(null);
+  // Fratrie renvoyée par le serveur (calculée depuis les adresses vérifiées par code).
+  const [siblings, setSiblings] = useState<SiblingChild[]>([]);
+  const [switchingChildId, setSwitchingChildId] = useState<string | null>(null);
+  // Fourni par le serveur : l'INE (ocrMeta) n'est plus exposé au navigateur.
+  const [identityLockedByServer, setIdentityLockedByServer] = useState(false);
+  const [failedSiblingPhotos, setFailedSiblingPhotos] = useState<string[]>([]);
   const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
   const [otpMaskedRecipients, setOtpMaskedRecipients] = useState<string[]>([]);
   const [identityOtpCode, setIdentityOtpCode] = useState("");
@@ -132,10 +232,11 @@ function StagePreconventionPublicContent() {
     [],
   );
   const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>([]);
-  const [restoringDevice, setRestoringDevice] = useState(() => {
-    if (tokenFromUrl) return false;
-    return Boolean(readPreconventionDeviceMemory());
-  });
+  // true pendant la lecture de la mémoire appareil (montage) et pendant la reconnaissance d'un enfant.
+  const [restoringDevice, setRestoringDevice] = useState(!tokenFromUrl);
+  const [rememberedChildren, setRememberedChildren] = useState<StagePreconventionDeviceMemory[]>(
+    [],
+  );
   const deviceRestoreStarted = useRef(false);
 
   useEffect(() => {
@@ -179,8 +280,10 @@ function StagePreconventionPublicContent() {
     });
   }
 
-  function forgetIdentity() {
-    clearPreconventionDeviceMemory();
+  /** Remet l'état à zéro et va au choix de l'enfant (ou à l'identité si aucun n'est mémorisé). */
+  function resetToChooser() {
+    const children = readPreconventionDeviceMemories();
+    setRememberedChildren(children);
     setStudentPreview(null);
     setPhotoFailed(false);
     setStudentPhotoUrl(null);
@@ -193,15 +296,28 @@ function StagePreconventionPublicContent() {
     setParent1Email("");
     setParent2Email("");
     setIdentityProof(null);
+    setSiblings([]);
+    setSwitchingChildId(null);
+    setSelectedPeriodId("");
     setOtpChallengeId(null);
     setOtpMaskedRecipients([]);
     setIdentityOtpCode("");
     setRecipientSessionId(null);
     setRecipientOptions([]);
     setSelectedRecipientIds([]);
-    setStep("identity");
+    setStep(children.length > 0 ? "choose" : "identity");
     setError(null);
     setInfoMsg(null);
+  }
+
+  /** Oublie uniquement l'enfant affiché sur cet appareil, puis revient au choix. */
+  function forgetCurrentChild() {
+    forgetPreconventionDeviceMemory({
+      nom: nom.trim(),
+      prenom: prenom.trim(),
+      dateNaissance: dateNaissance.trim(),
+    });
+    resetToChooser();
   }
 
   function applyStageContext(ctx: unknown) {
@@ -246,7 +362,7 @@ function StagePreconventionPublicContent() {
     }
   }
 
-  const loadConvention = useCallback(async (activeToken: string) => {
+  const loadConvention = useCallback(async (activeToken: string, knownBirthDate?: string) => {
     if (!activeToken) return;
     setError(null);
     const res = await fetch(`/api/stages/public/student?token=${encodeURIComponent(activeToken)}`, {
@@ -281,26 +397,32 @@ function StagePreconventionPublicContent() {
         : null;
     setStudentPhotoUrl(nextPhoto);
     setPhotoFailed(false);
+    setIdentityLockedByServer(data.identityLocked === true);
     if (data.convention?.status === "admin_rejected" && data.convention.adminReview?.note) {
       setRejectNote(data.convention.adminReview.note);
     } else {
       setRejectNote(null);
     }
-    const memory = readPreconventionDeviceMemory();
     const student = data.convention?.student as
       | { firstName?: string; lastName?: string; className?: string }
       | undefined;
-    if (memory && student) {
-      const samePerson =
-        memory.prenom.trim().toLowerCase() === String(student.firstName ?? "").trim().toLowerCase() &&
-        memory.nom.trim().toLowerCase() === String(student.lastName ?? "").trim().toLowerCase();
-      if (samePerson) {
-        setNom(memory.nom);
-        setPrenom(memory.prenom);
-        setDateNaissance(memory.dateNaissance);
-        setClasse(memory.classe || String(student.className ?? "") || "");
-      }
-    }
+    // Identité de l'enfant de CETTE convention (jamais celle d'un frère/une sœur mémorisé).
+    const studentFirst = String(student?.firstName ?? "").trim();
+    const studentLast = String(student?.lastName ?? "").trim();
+    const memory =
+      studentFirst && studentLast
+        ? findPreconventionDeviceMemory({
+            nom: studentLast,
+            prenom: studentFirst,
+            dateNaissance: knownBirthDate || undefined,
+          })
+        : null;
+    setNom(memory?.nom ?? studentLast);
+    setPrenom(memory?.prenom ?? studentFirst);
+    setDateNaissance(memory?.dateNaissance ?? knownBirthDate ?? "");
+    setClasse(memory?.classe || String(student?.className ?? "") || "");
+    // Si on vient du tableau de bord (date connue), la preuve en state est déjà celle de cet enfant.
+    setIdentityProof((prev) => memory?.identityProof ?? (knownBirthDate ? prev : null));
     setStep("form");
   }, []);
 
@@ -314,24 +436,42 @@ function StagePreconventionPublicContent() {
     }
 
     if (deviceRestoreStarted.current) return;
-    const memory = readPreconventionDeviceMemory();
-    if (!memory) {
-      setRestoringDevice(false);
-      return;
-    }
+    // Pas de reconnexion automatique : on propose le choix de l'enfant mémorisé.
+    if (deviceRestoreStarted.current) return;
     deviceRestoreStarted.current = true;
+    const children = readPreconventionDeviceMemories();
+    setRememberedChildren(children);
+    if (children.length > 0) setStep("choose");
+    setRestoringDevice(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lecture unique au montage
+  }, [tokenFromUrl, loadConvention]);
+
+  /** Reconnaît l'enfant choisi avec SA preuve ; en cas d'échec, n'oublie que cet enfant. */
+  function selectRememberedChild(child: StagePreconventionDeviceMemory) {
+    setError(null);
+    setInfoMsg(null);
+    setNom(child.nom);
+    setPrenom(child.prenom);
+    setDateNaissance(child.dateNaissance);
+    setClasse(child.classe || "");
     setRestoringDevice(true);
-    setNom(memory.nom);
-    setPrenom(memory.prenom);
-    setDateNaissance(memory.dateNaissance);
-    if (memory.classe) setClasse(memory.classe);
     void identifyWithCredentials({
-      ...memory,
-      identityProof: memory.identityProof,
+      nom: child.nom,
+      prenom: child.prenom,
+      dateNaissance: child.dateNaissance,
+      classe: child.classe,
+      identityProof: child.identityProof,
     })
       .catch((e: unknown) => {
-        clearPreconventionDeviceMemory();
-        setStep("identity");
+        // N'oublie l'enfant que si le serveur le refuse (403/404) ; sinon (429, 503, réseau) on le garde.
+        const status = (e as { status?: number } | null)?.status;
+        if (status === 403 || status === 404) forgetPreconventionDeviceMemory(child);
+        const remaining = readPreconventionDeviceMemories();
+        setRememberedChildren(remaining);
+        setIdentityProof(null);
+        setSiblings([]);
+        setSelectedPeriodId("");
+        setStep(remaining.length > 0 ? "choose" : "identity");
         setError(
           e instanceof Error
             ? e.message
@@ -339,14 +479,43 @@ function StagePreconventionPublicContent() {
         );
       })
       .finally(() => setRestoringDevice(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- restauration unique au montage
-  }, [tokenFromUrl, loadConvention]);
+  }
+
+  /** Efface toute la mémoire appareil puis mène à l'étape identité. */
+  function forgetAllChildren() {
+    clearPreconventionDeviceMemory();
+    setRememberedChildren([]);
+    startNewChild();
+  }
+
+  /** Formulaire d'identité vide pour un autre enfant. */
+  function startNewChild() {
+    setNom("");
+    setPrenom("");
+    setDateNaissance("");
+    setClasse("");
+    setClassOptions([]);
+    setIdentityProof(null);
+    setSiblings([]);
+    setSelectedPeriodId("");
+    setError(null);
+    setInfoMsg(null);
+    setStep("identity");
+  }
 
   function identityPayload(extra?: Record<string, unknown>) {
-    const memory = readPreconventionDeviceMemory();
+    // Repli sur la mémoire : uniquement l'entrée de l'enfant courant, jamais une autre.
+    const memory =
+      nom.trim() && prenom.trim()
+        ? findPreconventionDeviceMemory({
+            nom,
+            prenom,
+            dateNaissance: dateNaissance || undefined,
+          })
+        : null;
     return {
-      nom: nom.trim() || memory?.nom || "",
-      prenom: prenom.trim() || memory?.prenom || "",
+      nom: nom.trim(),
+      prenom: prenom.trim(),
       dateNaissance: dateNaissance || memory?.dateNaissance || "",
       classe: (classe.trim() || memory?.classe || undefined) as string | undefined,
       identityProof: identityProof || memory?.identityProof || undefined,
@@ -360,6 +529,7 @@ function StagePreconventionPublicContent() {
       dossier: StudentDossier;
       stageContext?: unknown;
       identityProof?: string;
+      siblings?: unknown;
     },
     identity?: {
       nom: string;
@@ -367,13 +537,17 @@ function StagePreconventionPublicContent() {
       dateNaissance: string;
       classe?: string;
     },
+    opts?: { skipFamily?: boolean },
   ) {
     const preview = data.studentPreview;
     setStudentPreview(preview);
     setPhotoFailed(false);
     setStudentPhotoUrl(preview.photoUrl?.trim() || null);
-    setParent1Email(String(preview.parent1Email ?? ""));
-    setParent2Email(String(preview.parent2Email ?? ""));
+    // Seules les adresses vérifiées (modifiables) arrivent en clair ; le reste reste masqué.
+    const contactEmail = (slot: "parent1" | "parent2") =>
+      String(preview.contacts?.find((c) => c.slot === slot && c.editable)?.email ?? "");
+    setParent1Email(contactEmail("parent1"));
+    setParent2Email(contactEmail("parent2"));
     setEditingParentEmail(false);
     setDossier(data.dossier);
     applyStageContext(data.stageContext);
@@ -382,6 +556,10 @@ function StagePreconventionPublicContent() {
     if (nextClasse) setClasse(nextClasse);
     const proof = String(data.identityProof ?? identityProof ?? "").trim() || null;
     if (proof) setIdentityProof(proof);
+    const nextSiblings = parseSiblings(data.siblings);
+    setSiblings(nextSiblings);
+    setFailedSiblingPhotos([]);
+    setSelectedPeriodId("");
     setOtpChallengeId(null);
     setOtpMaskedRecipients([]);
     setIdentityOtpCode("");
@@ -395,7 +573,9 @@ function StagePreconventionPublicContent() {
       classe: nextClasse || undefined,
       identityProof: proof,
     });
-    setStep("dashboard");
+    const showFamily =
+      !opts?.skipFamily && nextSiblings.length >= 2 && nextSiblings.some((c) => c.current);
+    setStep(showFamily ? "family" : "dashboard");
   }
 
   function enterOtpStep(data: {
@@ -459,6 +639,7 @@ function StagePreconventionPublicContent() {
     dateNaissance: string;
     classe?: string;
     identityProof?: string;
+    skipFamily?: boolean;
   }) {
     const res = await fetch("/api/stages/public/preconvention", {
       method: "POST",
@@ -473,6 +654,9 @@ function StagePreconventionPublicContent() {
       }),
     });
     const data = await res.json();
+    // La preuve en state est toujours celle de l'enfant en cours d'identification (ou null).
+    setIdentityProof(creds.identityProof?.trim() || null);
+    setSiblings([]);
     if (data?.needsClass === true) {
       const options = Array.isArray(data.candidates)
         ? data.candidates
@@ -490,7 +674,11 @@ function StagePreconventionPublicContent() {
       );
       return { ok: false as const, needsClass: true as const };
     }
-    if (!res.ok) throw new Error(data?.error || "Erreur");
+    if (!res.ok) {
+      const err = new Error(data?.error || "Erreur") as Error & { status?: number };
+      err.status = res.status;
+      throw err;
+    }
     setNom(creds.nom.trim());
     setPrenom(creds.prenom.trim());
     setDateNaissance(creds.dateNaissance);
@@ -506,8 +694,50 @@ function StagePreconventionPublicContent() {
       return { ok: true as const, needsOtp: true as const };
     }
 
-    applyIdentifySuccess(data, creds);
+    applyIdentifySuccess(data, creds, { skipFamily: creds.skipFamily });
     return { ok: true as const };
+  }
+
+  /** Passe à un frère / une sœur : le serveur recalcule la fratrie et délivre une nouvelle preuve. */
+  async function switchChild(child: SiblingChild) {
+    if (child.current || switchingChildId || !identityProof) return;
+    setSwitchingChildId(child.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/public/preconvention", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "switch_child",
+          identityProof,
+          siblingId: child.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Changement d'enfant impossible");
+      const identity = data?.identity as
+        | { nom?: string; prenom?: string; dateNaissance?: string; classe?: string }
+        | undefined;
+      const nextNom = String(identity?.nom ?? "").trim();
+      const nextPrenom = String(identity?.prenom ?? "").trim();
+      const nextDob = String(identity?.dateNaissance ?? "").trim();
+      if (!nextNom || !nextPrenom || !nextDob) throw new Error("Réponse incomplète");
+      setNom(nextNom);
+      setPrenom(nextPrenom);
+      setDateNaissance(nextDob);
+      setClasse(String(identity?.classe ?? "").trim());
+      applyIdentifySuccess(data, {
+        nom: nextNom,
+        prenom: nextPrenom,
+        dateNaissance: nextDob,
+        classe: String(identity?.classe ?? "").trim() || undefined,
+      }, { skipFamily: true });
+    } catch (e: unknown) {
+      // On reste sur l'écran / l'enfant courant.
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSwitchingChildId(null);
+    }
   }
 
   async function sendIdentityOtpToSelected(e?: React.FormEvent) {
@@ -602,7 +832,15 @@ function StagePreconventionPublicContent() {
     setBusy(true);
     setError(null);
     try {
-      await identifyWithCredentials({ nom, prenom, dateNaissance, classe });
+      // Preuve mémorisée de l'enfant saisi (s'il y en a une), jamais celle d'un autre enfant.
+      const remembered = findPreconventionDeviceMemory({ nom, prenom, dateNaissance });
+      await identifyWithCredentials({
+        nom,
+        prenom,
+        dateNaissance,
+        classe,
+        identityProof: remembered?.identityProof,
+      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -621,8 +859,9 @@ function StagePreconventionPublicContent() {
           identityPayload({
             action: "create",
             periodId: selectedPeriodId || undefined,
-            parent1Email: parent1Email.trim() || undefined,
-            parent2Email: parent2Email.trim() || undefined,
+            // Jamais de valeur masquée : seules les adresses modifiables (en clair) sont envoyées.
+            parent1Email: editableSlots.parent1 ? parent1Email.trim() || undefined : undefined,
+            parent2Email: editableSlots.parent2 ? parent2Email.trim() || undefined : undefined,
           }),
         ),
       });
@@ -635,7 +874,7 @@ function StagePreconventionPublicContent() {
       setToken(newToken);
       setDone(false);
       router.replace(`/stages/preconvention?token=${encodeURIComponent(newToken)}`);
-      await loadConvention(newToken);
+      await loadConvention(newToken, dateNaissance);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -651,7 +890,7 @@ function StagePreconventionPublicContent() {
     setToken(card.studentAccessToken);
     setDone(false);
     router.replace(`/stages/preconvention?token=${encodeURIComponent(card.studentAccessToken)}`);
-    void loadConvention(card.studentAccessToken);
+    void loadConvention(card.studentAccessToken, dateNaissance);
   }
 
   async function save(action: "save" | "submit") {
@@ -720,26 +959,42 @@ function StagePreconventionPublicContent() {
     setDone(false);
     setRejectNote(null);
     router.replace("/stages/preconvention");
-    const memory = readPreconventionDeviceMemory();
+    // Identité de l'enfant de la convention courante (nom/prénom en state, posés par loadConvention).
+    const memory =
+      nom.trim() && prenom.trim()
+        ? findPreconventionDeviceMemory({
+            nom,
+            prenom,
+            dateNaissance: dateNaissance || undefined,
+          })
+        : null;
     const creds = {
-      nom: nom.trim() || memory?.nom || "",
-      prenom: prenom.trim() || memory?.prenom || "",
+      nom: nom.trim(),
+      prenom: prenom.trim(),
       dateNaissance: dateNaissance || memory?.dateNaissance || "",
       classe: classe.trim() || memory?.classe || undefined,
       identityProof: identityProof || memory?.identityProof || undefined,
     };
     if (!creds.nom || !creds.prenom || !creds.dateNaissance) {
+      // Date de naissance inconnue : identité pré-remplie avec CET enfant (nom + prénom).
       setStep("identity");
       return;
     }
     setBusy(true);
-    void identifyWithCredentials(creds)
+    void identifyWithCredentials({ ...creds, skipFamily: true })
       .catch((e: unknown) => {
         setStep("identity");
         setError(e instanceof Error ? e.message : "Erreur");
       })
       .finally(() => setBusy(false));
   }
+  const contacts = studentPreview?.contacts ?? [];
+  const hasParent1 = contacts.some((c) => c.slot === "parent1" && c.emailMasked);
+  const editableSlots = {
+    parent1: contacts.some((c) => c.slot === "parent1" && c.editable),
+    parent2: contacts.some((c) => c.slot === "parent2" && c.editable),
+  };
+  const anyEditable = editableSlots.parent1 || editableSlots.parent2;
 
   if (cancelled) {
     return (
@@ -786,6 +1041,51 @@ function StagePreconventionPublicContent() {
           <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
             {infoMsg}
           </p>
+        )}
+
+        {step === "choose" && !token && (
+          <div className="mt-6 space-y-4 text-sm">
+            <p className="text-base font-black text-[#1F3D2B]">Pour quel enfant ?</p>
+            <p className="text-xs text-stone-600">
+              Cet appareil se souvient des enfants déjà identifiés. Choisissez l&apos;enfant
+              concerné par la préconvention.
+            </p>
+            <ul className="space-y-2">
+              {rememberedChildren.map((child) => (
+                <li key={`${child.nom}|${child.prenom}|${child.dateNaissance}`}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => selectRememberedChild(child)}
+                    className="w-full rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left hover:border-emerald-400 disabled:opacity-50"
+                  >
+                    <span className="block text-sm font-bold text-[#1F3D2B]">
+                      {child.prenom} {child.nom}
+                    </span>
+                    {child.classe ? (
+                      <span className="block text-xs text-stone-600">{child.classe}</span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={startNewChild}
+              className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
+            >
+              Saisir un autre enfant
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={forgetAllChildren}
+              className="block w-full text-center text-xs font-semibold text-stone-500 underline disabled:opacity-50"
+            >
+              Oublier tous les enfants sur cet appareil
+            </button>
+          </div>
         )}
 
         {step === "identity" && !token && (
@@ -997,6 +1297,139 @@ function StagePreconventionPublicContent() {
           </form>
         )}
 
+        {step === "family" && !token && siblings.length >= 2 && (
+          <div className="mt-6 space-y-4 text-sm">
+            <div>
+              <p className="text-base font-black text-[#1F3D2B]">Vos enfants</p>
+              <p className="mt-1 text-xs text-stone-600">
+                Choisissez l&apos;enfant pour lequel vous faites la convention.
+              </p>
+            </div>
+            <ul className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:snap-none sm:grid-cols-2 sm:overflow-visible sm:px-0 lg:grid-cols-3">
+              {siblings.map((child) => {
+                const loading = switchingChildId === child.id;
+                const photoOk = child.photoUrl && !failedSiblingPhotos.includes(child.id);
+                const summary = child.stageSummary;
+                const empty = summary.periods.length === 0 && summary.conventions.length === 0;
+                return (
+                  <li key={child.id} className="w-[85%] shrink-0 snap-center sm:w-auto">
+                    <button
+                      type="button"
+                      disabled={Boolean(switchingChildId)}
+                      aria-current={child.current ? "true" : undefined}
+                      onClick={() => {
+                        if (child.current) {
+                          setError(null);
+                          setStep("dashboard");
+                        } else {
+                          void switchChild(child);
+                        }
+                      }}
+                      className={`flex h-full w-full flex-col rounded-2xl bg-white p-4 text-left shadow-sm transition disabled:cursor-wait ${
+                        child.current
+                          ? "border-2 border-[#2F6B4A] bg-emerald-50/60"
+                          : "border border-stone-200 hover:border-emerald-400"
+                      } ${switchingChildId && !loading ? "opacity-60" : ""}`}
+                    >
+                      {child.current && (
+                        <span className="mb-2 inline-block self-start rounded-full bg-[#2F6B4A] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          Connecté avec
+                        </span>
+                      )}
+                      <span className="flex items-center gap-3">
+                        <span className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-white bg-[#2F6B4A]/15 shadow-sm">
+                          {photoOk ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={child.photoUrl ?? ""}
+                              alt=""
+                              className="h-full w-full object-cover"
+                              onError={() =>
+                                setFailedSiblingPhotos((prev) => [...prev, child.id])
+                              }
+                            />
+                          ) : (
+                            <span
+                              className="flex h-full w-full items-center justify-center text-sm font-black text-[#1F3D2B]"
+                              aria-hidden
+                            >
+                              {studentInitials(child.firstName, child.lastName)}
+                            </span>
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-base font-black text-[#1F3D2B]">
+                            {child.firstName} {child.lastName}
+                          </span>
+                          {child.className ? (
+                            <span className="block text-xs text-stone-600">{child.className}</span>
+                          ) : null}
+                        </span>
+                      </span>
+
+                      <span className="mt-3 block space-y-1.5">
+                        {summary.periods.map((p) => (
+                          <span
+                            key={p.id}
+                            className={`flex items-center justify-between gap-2 rounded-full px-3 py-1 text-xs ${
+                              p.chosen
+                                ? "bg-emerald-100 text-emerald-900"
+                                : "bg-amber-100 text-amber-900"
+                            }`}
+                          >
+                            <span className="min-w-0 truncate">
+                              <strong>{p.label}</strong> · {formatShortDateFr(p.periodStart)}
+                              {" – "}
+                              {formatShortDateFr(p.periodEnd)}
+                            </span>
+                            <span className="shrink-0 font-bold">
+                              {p.chosen
+                                ? p.companyName
+                                  ? `Choisi · ${p.companyName}`
+                                  : "Choisi"
+                                : "À choisir"}
+                            </span>
+                          </span>
+                        ))}
+                        {summary.conventions.map((c) => (
+                          <span
+                            key={c.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-stone-200 bg-white px-3 py-1 text-xs text-stone-700"
+                          >
+                            <span className="min-w-0 truncate">
+                              {c.companyName || c.label || "Stage"}
+                            </span>
+                            <span className="shrink-0 font-semibold text-[#1F3D2B]">
+                              {c.statusLabel || c.status}
+                            </span>
+                          </span>
+                        ))}
+                        {empty && (
+                          <span className="block text-xs italic text-stone-500">
+                            Aucun stage pour le moment
+                          </span>
+                        )}
+                      </span>
+                      {loading && (
+                        <span className="mt-3 block text-xs font-semibold text-[#2F6B4A]">
+                          Chargement…
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              type="button"
+              onClick={resetToChooser}
+              className="text-xs font-semibold text-stone-500 underline"
+            >
+              Changer d&apos;enfant
+            </button>
+          </div>
+        )}
+
         {step === "dashboard" && studentPreview && dossier && (
           <div className="mt-6 space-y-6 text-sm">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
@@ -1030,10 +1463,11 @@ function StagePreconventionPublicContent() {
                     <p className="text-stone-600">
                       {studentPreview.className} · Année {dossier.schoolYear}
                     </p>
-                    {(studentPreview.parentPhone || studentPreview.parent2Phone) && (
+                    {contacts.some((c) => c.phoneMasked) && (
                       <p className="mt-1 text-xs text-stone-600">
                         Tél. responsable :{" "}
-                        {[studentPreview.parentPhone, studentPreview.parent2Phone]
+                        {contacts
+                          .map((c) => c.phoneMasked)
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
@@ -1042,16 +1476,37 @@ function StagePreconventionPublicContent() {
                 </div>
                 <button
                   type="button"
-                  onClick={forgetIdentity}
-                  className="shrink-0 text-xs font-semibold text-stone-500 underline"
+                  onClick={resetToChooser}
+                  className="shrink-0 rounded-lg border border-[#2F6B4A] bg-white px-3 py-1.5 text-xs font-bold text-[#1F3D2B] hover:bg-emerald-50"
                 >
-                  Ce n&apos;est pas moi
+                  Changer d&apos;enfant
                 </button>
               </div>
               <p className="mt-2 text-[11px] text-emerald-800/80">
-                Cet appareil se souvient de votre identification pour éviter de ressaisir vos infos.
+                Cet appareil se souvient des enfants déjà identifiés pour éviter de ressaisir
+                leurs infos.{" "}
+                <button
+                  type="button"
+                  onClick={forgetCurrentChild}
+                  className="font-semibold underline"
+                >
+                  Oublier cet enfant sur cet appareil
+                </button>
               </p>
             </div>
+
+            {siblings.length >= 2 && siblings.some((c) => c.current) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setStep("family");
+                }}
+                className="text-xs font-bold text-[#2F6B4A] hover:underline"
+              >
+                ← Tous mes enfants
+              </button>
+            )}
 
             <div className="rounded-xl border-2 border-rose-300 bg-rose-50 px-4 py-4 space-y-3">
               <p className="text-sm font-black text-rose-950">
@@ -1065,47 +1520,69 @@ function StagePreconventionPublicContent() {
               {!editingParentEmail ? (
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="text-sm text-rose-950">
-                    <p>
-                      <span className="font-semibold">Responsable 1 :</span>{" "}
-                      {parent1Email || (
-                        <span className="italic text-rose-700">non renseigné</span>
-                      )}
-                    </p>
-                    {parent2Email && (
-                      <p className="mt-1">
-                        <span className="font-semibold">Responsable 2 :</span> {parent2Email}
+                    {[
+                      { slot: "parent1" as const, label: "Responsable 1" },
+                      { slot: "parent2" as const, label: "Responsable 2" },
+                    ].map(({ slot, label }) => {
+                      const c = contacts.find((x) => x.slot === slot && x.emailMasked);
+                      if (!c) {
+                        return slot === "parent1" ? (
+                          <p key={slot}>
+                            <span className="font-semibold">{label} :</span>{" "}
+                            <span className="italic text-rose-700">non renseigné</span>
+                          </p>
+                        ) : null;
+                      }
+                      return (
+                        <p key={slot} className={slot === "parent2" ? "mt-1" : undefined}>
+                          <span className="font-semibold">{label} :</span>{" "}
+                          {c.editable && c.email
+                            ? (slot === "parent1" ? parent1Email : parent2Email).trim() || c.email
+                            : c.emailMasked}
+                        </p>
+                      );
+                    })}
+                    {studentPreview.studentEmailMasked && (
+                      <p className="mt-1 text-xs text-rose-900/80">
+                        E-mail élève : {studentPreview.studentEmailMasked}
                       </p>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setEditingParentEmail(true)}
-                    className="shrink-0 rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-xs font-bold text-rose-900"
-                  >
-                    Modifier
-                  </button>
+                  {anyEditable && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingParentEmail(true)}
+                      className="shrink-0 rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-xs font-bold text-rose-900"
+                    >
+                      Modifier
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-rose-950">
-                    E-mail responsable légal 1 *
-                    <input
-                      type="email"
-                      className="mt-1 w-full rounded-lg border border-rose-300 px-3 py-2 text-sm"
-                      value={parent1Email}
-                      onChange={(e) => setParent1Email(e.target.value)}
-                      required
-                    />
-                  </label>
-                  <label className="block text-xs font-semibold text-rose-950">
-                    E-mail responsable légal 2 (optionnel)
-                    <input
-                      type="email"
-                      className="mt-1 w-full rounded-lg border border-rose-300 px-3 py-2 text-sm"
-                      value={parent2Email}
-                      onChange={(e) => setParent2Email(e.target.value)}
-                    />
-                  </label>
+                  {editableSlots.parent1 && (
+                    <label className="block text-xs font-semibold text-rose-950">
+                      E-mail responsable légal 1 *
+                      <input
+                        type="email"
+                        className="mt-1 w-full rounded-lg border border-rose-300 px-3 py-2 text-sm"
+                        value={parent1Email}
+                        onChange={(e) => setParent1Email(e.target.value)}
+                        required
+                      />
+                    </label>
+                  )}
+                  {editableSlots.parent2 && (
+                    <label className="block text-xs font-semibold text-rose-950">
+                      E-mail responsable légal 2
+                      <input
+                        type="email"
+                        className="mt-1 w-full rounded-lg border border-rose-300 px-3 py-2 text-sm"
+                        value={parent2Email}
+                        onChange={(e) => setParent2Email(e.target.value)}
+                      />
+                    </label>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingParentEmail(false)}
@@ -1115,6 +1592,10 @@ function StagePreconventionPublicContent() {
                   </button>
                 </div>
               )}
+              <p className="text-[11px] text-rose-900/80">
+                Pour protéger les données de chacun, les coordonnées sont partiellement masquées.
+                Seule l&apos;adresse qui a reçu le code peut être modifiée.
+              </p>
             </div>
 
             {(reminders.length > 0 || officialPeriods.length > 0) ? (
@@ -1236,15 +1717,16 @@ function StagePreconventionPublicContent() {
               )}
               <button
                 type="button"
-                disabled={busy || !parent1Email.trim()}
+                disabled={busy || !hasParent1 || (editableSlots.parent1 && !parent1Email.trim())}
                 onClick={() => void createNewStage()}
                 className="w-full rounded-lg bg-[#2F6B4A] py-2.5 text-sm font-bold text-white disabled:opacity-50"
               >
                 {busy ? "Création…" : "+ Déposer un nouveau stage"}
               </button>
-              {!parent1Email.trim() && (
+              {!hasParent1 && (
                 <p className="text-xs text-rose-700">
-                  Indiquez au moins l&apos;e-mail du responsable légal 1 avant de continuer.
+                  Aucune adresse de responsable n&apos;est enregistrée pour cet élève : contactez le
+                  secrétariat.
                 </p>
               )}
             </section>
@@ -1334,11 +1816,13 @@ function StagePreconventionPublicContent() {
                         </span>
                       </>
                     )}
-                    . Vous pouvez corriger ces adresses dans le formulaire ci-dessous.
+                    . Pour modifier une adresse de responsable, revenez à votre espace (bouton
+                    Retour) : seule l&apos;adresse qui a reçu le code peut être modifiée.
                   </p>
                 </div>
 
                 <StagePreconventionForm
+                  contactsLocked
                   convention={convention}
                   onChange={(c) => {
                     setConvention(c);
@@ -1346,7 +1830,7 @@ function StagePreconventionPublicContent() {
                   onSave={() => void save("save")}
                   onSubmit={() => void save("submit")}
                   busy={busy}
-                  identityLocked={Boolean(convention.ocrMeta?.matchedEleveIne)}
+                  identityLocked={identityLockedByServer}
                   reminders={reminders}
                   officialPeriods={officialPeriods}
                   scheduleConstraints={scheduleConstraints}
