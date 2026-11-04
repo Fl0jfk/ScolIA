@@ -8,7 +8,8 @@ export type DataAccessAction =
   | "read"
   | "export"
   | "download"
-  | "search";
+  | "search"
+  | "import";
 
 export type DataAccessResourceType =
   | "eleves_registry"

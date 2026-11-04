@@ -8,6 +8,7 @@ import PersonnelDashboard from "@/app/components/personnel/PersonnelDashboard";
 import PersonnelStaffCard from "@/app/components/personnel/PersonnelStaffCard";
 import RhHubNav, { RhPilotageNav, type RhHubTab, type RhPilotageSection } from "@/app/components/personnel/RhHubNav";
 import RhNewStaffModal from "@/app/components/personnel/RhNewStaffModal";
+import RhBirthdatesImportModal from "@/app/components/personnel/RhBirthdatesImportModal";
 import RhMoodPulseAdminPanel from "@/app/components/personnel/RhMoodPulseAdminPanel";
 import RhPersonnelHome from "@/app/components/personnel/RhPersonnelHome";
 import RhValidationsPanel from "@/app/components/personnel/RhValidationsPanel";
@@ -102,6 +103,7 @@ export default function RhModuleClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [showBirthImport, setShowBirthImport] = useState(false);
 
   const roles = useMemo(() => rolesFromUserLike(user), [user]);
   const canPilotage = canAccessRhPilotageDashboard(roles);
@@ -216,7 +218,11 @@ export default function RhModuleClient() {
             <div className="space-y-4">
               <RhMoodPulseAdminPanel />
               {dashboard ? (
-                <PersonnelDashboard data={dashboard} onNewStaff={() => setShowNew(true)} />
+                <PersonnelDashboard
+                  data={dashboard}
+                  onNewStaff={() => setShowNew(true)}
+                  onImportBirthdates={() => setShowBirthImport(true)}
+                />
               ) : null}
               <SharedDocsBlock sharedDocs={sharedDocs} canManage onRefresh={load} />
             </div>
@@ -226,6 +232,11 @@ export default function RhModuleClient() {
         <RhPersonnelHome dashboardSection={dashboardSection} />
       )}
 
+      <RhBirthdatesImportModal
+        open={showBirthImport}
+        onClose={() => setShowBirthImport(false)}
+        onDone={() => void load()}
+      />
       <RhNewStaffModal
         open={showNew}
         onClose={() => setShowNew(false)}

@@ -8,6 +8,7 @@ type Props = {
   showContract?: boolean;
   showBank?: boolean;
   profile?: PersonnelProfile;
+  requireBirthDate?: boolean;
 };
 
 function n(name: string, prefix?: string) {
@@ -19,6 +20,7 @@ export default function RhStaffProfileFields({
   showContract = true,
   showBank = true,
   profile,
+  requireBirthDate = false,
 }: Props) {
   const p = profile;
   return (
@@ -26,8 +28,14 @@ export default function RhStaffProfileFields({
       <section>
         <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">État civil</h4>
         <div className="grid sm:grid-cols-2 gap-3">
-          <RhField label="Date de naissance">
-            <RhInput name={n("birthDate", prefix)} type="date" defaultValue={p?.birthDate || ""} />
+          <RhField label={requireBirthDate ? "Date de naissance *" : "Date de naissance"}>
+            <RhInput
+              name={n("birthDate", prefix)}
+              type="date"
+              required={requireBirthDate}
+              min="1900-01-01"
+              defaultValue={p?.birthDate || ""}
+            />
           </RhField>
           <RhField label="Lieu de naissance">
             <RhInput name={n("birthPlace", prefix)} placeholder="Ville, pays" defaultValue={p?.birthPlace || ""} />

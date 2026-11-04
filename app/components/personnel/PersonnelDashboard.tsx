@@ -91,9 +91,11 @@ function SectionCard({
 export default function PersonnelDashboard({
   data,
   onNewStaff,
+  onImportBirthdates,
 }: {
   data: PersonnelDashboardData;
   onNewStaff: () => void;
+  onImportBirthdates?: () => void;
 }) {
   const medecineItems = mergeByPerson(data.medecineYear, data.medecine);
   const entretienItems = mergeByPerson(data.entretiensYear, data.entretiens);
@@ -132,6 +134,15 @@ export default function PersonnelDashboard({
               >
                 + Nouvelle entrée
               </button>
+              {onImportBirthdates && (
+                <button
+                  type="button"
+                  onClick={onImportBirthdates}
+                  className="bg-white/15 text-white border border-white/30 px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-white/25 transition"
+                >
+                  Importer les dates de naissance
+                </button>
+              )}
               <Link
                 href="/rh/moi"
                 className="bg-white/15 text-white border border-white/30 px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-white/25 transition"

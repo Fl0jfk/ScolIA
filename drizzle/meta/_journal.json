@@ -547,6 +547,13 @@
       "when": 1787420199851,
       "tag": "0068_rdv_inscription_release_min_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1787420259851,
+      "tag": "0069_user_date_naissance",
+      "breakpoints": true
     }
   ]
 }

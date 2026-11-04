@@ -10,6 +10,10 @@ import {
   syncMedecineDerivedFields,
 } from "@/app/lib/personnel-rh-cycles";
 import { normalizePersonnelProfile } from "@/app/lib/personnel-profile";
+import { validatePersonnelBirthDate } from "@/app/lib/personnel-birthdate";
+import { setUserBirthDate } from "@/app/lib/user-birthdate";
+import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
+import { getTenant } from "@/app/lib/tenant-context";
 import { notifyPersonnelSignatureLink } from "@/app/lib/personnel-notify";
 import {
   attachSignatureToken,
@@ -295,6 +299,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           body.managerId === null || body.managerId === "" ? null : String(body.managerId);
       }
       if (body.profile && typeof body.profile === "object") {
+        const bd = (body.profile as { birthDate?: unknown }).birthDate;
+        if (typeof bd === "string" && bd.trim()) {
+          const chk = validatePersonnelBirthDate(bd);
+          if (!chk.ok) return NextResponse.json({ error: chk.error }, { status: 400 });
+        }
         record.profile = normalizePersonnelProfile({
           ...(record.profile || {}),
           ...body.profile,
@@ -306,6 +315,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
 
     const saved = await savePersonnelRecord(normalizePersonnelRecord(record));
+    if (action === "update-profile" && saved.externalUserId) {
+      const bd = (body.profile as { birthDate?: unknown } | undefined)?.birthDate;
+      const chk = typeof bd === "string" && bd.trim() ? validatePersonnelBirthDate(bd) : null;
+      if (chk && chk.ok) {
+        try {
+          const etablissementId = await ensureEtablissementFromTenant(await getTenant());
+          await setUserBirthDate(etablissementId, saved.externalUserId, chk.value);
+        } catch (err) {
+          console.error("[personnel/[id]] birthDate sync", err instanceof Error ? err.message : "erreur");
+        }
+      }
+    }
     const email = user?.primaryEmailAddress?.emailAddress || "";
     return NextResponse.json({
       record: sanitizeRecordForViewer(saved, roles, user?.id, email),

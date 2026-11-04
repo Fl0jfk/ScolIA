@@ -13,6 +13,10 @@ import {
   suggestPersonnelCategoryFromRoles,
 } from "@/app/lib/personnel-directory";
 import { normalizePersonnelProfile } from "@/app/lib/personnel-profile";
+import { validatePersonnelBirthDate } from "@/app/lib/personnel-birthdate";
+import { setUserBirthDate } from "@/app/lib/user-birthdate";
+import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
+import { getTenant } from "@/app/lib/tenant-context";
 import {
   getPersonnelIndex,
   getPersonnelRecord,
@@ -126,6 +130,12 @@ export async function POST(req: Request) {
     }
 
     const mode = String(body.mode || "create");
+    const birthCheck = validatePersonnelBirthDate(
+      body.profile && typeof body.profile === "object" ? (body.profile as { birthDate?: unknown }).birthDate : null,
+    );
+    if (!birthCheck.ok) {
+      return NextResponse.json({ error: birthCheck.error }, { status: 400 });
+    }
     const jobTitle = String(body.jobTitle || "").trim();
     const hireDate = String(body.hireDate || "").trim() || null;
     const withOnboarding = body.withOnboarding !== false;
@@ -226,6 +236,15 @@ export async function POST(req: Request) {
     });
 
     const saved = await savePersonnelRecord(record);
+    // Garder la date alignée sur le compte (source des anniversaires), scopée à l'établissement.
+    if (externalUserId && birthCheck.ok) {
+      try {
+        const etablissementId = await ensureEtablissementFromTenant(await getTenant());
+        await setUserBirthDate(etablissementId, externalUserId, birthCheck.value);
+      } catch (err) {
+        console.error("[personnel] POST birthDate sync", err instanceof Error ? err.message : "erreur");
+      }
+    }
     return NextResponse.json({ success: true, record: saved, directory: directoryInfo });
   } catch (e) {
     console.error("[personnel] POST", e);

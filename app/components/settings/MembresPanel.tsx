@@ -13,6 +13,7 @@ import { invitationRecentlySent } from "@/app/lib/invitation-window";
 import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 import { useHasTenantAdminRole } from "@/app/hooks/useHasTenantAdminRole";
 import SessionsManager from "@/app/components/account/SessionsManager";
+import RhBirthdatesImportModal from "@/app/components/personnel/RhBirthdatesImportModal";
 
 type RoleOption = { slug: string; label: string };
 
@@ -100,6 +101,9 @@ export default function MembresPanel() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [inviteRoles, setInviteRoles] = useState<string[]>([]);
+  const [dateNaissance, setDateNaissance] = useState("");
+  const [editDateNaissance, setEditDateNaissance] = useState("");
+  const [showBirthImport, setShowBirthImport] = useState(false);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [editEmail, setEditEmail] = useState("");
@@ -163,10 +167,16 @@ export default function MembresPanel() {
     return list;
   }, [users, search, roleFilter, sortBy, roleLabels]);
 
+  const inviteIsInternal = inviteRoles.some((r) => r !== "parent" && r !== "eleve");
+
   const sendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (inviteRoles.length === 0) {
       setError("Choisissez au moins un rôle.");
+      return;
+    }
+    if (inviteIsInternal && !dateNaissance) {
+      setError("La date de naissance est obligatoire pour un compte interne.");
       return;
     }
     setSending(true);
@@ -175,7 +185,13 @@ export default function MembresPanel() {
       const res = await fetch("/api/members", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, firstName, lastName, intranetRoles: inviteRoles }),
+        body: JSON.stringify({
+          email,
+          firstName,
+          lastName,
+          intranetRoles: inviteRoles,
+          dateNaissance: dateNaissance || undefined,
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Échec");
@@ -183,6 +199,7 @@ export default function MembresPanel() {
       setFirstName("");
       setLastName("");
       setInviteRoles([]);
+      setDateNaissance("");
       setShowAddForm(false);
       alert(j.message || "Enregistré.");
       await load();
@@ -197,6 +214,7 @@ export default function MembresPanel() {
     setEditingKey(u.externalUserId || u.email);
     setEditRoles([...u.roles]);
     setEditEmail(u.email);
+    setEditDateNaissance("");
   };
 
   const saveEdit = async (u: RegistryUserRow) => {
@@ -220,6 +238,7 @@ export default function MembresPanel() {
           externalUserId: u.externalUserId || undefined,
           email: nextEmail,
           intranetRoles: editRoles,
+          dateNaissance: editDateNaissance || undefined,
         }),
       });
       const j = (await res.json()) as {
@@ -407,6 +426,14 @@ export default function MembresPanel() {
         </p>
         <button
           type="button"
+          disabled={!canManageRoles}
+          onClick={() => setShowBirthImport(true)}
+          className="mt-3 mr-3 rounded-2xl border border-[var(--dash-primary)] bg-white/70 px-4 py-2.5 text-sm font-semibold text-[var(--dash-primary)] shadow-sm disabled:opacity-50"
+        >
+          Importer les dates de naissance
+        </button>
+        <button
+          type="button"
           disabled={!canManageRoles || bulkSending || pendingInviteTargets.length === 0}
           onClick={() => void sendBulkPendingInvites()}
           className="mt-3 rounded-2xl bg-[var(--dash-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
@@ -520,6 +547,19 @@ export default function MembresPanel() {
             <span className="text-sm font-bold text-slate-600 block mb-2">Rôles *</span>
             <RoleCheckboxes options={roleOptions} selected={inviteRoles} onChange={setInviteRoles} />
           </div>
+          <label className="block">
+            <span className="text-sm font-bold text-slate-600">
+              Date de naissance{inviteIsInternal ? " *" : " (facultative)"}
+            </span>
+            <input
+              type="date"
+              required={inviteIsInternal}
+              value={dateNaissance}
+              onChange={(e) => setDateNaissance(e.target.value)}
+              max={new Date().toISOString().slice(0, 10)}
+              className={settingsInputClass}
+            />
+          </label>
           <button
             type="submit"
             disabled={sending}
@@ -658,6 +698,18 @@ export default function MembresPanel() {
                         required
                       />
                     </label>
+                    <label className="block space-y-1">
+                      <span className="text-xs font-bold text-slate-500">
+                        Date de naissance (laisser vide pour ne pas la modifier)
+                      </span>
+                      <input
+                        type="date"
+                        className={settingsInputClass}
+                        value={editDateNaissance}
+                        onChange={(e) => setEditDateNaissance(e.target.value)}
+                        max={new Date().toISOString().slice(0, 10)}
+                      />
+                    </label>
                     <RoleCheckboxes options={roleOptions} selected={editRoles} onChange={setEditRoles} />
                     <div className="flex gap-2">
                       <button
@@ -686,6 +738,12 @@ export default function MembresPanel() {
           })}
         </ul>
       )}
+
+      <RhBirthdatesImportModal
+        open={showBirthImport}
+        onClose={() => setShowBirthImport(false)}
+        onDone={() => void load()}
+      />
 
       {sessionsFor ? (
         <SessionsManager

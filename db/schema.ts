@@ -58,6 +58,8 @@ export const user = pgTable(
     email: text("email").notNull(),
     emailVerified: boolean("email_verified").notNull().default(false),
     image: text("image"),
+    /** Date de naissance (anniversaires du personnel) — jamais exposée telle quelle aux autres utilisateurs. */
+    dateNaissance: date("date_naissance"),
     etablissementId: uuid("etablissement_id")
       .notNull()
       .references(() => etablissement.id, { onDelete: "cascade" }),

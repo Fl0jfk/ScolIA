@@ -6,7 +6,7 @@ import { requireAppUser } from "@/app/lib/app-session";
 import { canStartSupervision } from "@/app/lib/supervision";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import { requireTenantId } from "@/app/lib/tenant-scope";
-import { setUserRolesInDb, syncUserAdminFlagsInDb } from "@/app/lib/auth-roles-db";
+import { listUserRolesFromDb, setUserRolesInDb, syncUserAdminFlagsInDb } from "@/app/lib/auth-roles-db";
 import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
 import { getTenant } from "@/app/lib/tenant-context";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
@@ -15,6 +15,8 @@ import { membersApiSourceLabel } from "@/app/lib/members-sync";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { session, user } from "@/db/schema";
+import { validatePersonnelBirthDate } from "@/app/lib/personnel-birthdate";
+import { hasInternalRole } from "@/app/lib/anniversaires-date";
 
 export async function GET(req: Request) {
   const actor = await requireAppUser();
@@ -74,6 +76,12 @@ export async function POST(req: Request) {
     const roles = normalizeIntranetRoles(body.intranetRoles ?? body.roles);
     const firstName = String(body.firstName ?? "").trim();
     const lastName = String(body.lastName ?? "").trim();
+    const rawBirth = typeof body.dateNaissance === "string" ? body.dateNaissance.trim() : "";
+    const birthCheck = rawBirth ? validatePersonnelBirthDate(rawBirth) : null;
+    if (birthCheck && !birthCheck.ok) {
+      return NextResponse.json({ error: birthCheck.error }, { status: 400 });
+    }
+    const birthDate = birthCheck && birthCheck.ok ? birthCheck.value : null;
 
     if (roles.some((r) => r === "master")) {
       return NextResponse.json({ error: "Le rôle Master ne peut pas être attribué ici." }, { status: 403 });
@@ -105,12 +113,23 @@ export async function POST(req: Request) {
           { status: 409 },
         );
       }
+      // Le compte devient interne : date de naissance obligatoire (fournie ou déjà présente).
+      if (hasInternalRole(roles) && !birthDate && !existing.dateNaissance) {
+        const before = await listUserRolesFromDb(existing.id, etablissementId);
+        if (!hasInternalRole(before)) {
+          return NextResponse.json(
+            { error: "Date de naissance obligatoire pour un compte du personnel." },
+            { status: 400 },
+          );
+        }
+      }
       await db
         .update(user)
         .set({
           firstName: firstName || existing.firstName,
           lastName: lastName || existing.lastName,
           name: `${firstName} ${lastName}`.trim() || existing.name,
+          ...(birthDate ? { dateNaissance: birthDate } : {}),
           updatedAt: new Date(),
         })
         .where(eq(user.id, existing.id));
@@ -134,6 +153,13 @@ export async function POST(req: Request) {
       });
     }
 
+    if (hasInternalRole(roles) && !birthDate) {
+      return NextResponse.json(
+        { error: "La date de naissance est obligatoire pour un compte interne." },
+        { status: 400 },
+      );
+    }
+
     const id = crypto.randomUUID();
     await db.insert(user).values({
       id,
@@ -141,6 +167,7 @@ export async function POST(req: Request) {
       name: `${firstName} ${lastName}`.trim() || email,
       firstName: firstName || null,
       lastName: lastName || null,
+      dateNaissance: birthDate,
       emailVerified: false,
       etablissementId,
       orgAdmin: roles.includes("admin"),
@@ -180,6 +207,11 @@ export async function PATCH(req: Request) {
     const externalUserId = String(body.externalUserId ?? body.userId ?? "").trim();
     const roles = normalizeIntranetRoles(body.intranetRoles ?? body.roles);
     const newEmailRaw = body.email != null ? String(body.email).trim().toLowerCase() : "";
+    const patchBirthRaw = typeof body.dateNaissance === "string" ? body.dateNaissance.trim() : "";
+    const patchBirthCheck = patchBirthRaw ? validatePersonnelBirthDate(patchBirthRaw) : null;
+    if (patchBirthCheck && !patchBirthCheck.ok) {
+      return NextResponse.json({ error: patchBirthCheck.error }, { status: 400 });
+    }
     if (!externalUserId) {
       return NextResponse.json({ error: "userId requis." }, { status: 400 });
     }
@@ -211,6 +243,19 @@ export async function PATCH(req: Request) {
 
     const emailChanged =
       Boolean(newEmailRaw) && newEmailRaw !== dbUser.email.trim().toLowerCase();
+    // Le compte devient interne : date de naissance obligatoire (fournie ou déjà présente), avant toute écriture.
+    if (
+      hasInternalRole(roles) &&
+      !hasInternalRole(existingRoles) &&
+      !(patchBirthCheck && patchBirthCheck.ok) &&
+      !dbUser.dateNaissance
+    ) {
+      return NextResponse.json(
+        { error: "Date de naissance obligatoire pour un compte du personnel." },
+        { status: 400 },
+      );
+    }
+
     let email = dbUser.email;
     let emailVerified = dbUser.emailVerified;
     let updatedAt = dbUser.updatedAt;
@@ -249,6 +294,13 @@ export async function PATCH(req: Request) {
       email = newEmailRaw;
       emailVerified = true;
       updatedAt = now;
+    }
+
+    if (patchBirthCheck && patchBirthCheck.ok) {
+      await getDb()
+        .update(user)
+        .set({ dateNaissance: patchBirthCheck.value, updatedAt: new Date() })
+        .where(and(eq(user.id, dbUser.id), eq(user.etablissementId, etablissementId)));
     }
 
     await setUserRolesInDb(dbUser.id, etablissementId, roles);

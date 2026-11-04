@@ -5,6 +5,7 @@ import ModuleTourProvider from "../components/module-tour/ModuleTourProvider";
 import TenantCanonicalHostGuard from "../components/TenantCanonicalHostGuard";
 import TenantBillingBanner from "../components/billing/TenantBillingBanner";
 import SupervisionBanner from "../components/supervision/SupervisionBanner";
+import AnniversairesDuJour from "../components/anniversaires/AnniversairesDuJour";
 import IntranetShell from "../components/shell/IntranetShell";
 import { AdminBootstrapProvider } from "../contexts/admin-bootstrap";
 import { DataProvider } from "../contexts/data";
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <OnboardingGate>
               <ModuleTourProvider>
                 <SupervisionBanner />
+                <AnniversairesDuJour />
                 <TenantBillingBanner />
                 <IntranetShell>{children}</IntranetShell>
               </ModuleTourProvider>

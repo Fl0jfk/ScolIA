@@ -108,6 +108,11 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
     setBusy(true);
     setError(null);
     const fd = new FormData(e.currentTarget);
+    if (!String(fd.get("birthDate") || "").trim()) {
+      setError("La date de naissance est obligatoire.");
+      setBusy(false);
+      return;
+    }
 
     const payload: Record<string, unknown> = {
       firstName: fd.get("firstName"),
@@ -309,7 +314,7 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
             )}
           </section>
 
-          <RhStaffProfileFields />
+          <RhStaffProfileFields requireBirthDate />
         </form>
 
         <div className="p-6 border-t border-slate-100 flex gap-2 shrink-0">
