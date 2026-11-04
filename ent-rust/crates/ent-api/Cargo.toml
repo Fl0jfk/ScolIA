@@ -10,6 +10,11 @@ description = "API HTTP ENT — auth+tenant dès le 1er endpoint, lit le noyau c
 name = "ent-api"
 path = "src/main.rs"
 
+[features]
+# Labo (L4) : /labo/bootstrap, /auth/register libre, aide labo de /login,
+# mot de passe public. DÉSACTIVÉE par défaut, jamais dans l'image de production.
+labo = ["ent-db/labo"]
+
 [dependencies]
 axum = { version = "0.8", features = ["macros"] }
 base64 = "0.22"
@@ -32,5 +37,6 @@ uuid = { workspace = true }
 [dev-dependencies]
 ent-oidc = { path = "../ent-oidc" }
 http-body-util = "0.1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
 tower = { version = "0.5", features = ["util"] }
 webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }

@@ -99,8 +99,20 @@ impl PgEleveRepo {
         etablissement_id: Uuid,
         q: &str,
         limit: i64,
+        par_badge: bool,
     ) -> Result<Vec<Eleve>, DomainError> {
-        let like = format!("%{}%", q.trim().to_lowercase());
+        // Un octet NUL est refusé par PostgreSQL : rejet explicite (400), pas une panne.
+        if q.contains('\0') {
+            return Err(DomainError::ValeurInvalide);
+        }
+        // `%`, `_` et `\` saisis par l'utilisateur sont littéraux (échappés, clause ESCAPE).
+        let echappe = q
+            .trim()
+            .to_lowercase()
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let like = format!("%{echappe}%");
         let rows = sqlx::query_as::<_, EleveRow>(
             r#"
             SELECT id, etablissement_id, nom, prenom, ine, sexe, date_naissance, numero_badge,
@@ -109,10 +121,10 @@ impl PgEleveRepo {
             FROM ent_eleve
             WHERE etablissement_id = $1
               AND (
-                lower(nom) LIKE $2
-                OR lower(prenom) LIKE $2
-                OR lower(coalesce(classe, '')) LIKE $2
-                OR lower(coalesce(numero_badge, '')) LIKE $2
+                lower(nom) LIKE $2 ESCAPE '\'
+                OR lower(prenom) LIKE $2 ESCAPE '\'
+                OR lower(coalesce(classe, '')) LIKE $2 ESCAPE '\'
+                OR ($4 AND lower(coalesce(numero_badge, '')) LIKE $2 ESCAPE '\')
               )
             ORDER BY nom, prenom
             LIMIT $3
@@ -121,6 +133,7 @@ impl PgEleveRepo {
         .bind(etablissement_id)
         .bind(like)
         .bind(limit)
+        .bind(par_badge)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;

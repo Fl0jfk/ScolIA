@@ -76,8 +76,7 @@ impl PgParamEtabRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] param_etab sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("param_etab", e)
 }
 
 #[derive(sqlx::FromRow)]

@@ -74,8 +74,7 @@ impl PgTvaRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] tva sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("tva", e)
 }
 
 #[derive(sqlx::FromRow)]

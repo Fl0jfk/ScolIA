@@ -2,8 +2,141 @@
 
 use axum::response::Html;
 
+use std::sync::OnceLock;
+
+/// Page servie. Les emplacements `@@L_*@@` / `@@LABO_PWD@@` de `APP` n'ont de
+/// contenu « labo » (aide, bouton de bootstrap, personas, mot de passe public)
+/// que si la feature `labo` est compilée ET `ENT_ENV` est explicitement non
+/// productif ; sinon ils sont vides. Sans la feature, aucun fragment ni
+/// constante de labo n'existe dans le binaire.
 pub fn app_html() -> Html<&'static str> {
-    Html(APP)
+    #[cfg(feature = "labo")]
+    if crate::routes::env_non_prod() {
+        static LABO: OnceLock<String> = OnceLock::new();
+        return Html(LABO.get_or_init(|| assemble(true)).as_str());
+    }
+    static PROD: OnceLock<String> = OnceLock::new();
+    Html(PROD.get_or_init(|| assemble(false)).as_str())
+}
+
+/// Page complète pour le mode demandé (`labo` n'a d'effet qu'avec la feature).
+pub(crate) fn assemble(labo: bool) -> String {
+    let mut page = APP.to_string();
+    #[cfg(feature = "labo")]
+    if labo {
+        for (marqueur, contenu) in labo_fragments::FRAGMENTS {
+            page = page.replace(marqueur, contenu);
+        }
+        return page.replace("@@LABO_PWD@@", ent_db::LABO_PASSWORD);
+    }
+    let _ = labo;
+    for marqueur in [
+        "@@L_LOGIN_BOOT@@",
+        "@@L_LOGIN_PERSONA@@",
+        "@@L_PWD_VALUE@@",
+        "@@L_LOGIN_BOOTJS@@",
+        "@@LABO_PWD@@",
+    ] {
+        page = page.replace(marqueur, "");
+    }
+    page.replace("@@L_LOGIN_HINT@@", "Connexion à votre établissement.")
+}
+
+/// Fragments d'interface réservés au labo : compilés seulement avec la feature.
+#[cfg(feature = "labo")]
+mod labo_fragments {
+    pub(super) const FRAGMENTS: [(&str, &str); 5] = [
+        (
+            "@@L_LOGIN_HINT@@",
+            "Connexion labo — Postgres local. Mot de passe seed : <code>@@LABO_PWD@@</code>",
+        ),
+        (
+            "@@L_LOGIN_BOOT@@",
+            r##"<div class="actions">
+      <button type="button" class="primary" id="btnBoot">Créer l’école labo (Harry Potter)</button>
+      <span id="bootMsg" class="muted"></span>
+    </div>"##,
+        ),
+        (
+            "@@L_LOGIN_PERSONA@@",
+            r##"<label>Persona
+      <select id="persona" ${opts ? '' : 'disabled'}>
+        ${opts || '<option value="">— bootstrap d’abord —</option>'}
+      </select>
+    </label>"##,
+        ),
+        ("@@L_PWD_VALUE@@", r##"value="@@LABO_PWD@@""##),
+        (
+            "@@L_LOGIN_BOOTJS@@",
+            r##"const btnBoot = document.getElementById('btnBoot');
+  if (btnBoot) btnBoot.onclick = async () => {
+    const msg = document.getElementById('bootMsg');
+    msg.textContent = 'Création… (20–30 s)';
+    try {
+      const cast = await api('/labo/bootstrap', { method: 'POST', body: '{}' });
+      STORE.cast = cast;
+      STORE.etab = cast.etablissement_id;
+      msg.innerHTML = `<span class="ok">OK</span> — ${cast.eleves.length} élèves`;
+      toastLaboBootstrap(cast);
+      render();
+    } catch (e) {
+      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  };"##,
+        ),
+    ];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MARQUEURS: [&str; 6] = [
+        "@@L_LOGIN_HINT@@",
+        "@@L_LOGIN_BOOT@@",
+        "@@L_LOGIN_PERSONA@@",
+        "@@L_PWD_VALUE@@",
+        "@@L_LOGIN_BOOTJS@@",
+        "@@LABO_PWD@@",
+    ];
+
+    /// Mot de passe public du labo, reconstitué pour ne pas figer le littéral ici.
+    fn mdp_public() -> String {
+        ["DevLocal", "Pass1!"].concat()
+    }
+
+    #[test]
+    fn page_prod_sans_aide_labo_ni_mot_de_passe() {
+        let page = assemble(false);
+        assert!(!page.contains(&mdp_public()), "mot de passe public servi");
+        assert!(!page.contains("/labo/bootstrap"));
+        assert!(!page.contains("btnBoot"));
+        assert!(!page.contains("id=\"persona\""));
+        for m in MARQUEURS {
+            assert!(!page.contains(m), "marqueur non résolu : {m}");
+        }
+        assert!(page.contains("id=\"loginForm\""));
+    }
+
+    #[cfg(not(feature = "labo"))]
+    #[test]
+    fn sans_feature_le_mode_labo_demande_reste_prod() {
+        let page = assemble(true);
+        assert!(!page.contains(&mdp_public()));
+        assert!(!page.contains("/labo/bootstrap"));
+    }
+
+    #[cfg(feature = "labo")]
+    #[test]
+    fn page_labo_avec_feature_contient_aide_et_resout_les_marqueurs() {
+        let page = assemble(true);
+        assert!(page.contains(&mdp_public()));
+        assert!(page.contains("/labo/bootstrap"));
+        assert!(page.contains("btnBoot"));
+        for m in MARQUEURS {
+            assert!(!page.contains(m), "marqueur non résolu : {m}");
+        }
+    }
 }
 
 const APP: &str = r##"<!DOCTYPE html>
@@ -7123,7 +7256,7 @@ function toastStaffCfcAction(kind, meta) {
     tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--accent,#0071e3)">
         <strong>${nAdultes || '→'}</strong><span>GET /personnel/search · rôles</span>
       </div>
-      <div class="stat-tile bento-span-4"><strong class="muted">Register</strong><span>POST /auth/register · labo</span></div>
+      <div class="stat-tile bento-span-4"><strong class="muted">Provision</strong><span>POST /etablissement/personnel</span></div>
       <div class="stat-tile bento-span-4"><strong class="muted">CF-C</strong><span>Hors grants CA-C</span></div>`;
   } else if (k === 'rh') {
     href = '/app/rh';
@@ -8944,7 +9077,7 @@ function toastStaffCacAction(kind, meta) {
     tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
         <strong class="ok">${nEl || '—'}</strong><span>Élèves seed · ${etabShort}</span>
       </div>
-      <div class="stat-tile bento-span-4"><strong>${nPer || '—'}</strong><span>Personas · mdp labo</span></div>
+      <div class="stat-tile bento-span-4"><strong>${nPer || '—'}</strong><span>Personas · cast labo</span></div>
       <div class="stat-tile bento-span-4"><strong class="muted">CA-C</strong><span>Re-bootstrap · login</span></div>`;
   } else if (k === 'comptes') {
     href = '/app/adultes';
@@ -19680,7 +19813,7 @@ function adminUsersRolesTipDenseHtml(users) {
   return adultesPageTipDenseHtml(users, { isAdmin: true });
 }
 
-/** Toast — compte staff créé (POST /auth/register). */
+/** Toast — compte staff créé (POST /etablissement/personnel). */
 function toastUtilisateurCree(u, opts) {
   const o = opts || {};
   const user = u || {};
@@ -19819,7 +19952,7 @@ function homeAdminBootstrapTipDenseHtml(cast) {
     <button type="button" class="stat-tile bento-span-4" id="homeCacCastGo" style="cursor:pointer;text-align:left;border-color:var(--ok,#16a34a)">
       <strong class="ok">${nEl || '—'}</strong><span>Élèves seed · ${etabShort} · ${cacLbl}</span></button>
     <button type="button" class="stat-tile bento-span-4" id="homeCacPersonasGo" style="cursor:pointer;text-align:left">
-      <strong>${nPer || '—'}</strong><span>Personas · mdp <code>DevLocalPass1!</code></span></button>
+      <strong>${nPer || '—'}</strong><span>Personas · mdp <code>@@LABO_PWD@@</code></span></button>
     <button type="button" class="stat-tile bento-span-4" id="homeCacAdultesGo" style="cursor:pointer;text-align:left;border-color:var(--accent,#0071e3)">
       <strong class="muted">${adminEmail}</strong><span>Admin labo · comptes</span></button>
     <button type="button" class="stat-tile bento-span-4" id="homeCacInfSeedGo" style="cursor:pointer;text-align:left">
@@ -19874,7 +20007,7 @@ function toastLaboBootstrap(cast) {
   const tiles = `<div class="stat-tile bento-span-4" style="border-color:var(--ok,#16a34a)">
       <strong class="ok">${nEl || '—'}</strong><span>Élèves seed · ${etabShort}</span>
     </div>
-    <div class="stat-tile bento-span-4"><strong>${nPer || '—'}</strong><span>Personas · mdp <code>DevLocalPass1!</code></span></div>
+    <div class="stat-tile bento-span-4"><strong>${nPer || '—'}</strong><span>Personas · mdp <code>@@LABO_PWD@@</code></span></div>
     <div class="stat-tile bento-span-4"><strong class="muted">${adminEmail}</strong><span>Admin · choisir persona</span></div>`;
   showEntToast(
     `<strong>École labo créée</strong>`
@@ -25026,21 +25159,14 @@ function viewLogin() {
   ).join('');
   return `<div class="login-wrap"><form class="login-card" id="loginForm">
     <h1>ENT</h1>
-    <p class="muted">Connexion labo — Postgres local. Mot de passe seed : <code>DevLocalPass1!</code></p>
-    <div class="actions">
-      <button type="button" class="primary" id="btnBoot">Créer l’école labo (Harry Potter)</button>
-      <span id="bootMsg" class="muted"></span>
-    </div>
-    <label>Persona
-      <select id="persona" ${opts ? '' : 'disabled'}>
-        ${opts || '<option value="">— bootstrap d’abord —</option>'}
-      </select>
-    </label>
+    <p class="muted">@@L_LOGIN_HINT@@</p>
+    @@L_LOGIN_BOOT@@
+    @@L_LOGIN_PERSONA@@
     <label>E-mail
       <input id="email" type="email" required value="${esc(personas[0] && personas[0].email || '')}" autocomplete="username"/>
     </label>
     <label>Mot de passe
-      <input id="password" type="password" required value="DevLocalPass1!" autocomplete="current-password"/>
+      <input id="password" type="password" required @@L_PWD_VALUE@@ autocomplete="current-password"/>
     </label>
     <label>Établissement
       <input id="etab" required value="${esc(etab)}" placeholder="uuid après bootstrap" autocomplete="off"/>
@@ -25065,20 +25191,7 @@ async function bindLogin() {
   if (persona) {
     persona.onchange = () => { email.value = persona.value; };
   }
-  document.getElementById('btnBoot').onclick = async () => {
-    const msg = document.getElementById('bootMsg');
-    msg.textContent = 'Création… (20–30 s)';
-    try {
-      const cast = await api('/labo/bootstrap', { method: 'POST', body: '{}' });
-      STORE.cast = cast;
-      STORE.etab = cast.etablissement_id;
-      msg.innerHTML = `<span class="ok">OK</span> — ${cast.eleves.length} élèves`;
-      toastLaboBootstrap(cast);
-      render();
-    } catch (e) {
-      msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
-    }
-  };
+  @@L_LOGIN_BOOTJS@@
   document.getElementById('loginForm').onsubmit = async (ev) => {
     ev.preventDefault();
     const box = document.getElementById('loginErr');
@@ -48213,7 +48326,7 @@ function viewAdultes() {
       </section>
       <section class="panel bento-span-4">
         <h3>Créer un compte adulte</h3>
-        <p class="dossier-help">Provisionnement labo via <code>POST /auth/register</code> — mot de passe temporaire à communiquer.</p>
+        <p class="dossier-help">Provisionnement via <code>POST /etablissement/personnel</code> (Direction / Admin) — mot de passe temporaire généré et affiché une fois.</p>
         <label>E-mail <input id="adulteNewEmail" type="email" style="width:100%" placeholder="prenom.nom@etab.fr"/></label>
         <label style="display:block;margin-top:.4rem">Nom affiché <input id="adulteNewName" style="width:100%" placeholder="Prénom Nom"/></label>
         <div class="row" style="margin-top:.4rem">
@@ -48228,7 +48341,6 @@ function viewAdultes() {
             <option value="admin">admin</option>
           </select></label>
         </div>
-        <label style="display:block;margin-top:.4rem">Mot de passe temp. <input id="adulteNewPwd" value="DevLocalPass1!" style="width:100%"/></label>
         <div class="row" style="margin-top:.65rem">
           <button type="button" class="primary" id="btnAdulteCreate">Créer</button>
           <span id="adulteCreateMsg" class="muted"></span>
@@ -48312,24 +48424,25 @@ async function bindAdultes() {
     btnCreate.onclick = async () => {
       const msg = document.getElementById('adulteCreateMsg');
       const email = ((document.getElementById('adulteNewEmail') || {}).value || '').trim();
-      const password = ((document.getElementById('adulteNewPwd') || {}).value || '').trim();
       const display_name = ((document.getElementById('adulteNewName') || {}).value || '').trim() || null;
       const role = ((document.getElementById('adulteNewRole') || {}).value || 'prof').trim();
-      const etablissement_id = (me && me.etablissement_id) || STORE.etab;
-      if (!email || !password || !etablissement_id) {
-        if (msg) msg.innerHTML = '<span class="bad">E-mail, mot de passe et établissement requis</span>';
+      if (!email) {
+        if (msg) msg.innerHTML = '<span class="bad">E-mail requis</span>';
         return;
       }
       try {
-        const u = await api('/auth/register', {
+        // Provisionnement serveur (Direction / Admin) : le mot de passe
+        // temporaire est généré côté serveur et renvoyé une seule fois.
+        const r = await api('/etablissement/personnel', {
           method: 'POST',
-          body: JSON.stringify({ email, password, display_name, etablissement_id, role }),
+          body: JSON.stringify({ email, display_name, role }),
         });
+        const u = { id: r.user_id, email: r.email, role: r.role, display_name };
         if (msg) {
-          msg.innerHTML = `<span class="ok">Compte ${esc(u.email || email)} créé</span>
+          msg.innerHTML = `<span class="ok">Compte ${esc(u.email || email)} créé · mot de passe temporaire : <code>${esc(r.mot_de_passe_temporaire)}</code> (à communiquer, affiché une seule fois)</span>
             · <a href="/app/adultes/${esc(u.id)}">Fiche</a>`;
         }
-        toastUtilisateurCree(u, { email, displayName: display_name, role, tempPassword: password });
+        toastUtilisateurCree(u, { email, displayName: display_name, role, tempPassword: r.mot_de_passe_temporaire });
         document.getElementById('adulteNewEmail').value = '';
         await load();
       } catch (e) {
@@ -48649,7 +48762,7 @@ async function bindFoyerDetail(id) {
       </header>
       <section class="panel">
         <h3>Rattacher un responsable</h3>
-        <p class="dossier-help">Compte parent créé s’il n’existe pas (mdp labo <code>DevLocalPass1!</code>). Par défaut non payeur — ajuste les parts à 100&nbsp;% ensuite.</p>
+        <p class="dossier-help">Compte parent créé s’il n’existe pas (le responsable définit son mot de passe via « Mot de passe oublié »). Par défaut non payeur — ajuste les parts à 100&nbsp;% ensuite.</p>
         <div class="row">
           ${elevePickerRow('fyLinkEleve', 'fyLinkQ', 'fyLinkBtn')}
         </div>

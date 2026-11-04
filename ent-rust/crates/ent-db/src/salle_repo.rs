@@ -117,8 +117,7 @@ impl PgSalleRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] salle sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("salle", e)
 }
 
 #[derive(sqlx::FromRow)]

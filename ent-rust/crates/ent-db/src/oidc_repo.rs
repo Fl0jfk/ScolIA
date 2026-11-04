@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 /// Fournisseur OIDC d'un établissement (le secret ne sort jamais vers le
 /// portail public — voir [`OidcProviderPublic`]).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OidcProviderRow {
     pub id: Uuid,
     pub etablissement_id: Uuid,
@@ -322,5 +322,19 @@ impl PgOidcRepo {
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected())
+    }
+}
+
+impl std::fmt::Debug for OidcProviderRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcProviderRow")
+            .field("id", &self.id)
+            .field("etablissement_id", &self.etablissement_id)
+            .field("slug", &self.slug)
+            .field("issuer", &self.issuer)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[masqué]")
+            .field("actif", &self.actif)
+            .finish_non_exhaustive()
     }
 }

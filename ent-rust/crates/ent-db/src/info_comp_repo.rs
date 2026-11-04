@@ -145,8 +145,7 @@ impl PgInfoCompRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] info_comp sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("info_comp", e)
 }
 
 #[derive(sqlx::FromRow)]

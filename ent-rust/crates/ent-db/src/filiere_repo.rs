@@ -170,8 +170,7 @@ impl PgFiliereRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] filiere sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("filiere", e)
 }
 
 #[derive(sqlx::FromRow)]

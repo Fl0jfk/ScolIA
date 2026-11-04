@@ -55,8 +55,8 @@ impl PgEventStore {
         .execute(&self.pool)
         .await
         .map_err(|e| {
-            eprintln!("[ent-db] event insert failed: {e}");
-            EventBusError::EmptyType
+            tracing::error!(error = %e, "insertion d'événement métier échouée");
+            EventBusError::Infrastructure
         })?;
 
         let handlers = self.handlers.lock().expect("handlers lock").clone();
@@ -85,8 +85,8 @@ impl PgEventStore {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| {
-            eprintln!("[ent-db] event select failed: {e}");
-            EventBusError::EmptyType
+            tracing::error!(error = %e, "lecture d'événements métier échouée");
+            EventBusError::Infrastructure
         })?;
 
         Ok(rows.into_iter().map(EventRow::into_event).collect())

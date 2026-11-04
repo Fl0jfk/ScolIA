@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SmtpConfig {
     /// Adresse From (MAILER_EMAIL / SMTP_USER).
     pub from: String,
@@ -164,5 +164,38 @@ mod tests {
             infer_host_from_from("flojfk@gmail.com").as_deref(),
             Some("smtp.gmail.com")
         );
+    }
+}
+
+impl std::fmt::Debug for SmtpConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SmtpConfig")
+            .field("from", &self.from)
+            .field("auth_user", &self.auth_user)
+            .field("pass", &"[masqué]")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("secure", &self.secure)
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod debug_masque_tests {
+    use super::SmtpConfig;
+
+    #[test]
+    fn smtp_config_debug_masque_le_mot_de_passe() {
+        let c = SmtpConfig {
+            from: "no-reply@example.test".into(),
+            auth_user: "u".into(),
+            pass: "mot-de-passe-smtp-secret".into(),
+            host: "smtp.example.test".into(),
+            port: 465,
+            secure: true,
+        };
+        let s = format!("{c:?}");
+        assert!(s.contains("[masqué]"));
+        assert!(!s.contains("mot-de-passe-smtp-secret"));
     }
 }

@@ -91,8 +91,7 @@ impl PgMenuCantineRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] menu_cantine sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("menu_cantine", e)
 }
 
 #[derive(sqlx::FromRow)]

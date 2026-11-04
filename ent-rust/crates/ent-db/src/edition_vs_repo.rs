@@ -103,8 +103,7 @@ impl PgEditionVsRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] edition_vs sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("edition_vs", e)
 }
 
 #[derive(sqlx::FromRow)]

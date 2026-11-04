@@ -3328,3 +3328,390 @@ async fn pra_inventaire_integrite_et_isolation() {
         "le global couvre au moins l'établissement"
     );
 }
+
+/// L4 : rattacher un responsable SANS mot de passe ne crée jamais un compte
+/// utilisable avec le mot de passe public du labo.
+#[tokio::test]
+async fn rattachement_parent_sans_mot_de_passe_pas_de_mot_de_passe_public() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip scénario: ENT_DATABASE_URL");
+        return;
+    };
+    let email = format!("parent-l4-{}@example.test", Uuid::new_v4());
+    ent.rattacher_responsable_foyer_for_actor(
+        cast.administratif.role.as_str(),
+        cast.etablissement_id,
+        cast.administratif.user_id,
+        cast.foyer_lea_id,
+        cast.eleve_lea_id,
+        &email,
+        None,
+        None,
+        None,
+        "parent",
+        true,
+        true,
+        true,
+        true,
+        false,
+        None,
+    )
+    .await
+    .expect("rattachement sans mot de passe");
+    assert!(
+        ent.login(&email, LABO_PASSWORD, cast.etablissement_id)
+            .await
+            .is_err(),
+        "le compte créé ne doit pas accepter le mot de passe public"
+    );
+}
+
+/// L1 — clé objet : le client ne choisit jamais la clé ; la lecture vérifie l'appartenance.
+mod fichiers_documents {
+    use super::*;
+    use crate::service::document_storage_key_is_owned;
+    use domain_eleve::{DeposerDocument, DocConfidentialite, DocTiroir, EleveDocument};
+    use ent_object::ObjectStore;
+
+    const SECRET: &[u8] = b"SECRET-SANTE-BYTES";
+
+    fn cmd(
+        etab: Uuid,
+        eleve: Uuid,
+        tiroir: DocTiroir,
+        conf: DocConfidentialite,
+        key: Option<String>,
+        actor: Uuid,
+    ) -> DeposerDocument {
+        DeposerDocument {
+            etablissement_id: etab,
+            eleve_id: eleve,
+            tiroir,
+            titre: "Doc test L1".into(),
+            code: None,
+            mime_type: Some("application/pdf".into()),
+            storage_key: key,
+            confidentialite: conf,
+            actor_user_id: actor,
+        }
+    }
+
+    fn est_stub(bytes: &[u8]) -> bool {
+        bytes.starts_with("Document ENT (lab)".as_bytes())
+    }
+
+    fn doc_sample(etab: Uuid, eleve: Uuid) -> EleveDocument {
+        EleveDocument {
+            id: Uuid::new_v4(),
+            etablissement_id: etab,
+            eleve_id: eleve,
+            tiroir: DocTiroir::Famille,
+            titre: "x".into(),
+            code: None,
+            mime_type: None,
+            storage_key: None,
+            confidentialite: DocConfidentialite::Standard,
+            source: "upload".into(),
+            created_by_user_id: None,
+        }
+    }
+
+    #[test]
+    fn appartenance_cle_formes() {
+        let d = doc_sample(Uuid::new_v4(), Uuid::new_v4());
+        let e = d.etablissement_id;
+        let other = Uuid::new_v4();
+        let ok = |k: &str| document_storage_key_is_owned(&d, k);
+        for ext in ["pdf", "png", "jpg", "txt", "bin"] {
+            assert!(ok(&format!("{e}/documents/{}.{ext}", d.id)), "{ext}");
+        }
+        assert!(!ok(&format!("{e}/documents/{}.exe", d.id)));
+        assert!(!ok(&format!("{e}/documents/{other}.pdf")));
+        assert!(!ok(&format!("{other}/documents/{}.pdf", d.id)));
+        assert!(!ok(&format!("{e}/pai/{}.pdf", d.id)));
+        assert!(!ok(&format!("{e}/trombi/{}.png", d.id)));
+        assert!(ok(&format!("{e}/bulletin/{other}.pdf-{}", d.eleve_id)));
+        assert!(ok(&format!(
+            "{e}/livret-competences/{other}.pdf-{}",
+            d.eleve_id
+        )));
+        assert!(!ok(&format!("{e}/bulletin/{other}.pdf-{other}")));
+        assert!(ok(&format!(
+            "reinscription/{e}/{}/ASSURANCE_RC.pdf",
+            d.eleve_id
+        )));
+        assert!(!ok(&format!("reinscription/{e}/{other}/ASSURANCE_RC.pdf")));
+        assert!(!ok(&format!("reinscription/{other}/{}/X.pdf", d.eleve_id)));
+        let short = &e.simple().to_string()[..8];
+        assert!(ok(&format!("lab/{short}/pap-harry.pdf")));
+        assert!(!ok(&format!(
+            "lab/{}/pap-harry.pdf",
+            &other.simple().to_string()[..8]
+        )));
+        for bad in [
+            "C:/Windows/win.ini",
+            "C:foo",
+            "/etc/passwd",
+            "../x",
+            "lab/../x",
+            "",
+            "a",
+        ] {
+            assert!(!ok(bad), "{bad}");
+        }
+    }
+
+    /// (a) clé forcée par un parent : ignorée ; santé verrouillée jamais servie.
+    /// (d) dépôt avec contenu : relu. (f) droits de dépôt.
+    #[tokio::test]
+    async fn depot_public_ignore_cle_et_relit_contenu() {
+        let Some((ent, cast)) = labo().await else {
+            eprintln!("skip scénario: ENT_DATABASE_URL");
+            return;
+        };
+        let etab = cast.etablissement_id;
+        let lea = cast.eleve_lea_id;
+        let admin = Role::Admin.as_str();
+        let sante = ent
+            .deposer_document_for_actor(
+                admin,
+                cmd(
+                    etab,
+                    lea,
+                    DocTiroir::Autre,
+                    DocConfidentialite::Sante,
+                    None,
+                    cast.admin.user_id,
+                ),
+                Some(SECRET),
+            )
+            .await
+            .expect("staff dépose santé avec contenu");
+        let sante_key = sante.storage_key.clone().expect("clé serveur");
+        assert_eq!(
+            sante_key,
+            ObjectStore::key_for(etab, "documents", sante.id, "pdf")
+        );
+
+        // (a) le parent lié tente de pointer la clé santé.
+        let p = Role::Parent.as_str();
+        let vole = ent
+            .deposer_document_for_actor(
+                p,
+                cmd(
+                    etab,
+                    lea,
+                    DocTiroir::Sante,
+                    DocConfidentialite::Sante,
+                    Some(sante_key.clone()),
+                    cast.parent_lea.user_id,
+                ),
+                None,
+            )
+            .await
+            .expect("dépôt parent");
+        assert_eq!(vole.storage_key, None, "clé client ignorée");
+        assert_eq!(vole.tiroir, DocTiroir::Famille);
+        assert_eq!(vole.confidentialite, DocConfidentialite::Standard);
+        let r = ent
+            .telecharger_document_bytes_for_actor(etab, cast.parent_lea.user_id, p, vole.id)
+            .await;
+        assert!(r.is_err(), "pas de clé = pas de fichier");
+        // Le parent ne lit toujours pas le doc santé lui-même.
+        assert!(matches!(
+            ent.telecharger_document_bytes_for_actor(etab, cast.parent_lea.user_id, p, sante.id)
+                .await,
+            Err(EntDbError::Forbidden)
+        ));
+        // Même chose avec contenu fourni : clé serveur, jamais la clé client.
+        let mien = ent
+            .deposer_document_for_actor(
+                p,
+                cmd(
+                    etab,
+                    lea,
+                    DocTiroir::Famille,
+                    DocConfidentialite::Standard,
+                    Some(sante_key.clone()),
+                    cast.parent_lea.user_id,
+                ),
+                Some(b"%PDF-mien"),
+            )
+            .await
+            .expect("dépôt parent avec contenu");
+        assert_eq!(
+            mien.storage_key.as_deref(),
+            Some(ObjectStore::key_for(etab, "documents", mien.id, "pdf").as_str())
+        );
+        // (d) relu correctement.
+        let (_, bytes) = ent
+            .telecharger_document_bytes_for_actor(etab, cast.parent_lea.user_id, p, mien.id)
+            .await
+            .expect("relecture");
+        assert_eq!(bytes, b"%PDF-mien");
+        // L'objet santé est intact.
+        assert_eq!(ent.objects().get(&sante_key).unwrap(), SECRET);
+
+        // (f) droits de dépôt.
+        for (role, uid) in [
+            (Role::Infirmerie, cast.infirmieres[0].user_id),
+            (Role::Prof, cast.prof.user_id),
+            (Role::Cpe, cast.cpe.user_id),
+            (Role::Compta, cast.compta.user_id),
+            (Role::Psy, cast.psys[0].user_id),
+        ] {
+            let r = ent
+                .deposer_document_for_actor(
+                    role.as_str(),
+                    cmd(
+                        etab,
+                        lea,
+                        DocTiroir::Famille,
+                        DocConfidentialite::Standard,
+                        None,
+                        uid,
+                    ),
+                    None,
+                )
+                .await;
+            assert!(matches!(r, Err(EntDbError::Forbidden)), "{role:?}");
+        }
+        // Parent non lié (Tom) → refus ; élève d'un autre établissement → refus.
+        assert!(matches!(
+            ent.deposer_document_for_actor(
+                p,
+                cmd(
+                    etab,
+                    lea,
+                    DocTiroir::Famille,
+                    DocConfidentialite::Standard,
+                    None,
+                    cast.parent_tom.user_id
+                ),
+                None,
+            )
+            .await,
+            Err(EntDbError::Forbidden)
+        ));
+        let cast_b = ent.seed_labo_cast().await.expect("cast b");
+        for (role, uid) in [(admin, cast.admin.user_id), (p, cast.parent_lea.user_id)] {
+            assert!(ent
+                .deposer_document_for_actor(
+                    role,
+                    cmd(
+                        etab,
+                        cast_b.eleve_lea_id,
+                        DocTiroir::Famille,
+                        DocConfidentialite::Standard,
+                        None,
+                        uid
+                    ),
+                    None,
+                )
+                .await
+                .is_err());
+        }
+    }
+
+    /// (b) clé d'un autre établissement, (c) clé absolue / traversée : jamais lues.
+    #[tokio::test]
+    async fn cles_non_conformes_jamais_lues() {
+        let Some((ent, cast)) = labo().await else {
+            eprintln!("skip scénario: ENT_DATABASE_URL");
+            return;
+        };
+        let etab = cast.etablissement_id;
+        let cast_b = ent.seed_labo_cast().await.expect("cast b");
+        let secret_b = ent
+            .deposer_document_for_actor(
+                Role::Admin.as_str(),
+                cmd(
+                    cast_b.etablissement_id,
+                    cast_b.eleve_lea_id,
+                    DocTiroir::Autre,
+                    DocConfidentialite::Sante,
+                    None,
+                    cast_b.admin.user_id,
+                ),
+                Some(SECRET),
+            )
+            .await
+            .expect("secret B");
+        let key_b = secret_b.storage_key.clone().unwrap();
+        let reinscr_autre = format!(
+            "reinscription/{}/{}/X.pdf",
+            cast_b.etablissement_id, cast_b.eleve_lea_id
+        );
+        ent.objects().put(&reinscr_autre, SECRET).unwrap();
+        let mauvaises = [
+            key_b,
+            reinscr_autre,
+            "C:/Windows/win.ini".to_string(),
+            "C:foo".to_string(),
+            "../../.env".to_string(),
+            format!(
+                "lab/{}/pap-harry.pdf",
+                &cast_b.etablissement_id.simple().to_string()[..8]
+            ),
+        ];
+        for k in mauvaises {
+            // Ligne héritée (insérée par le chemin interne, comme une donnée pré-existante).
+            let doc = ent
+                .deposer_document(cmd(
+                    etab,
+                    cast.eleve_lea_id,
+                    DocTiroir::Famille,
+                    DocConfidentialite::Standard,
+                    Some(k.clone()),
+                    cast.admin.user_id,
+                ))
+                .await
+                .expect("ligne héritée");
+            for (uid, role) in [
+                (cast.parent_lea.user_id, Role::Parent),
+                (cast.admin.user_id, Role::Admin),
+            ] {
+                let (_, bytes) = ent
+                    .telecharger_document_bytes_for_actor(etab, uid, role.as_str(), doc.id)
+                    .await
+                    .expect("stub");
+                assert!(est_stub(&bytes), "clé {k:?} : stub attendu");
+                assert!(!String::from_utf8_lossy(&bytes).contains("SECRET"));
+            }
+        }
+    }
+
+    /// (e) documents de seed (`lab/…`) restent conformes et lisibles pour leur établissement.
+    #[tokio::test]
+    async fn documents_seed_lisibles_pour_leur_etablissement() {
+        let Some((ent, cast)) = labo().await else {
+            eprintln!("skip scénario: ENT_DATABASE_URL");
+            return;
+        };
+        let etab = cast.etablissement_id;
+        let docs = ent
+            .list_documents_meta_eleve_for_actor(
+                etab,
+                cast.admin.user_id,
+                Role::Admin.as_str(),
+                cast.eleve_lea_id,
+            )
+            .await
+            .expect("liste");
+        let mut avec_cle = 0;
+        for (d, _) in &docs {
+            let Some(k) = &d.storage_key else { continue };
+            avec_cle += 1;
+            assert!(document_storage_key_is_owned(d, k), "seed non conforme : {k}");
+            ent.telecharger_document_bytes_for_actor(
+                etab,
+                cast.admin.user_id,
+                Role::Admin.as_str(),
+                d.id,
+            )
+            .await
+            .expect("lecture seed");
+        }
+        assert!(avec_cle >= 2, "PAP + assurance au moins");
+    }
+}

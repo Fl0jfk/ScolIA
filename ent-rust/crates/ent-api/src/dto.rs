@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use domain_eleve::{Absence, AttributKind, Eleve, ElevePeriode};
+use domain_eleve::{Absence, AttributKind, Eleve, ElevePeriode, NiveauIdentite};
 use ent_db::{AbsenceMotif, IbanHisto, MailOutboxRow, Matiere, Note, SmsOutboxRow};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -14,7 +14,8 @@ pub struct EleveDto {
     pub sexe: Option<String>,
     pub date_naissance: Option<NaiveDate>,
     pub numero_badge: Option<String>,
-    pub redoublant: bool,
+    /// `null` hors niveau Complet : donnée non communiquée (pas un faux `false`).
+    pub redoublant: Option<bool>,
     pub status: String,
     pub classe: Option<String>,
     pub regime: Option<String>,
@@ -36,7 +37,7 @@ impl From<&Eleve> for EleveDto {
             sexe: e.sexe.clone(),
             date_naissance: e.date_naissance,
             numero_badge: e.numero_badge.clone(),
-            redoublant: e.redoublant,
+            redoublant: Some(e.redoublant),
             status: e.status.as_str().to_string(),
             classe: e.classe.clone(),
             regime: e.regime.clone(),
@@ -49,12 +50,25 @@ impl From<&Eleve> for EleveDto {
     }
 }
 
+impl EleveDto {
+    /// DTO minimisé selon le niveau d'identité du rôle (même forme JSON).
+    pub fn pour(e: &Eleve, niveau: NiveauIdentite) -> Self {
+        let mut c = e.clone();
+        c.minimise(niveau);
+        let mut dto = Self::from(&c);
+        if niveau != NiveauIdentite::Complet {
+            dto.redoublant = None;
+        }
+        dto
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct InviterCompteBody {
     pub email: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct CompteProvisionneDto {
     pub invitation_id: Uuid,
     pub eleve_id: Uuid,
@@ -2936,7 +2950,8 @@ impl From<&domain_eleve::TrombiEntree> for TrombiEntreeDto {
             nom: t.nom.clone(),
             prenom: t.prenom.clone(),
             classe: t.classe.clone(),
-            photo_key: t.photo_key.clone(),
+            // Marqueur de présence uniquement : la clé objet n'est jamais exposée.
+            photo_key: t.photo_key.as_ref().map(|_| "1".to_string()),
         }
     }
 }
@@ -3015,7 +3030,8 @@ pub struct DeposerDocumentBody {
     pub confidentialite: String,
     pub code: Option<String>,
     pub mime_type: Option<String>,
-    pub storage_key: Option<String>,
+    // Pas de `storage_key` : la clé objet est toujours décidée par le serveur
+    // (un champ éventuel envoyé par un client est ignoré par serde).
     /// Contenu binaire (lab / dépôt famille) — écrit dans l’object store.
     #[serde(default)]
     pub contenu_base64: Option<String>,
@@ -3610,7 +3626,7 @@ pub struct CreateFoyerBody {
     pub libelle: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct RattacherResponsableFoyerBody {
     pub eleve_id: Uuid,
     pub email: String,
@@ -3851,3 +3867,7 @@ impl From<&ent_db::Annonce> for AnnonceDto {
         }
     }
 }
+
+// `Debug` masqué : mot de passe / identité de connexion (voir `masque.rs`).
+debug_masque!(CompteProvisionneDto { invitation_id, eleve_id, statut, user_id } masque { email, mot_de_passe_temporaire });
+debug_masque!(RattacherResponsableFoyerBody { eleve_id } masque { email, password });

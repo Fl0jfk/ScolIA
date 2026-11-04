@@ -1,6 +1,6 @@
 === ENT labo — personas ===
 établissement : e0d09d9f-f6aa-4066-aab7-9ecb21c99d11
-mot de passe (tous) : DevLocalPass1!
+mot de passe (tous) : (voir la sortie de `cargo run -p ent-lab --features labo` — fichier d'exemple obsolète)
 
 ## Staff
 - admin                 admin  admin-e0d09d9f@ent.lab

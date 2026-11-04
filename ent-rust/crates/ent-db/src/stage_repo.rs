@@ -146,8 +146,7 @@ impl PgStageRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] stage sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("stage", e)
 }
 
 #[derive(sqlx::FromRow)]

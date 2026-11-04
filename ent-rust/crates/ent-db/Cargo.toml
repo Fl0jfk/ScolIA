@@ -6,6 +6,11 @@ license.workspace = true
 publish.workspace = true
 description = "Postgres local ENT — garde URL, migrations, repos socle élève + events"
 
+[features]
+# Labo : cast Harry Potter, mot de passe public `LABO_PASSWORD`, scénarios.
+# DÉSACTIVÉE par défaut ; jamais dans l'image de production (L4).
+labo = []
+
 [dependencies]
 chrono = { workspace = true }
 domain-eleve = { path = "../domain-eleve" }
@@ -29,6 +34,8 @@ sqlx = { version = "0.8", default-features = false, features = [
     "derive",
 ] }
 thiserror = { workspace = true }
+tracing = "0.1"
+sha2 = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 url = "2"
 uuid = { workspace = true }

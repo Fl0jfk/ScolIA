@@ -7,7 +7,7 @@
 use crate::{
     normalize_ine, CarnetEntree, DomainError, Eleve, EleveBourse, EleveDispenseRepas,
     EleveDispositif, EleveDocument, EleveGrilleRepas, ElevePeriode, Incident, OptionAnnee, Sanction,
-    ScolariteAnnee,
+    ScolariteAnnee, AttributKind, NiveauIdentite,
 };
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
@@ -140,6 +140,31 @@ pub struct DossierEleve {
     /// Notes visibles (section notes) — sans auteur.
     pub notes: Vec<crate::NoteLue>,
     pub sections: DossierSections,
+}
+
+impl DossierEleve {
+    /// Minimise le dossier selon le niveau d'identité du rôle (point unique, après calcul).
+    ///
+    /// Hors `Complet` : identité minimisée, périodes de régime / MEF retirées (la classe et le
+    /// site restent), MEF / régime masqués dans les années de scolarité. `age_ans` n'est gardé
+    /// que si la date de naissance l'est (Complet, Sante). `redoublement_possible` ne peut pas
+    /// être « absent » dans ce type : la route le sérialise à `null` hors Complet.
+    pub fn minimise(&mut self, niveau: NiveauIdentite) {
+        self.eleve.minimise(niveau);
+        if niveau == NiveauIdentite::Complet {
+            return;
+        }
+        if niveau == NiveauIdentite::Reduit {
+            self.age_ans = None;
+        }
+        self.periodes
+            .retain(|p| !matches!(p.kind, AttributKind::Regime | AttributKind::Mef));
+        for a in &mut self.continuum {
+            a.mef = None;
+            a.regime = None;
+            a.redoublement_possible = false;
+        }
+    }
 }
 
 pub fn age_ans_au(date_naissance: NaiveDate, jour: NaiveDate) -> u32 {

@@ -44,7 +44,7 @@ pub enum SmsError {
     Provider(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SmsConfig {
     pub provider_url: String,
     pub api_key: String,
@@ -227,6 +227,16 @@ async fn send_provider(
     Err(SmsError::Provider(
         "provider HTTP live non branché dans ce runtime — utiliser ENT_SMS_DRY_RUN ou brancher le SDK".into(),
     ))
+}
+
+impl std::fmt::Debug for SmsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SmsConfig")
+            .field("provider_url", &self.provider_url)
+            .field("api_key", &"[masqué]")
+            .field("from", &self.from)
+            .finish()
+    }
 }
 
 #[cfg(test)]

@@ -76,8 +76,7 @@ impl PgIbanHistoRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] iban_histo sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("iban_histo", e)
 }
 
 #[derive(sqlx::FromRow)]

@@ -399,8 +399,7 @@ impl PgInternatRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] internat sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("internat", e)
 }
 
 #[derive(sqlx::FromRow)]

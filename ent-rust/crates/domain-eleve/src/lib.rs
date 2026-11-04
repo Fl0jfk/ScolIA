@@ -371,6 +371,45 @@ pub struct Eleve {
     pub motif_sortie: Option<String>,
 }
 
+/// Niveau d'identité d'un élève exposé à un rôle (point unique de minimisation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NiveauIdentite {
+    /// Gestionnaires (admin, direction, administratif) et famille / élève lui-même.
+    Complet,
+    /// Infirmerie : identité réduite + sexe et date de naissance (besoin médical).
+    Sante,
+    /// Autres personnels : nom, prénom, classe, statut, site.
+    Reduit,
+}
+
+impl NiveauIdentite {
+    /// Le numéro de badge est-il exposé (donc interrogeable) à ce niveau ?
+    pub fn voit_badge(self) -> bool {
+        self == Self::Complet
+    }
+}
+
+impl Eleve {
+    /// Retire les champs d'identité non autorisés pour `niveau`.
+    pub fn minimise(&mut self, niveau: NiveauIdentite) {
+        if niveau == NiveauIdentite::Complet {
+            return;
+        }
+        self.ine = None;
+        self.numero_badge = None;
+        self.regime = None;
+        self.mef = None;
+        self.motif_sortie = None;
+        self.redoublant = false;
+        self.date_entree = None;
+        self.date_sortie = None;
+        if niveau == NiveauIdentite::Reduit {
+            self.sexe = None;
+            self.date_naissance = None;
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CreateEleve {
     pub etablissement_id: Uuid,
@@ -446,6 +485,9 @@ pub struct SortirEleve {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum DomainError {
+    /// Panne d'infrastructure (base, réseau…) : jamais un « introuvable ».
+    #[error("erreur d'infrastructure")]
+    Infrastructure,
     #[error("nom ou prénom vide")]
     IdentityRequired,
     #[error("élève introuvable")]
@@ -478,6 +520,9 @@ pub enum DomainError {
     ReferenceInconnue,
     #[error("valeur invalide (contrainte non respectée)")]
     ValeurInvalide,
+    /// Transaction concurrente (SQLSTATE 40001 / 40P01) : l'appelant peut réessayer.
+    #[error("opération concurrente, veuillez réessayer")]
+    Reessayer,
     #[error("somme des parts payeurs ≠ 100 % pour cet élève")]
     PartsPaiementInvalides,
     #[error("durée de grant invalide")]

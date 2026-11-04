@@ -3,9 +3,11 @@
 //!
 //! Lancement (voir docs/LEPTOS_CALL_PROTOTYPE.md) :
 //!   . ent-rust/web/scripts/env.sh && bash ent-rust/web/scripts/pg.sh start
-//!   cd ent-rust/web && cargo test -p ent-web-server --test contre_backend -- --test-threads=1 --nocapture
+//!   cd ent-rust/web && cargo test -p ent-web-server --features labo --test contre_backend -- --test-threads=1 --nocapture
 //!
 //! Sans `ENT_DATABASE_URL`, les tests sont ignorés (message « SKIP »).
+//! Sans la feature `labo` (L4), ce fichier est vide : le labo n'existe pas hors feature.
+#![cfg(feature = "labo")]
 
 use std::net::SocketAddr;
 use std::time::Instant;

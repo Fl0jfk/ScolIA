@@ -144,8 +144,7 @@ impl PgDispenseVsRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] dispense_vs sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("dispense_vs", e)
 }
 
 #[derive(sqlx::FromRow)]

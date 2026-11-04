@@ -18,7 +18,7 @@ pub struct OidcDiscovery {
 }
 
 /// Paramétrage d'un fournisseur côté établissement.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OidcProviderConfig {
     pub issuer: String,
     pub client_id: String,
@@ -154,6 +154,18 @@ pub async fn exchange_authorization_code(
         email: claims.email,
         name: claims.name.or(claims.preferred_username),
     })
+}
+
+impl std::fmt::Debug for OidcProviderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcProviderConfig")
+            .field("issuer", &self.issuer)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[masqué]")
+            .field("scopes", &self.scopes)
+            .field("redirect_uri", &self.redirect_uri)
+            .finish()
+    }
 }
 
 #[cfg(test)]

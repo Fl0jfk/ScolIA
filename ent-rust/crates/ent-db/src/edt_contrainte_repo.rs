@@ -61,8 +61,7 @@ impl PgEdtContrainteRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] edt_contrainte sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("edt_contrainte", e)
 }
 
 #[derive(sqlx::FromRow)]

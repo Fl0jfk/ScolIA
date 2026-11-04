@@ -280,7 +280,7 @@ async fn explorer_dossier_eleve(
     println!("# dossier élève (module monté → lab)");
 
     let found = ent
-        .search_eleves(cast.etablissement_id, "potter", 10)
+        .search_eleves(cast.etablissement_id, "potter", 10, ent_db::NiveauIdentite::Complet)
         .await
         .map_err(|e| e.to_string())?;
     if !found.iter().any(|e| e.id == cast.eleve_lea_id) {

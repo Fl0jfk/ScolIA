@@ -94,8 +94,7 @@ impl PgInscriptionRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] inscription sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("inscription", e)
 }
 
 #[derive(sqlx::FromRow)]

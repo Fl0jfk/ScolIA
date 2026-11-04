@@ -98,13 +98,14 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/088_competence.sql"),
     include_str!("../../../migrations/089_passkey.sql"),
     include_str!("../../../migrations/090_oidc.sql"),
+    include_str!("../../../migrations/091_journal_ajout_seul.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "090_oidc";
+pub const MIGRATION_TAG: &str = "091_journal_ajout_seul";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -147,7 +148,7 @@ async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
         .collect::<Vec<_>>()
         .join("\n");
 
-    for stmt in without_comments.split(';') {
+    for stmt in split_statements(&without_comments) {
         let cleaned = stmt.trim();
         if cleaned.is_empty() {
             continue;
@@ -155,6 +156,30 @@ async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
         sqlx::query(cleaned).execute(pool).await?;
     }
     Ok(())
+}
+
+/// Découpe sur `;` **hors** blocs `$$ … $$` (corps de fonction plpgsql).
+pub(crate) fn split_statements(sql: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut dans_dollar = false;
+    let mut rest = sql;
+    while let Some(c) = rest.chars().next() {
+        if rest.starts_with("$$") {
+            dans_dollar = !dans_dollar;
+            cur.push_str("$$");
+            rest = &rest[2..];
+            continue;
+        }
+        if c == ';' && !dans_dollar {
+            out.push(std::mem::take(&mut cur));
+        } else {
+            cur.push(c);
+        }
+        rest = &rest[c.len_utf8()..];
+    }
+    out.push(cur);
+    out
 }
 
 #[cfg(test)]

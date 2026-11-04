@@ -809,9 +809,11 @@ dependencies = [
  "ent-sms",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
  "url",
  "uuid",
 ]

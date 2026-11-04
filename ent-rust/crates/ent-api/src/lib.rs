@@ -1,8 +1,11 @@
 //! API HTTP du noyau ENT — faces qui **piochent** les tables centrales.
 //! Auth 100 % Rust (sessions Postgres) + tenant de session sur chaque route métier.
 
+#[macro_use]
+mod masque;
 mod auth;
 mod dto;
+pub mod http_garde;
 mod ical;
 pub mod obs;
 mod routes;
@@ -119,6 +122,8 @@ pub fn app(state: AppState) -> Router {
     router = router
         // Un panic dans un handler ne doit jamais tuer le serveur.
         .layer(CatchPanicLayer::new())
+        // En-têtes no-store et 500 génériques (couche externe au catch-panic).
+        .layer(axum::middleware::from_fn(http_garde::en_tetes_et_erreurs))
         // En-têtes de sécurité de base.
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::X_CONTENT_TYPE_OPTIONS,
@@ -132,12 +137,16 @@ pub fn app(state: AppState) -> Router {
         // INFO pour qu'elles apparaissent avec le `RUST_LOG=info` par défaut.
         .layer(
             TraceLayer::new_for_http()
+                .make_span_with(http_garde::span_requete)
                 .on_response(DefaultOnResponse::new().level(Level::INFO))
                 .on_failure(DefaultOnFailure::new().level(Level::ERROR)),
         )
         // Identifiant de requête : repris dans la réponse pour corréler les logs.
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+        // Un `x-request-id` fourni par le client n'est gardé que s'il a un format sûr
+        // (sinon retiré : SetRequestIdLayer en génère un UUID). Couche externe.
+        .layer(axum::middleware::from_fn(http_garde::assainir_request_id))
         // Métriques : couche **externe** (elle voit le statut final, y compris
         // un 408 du délai ou un 500 du catch-panic) et lit `MatchedPath`
         // inséré par le routeur, donc un gabarit et non le chemin brut.
@@ -170,7 +179,10 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
     Ok((AppState::nouveau(ent), bind))
 }
 
+// Tests L6 : ceux qui exigent `/auth/register` ou le cast labo sont gatés un à un.
 #[cfg(test)]
+mod tests_l6;
+#[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;
     use axum::body::Body;
@@ -2818,5 +2830,573 @@ mod tests {
             eleve_inv(&inv2),
             "les écritures d'un autre établissement ne doivent pas bouger l'inventaire"
         );
+    }
+
+    /// L1 — `storage_key` envoyé par un client : ignoré (201), jamais utilisé pour lire un objet.
+    #[tokio::test]
+    async fn api_depot_document_ignore_storage_key_client() {
+        use base64::Engine as _;
+        let Some(state) = state_local().await else {
+            eprintln!("skip L2: ENT_DATABASE_URL");
+            return;
+        };
+        let cast = state.ent.seed_labo_cast().await.expect("cast");
+        let ent = state.ent.clone();
+        let app = app(state);
+        let lea = cast.eleve_lea_id;
+        let etab = cast.etablissement_id;
+        let b64 = base64::engine::general_purpose::STANDARD;
+
+        let post = |token: String, body: Value| {
+            let app = app.clone();
+            async move {
+                app.oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/eleves/{lea}/documents"))
+                        .header("authorization", format!("Bearer {token}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+        let get = |token: String, id: Uuid| {
+            let app = app.clone();
+            async move {
+                app.oneshot(
+                    Request::builder()
+                        .uri(format!("/documents/{id}/fichier"))
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        // Le personnel dépose un document santé avec contenu.
+        let r = post(
+            cast.admin.token.clone(),
+            json!({"titre":"Ordonnance L1","tiroir":"sante","confidentialite":"sante",
+                   "mime_type":"application/pdf","contenu_base64": b64.encode(b"SECRET-SANTE-API")}),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::CREATED);
+        let sante_id = Uuid::parse_str(json_body(r).await["id"].as_str().unwrap()).unwrap();
+        let sante_key = format!("{etab}/documents/{sante_id}.pdf");
+
+        // Le parent envoie storage_key vers ce fichier : 201, champ ignoré, rien à lire.
+        for key in [sante_key.as_str(), "C:/Windows/win.ini", "../../etc/passwd"] {
+            let r = post(
+                cast.parent_lea.token.clone(),
+                json!({"titre":"Piège","tiroir":"sante","confidentialite":"sante","storage_key": key}),
+            )
+            .await;
+            assert_eq!(r.status(), StatusCode::CREATED, "{key}");
+            let id = Uuid::parse_str(json_body(r).await["id"].as_str().unwrap()).unwrap();
+            let docs = ent
+                .list_documents_meta_eleve_for_actor(etab, cast.admin.user_id, "admin", lea)
+                .await
+                .unwrap();
+            let doc = docs.into_iter().map(|(d, _)| d).find(|d| d.id == id).expect("doc");
+            assert_eq!(doc.storage_key, None);
+            let dl = get(cast.parent_lea.token.clone(), id).await;
+            assert_ne!(dl.status(), StatusCode::OK, "pas de fichier sans clé");
+        }
+        // Le parent ne lit toujours pas le document santé.
+        assert_eq!(
+            get(cast.parent_lea.token.clone(), sante_id).await.status(),
+            StatusCode::FORBIDDEN
+        );
+
+        // Ligne héritée avec clé hostile : le téléchargement ne sert que le stub.
+        for key in [sante_key.clone(), "C:/Windows/win.ini".to_string()] {
+            let doc = ent
+                .deposer_document(domain_eleve::DeposerDocument {
+                    etablissement_id: etab,
+                    eleve_id: lea,
+                    tiroir: domain_eleve::DocTiroir::Famille,
+                    titre: "Héritée".into(),
+                    code: None,
+                    mime_type: Some("application/pdf".into()),
+                    storage_key: Some(key),
+                    confidentialite: domain_eleve::DocConfidentialite::Standard,
+                    actor_user_id: cast.admin.user_id,
+                })
+                .await
+                .unwrap();
+            let dl = get(cast.parent_lea.token.clone(), doc.id).await;
+            assert_eq!(dl.status(), StatusCode::OK);
+            let bytes = dl.into_body().collect().await.unwrap().to_bytes();
+            let txt = String::from_utf8_lossy(&bytes).to_string();
+            assert!(txt.starts_with("Document ENT (lab)"), "{txt}");
+            assert!(!txt.contains("SECRET"));
+        }
+
+        // Dépôt légitime avec contenu : relu.
+        let r = post(
+            cast.parent_lea.token.clone(),
+            json!({"titre":"Mon fichier","tiroir":"famille","confidentialite":"standard",
+                   "mime_type":"application/pdf","contenu_base64": b64.encode(b"%PDF-ok")}),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::CREATED);
+        let id = Uuid::parse_str(json_body(r).await["id"].as_str().unwrap()).unwrap();
+        let dl = get(cast.parent_lea.token.clone(), id).await;
+        assert_eq!(dl.status(), StatusCode::OK);
+        assert_eq!(
+            dl.into_body().collect().await.unwrap().to_bytes().as_ref(),
+            b"%PDF-ok"
+        );
+
+        // Le dossier n'expose jamais de clé objet (documents avec clé existants).
+        for token in [cast.admin.token.clone(), cast.parent_lea.token.clone()] {
+            let res = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/eleves/{lea}/dossier"))
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK);
+            let v = json_body(res).await;
+            let docs = v["documents"].as_array().expect("documents");
+            assert!(!docs.is_empty());
+            for d in docs {
+                assert!(d["storage_key"].is_null(), "storage_key exposé : {d}");
+            }
+            assert!(v["eleve"]["photo_key"].is_null());
+        }
+    }
+
+    /// L2 (I1/I2) : niveau d'identité unique par rôle sur toutes les routes
+    /// qui renvoient une identité d'élève ; pas d'oracle de badge.
+    #[tokio::test]
+    async fn api_identite_eleve_niveaux_par_role() {
+        let Some(state) = state_local().await else {
+            eprintln!("skip L2 identité: ENT_DATABASE_URL");
+            return;
+        };
+        let cast = state.ent.seed_labo_cast().await.expect("cast");
+        let app = app(state);
+        let jour = Utc::now().date_naive().to_string();
+        let lire = |uri: String, tok: String| {
+            let app = app.clone();
+            async move {
+                let r = app.oneshot(get_bearer(&uri, &tok)).await.unwrap();
+                assert_eq!(r.status(), StatusCode::OK, "{uri}");
+                json_body(r).await
+            }
+        };
+        const SENSIBLES: [&str; 8] = [
+            "ine",
+            "numero_badge",
+            "regime",
+            "mef",
+            "motif_sortie",
+            "date_entree",
+            "date_sortie",
+            "redoublant",
+        ];
+        let admin = lire(
+            format!("/eleves/{}", cast.eleve_lea_id),
+            cast.administratif.token.clone(),
+        )
+        .await;
+        let classe = admin["classe"].as_str().expect("classe Léa").to_string();
+        let badge = admin["numero_badge"].as_str().expect("badge Léa").to_string();
+        assert!(!admin["ine"].is_null() && !admin["date_naissance"].is_null());
+
+        // Extrait l'élève Léa d'une réponse selon la route.
+        let uri_eleve = format!("/eleves/{}", cast.eleve_lea_id);
+        let uri_dossier = format!("/eleves/{}/dossier", cast.eleve_lea_id);
+        let uri_effectif = format!("/classes/{classe}/effectif?jour={jour}");
+        let uri_search = "/eleves/search?q=a".to_string();
+        let extraire = |route: usize, v: &Value, id: Uuid| -> Value {
+            match route {
+                0 => v.clone(),
+                1 => v["eleve"].clone(),
+                _ => v["eleves"]
+                    .as_array()
+                    .or_else(|| v.as_array())
+                    .and_then(|a| a.iter().find(|e| e["id"] == id.to_string()))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            }
+        };
+        let routes = [&uri_eleve, &uri_dossier, &uri_effectif, &uri_search];
+        // (jeton, sexe/naissance attendus, champs sensibles attendus)
+        let roles: [(&str, &String, bool, bool); 6] = [
+            ("administratif", &cast.administratif.token, true, true),
+            ("prof", &cast.prof.token, false, false),
+            ("compta", &cast.compta.token, false, false),
+            ("psy", &cast.psys[0].token, false, false),
+            ("infirmerie", &cast.infirmieres[0].token, true, false),
+            ("cpe", &cast.cpe.token, false, false),
+        ];
+        for (nom, tok, sante, complet) in roles {
+            for (i, uri) in routes.iter().enumerate() {
+                let v = lire((*uri).clone(), tok.clone()).await;
+                let e = extraire(if i == 0 { 0 } else if i == 1 { 1 } else { 2 }, &v, cast.eleve_lea_id);
+                if e.is_null() {
+                    // La recherche « a » peut ne pas ramener Léa : on contrôle alors
+                    // tous les éléments renvoyés.
+                    assert_eq!(i, 3, "{nom} {uri}: élève Léa absent");
+                }
+                let liste: Vec<Value> = if i == 3 {
+                    v.as_array().cloned().unwrap_or_default()
+                } else {
+                    vec![e]
+                };
+                for e in liste {
+                    for champ in SENSIBLES {
+                        let vide = e[champ].is_null() || e[champ] == false;
+                        assert!(complet || vide, "{nom} {uri}: champ {champ} fuit");
+                    }
+                    if !complet && !sante {
+                        for champ in ["sexe", "date_naissance"] {
+                            assert!(e[champ].is_null(), "{nom} {uri}: {champ} fuit");
+                        }
+                    }
+                }
+            }
+        }
+        // Infirmerie : sexe / naissance conservés sur la fiche de Léa.
+        let inf = lire(uri_eleve.clone(), cast.infirmieres[0].token.clone()).await;
+        assert!(!inf["date_naissance"].is_null(), "infirmerie sans naissance");
+
+        // Pas d'oracle badge : Prof / Compta / Psy / Infirmerie / CPE → aucun résultat.
+        for tok in [
+            &cast.prof.token,
+            &cast.compta.token,
+            &cast.psys[0].token,
+            &cast.infirmieres[0].token,
+            &cast.cpe.token,
+        ] {
+            let r = lire(format!("/eleves/search?q={badge}"), tok.clone()).await;
+            assert!(r.as_array().unwrap().is_empty(), "badge interrogeable");
+        }
+        let r = lire(
+            format!("/eleves/search?q={badge}"),
+            cast.administratif.token.clone(),
+        )
+        .await;
+        assert!(!r.as_array().unwrap().is_empty(), "gestionnaire sans recherche badge");
+
+        // Famille : inchangé (identité complète de son propre enfant).
+        let p = lire(uri_eleve.clone(), cast.parent_lea.token.clone()).await;
+        assert!(!p["ine"].is_null() && !p["numero_badge"].is_null());
+    }
+
+    /// Relecture finale (I1/I3/M1/M8) : le dossier est minimisé en entier (âge,
+    /// périodes régime / MEF, années de scolarité, `redoublant` null) ; la
+    /// recherche rejette l'octet NUL (400) et traite `%` comme un littéral.
+    #[tokio::test]
+    async fn api_dossier_minimisation_complete_et_recherche() {
+        let Some(state) = state_local().await else {
+            eprintln!("skip dossier minimisation: ENT_DATABASE_URL");
+            return;
+        };
+        let cast = state.ent.seed_labo_cast().await.expect("cast");
+        let app = app(state);
+        let lire = |uri: String, tok: String| {
+            let app = app.clone();
+            async move {
+                let r = app.oneshot(get_bearer(&uri, &tok)).await.unwrap();
+                assert_eq!(r.status(), StatusCode::OK, "{uri}");
+                json_body(r).await
+            }
+        };
+        let uri = format!("/eleves/{}/dossier", cast.eleve_lea_id);
+        let adm = lire(uri.clone(), cast.administratif.token.clone()).await;
+        // Administratif : dossier complet (âge, redoublant booléen).
+        assert!(!adm["eleve"]["date_naissance"].is_null());
+        assert!(adm["age_ans"].is_number(), "administratif sans age_ans");
+        assert!(adm["eleve"]["redoublant"].is_boolean());
+
+        for (nom, tok, sante) in [
+            ("prof", &cast.prof.token, false),
+            ("compta", &cast.compta.token, false),
+            ("psy", &cast.psys[0].token, false),
+            ("infirmerie", &cast.infirmieres[0].token, true),
+        ] {
+            let d = lire(uri.clone(), tok.clone()).await;
+            if sante {
+                assert!(d["age_ans"].is_number(), "{nom}: age_ans perdu");
+            } else {
+                assert!(d["age_ans"].is_null(), "{nom}: age_ans fuit");
+            }
+            assert!(d["eleve"]["redoublant"].is_null(), "{nom}: redoublant non null");
+            for p in d["periodes"].as_array().expect("periodes") {
+                let k = p["kind"].as_str().unwrap_or_default();
+                assert!(k != "regime" && k != "mef", "{nom}: période {k} fuit");
+            }
+            for a in d["continuum"].as_array().expect("continuum") {
+                for champ in ["mef", "regime", "redoublement_possible"] {
+                    assert!(a[champ].is_null(), "{nom}: continuum.{champ} fuit");
+                }
+            }
+        }
+        // Compta garde les sections de facturation (repas) malgré la minimisation.
+        let cpt = lire(uri.clone(), cast.compta.token.clone()).await;
+        assert_eq!(cpt["sections"]["repas"], true);
+
+        // M1 : octet NUL → 400 (et non 500).
+        let r = app
+            .clone()
+            .oneshot(get_bearer("/eleves/search?q=%00", &cast.administratif.token))
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        // M8 : `%` et `_` sont littéraux, pas des jokers.
+        for q in ["%25", "_", "%5C"] {
+            let r = lire(format!("/eleves/search?q={q}"), cast.administratif.token.clone()).await;
+            assert!(r.as_array().unwrap().is_empty(), "q={q} agit comme joker");
+        }
+    }
+
+    /// L2 : annuaire élèves, foyers, dossier Compta, journal / points VS —
+    /// minimisation des données personnelles.
+    #[tokio::test]
+    async fn api_annuaire_foyers_dossier_minimisation() {
+        let Some(state) = state_local().await else {
+            eprintln!("skip L2: ENT_DATABASE_URL");
+            return;
+        };
+        let cast = state.ent.seed_labo_cast().await.expect("cast");
+        let app = app(state);
+        let jour = Utc::now().date_naive().to_string();
+        let statut = |req: Request<Body>| {
+            let app = app.clone();
+            async move { app.oneshot(req).await.unwrap() }
+        };
+
+        // search / labels : refusés au parent et à l'élève.
+        let eleve_tok = cast
+            .eleves
+            .iter()
+            .find_map(|e| e.compte.as_ref().map(|c| c.token.clone()))
+            .expect("compte élève");
+        for tok in [&cast.parent_lea.token, &eleve_tok] {
+            assert_eq!(
+                statut(get_bearer("/eleves/search?q=a", tok)).await.status(),
+                StatusCode::FORBIDDEN
+            );
+            assert_eq!(
+                statut(get_bearer(
+                    &format!("/eleves/labels?ids={}", cast.eleve_lea_id),
+                    tok
+                ))
+                .await
+                .status(),
+                StatusCode::FORBIDDEN
+            );
+        }
+
+        // Personnel : gestionnaire = identité complète, autres = DTO minimisé.
+        let adm = statut(get_bearer("/eleves/search?q=Harry", &cast.administratif.token)).await;
+        assert_eq!(adm.status(), StatusCode::OK);
+        let adm = json_body(adm).await;
+        assert!(adm
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| !e["date_naissance"].is_null() || !e["ine"].is_null()));
+        // (l'infirmerie, qui garde sexe / naissance, est couverte par api_identite_eleve_niveaux_par_role)
+        for tok in [
+            &cast.prof.token,
+            &cast.compta.token,
+            &cast.psys[0].token,
+        ] {
+            let r = statut(get_bearer("/eleves/search?q=Harry", tok)).await;
+            assert_eq!(r.status(), StatusCode::OK);
+            let r = json_body(r).await;
+            let arr = r.as_array().unwrap();
+            assert!(!arr.is_empty());
+            for e in arr {
+                for champ in [
+                    "ine",
+                    "sexe",
+                    "date_naissance",
+                    "numero_badge",
+                    "regime",
+                    "mef",
+                    "motif_sortie",
+                ] {
+                    assert!(e[champ].is_null(), "{champ} fuit dans la recherche");
+                }
+            }
+        }
+
+        // absent : personnel, parent lié, mais pas un parent hors lien.
+        let url_absent = |id: Uuid| format!("/eleves/{id}/absent?jour={jour}");
+        assert_eq!(
+            statut(get_bearer(&url_absent(cast.eleve_lea_id), &cast.prof.token))
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            statut(get_bearer(
+                &url_absent(cast.eleve_lea_id),
+                &cast.parent_lea.token
+            ))
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            statut(get_bearer(
+                &url_absent(cast.eleve_tom_id),
+                &cast.parent_lea.token
+            ))
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+
+        // Foyers : Administratif / Compta / CPE oui ; Prof / Infirmerie / Psy non.
+        for tok in [&cast.administratif.token, &cast.compta.token, &cast.cpe.token] {
+            assert_eq!(
+                statut(get_bearer("/foyers", tok)).await.status(),
+                StatusCode::OK
+            );
+            assert_eq!(
+                statut(get_bearer(&format!("/foyers/{}", cast.foyer_lea_id), tok))
+                    .await
+                    .status(),
+                StatusCode::OK
+            );
+        }
+        for tok in [
+            &cast.prof.token,
+            &cast.infirmieres[0].token,
+            &cast.psys[0].token,
+        ] {
+            assert_eq!(
+                statut(get_bearer("/foyers", tok)).await.status(),
+                StatusCode::FORBIDDEN
+            );
+            assert_eq!(
+                statut(get_bearer(&format!("/foyers/{}", cast.foyer_lea_id), tok))
+                    .await
+                    .status(),
+                StatusCode::FORBIDDEN
+            );
+        }
+
+        // Dossier Compta : ni notes, ni sanctions, incidents, carnet.
+        let d = statut(get_bearer(
+            &format!("/eleves/{}/dossier", cast.eleve_lea_id),
+            &cast.compta.token,
+        ))
+        .await;
+        assert_eq!(d.status(), StatusCode::OK);
+        let d = json_body(d).await;
+        for champ in ["notes", "sanctions", "incidents", "carnet", "documents", "dispositifs"] {
+            if let Some(a) = d[champ].as_array() {
+                assert!(a.is_empty(), "{champ} visible par Compta");
+            }
+        }
+        assert_eq!(d["sections"]["notes"], false);
+        assert_eq!(d["sections"]["vs"], false);
+
+        // journal / points-vs : parent sans peut_voir_vs (Draco) refusé ; avec (Harry) accepté.
+        for chemin in ["journal", "points-vs"] {
+            assert_eq!(
+                statut(get_bearer(
+                    &format!("/eleves/{}/{chemin}", cast.eleve_tom_id),
+                    &cast.parent_tom.token
+                ))
+                .await
+                .status(),
+                StatusCode::FORBIDDEN,
+                "{chemin}"
+            );
+            assert_eq!(
+                statut(get_bearer(
+                    &format!("/eleves/{}/{chemin}", cast.eleve_lea_id),
+                    &cast.parent_lea.token
+                ))
+                .await
+                .status(),
+                StatusCode::OK,
+                "{chemin}"
+            );
+        }
+    }
+}
+
+/// Preuves de la séparation labo / production (L4) : compilés SANS la feature.
+#[cfg(all(test, not(feature = "labo")))]
+mod sans_labo {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    async fn state_local() -> Option<AppState> {
+        let url = std::env::var("ENT_DATABASE_URL")
+            .ok()
+            .filter(|u| !u.trim().is_empty())?;
+        let mut ent = PgEnt::connect(&url).await.ok()?;
+        ent.migrate().await.ok()?;
+        ent.install_brain_p0();
+        Some(AppState::nouveau(ent))
+    }
+
+    fn post(uri: &str, corps: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(corps.to_string()))
+            .unwrap()
+    }
+
+    /// Rien n'est enregistré sans la feature, quel que soit `ENT_ENV`.
+    #[tokio::test]
+    async fn routes_labo_et_register_absentes_404() {
+        let Some(state) = state_local().await else {
+            eprintln!("skip L4: ENT_DATABASE_URL");
+            return;
+        };
+        let app = app(state);
+        let r = app.clone().oneshot(post("/labo/bootstrap", "{}")).await.unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+        let corps = format!(
+            r#"{{"email":"x@example.test","password":"MotDePasse-Test-1","etablissement_id":"{}","role":"admin"}}"#,
+            uuid::Uuid::new_v4()
+        );
+        let r = app.oneshot(post("/auth/register", &corps)).await.unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn page_login_sans_mot_de_passe_public() {
+        let Some(state) = state_local().await else {
+            eprintln!("skip L4: ENT_DATABASE_URL");
+            return;
+        };
+        let app = app(state);
+        let r = app
+            .oneshot(Request::builder().uri("/login").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        let octets = r.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&octets);
+        assert!(!html.contains(&["DevLocal", "Pass1!"].concat()));
+        assert!(!html.contains("/labo/bootstrap"));
+        assert!(html.contains("loginForm"));
     }
 }

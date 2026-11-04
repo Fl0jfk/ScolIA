@@ -8,7 +8,7 @@
 #     ent-api:local
 #
 # Migrations : embarquées dans le binaire (`include_str!`) — appliquées au
-# démarrage. l'inscription libre et le labo sont fermés par défaut (fail-closed ; ouverts seulement si `ENT_ENV` = lab/dev/local/test, voir plus bas).
+# démarrage. L'inscription libre (/auth/register) et le labo sont ABSENTS des builds sans feature `labo` (L4) ; le binaire de production n'en contient pas le code (voir plus bas).
 
 FROM rust:1.99-slim-bookworm AS builder
 WORKDIR /app
@@ -17,7 +17,14 @@ WORKDIR /app
 ARG GIT_SHA=dev
 # `rust:slim` fournit gcc + libc pour les crates à composants natifs (ring).
 COPY . .
-RUN GIT_SHA="$GIT_SHA" cargo build --release -p ent-api
+# Production : SANS la feature `labo` (L4) — ni /labo/bootstrap, ni /auth/register
+# libre, ni mot de passe public dans le binaire. Ne JAMAIS ajouter `--features labo` ici.
+RUN GIT_SHA="$GIT_SHA" cargo build --release -p ent-api \
+    && for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast'; do \
+         if grep -aqF -- "$motif" target/release/ent-api; then \
+           echo "ERREUR : le binaire de production contient du code de labo ($motif)" >&2; exit 1; \
+         fi; \
+       done
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \

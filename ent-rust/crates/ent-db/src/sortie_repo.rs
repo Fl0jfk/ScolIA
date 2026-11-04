@@ -465,8 +465,7 @@ impl PgSortieRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] sortie sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("sortie", e)
 }
 
 #[derive(sqlx::FromRow)]

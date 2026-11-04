@@ -13,6 +13,12 @@ path = "src/main.rs"
 [[bin]]
 name = "seed-labo-web"
 path = "src/bin/seed_labo_web.rs"
+required-features = ["labo"]
+
+[features]
+# Labo (L4) : données de labo via /labo/bootstrap (ent-api compilé avec sa feature `labo`).
+# DÉSACTIVÉE par défaut ; requise par les tests contre le backend et `seed-labo-web`.
+labo = ["ent-api/labo"]
 
 [dependencies]
 ent-api = { workspace = true }

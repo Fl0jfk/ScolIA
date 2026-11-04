@@ -24,6 +24,15 @@ impl EntSession {
         Role::parse(&self.role)
     }
 
+    /// Personnel uniquement (ni parent ni élève).
+    pub fn require_staff(&self) -> Result<(), (StatusCode, String)> {
+        if self.role_parsed().map(|r| r.is_staff()).unwrap_or(false) {
+            Ok(())
+        } else {
+            Err((StatusCode::FORBIDDEN, "réservé au personnel".into()))
+        }
+    }
+
     pub fn require_manage_eleves(&self) -> Result<(), (StatusCode, String)> {
         if PgEnt::role_can_manage_eleves(&self.role) {
             Ok(())
@@ -187,7 +196,13 @@ impl FromRequestParts<AppState> for EntSession {
             .ent
             .resolve_session(header)
             .await
-            .map_err(|e| (StatusCode::UNAUTHORIZED, e.to_string()))?;
+            .map_err(|e| match e {
+                ent_db::EntDbError::Auth(_) => (StatusCode::UNAUTHORIZED, e.to_string()),
+                autre => crate::routes::erreur_infra(&autre).unwrap_or((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Erreur interne.".to_string(),
+                )),
+            })?;
 
         Ok(Self {
             session_id: info.session_id,

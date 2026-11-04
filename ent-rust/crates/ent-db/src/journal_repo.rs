@@ -110,8 +110,7 @@ impl PgJournalRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] journal sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("journal", e)
 }
 
 #[derive(sqlx::FromRow)]

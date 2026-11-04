@@ -105,11 +105,25 @@ jobs:
       - name: Clippy (erreurs bloquantes ; avertissements existants signalés)
         run: |
           cargo clippy --locked --workspace --all-targets
+          cargo clippy --locked --workspace --all-targets --features ent-api/labo,ent-lab/labo
           cargo clippy --locked -p ent-types --all-targets -- -D warnings
-      - name: Compilation
+      - name: Compilation (profil production : SANS la feature labo)
         run: cargo build --locked --workspace
-      - name: Tests (unitaires + intégration sur PostgreSQL éphémère)
-        run: cargo test --locked --workspace
+      - name: Séparation labo / production (L4, le binaire sans feature ne contient aucun code de labo)
+        run: |
+          set -eu
+          test -f target/debug/ent-api
+          for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast'; do
+            if grep -aqF -- "$motif" target/debug/ent-api; then
+              echo "::error::le binaire ent-api (sans feature labo) contient « $motif »"
+              exit 1
+            fi
+          done
+          echo "OK : ent-api sans feature labo ne contient ni mot de passe public ni route de labo."
+      - name: Tests sans la feature labo (404 labo / register, page /login sans mot de passe)
+        run: cargo test --locked -p ent-api -p ent-db -- --test-threads=1
+      - name: Tests (unitaires + intégration sur PostgreSQL éphémère, feature labo)
+        run: cargo test --locked --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1
 
   frontend:
     name: Frontend Leptos (clippy, tests, build, tests contre le backend)
@@ -162,14 +176,19 @@ jobs:
         run: |
           cargo clippy --locked -p ent-web-ui -p ent-web-api -p ent-web-app --all-targets --features ent-web-app/ssr -- -D warnings
           cargo clippy --locked -p ent-web-server -p ent-web-session --all-targets -- -D warnings
+          cargo clippy --locked -p ent-web-server -p ent-web-session --all-targets --features ent-web-server/labo -- -D warnings
           cargo clippy --locked -p ent-web-app --lib --target wasm32-unknown-unknown --features hydrate -- -D warnings
       - name: Tests unitaires (design system, client API, modèle d'appel)
         run: cargo test --locked -p ent-web-ui -p ent-web-api -p ent-web-app --features ent-web-app/ssr
       - name: Build Leptos (release, fichiers précompressés)
         run: cargo leptos build --release --precompress
+      - name: En-têtes de sécurité des pages /web (CSP à nonce, sans base ni backend)
+        run: cargo test --locked -p ent-web-server --test entetes_securite --test droits_parite
       - name: Tests contre le vrai backend (PostgreSQL éphémère, données de labo fictives)
-        run: cargo test --locked -p ent-web-server --test contre_backend -- --test-threads=1
+        run: cargo test --locked -p ent-web-server --features labo --test contre_backend -- --test-threads=1
       - name: Prototype isolé de session par cookie (D-016, contre le vrai backend)
-        run: cargo test --locked -p ent-web-session -- --test-threads=1
+        # /auth/register n'existe que dans ent-api compilé avec sa feature `labo` (L4) :
+        # activée par la commande, sans toucher au manifeste d'ent-web-session.
+        run: cargo test --locked -p ent-web-session --features ent-api/labo -- --test-threads=1
       - name: Taille des fichiers envoyés au navigateur
         run: ls -l target/site/pkg

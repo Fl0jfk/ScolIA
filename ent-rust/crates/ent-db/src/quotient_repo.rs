@@ -68,8 +68,7 @@ impl PgQuotientRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] quotient sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("quotient", e)
 }
 
 #[derive(sqlx::FromRow)]

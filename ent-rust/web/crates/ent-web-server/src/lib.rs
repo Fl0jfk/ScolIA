@@ -12,6 +12,7 @@
 // même limite que `ent-web-app` (voir docs/FRONTEND_LEPTOS.md §8).
 #![recursion_limit = "512"]
 
+#[cfg(feature = "labo")]
 pub mod labo;
 
 use std::net::SocketAddr;
@@ -79,6 +80,23 @@ async fn csp_middleware(mut req: Request, next: Next) -> Response {
     rep
 }
 
+/// `Cache-Control: no-store` + `Pragma: no-cache` sur les pages et fonctions serveur ;
+/// le paquet statique (`/pkg/…` : wasm, JS, CSS versionnés) garde son cache.
+async fn sans_cache_hors_pkg(
+    axum::extract::State(prefixe_pkg): axum::extract::State<String>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let statique = req.uri().path().starts_with(prefixe_pkg.as_str());
+    let mut rep = next.run(req).await;
+    if !statique {
+        let h = rep.headers_mut();
+        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        h.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    }
+    rep
+}
+
 /// Remplace le nonce que `leptos_axum` génère lui-même par celui du middleware, pour que
 /// l'en-tête CSP et les balises `<script nonce=…>` soient cohérents.
 fn fournir_nonce_de_la_requete() {
@@ -109,6 +127,11 @@ pub fn routeur_web(options: LeptosOptions) -> Router {
                 .precompressed_gzip(),
         )
         .layer(middleware::from_fn(csp_middleware))
+        // Pages /web : jamais de cache (données de session, pages rendues côté serveur).
+        .layer(middleware::from_fn_with_state(
+            format!("{pkg_url}/"),
+            sans_cache_hors_pkg,
+        ))
         .layer(SetResponseHeaderLayer::overriding(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),

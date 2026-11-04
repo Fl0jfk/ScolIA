@@ -26,7 +26,8 @@ use uuid::Uuid;
 pub enum ObjectStoreError {
     #[error("clé objet invalide")]
     InvalidKey,
-    #[error("objet introuvable: {0}")]
+    // Message fixe : la clé objet ne doit jamais remonter au client.
+    #[error("objet introuvable")]
     NotFound(String),
     #[error("IO: {0}")]
     Io(String),
@@ -215,11 +216,15 @@ impl ObjectStore {
                 .ok_or_else(|| ObjectStoreError::NotFound(key.to_string()));
         }
         let path = self.disk_path(key);
-        fs::read(&path).map_err(|_| ObjectStoreError::NotFound(key.to_string()))
+        fs::read(&path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => ObjectStoreError::NotFound(key.to_string()),
+            _ => ObjectStoreError::Io(e.kind().to_string()),
+        })
     }
 
+    /// `true` seulement si la clé est valide et l'objet lisible.
     pub fn exists(&self, key: &str) -> bool {
-        self.get(key).is_ok()
+        assert_safe_key(key).is_ok() && self.get(key).is_ok()
     }
 
     pub fn memory_len(&self) -> usize {
@@ -248,11 +253,34 @@ fn sanitize_ext(s: &str) -> String {
     }
 }
 
+/// Longueur maximale d'une clé objet.
+const MAX_KEY_LEN: usize = 512;
+
+/// Valide une clé objet : relative, sans traversée, sans lettre de lecteur,
+/// sans flux NTFS ni caractère de contrôle. Appliquée à tout accès (get/put/exists).
 fn assert_safe_key(key: &str) -> Result<(), ObjectStoreError> {
-    if key.is_empty() || key.contains("..") || key.starts_with('/') || key.starts_with('\\') {
+    if key.is_empty() || key.len() > MAX_KEY_LEN {
         return Err(ObjectStoreError::InvalidKey);
     }
-    if key.contains('\\') {
+    if key.contains("..")
+        || key.contains('\\')
+        || key.contains(':')
+        || key.chars().any(|c| c.is_control())
+    {
+        return Err(ObjectStoreError::InvalidKey);
+    }
+    // Segments non vides, ni `.` ni `..` (un `/` initial donne un segment vide).
+    if key
+        .split('/')
+        .any(|seg| seg.is_empty() || seg == "." || seg == "..")
+    {
+        return Err(ObjectStoreError::InvalidKey);
+    }
+    // Défense en profondeur : tous les composants doivent être `Normal`.
+    if !Path::new(key)
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
+    {
         return Err(ObjectStoreError::InvalidKey);
     }
     Ok(())
@@ -356,5 +384,61 @@ mod tests {
     fn reject_traversal() {
         let store = ObjectStore::memory_only();
         assert!(store.put("../x", b"no").is_err());
+    }
+
+    #[test]
+    fn reject_unsafe_keys_everywhere() {
+        let store = ObjectStore::memory_only();
+        let long = "a".repeat(600);
+        let bad = [
+            "C:/Windows/win.ini",
+            "C:foo",
+            "\\\\?\\C:\\x",
+            "/etc/passwd",
+            "a/../b",
+            "a//b",
+            "./a",
+            "a/./b",
+            "a:b",
+            "a\0b",
+            "a\nb",
+            "a\\b",
+            "",
+            "a/",
+            long.as_str(),
+        ];
+        for k in bad {
+            assert!(
+                matches!(store.get(k), Err(ObjectStoreError::InvalidKey)),
+                "get {k:?}"
+            );
+            assert!(
+                matches!(store.put(k, b"x"), Err(ObjectStoreError::InvalidKey)),
+                "put {k:?}"
+            );
+            assert!(!store.exists(k), "exists {k:?}");
+        }
+        assert_eq!(store.memory_len(), 0);
+    }
+
+    #[test]
+    fn not_found_ne_divulgue_pas_la_cle() {
+        let store = ObjectStore::memory_only();
+        let k = ObjectStore::key_for(Uuid::new_v4(), "trombi", Uuid::new_v4(), "jpg");
+        let msg = store.get(&k).unwrap_err().to_string();
+        assert!(!msg.contains(&k) && !msg.contains("trombi"), "{msg}");
+    }
+
+    #[test]
+    fn accept_key_for_and_not_found() {
+        let store = ObjectStore::memory_only();
+        let k = ObjectStore::key_for(Uuid::new_v4(), "documents", Uuid::new_v4(), "pdf");
+        assert!(matches!(store.get(&k), Err(ObjectStoreError::NotFound(_))));
+        store.put(&k, b"ok").unwrap();
+        assert!(store.exists(&k));
+        let dir = env::temp_dir().join(format!("ent-obj-nf-{}", Uuid::new_v4()));
+        let disk = ObjectStore::s3_live("b", dir.clone());
+        assert!(matches!(disk.get(&k), Err(ObjectStoreError::NotFound(_))));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

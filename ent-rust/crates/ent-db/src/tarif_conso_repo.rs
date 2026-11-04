@@ -99,8 +99,7 @@ impl PgTarifConsoRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] tarif_conso sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("tarif_conso", e)
 }
 
 #[derive(sqlx::FromRow)]

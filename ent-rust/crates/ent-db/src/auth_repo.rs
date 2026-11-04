@@ -77,7 +77,7 @@ pub struct StaffMember {
     pub role: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SessionInfo {
     pub session_id: Uuid,
     pub user_id: Uuid,
@@ -997,5 +997,20 @@ impl PgAuthRepo {
                 role,
             })
             .collect())
+    }
+}
+
+// `Debug` masqué : jamais de jeton / e-mail dans un `{:?}`.
+impl std::fmt::Debug for SessionInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionInfo")
+            .field("session_id", &self.session_id)
+            .field("user_id", &self.user_id)
+            .field("etablissement_id", &self.etablissement_id)
+            .field("role", &self.role)
+            .field("expires_at", &self.expires_at)
+            .field("email", &"[masqué]")
+            .field("token", &"[masqué]")
+            .finish()
     }
 }

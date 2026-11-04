@@ -95,3 +95,20 @@ async fn autres_entetes_de_securite_presents() {
     assert_eq!(h["x-frame-options"], "SAMEORIGIN");
     assert_eq!(h["referrer-policy"], "same-origin");
 }
+
+#[tokio::test]
+async fn pages_web_jamais_en_cache() {
+    let base = demarrer().await;
+    let rep = reqwest::get(format!("{base}/web/connexion")).await.unwrap();
+    assert!(rep.status().is_success());
+    assert_eq!(rep.headers()["cache-control"], "no-store");
+    assert_eq!(rep.headers()["pragma"], "no-cache");
+    // Le paquet statique `/pkg` n'est pas concerné (pas de no-store imposé).
+    let pkg = reqwest::get(format!("{base}/pkg/inexistant.js"))
+        .await
+        .unwrap();
+    assert!(
+        pkg.headers().get("cache-control").is_none(),
+        "/pkg ne doit pas recevoir no-store"
+    );
+}

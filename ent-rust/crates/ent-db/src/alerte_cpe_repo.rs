@@ -151,8 +151,7 @@ impl PgAlerteCpeRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] alerte_cpe sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("alerte_cpe", e)
 }
 
 #[derive(sqlx::FromRow)]

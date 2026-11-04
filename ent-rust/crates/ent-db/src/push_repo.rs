@@ -3,7 +3,7 @@ use ent_push::{PushPlatform, PushSendStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PushDevice {
     pub id: Uuid,
     pub etablissement_id: Uuid,
@@ -13,7 +13,7 @@ pub struct PushDevice {
     pub app_id: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RegisterPushDevice {
     pub etablissement_id: Uuid,
     pub user_id: Uuid,
@@ -241,5 +241,18 @@ impl DeviceRow {
             token: self.token,
             app_id: self.app_id,
         }
+    }
+}
+
+impl std::fmt::Debug for PushDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PushDevice")
+            .field("id", &self.id)
+            .field("etablissement_id", &self.etablissement_id)
+            .field("user_id", &self.user_id)
+            .field("platform", &self.platform)
+            .field("app_id", &self.app_id)
+            .field("token", &"[masqué]")
+            .finish()
     }
 }

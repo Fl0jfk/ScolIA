@@ -249,8 +249,7 @@ impl PgConseilClasseRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] conseil_classe sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("conseil_classe", e)
 }
 
 #[derive(sqlx::FromRow)]

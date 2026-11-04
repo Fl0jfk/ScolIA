@@ -282,6 +282,9 @@ pub enum EventBusError {
     MissingEtablissement,
     #[error("type d'événement vide")]
     EmptyType,
+    /// Panne du magasin d'événements (base) : jamais confondue avec une erreur de saisie.
+    #[error("erreur d'infrastructure du bus d'événements")]
+    Infrastructure,
 }
 
 /// Handler Brain : réagit à un événement (répercussions métier).

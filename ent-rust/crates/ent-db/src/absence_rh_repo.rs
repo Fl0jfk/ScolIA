@@ -102,8 +102,7 @@ impl PgAbsenceRhRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] absence_rh sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("absence_rh", e)
 }
 
 #[derive(sqlx::FromRow)]

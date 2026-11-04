@@ -9,6 +9,12 @@ description = "Runner labo — fait vivre le cast multi-personas et rapporte ce 
 [[bin]]
 name = "ent-lab"
 path = "src/main.rs"
+required-features = ["labo"]
+
+[features]
+# Runner labo : exige le cast et le mot de passe public d'ent-db (feature `labo`).
+# `cargo run -p ent-lab --features labo`. Jamais dans l'image de production.
+labo = ["ent-db/labo"]
 
 [dependencies]
 chrono = { workspace = true }

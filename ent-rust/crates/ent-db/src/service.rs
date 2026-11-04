@@ -15,7 +15,6 @@ use crate::eleve_compte_repo::{EleveCompte, PgEleveCompteRepo};
 use crate::eleve_repo::PgEleveRepo;
 use crate::event_store::PgEventStore;
 use crate::foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, PgFoyerRepo, UpdateLien};
-use crate::seed::LABO_PASSWORD;
 use crate::mail_repo::{InsertMailOutbox, MailOutboxRow, PgMailRepo};
 use crate::sms_repo::{InsertSmsOutbox, PgSmsRepo};
 use crate::push_repo::{InsertPushOutbox, PgPushRepo, PushDevice, RegisterPushDevice};
@@ -183,7 +182,7 @@ use domain_eleve::{
     plan_creer_edt_contrainte, CreerEdtContrainte, EdtContrainte,
 };
 use domain_eleve::{plan_creer_annonce, Annonce, AudienceAnnonce, CreerAnnonce};
-use domain_eleve::{plan_declarer_retard, DeclarerRetard, Retard};
+use domain_eleve::{plan_declarer_retard, DeclarerRetard, NiveauIdentite, Retard};
 use domain_eleve::{
     plan_creer_competence_item, plan_evaluer_competence, render_livret_competences_pdf,
     CompetenceItem, CreerCompetenceItem, EvaluerCompetence, EvaluationCompetence,
@@ -222,7 +221,7 @@ pub struct ProvisionnerPersonnel {
 }
 
 /// Résultat d'un provisionnement staff : mot de passe temporaire (affiché une fois).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PersonnelProvisionne {
     pub user_id: Uuid,
     pub email: String,
@@ -312,13 +311,14 @@ pub enum EntDbError {
     Object(#[from] ObjectStoreError),
     #[error(transparent)]
     EdtImport(#[from] EdtImportParseError),
+    #[error("fichier absent pour ce document")]
+    FichierAbsent,
     #[error("import EDT refusé : conflits détectés")]
     EdtImportConflicts,
 }
 
 /// Issue d'une tentative de connexion par mot de passe : soit une session est
 /// ouverte, soit un 2ᵉ facteur (passkey) est exigé avant toute session.
-#[derive(Debug)]
 pub enum LoginOutcome {
     Session(SessionInfo),
     PasskeyRequired {
@@ -350,7 +350,7 @@ impl SondeMetrique {
 }
 
 /// Paramètres de création / mise à jour d'un fournisseur OIDC d'établissement.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OidcProviderParams {
     pub slug: String,
     pub libelle: String,
@@ -381,6 +381,83 @@ pub struct EnfantFamille {
     pub peut_voir_vs: bool,
     pub peut_justifier_absence: bool,
     pub peut_autoriser_sorties: bool,
+}
+
+/// Vrai si `key` est un segment « simple » (alphanumérique, `-`, `_`), non vide.
+fn is_simple_segment(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Clé objet d'une pièce de la forme `{etab}/{ns}/{id}.{ext}` appartenant bien à (etab, id).
+fn object_key_is_owned(etab: Uuid, ns: &str, id: Uuid, key: &str) -> bool {
+    let segs: Vec<&str> = key.split('/').collect();
+    let [e, n, file] = segs.as_slice() else {
+        return false;
+    };
+    let Some((fid, ext)) = file.split_once('.') else {
+        return false;
+    };
+    *e == etab.to_string()
+        && *n == ns
+        && fid == id.to_string()
+        && is_simple_segment(ext)
+}
+
+/// Photo d'élève : `{etab}/trombi/{eleve_id}.{ext}` uniquement.
+pub fn photo_storage_key_is_owned(eleve: &Eleve, key: &str) -> bool {
+    object_key_is_owned(eleve.etablissement_id, "trombi", eleve.id, key)
+}
+
+/// Pièce PAI : `{etab}/pai/{piece.id}.{ext}` uniquement.
+pub fn pai_storage_key_is_owned(piece: &PaiPiece, key: &str) -> bool {
+    object_key_is_owned(piece.etablissement_id, "pai", piece.id, key)
+}
+
+
+/// Vérifie que la clé objet stockée APPARTIENT bien à ce document (même établissement,
+/// même document/élève). Toute autre forme n'est jamais lue dans le magasin d'objets.
+///
+/// Formes acceptées :
+/// - `{etab}/documents/{doc.id}.{pdf|png|jpg|txt|bin}` (dépôt avec contenu) ;
+/// - `{etab}/bulletin|livret-competences/{uuid}.pdf-{doc.eleve_id}` (bulletins, livrets) ;
+/// - `reinscription/{etab}/{doc.eleve_id}/{CODE}.pdf` (réinscription sans contenu) ;
+/// - `lab/{8 premiers hex de l'établissement}/{nom}.pdf` (seeds de labo).
+pub fn document_storage_key_is_owned(doc: &EleveDocument, key: &str) -> bool {
+    let etab = doc.etablissement_id;
+    let segs: Vec<&str> = key.split('/').collect();
+    match segs.as_slice() {
+        [e, "documents", file] => {
+            let Some((id, ext)) = file.split_once('.') else {
+                return false;
+            };
+            *e == etab.to_string()
+                && id == doc.id.to_string()
+                && matches!(ext, "pdf" | "png" | "jpg" | "txt" | "bin")
+        }
+        [e, ns @ ("bulletin" | "livret-competences"), file] => {
+            let _ = ns;
+            let Some((periode, eleve)) = file.split_once(".pdf-") else {
+                return false;
+            };
+            *e == etab.to_string()
+                && Uuid::parse_str(periode).is_ok()
+                && eleve == doc.eleve_id.to_string()
+        }
+        ["reinscription", e, el, file] => {
+            let Some(code) = file.strip_suffix(".pdf") else {
+                return false;
+            };
+            *e == etab.to_string() && *el == doc.eleve_id.to_string() && is_simple_segment(code)
+        }
+        ["lab", short, file] => {
+            let Some(name) = file.strip_suffix(".pdf") else {
+                return false;
+            };
+            let expected = etab.simple().to_string();
+            *short == &expected[..8] && is_simple_segment(name)
+        }
+        _ => false,
+    }
 }
 
 /// Façade async Postgres — auth + noyau élève (+ périodes + absences) + events + Brain.
@@ -807,7 +884,7 @@ impl PgEnt {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("[ent-db] mail send error ({kind}): {e}");
+                    tracing::error!(canal = "mail", kind = %kind, error = %e, "envoi échoué");
                     continue;
                 }
             };
@@ -933,7 +1010,7 @@ impl PgEnt {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("[ent-db] sms send error ({kind}): {e}");
+                    tracing::error!(canal = "sms", kind = %kind, error = %e, "envoi échoué");
                     continue;
                 }
             };
@@ -1137,7 +1214,7 @@ impl PgEnt {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("[ent-db] push send error ({kind}): {e}");
+                    tracing::error!(canal = "push", kind = %kind, error = %e, "envoi échoué");
                     continue;
                 }
             };
@@ -1245,7 +1322,7 @@ impl PgEnt {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("[ent-db] push staff send error ({kind}): {e}");
+                    tracing::error!(canal = "push staff", kind = %kind, error = %e, "envoi échoué");
                     continue;
                 }
             };
@@ -1362,10 +1439,18 @@ impl PgEnt {
         etablissement_id: Uuid,
         client_ip: Option<&str>,
     ) -> Result<LoginOutcome, EntDbError> {
-        let identity = self
+        let identity = match self
             .auth
             .verify_credentials(email, password, etablissement_id, client_ip)
-            .await?;
+            .await
+        {
+            Ok(identity) => identity,
+            Err(e) => {
+                self.tracer_echec_connexion(etablissement_id, email, client_ip.is_some(), &e)
+                    .await;
+                return Err(e.into());
+            }
+        };
         let passkeys = self
             .passkeys
             .list_passkeys(etablissement_id, identity.user_id)
@@ -2187,7 +2272,17 @@ impl PgEnt {
     }
 
     pub async fn resolve_session(&self, authorization: &str) -> Result<SessionInfo, EntDbError> {
-        Ok(self.auth.resolve_bearer(authorization).await?)
+        match self.auth.resolve_bearer(authorization).await {
+            Ok(s) => Ok(s),
+            Err(AuthError::InvalidSession) => {
+                // `auth_repo` ramène aussi une panne base à « session invalide » :
+                // on sonde la base pour ne pas déconnecter tout le monde pendant
+                // une panne (500 au lieu de 401).
+                self.ping().await?;
+                Err(AuthError::InvalidSession.into())
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub async fn logout(&self, authorization: &str) -> Result<(), EntDbError> {
@@ -2346,7 +2441,7 @@ impl PgEnt {
 
     /// Test-only : crée un jeton de réinitialisation et renvoie le jeton **brut**
     /// (jamais exposé par l'API HTTP). Réservé aux tests L1.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "labo"))]
     pub(crate) async fn reset_token_for_test(
         &self,
         email: &str,
@@ -2373,7 +2468,7 @@ impl PgEnt {
         action: &str,
         libelle: &str,
     ) {
-        let _ = self
+        if let Err(e) = self
             .enregistrer_journal_interne(EnregistrerJournal {
                 etablissement_id,
                 eleve_id: None,
@@ -2384,7 +2479,283 @@ impl PgEnt {
                 visible_famille: false,
                 actor_user_id: user_id,
             })
-            .await;
+            .await
+        {
+            // Ne fait jamais échouer l'action métier, mais ne se tait plus.
+            tracing::error!(action, error = %e, "échec d'écriture du journal d'audit");
+        }
+    }
+
+    /// Trace un accès sensible (consultation, téléchargement, export) dans
+    /// `ent_journal_modif`. Contenu minimal : acteur, rôle, action, cible —
+    /// **jamais** le contenu consulté. Best-effort : un échec d'écriture est
+    /// journalisé (`tracing`) mais ne fait pas échouer la requête métier.
+    pub async fn tracer_acces_sensible(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Option<Uuid>,
+        domaine: &str,
+        action: &str,
+        libelle: &str,
+    ) {
+        if let Err(e) = self
+            .enregistrer_journal_interne(EnregistrerJournal {
+                etablissement_id,
+                eleve_id,
+                domaine: domaine.into(),
+                action: action.into(),
+                libelle: libelle.into(),
+                payload: json!({ "role": role }),
+                visible_famille: false,
+                actor_user_id: Some(actor_user_id),
+            })
+            .await
+        {
+            tracing::error!(domaine, action, error = %e, "échec d'écriture de la trace d'accès sensible");
+        }
+    }
+
+    /// Trace un échec de connexion ou un verrouillage. L'e-mail n'est **pas**
+    /// écrit en clair : empreinte SHA-256 tronquée (pseudonymisation — permet de
+    /// corréler les tentatives sur un même compte sans exposer l'adresse ni la
+    /// frappe d'un mot de passe saisi par erreur dans le champ e-mail). Les
+    /// verrous sont dédupliqués de façon atomique (un par compte et par 5 min)
+    /// et limités aux membres de l'établissement, pour qu'un client anonyme ne puisse
+    /// pas inonder le journal (ajout seul). SHA-256 sans secret serveur : l'empreinte
+    /// est une pseudonymisation, pas une protection contre une attaque par dictionnaire
+    /// sur des adresses connues.
+    async fn tracer_echec_connexion(
+        &self,
+        etablissement_id: Uuid,
+        email: &str,
+        client_ip_connue: bool,
+        err: &AuthError,
+    ) {
+        use sha2::{Digest, Sha256};
+        let (action, libelle) = match err {
+            AuthError::TooManyAttempts => ("connexion_verrou", "Connexion refusée : compte ou IP verrouillé"),
+            AuthError::InvalidCredentials | AuthError::NotMember => {
+                ("connexion_echec", "Échec de connexion")
+            }
+            _ => return,
+        };
+        if etablissement_id.is_nil() {
+            return;
+        }
+        let email_norm = email.trim().to_ascii_lowercase();
+        let digest = Sha256::digest(email_norm.as_bytes());
+        let empreinte: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+        let payload = json!({ "empreinte": empreinte, "ip_connue": client_ip_connue });
+        // Une seule transaction : verrou advisory par (établissement, action,
+        // empreinte) puis INSERT … SELECT gardé. L'établissement n'a pas de table
+        // dédiée : il « existe » s'il a au moins un membership, et l'identité doit
+        // y être membre. Un client anonyme ne peut donc écrire que pour de vrais
+        // comptes d'un vrai établissement, au plus une ligne par 5 minutes chacun.
+        let res: Result<(), sqlx::Error> = async {
+            let mut tx = self.pool.begin().await?;
+            let cle = format!("{etablissement_id}:{action}:{empreinte}");
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(&cle)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                r#"
+                INSERT INTO ent_journal_modif (
+                    id, etablissement_id, eleve_id, domaine, action, libelle,
+                    payload, visible_famille, actor_user_id, created_at
+                )
+                SELECT $1, $2, NULL, 'auth', $3, $4, $5, false, NULL, now()
+                WHERE EXISTS (
+                    SELECT 1 FROM ent_membership m
+                    JOIN ent_user u ON u.id = m.user_id
+                    WHERE m.etablissement_id = $2 AND u.email = $6
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM ent_journal_modif j
+                    WHERE j.etablissement_id = $2 AND j.domaine = 'auth' AND j.action = $3
+                      AND j.payload->>'empreinte' = $7
+                      AND j.created_at > now() - interval '5 minutes'
+                )
+                "#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(etablissement_id)
+            .bind(action)
+            .bind(libelle)
+            .bind(&payload)
+            .bind(&email_norm)
+            .bind(&empreinte)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await
+        }
+        .await;
+        if let Err(e) = res {
+            tracing::warn!(action, error = %e, "échec d'écriture de la trace de connexion");
+        }
+    }
+
+    // --- Consultations sensibles tracées (domaine `consultation`) -----------
+    // Chaque lecture autorisée de données de santé / psy laisse une ligne :
+    // qui (acteur, rôle), quoi (action), sur quel élève. Pas de contenu.
+
+    pub async fn get_fiche_sante_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<Option<FicheSante>, EntDbError> {
+        let r = self
+            .get_fiche_sante_for_actor_sans_trace(etablissement_id, actor_user_id, role, eleve_id)
+            .await?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            Some(eleve_id),
+            "consultation",
+            "fiche_sante",
+            "Consultation de la fiche santé",
+        )
+        .await;
+        Ok(r)
+    }
+
+    pub async fn get_pai_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<Option<Pai>, EntDbError> {
+        let r = self
+            .get_pai_for_actor_sans_trace(etablissement_id, actor_user_id, role, eleve_id)
+            .await?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            Some(eleve_id),
+            "consultation",
+            "pai",
+            "Consultation du PAI",
+        )
+        .await;
+        Ok(r)
+    }
+
+    pub async fn telecharger_pai_piece_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        piece_id: Uuid,
+    ) -> Result<PaiPiece, EntDbError> {
+        let piece = self
+            .telecharger_pai_piece_for_actor_sans_trace(
+                etablissement_id,
+                actor_user_id,
+                role,
+                piece_id,
+            )
+            .await?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            Some(piece.eleve_id),
+            "consultation",
+            "pai_piece",
+            "Téléchargement d'une pièce du PAI",
+        )
+        .await;
+        Ok(piece)
+    }
+
+    pub async fn list_passages_infirmerie_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Option<Uuid>,
+        jour: Option<NaiveDate>,
+    ) -> Result<Vec<PassageInfirmerie>, EntDbError> {
+        let r = self
+            .list_passages_infirmerie_for_actor_sans_trace(
+                etablissement_id,
+                actor_user_id,
+                role,
+                eleve_id,
+                jour,
+            )
+            .await?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            eleve_id,
+            "consultation",
+            "passages_infirmerie",
+            "Consultation des passages à l'infirmerie",
+        )
+        .await;
+        Ok(r)
+    }
+
+    pub async fn list_entretiens_psy_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Option<Uuid>,
+        jour: Option<NaiveDate>,
+    ) -> Result<Vec<EntretienPsy>, EntDbError> {
+        let r = self
+            .list_entretiens_psy_for_actor_sans_trace(
+                etablissement_id,
+                actor_user_id,
+                role,
+                eleve_id,
+                jour,
+            )
+            .await?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            eleve_id,
+            "consultation",
+            "entretiens_psy",
+            "Consultation des entretiens psychologue",
+        )
+        .await;
+        Ok(r)
+    }
+
+    pub async fn get_dossier_psy_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<Option<DossierPsy>, EntDbError> {
+        let r = self
+            .get_dossier_psy_for_actor_sans_trace(etablissement_id, actor_user_id, role, eleve_id)
+            .await?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            Some(eleve_id),
+            "consultation",
+            "dossier_psy",
+            "Consultation du dossier psychologue",
+        )
+        .await;
+        Ok(r)
     }
 
     pub async fn create_eleve(&self, cmd: CreateEleve) -> Result<Eleve, EntDbError> {
@@ -2526,8 +2897,25 @@ impl PgEnt {
         etablissement_id: Uuid,
         q: &str,
         limit: i64,
+        niveau: NiveauIdentite,
     ) -> Result<Vec<Eleve>, EntDbError> {
-        Ok(self.eleves.search(etablissement_id, q, limit).await?)
+        // Le badge n'est interrogeable que si le niveau l'expose (pas d'oracle).
+        Ok(self
+            .eleves
+            .search(etablissement_id, q, limit, niveau.voit_badge())
+            .await?)
+    }
+
+    /// Niveau d'identité élève exposé à un rôle (point unique de minimisation).
+    /// Parent / élève : inchangé (leurs propres données, déjà filtrées par lien).
+    pub fn niveau_identite(role: &str) -> NiveauIdentite {
+        match Role::parse(role) {
+            Some(Role::Admin | Role::Direction | Role::Administratif | Role::Parent | Role::Eleve) => {
+                NiveauIdentite::Complet
+            }
+            Some(Role::Infirmerie) => NiveauIdentite::Sante,
+            _ => NiveauIdentite::Reduit,
+        }
     }
 
     pub async fn search_staff(
@@ -2775,7 +3163,6 @@ impl PgEnt {
         if parsed.can_manage_eleves()
             || parsed == Role::Admin
             || parsed == Role::Direction
-            || parsed == Role::Compta
         {
             return Ok(DossierSections {
                 identite: true,
@@ -2789,6 +3176,23 @@ impl PgEnt {
                 repas: true,
                 bourses: true,
                 continuum: true,
+            });
+        }
+        if parsed == Role::Compta {
+            // Minimisation (L2) : gestion/facturation uniquement — ni notes, ni vie
+            // scolaire (sanctions, incidents, carnet), ni documents, dispositifs, options.
+            return Ok(DossierSections {
+                identite: true,
+                scolarite: true,
+                famille: true,
+                options: false,
+                notes: false,
+                vs: false,
+                documents: false,
+                dispositifs: false,
+                repas: true,
+                bourses: true,
+                continuum: false,
             });
         }
         if parsed.can_read_all_eleves() {
@@ -3348,6 +3752,37 @@ impl PgEnt {
         Ok(false)
     }
 
+    /// Peut savoir si l'élève est absent un jour donné : personnel, parent lié
+    /// (statut seul, sans motif), élève lui-même.
+    pub async fn actor_can_know_absent(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<bool, EntDbError> {
+        let Some(parsed) = Role::parse(role) else {
+            return Ok(false);
+        };
+        if parsed.is_staff() {
+            return Ok(true);
+        }
+        if parsed == Role::Parent {
+            return Ok(self
+                .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await?
+                .is_some());
+        }
+        if parsed == Role::Eleve {
+            let linked = self
+                .eleve_comptes
+                .eleve_id_for_user(etablissement_id, actor_user_id)
+                .await?;
+            return Ok(linked == Some(eleve_id));
+        }
+        Ok(false)
+    }
+
     /// Lecture partagée (module absences, cantine, …) — même `ent_absence`.
     pub async fn eleve_est_absent(
         &self,
@@ -3475,7 +3910,18 @@ impl PgEnt {
         {
             uid
         } else {
-            let pwd = password.unwrap_or(LABO_PASSWORD);
+            // Jamais de mot de passe par défaut connu : sans mot de passe
+            // fourni, le compte reçoit un secret aléatoire que personne ne
+            // connaît ; le responsable définit le sien via « mot de passe
+            // oublié » (flux d'invitation complet : lot L3).
+            let pwd_alea;
+            let pwd = match password {
+                Some(p) => p,
+                None => {
+                    pwd_alea = ent_auth::generate_temp_password();
+                    pwd_alea.as_str()
+                }
+            };
             let created = self
                 .register_user(
                     email,
@@ -3538,8 +3984,7 @@ impl PgEnt {
         foyer_id: Uuid,
     ) -> Result<Option<(Uuid, Option<String>, Vec<LienDossierFoyer>)>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_manage_eleves() || parsed.can_read_all_eleves() || parsed == Role::Compta)
-        {
+        if !(parsed.can_manage_eleves() || matches!(parsed, Role::Compta | Role::Cpe)) {
             return Err(EntDbError::Forbidden);
         }
         let Some((id, libelle)) = self.foyers.get_foyer(etablissement_id, foyer_id).await? else {
@@ -3557,8 +4002,7 @@ impl PgEnt {
         limit: i64,
     ) -> Result<Vec<(Uuid, Option<String>, i64)>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_manage_eleves() || parsed.can_read_all_eleves() || parsed == Role::Compta)
-        {
+        if !(parsed.can_manage_eleves() || matches!(parsed, Role::Compta | Role::Cpe)) {
             return Err(EntDbError::Forbidden);
         }
         Ok(self
@@ -6673,6 +7117,9 @@ impl PgEnt {
         mut cmd: DeposerDocument,
         contenu: Option<&[u8]>,
     ) -> Result<EleveDocument, EntDbError> {
+        // Chemin public : un client ne choisit jamais la clé objet. Elle n'est posée
+        // que par le serveur, si du contenu est écrit (voir `deposer_document_with_contenu`).
+        cmd.storage_key = None;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if Self::role_can_manage_documents(role) {
             return self.deposer_document_with_contenu(cmd, contenu).await;
@@ -6725,19 +7172,35 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let Some(key) = doc.storage_key.as_ref() else {
-            return Err(DomainError::NotFound.into());
+            return Err(EntDbError::FichierAbsent);
         };
+        let stub = |doc: &EleveDocument| {
+            // Lab : métadonnée sans octets (ancien dépôt) → stub lisible
+            // (uniquement les métadonnées du document lui-même, déjà autorisées).
+            format!(
+                "Document ENT (lab) — {}\nTiroir: {}\nCode: {}\n",
+                doc.titre,
+                doc.tiroir.as_str(),
+                doc.code.as_deref().unwrap_or("—")
+            )
+            .into_bytes()
+        };
+        // La clé stockée doit appartenir à CE document ; sinon le magasin n'est pas lu.
+        if !document_storage_key_is_owned(&doc, key) {
+            tracing::warn!(
+                document_id = %doc.id,
+                etablissement_id = %doc.etablissement_id,
+                key_len = key.len(),
+                "storage_key non conforme : lecture du magasin refusée (stub)"
+            );
+            let bytes = stub(&doc);
+            return Ok((doc, bytes));
+        }
         match self.objects.get(key) {
             Ok(bytes) => Ok((doc, bytes)),
             Err(ObjectStoreError::NotFound(_)) => {
-                // Lab : métadonnée sans octets (ancien dépôt) → stub lisible.
-                let stub = format!(
-                    "Document ENT (lab) — {}\nTiroir: {}\nCode: {}\n",
-                    doc.titre,
-                    doc.tiroir.as_str(),
-                    doc.code.as_deref().unwrap_or("—")
-                );
-                Ok((doc, stub.into_bytes()))
+                let bytes = stub(&doc);
+                Ok((doc, bytes))
             }
             Err(e) => Err(e.into()),
         }
@@ -8112,7 +8575,7 @@ impl PgEnt {
         // Assure une scolarité courante pour chaque élève du niveau (classe / MEF).
         let eleves = self
             .eleves
-            .search(cmd.etablissement_id, "", 2000)
+            .search(cmd.etablissement_id, "", 2000, true)
             .await?;
         for e in &eleves {
             let niv = niveau_depuis_classe_ou_mef(e.classe.as_deref(), e.mef.as_deref())
@@ -8253,7 +8716,7 @@ impl PgEnt {
         if niveau_want.is_empty() {
             return Err(DomainError::NiveauInconnu.into());
         }
-        let eleves = self.eleves.search(etablissement_id, "", 2000).await?;
+        let eleves = self.eleves.search(etablissement_id, "", 2000, true).await?;
         for e in &eleves {
             let niv = niveau_depuis_classe_ou_mef(e.classe.as_deref(), e.mef.as_deref())
                 .map(|n| normalize_niveau(&n));
@@ -9161,7 +9624,7 @@ impl PgEnt {
             let lien = self
                 .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
                 .await?;
-            if lien.is_none() {
+            if !lien.map(|l| l.peut_voir_vs).unwrap_or(false) {
                 return Err(EntDbError::Forbidden);
             }
         }
@@ -10139,11 +10602,13 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         if parent
-            && self
+            && !self
                 .lien_parent_eleve(etablissement_id, user_id, eleve_id)
                 .await?
-                .is_none()
+                .map(|l| l.peut_voir_vs)
+                .unwrap_or(false)
         {
+            // Le journal expose des faits de vie scolaire : exige `peut_voir_vs`.
             return Err(EntDbError::Forbidden);
         }
         if eleve {
@@ -11150,7 +11615,7 @@ impl PgEnt {
             prenom: cmd.prenom,
             date_naissance,
         })?;
-        let candidats = self.eleves.search(etablissement_id, &nom, 50).await?;
+        let candidats = self.eleves.search(etablissement_id, &nom, 50, true).await?;
         let mut out: Vec<HomonymeCandidat> = candidats
             .into_iter()
             .filter_map(|e| {
@@ -11458,6 +11923,16 @@ impl PgEnt {
         let Some(key) = eleve.photo_key.as_ref() else {
             return Ok(None);
         };
+        // Clé non conforme (autre élève / établissement) : jamais lue, comme « absente ».
+        if !photo_storage_key_is_owned(&eleve, key) {
+            tracing::warn!(
+                eleve_id = %eleve.id,
+                etablissement_id = %eleve.etablissement_id,
+                key_len = key.len(),
+                "photo_key non conforme : lecture du magasin refusée"
+            );
+            return Ok(None);
+        }
         Ok(Some(self.objects.get(key)?))
     }
 
@@ -11900,7 +12375,7 @@ impl PgEnt {
         } else {
             // Sans filtre classe : tous les élèves actifs au jour (via search large).
             self.eleves
-                .search(cmd.etablissement_id, "", 500)
+                .search(cmd.etablissement_id, "", 500, true)
                 .await?
         };
         let lignes: Vec<LigneOnde> = eleves
@@ -12743,7 +13218,7 @@ impl PgEnt {
         Ok(passage)
     }
 
-    pub async fn list_passages_infirmerie_for_actor(
+    async fn list_passages_infirmerie_for_actor_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -12861,7 +13336,7 @@ impl PgEnt {
         Ok(fiche)
     }
 
-    pub async fn get_fiche_sante_for_actor(
+    async fn get_fiche_sante_for_actor_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -12948,7 +13423,7 @@ impl PgEnt {
         Ok(pai)
     }
 
-    pub async fn get_pai_for_actor(
+    async fn get_pai_for_actor_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -13123,7 +13598,7 @@ impl PgEnt {
         Ok(pieces.iter().map(PaiPieceMeta::from).collect())
     }
 
-    pub async fn telecharger_pai_piece_for_actor(
+    async fn telecharger_pai_piece_for_actor_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -13137,11 +13612,14 @@ impl PgEnt {
             .ok_or(DomainError::PaiPieceIntrouvable)?;
         // Réutilise le contrôle d'accès get_pai (staff / parent lié + actif).
         let _ = self
-            .get_pai_for_actor(etablissement_id, actor_user_id, role, piece.eleve_id)
+            .get_pai_for_actor_sans_trace(etablissement_id, actor_user_id, role, piece.eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
         if let Some(ref key) = piece.storage_key {
-            piece.contenu = self.objects.get(key)?;
+            // Clé non conforme : jamais lue dans le magasin (traité comme sans contenu).
+            if pai_storage_key_is_owned(&piece, key) {
+                piece.contenu = self.objects.get(key)?;
+            }
         }
         Ok(piece)
     }
@@ -13253,7 +13731,7 @@ impl PgEnt {
         Ok(entretien)
     }
 
-    pub async fn list_entretiens_psy_for_actor(
+    async fn list_entretiens_psy_for_actor_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -13336,7 +13814,7 @@ impl PgEnt {
         Ok(dossier)
     }
 
-    pub async fn get_dossier_psy_for_actor(
+    async fn get_dossier_psy_for_actor_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -15854,4 +16332,111 @@ impl PgEnt {
 
 fn cand_corps(c: &domain_eleve::RappelCandidat) -> String {
     domain_eleve::corps_rappel(c)
+}
+
+impl std::fmt::Debug for PersonnelProvisionne {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PersonnelProvisionne")
+            .field("user_id", &self.user_id)
+            .field("role", &self.role)
+            .field("email", &"[masqué]")
+            .field("mot_de_passe_temporaire", &"[masqué]")
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for OidcProviderParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcProviderParams")
+            .field("slug", &self.slug)
+            .field("issuer", &self.issuer)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[masqué]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for LoginOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoginOutcome::Session(s) => f.debug_tuple("Session").field(s).finish(),
+            LoginOutcome::PasskeyRequired { expires_at, .. } => f
+                .debug_struct("PasskeyRequired")
+                .field("token", &"[masqué]")
+                .field("options", &"[masqué]")
+                .field("expires_at", expires_at)
+                .finish(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_cles_objet_photo_pai {
+    use super::*;
+
+    fn eleve(etab: Uuid, id: Uuid) -> Eleve {
+        Eleve {
+            id,
+            etablissement_id: etab,
+            nom: "N".into(),
+            prenom: "P".into(),
+            ine: None,
+            sexe: None,
+            date_naissance: None,
+            numero_badge: None,
+            redoublant: false,
+            photo_key: None,
+            status: domain_eleve::EleveStatus::Actif,
+            classe: None,
+            regime: None,
+            mef: None,
+            site: None,
+            date_entree: None,
+            date_sortie: None,
+            motif_sortie: None,
+        }
+    }
+
+    #[test]
+    fn photo_cle_conforme_seulement() {
+        let (etab, id) = (Uuid::new_v4(), Uuid::new_v4());
+        let e = eleve(etab, id);
+        assert!(photo_storage_key_is_owned(&e, &format!("{etab}/trombi/{id}.jpg")));
+        assert!(!photo_storage_key_is_owned(
+            &e,
+            &format!("{etab}/trombi/{}.jpg", Uuid::new_v4())
+        ));
+        assert!(!photo_storage_key_is_owned(
+            &e,
+            &format!("{}/trombi/{id}.jpg", Uuid::new_v4())
+        ));
+        assert!(!photo_storage_key_is_owned(&e, &format!("{etab}/documents/{id}.jpg")));
+        assert!(!photo_storage_key_is_owned(&e, &format!("{etab}/trombi/../{id}.jpg")));
+        assert!(!photo_storage_key_is_owned(&e, "autre/secret.pdf"));
+    }
+
+    #[test]
+    fn pai_cle_conforme_seulement() {
+        let (etab, id) = (Uuid::new_v4(), Uuid::new_v4());
+        let piece = PaiPiece {
+            id,
+            etablissement_id: etab,
+            eleve_id: Uuid::new_v4(),
+            pai_id: Uuid::new_v4(),
+            nom: "x".into(),
+            mime_type: "application/pdf".into(),
+            taille_octets: 1,
+            contenu: Vec::new(),
+            storage_key: None,
+            created_by_user_id: Uuid::new_v4(),
+            created_at: Utc::now(),
+        };
+        assert!(pai_storage_key_is_owned(&piece, &format!("{etab}/pai/{id}.pdf")));
+        assert!(!pai_storage_key_is_owned(
+            &piece,
+            &format!("{etab}/pai/{}.pdf", Uuid::new_v4())
+        ));
+        assert!(!pai_storage_key_is_owned(&piece, &format!("{etab}/documents/{id}.pdf")));
+        assert!(!pai_storage_key_is_owned(&piece, "lab/abcd1234/x.pdf"));
+    }
 }

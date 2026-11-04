@@ -98,8 +98,7 @@ impl PgVacancesRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] vacances sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("vacances", e)
 }
 
 #[derive(sqlx::FromRow)]

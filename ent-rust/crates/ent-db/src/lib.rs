@@ -32,6 +32,8 @@ mod note_repo;
 mod option_repo;
 mod periode_repo;
 mod pg_err;
+#[cfg(test)]
+mod tests_l6;
 mod repas_repo;
 mod sanction_repo;
 mod sortie_repo;
@@ -61,17 +63,20 @@ mod absence_rh_repo;
 mod edition_vs_repo;
 mod stage_repo;
 mod edt_contrainte_repo;
+#[cfg(feature = "labo")]
 mod seed;
 mod service;
 mod signal_repo;
 pub mod url_guard;
 
+pub use ent_events::EventBusError;
+pub use ent_object::ObjectStoreError;
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{AuthUser, LoginIdentity, SessionInfo, StaffMember};
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
 pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce};
-pub use domain_eleve::{DeclarerRetard, Retard};
+pub use domain_eleve::{DeclarerRetard, NiveauIdentite, Retard};
 pub use domain_eleve::{
     CompetenceItem, CreerCompetenceItem, EvaluerCompetence, EvaluationCompetence, NiveauMaitrise,
 };
@@ -102,6 +107,7 @@ pub use pra::{
 pub use motif_repo::AbsenceMotif;
 pub use note_repo::{Note, SaisirNote};
 pub use option_repo::PgOptionRepo;
+#[cfg(feature = "labo")]
 pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
 pub use service::{
     BankRapprochementSummary, EntDbError, LoginOutcome, OidcProviderParams, PgEnt,
@@ -111,7 +117,7 @@ pub use ent_oidc::{OidcError, OidcTransport};
 pub use domain_eleve::SignalAbsence;
 pub use url_guard::{assert_local_postgres_url, UrlGuardError};
 
-#[cfg(test)]
+#[cfg(all(test, feature = "labo"))]
 mod scenarios;
 
 #[cfg(test)]

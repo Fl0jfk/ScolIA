@@ -33,6 +33,8 @@ unset ENT_LOCAL_PWD
 # Serveur du prototype : environnement labo (jamais prod), écoute locale.
 export ENT_ENV="lab"
 export ENT_ALLOW_LABO="1"
+# L4 : /labo/bootstrap et /auth/register n'existent que dans un binaire compilé avec la feature `labo`
+# (cargo leptos build --bin-features labo ; cargo test ... --features labo). Sans elle : 404.
 export ENT_API_BIND="127.0.0.1:8090"
 export RUST_MIN_STACK="16777216"
 export LEPTOS_OUTPUT_NAME="ent-web"

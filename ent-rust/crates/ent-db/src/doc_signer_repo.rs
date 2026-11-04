@@ -179,8 +179,7 @@ impl PgDocSignerRepo {
 }
 
 fn map_sqlx(e: sqlx::Error) -> DomainError {
-    eprintln!("[ent-db] doc_signer sqlx: {e}");
-    DomainError::NotFound
+    crate::pg_err::map_sqlx("doc_signer", e)
 }
 
 #[derive(sqlx::FromRow)]

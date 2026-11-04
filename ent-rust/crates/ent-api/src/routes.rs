@@ -111,12 +111,12 @@ use domain_eleve::{
     CreerCompetenceItem, EvaluerCompetence,
 };
 use base64::Engine;
-use ent_db::{Appel, AppelLigne, CreateMatiere, LABO_PASSWORD, LigneEtat, SaisirNote};
+use ent_db::{Appel, AppelLigne, CreateMatiere, LigneEtat, SaisirNote};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
-    Router::new()
+    let r = Router::new()
         .route("/", get(ui_page))
         .route("/login", get(ui_page))
         .route("/mot-de-passe-oublie", get(ui_page))
@@ -132,8 +132,6 @@ pub fn router() -> Router<AppState> {
         .route("/metrics", get(crate::obs::metrics_handler))
         .route("/pra/inventaire", get(pra_inventaire))
         .route("/pra/inventaire/verifier", post(pra_verifier_inventaire))
-        .route("/labo/bootstrap", post(labo_bootstrap))
-        .route("/auth/register", post(register))
         .route("/auth/login", post(login))
         .route("/auth/passkey/register/start", post(passkey_register_start))
         .route(
@@ -687,12 +685,33 @@ pub fn router() -> Router<AppState> {
         .route(
             "/facturation/rappels",
             get(list_rappels).post(lancer_rappels),
-        )
+        );
+    #[cfg(feature = "labo")]
+    let r = r
+        .route("/labo/bootstrap", post(labo_bootstrap))
+        .route("/auth/register", post(register));
+    r
 }
 
 async fn ui_page() -> axum::response::Html<&'static str> {
     ui::app_html()
 }
+
+#[derive(Debug, Serialize)]
+struct PersonnelDto {
+    user_id: Uuid,
+    email: String,
+    role: String,
+    label: String,
+    telephone: Option<String>,
+}
+
+/// Routes de labo (`POST /labo/bootstrap`) : compilées SEULEMENT avec la
+/// feature `labo` (L4). Sans elle, ni le code ni `LABO_PASSWORD` ne sont dans le binaire.
+#[cfg(feature = "labo")]
+mod labo_routes {
+use super::*;
+use ent_db::LABO_PASSWORD;
 
 #[derive(Debug, Serialize)]
 struct LaboPersonaDto {
@@ -718,8 +737,10 @@ struct LaboPersonnelDto {
     label: String,
 }
 
-#[derive(Debug, Serialize)]
-struct LaboBootstrapDto {
+debug_masque!(LaboBootstrapDto { etablissement_id } masque { password });
+
+#[derive(Serialize)]
+pub(super) struct LaboBootstrapDto {
     etablissement_id: Uuid,
     password: String,
     personas: Vec<LaboPersonaDto>,
@@ -736,17 +757,8 @@ struct LaboBootstrapDto {
     eleve_ginny_id: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize)]
-struct PersonnelDto {
-    user_id: Uuid,
-    email: String,
-    role: String,
-    label: String,
-    telephone: Option<String>,
-}
-
 /// Seed une école dense (local only) et renvoie les comptes pour l'UI labo.
-async fn labo_bootstrap(
+pub(super) async fn labo_bootstrap(
     State(state): State<AppState>,
 ) -> Result<Json<LaboBootstrapDto>, (StatusCode, String)> {
     if !labo_open() {
@@ -759,7 +771,7 @@ async fn labo_bootstrap(
         .ent
         .seed_labo_cast()
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| erreur_interne(&e))?;
 
     let mut personas = vec![
         LaboPersonaDto {
@@ -890,6 +902,9 @@ async fn labo_bootstrap(
         eleve_ginny_id: cast.eleve_ginny_id,
     }))
 }
+}
+#[cfg(feature = "labo")]
+use labo_routes::labo_bootstrap;
 
 #[derive(Debug, Deserialize)]
 struct SearchQuery {
@@ -901,13 +916,16 @@ async fn search_eleves(
     session: EntSession,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Vec<EleveDto>>, (StatusCode, String)> {
+    session.require_staff()?;
     let needle = q.q.unwrap_or_default();
+    // Niveau d'identité unique par rôle ; badge interrogeable seulement s'il est exposé.
+    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
     let rows = state
         .ent
-        .search_eleves(session.etablissement_id, &needle, 50)
+        .search_eleves(session.etablissement_id, &needle, 50, niveau)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(rows.iter().map(EleveDto::from).collect()))
+        .map_err(map_db)?;
+    Ok(Json(rows.iter().map(|e| EleveDto::pour(e, niveau)).collect()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -927,6 +945,7 @@ async fn eleve_labels_batch(
     session: EntSession,
     Query(q): Query<EleveLabelsQuery>,
 ) -> Result<Json<Vec<EleveLabelRow>>, (StatusCode, String)> {
+    session.require_staff()?;
     let ids: Vec<Uuid> = q
         .ids
         .unwrap_or_default()
@@ -976,7 +995,7 @@ async fn search_personnel(
         .ent
         .search_staff(session.etablissement_id, &needle, 100)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| erreur_interne(&e))?;
     Ok(Json(rows.into_iter().map(personnel_dto).collect()))
 }
 
@@ -987,7 +1006,7 @@ struct ProvisionnerPersonnelBody {
     display_name: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct PersonnelProvisionneDto {
     user_id: Uuid,
     email: String,
@@ -1027,7 +1046,7 @@ async fn provisionner_personnel(
     ))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct MotDePasseReinitialiseDto {
     user_id: Uuid,
     mot_de_passe_temporaire: String,
@@ -1071,7 +1090,7 @@ async fn get_personnel(
         .ent
         .get_staff_member(session.etablissement_id, id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| erreur_interne(&e))?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "adulte introuvable".into()))?;
     Ok(Json(personnel_dto(p)))
 }
@@ -1161,7 +1180,7 @@ async fn get_dossier(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let dossier = state
+    let mut dossier = state
         .ent
         .get_dossier_for_actor(
             session.etablissement_id,
@@ -1171,7 +1190,7 @@ async fn get_dossier(
             today_utc(),
         )
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(map_db)?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "dossier inaccessible".into()))?;
     let sanctions = enrich_sanctions(
         &state,
@@ -1217,38 +1236,56 @@ async fn get_dossier(
         dossier.bourses.iter().map(EleveBourseDto::from).collect(),
     )
     .await?;
+    // Les clés objet restent internes au serveur : jamais dans les réponses.
+    for d in dossier.documents.iter_mut() {
+        d.storage_key = None;
+    }
+    dossier.eleve.photo_key = None;
+    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
+    dossier.minimise(niveau);
     let mut value = serde_json::to_value(&dossier)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| erreur_interne(&e))?;
+    if niveau != domain_eleve::NiveauIdentite::Complet {
+        // Donnée retirée = `null` (« non renseigné »), jamais un `false` trompeur.
+        if let Some(e) = value.get_mut("eleve").and_then(|e| e.as_object_mut()) {
+            e.insert("redoublant".into(), serde_json::Value::Null);
+        }
+        if let Some(cont) = value.get_mut("continuum").and_then(|c| c.as_array_mut()) {
+            for a in cont.iter_mut().filter_map(|a| a.as_object_mut()) {
+                a.insert("redoublement_possible".into(), serde_json::Value::Null);
+            }
+        }
+    }
     if let Some(obj) = value.as_object_mut() {
         obj.insert(
             "sanctions".into(),
             serde_json::to_value(sanctions)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+                .map_err(|e| erreur_interne(&e))?,
         );
         obj.insert(
             "incidents".into(),
             serde_json::to_value(incidents)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+                .map_err(|e| erreur_interne(&e))?,
         );
         obj.insert(
             "carnet".into(),
             serde_json::to_value(carnet)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+                .map_err(|e| erreur_interne(&e))?,
         );
         obj.insert(
             "grille_repas".into(),
             serde_json::to_value(grille_repas)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+                .map_err(|e| erreur_interne(&e))?,
         );
         obj.insert(
             "dispenses_repas".into(),
             serde_json::to_value(dispenses_repas)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+                .map_err(|e| erreur_interne(&e))?,
         );
         obj.insert(
             "bourses".into(),
             serde_json::to_value(bourses)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+                .map_err(|e| erreur_interne(&e))?,
         );
     }
     Ok(Json(value))
@@ -1337,7 +1374,7 @@ async fn deposer_document_eleve(
                 titre: body.titre,
                 code: body.code,
                 mime_type: body.mime_type,
-                storage_key: body.storage_key,
+                storage_key: None,
                 confidentialite,
                 actor_user_id: session.user_id,
             },
@@ -1376,6 +1413,7 @@ async fn telecharger_document_fichier(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "telechargement", "document", &format!("Téléchargement du document {id}")).await;
     let mime = doc
         .mime_type
         .as_deref()
@@ -1527,9 +1565,10 @@ async fn health() -> Json<serde_json::Value> {
 /// Readiness : vérifie que la base répond (sinon 503 → le conteneur n'est pas prêt).
 async fn ready(State(state): State<AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     state.ent.ping().await.map_err(|e| {
+        tracing::error!(error = %e, "readiness : base indisponible");
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            format!("base indisponible: {e}"),
+            "base indisponible".to_string(),
         )
     })?;
     Ok(Json(serde_json::json!({
@@ -1578,17 +1617,20 @@ async fn pra_verifier_inventaire(
 }
 
 /// Erreurs PRA / inventaire → statut HTTP explicite.
-fn map_pra(err: ent_db::EntDbError) -> (StatusCode, String) {
+pub(crate) fn map_pra(err: ent_db::EntDbError) -> (StatusCode, String) {
+    if let Some(r) = erreur_infra(&err) {
+        return r;
+    }
     match &err {
         ent_db::EntDbError::Forbidden | ent_db::EntDbError::InventairePorteeEtrangere => {
             (StatusCode::FORBIDDEN, err.to_string())
         }
-        ent_db::EntDbError::Sqlx(_) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
         _ => (StatusCode::BAD_REQUEST, err.to_string()),
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[cfg(feature = "labo")]
+#[derive(Deserialize)]
 pub struct RegisterBody {
     pub email: String,
     pub password: String,
@@ -1598,18 +1640,19 @@ pub struct RegisterBody {
     pub role: String,
 }
 
+#[cfg(feature = "labo")]
 fn default_role() -> String {
     "staff".into()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct LoginBody {
     pub email: String,
     pub password: String,
     pub etablissement_id: Uuid,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct AuthSessionDto {
     pub token: String,
     pub user_id: Uuid,
@@ -1644,7 +1687,7 @@ pub struct LoginResponseDto {
 }
 
 /// Challenge passkey renvoyé au navigateur (options WebAuthn + token opaque).
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct PasskeyChallengeDto {
     pub token: String,
     pub options: serde_json::Value,
@@ -1652,13 +1695,13 @@ pub struct PasskeyChallengeDto {
 }
 
 /// Challenge d'enrôlement (pas d'expiration exposée : parcours immédiat).
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct PasskeyRegisterStartDto {
     pub token: String,
     pub options: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct PasskeyRegisterFinishBody {
     pub token: String,
     pub credential: serde_json::Value,
@@ -1672,7 +1715,7 @@ pub struct PasskeyLoginStartBody {
     pub etablissement_id: Uuid,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct PasskeyLoginFinishBody {
     pub token: String,
     pub credential: serde_json::Value,
@@ -1748,13 +1791,13 @@ pub struct OidcStartDto {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct OidcCompleteBody {
     pub code: String,
     pub state: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct OidcUpsertBody {
     pub slug: String,
     pub libelle: String,
@@ -1767,6 +1810,7 @@ pub struct OidcUpsertBody {
     pub redirect_uri: Option<String>,
 }
 
+#[cfg(feature = "labo")]
 async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterBody>,
@@ -2130,7 +2174,7 @@ async fn logout(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ChangePasswordBody {
     current_password: String,
     new_password: String,
@@ -2161,7 +2205,7 @@ struct ForgotPasswordBody {
     email: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ResetPasswordBody {
     token: String,
     new_password: String,
@@ -2206,7 +2250,7 @@ async fn reset_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct RegisterPushDeviceBody {
     platform: String,
     token: String,
@@ -2309,7 +2353,8 @@ async fn get_eleve(
         .await
         .map_err(map_db)?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "élève introuvable".into()))?;
-    Ok(Json(EleveDto::from(&eleve)))
+    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
+    Ok(Json(EleveDto::pour(&eleve, niveau)))
 }
 
 async fn change_classe(
@@ -5125,7 +5170,7 @@ async fn get_photo_eleve(
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "image/jpeg")
         .body(Body::from(bytes))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?)
+        .map_err(|e| erreur_interne(&e))?)
 }
 
 async fn list_params_etab(
@@ -5542,6 +5587,7 @@ async fn export_lsl(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "export", "lsl", "Export LSL").await;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -5550,7 +5596,7 @@ async fn export_lsl(
             "attachment; filename=\"export-lsl.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?)
+        .map_err(|e| erreur_interne(&e))?)
 }
 
 async fn export_lsun(
@@ -5571,6 +5617,7 @@ async fn export_lsun(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "export", "lsun", "Export LSUN").await;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -5579,7 +5626,7 @@ async fn export_lsun(
             "attachment; filename=\"export-lsun.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?)
+        .map_err(|e| erreur_interne(&e))?)
 }
 
 async fn list_editions_vs(
@@ -5768,6 +5815,7 @@ async fn export_onde(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "export", "onde", "Export ONDE").await;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -5776,7 +5824,7 @@ async fn export_onde(
             "attachment; filename=\"export-onde.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?)
+        .map_err(|e| erreur_interne(&e))?)
 }
 
 async fn export_notanet(
@@ -5797,6 +5845,7 @@ async fn export_notanet(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "export", "notanet", "Export Notanet").await;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -5805,7 +5854,7 @@ async fn export_notanet(
             "attachment; filename=\"export-notanet.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?)
+        .map_err(|e| erreur_interne(&e))?)
 }
 
 #[derive(Debug, Deserialize)]
@@ -5833,6 +5882,7 @@ async fn export_parcoursup(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "export", "parcoursup", "Export Parcoursup").await;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -5841,7 +5891,7 @@ async fn export_parcoursup(
             "attachment; filename=\"export-parcoursup.csv\"",
         )
         .body(Body::from(csv))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?)
+        .map_err(|e| erreur_interne(&e))?)
 }
 
 async fn get_recap_sortie(
@@ -6187,6 +6237,14 @@ async fn eleve_absent(
     Path(id): Path<Uuid>,
     Query(q): Query<AbsentQuery>,
 ) -> Result<Json<AbsentDto>, (StatusCode, String)> {
+    let autorise = state
+        .ent
+        .actor_can_know_absent(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    if !autorise {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".into()));
+    }
     let absent = state
         .ent
         .eleve_est_absent(session.etablissement_id, id, q.jour)
@@ -6211,6 +6269,7 @@ async fn effectif_classe(
     Query(q): Query<EffectifQuery>,
 ) -> Result<Json<EffectifDto>, (StatusCode, String)> {
     session.require_read_effectif()?;
+    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
     let eleves = state
         .ent
         .eleves_en_classe_au(session.etablissement_id, &classe, q.jour)
@@ -6219,7 +6278,7 @@ async fn effectif_classe(
     Ok(Json(EffectifDto {
         classe,
         jour: q.jour,
-        eleves: eleves.iter().map(EleveDto::from).collect(),
+        eleves: eleves.iter().map(|e| EleveDto::pour(e, niveau)).collect(),
     }))
 }
 
@@ -8173,6 +8232,7 @@ async fn telecharger_piece(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "telechargement", "piece_message", &format!("Téléchargement de la pièce jointe {id}")).await;
     attachment_response_dyn(piece.contenu, &piece.nom, &piece.mime_type)
 }
 
@@ -8505,7 +8565,6 @@ async fn famille_deposer_doc_reinscription(
             "code": doc.code,
             "titre": doc.titre,
             "tiroir": doc.tiroir.as_str(),
-            "storage_key": doc.storage_key,
         })),
     ))
 }
@@ -8688,6 +8747,11 @@ pub const ENVS_NON_PROD: [&str; 5] = ["lab", "labo", "dev", "local", "test"];
 /// Porte logique pure, fail-closed : ouverte seulement si `ENT_ENV` vaut
 /// explicitement un environnement non productif (`ENVS_NON_PROD`) ou si la
 /// dérogation explicite vaut `"1"` (y compris en prod).
+///
+/// Défense en profondeur (L4) : ces portes n'existent QUE dans un binaire
+/// compilé avec la feature `labo` ; sans elle, les routes ne sont pas
+/// enregistrées (404) et aucun code de labo n'est présent.
+#[cfg(feature = "labo")]
 fn gate_open(env: Option<&str>, allow: Option<&str>) -> bool {
     let non_prod = env
         .map(|e| e.trim().to_ascii_lowercase())
@@ -8695,7 +8759,15 @@ fn gate_open(env: Option<&str>, allow: Option<&str>) -> bool {
     non_prod || allow == Some("1")
 }
 
+/// `ENT_ENV` désigne explicitement un environnement non productif (sans
+/// dérogation `ENT_ALLOW_*`) : seul critère pour afficher l'aide labo de /login.
+#[cfg(feature = "labo")]
+pub(crate) fn env_non_prod() -> bool {
+    gate_open(std::env::var("ENT_ENV").ok().as_deref(), None)
+}
+
 /// Inscription libre : fermée sauf `ENT_ENV` non productif explicite ou `ENT_ALLOW_REGISTRATION=1`.
+#[cfg(feature = "labo")]
 fn registration_open() -> bool {
     gate_open(
         std::env::var("ENT_ENV").ok().as_deref(),
@@ -8704,6 +8776,7 @@ fn registration_open() -> bool {
 }
 
 /// Seed de démo / labo : fermé sauf `ENT_ENV` non productif explicite ou `ENT_ALLOW_LABO=1`.
+#[cfg(feature = "labo")]
 fn labo_open() -> bool {
     gate_open(
         std::env::var("ENT_ENV").ok().as_deref(),
@@ -8714,18 +8787,33 @@ fn labo_open() -> bool {
 /// Mapping dédié au SSO : une identité inconnue ou un `state` rejoué sont des
 /// refus d'authentification (401), une configuration invalide est un 400, un
 /// IdP injoignable un 502.
-fn map_oidc(err: ent_db::EntDbError) -> (StatusCode, String) {
+pub(crate) fn map_oidc(err: ent_db::EntDbError) -> (StatusCode, String) {
+    if let Some(r) = erreur_infra(&err) {
+        return r;
+    }
     match &err {
         ent_db::EntDbError::OidcCompteInconnu | ent_db::EntDbError::OidcStateInvalide => {
             (StatusCode::UNAUTHORIZED, err.to_string())
         }
         ent_db::EntDbError::OidcProviderInconnu => (StatusCode::NOT_FOUND, err.to_string()),
         ent_db::EntDbError::Forbidden => (StatusCode::FORBIDDEN, err.to_string()),
+        // Détails réseau / IdP (URL, hôte, texte distant) : au journal seulement.
         ent_db::EntDbError::Oidc(ent_db::OidcError::Network(_)) => {
-            (StatusCode::BAD_GATEWAY, err.to_string())
+            tracing::warn!(error = %err, "SSO : fournisseur injoignable");
+            (StatusCode::BAD_GATEWAY, "Fournisseur d'identité injoignable.".to_string())
         }
         ent_db::EntDbError::Oidc(ent_db::OidcError::Http { status }) => {
-            (StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY), err.to_string())
+            // Le statut de l'IdP est au journal seulement : jamais relayé tel quel au client.
+            tracing::warn!(error = %err, "SSO : réponse HTTP du fournisseur");
+            let _ = status;
+            (
+                StatusCode::BAD_GATEWAY,
+                "Réponse invalide du fournisseur d'identité.".to_string(),
+            )
+        }
+        ent_db::EntDbError::Oidc(ent_db::OidcError::Discovery(_)) | ent_db::EntDbError::Url(_) => {
+            tracing::warn!(error = %err, "SSO : configuration du fournisseur invalide");
+            (StatusCode::BAD_REQUEST, "Configuration du fournisseur invalide.".to_string())
         }
         _ => (StatusCode::BAD_REQUEST, err.to_string()),
     }
@@ -8734,6 +8822,9 @@ fn map_oidc(err: ent_db::EntDbError) -> (StatusCode, String) {
 /// Mapping dédié aux parcours passkey : une assertion refusée est un 401 (et
 /// non un 403) ; une config WebAuthn absente est un 503 (fail closed explicite).
 fn map_passkey(err: ent_db::EntDbError) -> (StatusCode, String) {
+    if let Some(r) = erreur_infra(&err) {
+        return r;
+    }
     let msg = err.to_string();
     if msg.contains("accès refusé") || msg.contains("Forbidden") {
         (StatusCode::FORBIDDEN, msg)
@@ -8749,6 +8840,9 @@ fn map_passkey(err: ent_db::EntDbError) -> (StatusCode, String) {
 }
 
 fn map_auth(err: ent_db::EntDbError) -> (StatusCode, String) {
+    if let Some(r) = erreur_infra(&err) {
+        return r;
+    }
     let msg = err.to_string();
     if msg.contains("trop de tentatives") {
         (StatusCode::TOO_MANY_REQUESTS, msg)
@@ -8954,6 +9048,7 @@ async fn export_ogec(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "export", "ogec", "Export OGEC").await;
     let name = format!("ogec-{}-{}.csv", q.debut, q.fin);
     attachment_response(bytes, &name, "text/csv; charset=utf-8")
 }
@@ -9019,6 +9114,7 @@ async fn export_volumes_cuisine(
         .export_volumes_cuisine_for_actor(&session.role, cmd)
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "export", "volumes_cuisine", "Export volumes cuisine").await;
     let name = format!("volumes-cuisine-{}-{}.csv", q.debut, q.fin);
     attachment_response(bytes, &name, "text/csv; charset=utf-8")
 }
@@ -9315,6 +9411,7 @@ async fn export_sepa(
         )
         .await
         .map_err(map_db)?;
+    tracer_acces(&state, &session, "export", "sepa", "Export SEPA").await;
     if kind == "pain008" {
         let name = format!("sepa-pain008-{}-{}.xml", q.debut, q.fin);
         attachment_response(bytes, &name, "application/xml; charset=utf-8")
@@ -10452,7 +10549,25 @@ async fn enrich_inscriptions_suivi(
     Ok(list)
 }
 
-fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
+pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
+    if let Some(r) = erreur_infra(&err) {
+        return r;
+    }
+    // Classement par VARIANTE avant toute heuristique de texte : une erreur de
+    // validation métier reste un 4xx, seules les vraies pannes sont des 500.
+    match &err {
+        ent_db::EntDbError::FichierAbsent => return (StatusCode::NOT_FOUND, err.to_string()),
+        ent_db::EntDbError::Object(ent_db::ObjectStoreError::NotFound(_)) => {
+            return (StatusCode::NOT_FOUND, "Fichier introuvable.".to_string());
+        }
+        ent_db::EntDbError::Object(ent_db::ObjectStoreError::InvalidKey) => {
+            return (StatusCode::BAD_REQUEST, "Fichier invalide.".to_string());
+        }
+        ent_db::EntDbError::Domain(domain_eleve::DomainError::TenantMismatch) => {
+            return (StatusCode::FORBIDDEN, err.to_string());
+        }
+        _ => {}
+    }
     let msg = err.to_string();
     if msg.contains("accès refusé") || msg.contains("Forbidden") {
         (StatusCode::FORBIDDEN, msg)
@@ -10534,7 +10649,15 @@ fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
     {
         (StatusCode::BAD_REQUEST, msg)
     } else {
-        (StatusCode::INTERNAL_SERVER_ERROR, msg)
+        match &err {
+            // Toute autre erreur de domaine / d'import / de parsing est une validation
+            // métier (message fixe, non technique) : 4xx, jamais 500.
+            ent_db::EntDbError::Domain(_)
+            | ent_db::EntDbError::Bank(_)
+            | ent_db::EntDbError::EdtImport(_)
+            | ent_db::EntDbError::EdtImportConflicts => (StatusCode::BAD_REQUEST, msg),
+            _ => erreur_interne(&err),
+        }
     }
 }
 
@@ -10882,7 +11005,7 @@ async fn volume_repas_facturable(
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::gate_open;
 
@@ -10949,4 +11072,84 @@ mod client_ip_tests {
 
         std::env::remove_var("ENT_TRUST_PROXY");
     }
+}
+
+/// Panne d'infrastructure (base, migration) → 500 générique ; le détail va
+/// uniquement dans le journal. À appeler **avant** toute classification par
+/// sous-chaîne du message : une panne dont le texte contient « note » ou
+/// « psy » ne doit jamais devenir un 400, ni une 404/401.
+pub(crate) fn erreur_infra(err: &ent_db::EntDbError) -> Option<(StatusCode, String)> {
+    let infra = matches!(
+        err,
+        ent_db::EntDbError::Sqlx(_)
+            | ent_db::EntDbError::Migrate(_)
+            | ent_db::EntDbError::Domain(domain_eleve::DomainError::Infrastructure)
+            | ent_db::EntDbError::Event(ent_db::EventBusError::Infrastructure)
+    );
+    if matches!(
+        err,
+        ent_db::EntDbError::Domain(domain_eleve::DomainError::Reessayer)
+    ) {
+        return Some((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Opération concurrente, veuillez réessayer.".to_string(),
+        ));
+    }
+    if infra {
+        tracing::error!(error = %err, "erreur d'infrastructure");
+        Some((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Erreur interne.".to_string(),
+        ))
+    } else {
+        None
+    }
+}
+
+/// Erreur interne inattendue : détail au journal, message générique au client.
+fn erreur_interne(err: &dyn std::fmt::Display) -> (StatusCode, String) {
+    tracing::error!(error = %err, "erreur interne");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Erreur interne.".to_string(),
+    )
+}
+
+// --- `Debug` masqué des corps / DTO portant secrets (voir `masque.rs`) ------
+debug_masque!(PersonnelProvisionneDto { user_id, role } masque { email, mot_de_passe_temporaire });
+debug_masque!(MotDePasseReinitialiseDto { user_id } masque { mot_de_passe_temporaire });
+#[cfg(feature = "labo")]
+debug_masque!(RegisterBody { etablissement_id, role } masque { email, password });
+debug_masque!(LoginBody { etablissement_id } masque { email, password });
+debug_masque!(AuthSessionDto { user_id, etablissement_id, role, expires_at } masque { token, email });
+debug_masque!(PasskeyChallengeDto { expires_at } masque { token, options });
+debug_masque!(PasskeyRegisterStartDto { } masque { token, options });
+debug_masque!(PasskeyRegisterFinishBody { name } masque { token, credential });
+debug_masque!(PasskeyLoginFinishBody { } masque { token, credential });
+debug_masque!(ChangePasswordBody { } masque { current_password, new_password });
+debug_masque!(ResetPasswordBody { } masque { token, new_password });
+debug_masque!(RegisterPushDeviceBody { platform, app_id } masque { token });
+debug_masque!(OidcCompleteBody { } masque { code, state });
+debug_masque!(OidcUpsertBody { slug, issuer } masque { client_id, client_secret });
+
+/// Trace un téléchargement ou un export sensible (journal en ajout seul).
+async fn tracer_acces(
+    state: &AppState,
+    session: &EntSession,
+    domaine: &str,
+    action: &str,
+    libelle: &str,
+) {
+    state
+        .ent
+        .tracer_acces_sensible(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            None,
+            domaine,
+            action,
+            libelle,
+        )
+        .await;
 }
