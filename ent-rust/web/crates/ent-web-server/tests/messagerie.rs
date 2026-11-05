@@ -161,7 +161,10 @@ async fn professeur_famille_professeur() {
         reponse.id,
         "scan.png",
         "image/png",
-        &[0x89, b'P', b'N', b'G'],
+        // Signature PNG complète : le type réel est contrôlé (socle 1, D2).
+        &[
+            0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, b'I', b'H', b'D', b'R',
+        ],
     )
     .await
     .expect("pièce jointe famille");
@@ -299,7 +302,14 @@ async fn cloisonnement_et_roles() {
     let r = prof
         .joindre_piece(message, "gros.pdf", "application/pdf", &gros)
         .await;
-    assert!(matches!(r, Err(ApiError::Invalide(_))), "{r:?}");
+    // Taille dépassée : 413 (socle 1, D2) ; ancien comportement 400 toléré.
+    assert!(
+        matches!(
+            r,
+            Err(ApiError::Invalide(_)) | Err(ApiError::Serveur(413, _))
+        ),
+        "{r:?}"
+    );
     let r = prof
         .joindre_piece(message, "vide.pdf", "application/pdf", b"")
         .await;
