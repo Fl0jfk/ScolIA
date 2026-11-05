@@ -4,6 +4,7 @@
 //! **Anti-doublon :** pas de table miroir de `ent_eleve` (effectif = query datée).
 
 mod absence_repo;
+mod champs_chiffres;
 mod annonce_repo;
 mod appel_repo;
 mod auth_repo;
@@ -34,6 +35,8 @@ mod periode_repo;
 mod pg_err;
 #[cfg(test)]
 mod tests_l6;
+#[cfg(test)]
+mod tests_champs_chiffres;
 mod repas_repo;
 mod sanction_repo;
 mod sortie_repo;
@@ -106,6 +109,11 @@ pub use copilote::{
 pub use foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, UpdateLien};
 pub use mail_repo::MailOutboxRow;
 pub use iban_histo_repo::IbanHisto;
+/// D2 : contrôle des fichiers déposés (réexport d'`ent-object`).
+pub use ent_object::upload;
+pub use champs_chiffres::{
+    rechiffrer_champs_sensibles, ChampsSensibles, RapportRechiffrement, CHAMPS_CHIFFRES,
+};
 pub use sms_repo::SmsOutboxRow;
 pub use push_repo::PushDevice;
 pub use service::EnfantFamille;

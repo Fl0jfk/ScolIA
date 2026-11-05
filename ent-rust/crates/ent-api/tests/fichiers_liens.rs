@@ -153,46 +153,53 @@ fn document_lien_sert_le_fichier_avec_en_tetes_durcis() {
 }
 
 #[test]
-fn types_actifs_servis_en_attachment_et_en_tetes() {
+fn types_actifs_refuses_au_depot_et_pdf_servi_avec_en_tetes_durcis() {
     use axum::body::Body;
     use axum::http::Request;
     use tower::ServiceExt;
     let Some(m) = monde_liens() else { return };
     rt_run(async {
         let dir = m.jeton(Direction).to_string();
+        // D2 : les types actifs ne peuvent plus être déposés (le service des liens garde
+        // son durcissement pour d'éventuels objets hérités : voir tests de `presign`).
         for (titre, mime, contenu) in [
             ("page.html", "text/html", "<script>alert(1)</script>"),
             ("image.svg", "image/svg+xml", "<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'/>"),
             ("doc.xml", "application/xml", "<a/>"),
-            ("Bulletin", "application/pdf", "%PDF-1.4 x"),
         ] {
-            let doc = deposer(m, &dir, m.a.objets.eleve, titre, mime, contenu.as_bytes()).await;
-            let l = m
-                .appel("POST", &format!("/documents/{doc}/lien"), Some(&dir), None)
+            let r = m
+                .appel(
+                    "POST",
+                    &format!("/eleves/{}/documents", m.a.objets.eleve),
+                    Some(&dir),
+                    Some(&json!({
+                        "titre": titre, "tiroir": "famille", "confidentialite": "standard",
+                        "mime_type": mime, "contenu_base64": b64(contenu.as_bytes()),
+                    })),
+                )
                 .await;
-            assert_eq!(l.statut, StatusCode::OK, "{titre} : {}", l.texte);
-            let url = l.json["url"].as_str().unwrap();
-            let res = m
-                .routeur
-                .clone()
-                .oneshot(Request::builder().uri(url).body(Body::empty()).unwrap())
-                .await
-                .unwrap();
-            assert_eq!(res.status(), StatusCode::OK, "{titre}");
-            let h = res.headers();
-            let get = |n: &str| h.get(n).map(|v| v.to_str().unwrap().to_string()).unwrap_or_default();
-            assert_eq!(get("x-content-type-options"), "nosniff", "{titre}");
-            assert_eq!(get("cache-control"), "private, no-store", "{titre}");
-            assert!(get("content-security-policy").starts_with("default-src 'none'"), "{titre}");
-            let cd = get("content-disposition");
-            if titre == "Bulletin" {
-                assert!(cd.starts_with("inline;"), "{cd}");
-                assert_eq!(get("content-type"), "application/pdf");
-            } else {
-                assert!(cd.starts_with("attachment;"), "{titre} servi en ligne : {cd}");
-                assert!(get("content-security-policy").contains("sandbox"), "{titre}");
-            }
+            assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{titre} : {}", r.texte);
         }
+        let doc = deposer(m, &dir, m.a.objets.eleve, "Bulletin", "application/pdf", b"%PDF-1.4 x").await;
+        let l = m
+            .appel("POST", &format!("/documents/{doc}/lien"), Some(&dir), None)
+            .await;
+        assert_eq!(l.statut, StatusCode::OK, "{}", l.texte);
+        let url = l.json["url"].as_str().unwrap();
+        let res = m
+            .routeur
+            .clone()
+            .oneshot(Request::builder().uri(url).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let h = res.headers();
+        let get = |n: &str| h.get(n).map(|v| v.to_str().unwrap().to_string()).unwrap_or_default();
+        assert_eq!(get("x-content-type-options"), "nosniff");
+        assert_eq!(get("cache-control"), "private, no-store");
+        assert!(get("content-security-policy").starts_with("default-src 'none'"));
+        assert!(get("content-disposition").starts_with("inline;"));
+        assert_eq!(get("content-type"), "application/pdf");
     });
 }
 

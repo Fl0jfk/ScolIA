@@ -3373,7 +3373,7 @@ mod fichiers_documents {
     use domain_eleve::{DeposerDocument, DocConfidentialite, DocTiroir, EleveDocument};
     use ent_object::ObjectStore;
 
-    const SECRET: &[u8] = b"SECRET-SANTE-BYTES";
+    const SECRET: &[u8] = b"%PDF-1.4 SECRET-SANTE-BYTES";
 
     fn cmd(
         etab: Uuid,

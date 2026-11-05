@@ -203,6 +203,7 @@ use ent_sms::{OutgoingSms, SmsService};
 use ent_push::{OutgoingPush, PushPlatform, PushService};
 use ent_bank::{plan_action_ligne, BankConnector, BankMatchAction, BankParseError};
 use ent_object::presign::{Disposition, LinkSpec, PresignError, Presigner};
+use ent_object::upload::{ErreurFichier, PolitiqueFichiers, UsageFichier};
 use ent_object::{ObjectStore, ObjectStoreError};
 use ent_oidc::{
     build_authorization_url, discover, exchange_authorization_code, generate_pkce, random_token,
@@ -336,12 +337,9 @@ pub fn nom_fichier_document(doc: &EleveDocument) -> (String, String) {
         .as_deref()
         .unwrap_or("application/octet-stream");
     let base = doc.titre.replace('/', "_").replace('\\', "_");
-    let ext = match mime {
-        "application/pdf" => ".pdf",
-        "image/png" => ".png",
-        "image/jpeg" | "image/jpg" => ".jpg",
-        "text/plain" => ".txt",
-        _ => "",
+    let ext = match ent_object::upload::TypeFichier::depuis_mime(mime) {
+        Some(t) => format!(".{}", t.extension()),
+        None => String::new(),
     };
     let nom = if base.contains('.') {
         base
@@ -430,6 +428,9 @@ pub enum EntDbError {
     /// Liens courts de fichiers non émissibles (secret de signature absent ou invalide : fail-closed).
     #[error("liens de fichiers indisponibles")]
     LiensIndisponibles,
+    /// D2 : fichier déposé refusé (type réel, taille, nom, fichier actif, antivirus).
+    #[error("{0}")]
+    Fichier(ErreurFichier),
     #[error("import EDT refusé : conflits détectés")]
     EdtImportConflicts,
 }
@@ -637,6 +638,8 @@ pub struct PgEnt {
     bank: BankConnector,
     objects: ObjectStore,
     presigner: Presigner,
+    /// D2 : politique des fichiers déposés (signatures, tailles, antivirus).
+    uploads: PolitiqueFichiers,
     auth: PgAuthRepo,
     passkeys: PgPasskeyRepo,
     passkey_engine: Option<PasskeyEngine>,
@@ -726,6 +729,7 @@ impl PgEnt {
             bank: BankConnector::from_env(),
             objects: ObjectStore::from_env(),
             presigner: Presigner::from_env(),
+            uploads: PolitiqueFichiers::depuis_env(),
             auth: PgAuthRepo::new(pool.clone()),
             passkeys: PgPasskeyRepo::new(pool.clone()),
             passkey_engine: match PasskeyEngine::from_env() {
@@ -806,6 +810,16 @@ impl PgEnt {
     /// Émetteur de liens courts (jetons HMAC locaux ou URL SigV4).
     pub fn presigner(&self) -> &Presigner {
         &self.presigner
+    }
+
+    /// D2 : remplace la politique des fichiers déposés (tests, branchement d'un antivirus).
+    pub fn installer_politique_fichiers(&mut self, politique: PolitiqueFichiers) {
+        self.uploads = politique;
+    }
+
+    /// D2 : politique courante (tailles maximales, analyseur).
+    pub fn politique_fichiers(&self) -> &PolitiqueFichiers {
+        &self.uploads
     }
 
     /// Remplace l'émetteur de liens (tests / démarrage explicite).
@@ -2585,6 +2599,21 @@ impl PgEnt {
             }
         }
         Ok(clair)
+    }
+
+    /// D3 : rechiffre toutes les valeurs encore en clair des champs sensibles
+    /// (IBAN/BIC/titulaire, fiche santé, dossier psy) — idempotent, reprenable.
+    /// Appelé au démarrage ; relançable à la main (voir `docs/ent-rust-prod-runbook.md`).
+    pub async fn rechiffrer_champs_sensibles(
+        &self,
+    ) -> Result<crate::champs_chiffres::RapportRechiffrement, EntDbError> {
+        // Fail-closed : sans clé valide, aucune opération.
+        self.secrets()?;
+        Ok(crate::champs_chiffres::rechiffrer_champs_sensibles(
+            &self.pool,
+            &crate::champs_chiffres::ChampsSensibles::depuis_env(),
+        )
+        .await?)
     }
 
     /// Rechiffre tous les secrets clients OIDC encore en clair (appel au démarrage).
@@ -8070,15 +8099,17 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::NotFound)?;
         let actor = cmd.actor_user_id;
+        let declare = cmd.mime_type.clone();
+        let titre = cmd.titre.clone();
         let mut doc = plan_deposer_document(cmd)?;
         if let Some(bytes) = contenu {
-            let ext = match doc.mime_type.as_deref() {
-                Some("application/pdf") => "pdf",
-                Some("image/png") => "png",
-                Some("image/jpeg") | Some("image/jpg") => "jpg",
-                Some("text/plain") => "txt",
-                _ => "bin",
-            };
+            // D2 : le type retenu est celui des octets, jamais celui du client.
+            let valide = self
+                .uploads
+                .valider(UsageFichier::Document, &titre, declare.as_deref(), bytes)
+                .map_err(EntDbError::Fichier)?;
+            doc.mime_type = Some(valide.mime.to_string());
+            let ext = valide.extension;
             let key = ObjectStore::key_for(doc.etablissement_id, "documents", doc.id, ext);
             self.objects.put(&key, bytes)?;
             doc.storage_key = Some(key);
@@ -12856,10 +12887,15 @@ impl PgEnt {
         } else {
             return Err(EntDbError::Forbidden);
         }
+        // D2 : signature binaire, liste blanche « photo », taille maximale configurable.
+        let valide = self
+            .uploads
+            .valider(UsageFichier::Photo, "photo", Some(content_type), bytes)
+            .map_err(EntDbError::Fichier)?;
         let ext = plan_poser_photo_eleve(PoserPhotoEleve {
             etablissement_id,
             eleve_id,
-            content_type: content_type.to_string(),
+            content_type: valide.mime.to_string(),
             bytes_len: bytes.len(),
             actor_user_id,
         })?;
@@ -14578,13 +14614,16 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::NotFound)?;
         let actor = cmd.actor_user_id;
+        // D2 : signature binaire + liste blanche PAI (PDF, PNG, JPEG) + nom assaini.
+        let mut cmd = cmd;
+        let valide = self
+            .uploads
+            .valider(UsageFichier::PiecePai, &cmd.nom, Some(&cmd.mime_type), &cmd.contenu)
+            .map_err(EntDbError::Fichier)?;
+        cmd.nom = valide.nom.clone();
+        cmd.mime_type = valide.mime.to_string();
         let mut piece = plan_attacher_ordonnance_pai(&pai, cmd)?;
-        let ext = piece
-            .nom
-            .rsplit('.')
-            .next()
-            .filter(|e| e.len() <= 8)
-            .unwrap_or("bin");
+        let ext = valide.extension;
         let key = ObjectStore::key_for(piece.etablissement_id, "pai", piece.id, ext);
         self.objects.put(&key, &piece.contenu)?;
         piece.storage_key = Some(key.clone());
@@ -15772,6 +15811,14 @@ impl PgEnt {
         if !can {
             return Err(EntDbError::Forbidden);
         }
+        // D2 : signature binaire + liste blanche + nom assaini (le contenu reste en base, P0).
+        let mut cmd = cmd;
+        let valide = self
+            .uploads
+            .valider(UsageFichier::PieceMessage, &cmd.nom, Some(&cmd.mime_type), &cmd.contenu)
+            .map_err(EntDbError::Fichier)?;
+        cmd.nom = valide.nom;
+        cmd.mime_type = valide.mime.to_string();
         let piece = plan_attacher_piece(&msg, cmd)?;
         self.messages.insert_piece(&piece).await?;
         self.events
@@ -16853,7 +16900,8 @@ impl PgEnt {
                 eleve_id: None,
                 payload: json!({
                     "foyer_id": histo.foyer_id,
-                    "iban": histo.iban,
+                    // D3 : le journal d'événements ne porte jamais l'IBAN complet.
+                    "iban": domain_eleve::masquer_iban(&histo.iban),
                     "mandat_id": histo.mandat_id,
                 }),
                 actor_user_id: histo.created_by_user_id.map(|u| u.to_string()),

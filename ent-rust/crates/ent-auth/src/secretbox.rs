@@ -93,6 +93,20 @@ impl SecretBox {
         )
     }
 
+    /// Dérive une clé **dédiée à un usage** (séparation des domaines : une fuite d'un
+    /// usage ne compromet pas les autres, et un chiffré d'un usage ne s'ouvre pas dans
+    /// un autre). `SHA-256("ent-secretbox-derive-v1" ‖ 0 ‖ clé ‖ 0 ‖ usage)`.
+    pub fn derive(&self, purpose: &str) -> SecretBox {
+        let mut h = Sha256::new();
+        h.update(b"ent-secretbox-derive-v1\0");
+        h.update(self.key);
+        h.update(b"\0");
+        h.update(purpose.as_bytes());
+        SecretBox {
+            key: h.finalize().into(),
+        }
+    }
+
     /// Chiffre. `aad` lie le chiffré à son usage (un secret recopié ailleurs ne s'ouvre pas).
     pub fn seal(&self, plaintext: &str, aad: &[u8]) -> Result<String, SecretBoxError> {
         let mut nonce = [0u8; NONCE_LEN];

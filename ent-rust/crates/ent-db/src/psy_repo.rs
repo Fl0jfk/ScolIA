@@ -2,19 +2,31 @@ use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
     DomainError, DossierPsy, EntretienPsy, EntretienPsyKind, RdvPsy, RdvPsyStatut,
 };
+use crate::champs_chiffres::ChampsSensibles;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 pub struct PgPsyRepo {
     pool: PgPool,
+    champs: ChampsSensibles,
 }
+
+const T_ENTRETIEN: &str = "ent_psy_entretien";
+const T_RDV: &str = "ent_psy_rdv";
+const T_DOSSIER: &str = "ent_psy_dossier";
 
 impl PgPsyRepo {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            champs: ChampsSensibles::depuis_env(),
+        }
     }
 
     pub async fn insert(&self, e: &EntretienPsy) -> Result<(), DomainError> {
+        let note = self
+            .champs
+            .sceller(T_ENTRETIEN, "note_confidentielle", e.id, &e.note_confidentielle)?;
         sqlx::query(
             r#"
             INSERT INTO ent_psy_entretien (
@@ -29,7 +41,7 @@ impl PgPsyRepo {
         .bind(e.jour)
         .bind(e.kind.as_str())
         .bind(e.duree_minutes)
-        .bind(&e.note_confidentielle)
+        .bind(&note)
         .bind(e.signale_famille)
         .bind(e.created_by_user_id)
         .bind(e.created_at)
@@ -61,7 +73,9 @@ impl PgPsyRepo {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(rows.into_iter().filter_map(EntretienRow::into_entretien).collect())
+        rows.into_iter()
+            .filter_map(|r| r.into_entretien(&self.champs).transpose())
+            .collect()
     }
 
     pub async fn list_jour(
@@ -86,10 +100,14 @@ impl PgPsyRepo {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(rows.into_iter().filter_map(EntretienRow::into_entretien).collect())
+        rows.into_iter()
+            .filter_map(|r| r.into_entretien(&self.champs).transpose())
+            .collect()
     }
 
     pub async fn insert_rdv(&self, r: &RdvPsy) -> Result<(), DomainError> {
+        let motif = self.champs.sceller(T_RDV, "motif", r.id, &r.motif)?;
+        let note_interne = self.champs.sceller(T_RDV, "note_interne", r.id, &r.note_interne)?;
         sqlx::query(
             r#"
             INSERT INTO ent_psy_rdv (
@@ -105,8 +123,8 @@ impl PgPsyRepo {
         .bind(r.heure_debut)
         .bind(r.heure_fin)
         .bind(r.kind.as_str())
-        .bind(&r.motif)
-        .bind(&r.note_interne)
+        .bind(&motif)
+        .bind(&note_interne)
         .bind(r.statut.as_str())
         .bind(r.signale_famille)
         .bind(r.created_by_user_id)
@@ -135,7 +153,7 @@ impl PgPsyRepo {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(row.and_then(RdvRow::into_rdv))
+        row.and_then(|r| r.into_rdv(&self.champs).transpose()).transpose()
     }
 
     pub async fn update_rdv_statut(&self, r: &RdvPsy) -> Result<(), DomainError> {
@@ -180,7 +198,9 @@ impl PgPsyRepo {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(rows.into_iter().filter_map(RdvRow::into_rdv).collect())
+        rows.into_iter()
+            .filter_map(|r| r.into_rdv(&self.champs).transpose())
+            .collect()
     }
 
     pub async fn list_rdv_eleve(
@@ -205,10 +225,23 @@ impl PgPsyRepo {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(rows.into_iter().filter_map(RdvRow::into_rdv).collect())
+        rows.into_iter()
+            .filter_map(|r| r.into_rdv(&self.champs).transpose())
+            .collect()
     }
 
     pub async fn upsert_dossier(&self, d: &DossierPsy) -> Result<DossierPsy, DomainError> {
+        // L'id de la ligne est conservé en cas de mise à jour : l'AAD doit l'utiliser.
+        let existant: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_psy_dossier WHERE etablissement_id = $1 AND eleve_id = $2",
+        )
+        .bind(d.etablissement_id)
+        .bind(d.eleve_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        let id_ligne = existant.map(|(i,)| i).unwrap_or(d.id);
+        let (axes, contacts, note) = self.sceller_dossier(id_ligne, d)?;
         let row = sqlx::query_as::<_, DossierRow>(
             r#"
             INSERT INTO ent_psy_dossier (
@@ -230,12 +263,12 @@ impl PgPsyRepo {
                       updated_by_user_id, updated_at
             "#,
         )
-        .bind(d.id)
+        .bind(id_ligne)
         .bind(d.etablissement_id)
         .bind(d.eleve_id)
-        .bind(&d.axes_suivi)
-        .bind(&d.contacts_externes)
-        .bind(&d.note_confidentielle)
+        .bind(&axes)
+        .bind(&contacts)
+        .bind(&note)
         .bind(d.suivi_actif)
         .bind(d.signale_famille)
         .bind(d.updated_by_user_id)
@@ -243,7 +276,39 @@ impl PgPsyRepo {
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(row.into_dossier())
+        if row.id != id_ligne {
+            // Course : ligne créée entre-temps sous un autre id → rechiffrement avec l'id stocké.
+            let (axes, contacts, note) = self.sceller_dossier(row.id, d)?;
+            sqlx::query(
+                "UPDATE ent_psy_dossier SET axes_suivi = $2, contacts_externes = $3, \
+                 note_confidentielle = $4 WHERE id = $1",
+            )
+            .bind(row.id)
+            .bind(&axes)
+            .bind(&contacts)
+            .bind(&note)
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx)?;
+            return Ok(DossierPsy {
+                id: row.id,
+                ..d.clone()
+            });
+        }
+        row.into_dossier(&self.champs)
+    }
+
+    fn sceller_dossier(
+        &self,
+        id: Uuid,
+        d: &DossierPsy,
+    ) -> Result<(String, String, String), DomainError> {
+        let c = &self.champs;
+        Ok((
+            c.sceller(T_DOSSIER, "axes_suivi", id, &d.axes_suivi)?,
+            c.sceller(T_DOSSIER, "contacts_externes", id, &d.contacts_externes)?,
+            c.sceller(T_DOSSIER, "note_confidentielle", id, &d.note_confidentielle)?,
+        ))
     }
 
     pub async fn get_dossier(
@@ -265,7 +330,7 @@ impl PgPsyRepo {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(row.map(DossierRow::into_dossier))
+        row.map(|r| r.into_dossier(&self.champs)).transpose()
     }
 }
 
@@ -284,19 +349,19 @@ struct DossierRow {
 }
 
 impl DossierRow {
-    fn into_dossier(self) -> DossierPsy {
-        DossierPsy {
+    fn into_dossier(self, c: &ChampsSensibles) -> Result<DossierPsy, DomainError> {
+        Ok(DossierPsy {
             id: self.id,
             etablissement_id: self.etablissement_id,
             eleve_id: self.eleve_id,
-            axes_suivi: self.axes_suivi,
-            contacts_externes: self.contacts_externes,
-            note_confidentielle: self.note_confidentielle,
+            axes_suivi: c.ouvrir(T_DOSSIER, "axes_suivi", self.id, &self.axes_suivi)?,
+            contacts_externes: c.ouvrir(T_DOSSIER, "contacts_externes", self.id, &self.contacts_externes)?,
+            note_confidentielle: c.ouvrir(T_DOSSIER, "note_confidentielle", self.id, &self.note_confidentielle)?,
             suivi_actif: self.suivi_actif,
             signale_famille: self.signale_famille,
             updated_by_user_id: self.updated_by_user_id,
             updated_at: self.updated_at,
-        }
+        })
     }
 }
 
@@ -318,22 +383,30 @@ struct RdvRow {
 }
 
 impl RdvRow {
-    fn into_rdv(self) -> Option<RdvPsy> {
-        Some(RdvPsy {
+    fn into_rdv(self, c: &ChampsSensibles) -> Result<Option<RdvPsy>, DomainError> {
+        let motif = c.ouvrir(T_RDV, "motif", self.id, &self.motif)?;
+        let note_interne = c.ouvrir(T_RDV, "note_interne", self.id, &self.note_interne)?;
+        let (Some(kind), Some(statut)) = (
+            EntretienPsyKind::parse(&self.kind),
+            RdvPsyStatut::parse(&self.statut),
+        ) else {
+            return Ok(None);
+        };
+        Ok(Some(RdvPsy {
             id: self.id,
             etablissement_id: self.etablissement_id,
             eleve_id: self.eleve_id,
             jour: self.jour,
             heure_debut: self.heure_debut,
             heure_fin: self.heure_fin,
-            kind: EntretienPsyKind::parse(&self.kind)?,
-            motif: self.motif,
-            note_interne: self.note_interne,
-            statut: RdvPsyStatut::parse(&self.statut)?,
+            kind,
+            motif,
+            note_interne,
+            statut,
             signale_famille: self.signale_famille,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
-        })
+        }))
     }
 }
 
@@ -352,20 +425,23 @@ struct EntretienRow {
 }
 
 impl EntretienRow {
-    fn into_entretien(self) -> Option<EntretienPsy> {
-        let kind = EntretienPsyKind::parse(&self.kind)?;
-        Some(EntretienPsy {
+    fn into_entretien(self, c: &ChampsSensibles) -> Result<Option<EntretienPsy>, DomainError> {
+        let note = c.ouvrir(T_ENTRETIEN, "note_confidentielle", self.id, &self.note_confidentielle)?;
+        let Some(kind) = EntretienPsyKind::parse(&self.kind) else {
+            return Ok(None);
+        };
+        Ok(Some(EntretienPsy {
             id: self.id,
             etablissement_id: self.etablissement_id,
             eleve_id: self.eleve_id,
             jour: self.jour,
             kind,
             duree_minutes: self.duree_minutes,
-            note_confidentielle: self.note_confidentielle,
+            note_confidentielle: note,
             signale_famille: self.signale_famille,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
-        })
+        }))
     }
 }
 

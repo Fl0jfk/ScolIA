@@ -283,7 +283,7 @@ pub use facturation_rappel::{
     RappelCandidat, RappelFacture, RappelKind, RAPPEL_J_MOINS,
 };
 pub use facturation_sepa::{
-    moyen_prelevement, normalize_iban, plan_creer_mandat_sepa, plan_executer_prelevement,
+    masquer_iban, moyen_prelevement, normalize_iban, plan_creer_mandat_sepa, plan_executer_prelevement,
     plan_marquer_exporte, plan_planifier_prelevement, plan_rejeter_prelevement,
     plan_revoquer_mandat, plan_sepa_crediteur, render_sepa_csv, render_sepa_pain008,
     CreerMandatSepa, MandatSepa, MandatSepaStatut, PlanifierPrelevement, PrelevementSepa,

@@ -119,6 +119,24 @@ pub struct PlanifierPrelevement {
     pub actor_user_id: Uuid,
 }
 
+/// Affichage masqué d'un IBAN : pays + clé, puis les 4 derniers caractères
+/// (`FR76 •••• 1234`). Une valeur trop courte pour être un IBAN est entièrement masquée.
+/// À utiliser pour toute réponse API, tout journal ou toute trace : l'IBAN complet ne
+/// sert qu'à l'export bancaire.
+pub fn masquer_iban(raw: &str) -> String {
+    let n: Vec<char> = raw
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if n.len() < 9 {
+        return "••••".to_string();
+    }
+    let tete: String = n[..4].iter().collect();
+    let queue: String = n[n.len() - 4..].iter().collect();
+    format!("{tete} •••• {queue}")
+}
+
 /// Normalise IBAN (espaces retirés, majuscules) et valide format basique FR/EU.
 pub fn normalize_iban(raw: &str) -> Result<String, DomainError> {
     let iban: String = raw
@@ -564,6 +582,14 @@ mod tests {
             emise_at: Some(Utc::now()),
             soldee_at: None,
         }
+    }
+
+    #[test]
+    fn iban_masque() {
+        assert_eq!(masquer_iban("FR76 3000 6000 0112 3456 7890 189"), "FR76 •••• 0189");
+        assert_eq!(masquer_iban("fr7630006000011234567890189"), "FR76 •••• 0189");
+        assert_eq!(masquer_iban("FR76"), "••••");
+        assert_eq!(masquer_iban(""), "••••");
     }
 
     #[test]

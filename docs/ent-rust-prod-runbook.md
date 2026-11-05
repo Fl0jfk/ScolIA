@@ -77,7 +77,11 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | `ENT_RP_ORIGIN` / `ENT_RP_ORIGINS` | dev `http://localhost:3000` | Origine(s) autorisées : `ENT_RP_ORIGIN` (une) et/ou `ENT_RP_ORIGINS` (liste séparée par des virgules). **Hors labo/test : au moins une origine `https`, toutes en `https`**, sous le `rp_id` (hôte égal ou sous-domaine), sans chemin ni requête. Les origines natives Android `android:apk-key-hash:<hash base64url>` sont acceptées en plus (au moins une origine web reste requise). iOS (associated domains) utilise l'origine `https` du `rp_id` : rien à ajouter. |
 | `ENT_RP_ALLOW_SUBDOMAINS` | `0` | `1` : toute origine sous-domaine d'une origine autorisée est acceptée (ex. `https://lpnb.scolia.fr` pour `https://scolia.fr`, D-012). Par défaut les sous-domaines doivent être listés. Risque : prise de contrôle d'un sous-domaine = passkeys phishables sur celui-ci. |
 | `ENT_RP_NAME` | `ScolIA ENT` | Libellé affiché par le navigateur à l'enrôlement. |
-| `ENT_SECRETS_KEY` | *(labo/test : clé de dev publique)* | Clé AES-256-GCM des secrets au repos (secret client OIDC) : **32 octets en hex (64 car.) ou base64**. **Obligatoire hors labo/test** (absente/invalide → l'API refuse de démarrer). À conserver hors de la base et des sauvegardes de la base ; sa perte rend les secrets clients illisibles (à ressaisir). Pas de rotation automatique (format `enc:v1:`). |
+| `ENT_SECRETS_KEY` | *(labo/test : clé de dev publique)* | Clé AES-256-GCM des secrets au repos (secret client OIDC) : **32 octets en hex (64 car.) ou base64**. **Obligatoire hors labo/test** (absente/invalide → l'API refuse de démarrer). À conserver hors de la base et des sauvegardes de la base ; sa perte rend les secrets clients illisibles (à ressaisir). Pas de rotation automatique (format `enc:v1:`). **Sert aussi à chiffrer les champs sensibles** (IBAN/BIC/titulaire, fiche santé, dossier psy — D3) par une clé dérivée distincte : sa perte rend ces champs **illisibles et irrécupérables** (conserver la clé hors base, dans un coffre sauvegardé séparément des sauvegardes de la base). |
+| `ENT_UPLOAD_MAX_DOCUMENT` | `10m` | Taille maximale (octets, ou suffixe `k`/`m`) d'un document déposé (documents élève, justificatifs, réinscription). Borné à [1 Kio, 64 Mio]. Le plafond de corps JSON des routes de dépôt est ajusté en conséquence. |
+| `ENT_UPLOAD_MAX_PHOTO` | `5m` | Taille maximale d'une photo d'élève. |
+| `ENT_UPLOAD_MAX_MESSAGE` | `256k` | Taille maximale d'une pièce jointe de messagerie (contenu encore stocké en base : ne pas relever sans migrer vers le magasin d'objets). |
+| `ENT_UPLOAD_MAX_PAI` | `256k` | Taille maximale d'une pièce de PAI. |
 | `ENT_OIDC_MAX_BYTES` | `1048576` | Taille maximale d'une réponse d'IdP (découverte, JWKS, tokens), min. 1024. |
 | `ENT_PASSKEY_CHALLENGE_MINUTES` | `5` | Durée de vie d'un challenge passkey (à usage unique). |
 | `ENT_OIDC_TIMEOUT_SECS` | `10` | Délai réseau par appel d'IdP (découverte, échange de code, JWKS). Hors labo/test, les URL d'IdP doivent être en **`https`** et ne pas viser d'adresse interne (loopback, privée, link-local dont métadonnées cloud, CGNAT) après résolution DNS ; redirections limitées à 3, revalidées. |
@@ -340,3 +344,10 @@ Les comptes **élève** ont leur propre flux (`POST /eleves/{id}/compte/inviter`
   bucket chiffré (ou une enveloppe `age`/`gpg` autour de `pg_dump`).
 - **Restauration cross-région automatisée** : hors périmètre tant que la RDB
   Scaleway assure snapshots + PITR.
+
+
+## Chiffrement des champs sensibles (D3) — exploitation
+- **Au démarrage** l'API chiffre les valeurs encore en clair (IBAN/BIC/titulaire, fiche santé, dossier psy ; `ent_psy_entretien`, `ent_psy_rdv`) : message `champs sensibles rechiffrés : N`. L'opération est idempotente et reprenable ; en cas d'échec un avertissement est journalisé (`rechiffrement des champs sensibles impossible`) et l'API démarre quand même (les lectures d'héritage en clair restent possibles).
+- **Rattrapage manuel** : redémarrer l'API (il n'y a pas de CLI séparée) ; la fonction `PgEnt::rechiffrer_champs_sensibles()` renvoie le détail par colonne.
+- **Contrôle** (lecture seule, base de **test/préproduction** uniquement) : `SELECT count(*) FROM ent_fiche_sante WHERE note_confidentielle <> '' AND note_confidentielle NOT LIKE 'enc:v1:%'` doit renvoyer 0 (idem pour les autres colonnes de `CHAMPS_CHIFFRES`).
+- **Avant la première mise en production** : générer `ENT_SECRETS_KEY` (`openssl rand -hex 32`), la stocker dans le coffre de secrets et planifier la rotation (non implémentée : voir `docs/SOCLE1_SECURITE.md`, limites D3).

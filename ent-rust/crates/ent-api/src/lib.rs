@@ -228,6 +228,14 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
         Ok(_) => {}
         Err(e) => tracing::warn!("rechiffrement des secrets OIDC impossible : {e}"),
     }
+    // D3 : rechiffre les champs sensibles hérités en clair (IBAN, santé, psy) — idempotent.
+    match ent.rechiffrer_champs_sensibles().await {
+        Ok(r) if r.champs_rechiffres > 0 => {
+            tracing::info!("champs sensibles rechiffrés : {}", r.champs_rechiffres)
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("rechiffrement des champs sensibles impossible : {e}"),
+    }
     let bind = std::env::var("ENT_API_BIND").unwrap_or_else(|_| "127.0.0.1:8088".into());
     Ok((AppState::nouveau(ent), bind))
 }
@@ -2992,7 +3000,7 @@ mod tests {
         let r = post(
             cast.admin.token.clone(),
             json!({"titre":"Ordonnance L1","tiroir":"sante","confidentialite":"sante",
-                   "mime_type":"application/pdf","contenu_base64": b64.encode(b"SECRET-SANTE-API")}),
+                   "mime_type":"application/pdf","contenu_base64": b64.encode(b"%PDF-1.4 SECRET-SANTE-API")}),
         )
         .await;
         assert_eq!(r.status(), StatusCode::CREATED);

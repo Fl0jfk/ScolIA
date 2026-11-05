@@ -5,16 +5,23 @@ use domain_eleve::{
     MandatSepaStatut, MoyenPaiement, OgecLigneExport, PrelevementSepa, PrelevementStatut,
     Quittance, RappelCanal, RappelFacture, RappelKind, SepaLigneExport,
 };
+use crate::champs_chiffres::ChampsSensibles;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 pub struct PgFacRepo {
     pool: PgPool,
+    champs: ChampsSensibles,
 }
+
+const T_MANDAT: &str = "ent_fac_sepa_mandat";
 
 impl PgFacRepo {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            champs: ChampsSensibles::depuis_env(),
+        }
     }
 
     pub async fn foyer_exists(
@@ -582,6 +589,10 @@ impl PgFacRepo {
     }
 
     pub async fn insert_sepa_mandat(&self, m: &MandatSepa) -> Result<(), DomainError> {
+        // D3 : IBAN, BIC et titulaire chiffrés (AAD = table + colonne + id du mandat).
+        let iban = self.champs.sceller(T_MANDAT, "iban", m.id, &m.iban)?;
+        let bic = self.champs.sceller_opt(T_MANDAT, "bic", m.id, m.bic.as_deref())?;
+        let titulaire = self.champs.sceller(T_MANDAT, "titulaire", m.id, &m.titulaire)?;
         sqlx::query(
             r#"
             INSERT INTO ent_fac_sepa_mandat (
@@ -594,9 +605,9 @@ impl PgFacRepo {
         .bind(m.etablissement_id)
         .bind(m.foyer_id)
         .bind(&m.rum)
-        .bind(&m.iban)
-        .bind(&m.bic)
-        .bind(&m.titulaire)
+        .bind(&iban)
+        .bind(&bic)
+        .bind(&titulaire)
         .bind(m.statut.as_str())
         .bind(m.signe_at)
         .bind(m.created_by_user_id)
@@ -625,7 +636,7 @@ impl PgFacRepo {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(row.and_then(MandatRow::into_mandat))
+        row.and_then(|r| r.into_mandat(&self.champs).transpose()).transpose()
     }
 
     pub async fn get_sepa_mandat_actif_foyer(
@@ -647,7 +658,7 @@ impl PgFacRepo {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(row.and_then(MandatRow::into_mandat))
+        row.and_then(|r| r.into_mandat(&self.champs).transpose()).transpose()
     }
 
     pub async fn list_sepa_mandats_etab(
@@ -670,7 +681,9 @@ impl PgFacRepo {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(rows.into_iter().filter_map(MandatRow::into_mandat).collect())
+        rows.into_iter()
+            .filter_map(|r| r.into_mandat(&self.champs).transpose())
+            .collect()
     }
 
     pub async fn update_sepa_mandat_statut(&self, m: &MandatSepa) -> Result<(), DomainError> {
@@ -875,10 +888,9 @@ impl PgFacRepo {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(rows
-            .into_iter()
-            .filter_map(SepaExportRow::into_ligne)
-            .collect())
+        rows.into_iter()
+            .filter_map(|r| r.into_ligne(&self.champs).transpose())
+            .collect()
     }
 
     pub async fn update_sepa_prelevement(&self, p: &PrelevementSepa) -> Result<(), DomainError> {
@@ -1085,20 +1097,26 @@ struct MandatRow {
 }
 
 impl MandatRow {
-    fn into_mandat(self) -> Option<MandatSepa> {
-        Some(MandatSepa {
+    fn into_mandat(self, champs: &ChampsSensibles) -> Result<Option<MandatSepa>, DomainError> {
+        let iban = champs.ouvrir(T_MANDAT, "iban", self.id, &self.iban)?;
+        let bic = champs.ouvrir_opt(T_MANDAT, "bic", self.id, self.bic)?;
+        let titulaire = champs.ouvrir(T_MANDAT, "titulaire", self.id, &self.titulaire)?;
+        let Some(statut) = MandatSepaStatut::parse(&self.statut) else {
+            return Ok(None);
+        };
+        Ok(Some(MandatSepa {
             id: self.id,
             etablissement_id: self.etablissement_id,
             foyer_id: self.foyer_id,
             rum: self.rum,
-            iban: self.iban,
-            bic: self.bic,
-            titulaire: self.titulaire,
-            statut: MandatSepaStatut::parse(&self.statut)?,
+            iban,
+            bic,
+            titulaire,
+            statut,
             signe_at: self.signe_at,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
-        })
+        }))
     }
 }
 
@@ -1166,7 +1184,13 @@ struct SepaExportRow {
 }
 
 impl SepaExportRow {
-    fn into_ligne(self) -> Option<SepaLigneExport> {
+    fn into_ligne(self, champs: &ChampsSensibles) -> Result<Option<SepaLigneExport>, DomainError> {
+        let iban = champs.ouvrir(T_MANDAT, "iban", self.mandat_id, &self.iban)?;
+        let bic = champs.ouvrir_opt(T_MANDAT, "bic", self.mandat_id, self.bic.clone())?;
+        let titulaire = champs.ouvrir(T_MANDAT, "titulaire", self.mandat_id, &self.titulaire)?;
+        let Some(statut) = PrelevementStatut::parse(&self.statut) else {
+            return Ok(None);
+        };
         let prelevement = PrelevementSepa {
             id: self.id,
             etablissement_id: self.etablissement_id,
@@ -1176,22 +1200,22 @@ impl SepaExportRow {
             montant_centimes: self.montant_centimes,
             date_execution: self.date_execution,
             end_to_end_id: self.end_to_end_id,
-            statut: PrelevementStatut::parse(&self.statut)?,
+            statut,
             encaissement_id: self.encaissement_id,
             motif_rejet: self.motif_rejet,
             rejete_at: self.rejete_at,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
         };
-        Some(SepaLigneExport {
+        Ok(Some(SepaLigneExport {
             prelevement,
             rum: self.rum,
-            iban: self.iban,
-            bic: self.bic,
-            titulaire: self.titulaire,
+            iban,
+            bic,
+            titulaire,
             mandat_signe_at: self.mandat_signe_at,
             facture_numero: self.facture_numero,
-        })
+        }))
     }
 }
 

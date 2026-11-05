@@ -1,3 +1,4 @@
+use crate::champs_chiffres::ChampsSensibles;
 use chrono::{DateTime, Utc};
 use domain_eleve::DomainError;
 use sqlx::PgPool;
@@ -18,14 +19,24 @@ pub struct IbanHisto {
 
 pub struct PgIbanHistoRepo {
     pool: PgPool,
+    champs: ChampsSensibles,
 }
+
+const T_HISTO: &str = "ent_foyer_iban_histo";
 
 impl PgIbanHistoRepo {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            champs: ChampsSensibles::depuis_env(),
+        }
     }
 
     pub async fn insert(&self, h: &IbanHisto) -> Result<(), DomainError> {
+        // D3 : IBAN, BIC et titulaire chiffrés (AAD = table + colonne + id de la ligne).
+        let iban = self.champs.sceller(T_HISTO, "iban", h.id, &h.iban)?;
+        let bic = self.champs.sceller_opt(T_HISTO, "bic", h.id, h.bic.as_deref())?;
+        let titulaire = self.champs.sceller(T_HISTO, "titulaire", h.id, &h.titulaire)?;
         sqlx::query(
             r#"
             INSERT INTO ent_foyer_iban_histo (
@@ -37,9 +48,9 @@ impl PgIbanHistoRepo {
         .bind(h.id)
         .bind(h.etablissement_id)
         .bind(h.foyer_id)
-        .bind(&h.iban)
-        .bind(&h.bic)
-        .bind(&h.titulaire)
+        .bind(&iban)
+        .bind(&bic)
+        .bind(&titulaire)
         .bind(h.mandat_id)
         .bind(h.created_by_user_id)
         .bind(h.created_at)
@@ -71,7 +82,7 @@ impl PgIbanHistoRepo {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(rows.into_iter().map(Row::into_histo).collect())
+        rows.into_iter().map(|r| r.into_histo(&self.champs)).collect()
     }
 }
 
@@ -93,17 +104,17 @@ struct Row {
 }
 
 impl Row {
-    fn into_histo(self) -> IbanHisto {
-        IbanHisto {
+    fn into_histo(self, champs: &ChampsSensibles) -> Result<IbanHisto, DomainError> {
+        Ok(IbanHisto {
             id: self.id,
             etablissement_id: self.etablissement_id,
             foyer_id: self.foyer_id,
-            iban: self.iban,
-            bic: self.bic,
-            titulaire: self.titulaire,
+            iban: champs.ouvrir(T_HISTO, "iban", self.id, &self.iban)?,
+            bic: champs.ouvrir_opt(T_HISTO, "bic", self.id, self.bic)?,
+            titulaire: champs.ouvrir(T_HISTO, "titulaire", self.id, &self.titulaire)?,
             mandat_id: self.mandat_id,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
-        }
+        })
     }
 }
