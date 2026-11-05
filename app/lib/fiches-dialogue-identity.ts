@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHmac, randomBytes } from "node:crypto";
+
 import { and, eq, inArray, or } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, fdFiche, fdCampagne } from "@/db/schema";
@@ -36,7 +38,8 @@ export type FdIdentifyMatch = {
   dateNaissance: string | null;
   optionsActuelles: string[];
   photoKey: string | null;
-  maskedEmails: Array<{ email: string; masked: string }>;
+  /** Adresses masquées + référence opaque (jamais l’adresse réelle côté navigateur). */
+  maskedEmails: Array<{ ref: string; masked: string }>;
   needsClass: boolean;
   classes?: string[];
 };
@@ -188,7 +191,10 @@ export async function identifyFdFicheByIdentity(params: {
         dob,
       optionsActuelles,
       photoKey: chosen.fiche.elevePhotoKey || chosen.eleve?.photoKey || null,
-      maskedEmails: emails.map((email) => ({ email, masked: maskEmail(email) })),
+      maskedEmails: emails.map((email) => ({
+        ref: fdParentEmailRef(chosen.fiche.id, email),
+        masked: maskEmail(email),
+      })),
       needsClass: false,
     },
   };
@@ -224,4 +230,62 @@ export async function assertFdParentEmailOnFiche(params: {
     parent1Email: el.parent1Email ?? undefined,
     parent2Email: el.parent2Email ?? undefined,
   }).some((e) => normalizeParentEmail(e) === wanted);
+}
+
+/** Clé de repli propre au processus si aucun secret serveur n’est configuré. */
+const FALLBACK_REF_KEY = randomBytes(32);
+
+function fdEmailRefKey(): string | Buffer {
+  return (
+    process.env.FD_PARENT_EMAIL_REF_SECRET?.trim() ||
+    process.env.BETTER_AUTH_SECRET?.trim() ||
+    process.env.AUTH_SECRET?.trim() ||
+    FALLBACK_REF_KEY
+  );
+}
+
+/**
+ * Référence opaque d’une adresse parent pour une fiche : l’adresse ne quitte pas le serveur.
+ * HMAC avec un secret serveur : impossible de tester hors ligne une adresse devinée.
+ */
+export function fdParentEmailRef(ficheId: string, email: string): string {
+  return createHmac("sha256", fdEmailRefKey())
+    .update(`fd-parent-email:${ficheId}:${normalizeParentEmail(email)}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+/** Retrouve l’adresse réelle derrière une référence (fiche + fiche élève en base), ou null. */
+export async function findFdParentEmailByRef(params: {
+  etablissementId: string;
+  ficheId: string;
+  ref: string;
+}): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(fdFiche)
+    .where(and(eq(fdFiche.etablissementId, params.etablissementId), eq(fdFiche.id, params.ficheId)))
+    .limit(1);
+  if (!row) return null;
+  const [el] = await db
+    .select()
+    .from(eleve)
+    .where(and(eq(eleve.etablissementId, params.etablissementId), eq(eleve.id, row.eleveId)))
+    .limit(1);
+  const fromEleve = el
+    ? collectEleveParentEmails({
+        ine: el.ine ?? "",
+        nom: el.nom,
+        prenom: el.prenom,
+        folderName: el.folderName,
+        parentEmail: el.parentEmail ?? undefined,
+        parent1Email: el.parent1Email ?? undefined,
+        parent2Email: el.parent2Email ?? undefined,
+      })
+    : [];
+  const candidates = [...(row.parentEmails ?? []), ...fromEleve]
+    .map(normalizeParentEmail)
+    .filter(isValidParentEmail);
+  return candidates.find((e) => fdParentEmailRef(params.ficheId, e) === params.ref) ?? null;
 }

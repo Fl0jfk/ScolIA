@@ -66,6 +66,7 @@ import {
 } from "@/app/lib/fiches-dialogue-pdf";
 import { getFdTemplate, presetForNiveau, isFdNiveau, type FdNiveau } from "@/app/lib/fiches-dialogue-templates";
 import { niveauFromClasse } from "@/app/lib/internat-level";
+import { matchFdClasse, niveauxDesCibles } from "@/app/lib/fiches-dialogue-ciblage";
 import {
   createFdAccessToken,
   revokeFdTokensForFiche,
@@ -309,16 +310,6 @@ export async function updateFdEtapeDates(
   return row;
 }
 
-function matchClasse(classe: string, cibles: string[]): boolean {
-  if (!cibles.length) return true;
-  const c = classe.trim().toLowerCase();
-  return cibles.some((t) => {
-    const target = t.trim().toLowerCase();
-    if (!target) return false;
-    return c === target || c.startsWith(target);
-  });
-}
-
 export async function generateFdFichesForCampagne(
   etablissementId: string,
   campagneId: string,
@@ -332,6 +323,17 @@ export async function generateFdFichesForCampagne(
   const etapes = await listFdEtapes(etablissementId, campagneId);
   const firstEtape = etapes.find((e) => !e.optionnelle) ?? etapes[0];
   if (!firstEtape) throw new Error("NO_ETAPES");
+
+  // Une campagne = un niveau : un même formulaire ne peut pas servir à 6ᵉ, 5ᵉ, 4ᵉ et 3ᵉ.
+  if (!campagne.niveauActuel?.trim() && !(campagne.eleveIdsCibles ?? []).length) {
+    const niveauxCibles = niveauxDesCibles(campagne.classesCibles ?? []);
+    if (niveauxCibles.length > 1) {
+      throw new Error(
+        `Cette campagne mélange plusieurs niveaux (${niveauxCibles.join(", ")}). ` +
+          "Créez une campagne par niveau pour que chaque famille reçoive le bon formulaire.",
+      );
+    }
+  }
 
   const registry = await loadElevesActifsRegistry();
   const db = getDb();
@@ -374,7 +376,7 @@ export async function generateFdFichesForCampagne(
           continue;
         }
       }
-      if (!matchClasse(classe || row.classe || "", campagne.classesCibles ?? [])) {
+      if (!matchFdClasse(classe || row.classe || "", campagne.classesCibles ?? [])) {
         skipped += 1;
         continue;
       }

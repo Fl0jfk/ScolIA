@@ -90,7 +90,8 @@ type IdentifyMatch = {
   dateNaissance: string | null;
   optionsActuelles: string[];
   photoKey: string | null;
-  maskedEmails: Array<{ email: string; masked: string }>;
+  /** Adresses masquées ; `ref` est une référence opaque (l’adresse réelle reste côté serveur). */
+  maskedEmails: Array<{ ref: string; masked: string }>;
 };
 
 function catalogueLabel(ctx: PublicCtx, field: Field | undefined, value: unknown): string {
@@ -362,7 +363,9 @@ function RemplirInner() {
   const [classe, setClasse] = useState("");
   const [classes, setClasses] = useState<string[]>([]);
   const [match, setMatch] = useState<IdentifyMatch | null>(null);
+  /** Référence opaque de l’adresse choisie. */
   const [chosenEmail, setChosenEmail] = useState("");
+  const [codeTarget, setCodeTarget] = useState<{ ficheId: string; emailRef: string; masked: string } | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
 
@@ -483,6 +486,8 @@ function RemplirInner() {
       }
       if (json.match) {
         setMatch(json.match);
+        setChosenEmail("");
+        setCodeTarget(null);
         setInfo(json.message || null);
         setStep("code");
       } else {
@@ -506,12 +511,16 @@ function RemplirInner() {
         body: JSON.stringify({
           action: "request_code",
           ficheId: match.ficheId,
-          email: chosenEmail,
+          emailRef: chosenEmail,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Échec");
-      setEmail(chosenEmail);
+      setCodeTarget({
+        ficheId: match.ficheId,
+        emailRef: chosenEmail,
+        masked: match.maskedEmails.find((m) => m.ref === chosenEmail)?.masked ?? "",
+      });
       setInfo(json.message || "Code envoyé.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -528,7 +537,11 @@ function RemplirInner() {
       const res = await fetch("/api/fiches-dialogue/public", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "resolve_code", email, code }),
+        body: JSON.stringify(
+          codeTarget
+            ? { action: "resolve_code", ficheId: codeTarget.ficheId, emailRef: codeTarget.emailRef, code }
+            : { action: "resolve_code", email, code },
+        ),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Code invalide");
@@ -881,9 +894,9 @@ function RemplirInner() {
               <div className="mt-4 space-y-2">
                 {match.maskedEmails.map((m) => (
                   <label
-                    key={m.email}
+                    key={m.ref}
                     className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 ${
-                      chosenEmail === m.email
+                      chosenEmail === m.ref
                         ? "border-sky-500 bg-sky-50"
                         : "border-slate-200"
                     }`}
@@ -891,8 +904,8 @@ function RemplirInner() {
                     <input
                       type="radio"
                       name="parentEmail"
-                      checked={chosenEmail === m.email}
-                      onChange={() => setChosenEmail(m.email)}
+                      checked={chosenEmail === m.ref}
+                      onChange={() => setChosenEmail(m.ref)}
                     />
                     <span className="font-mono text-sm">{m.masked}</span>
                   </label>
@@ -914,16 +927,29 @@ function RemplirInner() {
             className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
           >
             <h2 className="font-bold text-slate-900">Code à 6 chiffres</h2>
-            <label className="block text-sm font-semibold text-slate-700">
-              E-mail
-              <input
-                type="email"
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </label>
+            {codeTarget ? (
+              <p className="text-sm text-slate-700">
+                Code envoyé à <span className="font-mono">{codeTarget.masked}</span>.{" "}
+                <button
+                  type="button"
+                  className="text-sky-700 underline"
+                  onClick={() => setCodeTarget(null)}
+                >
+                  Saisir une autre adresse
+                </button>
+              </p>
+            ) : (
+              <label className="block text-sm font-semibold text-slate-700">
+                E-mail
+                <input
+                  type="email"
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </label>
+            )}
             <label className="block text-sm font-semibold text-slate-700">
               Code
               <input

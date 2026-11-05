@@ -567,7 +567,13 @@ export default function FichesDialogueCampagnePage() {
     setMessage(null);
     setError(null);
     const d = await loadDossier(f.id);
-    if (d) setDossier(d);
+    if (d) {
+      setDossier(d);
+      // Le panneau s’affiche en haut de page : on l’amène à l’écran (le bouton est dans le tableau, plus bas).
+      requestAnimationFrame(() =>
+        document.getElementById("fd-dossier-famille")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    }
   }
 
   async function openConseil(f: Fiche, avenant: boolean) {
@@ -985,11 +991,13 @@ export default function FichesDialogueCampagnePage() {
       )}
 
       {dossier && (
-        <DossierPanel
-          dossier={dossier}
-          busy={dossierBusy}
-          onClose={() => setDossier(null)}
-        />
+        <div id="fd-dossier-famille" className="scroll-mt-4">
+          <DossierPanel
+            dossier={dossier}
+            busy={dossierBusy}
+            onClose={() => setDossier(null)}
+          />
+        </div>
       )}
 
       <div className="grid gap-3 sm:grid-cols-4">

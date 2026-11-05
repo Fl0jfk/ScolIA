@@ -225,6 +225,16 @@ export function inferSecteurFromClasseLabel(classe: string | undefined): Secteur
   return null;
 }
 
+/**
+ * Divisions collège nommées par lettre ou numéro : « 3A », « 6 B », « 03 D », « 3 4 ».
+ * Retourne le chiffre du niveau (3 à 6) ou null. Volontairement strict (une lettre + chiffre
+ * optionnel, ou un seul chiffre) pour ne pas absorber des libellés de groupes.
+ */
+function collegeDivisionNiveau(compact: string): number | null {
+  const m = /^0?([3-6])([a-z]\d?|\d)$/.exec(compact);
+  return m ? Number(m[1]) : null;
+}
+
 /** Rang croissant dans la scolarité (plus grand = niveau plus élevé). */
 export function classProgressRank(classe: string | undefined): number | null {
   const c = normClasse(classe);
@@ -241,9 +251,11 @@ export function classProgressRank(classe: string | undefined): number | null {
   if (/^(5e|5eme)/.test(compact)) return 17;
   if (/^(4e|4eme)/.test(compact)) return 18;
   if (/^(3e|3eme)/.test(compact)) return 19;
-  if (/^(2nde|2de|seconde)/.test(compact) || /^2[a-e0-9]/.test(compact)) return 26;
-  if (/^(1re|1ere|premiere)/.test(compact) || /^1[a-e]$/.test(compact)) return 27;
-  if (/^(tle|tale|terminale)/.test(compact) || /^t[a-e]$/.test(compact)) return 28;
+  const college = collegeDivisionNiveau(compact);
+  if (college) return 22 - college; // 6 → 16 … 3 → 19
+  if (/^(2nde|2de|seconde)/.test(compact) || /^2[a-z0-9]/.test(compact)) return 26;
+  if (/^(1re|1ere|premiere)/.test(compact) || /^1[a-z]\d?$/.test(compact)) return 27;
+  if (/^(tle|tale|terminale)/.test(compact) || /^t[a-z]\d?$/.test(compact)) return 28;
   return null;
 }
 
@@ -380,9 +392,11 @@ export function niveauScolaireLabel(classe: string | undefined): string | null {
   if (/^(5e|5eme)/.test(compact)) return "5e";
   if (/^(4e|4eme)/.test(compact)) return "4e";
   if (/^(3e|3eme)/.test(compact)) return "3e";
-  if (/^(2nde|2de|seconde)/.test(compact) || /^2[a-e0-9]/.test(compact)) return "2nde";
-  if (/^(1re|1ere|premiere)/.test(compact) || /^1[a-e]$/.test(compact)) return "1re";
-  if (/^(tle|tale|terminale)/.test(compact) || /^t[a-e]$/.test(compact)) return "Tle";
+  const college = collegeDivisionNiveau(compact);
+  if (college) return `${college}e`;
+  if (/^(2nde|2de|seconde)/.test(compact) || /^2[a-z0-9]/.test(compact)) return "2nde";
+  if (/^(1re|1ere|premiere)/.test(compact) || /^1[a-z]\d?$/.test(compact)) return "1re";
+  if (/^(tle|tale|terminale)/.test(compact) || /^t[a-z]\d?$/.test(compact)) return "Tle";
   return null;
 }
 

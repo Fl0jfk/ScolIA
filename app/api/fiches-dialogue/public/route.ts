@@ -3,6 +3,7 @@ import { z } from "zod";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   assertFdParentEmailOnFiche,
+  findFdParentEmailByRef,
   identifyFdFicheByIdentity,
 } from "@/app/lib/fiches-dialogue-identity";
 import { notifyFdParentOtp } from "@/app/lib/fiches-dialogue-notify";
@@ -107,17 +108,30 @@ const IdentifySchema = z.object({
   campagneId: z.string().uuid().optional(),
 });
 
+/**
+ * Le parent choisit une adresse masquée : le navigateur ne renvoie que sa référence
+ * opaque (`emailRef`), l’adresse réelle reste côté serveur.
+ */
 const RequestCodeSchema = z.object({
   action: z.literal("request_code"),
   ficheId: z.string().uuid(),
-  email: z.string().email(),
+  emailRef: z.string().regex(/^[a-f0-9]{32}$/),
 });
 
-const ResolveSchema = z.object({
-  action: z.literal("resolve_code"),
-  email: z.string().email(),
-  code: z.string().min(4).max(12),
-});
+/** Soit l’adresse tapée par le parent (« j’ai déjà un code »), soit fiche + référence. */
+const ResolveSchema = z.union([
+  z.object({
+    action: z.literal("resolve_code"),
+    email: z.string().email(),
+    code: z.string().min(4).max(12),
+  }),
+  z.object({
+    action: z.literal("resolve_code"),
+    ficheId: z.string().uuid(),
+    emailRef: z.string().regex(/^[a-f0-9]{32}$/),
+    code: z.string().min(4).max(12),
+  }),
+]);
 
 const SubmitSchema = z.object({
   action: z.literal("submit"),
@@ -202,12 +216,8 @@ export async function POST(req: Request) {
         dateNaissance: result.match.dateNaissance,
         optionsActuelles: result.match.optionsActuelles,
         photoKey: result.match.photoKey,
-        maskedEmails: result.match.maskedEmails.map((m) => ({
-          masked: m.masked,
-          // email réel uniquement pour que le parent choisisse — transmis chiffré côté UI
-          // mais on ne l’expose qu’après match : nécessaire pour request_code
-          email: m.email,
-        })),
+        // Jamais l’adresse réelle : nom + prénom + date de naissance ne suffisent pas à la révéler.
+        maskedEmails: result.match.maskedEmails.map((m) => ({ ref: m.ref, masked: m.masked })),
       },
       message:
         result.match.maskedEmails.length > 0
@@ -222,12 +232,19 @@ export async function POST(req: Request) {
     if (!etabId) {
       return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
     }
-    const email = normalizeParentEmail(requestCode.data.email);
-    const allowed = await assertFdParentEmailOnFiche({
+    const found = await findFdParentEmailByRef({
       etablissementId: etabId,
       ficheId: requestCode.data.ficheId,
-      email,
+      ref: requestCode.data.emailRef,
     });
+    const email = found ? normalizeParentEmail(found) : "";
+    const allowed =
+      !!email &&
+      (await assertFdParentEmailOnFiche({
+        etablissementId: etabId,
+        ficheId: requestCode.data.ficheId,
+        email,
+      }));
     // Toujours même réponse (pas d’énumération)
     if (!allowed) {
       return NextResponse.json({
@@ -282,8 +299,24 @@ export async function POST(req: Request) {
 
   const resolve = ResolveSchema.safeParse(raw);
   if (resolve.success) {
-    const row = await resolveFdTokenBySecureCode(resolve.data.email, resolve.data.code);
-    if (!row) {
+    let email: string | null = null;
+    let ficheId: string | null = null;
+    if ("emailRef" in resolve.data) {
+      const etabId = await resolveCurrentEtablissementId();
+      if (!etabId) {
+        return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
+      }
+      ficheId = resolve.data.ficheId;
+      email = await findFdParentEmailByRef({
+        etablissementId: etabId,
+        ficheId,
+        ref: resolve.data.emailRef,
+      });
+    } else {
+      email = resolve.data.email;
+    }
+    const row = email ? await resolveFdTokenBySecureCode(email, resolve.data.code) : null;
+    if (!row || (ficheId && row.ficheId !== ficheId)) {
       return NextResponse.json({ error: "Code invalide." }, { status: 404 });
     }
     return NextResponse.json({ token: row.token });

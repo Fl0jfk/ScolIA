@@ -163,7 +163,30 @@ function catalogueCollege(
 const CATALOGUE_6E = catalogueCollege("6e", "5e", "5ᵉ");
 const CATALOGUE_5E = catalogueCollege("5e", "4e", "4ᵉ");
 const CATALOGUE_4E = catalogueCollege("4e", "3e", "3ᵉ");
-const CATALOGUE_3E = catalogueCollege("3e", "2nde", "2ⁿᵈᵉ");
+/** Après la 3ᵉ : les trois voies officielles (2ⁿᵈᵉ GT, 2ⁿᵈᵉ pro, CAP), en plus des choix communs. */
+const CATALOGUE_3E: FdCatalogueChoix = (() => {
+  const base = catalogueCollege("3e", "2nde", "2ⁿᵈᵉ générale et technologique");
+  base.destinations = [
+    base.destinations[0],
+    { id: "2nde_pro", label: "2ⁿᵈᵉ professionnelle", niveauCible: "2nde_pro", interne: false },
+    { id: "cap", label: "1ʳᵉ année de CAP", niveauCible: "cap", interne: false },
+    ...base.destinations.slice(1),
+  ];
+  for (const field of base.fields ?? []) {
+    if (field.id === "etablissements") {
+      field.showWhen = { fieldId: "destination", equals: ["2nde", "2nde_pro", "cap", "ailleurs"] };
+      field.helpText =
+        "Chez nous par défaut pour la 2ⁿᵈᵉ GT ; pour la voie professionnelle, choisissez le lycée dans le référentiel national.";
+    }
+  }
+  base.voiesOuverture = [
+    {
+      niveauActuel: "3e",
+      destinationsIds: ["2nde", "2nde_pro", "cap", "maintien", "ailleurs", "autre_parcours"],
+    },
+  ];
+  return base;
+})();
 
 const CATALOGUE_2NDE: FdCatalogueChoix = {
   destinations: [

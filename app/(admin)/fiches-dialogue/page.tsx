@@ -70,6 +70,12 @@ function elevesOfClasse(eleves: PickerEleve[], classe: string): PickerEleve[] {
     .sort(compareElevesByNomPrenom);
 }
 
+/** Année scolaire en cours (bascule en septembre), ex. « 2026-2027 » en novembre 2026. */
+function currentFdSchoolYearLabel(now = new Date()): string {
+  const y = now.getFullYear();
+  return now.getMonth() >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
+}
+
 export default function FichesDialogueHubPage() {
   const [campagnes, setCampagnes] = useState<Campagne[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +87,7 @@ export default function FichesDialogueHubPage() {
   const [starterMode, setStarterMode] = useState<FdStarterMode>("conseil_dabord");
   const [templateKey, setTemplateKey] = useState<string | null>(null);
   const [label, setLabel] = useState("");
-  const [anneeLabel, setAnneeLabel] = useState("2025-2026");
+  const [anneeLabel, setAnneeLabel] = useState(currentFdSchoolYearLabel);
   const [contactPpLabel, setContactPpLabel] = useState("via École Directe");
   const [appelDateLimite, setAppelDateLimite] = useState("");
   const [appelProcedure, setAppelProcedure] = useState("");
