@@ -115,9 +115,17 @@ pub struct CreerService {
     pub professeur_principal: bool,
 }
 
+/// Marqueurs transmis par l'API **après** une autorisation positive du moteur de droits
+/// (D-017, `referentiel.gerer` / `referentiel.lire`) : ils font passer le garde historique
+/// par rôle de ces fonctions (passerelle R2). Ne jamais les construire depuis une entrée
+/// utilisateur ni une session.
+pub const ROLE_AUTORISE_MOTEUR_GESTION: &str = "@moteur:referentiel.gerer";
+pub const ROLE_AUTORISE_MOTEUR_LECTURE: &str = "@moteur:referentiel.lire";
+
 /// Écriture autorisée : Admin, Direction, Administratif.
 pub fn role_peut_gerer_referentiel(role: &str) -> bool {
-    matches!(
+    role == ROLE_AUTORISE_MOTEUR_GESTION
+        || matches!(
         Role::parse(role),
         Some(Role::Admin | Role::Direction | Role::Administratif)
     )
@@ -125,7 +133,9 @@ pub fn role_peut_gerer_referentiel(role: &str) -> bool {
 
 /// Lecture autorisée : tout le personnel.
 pub fn role_peut_lire_referentiel(role: &str) -> bool {
-    Role::parse(role).is_some_and(Role::is_staff)
+    role == ROLE_AUTORISE_MOTEUR_GESTION
+        || role == ROLE_AUTORISE_MOTEUR_LECTURE
+        || Role::parse(role).is_some_and(Role::is_staff)
 }
 
 /// Niveau déduit du code d'une classe (« 4B » → « 4e », « 2nde3 » → « 2nde »), `None` si
@@ -390,6 +400,7 @@ impl PgEnt {
             Some(id) => self.annee_de(etablissement_id, id).await?,
             None => self.referentiel_annee_courante_assuree(etablissement_id).await?,
         };
+        self.exiger_annee_modifiable(etablissement_id, annee.id).await?;
         let libelle = libelle.map(str::trim).filter(|l| !l.is_empty()).unwrap_or(code);
         let niveau = niveau
             .map(str::trim)
@@ -576,6 +587,7 @@ impl PgEnt {
             (Some(id), None) => self.annee_de(etablissement_id, id).await?,
             (None, None) => self.referentiel_annee_courante_assuree(etablissement_id).await?,
         };
+        self.exiger_annee_modifiable(etablissement_id, annee.id).await?;
         let libelle = libelle.map(str::trim).filter(|l| !l.is_empty()).unwrap_or(code);
         sqlx::query_as::<_, Groupe>(
             "INSERT INTO ent_groupe (id, etablissement_id, annee_id, code, libelle, classe_id)
@@ -641,6 +653,7 @@ impl PgEnt {
         if debut < annee.date_debut || debut > annee.date_fin {
             return Err(invalide());
         }
+        self.exiger_annee_modifiable(etablissement_id, annee.id).await?;
         self.poser_affectation_classe(&annee, &classe, eleve_id, debut, "saisie")
             .await
     }
@@ -667,6 +680,7 @@ impl PgEnt {
         .ok_or_else(introuvable)?;
         self.exiger_eleve(etablissement_id, eleve_id).await?;
         let annee = self.annee_de(etablissement_id, groupe.annee_id).await?;
+        self.exiger_annee_modifiable(etablissement_id, annee.id).await?;
         let debut = date_debut.unwrap_or_else(|| today_utc().clamp(annee.date_debut, annee.date_fin));
         if debut < annee.date_debut || debut > annee.date_fin {
             return Err(invalide());
@@ -870,6 +884,7 @@ impl PgEnt {
         if cmd.professeur_principal && classe_id.is_none() {
             return Err(invalide());
         }
+        self.exiger_annee_modifiable(etablissement_id, annee_id).await?;
         // Le professeur doit être un membre du personnel de cet établissement.
         let membre: Option<(String,)> = sqlx::query_as(
             "SELECT role FROM ent_membership WHERE user_id = $1 AND etablissement_id = $2",

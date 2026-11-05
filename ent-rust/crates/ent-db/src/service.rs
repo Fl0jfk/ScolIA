@@ -873,6 +873,11 @@ impl PgEnt {
         &self.pool
     }
 
+    /// Après commit : informe les observateurs locaux des événements publiés par outbox.
+    pub(crate) fn diffuser_apres_commit(&self, events: &[ent_events::MetierEvent]) {
+        self.events.diffuser_locaux(events);
+    }
+
     /// Limiteur de débit (seaux en base, partagés entre instances).
     pub fn limiteur_debit(&self) -> crate::RateLimiter {
         crate::RateLimiter::new(self.pool.clone())

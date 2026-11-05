@@ -13,8 +13,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::NaiveDate;
 use domain_eleve::today_utc;
+use ent_auth::Action;
 use ent_db::{
-    Affectation, AnneeScolaire, Classe, ClasseResume, CreerService, Groupe, PgEnt,
+    Acteur, Affectation, AnneeScolaire, Classe, ClasseResume, CreerService, Groupe, PgEnt,
     RapportAmorcage, ServiceEnseignement,
 };
 use ent_types::referentiel::{
@@ -142,21 +143,45 @@ fn classe_introuvable() -> (StatusCode, String) {
     (StatusCode::NOT_FOUND, "classe introuvable".into())
 }
 
-fn refus_gestion(session: &EntSession) -> Res<()> {
-    if ent_db::role_peut_gerer_referentiel(&session.role) {
-        Ok(())
+/// Autorisation par le moteur de droits (D-017). Renvoie le marqueur « autorisé par le
+/// moteur » à transmettre aux fonctions de `ent-db` (qui conservent leur garde historique).
+pub(crate) async fn role_moteur(
+    state: &AppState,
+    session: &EntSession,
+    action: Action,
+) -> Res<&'static str> {
+    let acteur = acteur(session);
+    if state.ent.ref_peut(&acteur, action).await.map_err(map_db)? {
+        Ok(if action == Action::ReferentielGerer {
+            ent_db::ROLE_AUTORISE_MOTEUR_GESTION
+        } else {
+            ent_db::ROLE_AUTORISE_MOTEUR_LECTURE
+        })
     } else {
         Err((StatusCode::FORBIDDEN, "accès refusé pour ce rôle".into()))
     }
+}
+
+pub(crate) fn acteur(session: &EntSession) -> Acteur<'_> {
+    Acteur {
+        etablissement_id: session.etablissement_id,
+        user_id: session.user_id,
+        role: &session.role,
+    }
+}
+
+async fn refus_gestion(state: &AppState, session: &EntSession) -> Res<()> {
+    role_moteur(state, session, Action::ReferentielGerer).await.map(|_| ())
 }
 
 async fn list_annees(
     State(state): State<AppState>,
     session: EntSession,
 ) -> Res<Json<Vec<AnneeScolaireDto>>> {
+    let role = role_moteur(&state, &session, Action::ReferentielLire).await?;
     let list = state
         .ent
-        .referentiel_annees(&session.role, session.etablissement_id)
+        .referentiel_annees(role, session.etablissement_id)
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(annee_dto).collect()))
@@ -167,10 +192,11 @@ async fn creer_annee(
     session: EntSession,
     Json(body): Json<CreerAnneeBody>,
 ) -> Res<(StatusCode, Json<AnneeScolaireDto>)> {
+    let role = role_moteur(&state, &session, Action::ReferentielGerer).await?;
     let a = state
         .ent
         .referentiel_creer_annee(
-            &session.role,
+            role,
             session.etablissement_id,
             &body.libelle,
             body.date_debut,
@@ -187,10 +213,11 @@ async fn list_classes(
     session: EntSession,
     Query(q): Query<ClassesQuery>,
 ) -> Res<Json<Vec<ClasseDto>>> {
+    let role = role_moteur(&state, &session, Action::ReferentielLire).await?;
     let list = state
         .ent
         .referentiel_classes(
-            &session.role,
+            role,
             session.etablissement_id,
             q.annee_id,
             q.jour.unwrap_or_else(today_utc),
@@ -206,10 +233,11 @@ async fn creer_classe(
     session: EntSession,
     Json(body): Json<CreerClasseBody>,
 ) -> Res<(StatusCode, Json<ClasseDto>)> {
+    let role = role_moteur(&state, &session, Action::ReferentielGerer).await?;
     let c = state
         .ent
         .referentiel_creer_classe(
-            &session.role,
+            role,
             session.etablissement_id,
             body.annee_id,
             &body.code,
@@ -227,10 +255,11 @@ async fn get_classe(
     Path(id): Path<Uuid>,
     Query(q): Query<JourQuery>,
 ) -> Res<Json<ClasseDetailDto>> {
+    let role = role_moteur(&state, &session, Action::ReferentielLire).await?;
     let jour = q.jour.unwrap_or_else(today_utc);
     let resume = state
         .ent
-        .referentiel_classe_resume(&session.role, session.etablissement_id, id, jour)
+        .referentiel_classe_resume(role, session.etablissement_id, id, jour)
         .await
         .map_err(map_db)?
         .ok_or_else(classe_introuvable)?;
@@ -282,11 +311,11 @@ async fn affecter_eleve(
     Json(body): Json<AffecterEleveBody>,
 ) -> Res<(StatusCode, Json<AffectationDto>)> {
     // Droit vérifié avant toute lecture : un rôle sans droit ne sonde pas les identifiants.
-    refus_gestion(&session)?;
+    let role = role_moteur(&state, &session, Action::ReferentielGerer).await?;
     let a = state
         .ent
         .referentiel_affecter_eleve_classe(
-            &session.role,
+            role,
             session.etablissement_id,
             id,
             body.eleve_id,
@@ -302,10 +331,11 @@ async fn creer_groupe(
     session: EntSession,
     Json(body): Json<CreerGroupeBody>,
 ) -> Res<(StatusCode, Json<GroupeDto>)> {
+    let role = role_moteur(&state, &session, Action::ReferentielGerer).await?;
     let g = state
         .ent
         .referentiel_creer_groupe(
-            &session.role,
+            role,
             session.etablissement_id,
             body.annee_id,
             &body.code,
@@ -322,10 +352,11 @@ async fn creer_service(
     session: EntSession,
     Json(body): Json<CreerServiceBody>,
 ) -> Res<(StatusCode, Json<ServiceDto>)> {
+    let role = role_moteur(&state, &session, Action::ReferentielGerer).await?;
     let s = state
         .ent
         .referentiel_creer_service(
-            &session.role,
+            role,
             session.etablissement_id,
             CreerService {
                 prof_user_id: body.prof_user_id,
@@ -349,7 +380,7 @@ async fn amorcer(
     State(state): State<AppState>,
     session: EntSession,
 ) -> Res<Json<RapportAmorcageDto>> {
-    refus_gestion(&session)?;
+    refus_gestion(&state, &session).await?;
     let r: RapportAmorcage = state
         .ent
         .amorcer_referentiel(session.etablissement_id)

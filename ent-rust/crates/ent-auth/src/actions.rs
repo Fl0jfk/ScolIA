@@ -86,6 +86,10 @@ pub enum Action {
     ConseilsGerer,
     /// Publier et annuler les documents à signer.
     DocsSignerPublier,
+    /// Consulter le référentiel scolaire (années, classes, périodes, calendrier, séances).
+    ReferentielLire,
+    /// Gérer le référentiel scolaire (S2-2, REF-01→14) : structures, bascule d'année.
+    ReferentielGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -102,7 +106,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 36] = [
+    pub const TOUTES: [Action; 38] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -141,6 +145,8 @@ impl Action {
         Action::MatieresGerer,
         Action::ConseilsGerer,
         Action::DocsSignerPublier,
+        Action::ReferentielLire,
+        Action::ReferentielGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -182,6 +188,8 @@ impl Action {
             Self::MatieresGerer => "matieres.gerer",
             Self::ConseilsGerer => "conseils.gerer",
             Self::DocsSignerPublier => "docs_a_signer.publier",
+            Self::ReferentielLire => "referentiel.lire",
+            Self::ReferentielGerer => "referentiel.gerer",
         }
     }
 
@@ -224,6 +232,8 @@ impl Action {
             Self::MatieresGerer => "Gérer les matières et compétences",
             Self::ConseilsGerer => "Planifier et tenir les conseils de classe",
             Self::DocsSignerPublier => "Publier et annuler les documents à signer",
+            Self::ReferentielLire => "Consulter le référentiel scolaire",
+            Self::ReferentielGerer => "Gérer le référentiel scolaire (années, classes, périodes…)",
         }
     }
 
@@ -243,7 +253,11 @@ impl Action {
     /// n'acceptent que l'établissement entier (garde-fou 4).
     pub fn portees_admises(self) -> &'static [Portee] {
         match self {
-            Self::RolesGerer | Self::SecuritePolitique | Self::AuditLire => &[Portee::Etablissement],
+            Self::RolesGerer
+            | Self::SecuritePolitique
+            | Self::AuditLire
+            | Self::ReferentielLire
+            | Self::ReferentielGerer => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
             Self::FacturationGerer
@@ -317,6 +331,12 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     let mut d: Vec<(Action, Portee)> = Vec::new();
     if !role.is_staff() {
         return d;
+    }
+    // Référentiel scolaire : lecture pour tout le personnel, gestion Admin / Direction /
+    // Administratif (équivalent exact de `role_peut_*_referentiel`, S2-2).
+    d.push(etab(ReferentielLire));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(ReferentielGerer));
     }
     if role == Role::Prof {
         for a in [

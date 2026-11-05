@@ -9,6 +9,9 @@ Outbox (`migrations/102_outbox.sql`, `ent-db/src/outbox.rs` : `tx.publier`, dist
 ## Socle 1 — écrans « rôles et droits » et récupération de passkey (2026-11-05)
 Frontend Leptos : administration des rôles (`/web/direction/roles` : liste, création depuis un modèle, tableau action × portée, membres avec date de fin, responsables des groupes) et récupération de passkey en libre-service (D-018 : « J'ai perdu ma passkey », pages des liens de confirmation / annulation / finalisation). **Implémenté + testé en local** (branche `ent-socle1-ecrans-roles`, fusionnée avec `ent-socle1-recuperation`), non validé pilote, non fusionné. Backend non modifié. Non vérifié : navigateur (clavier, 375 px, axe-core, lecteur d'écran) et parcours avec un vrai e-mail. Détail et limites : `docs/FRONTEND_CIBLE.md` § 9, `docs/SOCLE1_SECURITE.md`.
 
+## Socle 2 — S2-2 référentiel complet (2026-11-05)
+Sites, niveaux/MEF (nomenclature nationale, import SIECLE/BCN), périodes, calendrier, grille M1…S4, séances datées générées, `classe_id` dans 9 tables (double écriture par triggers, rattachement idempotent), bascule d'année (préparer, reconduire, monter, ouvrir, clôturer), droits par le moteur (`referentiel.lire/gerer`), ~30 routes `/referentiel/*`, événements via l'outbox. **Implémenté + testé en local** (`ent-socle2-referentiel`, migrations 110-112), non validé pilote ; écrans Leptos non faits. Détail : `docs/SOCLE2_DOMAINES.md` §6.2.
+
 ## Socle 1 — écrans de sécurité du compte (2026-11-05)
 Frontend Leptos : enrôlement obligatoire d'une passkey (`/web/securite/enrolement`), « Sécurité du compte » (`/web/securite`), politique de sécurité de l'établissement (`/web/direction/securite`). **Implémenté + testé en local** (branche `ent-socle1-ecrans-securite`), non validé pilote, non fusionné. Backend non modifié. Détail, limites et divergence `ent-types::MeDto` : `docs/SOCLE1_SECURITE.md` (« Écrans frontend ») et `docs/FRONTEND_CIBLE.md` § 8.
 

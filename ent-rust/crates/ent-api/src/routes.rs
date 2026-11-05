@@ -734,6 +734,7 @@ pub fn router() -> Router<AppState> {
         );
     // Référentiel scolaire (module séparé : `referentiel.rs`).
     let r = r.merge(crate::referentiel::routes());
+    let r = r.merge(crate::referentiel_s2::routes());
     let r = r.merge(crate::roles::routes());
     #[cfg(feature = "labo")]
     let r = r
