@@ -21,6 +21,7 @@ mod auth;
 mod communication;
 mod dossier;
 mod edt;
+mod inscriptions;
 mod referentiel;
 mod securite;
 mod vie_scolaire;
@@ -51,6 +52,8 @@ pub use ent_types::dossier::{
     PersonneBody, PersonneDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
+/// Types des inscriptions (S2-3), partagés avec `ent-api`.
+pub use ent_types::inscriptions as types_inscriptions;
 pub use ent_types::referentiel::{
     ClasseDetailDto as ClasseDetailApi, ClasseDto as ClasseApi, EleveClasseDto as EleveClasseApi,
     RapportAmorcageDto as RapportAmorcageApi, ServiceDto as ServiceApi,
@@ -60,6 +63,7 @@ pub use ent_types::vie_scolaire::{
     EnfantFamilleDto as Enfant, FamilleResumeDto as ResumeFamille, RetardDto as Retard,
     SignalAbsenceDto as SignalAbsence,
 };
+pub use inscriptions::ClientPreinscription;
 
 /// Issue d'une connexion par mot de passe.
 #[derive(Clone, Debug, PartialEq)]

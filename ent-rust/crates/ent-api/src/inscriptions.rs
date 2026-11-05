@@ -31,7 +31,10 @@ pub const ENTETE_JETON: &str = "x-preinscription";
 pub fn routes() -> Router<AppState> {
     Router::new()
         // Personnel : campagnes et instruction.
-        .route("/inscriptions/campagnes", get(campagnes).post(creer_campagne))
+        .route(
+            "/inscriptions/campagnes",
+            get(campagnes).post(creer_campagne),
+        )
         .route("/inscriptions/campagnes/{id}", put(modifier_campagne))
         .route("/inscriptions/campagnes/{id}/ouvrir", post(ouvrir_campagne))
         .route("/inscriptions/campagnes/{id}/fermer", post(fermer_campagne))
@@ -54,7 +57,10 @@ pub fn routes() -> Router<AppState> {
             post(annoncer_depart),
         )
         // Public : invitation reçue par e-mail.
-        .route("/inscriptions/invitations/accepter", post(accepter_invitation))
+        .route(
+            "/inscriptions/invitations/accepter",
+            post(accepter_invitation),
+        )
         // Préinscription (public puis jeton).
         .route("/preinscription/demarrer", post(demarrer))
         .route("/preinscription/verifier", post(verifier))
@@ -68,7 +74,10 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/preinscription/dossiers/{id}/banque", get(banque))
         .route("/preinscription/dossiers/{id}/mandat", post(mandat))
-        .route("/preinscription/dossiers/{id}/mandat/signer", post(signer_mandat))
+        .route(
+            "/preinscription/dossiers/{id}/mandat/signer",
+            post(signer_mandat),
+        )
         // Imports.
         .route(
             "/imports/eleves",
@@ -205,13 +214,23 @@ async fn dossiers(
     Ok(Json(
         state
             .ent
-            .list_dossiers_for_actor(s.etablissement_id, s.user_id, &s.role, f.campagne_id, f.statut)
+            .list_dossiers_for_actor(
+                s.etablissement_id,
+                s.user_id,
+                &s.role,
+                f.campagne_id,
+                f.statut,
+            )
             .await
             .map_err(map)?,
     ))
 }
 
-async fn dossier(State(state): State<AppState>, s: EntSession, Path(id): Path<Uuid>) -> Res<Json<DossierDto>> {
+async fn dossier(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<DossierDto>> {
     Ok(Json(
         state
             .ent
@@ -311,7 +330,10 @@ async fn valider(
 
 // -- Responsables connectés : réinscription -------------------------------------
 
-async fn reinscriptions(State(state): State<AppState>, s: EntSession) -> Res<Json<Vec<DossierDto>>> {
+async fn reinscriptions(
+    State(state): State<AppState>,
+    s: EntSession,
+) -> Res<Json<Vec<DossierDto>>> {
     Ok(Json(
         state
             .ent
@@ -358,7 +380,12 @@ async fn accepter_invitation(
     tenant: TenantHote,
     Json(b): Json<InvitationBody>,
 ) -> Res<Json<InvitationAccepteeDto>> {
-    let refus = || (StatusCode::BAD_REQUEST, "invitation invalide ou expirée".to_string());
+    let refus = || {
+        (
+            StatusCode::BAD_REQUEST,
+            "invitation invalide ou expirée".to_string(),
+        )
+    };
     let etab = match tenant.etablissement_id {
         Some(e) => e,
         None if mode_tenant() == ModeTenant::Strict => return Err(refus()),
@@ -369,7 +396,13 @@ async fn accepter_invitation(
             .map_err(map)?
             .ok_or_else(refus)?,
     };
-    Ok(Json(state.ent.accepter_invitation(etab, &b.jeton).await.map_err(map)?))
+    Ok(Json(
+        state
+            .ent
+            .accepter_invitation(etab, &b.jeton)
+            .await
+            .map_err(map)?,
+    ))
 }
 
 /// Étape 1 : réponse identique que le compte existe ou non (aucune lecture de
@@ -380,7 +413,11 @@ async fn demarrer(
     Json(b): Json<DemarrerBody>,
 ) -> Res<(StatusCode, Json<DemarrerDto>)> {
     let etab = tenant.etablissement_effectif(b.etablissement_id)?;
-    let r = state.ent.demarrer_preinscription(etab, &b.email).await.map_err(map)?;
+    let r = state
+        .ent
+        .demarrer_preinscription(etab, &b.email)
+        .await
+        .map_err(map)?;
     Ok((StatusCode::ACCEPTED, Json(r)))
 }
 
@@ -400,7 +437,10 @@ async fn verifier(
             .etablissement_de_demande_preinscription(b.demande_id)
             .await
             .map_err(map)?
-            .ok_or((StatusCode::BAD_REQUEST, "valeur invalide : code invalide ou expiré".into()))?,
+            .ok_or((
+                StatusCode::BAD_REQUEST,
+                "valeur invalide : code invalide ou expiré".into(),
+            ))?,
     };
     Ok(Json(
         state
@@ -412,7 +452,10 @@ async fn verifier(
 }
 
 /// Variante passkey : une session ouverte dans l'établissement vaut vérification.
-async fn jeton_session(State(state): State<AppState>, s: EntSession) -> Res<Json<JetonPreinscriptionDto>> {
+async fn jeton_session(
+    State(state): State<AppState>,
+    s: EntSession,
+) -> Res<Json<JetonPreinscriptionDto>> {
     Ok(Json(
         state
             .ent
@@ -429,7 +472,13 @@ async fn espace(
 ) -> Res<Json<EspacePreinscriptionDto>> {
     let j = jeton(&headers)?;
     let etab = etab_jeton(&state, &tenant, &j).await?;
-    Ok(Json(state.ent.espace_preinscription(etab, &j).await.map_err(map)?))
+    Ok(Json(
+        state
+            .ent
+            .espace_preinscription(etab, &j)
+            .await
+            .map_err(map)?,
+    ))
 }
 
 async fn deposer(
@@ -440,7 +489,11 @@ async fn deposer(
 ) -> Res<(StatusCode, Json<DossierDto>)> {
     let j = jeton(&headers)?;
     let etab = etab_jeton(&state, &tenant, &j).await?;
-    let d = state.ent.deposer_preinscription(etab, &j, &b).await.map_err(map)?;
+    let d = state
+        .ent
+        .deposer_preinscription(etab, &j, &b)
+        .await
+        .map_err(map)?;
     Ok((StatusCode::CREATED, Json(d)))
 }
 
@@ -452,7 +505,9 @@ async fn dossier_famille(
 ) -> Res<Json<DossierDto>> {
     let j = jeton(&headers)?;
     let etab = etab_jeton(&state, &tenant, &j).await?;
-    Ok(Json(state.ent.dossier_famille(etab, &j, id).await.map_err(map)?))
+    Ok(Json(
+        state.ent.dossier_famille(etab, &j, id).await.map_err(map)?,
+    ))
 }
 
 async fn piece_famille(
@@ -516,7 +571,11 @@ async fn signer_mandat(
     let j = jeton(&headers)?;
     let etab = etab_jeton(&state, &tenant, &j).await?;
     Ok(Json(
-        state.ent.signer_mandat_famille(etab, &j, id).await.map_err(map)?,
+        state
+            .ent
+            .signer_mandat_famille(etab, &j, id)
+            .await
+            .map_err(map)?,
     ))
 }
 
@@ -535,7 +594,11 @@ async fn previsualiser_import(
     Ok((StatusCode::CREATED, Json(l)))
 }
 
-async fn lot_import(State(state): State<AppState>, s: EntSession, Path(id): Path<Uuid>) -> Res<Json<LotImportDto>> {
+async fn lot_import(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<LotImportDto>> {
     Ok(Json(
         state
             .ent

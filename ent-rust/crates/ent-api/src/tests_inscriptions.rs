@@ -5,14 +5,18 @@
 use super::*;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use ent_types::inscriptions::{CampagneDto, DemarrerDto, DossierDto, EspacePreinscriptionDto, JetonPreinscriptionDto};
+use ent_types::inscriptions::{
+    CampagneDto, DemarrerDto, DossierDto, EspacePreinscriptionDto, JetonPreinscriptionDto,
+};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn etat() -> Option<AppState> {
-    let url = std::env::var("ENT_DATABASE_URL").ok().filter(|u| !u.trim().is_empty())?;
+    let url = std::env::var("ENT_DATABASE_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty())?;
     let mut ent = PgEnt::connect(&url).await.ok()?;
     ent.migrate().await.ok()?;
     ent.install_mail_dry_run();
@@ -78,12 +82,33 @@ async fn preinscription_http_anti_enumeration_droits_isolation() {
         "nature": "admission", "libelle": "Rentrée 2027", "annee_cible": "2027-2028",
         "pieces": [{ "code": "livret", "libelle": "Livret", "obligatoire": true }]
     });
-    let (st, _) = appel(&app, "POST", "/inscriptions/campagnes", &[("authorization", &prof)], Some(corps.clone())).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/inscriptions/campagnes",
+        &[("authorization", &prof)],
+        Some(corps.clone()),
+    )
+    .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
-    let (st, b) = appel(&app, "POST", "/inscriptions/campagnes", &[("authorization", &dir)], Some(corps)).await;
+    let (st, b) = appel(
+        &app,
+        "POST",
+        "/inscriptions/campagnes",
+        &[("authorization", &dir)],
+        Some(corps),
+    )
+    .await;
     assert_eq!(st, StatusCode::CREATED, "{b}");
     let camp: CampagneDto = serde_json::from_str(&b).unwrap();
-    let (st, b) = appel(&app, "POST", &format!("/inscriptions/campagnes/{}/ouvrir", camp.id), &[("authorization", &dir)], None).await;
+    let (st, b) = appel(
+        &app,
+        "POST",
+        &format!("/inscriptions/campagnes/{}/ouvrir", camp.id),
+        &[("authorization", &dir)],
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{b}");
 
     // Démarrage public : 202 et même corps (hors identifiant de demande), compte connu ou non.
@@ -106,12 +131,26 @@ async fn preinscription_http_anti_enumeration_droits_isolation() {
     // Rien n'est affiché sans jeton vérifié.
     let (st, _) = appel(&app, "GET", "/preinscription/moi", &[], None).await;
     assert_eq!(st, StatusCode::UNAUTHORIZED);
-    let (st, _) = appel(&app, "GET", "/preinscription/moi", &[("x-preinscription", "forge")], None).await;
+    let (st, _) = appel(
+        &app,
+        "GET",
+        "/preinscription/moi",
+        &[("x-preinscription", "forge")],
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::UNAUTHORIZED);
     // Mauvais code et demande inconnue : même réponse.
     let code = code_recu(&ent, &inconnu);
     let faux = if code == "000000" { "111111" } else { "000000" };
-    let (st1, b1) = appel(&app, "POST", "/preinscription/verifier", &[], Some(json!({ "demande_id": corps_vus[0].0, "code": faux }))).await;
+    let (st1, b1) = appel(
+        &app,
+        "POST",
+        "/preinscription/verifier",
+        &[],
+        Some(json!({ "demande_id": corps_vus[0].0, "code": faux })),
+    )
+    .await;
     let (st2, b2) = appel(
         &app,
         "POST",
@@ -120,9 +159,19 @@ async fn preinscription_http_anti_enumeration_droits_isolation() {
         Some(json!({ "demande_id": Uuid::new_v4(), "code": faux })),
     )
     .await;
-    assert_eq!((st1, st2), (StatusCode::BAD_REQUEST, StatusCode::BAD_REQUEST));
+    assert_eq!(
+        (st1, st2),
+        (StatusCode::BAD_REQUEST, StatusCode::BAD_REQUEST)
+    );
     assert_eq!(b1, b2);
-    let (st, b) = appel(&app, "POST", "/preinscription/verifier", &[], Some(json!({ "demande_id": corps_vus[0].0, "code": code }))).await;
+    let (st, b) = appel(
+        &app,
+        "POST",
+        "/preinscription/verifier",
+        &[],
+        Some(json!({ "demande_id": corps_vus[0].0, "code": code })),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{b}");
     assert!(!b.contains(&inconnu));
     let j: JetonPreinscriptionDto = serde_json::from_str(&b).unwrap();
@@ -140,25 +189,71 @@ async fn preinscription_http_anti_enumeration_droits_isolation() {
         "responsable": { "nom": "Diggory", "prenom": "Amos" },
         "second_parent": { "nom": "Diggory", "meme_foyer": false }
     });
-    let (st, _) = appel(&app, "POST", "/preinscription/dossiers", &h, Some(f.clone())).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/preinscription/dossiers",
+        &h,
+        Some(f.clone()),
+    )
+    .await;
     assert_eq!(st, StatusCode::BAD_REQUEST, "parents séparés sans e-mail");
     f["second_parent"]["email"] = json!(format!("mere-{}@exemple.test", Uuid::new_v4().simple()));
     let (st, b) = appel(&app, "POST", "/preinscription/dossiers", &h, Some(f)).await;
     assert_eq!(st, StatusCode::CREATED, "{b}");
     let dossier: DossierDto = serde_json::from_str(&b).unwrap();
-    let (st, _) = appel(&app, "GET", &format!("/preinscription/dossiers/{}", dossier.id), &h, None).await;
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/preinscription/dossiers/{}", dossier.id),
+        &h,
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
-    let (st, _) = appel(&app, "GET", &format!("/preinscription/dossiers/{}/banque", dossier.id), &h, None).await;
-    assert_eq!(st, StatusCode::CONFLICT, "IBAN demandé à la validation seulement");
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/preinscription/dossiers/{}/banque", dossier.id),
+        &h,
+        None,
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::CONFLICT,
+        "IBAN demandé à la validation seulement"
+    );
 
     // Personnel : liste (200), prof (403), autre établissement (404 / liste vide).
-    let (st, b) = appel(&app, "GET", &format!("/inscriptions/dossiers?campagne_id={}", camp.id), &[("authorization", &dir)], None).await;
+    let (st, b) = appel(
+        &app,
+        "GET",
+        &format!("/inscriptions/dossiers?campagne_id={}", camp.id),
+        &[("authorization", &dir)],
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
     assert!(b.contains(&dossier.id.to_string()));
-    let (st, _) = appel(&app, "GET", &format!("/inscriptions/dossiers/{}", dossier.id), &[("authorization", &prof)], None).await;
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/inscriptions/dossiers/{}", dossier.id),
+        &[("authorization", &prof)],
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
     let dir_b = bearer(&autre.direction.token);
-    let (st, _) = appel(&app, "GET", &format!("/inscriptions/dossiers/{}", dossier.id), &[("authorization", &dir_b)], None).await;
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/inscriptions/dossiers/{}", dossier.id),
+        &[("authorization", &dir_b)],
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::NOT_FOUND);
     let (st, _) = appel(
         &app,
@@ -199,7 +294,14 @@ async fn preinscription_http_anti_enumeration_droits_isolation() {
     .await;
     assert_eq!(st, StatusCode::BAD_REQUEST, "motif obligatoire");
     // Validation d'un dossier non admis : 409.
-    let (st, _) = appel(&app, "POST", &format!("/inscriptions/dossiers/{}/valider", dossier.id), &[("authorization", &dir)], Some(json!({}))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/inscriptions/dossiers/{}/valider", dossier.id),
+        &[("authorization", &dir)],
+        Some(json!({})),
+    )
+    .await;
     assert_eq!(st, StatusCode::CONFLICT);
 
     // Le jeton de A ne vaut rien sur l'adresse d'un autre établissement.
@@ -208,10 +310,25 @@ async fn preinscription_http_anti_enumeration_droits_isolation() {
     let _ = autre;
 
     // Import : 403 prof, 201 administratif (rejet signalé), 400 format inconnu.
-    let imp = json!({ "nom_fichier": "e.csv", "contenu": "nom;prenom;date_naissance\nA;B;99/99/2014\n" });
-    let (st, _) = appel(&app, "POST", "/imports/eleves", &[("authorization", &prof)], Some(imp.clone())).await;
+    let imp =
+        json!({ "nom_fichier": "e.csv", "contenu": "nom;prenom;date_naissance\nA;B;99/99/2014\n" });
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/imports/eleves",
+        &[("authorization", &prof)],
+        Some(imp.clone()),
+    )
+    .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
-    let (st, b) = appel(&app, "POST", "/imports/eleves", &[("authorization", &adm)], Some(imp)).await;
+    let (st, b) = appel(
+        &app,
+        "POST",
+        "/imports/eleves",
+        &[("authorization", &adm)],
+        Some(imp),
+    )
+    .await;
     assert_eq!(st, StatusCode::CREATED, "{b}");
     assert!(b.contains("\"nb_rejets\":1"));
     let (st, _) = appel(
@@ -225,6 +342,13 @@ async fn preinscription_http_anti_enumeration_droits_isolation() {
     assert_eq!(st, StatusCode::BAD_REQUEST);
 
     // Invitation inconnue : 400 neutre.
-    let (st, _) = appel(&app, "POST", "/inscriptions/invitations/accepter", &[], Some(json!({ "jeton": "x".repeat(64) }))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/inscriptions/invitations/accepter",
+        &[],
+        Some(json!({ "jeton": "x".repeat(64) })),
+    )
+    .await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 }

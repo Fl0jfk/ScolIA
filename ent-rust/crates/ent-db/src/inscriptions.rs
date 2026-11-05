@@ -108,7 +108,9 @@ pub fn normaliser_email(e: &str) -> Result<String, EntDbError> {
     let e = e.trim().to_lowercase();
     let ok = e.len() <= 254
         && e.split_once('@')
-            .map(|(a, d)| !a.is_empty() && d.contains('.') && !d.starts_with('.') && !d.ends_with('.'))
+            .map(|(a, d)| {
+                !a.is_empty() && d.contains('.') && !d.starts_with('.') && !d.ends_with('.')
+            })
             .unwrap_or(false)
         && !e.chars().any(char::is_whitespace);
     if ok {
@@ -179,8 +181,14 @@ fn lien_valide(l: &Option<String>) -> Result<String, EntDbError> {
 pub fn normaliser_eleve(e: &EleveFormulaireDto) -> Result<EleveFormulaireDto, EntDbError> {
     let nom = e.nom.trim().to_string();
     let prenom = e.prenom.trim().to_string();
-    if nom.is_empty() || nom.chars().count() > 120 || prenom.is_empty() || prenom.chars().count() > 120 {
-        return Err(invalide("nom et prénom de l'élève obligatoires (120 caractères au plus)"));
+    if nom.is_empty()
+        || nom.chars().count() > 120
+        || prenom.is_empty()
+        || prenom.chars().count() > 120
+    {
+        return Err(invalide(
+            "nom et prénom de l'élève obligatoires (120 caractères au plus)",
+        ));
     }
     let sexe = match opt(&e.sexe).map(|s| s.to_uppercase()) {
         None => None,
@@ -205,7 +213,11 @@ pub fn normaliser_eleve(e: &EleveFormulaireDto) -> Result<EleveFormulaireDto, En
         ine,
         niveau_demande: borne(opt(&e.niveau_demande), 40, "niveau trop long")?,
         regime_demande: regime_valide(&e.regime_demande)?,
-        etablissement_origine: borne(opt(&e.etablissement_origine), 200, "établissement d'origine trop long")?,
+        etablissement_origine: borne(
+            opt(&e.etablissement_origine),
+            200,
+            "établissement d'origine trop long",
+        )?,
     })
 }
 
@@ -225,7 +237,9 @@ pub fn normaliser_responsable(
     .normaliser()?;
     // D-014 : parents séparés → un e-mail par parent obligatoire.
     if !r.meme_foyer && s.email.is_none() {
-        return Err(invalide("parents séparés : un e-mail par parent est obligatoire"));
+        return Err(invalide(
+            "parents séparés : un e-mail par parent est obligatoire",
+        ));
     }
     Ok(ResponsableFormulaireDto {
         nom: s.nom,
@@ -254,7 +268,10 @@ pub fn transition_instruction_admise(de: &str, vers: &str) -> bool {
 
 /// Décision possible depuis cet état (admission seulement).
 pub fn decision_admise(de: &str) -> bool {
-    matches!(de, "deposee" | "en_instruction" | "incomplet" | "liste_attente")
+    matches!(
+        de,
+        "deposee" | "en_instruction" | "incomplet" | "liste_attente"
+    )
 }
 
 /// Actions proposées au personnel pour un dossier (le serveur revérifie tout).
@@ -448,7 +465,17 @@ async fn changer_statut_tx(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    suivi_tx(conn, etab, d.id, "statut", Some((&d.statut, vers)), texte, true, auteur).await
+    suivi_tx(
+        conn,
+        etab,
+        d.id,
+        "statut",
+        Some((&d.statut, vers)),
+        texte,
+        true,
+        auteur,
+    )
+    .await
 }
 
 async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
@@ -460,7 +487,13 @@ async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
 // ---------------------------------------------------------------------------
 
 impl PgEnt {
-    async fn ins_exiger(&self, etab: Uuid, actor: Uuid, role: &str, a: Action) -> Result<(), EntDbError> {
+    async fn ins_exiger(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        a: Action,
+    ) -> Result<(), EntDbError> {
         if self.a_action_etablissement(etab, actor, role, a).await? {
             Ok(())
         } else {
@@ -468,13 +501,28 @@ impl PgEnt {
         }
     }
 
-    async fn ins_peut(&self, etab: Uuid, actor: Uuid, role: &str, a: Action) -> Result<bool, EntDbError> {
+    async fn ins_peut(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        a: Action,
+    ) -> Result<bool, EntDbError> {
         self.a_action_etablissement(etab, actor, role, a).await
     }
 
-    async fn ins_personnel(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<(bool, bool), EntDbError> {
-        let g = self.ins_peut(etab, actor, role, Action::InscriptionsGerer).await?;
-        let d = self.ins_peut(etab, actor, role, Action::InscriptionsDecider).await?;
+    async fn ins_personnel(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+    ) -> Result<(bool, bool), EntDbError> {
+        let g = self
+            .ins_peut(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
+        let d = self
+            .ins_peut(etab, actor, role, Action::InscriptionsDecider)
+            .await?;
         if !g && !d {
             return Err(EntDbError::Forbidden);
         }
@@ -483,7 +531,12 @@ impl PgEnt {
 
     // -- Campagnes -----------------------------------------------------------
 
-    async fn campagne_dto(&self, etab: Uuid, r: CampagneRow, compteurs: bool) -> Result<CampagneDto, EntDbError> {
+    async fn campagne_dto(
+        &self,
+        etab: Uuid,
+        r: CampagneRow,
+        compteurs: bool,
+    ) -> Result<CampagneDto, EntDbError> {
         let niveaux: Vec<(String, Option<i32>)> = sqlx::query_as(
             "SELECT code, capacite FROM ent_inscription_campagne_niveau
               WHERE etablissement_id = $1 AND campagne_id = $2 ORDER BY code",
@@ -533,7 +586,11 @@ impl PgEnt {
                 .collect(),
             pieces: pieces
                 .into_iter()
-                .map(|(code, libelle, obligatoire)| PieceCampagneDto { code, libelle, obligatoire })
+                .map(|(code, libelle, obligatoire)| PieceCampagneDto {
+                    code,
+                    libelle,
+                    obligatoire,
+                })
                 .collect(),
             compteurs,
         })
@@ -557,7 +614,9 @@ impl PgEnt {
         }
         let l = b.libelle.trim();
         if l.is_empty() || l.chars().count() > 160 {
-            return Err(invalide("libellé de campagne obligatoire (160 caractères au plus)"));
+            return Err(invalide(
+                "libellé de campagne obligatoire (160 caractères au plus)",
+            ));
         }
         if !annee_cible_valide(b.annee_cible.trim()) {
             return Err(invalide("année cible au format 2027-2028"));
@@ -567,16 +626,23 @@ impl PgEnt {
                 return Err(invalide("la clôture précède l'ouverture"));
             }
         }
-        if b.message_famille.as_deref().is_some_and(|m| m.chars().count() > 2000) {
+        if b.message_famille
+            .as_deref()
+            .is_some_and(|m| m.chars().count() > 2000)
+        {
             return Err(invalide("message aux familles trop long"));
         }
         let mut codes = std::collections::HashSet::new();
         for p in &b.pieces {
             let ok = !p.code.is_empty()
                 && p.code.len() <= 40
-                && p.code.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+                && p.code
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
             if !ok || p.libelle.trim().is_empty() || p.libelle.chars().count() > 160 {
-                return Err(invalide("pièce : code (a-z, 0-9, _) et libellé obligatoires"));
+                return Err(invalide(
+                    "pièce : code (a-z, 0-9, _) et libellé obligatoires",
+                ));
             }
             if !codes.insert(p.code.clone()) {
                 return Err(invalide("code de pièce en double"));
@@ -652,7 +718,8 @@ impl PgEnt {
         role: &str,
         b: &CampagneBody,
     ) -> Result<CampagneDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
         Self::valider_campagne(b)?;
         let id = Uuid::new_v4();
         let mut tx = self.pool().begin().await.map_err(db)?;
@@ -689,7 +756,8 @@ impl PgEnt {
         id: Uuid,
         b: &CampagneBody,
     ) -> Result<CampagneDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
         Self::valider_campagne(b)?;
         let r = self.campagne_row(etab, id).await?;
         if r.statut == "fermee" {
@@ -730,7 +798,8 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<OuvertureCampagneDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
         let r = self.campagne_row(etab, id).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let maj = sqlx::query(
@@ -743,7 +812,9 @@ impl PgEnt {
         .await;
         if let Err(e) = maj {
             return Err(match map_sqlx("inscriptions", e) {
-                DomainError::Conflit => conflit("une campagne de même nature est déjà ouverte pour cette année"),
+                DomainError::Conflit => {
+                    conflit("une campagne de même nature est déjà ouverte pour cette année")
+                }
                 d => EntDbError::Domain(d),
             });
         }
@@ -779,19 +850,27 @@ impl PgEnt {
         etab: Uuid,
         campagne_id: Uuid,
     ) -> Result<i64, EntDbError> {
-        let eleves: Vec<(Uuid, String, String, Option<NaiveDate>, Option<String>, Option<String>)> =
-            sqlx::query_as(
-                "SELECT id, nom, prenom, date_naissance, sexe, ine FROM ent_eleve
+        let eleves: Vec<(
+            Uuid,
+            String,
+            String,
+            Option<NaiveDate>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
+            "SELECT id, nom, prenom, date_naissance, sexe, ine FROM ent_eleve
                   WHERE etablissement_id = $1 AND status = 'actif' ORDER BY nom, prenom",
-            )
-            .bind(etab)
-            .fetch_all(&mut *conn)
-            .await
-            .map_err(db)?;
+        )
+        .bind(etab)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
         let mut n = 0_i64;
         for (eleve_id, nom, prenom, naissance, sexe, ine) in eleves {
             let dossier_id = Uuid::new_v4();
-            let sexe = sexe.map(|s| s.to_uppercase()).filter(|s| s == "F" || s == "M");
+            let sexe = sexe
+                .map(|s| s.to_uppercase())
+                .filter(|s| s == "F" || s == "M");
             let ins = sqlx::query(
                 "INSERT INTO ent_inscription_dossier
                     (id, etablissement_id, campagne_id, nature, statut, eleve_id, eleve_nom,
@@ -830,8 +909,14 @@ impl PgEnt {
                 .fetch_all(&mut *conn)
                 .await
                 .map_err(db)?;
-            for (i, (pid, pnom, pprenom, civ, email, tel, adr, lien)) in resp.into_iter().enumerate() {
-                let lien = if ["mere", "pere", "tuteur"].contains(&lien.as_str()) { lien } else { "autre".into() };
+            for (i, (pid, pnom, pprenom, civ, email, tel, adr, lien)) in
+                resp.into_iter().enumerate()
+            {
+                let lien = if ["mere", "pere", "tuteur"].contains(&lien.as_str()) {
+                    lien
+                } else {
+                    "autre".into()
+                };
                 sqlx::query(
                     "INSERT INTO ent_inscription_responsable
                         (id, etablissement_id, dossier_id, rang, nom, prenom, civilite, email,
@@ -888,7 +973,8 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<CampagneDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
         let r = self.campagne_row(etab, id).await?;
         if r.statut != "ouverte" {
             return Err(conflit("seule une campagne ouverte peut être fermée"));
@@ -955,7 +1041,11 @@ impl PgEnt {
         .ok_or_else(introuvable)
     }
 
-    async fn responsables_dossier(&self, etab: Uuid, id: Uuid) -> Result<Vec<ResponsableRow>, EntDbError> {
+    async fn responsables_dossier(
+        &self,
+        etab: Uuid,
+        id: Uuid,
+    ) -> Result<Vec<ResponsableRow>, EntDbError> {
         sqlx::query_as::<_, ResponsableRow>(
             "SELECT id, rang, nom, prenom, civilite, email, telephone, adresse, lien, meme_foyer,
                     autorite_parentale, personne_id
@@ -970,7 +1060,13 @@ impl PgEnt {
     }
 
     /// Dossier complet. `famille` : commentaires internes retirés.
-    async fn dossier_dto(&self, etab: Uuid, d: DossierRow, famille: bool, actions: Vec<String>) -> Result<DossierDto, EntDbError> {
+    async fn dossier_dto(
+        &self,
+        etab: Uuid,
+        d: DossierRow,
+        famille: bool,
+        actions: Vec<String>,
+    ) -> Result<DossierDto, EntDbError> {
         let campagne = self.campagne_row(etab, d.campagne_id).await?;
         let invitations: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT responsable_id, statut FROM ent_inscription_invitation
@@ -987,7 +1083,10 @@ impl PgEnt {
             .into_iter()
             .map(|r| ResponsableDossierDto {
                 rang: r.rang,
-                invitation: invitations.iter().find(|(id, _)| *id == r.id).map(|(_, s)| s.clone()),
+                invitation: invitations
+                    .iter()
+                    .find(|(id, _)| *id == r.id)
+                    .map(|(_, s)| s.clone()),
                 formulaire: ResponsableFormulaireDto {
                     nom: r.nom,
                     prenom: r.prenom,
@@ -1042,24 +1141,30 @@ impl PgEnt {
             responsables,
             pieces: pieces
                 .into_iter()
-                .map(|(code, libelle, obligatoire, statut, nom_fichier, motif_refus)| PieceDossierDto {
-                    code,
-                    libelle,
-                    obligatoire,
-                    statut,
-                    nom_fichier,
-                    motif_refus,
-                })
+                .map(
+                    |(code, libelle, obligatoire, statut, nom_fichier, motif_refus)| {
+                        PieceDossierDto {
+                            code,
+                            libelle,
+                            obligatoire,
+                            statut,
+                            nom_fichier,
+                            motif_refus,
+                        }
+                    },
+                )
                 .collect(),
             suivi: suivi
                 .into_iter()
-                .map(|(quand, kind, statut_apres, texte, visible_famille)| SuiviDossierDto {
-                    quand,
-                    kind,
-                    statut_apres,
-                    texte,
-                    visible_famille,
-                })
+                .map(
+                    |(quand, kind, statut_apres, texte, visible_famille)| SuiviDossierDto {
+                        quand,
+                        kind,
+                        statut_apres,
+                        texte,
+                        visible_famille,
+                    },
+                )
                 .collect(),
             decision_motif: d.decision_motif,
             depose_le: d.depose_le,
@@ -1069,7 +1174,12 @@ impl PgEnt {
         })
     }
 
-    async fn resumes(&self, etab: Uuid, filtre_sql: &str, binds: (Option<Uuid>, Option<String>)) -> Result<Vec<DossierResumeDto>, EntDbError> {
+    async fn resumes(
+        &self,
+        etab: Uuid,
+        filtre_sql: &str,
+        binds: (Option<Uuid>, Option<String>),
+    ) -> Result<Vec<DossierResumeDto>, EntDbError> {
         let sql = format!(
             "SELECT d.id, d.campagne_id, d.nature, d.statut, d.eleve_nom, d.eleve_prenom, d.niveau_demande,
                     d.eleve_id, d.depose_le,
@@ -1080,14 +1190,24 @@ impl PgEnt {
               ORDER BY d.depose_le DESC NULLS LAST, d.eleve_nom, d.eleve_prenom
               LIMIT 2000"
         );
-        let rows: Vec<(Uuid, Uuid, String, String, String, String, Option<String>, Option<Uuid>, Option<DateTime<Utc>>, i64)> =
-            sqlx::query_as(&sql)
-                .bind(etab)
-                .bind(binds.0)
-                .bind(binds.1)
-                .fetch_all(self.pool())
-                .await
-                .map_err(db)?;
+        let rows: Vec<(
+            Uuid,
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<Uuid>,
+            Option<DateTime<Utc>>,
+            i64,
+        )> = sqlx::query_as(&sql)
+            .bind(etab)
+            .bind(binds.0)
+            .bind(binds.1)
+            .fetch_all(self.pool())
+            .await
+            .map_err(db)?;
         Ok(rows
             .into_iter()
             .map(|r| DossierResumeDto {
@@ -1150,7 +1270,8 @@ impl PgEnt {
         id: Uuid,
         b: &StatutBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
         let motif = opt(&b.motif);
         if motif.as_deref().is_some_and(|m| m.chars().count() > 1000) {
             return Err(invalide("motif trop long"));
@@ -1158,7 +1279,9 @@ impl PgEnt {
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if !transition_instruction_admise(&d.statut, &b.statut) {
-            return Err(conflit("changement d'étape impossible depuis l'état actuel"));
+            return Err(conflit(
+                "changement d'étape impossible depuis l'état actuel",
+            ));
         }
         if b.statut == "incomplet" && motif.is_none() {
             return Err(invalide("motif obligatoire pour un dossier incomplet"));
@@ -1188,7 +1311,8 @@ impl PgEnt {
         code: &str,
         b: &PieceDecisionBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
         let motif = opt(&b.motif);
         match b.statut.as_str() {
             "acceptee" => {}
@@ -1225,7 +1349,17 @@ impl PgEnt {
         } else {
             format!("Pièce « {code} » refusée : {}", motif.unwrap_or_default())
         };
-        suivi_tx(&mut tx, etab, id, "piece", None, Some(&texte), true, Some(actor)).await?;
+        suivi_tx(
+            &mut tx,
+            etab,
+            id,
+            "piece",
+            None,
+            Some(&texte),
+            true,
+            Some(actor),
+        )
+        .await?;
         commit(tx).await?;
         self.dossier_for_actor(etab, actor, role, id).await
     }
@@ -1238,14 +1372,25 @@ impl PgEnt {
         id: Uuid,
         b: &CommentaireBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
         let t = b.texte.trim();
         if t.is_empty() || t.chars().count() > 2000 {
             return Err(invalide("commentaire vide ou trop long (2000 caractères)"));
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
         dossier_tx(&mut tx, etab, id).await?;
-        suivi_tx(&mut tx, etab, id, "commentaire", None, Some(t), b.visible_famille, Some(actor)).await?;
+        suivi_tx(
+            &mut tx,
+            etab,
+            id,
+            "commentaire",
+            None,
+            Some(t),
+            b.visible_famille,
+            Some(actor),
+        )
+        .await?;
         commit(tx).await?;
         self.dossier_for_actor(etab, actor, role, id).await
     }
@@ -1259,13 +1404,19 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<i64, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
-        if !matches!(d.statut.as_str(), "deposee" | "en_instruction" | "incomplet" | "admis" | "brouillon") {
+        if !matches!(
+            d.statut.as_str(),
+            "deposee" | "en_instruction" | "incomplet" | "admis" | "brouillon"
+        ) {
             return Err(conflit("dossier sans relance possible dans cet état"));
         }
-        if d.derniere_relance_le.is_some_and(|r| Utc::now() - r < Duration::days(RELANCE_DELAI_JOURS)) {
+        if d.derniere_relance_le
+            .is_some_and(|r| Utc::now() - r < Duration::days(RELANCE_DELAI_JOURS))
+        {
             return Err(conflit("relance trop récente"));
         }
         let manquantes: Vec<(String,)> = sqlx::query_as(
@@ -1290,8 +1441,22 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let liste = manquantes.iter().map(|(l,)| format!("- {l}")).collect::<Vec<_>>().join("\n");
-        suivi_tx(&mut tx, etab, id, "relance", None, Some("Relance des pièces manquantes"), true, Some(actor)).await?;
+        let liste = manquantes
+            .iter()
+            .map(|(l,)| format!("- {l}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        suivi_tx(
+            &mut tx,
+            etab,
+            id,
+            "relance",
+            None,
+            Some("Relance des pièces manquantes"),
+            true,
+            Some(actor),
+        )
+        .await?;
         publier(
             &mut tx,
             etab,
@@ -1333,13 +1498,16 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         id: Uuid,
         b: &DecisionBody,
     ) -> Result<DossierDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
+            .await?;
         let motif = opt(&b.motif);
         if !["admis", "liste_attente", "refuse"].contains(&b.decision.as_str()) {
             return Err(invalide("décision : admis, liste_attente ou refuse"));
         }
         if b.decision != "admis" && motif.is_none() {
-            return Err(invalide("motif obligatoire pour un refus ou une liste d'attente"));
+            return Err(invalide(
+                "motif obligatoire pour un refus ou une liste d'attente",
+            ));
         }
         if motif.as_deref().is_some_and(|m| m.chars().count() > 1000) {
             return Err(invalide("motif trop long"));
@@ -1347,7 +1515,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if d.nature != "admission" {
-            return Err(conflit("une réinscription se valide sans décision d'admission"));
+            return Err(conflit(
+                "une réinscription se valide sans décision d'admission",
+            ));
         }
         if !decision_admise(&d.statut) || d.statut == b.decision {
             return Err(conflit("décision impossible depuis l'état actuel"));
@@ -1385,7 +1555,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                     .await
                     .map_err(db)?;
                     if pris >= i64::from(cap) {
-                        return Err(conflit("capacité du niveau atteinte : liste d'attente possible"));
+                        return Err(conflit(
+                            "capacité du niveau atteinte : liste d'attente possible",
+                        ));
                     }
                 }
             }
@@ -1401,7 +1573,15 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        changer_statut_tx(&mut tx, etab, &d, &b.decision, motif.as_deref(), Some(actor)).await?;
+        changer_statut_tx(
+            &mut tx,
+            etab,
+            &d,
+            &b.decision,
+            motif.as_deref(),
+            Some(actor),
+        )
+        .await?;
         // Le motif (texte libre) n'entre pas dans l'événement (§4.1-3).
         publier(
             &mut tx,
@@ -1428,7 +1608,8 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         id: Uuid,
         b: &ValidationBody,
     ) -> Result<ValidationDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider).await?;
+        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
+            .await?;
         let regime = regime_valide(&b.regime)?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
@@ -1453,7 +1634,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .await
         .map_err(db)?;
         if manquantes > 0 {
-            return Err(conflit("dossier incomplet : pièces obligatoires non acceptées"));
+            return Err(conflit(
+                "dossier incomplet : pièces obligatoires non acceptées",
+            ));
         }
         let classe = match b.classe_id.or(d.classe_cible_id) {
             None => None,
@@ -1467,7 +1650,10 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
-                Some(r.ok_or(EntDbError::Domain(DomainError::ReferenceInconnue))?.0)
+                Some(
+                    r.ok_or(EntDbError::Domain(DomainError::ReferenceInconnue))?
+                        .0,
+                )
             }
         };
         let regime = regime.or(d.regime_demande.clone());
@@ -1492,7 +1678,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             _ => {
                 let eleve_id =
                     Self::creer_eleve_tx(&mut tx, etab, &d, regime.as_deref(), actor).await?;
-                payeurs = Self::rattacher_responsables_tx(&mut tx, etab, eleve_id, &responsables, actor).await?;
+                payeurs =
+                    Self::rattacher_responsables_tx(&mut tx, etab, eleve_id, &responsables, actor)
+                        .await?;
                 eleve_id
             }
         };
@@ -1581,7 +1769,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .await
         .map_err(db)?;
         if homonymes > 0 {
-            return Err(conflit("un élève de même identité (ou de même INE) existe déjà dans l'établissement"));
+            return Err(conflit(
+                "un élève de même identité (ou de même INE) existe déjà dans l'établissement",
+            ));
         }
         let eleve_id = Uuid::new_v4();
         // Élève « préinscrit » tant qu'aucune classe de l'année courante ne lui est
@@ -1680,13 +1870,15 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             };
             let foyer = if r.rang == 1 || !r.meme_foyer || foyer_principal.is_none() {
                 let f = Uuid::new_v4();
-                sqlx::query("INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1,$2,$3)")
-                    .bind(f)
-                    .bind(etab)
-                    .bind(format!("Foyer {}", r.nom.to_uppercase()))
-                    .execute(&mut *conn)
-                    .await
-                    .map_err(db)?;
+                sqlx::query(
+                    "INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1,$2,$3)",
+                )
+                .bind(f)
+                .bind(etab)
+                .bind(format!("Foyer {}", r.nom.to_uppercase()))
+                .execute(&mut *conn)
+                .await
+                .map_err(db)?;
                 if foyer_principal.is_none() {
                     foyer_principal = Some(f);
                 }
@@ -1745,7 +1937,11 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
 
     /// INS-02, étape 1 — public. Même traitement et même réponse que le compte
     /// existe ou non : une demande est créée et un code envoyé dans tous les cas.
-    pub async fn demarrer_preinscription(&self, etab: Uuid, email: &str) -> Result<DemarrerDto, EntDbError> {
+    pub async fn demarrer_preinscription(
+        &self,
+        etab: Uuid,
+        email: &str,
+    ) -> Result<DemarrerDto, EntDbError> {
         let email = normaliser_email(email)?;
         let id = Uuid::new_v4();
         let code = code_six_chiffres();
@@ -1785,7 +1981,11 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
 
     fn nouveau_jeton() -> (String, String, DateTime<Utc>) {
         let (raw, hashed) = generate_reset_token();
-        (raw, hashed, Utc::now() + Duration::minutes(JETON_TTL_MINUTES))
+        (
+            raw,
+            hashed,
+            Utc::now() + Duration::minutes(JETON_TTL_MINUTES),
+        )
     }
 
     /// INS-02, étape 2 — code reçu par e-mail. Erreur unique (« code invalide ou
@@ -1838,7 +2038,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .await
         .map_err(db)?;
         commit(tx).await?;
-        Ok(JetonPreinscriptionDto { jeton: raw, expire_le: fin })
+        Ok(JetonPreinscriptionDto {
+            jeton: raw,
+            expire_le: fin,
+        })
     }
 
     /// Variante « passkey / session » : une session ouverte dans cet
@@ -1868,11 +2071,18 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .execute(self.pool())
         .await
         .map_err(db)?;
-        Ok(JetonPreinscriptionDto { jeton: raw, expire_le: fin })
+        Ok(JetonPreinscriptionDto {
+            jeton: raw,
+            expire_le: fin,
+        })
     }
 
     /// Jeton → e-mail vérifié (et compte s'il existe), dans CET établissement.
-    pub async fn resoudre_jeton_preinscription(&self, etab: Uuid, jeton: &str) -> Result<Verifie, EntDbError> {
+    pub async fn resoudre_jeton_preinscription(
+        &self,
+        etab: Uuid,
+        jeton: &str,
+    ) -> Result<Verifie, EntDbError> {
         if jeton.trim().is_empty() || jeton.len() > 256 {
             return Err(jeton_invalide());
         }
@@ -1889,11 +2099,12 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         let Some((email,)) = row else {
             return Err(jeton_invalide());
         };
-        let user: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_user WHERE lower(email) = $1")
-            .bind(&email)
-            .fetch_optional(self.pool())
-            .await
-            .map_err(db)?;
+        let user: Option<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM ent_user WHERE lower(email) = $1")
+                .bind(&email)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(db)?;
         Ok(Verifie {
             email,
             user_id: user.map(|u| u.0),
@@ -1902,7 +2113,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
 
     /// Établissement auquel un jeton de préinscription est lié (adresse sans
     /// établissement connu, mode souple) ; `None` si le jeton est inconnu.
-    pub async fn etablissement_du_jeton_preinscription(&self, jeton: &str) -> Result<Option<Uuid>, EntDbError> {
+    pub async fn etablissement_du_jeton_preinscription(
+        &self,
+        jeton: &str,
+    ) -> Result<Option<Uuid>, EntDbError> {
         if jeton.trim().is_empty() || jeton.len() > 256 {
             return Ok(None);
         }
@@ -1917,31 +2131,43 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     }
 
     /// Établissement d'une demande de vérification (mode souple ; le code reste exigé).
-    pub async fn etablissement_de_demande_preinscription(&self, demande_id: Uuid) -> Result<Option<Uuid>, EntDbError> {
-        let r: Option<(Uuid,)> =
-            sqlx::query_as("SELECT etablissement_id FROM ent_preinscription_verification WHERE id = $1")
-                .bind(demande_id)
-                .fetch_optional(self.pool())
-                .await
-                .map_err(db)?;
+    pub async fn etablissement_de_demande_preinscription(
+        &self,
+        demande_id: Uuid,
+    ) -> Result<Option<Uuid>, EntDbError> {
+        let r: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT etablissement_id FROM ent_preinscription_verification WHERE id = $1",
+        )
+        .bind(demande_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?;
         Ok(r.map(|r| r.0))
     }
 
     /// Établissement d'une invitation (même usage que ci-dessus).
-    pub async fn etablissement_de_invitation(&self, jeton: &str) -> Result<Option<Uuid>, EntDbError> {
+    pub async fn etablissement_de_invitation(
+        &self,
+        jeton: &str,
+    ) -> Result<Option<Uuid>, EntDbError> {
         if jeton.trim().is_empty() || jeton.len() > 256 {
             return Ok(None);
         }
-        let r: Option<(Uuid,)> =
-            sqlx::query_as("SELECT etablissement_id FROM ent_inscription_invitation WHERE jeton_hash = $1")
-                .bind(hash_token(jeton.trim()))
-                .fetch_optional(self.pool())
-                .await
-                .map_err(db)?;
+        let r: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT etablissement_id FROM ent_inscription_invitation WHERE jeton_hash = $1",
+        )
+        .bind(hash_token(jeton.trim()))
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?;
         Ok(r.map(|r| r.0))
     }
 
-    async fn campagnes_ouvertes(&self, etab: Uuid, nature: &str) -> Result<Vec<CampagneDto>, EntDbError> {
+    async fn campagnes_ouvertes(
+        &self,
+        etab: Uuid,
+        nature: &str,
+    ) -> Result<Vec<CampagneDto>, EntDbError> {
         let rows = sqlx::query_as::<_, CampagneRow>(&format!(
             "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne
               WHERE etablissement_id = $1 AND nature = $2 AND statut = 'ouverte'
@@ -1963,7 +2189,11 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
 
     /// Espace famille (après vérification) : « Nous avons déjà vos informations ? »,
     /// campagnes ouvertes, dossiers déposés avec cette adresse dans CET établissement.
-    pub async fn espace_preinscription(&self, etab: Uuid, jeton: &str) -> Result<EspacePreinscriptionDto, EntDbError> {
+    pub async fn espace_preinscription(
+        &self,
+        etab: Uuid,
+        jeton: &str,
+    ) -> Result<EspacePreinscriptionDto, EntDbError> {
         let v = self.resoudre_jeton_preinscription(etab, jeton).await?;
         let profil = match v.user_id {
             None => None,
@@ -1991,7 +2221,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                                 .fetch_one(self.pool())
                                 .await
                                 .map_err(db)?;
-                        Some(ProfilDto { nom, ..Default::default() })
+                        Some(ProfilDto {
+                            nom,
+                            ..Default::default()
+                        })
                     }
                 }
             }
@@ -2002,7 +2235,11 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             profil,
             campagnes: self.campagnes_ouvertes(etab, "admission").await?,
             dossiers: self
-                .resumes(etab, "AND d.deposant_email = $3 AND ($2::uuid IS NULL)", (None, Some(v.email)))
+                .resumes(
+                    etab,
+                    "AND d.deposant_email = $3 AND ($2::uuid IS NULL)",
+                    (None, Some(v.email)),
+                )
                 .await?,
             message_confidentialite: MESSAGE_CONFIDENTIALITE.into(),
         })
@@ -2026,7 +2263,9 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             Some(s) => {
                 let s = normaliser_responsable(s)?;
                 if s.email.as_deref() == Some(v.email.as_str()) {
-                    return Err(invalide("le second parent doit avoir sa propre adresse e-mail"));
+                    return Err(invalide(
+                        "le second parent doit avoir sa propre adresse e-mail",
+                    ));
                 }
                 Some(s)
             }
@@ -2079,7 +2318,9 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .await
         .map_err(db)?;
         if deja >= DOSSIERS_MAX_PAR_DEPOSANT {
-            return Err(conflit("nombre maximal de dossiers atteint pour cette campagne"));
+            return Err(conflit(
+                "nombre maximal de dossiers atteint pour cette campagne",
+            ));
         }
         let id = Uuid::new_v4();
         let reutilise = b.utiliser_mes_infos && v.user_id.is_some();
@@ -2133,8 +2374,17 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             .map_err(db)?;
         }
         Self::copier_pieces_tx(&mut tx, etab, b.campagne_id, id).await?;
-        suivi_tx(&mut tx, etab, id, "statut", Some(("brouillon", "deposee")), Some("Préinscription déposée"), true, None)
-            .await?;
+        suivi_tx(
+            &mut tx,
+            etab,
+            id,
+            "statut",
+            Some(("brouillon", "deposee")),
+            Some("Préinscription déposée"),
+            true,
+            None,
+        )
+        .await?;
         if let Some(u) = v.user_id {
             if reutilise {
                 Self::journal_identite_tx(&mut tx, u, "informations_reutilisees", etab).await?;
@@ -2194,7 +2444,12 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     }
 
     /// Dossier déposé avec l'adresse vérifiée (sinon « introuvable »).
-    async fn dossier_du_deposant(&self, etab: Uuid, jeton: &str, id: Uuid) -> Result<(Verifie, DossierRow), EntDbError> {
+    async fn dossier_du_deposant(
+        &self,
+        etab: Uuid,
+        jeton: &str,
+        id: Uuid,
+    ) -> Result<(Verifie, DossierRow), EntDbError> {
         let v = self.resoudre_jeton_preinscription(etab, jeton).await?;
         let d = self.dossier_row(etab, id).await?;
         if d.deposant_email.as_deref() != Some(v.email.as_str()) {
@@ -2203,10 +2458,18 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         Ok((v, d))
     }
 
-    pub async fn dossier_famille(&self, etab: Uuid, jeton: &str, id: Uuid) -> Result<DossierDto, EntDbError> {
+    pub async fn dossier_famille(
+        &self,
+        etab: Uuid,
+        jeton: &str,
+        id: Uuid,
+    ) -> Result<DossierDto, EntDbError> {
         let (_, d) = self.dossier_du_deposant(etab, jeton, id).await?;
         let mut actions = Vec::new();
-        if matches!(d.statut.as_str(), "deposee" | "en_instruction" | "incomplet" | "liste_attente" | "admis") {
+        if matches!(
+            d.statut.as_str(),
+            "deposee" | "en_instruction" | "incomplet" | "liste_attente" | "admis"
+        ) {
             actions.push("deposer_piece".to_string());
         }
         if d.statut == "validee" {
@@ -2230,7 +2493,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if nom.is_empty() || nom.chars().count() > 200 || nom.contains(['/', '\\']) {
             return Err(invalide("nom de fichier invalide"));
         }
-        if !matches!(d.statut.as_str(), "deposee" | "en_instruction" | "incomplet" | "liste_attente" | "admis") {
+        if !matches!(
+            d.statut.as_str(),
+            "deposee" | "en_instruction" | "incomplet" | "liste_attente" | "admis"
+        ) {
             return Err(conflit("dossier clos"));
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
@@ -2250,7 +2516,17 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if n.rows_affected() == 0 {
             return Err(introuvable());
         }
-        suivi_tx(&mut tx, etab, id, "piece", None, Some(&format!("Pièce « {code} » déposée")), true, None).await?;
+        suivi_tx(
+            &mut tx,
+            etab,
+            id,
+            "piece",
+            None,
+            Some(&format!("Pièce « {code} » déposée")),
+            true,
+            None,
+        )
+        .await?;
         commit(tx).await?;
         self.dossier_famille(etab, jeton, id).await
     }
@@ -2259,7 +2535,11 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
 
     /// IBAN connus de la personne dans d'AUTRES établissements (mandats actifs
     /// des foyers où elle est payeuse), déchiffrés pour être masqués.
-    async fn ibans_reprenables(&self, etab: Uuid, user_id: Uuid) -> Result<Vec<(Uuid, String, Option<String>, String)>, EntDbError> {
+    async fn ibans_reprenables(
+        &self,
+        etab: Uuid,
+        user_id: Uuid,
+    ) -> Result<Vec<(Uuid, String, Option<String>, String)>, EntDbError> {
         let rows: Vec<(Uuid, String, Option<String>, String)> = sqlx::query_as(
             "SELECT DISTINCT m.id, m.iban, m.bic, m.titulaire
                FROM ent_eleve_lien l
@@ -2285,7 +2565,11 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         Ok(out)
     }
 
-    async fn demande_mandat_dto(&self, etab: Uuid, dossier_id: Uuid) -> Result<Option<MandatDemandeDto>, EntDbError> {
+    async fn demande_mandat_dto(
+        &self,
+        etab: Uuid,
+        dossier_id: Uuid,
+    ) -> Result<Option<MandatDemandeDto>, EntDbError> {
         let r: Option<(Uuid, String, String, String, Option<Uuid>)> = sqlx::query_as(
             "SELECT id, iban, source, statut, mandat_id FROM ent_mandat_sepa_demande
               WHERE etablissement_id = $1 AND dossier_id = $2 AND statut IN ('a_signer', 'signe')",
@@ -2300,13 +2584,15 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         };
         let iban = ChampsSensibles::depuis_env().ouvrir(T_DEMANDE, "iban", id, &iban)?;
         let rum = match mandat_id {
-            Some(m) => sqlx::query_as::<_, (String,)>("SELECT rum FROM ent_fac_sepa_mandat WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(m)
-                .fetch_optional(self.pool())
-                .await
-                .map_err(db)?
-                .map(|r| r.0),
+            Some(m) => sqlx::query_as::<_, (String,)>(
+                "SELECT rum FROM ent_fac_sepa_mandat WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(m)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(db)?
+            .map(|r| r.0),
             None => None,
         };
         Ok(Some(MandatDemandeDto {
@@ -2318,10 +2604,17 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         }))
     }
 
-    async fn dossier_valide_du_deposant(&self, etab: Uuid, jeton: &str, id: Uuid) -> Result<(Verifie, DossierRow), EntDbError> {
+    async fn dossier_valide_du_deposant(
+        &self,
+        etab: Uuid,
+        jeton: &str,
+        id: Uuid,
+    ) -> Result<(Verifie, DossierRow), EntDbError> {
         let (v, d) = self.dossier_du_deposant(etab, jeton, id).await?;
         if d.statut != "validee" {
-            return Err(conflit("coordonnées bancaires demandées à la validation de l'inscription"));
+            return Err(conflit(
+                "coordonnées bancaires demandées à la validation de l'inscription",
+            ));
         }
         Ok((v, d))
     }
@@ -2397,7 +2690,9 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .fetch_optional(self.pool())
         .await
         .map_err(db)?;
-        let foyer = foyer.ok_or(conflit("aucun foyer payeur pour ce dossier"))?.0;
+        let foyer = foyer
+            .ok_or(conflit("aucun foyer payeur pour ce dossier"))?
+            .0;
         let demande_id = Uuid::new_v4();
         let champs = ChampsSensibles::depuis_env();
         let mut tx = self.pool().begin().await.map_err(db)?;
@@ -2449,12 +2744,19 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         )
         .await?;
         commit(tx).await?;
-        self.demande_mandat_dto(etab, id).await?.ok_or_else(introuvable)
+        self.demande_mandat_dto(etab, id)
+            .await?
+            .ok_or_else(introuvable)
     }
 
     /// Signature du nouveau mandat (consentement explicite horodaté) : le mandat
     /// actif est créé dans l'établissement (domaine facturation, chiffré D3).
-    pub async fn signer_mandat_famille(&self, etab: Uuid, jeton: &str, id: Uuid) -> Result<MandatDemandeDto, EntDbError> {
+    pub async fn signer_mandat_famille(
+        &self,
+        etab: Uuid,
+        jeton: &str,
+        id: Uuid,
+    ) -> Result<MandatDemandeDto, EntDbError> {
         let (v, _d) = self.dossier_valide_du_deposant(etab, jeton, id).await?;
         let champs = ChampsSensibles::depuis_env();
         let mut tx = self.pool().begin().await.map_err(db)?;
@@ -2482,7 +2784,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if actif > 0 {
             return Err(conflit("un mandat actif existe déjà pour ce foyer"));
         }
-        let rum = format!("INS-{}", demande_id.simple().to_string()[..16].to_uppercase());
+        let rum = format!(
+            "INS-{}",
+            demande_id.simple().to_string()[..16].to_uppercase()
+        );
         let m = plan_creer_mandat_sepa(CreerMandatSepa {
             etablissement_id: etab,
             foyer_id: foyer,
@@ -2548,7 +2853,9 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         )
         .await?;
         commit(tx).await?;
-        self.demande_mandat_dto(etab, id).await?.ok_or_else(introuvable)
+        self.demande_mandat_dto(etab, id)
+            .await?
+            .ok_or_else(introuvable)
     }
 
     // -- Invitations (INS-13, D-014 second parent) ---------------------------
@@ -2556,7 +2863,11 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     /// Accepter une invitation (lien reçu par e-mail = adresse confirmée) :
     /// rattache l'identité existante (D-013) ou crée le compte, puis relie la
     /// personne de l'établissement à ce compte.
-    pub async fn accepter_invitation(&self, etab: Uuid, jeton: &str) -> Result<InvitationAccepteeDto, EntDbError> {
+    pub async fn accepter_invitation(
+        &self,
+        etab: Uuid,
+        jeton: &str,
+    ) -> Result<InvitationAccepteeDto, EntDbError> {
         if jeton.trim().is_empty() || jeton.len() > 256 {
             return Err(invalide("invitation invalide ou expirée"));
         }
@@ -2570,19 +2881,22 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .fetch_optional(self.pool())
         .await
         .map_err(db)?;
-        let (inv_id, personne_id, email, _dossier) = inv.ok_or(invalide("invitation invalide ou expirée"))?;
-        let nom: (String, Option<String>) =
-            sqlx::query_as("SELECT nom, prenom FROM ent_personne WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(personne_id)
-                .fetch_one(self.pool())
+        let (inv_id, personne_id, email, _dossier) =
+            inv.ok_or(invalide("invitation invalide ou expirée"))?;
+        let nom: (String, Option<String>) = sqlx::query_as(
+            "SELECT nom, prenom FROM ent_personne WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(personne_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db)?;
+        let existant: Option<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM ent_user WHERE lower(email) = lower($1)")
+                .bind(&email)
+                .fetch_optional(self.pool())
                 .await
                 .map_err(db)?;
-        let existant: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_user WHERE lower(email) = lower($1)")
-            .bind(&email)
-            .fetch_optional(self.pool())
-            .await
-            .map_err(db)?;
         let (user_id, cree) = match existant {
             Some((u,)) => (u, false),
             None => {
@@ -2625,7 +2939,9 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .await
         .map_err(db)?;
         if deja.is_some() {
-            return Err(conflit("cette identité est déjà rattachée à une autre fiche : contactez l'établissement"));
+            return Err(conflit(
+                "cette identité est déjà rattachée à une autre fiche : contactez l'établissement",
+            ));
         }
         sqlx::query("UPDATE ent_personne SET user_id = $3, updated_at = now() WHERE etablissement_id = $1 AND id = $2")
             .bind(etab)
@@ -2642,7 +2958,17 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        Self::journal_identite_tx(&mut tx, user_id, if cree { "compte_cree" } else { "compte_rattache" }, etab).await?;
+        Self::journal_identite_tx(
+            &mut tx,
+            user_id,
+            if cree {
+                "compte_cree"
+            } else {
+                "compte_rattache"
+            },
+            etab,
+        )
+        .await?;
         publier(
             &mut tx,
             etab,
@@ -2682,9 +3008,15 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             }
         }
         Ok(InvitationAccepteeDto {
-            resultat: if cree { "compte_cree" } else { "compte_rattache" }.into(),
+            resultat: if cree {
+                "compte_cree"
+            } else {
+                "compte_rattache"
+            }
+            .into(),
             message: if cree {
-                "Votre compte est créé. Un lien pour choisir votre mot de passe vous a été envoyé.".into()
+                "Votre compte est créé. Un lien pour choisir votre mot de passe vous a été envoyé."
+                    .into()
             } else {
                 "Votre compte existant est désormais rattaché à cet établissement.".into()
             },
@@ -2693,7 +3025,13 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
 
     // -- Réinscription par la famille (INS-07, INS-08) -------------------------
 
-    async fn exiger_lien_famille(&self, etab: Uuid, actor: Uuid, role: &str, eleve_id: Option<Uuid>) -> Result<(), EntDbError> {
+    async fn exiger_lien_famille(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        eleve_id: Option<Uuid>,
+    ) -> Result<(), EntDbError> {
         if Role::parse(role) != Some(Role::Parent) {
             return Err(EntDbError::Forbidden);
         }
@@ -2707,7 +3045,12 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     }
 
     /// Dossiers de réinscription des enfants du responsable (campagnes ouvertes).
-    pub async fn reinscriptions_famille(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<Vec<DossierDto>, EntDbError> {
+    pub async fn reinscriptions_famille(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+    ) -> Result<Vec<DossierDto>, EntDbError> {
         if Role::parse(role) != Some(Role::Parent) {
             return Err(EntDbError::Forbidden);
         }
@@ -2750,7 +3093,8 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if d.nature != "reinscription" {
             return Err(introuvable());
         }
-        self.exiger_lien_famille(etab, actor, role, d.eleve_id).await?;
+        self.exiger_lien_famille(etab, actor, role, d.eleve_id)
+            .await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         let (ouverte,): (bool,) = sqlx::query_as(
@@ -2764,11 +3108,12 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if !ouverte || !matches!(d.statut.as_str(), "brouillon" | "deposee") {
             return Err(conflit("réinscription non modifiable"));
         }
-        let email: Option<(String,)> = sqlx::query_as("SELECT lower(email) FROM ent_user WHERE id = $1")
-            .bind(actor)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?;
+        let email: Option<(String,)> =
+            sqlx::query_as("SELECT lower(email) FROM ent_user WHERE id = $1")
+                .bind(actor)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?;
         sqlx::query(
             "UPDATE ent_inscription_dossier SET regime_demande = COALESCE($3, regime_demande),
                     deposant_user_id = $4, deposant_email = $5, depose_le = now(), updated_at = now()
@@ -2783,8 +3128,15 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .await
         .map_err(db)?;
         if d.statut == "brouillon" {
-            changer_statut_tx(&mut tx, etab, &d, "deposee", Some("Réinscription confirmée par la famille"), Some(actor))
-                .await?;
+            changer_statut_tx(
+                &mut tx,
+                etab,
+                &d,
+                "deposee",
+                Some("Réinscription confirmée par la famille"),
+                Some(actor),
+            )
+            .await?;
         }
         let annee: (String,) =
             sqlx::query_as("SELECT annee_cible FROM ent_inscription_campagne WHERE id = $1")
@@ -2805,7 +3157,13 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .await?;
         commit(tx).await?;
         let d = self.dossier_row(etab, id).await?;
-        self.dossier_dto(etab, d, true, vec!["confirmer".into(), "annoncer_depart".into()]).await
+        self.dossier_dto(
+            etab,
+            d,
+            true,
+            vec!["confirmer".into(), "annoncer_depart".into()],
+        )
+        .await
     }
 
     pub async fn annoncer_depart_famille(
@@ -2818,13 +3176,16 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     ) -> Result<DossierDto, EntDbError> {
         let motif = b.motif.trim();
         if motif.is_empty() || motif.chars().count() > 1000 {
-            return Err(invalide("motif du départ obligatoire (1000 caractères au plus)"));
+            return Err(invalide(
+                "motif du départ obligatoire (1000 caractères au plus)",
+            ));
         }
         let d = self.dossier_row(etab, id).await?;
         if d.nature != "reinscription" {
             return Err(introuvable());
         }
-        self.exiger_lien_famille(etab, actor, role, d.eleve_id).await?;
+        self.exiger_lien_famille(etab, actor, role, d.eleve_id)
+            .await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if !matches!(d.statut.as_str(), "brouillon" | "deposee") {
@@ -2855,8 +3216,14 @@ mod tests_unitaires {
 
     #[test]
     fn masque_iban() {
-        assert_eq!(masquer_iban("FR7630006000011234567890189"), "FR76 •••• 0189");
-        assert_eq!(masquer_iban("FR76 3000 6000 0112 3456 7890 189"), "FR76 •••• 0189");
+        assert_eq!(
+            masquer_iban("FR7630006000011234567890189"),
+            "FR76 •••• 0189"
+        );
+        assert_eq!(
+            masquer_iban("FR76 3000 6000 0112 3456 7890 189"),
+            "FR76 •••• 0189"
+        );
         assert_eq!(masquer_iban("court"), "••••");
     }
 
@@ -2874,7 +3241,10 @@ mod tests_unitaires {
         assert!(!transition_instruction_admise("validee", "en_instruction"));
         assert!(!transition_instruction_admise("deposee", "validee"));
         let a = actions_personnel("admission", "admis", true, false);
-        assert!(!a.contains(&"valider".to_string()), "valider exige inscriptions.decider");
+        assert!(
+            !a.contains(&"valider".to_string()),
+            "valider exige inscriptions.decider"
+        );
         let a = actions_personnel("admission", "admis", false, true);
         assert!(a.contains(&"valider".to_string()));
         let a = actions_personnel("reinscription", "deposee", true, true);
@@ -2908,7 +3278,10 @@ mod tests_unitaires {
         }
         let id = Uuid::new_v4();
         assert_eq!(empreinte_code(id, "123456"), empreinte_code(id, " 123456 "));
-        assert_ne!(empreinte_code(id, "123456"), empreinte_code(Uuid::new_v4(), "123456"));
+        assert_ne!(
+            empreinte_code(id, "123456"),
+            empreinte_code(Uuid::new_v4(), "123456")
+        );
     }
 
     #[test]

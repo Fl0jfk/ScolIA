@@ -13,7 +13,14 @@ pub(crate) enum Auth<'a> {
     /// Cookie `HttpOnly` de session web, joint par le navigateur lui-même (même origine) :
     /// le code n'a jamais le jeton. Seul l'en-tête anti-CSRF est ajouté.
     Cookie,
+    /// Jeton de préinscription (S2-3) : remis après vérification de l'e-mail, gardé en
+    /// mémoire seulement, envoyé dans l'en-tête `X-Preinscription`.
+    Preinscription(&'a str),
 }
+
+/// En-tête du jeton de préinscription (`ent-api/src/inscriptions.rs`).
+#[cfg_attr(not(any(target_arch = "wasm32", feature = "natif")), allow(dead_code))]
+pub(crate) const EN_TETE_PREINSCRIPTION: &str = "X-Preinscription";
 
 /// En-tête anti-CSRF exigé par le relais `/web` (voir `ent-web-session`).
 #[cfg_attr(not(any(target_arch = "wasm32", feature = "natif")), allow(dead_code))]
@@ -38,6 +45,7 @@ pub(crate) async fn envoyer(
     match auth {
         Auth::Bearer(j) => req = req.header("Authorization", &format!("Bearer {j}")),
         Auth::Cookie => req = req.header(EN_TETE_CSRF, "1"),
+        Auth::Preinscription(j) => req = req.header(EN_TETE_PREINSCRIPTION, j),
         Auth::Aucun => {}
     }
     let reponse = match corps {
@@ -73,6 +81,7 @@ pub(crate) async fn envoyer(
     match auth {
         Auth::Bearer(j) => req = req.bearer_auth(j),
         Auth::Cookie => req = req.header(EN_TETE_CSRF, "1"),
+        Auth::Preinscription(j) => req = req.header(EN_TETE_PREINSCRIPTION, j),
         Auth::Aucun => {}
     }
     if let Some(c) = corps {
@@ -107,6 +116,7 @@ pub(crate) async fn envoyer_octets(url: &str, auth: Auth<'_>) -> Result<(u16, Ve
     match auth {
         Auth::Bearer(j) => req = req.header("Authorization", &format!("Bearer {j}")),
         Auth::Cookie => req = req.header(EN_TETE_CSRF, "1"),
+        Auth::Preinscription(j) => req = req.header(EN_TETE_PREINSCRIPTION, j),
         Auth::Aucun => {}
     }
     let reponse = req
@@ -127,6 +137,7 @@ pub(crate) async fn envoyer_octets(url: &str, auth: Auth<'_>) -> Result<(u16, Ve
     match auth {
         Auth::Bearer(j) => req = req.bearer_auth(j),
         Auth::Cookie => req = req.header(EN_TETE_CSRF, "1"),
+        Auth::Preinscription(j) => req = req.header(EN_TETE_PREINSCRIPTION, j),
         Auth::Aucun => {}
     }
     let reponse = req

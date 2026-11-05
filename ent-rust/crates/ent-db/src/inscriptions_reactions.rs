@@ -30,11 +30,19 @@ pub const CONSOMMATEUR_ACCUEIL: &str = "d8.accueil_inscription";
 const TYPES: &[&str] = &[types::INSCRIPTION_VALIDEE];
 
 /// Consommateurs du lot S2-3 (installés par `PgEnt::distributeur`).
-pub fn consommateurs_inscriptions(mailer: MailService, dry_run_accepte: bool) -> Vec<Arc<dyn Consommateur>> {
-    let envoi = Envoi { mailer, dry_run_accepte };
+pub fn consommateurs_inscriptions(
+    mailer: MailService,
+    dry_run_accepte: bool,
+) -> Vec<Arc<dyn Consommateur>> {
+    let envoi = Envoi {
+        mailer,
+        dry_run_accepte,
+    };
     vec![
         Arc::new(Affectation),
-        Arc::new(Invitations { envoi: envoi.clone() }),
+        Arc::new(Invitations {
+            envoi: envoi.clone(),
+        }),
         Arc::new(Accueil { envoi }),
     ]
 }
@@ -101,7 +109,9 @@ async fn affecter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
     let p = &evt.event().payload;
     let (Some(eleve_id), Some(classe_id)) = (
         evt.event().eleve_id,
-        p.get("classe_id").and_then(|v| v.as_str()).and_then(|s| Uuid::parse_str(s).ok()),
+        p.get("classe_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::parse_str(s).ok()),
     ) else {
         return Ok(()); // pas de classe cible : affectation faite plus tard (REF-11)
     };
@@ -119,12 +129,13 @@ async fn affecter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
     let Some((annee_id, courante, debut_annee)) = classe else {
         return Ok(());
     };
-    let eleve: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(eleve_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(sql)?;
+    let eleve: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
+            .bind(etab)
+            .bind(eleve_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(sql)?;
     if eleve.is_none() {
         return Ok(());
     }
@@ -167,7 +178,11 @@ impl Consommateur for Affectation {
     fn types(&self) -> &'static [&'static str] {
         TYPES
     }
-    fn traiter<'a>(&'a self, tx: &'a mut PgConnection, evt: &'a EvenementDistribue) -> FutureTraitement<'a> {
+    fn traiter<'a>(
+        &'a self,
+        tx: &'a mut PgConnection,
+        evt: &'a EvenementDistribue,
+    ) -> FutureTraitement<'a> {
         Box::pin(affecter(tx, evt))
     }
 }
@@ -180,7 +195,11 @@ struct Invitations {
     envoi: Envoi,
 }
 
-async fn inviter(envoi: &Envoi, tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), String> {
+async fn inviter(
+    envoi: &Envoi,
+    tx: &mut PgConnection,
+    evt: &EvenementDistribue,
+) -> Result<(), String> {
     let etab = evt.etablissement_id();
     let Some(dossier_id) = dossier_de(evt) else {
         return Ok(());
@@ -243,11 +262,13 @@ Ce lien est personnel et valable {} jours.\n",
             )
             .await;
         if !parti {
-            sqlx::query("UPDATE ent_inscription_invitation SET statut = 'non_envoyee' WHERE id = $1")
-                .bind(id)
-                .execute(&mut *tx)
-                .await
-                .map_err(sql)?;
+            sqlx::query(
+                "UPDATE ent_inscription_invitation SET statut = 'non_envoyee' WHERE id = $1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(sql)?;
         }
     }
     Ok(())
@@ -263,7 +284,11 @@ impl Consommateur for Invitations {
     fn rejouable(&self) -> bool {
         false
     }
-    fn traiter<'a>(&'a self, tx: &'a mut PgConnection, evt: &'a EvenementDistribue) -> FutureTraitement<'a> {
+    fn traiter<'a>(
+        &'a self,
+        tx: &'a mut PgConnection,
+        evt: &'a EvenementDistribue,
+    ) -> FutureTraitement<'a> {
         Box::pin(inviter(&self.envoi, tx, evt))
     }
 }
@@ -276,7 +301,11 @@ struct Accueil {
     envoi: Envoi,
 }
 
-async fn accueillir(envoi: &Envoi, tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), String> {
+async fn accueillir(
+    envoi: &Envoi,
+    tx: &mut PgConnection,
+    evt: &EvenementDistribue,
+) -> Result<(), String> {
     let etab = evt.etablissement_id();
     let (Some(dossier_id), Some(eleve_id)) = (dossier_de(evt), evt.event().eleve_id) else {
         return Ok(());
@@ -343,7 +372,10 @@ Les informations de rentrée vous seront communiquées dans votre espace."
         .map_err(sql)?;
     }
     if let Some(to) = deposant {
-        if !envoi.envoyer(&to, titre, format!("Bonjour,\n\n{corps}\n")).await {
+        if !envoi
+            .envoyer(&to, titre, format!("Bonjour,\n\n{corps}\n"))
+            .await
+        {
             tracing::warn!("accueil : message non envoyé (messagerie)");
         }
     }
@@ -360,7 +392,11 @@ impl Consommateur for Accueil {
     fn rejouable(&self) -> bool {
         false
     }
-    fn traiter<'a>(&'a self, tx: &'a mut PgConnection, evt: &'a EvenementDistribue) -> FutureTraitement<'a> {
+    fn traiter<'a>(
+        &'a self,
+        tx: &'a mut PgConnection,
+        evt: &'a EvenementDistribue,
+    ) -> FutureTraitement<'a> {
         Box::pin(accueillir(&self.envoi, tx, evt))
     }
 }

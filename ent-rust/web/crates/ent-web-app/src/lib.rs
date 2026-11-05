@@ -60,6 +60,9 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/web/connexion") view=modules::connexion::PageConnexion/>
                 <Route path=path!("/web/securite/enrolement") view=modules::securite::PageEnrolement/>
                 <Route path=path!("/web/_composants") view=composants::PageComposants/>
+                // Parcours famille sans compte (S2-3) : publics, hors coquille.
+                <Route path=path!("/web/preinscription") view=modules::inscriptions::PagePreinscription/>
+                <Route path=path!("/web/invitation") view=modules::inscriptions::PageInvitation/>
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
                     <Route path=path!("emploi-du-temps") view=modules::edt::PageEmploiDuTemps/>
@@ -70,6 +73,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("vie-scolaire") view=modules::vie_scolaire::PageVieScolaire/>
                     <Route path=path!("absences") view=modules::absences::PageAbsences/>
                     <Route path=path!("eleves/:id") view=modules::dossier::PageFicheEleve/>
+                    <Route path=path!("inscriptions") view=modules::inscriptions::PageInscriptions/>
+                    <Route path=path!("reinscription") view=modules::inscriptions::PageReinscription/>
                     <Route path=path!("messages") view=modules::messagerie::PageMessages/>
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>

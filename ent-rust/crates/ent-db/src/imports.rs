@@ -86,19 +86,29 @@ pub fn lire_csv(contenu: &str) -> Result<Vec<(i32, BTreeMap<String, String>)>, E
         return Err(invalide("fichier trop volumineux (2 Mo au plus)"));
     }
     let contenu = contenu.trim_start_matches('\u{feff}');
-    let mut lignes = contenu.lines().enumerate().filter(|(_, l)| !l.trim().is_empty());
+    let mut lignes = contenu
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty());
     let Some((_, entete)) = lignes.next() else {
         return Err(invalide("fichier vide"));
     };
-    let entete: Vec<String> = decouper_ligne(entete).into_iter().map(|c| c.to_lowercase()).collect();
+    let entete: Vec<String> = decouper_ligne(entete)
+        .into_iter()
+        .map(|c| c.to_lowercase())
+        .collect();
     for c in &entete {
         if !COLONNES.contains(&c.as_str()) {
-            return Err(invalide("colonne inconnue dans l'en-tête (voir le format scolia_eleves_v1)"));
+            return Err(invalide(
+                "colonne inconnue dans l'en-tête (voir le format scolia_eleves_v1)",
+            ));
         }
     }
     for obligatoire in ["nom", "prenom", "date_naissance"] {
         if !entete.iter().any(|c| c == obligatoire) {
-            return Err(invalide("en-tête incomplet : nom, prenom et date_naissance sont obligatoires"));
+            return Err(invalide(
+                "en-tête incomplet : nom, prenom et date_naissance sont obligatoires",
+            ));
         }
     }
     let mut out = Vec::new();
@@ -200,7 +210,10 @@ pub fn valider_ligne(m: &BTreeMap<String, String>) -> (LigneValide, Vec<String>)
     let mut responsables = Vec::new();
     for n in ["resp1", "resp2"] {
         let Some(rnom) = g(&format!("{n}_nom")) else {
-            if [format!("{n}_email"), format!("{n}_prenom")].iter().any(|k| m.contains_key(k)) {
+            if [format!("{n}_email"), format!("{n}_prenom")]
+                .iter()
+                .any(|k| m.contains_key(k))
+            {
                 motifs.push(format!("{n} : nom manquant"));
             }
             continue;
@@ -211,7 +224,9 @@ pub fn valider_ligne(m: &BTreeMap<String, String>) -> (LigneValide, Vec<String>)
                 motifs.push(format!("{n} : e-mail mal formé"));
             }
         }
-        let lien = g(&format!("{n}_lien")).map(|l| l.to_lowercase()).unwrap_or_else(|| "autre".into());
+        let lien = g(&format!("{n}_lien"))
+            .map(|l| l.to_lowercase())
+            .unwrap_or_else(|| "autre".into());
         if !["mere", "pere", "tuteur", "autre"].contains(&lien.as_str()) {
             motifs.push(format!("{n} : lien inconnu (mere, pere, tuteur, autre)"));
         }
@@ -350,7 +365,9 @@ impl PgEnt {
         self.exiger_import(etab, actor, role).await?;
         let nom = b.nom_fichier.trim();
         if nom.is_empty() || nom.chars().count() > 200 {
-            return Err(invalide("nom de fichier obligatoire (200 caractères au plus)"));
+            return Err(invalide(
+                "nom de fichier obligatoire (200 caractères au plus)",
+            ));
         }
         let lignes = lire_csv(&b.contenu)?;
         let classes = self.classes_courantes(etab).await?;
@@ -380,7 +397,8 @@ impl PgEnt {
                 }
             }
             let (statut, motifs, eleve_id) = self.classer_ligne(etab, &l, motifs, &classes).await?;
-            let donnees: Map<String, Value> = m.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
+            let donnees: Map<String, Value> =
+                m.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
             sqlx::query(
                 "INSERT INTO ent_import_ligne (id, etablissement_id, lot_id, numero, donnees, statut, motifs, eleve_id)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -402,7 +420,10 @@ impl PgEnt {
     }
 
     async fn exiger_import(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<(), EntDbError> {
-        if self.a_action_etablissement(etab, actor, role, Action::ImportsAppliquer).await? {
+        if self
+            .a_action_etablissement(etab, actor, role, Action::ImportsAppliquer)
+            .await?
+        {
             Ok(())
         } else {
             Err(EntDbError::Forbidden)
@@ -428,7 +449,9 @@ impl PgEnt {
         .fetch_all(self.pool())
         .await
         .map_err(db)?;
-        let compte = |s: &str| i32::try_from(lignes.iter().filter(|l| l.statut == s).count()).unwrap_or(i32::MAX);
+        let compte = |s: &str| {
+            i32::try_from(lignes.iter().filter(|l| l.statut == s).count()).unwrap_or(i32::MAX)
+        };
         Ok(LotImportDto {
             id: lot_id,
             format,
@@ -457,7 +480,13 @@ impl PgEnt {
         })
     }
 
-    pub async fn lot_import_for_actor(&self, etab: Uuid, actor: Uuid, role: &str, lot_id: Uuid) -> Result<LotImportDto, EntDbError> {
+    pub async fn lot_import_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        lot_id: Uuid,
+    ) -> Result<LotImportDto, EntDbError> {
         self.exiger_import(etab, actor, role).await?;
         self.lot_import(etab, lot_id).await
     }
@@ -607,7 +636,9 @@ impl PgEnt {
         .map_err(db)?;
         match statut {
             None => return Err(EntDbError::Domain(DomainError::NotFound)),
-            Some((s,)) if s != "previsualise" => return Err(EntDbError::ConflitDossier("lot déjà appliqué ou annulé")),
+            Some((s,)) if s != "previsualise" => {
+                return Err(EntDbError::ConflitDossier("lot déjà appliqué ou annulé"))
+            }
             _ => {}
         }
         let lignes = sqlx::query_as::<_, LigneRow>(
@@ -635,8 +666,12 @@ impl PgEnt {
                     .map_err(db)?;
                 continue;
             }
-            let classe = l.classe.as_ref().and_then(|c| classes.get(&c.to_lowercase()).copied());
-            let eleve_id = Self::creer_depuis_ligne(&mut tx, etab, &l, classe, lot_id, actor).await?;
+            let classe = l
+                .classe
+                .as_ref()
+                .and_then(|c| classes.get(&c.to_lowercase()).copied());
+            let eleve_id =
+                Self::creer_depuis_ligne(&mut tx, etab, &l, classe, lot_id, actor).await?;
             sqlx::query(
                 "UPDATE ent_import_ligne SET statut = 'creee', eleve_id = $2, traite_par = $3, traite_le = now()
                   WHERE id = $1",
@@ -703,12 +738,20 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let (lot_id, donnees, statut, statut_lot) = r.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        let (lot_id, donnees, statut, statut_lot) =
+            r.ok_or(EntDbError::Domain(DomainError::NotFound))?;
         if statut != "rejet" {
-            return Err(EntDbError::ConflitDossier("seule une ligne rejetée se traite"));
+            return Err(EntDbError::ConflitDossier(
+                "seule une ligne rejetée se traite",
+            ));
         }
         let (nouveau, motifs, eleve_id, m) = match b.action.as_str() {
-            "ignorer" => ("ignoree".to_string(), Vec::new(), None, donnees_map(&donnees)),
+            "ignorer" => (
+                "ignoree".to_string(),
+                Vec::new(),
+                None,
+                donnees_map(&donnees),
+            ),
             "corriger" => {
                 let mut m = donnees_map(&donnees);
                 for (k, v) in &b.corrections {
@@ -720,10 +763,15 @@ impl PgEnt {
                     }
                 }
                 let (l, motifs) = valider_ligne(&m);
-                let (statut, motifs, existant) = self.classer_ligne(etab, &l, motifs, &classes).await?;
+                let (statut, motifs, existant) =
+                    self.classer_ligne(etab, &l, motifs, &classes).await?;
                 if statut == "a_creer" && statut_lot == "applique" {
-                    let classe = l.classe.as_ref().and_then(|c| classes.get(&c.to_lowercase()).copied());
-                    let e = Self::creer_depuis_ligne(&mut tx, etab, &l, classe, lot_id, actor).await?;
+                    let classe = l
+                        .classe
+                        .as_ref()
+                        .and_then(|c| classes.get(&c.to_lowercase()).copied());
+                    let e =
+                        Self::creer_depuis_ligne(&mut tx, etab, &l, classe, lot_id, actor).await?;
                     ("creee".to_string(), Vec::new(), Some(e), m)
                 } else {
                     (statut, motifs, existant, m)
@@ -731,7 +779,8 @@ impl PgEnt {
             }
             _ => return Err(invalide("action : ignorer ou corriger")),
         };
-        let donnees: Map<String, Value> = m.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
+        let donnees: Map<String, Value> =
+            m.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
         sqlx::query(
             "UPDATE ent_import_ligne SET statut = $2, motifs = $3, eleve_id = $4, donnees = $5,
                     traite_par = $6, traite_le = now() WHERE id = $1",
@@ -761,7 +810,13 @@ impl PgEnt {
             .fetch_one(self.pool())
             .await
             .map_err(db)?;
-        let g = |k: &str| donnees.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let g = |k: &str| {
+            donnees
+                .get(k)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         Ok(LigneImportDto {
             id: ligne_id,
             numero: numero.0,
@@ -780,7 +835,10 @@ mod tests_unitaires {
 
     #[test]
     fn decoupe_guillemets() {
-        assert_eq!(decouper_ligne(r#"a;"b;c";"d""e""#), vec!["a", "b;c", "d\"e"]);
+        assert_eq!(
+            decouper_ligne(r#"a;"b;c";"d""e""#),
+            vec!["a", "b;c", "d\"e"]
+        );
         assert_eq!(decouper_ligne(" x ; ;y"), vec!["x", "", "y"]);
     }
 
@@ -793,7 +851,10 @@ mod tests_unitaires {
         assert_eq!(l[1].0, 4);
         assert_eq!(l[0].1.get("classe").map(String::as_str), Some("6A"));
         assert!(!l[1].1.contains_key("classe"));
-        assert!(lire_csv("nom;prenom\nA;B").is_err(), "date_naissance obligatoire");
+        assert!(
+            lire_csv("nom;prenom\nA;B").is_err(),
+            "date_naissance obligatoire"
+        );
         assert!(lire_csv("nom;prenom;date_naissance;inconnue\n").is_err());
         assert!(lire_csv("").is_err());
     }
