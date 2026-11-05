@@ -13,6 +13,22 @@ impl PgAbsenceRepo {
     }
 
     pub async fn upsert(&self, absence: &Absence) -> Result<(), DomainError> {
+        Self::upsert_sur(&self.pool, absence).await
+    }
+
+    /// Même écriture, dans la transaction de l'appelant (fait + événement).
+    pub async fn upsert_tx(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        absence: &Absence,
+    ) -> Result<(), DomainError> {
+        Self::upsert_sur(tx, absence).await
+    }
+
+    async fn upsert_sur<'e, E: sqlx::PgExecutor<'e>>(
+        executor: E,
+        absence: &Absence,
+    ) -> Result<(), DomainError> {
         sqlx::query(
             r#"
             INSERT INTO ent_absence (
@@ -61,7 +77,7 @@ impl PgAbsenceRepo {
         .bind(absence.justifie_par_user_id)
         .bind(&absence.decision_note)
         .bind(absence.decision_par_user_id)
-        .execute(&self.pool)
+        .execute(executor)
         .await
         .map_err(map_sqlx)?;
         Ok(())
