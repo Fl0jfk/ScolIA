@@ -38,12 +38,23 @@ test("libération : les marques ScolIA sont envoyées à null (Google conserve u
   assert.ok(SCOLA_BOOKED_PROP in patch, "la clé doit être présente, pas omise");
 });
 
-test("libération : marque absente envoyée quand même à null", () => {
-  assert.deepEqual(privatePatchClearingAllScola(undefined), {
-    [SCOLA_BOOKED_PROP]: null,
-    [SCOLA_PENDING_PROP]: null,
-    [SCOLA_BOOKING_ID_PROP]: null,
-  });
+test("libération : marque absente jamais envoyée à null (Google répond 400 « Required »)", () => {
+  assert.deepEqual(privatePatchClearingAllScola(undefined), {});
+  assert.deepEqual(
+    privatePatchClearingAllScola({ [SCOLA_BOOKED_PROP]: "true", autre: "garde" }),
+    { [SCOLA_BOOKED_PROP]: null, autre: "garde" },
+  );
+});
+
+test("confirmation admin d'un créneau libre : pas de null pour « en attente »", () => {
+  // Créneau libre sans aucune marque (cas « Modifier le créneau » côté direction).
+  const priv = {
+    ...privatePatchClearing(undefined, [SCOLA_PENDING_PROP]),
+    [SCOLA_BOOKED_PROP]: "true",
+    [SCOLA_BOOKING_ID_PROP]: "b1",
+  };
+  assert.deepEqual(priv, { [SCOLA_BOOKED_PROP]: "true", [SCOLA_BOOKING_ID_PROP]: "b1" });
+  assert.ok(!Object.values(priv).includes(null as unknown as string));
 });
 
 test("libération partielle : seules les clés demandées sont effacées", () => {

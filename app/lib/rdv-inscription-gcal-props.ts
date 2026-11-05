@@ -11,13 +11,20 @@ export const SCOLA_BOOKING_ID_PROP = "scolaBookingId";
 
 export type GCalPrivatePatch = Record<string, string | null>;
 
-/** Corps `private` d'un PATCH qui efface les clés données (valeur `null`). */
+/**
+ * Corps `private` d'un PATCH qui efface les clés données (valeur `null`).
+ * Seules les clés présentes sur l'événement sont envoyées à `null` : Google refuse
+ * (400 « Required ») un `null` sur une clé que l'événement ne porte pas, par exemple
+ * en réservant depuis l'admin un créneau libre jamais marqué « en attente ».
+ */
 export function privatePatchClearing(
   current: Record<string, string> | undefined,
   keys: readonly string[],
 ): GCalPrivatePatch {
   const out: GCalPrivatePatch = { ...(current || {}) };
-  for (const k of keys) out[k] = null;
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(out, k)) out[k] = null;
+  }
   return out;
 }
 
