@@ -117,3 +117,20 @@ Niveau : **implémenté + testé en local** (ent-api, ent-db, ent-auth) ; non va
 - La limitation s'ouvre si la base répond en erreur. Le temps du challenge factice (`passkey/login/start`) n'est pas strictement égalé à celui du réel (quelques requêtes de moins) : écart non mesuré.
 - Les verrous de connexion renvoient 429 sans `Retry-After` ; seuls les seaux de débit l'émettent.
 - `oidc/complete`, `register`, `change_password` et le reste de l'API authentifiée n'ont pas de seau de débit (hors périmètre du lot).
+## Socle 1 — A5, A7, A8 partiel (2026-11-05)
+
+Niveau : **implémenté + testé en local** ; non validé pilote ; non prêt production ; aucun audit externe.
+
+**Faits**
+- WebAuthn : hors labo/test, démarrage refusé sans `ENT_RP_ID` (domaine public) ni origine `https` ; origines multiples (`ENT_RP_ORIGINS`), sous-domaines optionnels, origines Android natives. Détail : `docs/SOCLE1_SECURITE.md`.
+- SSO OIDC : rattachement par e-mail seulement si `email_verified == true` ; retour lié au navigateur par cookie `__Host-ent_oidc` ; URL d'IdP en `https`, cibles internes refusées après résolution DNS (adresse épinglée), redirections et tailles bornées ; `client_secret` chiffré AES-256-GCM (`ENT_SECRETS_KEY`).
+- Passkey : compteur de signature régressé → connexion refusée, journalisée (`passkey_compteur_regresse`), compteur mis à jour atomiquement.
+
+**Limites connues**
+- `ENT_SECRETS_KEY` : pas de rotation ni de KMS ; perdre la clé rend les secrets clients illisibles ; la clé de dev (labo/test) est publique.
+- Cookie `__Host-` : exige HTTPS (Safari refuse `Secure` sur `http://localhost`) et que `start` et `complete` partent du même hôte que `redirect_uri` ; les clients mobiles doivent conserver le cookie pendant le parcours SSO.
+- IdP sans claim `email_verified` (ex. Microsoft Entra par défaut) : plus de rattachement par e-mail ; pas encore de rattachement administrateur par `sub`.
+- SSRF : contrôle au niveau applicatif (pas de pare-feu de sortie) ; un proxy sortant ou un DNS interne intercepteur n'est pas couvert.
+- `ENT_RP_ALLOW_SUBDOMAINS=1` : un sous-domaine détourné pourrait solliciter des passkeys du `rp_id`.
+- Régression de compteur : pas de désactivation automatique de la clé ni d'alerte à l'utilisateur ; les passkeys synchronisées (compteur 0) ne sont pas concernées.
+- Fichier `apple-app-site-association` (iOS) non fourni.

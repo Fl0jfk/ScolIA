@@ -4,13 +4,17 @@
 //! est stocké en Postgres (`ent_session`). Pas de Better-Auth, pas de JWT magique.
 
 mod actions;
+mod env;
 mod password;
 mod passkey;
 mod roles;
+mod secretbox;
 mod token;
 
+pub use env::{ct_eq, env_non_prod, env_non_prod_from, ENVS_NON_PROD};
+pub use secretbox::{is_sealed, SecretBox, SecretBoxError, SEALED_PREFIX};
 pub use passkey::{
-    rp_config_from_env, AuthenticationResult, CreationChallengeResponse, CredentialID, Passkey,
+    rp_config_from_env, RpConfig, AuthenticationResult, CreationChallengeResponse, CredentialID, Passkey,
     PasskeyAuthentication, PasskeyEngine, PasskeyError, PasskeyRegistration, PublicKeyCredential,
     RegisterPublicKeyCredential, RequestChallengeResponse, DEFAULT_RP_NAME,
 };

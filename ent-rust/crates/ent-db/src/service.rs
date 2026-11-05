@@ -7,7 +7,7 @@ use crate::auth_repo::{
     AssuranceSession, AuthUser, ClientSession, OptionsSession, PgAuthRepo, PorteeSession,
     SessionInfo, StaffMember,
 };
-use crate::passkey_repo::{InsertPasskey, PasskeyRow, PgPasskeyRepo};
+use crate::passkey_repo::{ChallengeRow, CounterOutcome, InsertPasskey, PasskeyRow, PgPasskeyRepo};
 use crate::oidc_repo::{
     OidcProviderPublic, OidcProviderRow, OidcProviderUpsert, OidcStateInsert, PgOidcRepo,
 };
@@ -194,7 +194,7 @@ use domain_eleve::{
 use ent_auth::{
     generate_challenge_token, Action, generate_reset_token, generate_temp_password, hash_token, AuthError,
     Passkey, PasskeyAuthentication, PasskeyEngine, PasskeyError, PasskeyRegistration,
-    PublicKeyCredential, RegisterPublicKeyCredential, Role,
+    PublicKeyCredential, RegisterPublicKeyCredential, Role, SecretBox, SecretBoxError,
 };
 use ent_brain::{react, BrainAction, BrainP0};
 use ent_events::{types, AggregateKind, EventBusError, EventHandler, MetierEvent, MetierEventDraft};
@@ -206,7 +206,8 @@ use ent_object::presign::{Disposition, LinkSpec, PresignError, Presigner};
 use ent_object::{ObjectStore, ObjectStoreError};
 use ent_oidc::{
     build_authorization_url, discover, exchange_authorization_code, generate_pkce, random_token,
-    HttpOidcTransport, OidcDiscovery, OidcError, OidcProviderConfig, OidcTransport,
+    valider_url, HttpOidcTransport, OidcDiscovery, OidcError, OidcProviderConfig, OidcTransport,
+    UrlPolicy,
 };
 use std::sync::{Arc, RwLock};
 use serde_json::json;
@@ -349,6 +350,19 @@ pub fn nom_fichier_document(doc: &EleveDocument) -> (String, String) {
     };
     (nom, mime.to_string())
 }
+/// Contrôles de démarrage fail-closed (hors labo/test).
+struct RpConfigCheck;
+
+impl RpConfigCheck {
+    fn verifier() -> Result<(), EntDbError> {
+        PasskeyEngine::from_env()?;
+        SecretBox::from_env()?;
+        Ok(())
+    }
+}
+
+/// Contexte (AAD) du chiffrement du secret client OIDC.
+const OIDC_SECRET_AAD: &[u8] = b"ent_oidc_provider.client_secret";
 
 #[derive(Debug, Error)]
 pub enum EntDbError {
@@ -368,6 +382,8 @@ pub enum EntDbError {
     Passkey(#[from] PasskeyError),
     #[error(transparent)]
     Oidc(#[from] OidcError),
+    #[error(transparent)]
+    Secrets(#[from] SecretBoxError),
     #[error("parcours SSO inconnu, expiré ou déjà utilisé")]
     OidcStateInvalide,
     #[error("aucun compte local rattaché à cette identité SSO (création par un administrateur requise)")]
@@ -624,6 +640,9 @@ pub struct PgEnt {
     auth: PgAuthRepo,
     passkeys: PgPasskeyRepo,
     passkey_engine: Option<PasskeyEngine>,
+    /// Coffre des secrets au repos (`ENT_SECRETS_KEY`). `None` seulement si la clé
+    /// est absente/invalide hors labo/test : `connect` refuse alors de démarrer.
+    secrets: Option<SecretBox>,
     oidc: PgOidcRepo,
     oidc_transport: RwLock<Arc<dyn OidcTransport>>,
     events: PgEventStore,
@@ -636,6 +655,11 @@ impl PgEnt {
     /// Connexion **uniquement** si l'URL est localhost / 127.0.0.1.
     pub async fn connect(database_url: &str) -> Result<Self, EntDbError> {
         assert_local_postgres_url(database_url)?;
+        // Fail-closed hors labo/test (socle 1, A5/A7) : configuration WebAuthn
+        // (rp_id + origines https) et clé de chiffrement des secrets obligatoires.
+        if !ent_auth::env_non_prod() {
+            RpConfigCheck::verifier()?;
+        }
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .connect(database_url)
@@ -704,7 +728,14 @@ impl PgEnt {
             presigner: Presigner::from_env(),
             auth: PgAuthRepo::new(pool.clone()),
             passkeys: PgPasskeyRepo::new(pool.clone()),
-            passkey_engine: PasskeyEngine::from_env().ok(),
+            passkey_engine: match PasskeyEngine::from_env() {
+                Ok(e) => Some(e),
+                Err(err) => {
+                    tracing::warn!(error = %err, "WebAuthn indisponible : passkeys désactivées (fail-closed)");
+                    None
+                }
+            },
+            secrets: SecretBox::from_env().ok(),
             oidc: PgOidcRepo::new(pool.clone()),
             oidc_transport: RwLock::new(Arc::new(HttpOidcTransport::from_env())),
             events: PgEventStore::new(pool.clone()),
@@ -1698,6 +1729,13 @@ impl PgEnt {
             .ok_or(EntDbError::Passkey(PasskeyError::Config))
     }
 
+    /// Coffre des secrets au repos : absent seulement hors labo/test sans clé valide.
+    fn secrets(&self) -> Result<&SecretBox, EntDbError> {
+        self.secrets
+            .as_ref()
+            .ok_or(EntDbError::Secrets(SecretBoxError::KeyMissing))
+    }
+
     /// Nombre de passkeys d'un compte (information de sécurité pour l'UI).
     pub async fn count_passkeys_for_user(&self, user_id: Uuid) -> Result<i64, EntDbError> {
         Ok(self.passkeys.count_for_user(user_id).await?)
@@ -1804,7 +1842,7 @@ impl PgEnt {
         if challenge.user_id != user_id || challenge.etablissement_id != etablissement_id {
             return Err(EntDbError::Forbidden);
         }
-        let state: PasskeyRegistration = serde_json::from_value(challenge.state)
+        let state: PasskeyRegistration = serde_json::from_value(challenge.state.clone())
             .map_err(|_| EntDbError::Passkey(PasskeyError::BadState))?;
         let engine = self.passkey_engine()?;
         let passkey = engine.finish_registration(credential, &state)?;
@@ -2118,7 +2156,7 @@ impl PgEnt {
             .take_challenge(&token_hash, "authenticate")
             .await?
             .ok_or(EntDbError::Passkey(PasskeyError::AuthStart))?;
-        let state: PasskeyAuthentication = serde_json::from_value(challenge.state)
+        let state: PasskeyAuthentication = serde_json::from_value(challenge.state.clone())
             .map_err(|_| EntDbError::Passkey(PasskeyError::BadState))?;
         let passkeys = self
             .passkeys
@@ -2128,12 +2166,30 @@ impl PgEnt {
             return Err(EntDbError::Passkey(PasskeyError::AuthFinish));
         }
         let engine = self.passkey_engine()?;
-        let result = engine.finish_authentication(credential, &state)?;
-        // Compteur d'usage : n'écrit que le credential réellement utilisé.
-        for mut pk in passkeys {
-            if PasskeyEngine::apply_counter(&mut pk, &result) {
-                self.passkeys.update_credential(&pk).await?;
+        let result = match engine.finish_authentication(credential, &state) {
+            Ok(r) => r,
+            Err(PasskeyError::PossibleCompromise) => {
+                self.signaler_compteur_regresse(&challenge, "refusé par la vérification WebAuthn")
+                    .await;
+                return Err(EntDbError::Passkey(PasskeyError::PossibleCompromise));
             }
+            Err(e) => return Err(e.into()),
+        };
+        // Compteur d'usage : mise à jour atomique (verrou de ligne) du seul
+        // credential utilisé ; un compteur qui ne progresse pas est refusé.
+        match self.passkeys.apply_authentication(&result).await? {
+            CounterOutcome::Regressed { stored, received } => {
+                self.signaler_compteur_regresse(
+                    &challenge,
+                    &format!("compteur reçu {received} ≤ compteur enregistré {stored}"),
+                )
+                .await;
+                return Err(EntDbError::Passkey(PasskeyError::PossibleCompromise));
+            }
+            CounterOutcome::Unknown => {
+                return Err(EntDbError::Passkey(PasskeyError::AuthFinish));
+            }
+            CounterOutcome::Updated | CounterOutcome::Unchanged => {}
         }
         let identity = self
             .auth
@@ -2171,6 +2227,41 @@ impl PgEnt {
         )
         .await;
         Ok(session)
+    }
+
+    /// Journalise (journal d'accès + traces) un compteur de signature régressé :
+    /// la clé a peut-être été clonée. Aucun secret dans le message.
+    async fn signaler_compteur_regresse(&self, challenge: &ChallengeRow, detail: &str) {
+        tracing::warn!(
+            user_id = %challenge.user_id,
+            etablissement_id = %challenge.etablissement_id,
+            detail,
+            "passkey : compteur de signature régressé (clonage possible), connexion refusée"
+        );
+        let email = self
+            .auth
+            .user_profile(challenge.user_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|p| p.0)
+            .unwrap_or_default();
+        let role = self
+            .auth
+            .role_in(challenge.etablissement_id, challenge.user_id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        self.audit_acces(
+            challenge.etablissement_id,
+            Some(challenge.user_id),
+            &email,
+            &role,
+            "passkey_compteur_regresse",
+            &format!("Connexion passkey refusée : {detail} (clonage possible)"),
+        )
+        .await;
     }
 
     /// Récupération après perte d'appareil : Direction / Admin retire toutes
@@ -2367,13 +2458,30 @@ impl PgEnt {
             )));
         }
         let issuer = params.issuer.trim().trim_end_matches('/').to_string();
+        // Garde SSRF (A7) : https obligatoire hors labo/test, cibles internes refusées.
+        // Le transport HTTP réel revalide chaque requête (DNS résolu, redirections).
+        let policy = UrlPolicy::from_env();
+        valider_url(&issuer, policy)?;
         let transport = self.oidc_transport();
         let discovery = discover(transport.as_ref(), &issuer).await?;
+        for endpoint in [
+            &discovery.authorization_endpoint,
+            &discovery.token_endpoint,
+            &discovery.jwks_uri,
+        ] {
+            valider_url(endpoint, policy)?;
+        }
         let redirect_uri = params
             .redirect_uri
             .map(|r| r.trim().to_string())
             .filter(|r| !r.is_empty())
             .unwrap_or_else(oidc_default_redirect_uri);
+        if policy.require_https && !redirect_uri.starts_with("https://") {
+            return Err(EntDbError::Oidc(OidcError::Discovery(
+                "redirect_uri : https obligatoire hors labo/test".into(),
+            )));
+        }
+        let secret_chiffre = self.secrets()?.seal(&params.client_secret, OIDC_SECRET_AAD)?;
         let scopes = params
             .scopes
             .map(|s| s.trim().to_string())
@@ -2386,7 +2494,7 @@ impl PgEnt {
                 libelle: params.libelle.trim(),
                 issuer: &discovery.issuer,
                 client_id: params.client_id.trim(),
-                client_secret: &params.client_secret,
+                client_secret: &secret_chiffre,
                 scopes: &scopes,
                 redirect_uri: &redirect_uri,
                 authorization_endpoint: &discovery.authorization_endpoint,
@@ -2459,16 +2567,51 @@ impl PgEnt {
         Ok(removed)
     }
 
+    /// Secret client en clair (mémoire seulement). Un secret hérité en clair est lu
+    /// tel quel puis rechiffré aussitôt (au mieux : l'échec n'empêche pas la connexion).
+    async fn oidc_secret_clair(&self, provider: &OidcProviderRow) -> Result<String, EntDbError> {
+        let secrets = self.secrets()?;
+        let clair = secrets.open(&provider.client_secret, OIDC_SECRET_AAD)?;
+        if !ent_auth::is_sealed(&provider.client_secret) {
+            if let Ok(sealed) = secrets.seal(&clair, OIDC_SECRET_AAD) {
+                if self
+                    .oidc
+                    .set_client_secret_raw(provider.id, &sealed)
+                    .await
+                    .is_ok()
+                {
+                    tracing::info!(provider = %provider.slug, "secret client OIDC hérité rechiffré");
+                }
+            }
+        }
+        Ok(clair)
+    }
+
+    /// Rechiffre tous les secrets clients OIDC encore en clair (appel au démarrage).
+    /// Renvoie le nombre de secrets rechiffrés.
+    pub async fn rechiffrer_secrets_oidc(&self) -> Result<u64, EntDbError> {
+        let secrets = self.secrets()?;
+        let mut n = 0;
+        for (id, stored) in self.oidc.list_plaintext_secret_ids().await? {
+            let sealed = secrets.seal(&stored, OIDC_SECRET_AAD)?;
+            self.oidc.set_client_secret_raw(id, &sealed).await?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
     /// Démarre un parcours SSO : renvoie l'URL d'autorisation de l'IdP (le
     /// `state` OIDC est notre jeton opaque, consommé au retour).
     ///
     /// Aucune écriture de session ici : l'utilisateur n'est pas encore
-    /// authentifié.
+    /// authentifié. Renvoie `(url, secret_de_liaison)` : l'appelant HTTP pose le
+    /// secret dans un cookie `__Host-` court ; seul son hash est stocké avec le
+    /// `state`, et `oidc_complete` l'exige (anti login-CSRF).
     pub async fn oidc_start(
         &self,
         etablissement_id: Uuid,
         slug: &str,
-    ) -> Result<String, EntDbError> {
+    ) -> Result<(String, String), EntDbError> {
         let provider = self
             .oidc
             .get_provider(etablissement_id, &slug.trim().to_lowercase())
@@ -2486,7 +2629,8 @@ impl PgEnt {
         let config = OidcProviderConfig {
             issuer: provider.issuer.clone(),
             client_id: provider.client_id.clone(),
-            client_secret: provider.client_secret.clone(),
+            // Inutile pour l'URL d'autorisation : jamais déchiffré au `start`.
+            client_secret: String::new(),
             scopes: provider
                 .scopes
                 .split_whitespace()
@@ -2496,6 +2640,7 @@ impl PgEnt {
         };
 
         let state_token = random_token();
+        let binding_secret = random_token();
         let (code_verifier, code_challenge) = generate_pkce();
         let nonce = random_token();
         let url = build_authorization_url(
@@ -2516,10 +2661,11 @@ impl PgEnt {
                 code_verifier: &code_verifier,
                 nonce: &nonce,
                 redirect_uri: &provider.redirect_uri,
+                binding_hash: &hash_token(&binding_secret),
                 expires_at,
             })
             .await?;
-        Ok(url)
+        Ok((url, binding_secret))
     }
 
     /// Termine le parcours SSO : vérifie l'`id_token` puis résout le **compte
@@ -2533,12 +2679,27 @@ impl PgEnt {
         &self,
         code: &str,
         state_token: &str,
+        browser_binding: &str,
     ) -> Result<LoginOutcome, EntDbError> {
+        // Le state est consommé d'abord (usage unique, même en cas de refus ensuite).
         let state = self
             .oidc
             .take_state(&hash_token(state_token))
             .await?
             .ok_or(EntDbError::OidcStateInvalide)?;
+        // Liaison au navigateur qui a démarré le parcours (cookie `__Host-`) : un
+        // `code` + `state` rejoués depuis un autre navigateur sont refusés avant
+        // tout échange réseau. Comparaison en temps constant.
+        let lie = match (state.binding_hash.as_deref(), browser_binding.trim()) {
+            (Some(attendu), fourni) if !fourni.is_empty() => {
+                ent_auth::ct_eq(&hash_token(fourni), attendu)
+            }
+            _ => false,
+        };
+        if !lie {
+            tracing::warn!("SSO : retour refusé, state non lié à ce navigateur");
+            return Err(EntDbError::OidcStateInvalide);
+        }
         let provider = self
             .oidc
             .get_provider_by_id(state.provider_id)
@@ -2555,7 +2716,7 @@ impl PgEnt {
         let config = OidcProviderConfig {
             issuer: provider.issuer.clone(),
             client_id: provider.client_id.clone(),
-            client_secret: provider.client_secret.clone(),
+            client_secret: self.oidc_secret_clair(&provider).await?,
             scopes: provider
                 .scopes
                 .split_whitespace()
@@ -2585,6 +2746,13 @@ impl PgEnt {
         {
             Some(user_id) => user_id,
             None => {
+                // Rattachement par e-mail : l'IdP doit AFFIRMER que l'e-mail est vérifié
+                // (`email_verified == true`). Absent ou faux → refus : sinon un compte
+                // IdP à e-mail non vérifié pourrait usurper un compte local.
+                if identity.email_verified != Some(true) {
+                    tracing::warn!(provider = %provider.slug, "SSO : e-mail non vérifié, rattachement refusé");
+                    return Err(EntDbError::Oidc(OidcError::EmailNotVerified));
+                }
                 let email = identity
                     .email
                     .clone()

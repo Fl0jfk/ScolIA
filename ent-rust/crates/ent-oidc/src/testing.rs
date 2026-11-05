@@ -96,8 +96,14 @@ impl TestIdp {
 
     /// Signe un `id_token` RS256 avec le `nonce` et l'expiration fournis.
     pub fn sign_id_token(&self, nonce: &str, exp: i64) -> String {
+        self.sign_id_token_with(nonce, exp, Some(true))
+    }
+
+    /// Comme [`Self::sign_id_token`], avec le claim `email_verified` au choix
+    /// (`None` = claim absent, comme certains IdP).
+    pub fn sign_id_token_with(&self, nonce: &str, exp: i64, email_verified: Option<bool>) -> String {
         let header = serde_json::json!({ "alg": "RS256", "typ": "JWT", "kid": self.kid });
-        let claims = serde_json::json!({
+        let mut claims = serde_json::json!({
             "iss": self.issuer,
             "aud": self.client_id,
             "sub": self.subject,
@@ -105,9 +111,11 @@ impl TestIdp {
             "iat": exp - 3600,
             "nonce": nonce,
             "email": self.email,
-            "email_verified": true,
             "name": self.name,
         });
+        if let Some(v) = email_verified {
+            claims["email_verified"] = serde_json::json!(v);
+        }
         let signing_input = format!(
             "{}.{}",
             URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap()),
@@ -160,6 +168,8 @@ pub struct FakeOidcTransport {
     expected_challenge: Mutex<Option<String>>,
     suppress_id_token: AtomicBool,
     break_discovery: AtomicBool,
+    email_verified: Mutex<Option<bool>>,
+    last_client_secret: Mutex<Option<String>>,
 }
 
 impl FakeOidcTransport {
@@ -170,7 +180,19 @@ impl FakeOidcTransport {
             expected_challenge: Mutex::new(None),
             suppress_id_token: AtomicBool::new(false),
             break_discovery: AtomicBool::new(false),
+            email_verified: Mutex::new(Some(true)),
+            last_client_secret: Mutex::new(None),
         }
+    }
+
+    /// Valeur du claim `email_verified` émis ensuite (`None` = claim absent).
+    pub fn set_email_verified(&self, v: Option<bool>) {
+        *self.email_verified.lock().unwrap() = v;
+    }
+
+    /// Dernier `client_secret` reçu à l'échange de code (vérifie le déchiffrement).
+    pub fn last_client_secret(&self) -> Option<String> {
+        self.last_client_secret.lock().unwrap().clone()
     }
 
     pub fn idp(&self) -> &TestIdp {
@@ -234,6 +256,7 @@ impl OidcTransport for FakeOidcTransport {
         if get("client_id").as_deref() != Some(self.idp.client_id.as_str()) {
             return Err(OidcError::Http { status: 401 });
         }
+        *self.last_client_secret.lock().unwrap() = get("client_secret");
         if let Some(expected) = self.expected_challenge.lock().unwrap().clone() {
             let verifier = get("code_verifier").ok_or(OidcError::Http { status: 400 })?;
             let derived = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
@@ -253,7 +276,11 @@ impl OidcTransport for FakeOidcTransport {
         Ok(serde_json::json!({
             "access_token": "at",
             "token_type": "Bearer",
-            "id_token": self.idp.sign_id_token(&nonce, FAR_FUTURE_EXP),
+            "id_token": self.idp.sign_id_token_with(
+                &nonce,
+                FAR_FUTURE_EXP,
+                *self.email_verified.lock().unwrap(),
+            ),
         }))
     }
 }

@@ -2381,13 +2381,48 @@ async fn oidc_start(
     tenant: TenantHote,
     Path(slug): Path<String>,
     Json(body): Json<OidcStartBody>,
-) -> Result<Json<OidcStartDto>, (StatusCode, String)> {
-    let url = state
+) -> Result<(HeaderMap, Json<OidcStartDto>), (StatusCode, String)> {
+    let (url, binding) = state
         .ent
         .oidc_start(tenant.etablissement_effectif(body.etablissement_id)?, &slug)
         .await
         .map_err(map_oidc)?;
-    Ok(Json(OidcStartDto { url }))
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::SET_COOKIE,
+        oidc_binding_cookie(&binding, OIDC_BINDING_MAX_AGE_SECS),
+    );
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Ok((headers, Json(OidcStartDto { url })))
+}
+
+/// Cookie de liaison du parcours SSO au navigateur (A7) : préfixe `__Host-`
+/// (Secure, Path=/, sans Domain), `HttpOnly`, `SameSite=Lax`, durée courte.
+pub(crate) const OIDC_BINDING_COOKIE: &str = "__Host-ent_oidc";
+const OIDC_BINDING_MAX_AGE_SECS: u32 = 600;
+
+pub(crate) fn oidc_binding_cookie(value: &str, max_age: u32) -> axum::http::HeaderValue {
+    // La valeur est un jeton hex généré par le serveur (ou vide à l'effacement).
+    axum::http::HeaderValue::from_str(&format!(
+        "{OIDC_BINDING_COOKIE}={value}; Max-Age={max_age}; Path=/; Secure; HttpOnly; SameSite=Lax"
+    ))
+    .unwrap_or_else(|_| axum::http::HeaderValue::from_static(""))
+}
+
+/// Valeur du cookie de liaison dans l'en-tête `Cookie` (vide si absent).
+pub(crate) fn oidc_binding_from_headers(headers: &HeaderMap) -> String {
+    headers
+        .get_all(axum::http::header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|kv| kv.trim().split_once('='))
+        .find(|(k, _)| *k == OIDC_BINDING_COOKIE)
+        .map(|(_, v)| v.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Retour de l'IdP : vérifie l'`id_token`, rattache au compte local et ouvre
@@ -2396,11 +2431,13 @@ async fn oidc_start(
 async fn oidc_complete(
     State(state): State<AppState>,
     tenant: TenantHote,
+    headers: HeaderMap,
     Json(body): Json<OidcCompleteBody>,
-) -> Result<Json<LoginResponseDto>, (StatusCode, String)> {
+) -> Result<(HeaderMap, Json<LoginResponseDto>), (StatusCode, String)> {
+    let binding = oidc_binding_from_headers(&headers);
     let outcome = state
         .ent
-        .oidc_complete(&body.code, &body.state)
+        .oidc_complete(&body.code, &body.state, &binding)
         .await
         .map_err(map_oidc)?;
     // C2 : parcours commencé sur l'adresse d'un autre établissement → aucun jeton.
@@ -2409,7 +2446,14 @@ async fn oidc_complete(
             return Err((StatusCode::UNAUTHORIZED, "session d'un autre établissement".into()));
         }
     }
-    Ok(Json(login_response(outcome)))
+    // Le cookie de liaison est à usage unique : effacé dès le retour traité.
+    let mut out = HeaderMap::new();
+    out.insert(axum::http::header::SET_COOKIE, oidc_binding_cookie("", 0));
+    out.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Ok((out, Json(login_response(outcome))))
 }
 
 async fn logout(
@@ -9092,6 +9136,9 @@ pub(crate) fn map_oidc(err: ent_db::EntDbError) -> (StatusCode, String) {
     }
     match &err {
         ent_db::EntDbError::OidcCompteInconnu | ent_db::EntDbError::OidcStateInvalide => {
+            (StatusCode::UNAUTHORIZED, err.to_string())
+        }
+        ent_db::EntDbError::Oidc(ent_db::OidcError::EmailNotVerified) => {
             (StatusCode::UNAUTHORIZED, err.to_string())
         }
         ent_db::EntDbError::OidcProviderInconnu => (StatusCode::NOT_FOUND, err.to_string()),

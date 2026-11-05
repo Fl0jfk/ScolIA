@@ -222,6 +222,12 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
         }
     }
     let _ = ent.purge_expired_password_resets().await;
+    // A7 : rechiffre les secrets clients OIDC hérités en clair (idempotent).
+    match ent.rechiffrer_secrets_oidc().await {
+        Ok(n) if n > 0 => tracing::info!("secrets clients OIDC rechiffrés : {n}"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("rechiffrement des secrets OIDC impossible : {e}"),
+    }
     let bind = std::env::var("ENT_API_BIND").unwrap_or_else(|_| "127.0.0.1:8088".into());
     Ok((AppState::nouveau(ent), bind))
 }
@@ -233,6 +239,8 @@ mod tests_l6;
 mod tests_l3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_abus;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sso;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;
@@ -2406,6 +2414,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(start.status(), StatusCode::OK);
+        // A7 : cookie de liaison au navigateur, exigé au retour.
+        let cookie_liaison = start
+            .headers()
+            .get("set-cookie")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(';').next())
+            .expect("cookie de liaison posé au start")
+            .to_string();
         let url = json_body(start).await["url"].as_str().unwrap().to_string();
         assert!(url.starts_with(&idp.authorization_endpoint()));
         assert!(url.contains("code_challenge_method=S256"));
@@ -2420,6 +2436,7 @@ mod tests {
                     .method("POST")
                     .uri("/auth/oidc/complete")
                     .header("content-type", "application/json")
+                    .header("cookie", &cookie_liaison)
                     .body(Body::from(
                         serde_json::to_vec(&json!({ "code": "code-1", "state": state_param }))
                             .unwrap(),
@@ -2444,6 +2461,7 @@ mod tests {
                     .method("POST")
                     .uri("/auth/oidc/complete")
                     .header("content-type", "application/json")
+                    .header("cookie", &cookie_liaison)
                     .body(Body::from(
                         serde_json::to_vec(&json!({ "code": "code-1", "state": state_param }))
                             .unwrap(),

@@ -2606,7 +2606,7 @@ async fn sso_oidc_rattachement_et_refus_des_inconnus() {
         .expect("compte local");
 
     // 4) Parcours : autorisation → (IdP) → retour avec code + state.
-    let url = ent.oidc_start(etab, "idp-test").await.expect("start");
+    let (url, lien) = ent.oidc_start(etab, "idp-test").await.expect("start");
     let state = query_param(&url, "state");
     let nonce = query_param(&url, "nonce");
     let challenge = query_param(&url, "code_challenge");
@@ -2615,7 +2615,7 @@ async fn sso_oidc_rattachement_et_refus_des_inconnus() {
     transport.arm_code_challenge(&challenge);
 
     let session = match ent
-        .oidc_complete("code-1", &state)
+        .oidc_complete("code-1", &state, &lien)
         .await
         .expect("retour SSO")
     {
@@ -2628,7 +2628,7 @@ async fn sso_oidc_rattachement_et_refus_des_inconnus() {
 
     // 5) Le `state` est à usage unique : le rejouer échoue.
     assert!(
-        ent.oidc_complete("code-1", &state).await.is_err(),
+        ent.oidc_complete("code-1", &state, &lien).await.is_err(),
         "un state consommé ne peut pas être rejoué"
     );
 
@@ -2638,11 +2638,11 @@ async fn sso_oidc_rattachement_et_refus_des_inconnus() {
     idp2.email = format!("nouveau-{}@idp.test", Uuid::new_v4());
     let transport2 = Arc::new(FakeOidcTransport::new(idp2));
     ent.set_oidc_transport(transport2.clone());
-    let url = ent.oidc_start(etab, "idp-test").await.expect("start 2");
+    let (url, lien) = ent.oidc_start(etab, "idp-test").await.expect("start 2");
     transport2.arm_nonce(&query_param(&url, "nonce"));
     transport2.arm_code_challenge(&query_param(&url, "code_challenge"));
     let session = match ent
-        .oidc_complete("code-2", &query_param(&url, "state"))
+        .oidc_complete("code-2", &query_param(&url, "state"), &lien)
         .await
         .expect("2ᵉ connexion SSO (email changé)")
     {
@@ -2657,12 +2657,12 @@ async fn sso_oidc_rattachement_et_refus_des_inconnus() {
     idp3.subject = format!("sub-inconnu-{}", Uuid::new_v4());
     let transport3 = Arc::new(FakeOidcTransport::new(idp3));
     ent.set_oidc_transport(transport3.clone());
-    let url = ent.oidc_start(etab, "idp-test").await.expect("start 3");
+    let (url, lien) = ent.oidc_start(etab, "idp-test").await.expect("start 3");
     transport3.arm_nonce(&query_param(&url, "nonce"));
     transport3.arm_code_challenge(&query_param(&url, "code_challenge"));
     assert!(
         matches!(
-            ent.oidc_complete("code-3", &query_param(&url, "state")).await,
+            ent.oidc_complete("code-3", &query_param(&url, "state"), &lien).await,
             Err(EntDbError::OidcCompteInconnu)
         ),
         "une identité SSO inconnue ne crée pas de compte"
@@ -2684,11 +2684,11 @@ async fn sso_oidc_rattachement_et_refus_des_inconnus() {
 
     // 9) Un code invalide / nonce non conforme est refusé par la vérification.
     transport3.arm_nonce("nonce-inexistant");
-    let url = ent.oidc_start(etab, "idp-test").await.expect("start 4");
+    let (url, lien) = ent.oidc_start(etab, "idp-test").await.expect("start 4");
     transport3.arm_code_challenge(&query_param(&url, "code_challenge"));
     assert!(
         matches!(
-            ent.oidc_complete("code-4", &query_param(&url, "state")).await,
+            ent.oidc_complete("code-4", &query_param(&url, "state"), &lien).await,
             Err(EntDbError::Oidc(_))
         ),
         "un nonce qui ne correspond pas au state est refusé"
@@ -2723,11 +2723,11 @@ async fn sso_oidc_rattachement_et_refus_des_inconnus() {
     }
     let transport4 = Arc::new(FakeOidcTransport::new(idp.clone()));
     ent.set_oidc_transport(transport4.clone());
-    let url = ent.oidc_start(etab, "idp-test").await.expect("start 5");
+    let (url, lien) = ent.oidc_start(etab, "idp-test").await.expect("start 5");
     transport4.arm_nonce(&query_param(&url, "nonce"));
     transport4.arm_code_challenge(&query_param(&url, "code_challenge"));
     match ent
-        .oidc_complete("code-5", &query_param(&url, "state"))
+        .oidc_complete("code-5", &query_param(&url, "state"), &lien)
         .await
         .expect("retour SSO avec passkey enrôlée")
     {

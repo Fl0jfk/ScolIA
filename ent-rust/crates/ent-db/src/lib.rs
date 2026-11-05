@@ -148,6 +148,8 @@ mod tests_socle1;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_roles;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sso_securite;
 
 #[cfg(test)]
 mod integration_tests {

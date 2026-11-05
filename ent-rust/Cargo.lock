@@ -539,6 +539,7 @@ name = "ent-auth"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "base64 0.22.1",
  "hex",
  "openssl",
  "password-hash",
@@ -548,6 +549,7 @@ dependencies = [
  "thiserror 2.0.21",
  "url",
  "uuid",
+ "webauthn-authenticator-rs",
  "webauthn-rs",
 ]
 

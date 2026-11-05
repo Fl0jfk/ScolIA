@@ -10761,7 +10761,7 @@ async fn explorer_sso_oidc(
     r.geste("page de connexion : bouton SSO (slug + libellé seulement — ni issuer, ni client_id, ni secret)");
 
     // 3) Parcours complet : autorisation PKCE → retour → session.
-    let url = ent
+    let (url, lien) = ent
         .oidc_start(etab, &provider.slug)
         .await
         .map_err(|e| e.to_string())?;
@@ -10769,7 +10769,7 @@ async fn explorer_sso_oidc(
     transport.arm_nonce(&param(&url, "nonce")?);
     transport.arm_code_challenge(&param(&url, "code_challenge")?);
     let session = match ent
-        .oidc_complete("code-labo", &state)
+        .oidc_complete("code-labo", &state, &lien)
         .await
         .map_err(|e| e.to_string())?
     {
@@ -10784,7 +10784,7 @@ async fn explorer_sso_oidc(
     r.geste("parcours SSO : PKCE + nonce vérifiés, id_token RS256 validé → session sur le compte local");
 
     // 4) `state` à usage unique.
-    if ent.oidc_complete("code-labo", &state).await.is_ok() {
+    if ent.oidc_complete("code-labo", &state, &lien).await.is_ok() {
         return Err("un state SSO rejoué est accepté".into());
     }
     r.geste("le state SSO est à usage unique : un retour rejoué est refusé (anti-CSRF)");
@@ -10795,14 +10795,14 @@ async fn explorer_sso_oidc(
     inconnu.subject = format!("sub-inconnu-{}", Uuid::new_v4());
     let transport_inconnu = Arc::new(FakeOidcTransport::new(inconnu));
     ent.set_oidc_transport(transport_inconnu.clone());
-    let url = ent
+    let (url, lien) = ent
         .oidc_start(etab, &provider.slug)
         .await
         .map_err(|e| e.to_string())?;
     transport_inconnu.arm_nonce(&param(&url, "nonce")?);
     transport_inconnu.arm_code_challenge(&param(&url, "code_challenge")?);
     if !matches!(
-        ent.oidc_complete("code-inconnu", &param(&url, "state")?).await,
+        ent.oidc_complete("code-inconnu", &param(&url, "state")?, &lien).await,
         Err(ent_db::EntDbError::OidcCompteInconnu)
     ) {
         return Err("une identité SSO inconnue doit être refusée".into());
@@ -10838,14 +10838,14 @@ async fn explorer_sso_oidc(
     }
     let transport5 = Arc::new(FakeOidcTransport::new(idp.clone()));
     ent.set_oidc_transport(transport5.clone());
-    let url = ent
+    let (url, lien) = ent
         .oidc_start(etab, &provider.slug)
         .await
         .map_err(|e| e.to_string())?;
     transport5.arm_nonce(&param(&url, "nonce")?);
     transport5.arm_code_challenge(&param(&url, "code_challenge")?);
     match ent
-        .oidc_complete("code-passkey", &param(&url, "state")?)
+        .oidc_complete("code-passkey", &param(&url, "state")?, &lien)
         .await
         .map_err(|e| e.to_string())?
     {
