@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{
     DomainError, DossierPsy, EntretienPsy, EntretienPsyKind, RdvPsy, RdvPsyStatut,
 };
+use crate::tenant_tx::TenantTx;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -15,6 +16,7 @@ impl PgPsyRepo {
     }
 
     pub async fn insert(&self, e: &EntretienPsy) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_psy_entretien (
@@ -33,9 +35,10 @@ impl PgPsyRepo {
         .bind(e.signale_famille)
         .bind(e.created_by_user_id)
         .bind(e.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -45,6 +48,7 @@ impl PgPsyRepo {
         eleve_id: Uuid,
         limit: i64,
     ) -> Result<Vec<EntretienPsy>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, EntretienRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, jour, kind, duree_minutes,
@@ -58,9 +62,10 @@ impl PgPsyRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(EntretienRow::into_entretien).collect())
     }
 
@@ -70,6 +75,7 @@ impl PgPsyRepo {
         jour: NaiveDate,
         limit: i64,
     ) -> Result<Vec<EntretienPsy>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, EntretienRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, jour, kind, duree_minutes,
@@ -83,13 +89,15 @@ impl PgPsyRepo {
         .bind(etablissement_id)
         .bind(jour)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(EntretienRow::into_entretien).collect())
     }
 
     pub async fn insert_rdv(&self, r: &RdvPsy) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, r.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_psy_rdv (
@@ -111,9 +119,10 @@ impl PgPsyRepo {
         .bind(r.signale_famille)
         .bind(r.created_by_user_id)
         .bind(r.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -122,6 +131,7 @@ impl PgPsyRepo {
         etablissement_id: Uuid,
         rdv_id: Uuid,
     ) -> Result<Option<RdvPsy>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, RdvRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, jour, heure_debut, heure_fin, kind,
@@ -132,13 +142,15 @@ impl PgPsyRepo {
         )
         .bind(etablissement_id)
         .bind(rdv_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.and_then(RdvRow::into_rdv))
     }
 
     pub async fn update_rdv_statut(&self, r: &RdvPsy) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, r.etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_psy_rdv SET statut = $3
@@ -148,13 +160,14 @@ impl PgPsyRepo {
         .bind(r.etablissement_id)
         .bind(r.id)
         .bind(r.statut.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
         if n == 0 {
             return Err(DomainError::NotFound);
         }
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -164,6 +177,7 @@ impl PgPsyRepo {
         jour: NaiveDate,
         limit: i64,
     ) -> Result<Vec<RdvPsy>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, RdvRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, jour, heure_debut, heure_fin, kind,
@@ -177,9 +191,10 @@ impl PgPsyRepo {
         .bind(etablissement_id)
         .bind(jour)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(RdvRow::into_rdv).collect())
     }
 
@@ -189,6 +204,7 @@ impl PgPsyRepo {
         eleve_id: Uuid,
         limit: i64,
     ) -> Result<Vec<RdvPsy>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, RdvRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, jour, heure_debut, heure_fin, kind,
@@ -202,13 +218,15 @@ impl PgPsyRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(RdvRow::into_rdv).collect())
     }
 
     pub async fn upsert_dossier(&self, d: &DossierPsy) -> Result<DossierPsy, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, DossierRow>(
             r#"
             INSERT INTO ent_psy_dossier (
@@ -240,9 +258,10 @@ impl PgPsyRepo {
         .bind(d.signale_famille)
         .bind(d.updated_by_user_id)
         .bind(d.updated_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.into_dossier())
     }
 
@@ -251,6 +270,7 @@ impl PgPsyRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Option<DossierPsy>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, DossierRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, axes_suivi, contacts_externes,
@@ -262,9 +282,10 @@ impl PgPsyRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(DossierRow::into_dossier))
     }
 }

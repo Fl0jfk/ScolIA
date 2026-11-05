@@ -44,6 +44,8 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `ENT_DATABASE_URL` | — (requis) | Postgres `ent_*`. Local uniquement hors prod. |
+| `ENT_DATABASE_MIGRATION_URL` | — (facultatif) | URL du rôle **propriétaire** des tables, utilisée seulement pour les migrations (connexion dédiée, fermée ensuite). Absente : les migrations passent par `ENT_DATABASE_URL` (comportement historique). Si définie, `ENT_DATABASE_URL` doit être un rôle applicatif non propriétaire (`docs/RLS_ISOLATION.md`). Local uniquement hors prod. |
+| `ENT_RLS_MODE` | `off` | RLS PostgreSQL pilote (C4) : `off` (rien posé, politiques permissives), `permissif` (pose `app.etablissement_id` dans les transactions des repos santé, psy, sanctions, facturation), `strict` (pose aussi `app.rls_strict`). Recommandé en prod à terme : `strict` + `ALTER ROLE ent_app SET app.rls_strict = 'on'`. Voir `docs/RLS_ISOLATION.md` avant activation. |
 | `ENT_API_BIND` | `127.0.0.1:8088` | Adresse d'écoute. En conteneur : `0.0.0.0:8088`. |
 | `ENT_ENV` | *(vide)* | Fail-closed : portes de dev ouvertes seulement pour `lab`/`labo`/`dev`/`local`/`test` ; vide, `prod`, `production` ou inconnu → fermées (voir ci-dessous). Mettre `prod` en production. |
 | `ENT_ALLOW_REGISTRATION` | — | `1` → réautorise `POST /auth/register` même en prod (provisioning contrôlé). |

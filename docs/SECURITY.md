@@ -134,3 +134,9 @@ Niveau : **implémenté + testé en local** ; non validé pilote ; non prêt pro
 - `ENT_RP_ALLOW_SUBDOMAINS=1` : un sous-domaine détourné pourrait solliciter des passkeys du `rp_id`.
 - Régression de compteur : pas de désactivation automatique de la clé ni d'alerte à l'utilisateur ; les passkeys synchronisées (compteur 0) ne sont pas concernées.
 - Fichier `apple-app-site-association` (iOS) non fourni.
+
+## Socle 1 — C4 : RLS PostgreSQL, pilote (2026-11-05)
+Défense en profondeur de l'isolation des établissements : Row-Level Security (activée et forcée) sur 22 tables de santé, psy, sanctions/commissions et facturation, politique `etablissement_id = app.etablissement_id` (variable posée par transaction via `TenantTx`). **Implémenté + testé en local ; désactivé par défaut (`ENT_RLS_MODE`) ; non validé, non prêt production.**
+- Rôles : migrations par un rôle propriétaire (`ENT_DATABASE_MIGRATION_URL`, facultatif), application par un rôle non propriétaire, sans `BYPASSRLS`, sans droit de désactiver le trigger du journal (script d'exemple dans `docs/RLS_ISOLATION.md`).
+- Limites : la RLS protège des oublis de filtre, pas d'une injection SQL ni d'un code qui contrôle le SQL ; tables d'identité, sessions, passkeys et limitation de débit exclues (lues avant de connaître l'établissement) ; pas encore de test sous rôle non propriétaire pour toute la suite.
+- Conception, plan d'extension et performance : `docs/RLS_ISOLATION.md`.

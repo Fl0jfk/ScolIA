@@ -36,6 +36,7 @@ mod pg_err;
 mod tests_l6;
 mod repas_repo;
 mod sanction_repo;
+mod tenant_tx;
 mod sortie_repo;
 mod internat_repo;
 mod dispense_vs_repo;
@@ -119,6 +120,7 @@ pub use referentiel_repo::{
     ServiceEnseignement,
 };
 pub use migrate::{apply_socle_migrations, MigrateError, MIGRATION_TAG};
+pub use tenant_tx::{RlsMode, TenantTx};
 pub use pra::{
     EcartInventaire, Inventaire, InventaireTable, RapportIntegrite, INVENTAIRE_VERSION,
     TABLES_VOLATILES,
@@ -145,6 +147,8 @@ mod tests_referentiel;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_rls;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_roles;

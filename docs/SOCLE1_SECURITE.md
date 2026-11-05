@@ -56,9 +56,13 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 | C1 | Correctifs ponctuels : filtres manquants (`periode_repo`, `competence_repo`, `update_credential`), `is_member` sur remplaçant EDT et absence RH, `user_labels` filtré par établissement, messages `NotMember`/`EmailTaken` neutres | Moyenne | à faire |
 | C2 | Établissement déduit de l'adresse (D-012) : table `etablissement` + domaines, middleware `Host`, session refusée si autre domaine, plus d'`etablissement_id` saisi | Élevée | implémenté + testé en local (détail ci-dessous) |
 | C3 | Type `Tenant` obtenu seulement de la session, imposé aux accès aux données sensibles et au stockage de fichiers | Structurant | à faire |
-| C4 | Row-Level Security PostgreSQL sur les tables les plus sensibles (santé, psy, sanctions, facturation), rôle applicatif non propriétaire | Défense en profondeur | à faire |
+| C4 | Row-Level Security PostgreSQL sur les tables les plus sensibles (santé, psy, sanctions, facturation), rôle applicatif non propriétaire | Défense en profondeur | **pilote** implémenté + testé en local (22 tables, désactivé par défaut) — `docs/RLS_ISOLATION.md` |
 | C5 | FK composites `(etablissement_id, id)` sur les tables enfants prioritaires | Défense en profondeur | à faire |
 | C6 | Matrice de séparation étendue : personne membre de deux établissements, références croisées en écriture, test statique des requêtes sans `etablissement_id` | Élevée | à faire |
+
+#### C4 — pilote RLS (2026-11-05, branche `ent-socle1-rls`)
+**Fait (implémenté + testé en local) :** migration `100_rls_pilote.sql` (RLS activée + forcée + politique `etablissement_id` sur 22 tables santé / psy / sanctions-commissions / facturation) ; adaptateur `TenantTx` (`ent-db/src/tenant_tx.rs`, variable `app.etablissement_id` posée par `set_config(…, true)`) utilisé par les repos `infirmerie`, `psy`, `sanction`, `fac` ; modes `ENT_RLS_MODE` = `off` (défaut) / `permissif` / `strict` ; rôle de migration séparé facultatif `ENT_DATABASE_MIGRATION_URL` ; script d'exemple du rôle applicatif (droits minimaux, pas de désactivation du trigger du journal) dans la doc ; 7 tests dans `tests_rls.rs` avec un rôle non propriétaire.
+**Limites :** pilote seulement ; aucune protection tant que `ENT_RLS_MODE` n'est pas posé ; la RLS ne protège pas d'une injection SQL (le SQL peut poser une autre valeur) ; pas de mesure de performance ni de test HTTP en mode strict ; suite d'intégration non rejouée sous un rôle non propriétaire ; `TenantTx` prend l'établissement en paramètre (le type `Tenant` de C3 ne l'impose pas encore). Détail et plan d'extension : `docs/RLS_ISOLATION.md`.
 
 #### C2 — détail (2026-11-05, branche `ent-socle1-tenant-host`)
 **Faits (implémenté + testé en local) :**
