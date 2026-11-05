@@ -108,7 +108,10 @@ async fn page_journee_rendue_par_le_serveur() {
     assert!(r.headers().contains_key("content-security-policy"), "CSP");
     let html = r.text().await.unwrap();
     assert!(html.contains("Journée"), "titre");
-    assert!(html.contains("Chargement"), "état de chargement rendu côté serveur");
+    assert!(
+        html.contains("Chargement"),
+        "état de chargement rendu côté serveur"
+    );
     assert!(!html.contains(" style=\""), "aucun style en ligne (CSP)");
 }
 
@@ -124,13 +127,28 @@ async fn declaration_famille_appel_rapprochement_journee() {
     // 1. La famille (peut justifier) déclare l'absence de la journée.
     let lily = parent_de(&base, &l, "Harry").await;
     let enfants = lily.enfants_famille().await.expect("enfants");
-    assert!(enfants.iter().find(|e| e.id == harry).unwrap().peut_justifier_absence);
+    assert!(
+        enfants
+            .iter()
+            .find(|e| e.id == harry)
+            .unwrap()
+            .peut_justifier_absence
+    );
     let mut b = corps(harry, jour, "maladie");
     b.declarant_nom = None;
     b.declarant_qualite = None;
-    let d = lily.declarer_absence_famille(&b).await.expect("déclaration");
-    assert_eq!((d.source.as_str(), d.statut.as_str()), ("famille", "active"));
-    assert!(d.declarant_nom.is_none(), "identité du compte, pas de la saisie");
+    let d = lily
+        .declarer_absence_famille(&b)
+        .await
+        .expect("déclaration");
+    assert_eq!(
+        (d.source.as_str(), d.statut.as_str()),
+        ("famille", "active")
+    );
+    assert!(
+        d.declarant_nom.is_none(),
+        "identité du compte, pas de la saisie"
+    );
 
     // 2. Le professeur fait l'appel de 4B ce jour-là : Harry absent. L'appel est pré-rempli (A1).
     let prof = personnel(&base, &l, "prof").await;
@@ -149,17 +167,30 @@ async fn declaration_famille_appel_rapprochement_journee() {
             .expect("attendus"),
     )
     .unwrap();
-    assert_eq!(attendus, vec![harry], "seul l'élève dont l'absence est annoncée");
-    prof.marquer(appel.id, harry, EtatApi::Absent).await.unwrap();
+    assert_eq!(
+        attendus,
+        vec![harry],
+        "seul l'élève dont l'absence est annoncée"
+    );
+    prof.marquer(appel.id, harry, EtatApi::Absent)
+        .await
+        .unwrap();
     prof.clore(appel.id).await.expect("clôture");
 
     // 3. La vie scolaire voit une absence prévenue, la déclaration, et aucun appel à vérifier.
     let cpe = personnel(&base, &l, "cpe").await;
     let t = cpe.tableau_du_jour(jour).await.expect("tableau du jour");
-    let a = t.absents.iter().find(|a| a.eleve_id == harry).expect("Harry absent");
+    let a = t
+        .absents
+        .iter()
+        .find(|a| a.eleve_id == harry)
+        .expect("Harry absent");
     assert!(a.prevenue, "absence annoncée par la famille");
     assert_eq!(a.statut, "a_traiter");
-    assert!(t.declarations.iter().any(|d| d.declaration.eleve_id == harry));
+    assert!(t
+        .declarations
+        .iter()
+        .any(|d| d.declaration.eleve_id == harry));
     let c = compteurs(&t);
     assert!(c.absents >= 1 && c.declarations >= 1);
     // La séance 4B est faite (appel clos) : elle n'est pas dans les appels à vérifier.
@@ -178,11 +209,17 @@ async fn declaration_famille_appel_rapprochement_journee() {
     }
     // Une famille ne déclare pas à l'accueil ; l'accueil ne passe pas par la porte « famille ».
     assert!(matches!(
-        lily.declarer_absence_accueil(&corps(harry, jour, "maladie")).await,
+        lily.declarer_absence_accueil(&corps(harry, jour, "maladie"))
+            .await,
         Err(ApiError::Interdit(_))
     ));
-    let cpe_decl = cpe.declarer_absence_famille(&corps(harry, jour, "maladie")).await;
-    assert!(matches!(cpe_decl, Err(ApiError::Interdit(_))), "{cpe_decl:?}");
+    let cpe_decl = cpe
+        .declarer_absence_famille(&corps(harry, jour, "maladie"))
+        .await;
+    assert!(
+        matches!(cpe_decl, Err(ApiError::Interdit(_))),
+        "{cpe_decl:?}"
+    );
 }
 
 /// L'accueil enregistre une absence annoncée par téléphone (identité obligatoire) ; la vie
