@@ -69,3 +69,25 @@ Niveau : **implémenté + testé en local** ; aucun audit complet, non validé p
 - Non fait : audit complet, test inter-établissement sur toutes les routes de l'appel, limitation de débit vérifiée.
 
 **Hypothèse / recommandation** : d'autres routes d'`ent-db` peuvent avoir le même défaut de contrôle « horizontal » que l'appel ; revue ciblée par domaine à prévoir.
+
+## Liens courts d'accès aux fichiers privés (socle 1 sécurité)
+
+Niveau : **implémenté + testé en local** (sans réseau) ; non validé pilote ; non prêt production. Exigence : « URL pré-signées courtes émises après authentification et contrôle des droits ».
+
+**Faits**
+- Quatre routes authentifiées émettent un lien : `POST /documents/{id}/lien`, `POST /eleves/{id}/photo/lien`, `POST /pai/pieces/{id}/lien`, `POST /messages/pieces/{id}/lien`. Réponse : `{ "url", "expires_at" }` (secondes Unix). Chacune réutilise la fonction de contrôle d'accès **partagée** avec la route de téléchargement correspondante (extraite, non dupliquée) ; le client ne fournit jamais de clé de stockage. Les routes de téléchargement existantes (`…/fichier`, `/photo`, `/pai/pieces/{id}`, `/messages/pieces/{id}`) sont inchangées.
+- L'émission est journalisée (qui, quoi, sans jeton ni clé objet) : `lien_document`, `lien_pai_piece`, `lien_piece_message` ; la photo n'était pas tracée, elle ne l'est pas non plus.
+- Mode local (`ENT_OBJECT_PRESIGN_MODE=local`, défaut) : `GET /fichiers/{jeton}`, route publique. Jeton = charge + HMAC-SHA256 (domaine séparé, comparaison en temps constant) couvrant clé objet, expiration, user_id, établissement, disposition, nom affiché, type MIME. Réponses : 410 (expiré), 403 (invalide/altéré/autre secret), 404 (désactivé/absent). L'objet doit appartenir à l'établissement signé (`{etab}/…`, `reinscription/{etab}/…`, `lab/{8 hex}/…`), sinon refus (l'émission refuse aussi de signer une clé d'un autre établissement ou une clé hostile).
+- En-têtes servis : `Content-Type` et `Content-Disposition` signés, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-site`, CSP `default-src 'none'; sandbox`. Exception : un PDF affiché en ligne reçoit `default-src 'none'; frame-ancestors 'self'` (le lecteur PDF des navigateurs est bloqué par `sandbox`). `inline` n'est accordé qu'à une liste blanche (pdf, png, jpeg, gif, webp, text/plain) ; html, svg, xml et toute extension active sont forcés en `attachment`, aussi à la lecture du jeton.
+- Durée : 60 s par défaut (`ENT_OBJECT_LINK_TTL_SECS`), plafonnée à 900 s.
+- **Fail-closed** : sans `ENT_OBJECT_SIGNING_KEY` d'au moins 32 octets, aucun lien n'est émis (HTTP 503) sauf si `ENT_ENV` vaut `lab`, `labo`, `dev`, `local` ou `test` (clé éphémère aléatoire propre au processus). Aucun secret dans `Debug` ni dans les journaux.
+- Mode S3 (`ENT_OBJECT_PRESIGN_MODE=s3`) : URL pré-signée AWS Signature V4 (`X-Amz-Expires`, `response-content-disposition`, `response-content-type`), path-style ou virtual-host, endpoint par défaut `https://s3.{région}.scw.cloud`. Implémentée à la main (`hmac` + `sha2`, déjà dans l'arbre de dépendances) et vérifiée sur le vecteur officiel AWS « GET object » ; aucun appel réseau dans les tests.
+
+**Limites**
+- Le jeton local est un **porteur** : quiconque le détient pendant sa courte durée de vie lit le fichier (le user_id signé sert à l'audit, pas à un contrôle d'identité). Le copier-coller d'un lien dans un canal non sûr reste un risque, borné par l'expiration.
+- La clé objet figure **en clair** dans la charge du jeton (base64url n'est pas un chiffrement) ; elle n'est que `{etab}/{ns}/{uuid}.{ext}`, non devinable, sans donnée personnelle.
+- Pas de révocation individuelle avant expiration ; pas de limitation de débit sur `GET /fichiers/{jeton}` ; pas de requêtes `Range`.
+- Les pièces de messagerie (et les pièces PAI historiques) sont stockées en base : à l'émission du lien, leur contenu est recopié (idempotent) dans le magasin d'objets sous une clé conforme. Une copie persiste donc hors base.
+- `ent-object` n'envoie pas encore les fichiers vers un vrai S3 (PUT sans signature, disque local source de vérité) : le mode S3 produit des URL valides seulement une fois l'envoi/lecture S3 signés implémentés. Non testé contre Scaleway.
+- Un document sans octets en magasin (ancien stub de labo) donne 404 sur la route de lien, là où le téléchargement sert un texte de substitution.
+- Jeton dans l'URL : il peut apparaître dans l'historique du navigateur ou un proxy ; les journaux de l'API n'enregistrent que le gabarit de route.
