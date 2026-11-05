@@ -76,7 +76,8 @@ jobs:
   backend:
     name: Backend (clippy, compilation, tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # La suite complète (≈ 570 tests, un seul fil) dépasse 55 min depuis le lot 3.
+    timeout-minutes: 120
     services:
       postgres:
         image: postgres:18
