@@ -3,6 +3,7 @@ use domain_eleve::{
     DomainError, FicheSante, Pai, PaiPiece, PassageInfirmerie, PassageInfirmerieMotif,
 };
 use crate::champs_chiffres::ChampsSensibles;
+use crate::tenant_tx::TenantTx;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -51,6 +52,7 @@ impl PgInfirmerieRepo {
     }
 
     pub async fn insert(&self, p: &PassageInfirmerie) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_infirmerie_passage (
@@ -68,9 +70,10 @@ impl PgInfirmerieRepo {
         .bind(p.visible_famille)
         .bind(p.created_by_user_id)
         .bind(p.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -80,6 +83,7 @@ impl PgInfirmerieRepo {
         eleve_id: Uuid,
         limit: i64,
     ) -> Result<Vec<PassageInfirmerie>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, PassageRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, jour, motif, note_soins,
@@ -93,9 +97,10 @@ impl PgInfirmerieRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(PassageRow::into_passage).collect())
     }
 
@@ -105,6 +110,7 @@ impl PgInfirmerieRepo {
         jour: NaiveDate,
         limit: i64,
     ) -> Result<Vec<PassageInfirmerie>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, PassageRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, jour, motif, note_soins,
@@ -118,13 +124,17 @@ impl PgInfirmerieRepo {
         .bind(etablissement_id)
         .bind(jour)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(PassageRow::into_passage).collect())
     }
 
     pub async fn upsert_fiche(&self, f: &FicheSante) -> Result<FicheSante, DomainError> {
+        // Lecture préalable, scellement, écriture et éventuelle reprise : une seule
+        // transaction `TenantTx` (RLS).
+        let mut tx = TenantTx::begin(&self.pool, f.etablissement_id).await.map_err(map_sqlx)?;
         // L'id de la ligne est conservé en cas de mise à jour : le chiffrement (AAD)
         // doit utiliser l'id réellement stocké.
         let existant: Option<(Uuid,)> = sqlx::query_as(
@@ -132,7 +142,7 @@ impl PgInfirmerieRepo {
         )
         .bind(f.etablissement_id)
         .bind(f.eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         let id_ligne = existant.map(|(i,)| i).unwrap_or(f.id);
@@ -172,7 +182,7 @@ impl PgInfirmerieRepo {
         .bind(&sc.note_confidentielle)
         .bind(f.updated_by_user_id)
         .bind(f.updated_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         if row.id != id_ligne {
@@ -192,14 +202,16 @@ impl PgInfirmerieRepo {
             .bind(sc.medecin_nom.as_deref())
             .bind(sc.urgence_tel.as_deref())
             .bind(&sc.note_confidentielle)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(map_sqlx)?;
+            tx.commit().await.map_err(map_sqlx)?;
             return Ok(FicheSante {
                 id: row.id,
                 ..f.clone()
             });
         }
+        tx.commit().await.map_err(map_sqlx)?;
         row.into_fiche(&self.champs)
     }
 
@@ -208,6 +220,7 @@ impl PgInfirmerieRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Option<FicheSante>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, FicheRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, allergies, traitements, contre_indications,
@@ -219,13 +232,15 @@ impl PgInfirmerieRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         row.map(|r| r.into_fiche(&self.champs)).transpose()
     }
 
     pub async fn upsert_pai(&self, p: &Pai) -> Result<Pai, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, PaiRow>(
             r#"
             INSERT INTO ent_pai (
@@ -267,13 +282,15 @@ impl PgInfirmerieRepo {
         .bind(p.signe_famille_user_id)
         .bind(p.updated_by_user_id)
         .bind(p.updated_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.into_pai())
     }
 
     pub async fn update_pai_signature(&self, p: &Pai) -> Result<Pai, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, PaiRow>(
             r#"
             UPDATE ent_pai SET
@@ -292,10 +309,11 @@ impl PgInfirmerieRepo {
         .bind(p.signe_famille_at)
         .bind(p.signe_famille_user_id)
         .bind(Utc::now())
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .ok_or(DomainError::NotFound)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.into_pai())
     }
 
@@ -304,6 +322,7 @@ impl PgInfirmerieRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Option<Pai>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, PaiRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, motif, mesures_accueil, protocole_urgence,
@@ -316,13 +335,15 @@ impl PgInfirmerieRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(PaiRow::into_pai))
     }
 
     pub async fn insert_pai_piece(&self, piece: &PaiPiece) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, piece.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_pai_piece (
@@ -342,9 +363,10 @@ impl PgInfirmerieRepo {
         .bind(&piece.storage_key)
         .bind(piece.created_by_user_id)
         .bind(piece.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -353,6 +375,7 @@ impl PgInfirmerieRepo {
         etablissement_id: Uuid,
         pai_id: Uuid,
     ) -> Result<Vec<PaiPiece>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, PaiPieceRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, pai_id, nom, mime_type,
@@ -365,9 +388,10 @@ impl PgInfirmerieRepo {
         )
         .bind(etablissement_id)
         .bind(pai_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(PaiPieceRow::into_piece).collect())
     }
 
@@ -376,6 +400,7 @@ impl PgInfirmerieRepo {
         etablissement_id: Uuid,
         piece_id: Uuid,
     ) -> Result<Option<PaiPiece>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, PaiPieceRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, pai_id, nom, mime_type,
@@ -387,9 +412,10 @@ impl PgInfirmerieRepo {
         )
         .bind(etablissement_id)
         .bind(piece_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(PaiPieceRow::into_piece))
     }
 }

@@ -661,6 +661,14 @@ pub struct PgEnt {
     mail_dry_run_accepte: bool,
 }
 
+/// `ENT_DATABASE_MIGRATION_URL` (non vide) : URL du rôle propriétaire pour les migrations.
+fn migration_url_from_env() -> Option<String> {
+    std::env::var("ENT_DATABASE_MIGRATION_URL")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 impl PgEnt {
     /// Connexion **uniquement** si l'URL est localhost / 127.0.0.1.
     pub async fn connect(database_url: &str) -> Result<Self, EntDbError> {
@@ -851,8 +859,21 @@ impl PgEnt {
         Ok(self.auth.set_email(user_id, email).await?)
     }
 
+    /// Applique les migrations. Si `ENT_DATABASE_MIGRATION_URL` est définie (rôle
+    /// **propriétaire** des tables, C4), elles passent par une connexion dédiée,
+    /// fermée ensuite : le rôle applicatif (`ENT_DATABASE_URL`) n'a alors aucun
+    /// droit DDL. Sinon : comportement historique (migrations via le pool applicatif).
     pub async fn migrate(&self) -> Result<(), EntDbError> {
-        apply_socle_migrations(&self.pool).await?;
+        match migration_url_from_env() {
+            Some(url) => {
+                assert_local_postgres_url(&url)?;
+                let owner_pool = PgPoolOptions::new().max_connections(2).connect(&url).await?;
+                let r = apply_socle_migrations(&owner_pool).await;
+                owner_pool.close().await;
+                r?;
+            }
+            None => apply_socle_migrations(&self.pool).await?,
+        }
         Ok(())
     }
 
