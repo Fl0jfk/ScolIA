@@ -1,3 +1,4 @@
+import { chatUploadPrefix } from "@/app/lib/brain-ai/chat-attachments";
 import { getJson, putJson, getObjectBytes } from "@/app/lib/s3-storage";
 import {
   createTenantTransporter,
@@ -33,14 +34,17 @@ import { resolvePhotocopiesOpsEmailsWithHandlers } from "@/app/lib/photocopies-c
 
 const INDEX_KEY = "photocopies-couleur/index.json";
 
-function isValidDocumentKey(key: string): boolean {
-  return (
-    (key.startsWith("photocopies-couleur/uploads/") || key.startsWith("brain-ai/uploads/")) &&
-    !key.includes("..")
-  );
+/** PDF accepté : dépôt du module photocopies, ou dépôt ScolIA de l'utilisateur lui-même. */
+function isValidDocumentKey(key: string, userId: string | null | undefined): boolean {
+  if (key.includes("..") || key.includes("\0")) return false;
+  if (key.startsWith("photocopies-couleur/uploads/")) return true;
+  return Boolean(userId) && key.startsWith(`${chatUploadPrefix(String(userId))}/`);
 }
 
-function parseDocumentsFromArgs(args: Record<string, unknown>): {
+function parseDocumentsFromArgs(
+  args: Record<string, unknown>,
+  userId: string | null | undefined,
+): {
   ok: true;
   docs: PhotoCopieDocument[];
 } | { ok: false; error: string } {
@@ -58,7 +62,7 @@ function parseDocumentsFromArgs(args: Record<string, unknown>): {
       const fileName = String(row.fileName || row.documentFileName || "").trim();
       const contentType = String(row.contentType || row.documentContentType || "application/pdf").trim();
       if (!key && !fileName) continue;
-      if (!key || !isValidDocumentKey(key)) {
+      if (!key || !isValidDocumentKey(key, userId)) {
         return { ok: false, error: "Document joint invalide." };
       }
       if (!fileName) {
@@ -71,7 +75,7 @@ function parseDocumentsFromArgs(args: Record<string, unknown>): {
     const documentFileName = String(args.documentFileName || "").trim();
     const documentContentType = String(args.documentContentType || "application/pdf").trim();
     if (documentKey) {
-      if (!isValidDocumentKey(documentKey)) {
+      if (!isValidDocumentKey(documentKey, userId)) {
         return { ok: false, error: "Document joint invalide." };
       }
       if (!documentFileName) {
@@ -185,7 +189,7 @@ export async function handleCreatePhotocopie(
     : null;
   const nbRaw = args.nombrePhotocopies;
   const nb = Number(nbRaw);
-  const parsedDocs = parseDocumentsFromArgs(args);
+  const parsedDocs = parseDocumentsFromArgs(args, ctx.userId);
   if (!parsedDocs.ok) {
     return { ok: false, error: parsedDocs.error };
   }

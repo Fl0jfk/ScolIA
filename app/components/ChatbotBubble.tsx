@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type DragEvent,
   type ReactElement,
 } from "react";
@@ -61,7 +62,61 @@ type BrainCta = ScoliaMemoryCta;
 type PendingFile = {
   file: File;
   name: string;
+  /** Aperçu local (photos uniquement). */
+  previewUrl?: string;
 };
+
+/** Même limite que le serveur (CHAT_MAX_ATTACHMENTS). */
+const MAX_CHAT_FILES = 10;
+const CHAT_FILE_ACCEPT =
+  "application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif,.txt,.csv,.md,text/plain,text/csv";
+
+/** Type MIME retenu pour un fichier, ou null si non pris en charge. */
+function chatFileType(file: File): "pdf" | "image" | "text" | null {
+  const name = file.name.toLowerCase();
+  const type = (file.type || "").toLowerCase();
+  if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (type.startsWith("image/") || /\.(jpe?g|png|webp|gif|heic|heif)$/.test(name)) return "image";
+  if (/\.(txt|csv|md)$/.test(name) || type === "text/plain" || type === "text/csv") return "text";
+  return null;
+}
+
+function textContentType(name: string): string {
+  const n = name.toLowerCase();
+  if (n.endsWith(".csv")) return "text/csv";
+  if (n.endsWith(".md")) return "text/markdown";
+  return "text/plain";
+}
+
+/** Réduit une photo (2000 px max, JPEG) : envoi rapide et lisible par l'IA. */
+async function shrinkImage(file: File): Promise<File> {
+  if (file.type === "image/gif" && file.size < 4 * 1024 * 1024) return file;
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    throw new Error(
+      `« ${file.name} » : format de photo illisible par ce navigateur (HEIC ?). Envoyez-la en JPEG ou PNG.`,
+    );
+  }
+  const max = 2000;
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return file;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.85),
+  );
+  if (!blob) return file;
+  const base = file.name.replace(/\.[^.]+$/, "") || "photo";
+  return new File([blob], `${base}.jpg`, { type: "image/jpeg" });
+}
 
 const ELEVE_DOC_FILE_HREF =
   /^\/api\/eleves\/[^/]+\/documents\/[^/]+\/file\/?$/;
@@ -248,24 +303,30 @@ function ChatMessageActions({
   );
 }
 
-async function uploadPdf(file: File): Promise<{ key: string; fileName: string; contentType: string }> {
+async function uploadChatFile(
+  original: File,
+): Promise<{ key: string; fileName: string; contentType: string }> {
+  const kind = chatFileType(original);
+  const file = kind === "image" ? await shrinkImage(original) : original;
+  const contentType =
+    kind === "pdf" ? "application/pdf" : kind === "text" ? textContentType(file.name) : file.type;
   const prep = await fetch("/api/chatbot/upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileName: file.name, contentType: file.type || "application/pdf" }),
+    body: JSON.stringify({ fileName: file.name, contentType, size: file.size }),
   });
   const data = await prep.json();
-  if (!prep.ok) throw new Error(data.error || "Upload impossible");
+  if (!prep.ok) throw new Error(`« ${original.name} » : ${data.error || "envoi impossible"}`);
   const put = await fetch(data.uploadUrl, {
     method: "PUT",
-    headers: { "Content-Type": file.type || "application/pdf" },
+    headers: { "Content-Type": contentType },
     body: file,
   });
-  if (!put.ok) throw new Error("Échec envoi du PDF");
+  if (!put.ok) throw new Error(`« ${original.name} » : échec de l’envoi`);
   return {
     key: String(data.key),
     fileName: String(data.fileName || file.name),
-    contentType: String(data.contentType || "application/pdf"),
+    contentType: String(data.contentType || contentType),
   };
 }
 
@@ -467,7 +528,19 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     const isConfirm = Boolean(opts?.confirm && opts.confirmAction?.tool);
     const isChoice = Boolean(opts?.choiceApply?.tool);
     const isFileApply = Boolean(opts?.fileApply?.tool);
-    const filesToSend = opts?.files ?? pendingFiles;
+    const allFiles = opts?.files ?? pendingFiles;
+    // Une action (photocopies…) ne prend que des PDF : on prévient au lieu d'ignorer en silence.
+    const actionFiles = isFileApply || isConfirm;
+    const filesToSend = actionFiles ? allFiles.filter((f) => chatFileType(f.file) === "pdf") : allFiles;
+    if (actionFiles && filesToSend.length < allFiles.length) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Seuls les PDF sont joints à cette demande ; les photos et autres fichiers sont ignorés.",
+        },
+      ]);
+    }
     if ((!message && !isConfirm && !isChoice && !isFileApply && filesToSend.length === 0) || loading) return;
     // Évite un double envoi si stopVoice déclenche onend pendant un send manuel.
     voiceFinalRef.current = "";
@@ -485,19 +558,38 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
       || (isFileApply
         ? (opts!.fileApply!.skipPdf ? "Continuer sans PDF" : "PDF joint")
         : "")
-      || (filesToSend.length ? `(fichier : ${filesToSend.map((f) => f.name).join(", ")})` : "");
+      || (filesToSend.length ? "Analyse ces fichiers." : "");
+    const fileLine =
+      filesToSend.length && !isFileApply
+        ? `\n📎 ${filesToSend.map((f) => f.name).join(", ")}`
+        : "";
     if (userLabel) {
-      setMessages((prev) => [...prev, { role: "user", content: userLabel }]);
+      setMessages((prev) => [...prev, { role: "user", content: `${userLabel}${fileLine}` }]);
     }
     setLoading(true);
     stopVoice();
     try {
       let attachments: Array<{ key: string; fileName: string; contentType: string }> | undefined;
       if (filesToSend.length > 0) {
-        attachments = [];
-        for (const pf of filesToSend) {
-          attachments.push(await uploadPdf(pf.file));
+        try {
+          // Envois en parallèle (photos réduites avant envoi).
+          attachments = await Promise.all(filesToSend.map((pf) => uploadChatFile(pf.file)));
+        } catch (err) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: err instanceof Error ? err.message : "Envoi des fichiers impossible.",
+            },
+          ]);
+          // On rend fichiers et texte pour pouvoir retirer le fautif et renvoyer.
+          if (!actionFiles && !isChoice) {
+            setPendingFiles(filesToSend);
+            if (opts?.message === undefined) setInput(message);
+          }
+          return;
         }
+        for (const pf of filesToSend) if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
         setPendingFiles([]);
       }
 
@@ -513,7 +605,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                 ? "(choix)"
                 : isFileApply
                   ? "(fichier)"
-                  : "Voici un document joint."),
+                  : "Analyse ces fichiers."),
           audience: isSignedIn ? "private" : "public",
           history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
           conversationState: conversationState || undefined,
@@ -737,21 +829,50 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     void send({ message: label, choiceApply: payload });
   };
 
-  const onPickFiles = (list: FileList | null) => {
+  const onPickFiles = (list: FileList | File[] | null) => {
     if (!list?.length) return;
+    const rejected: string[] = [];
     const next: PendingFile[] = [];
     for (const file of Array.from(list)) {
-      if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `« ${file.name} » n’est pas un PDF. Seuls les PDF sont acceptés pour le moment.` },
-        ]);
+      const kind = chatFileType(file);
+      if (!kind) {
+        rejected.push(file.name);
         continue;
       }
-      next.push({ file, name: file.name });
+      next.push({
+        file,
+        name: file.name || (kind === "image" ? "photo collée" : "fichier"),
+        previewUrl: kind === "image" ? URL.createObjectURL(file) : undefined,
+      });
     }
-    if (next.length) setPendingFiles((prev) => [...prev, ...next].slice(0, 3));
+    const room = Math.max(0, MAX_CHAT_FILES - pendingFiles.length);
+    const kept = next.slice(0, room);
+    for (const extra of next.slice(room)) {
+      if (extra.previewUrl) URL.revokeObjectURL(extra.previewUrl);
+    }
+    const notes: string[] = [];
+    if (rejected.length) {
+      notes.push(
+        `Non pris en charge : ${rejected.join(", ")}. ScolIA lit les PDF, les photos et les fichiers texte (.txt, .csv). Pour un Word ou un Excel, enregistrez-le en PDF.`,
+      );
+    }
+    if (next.length > room) {
+      notes.push(`${MAX_CHAT_FILES} fichiers maximum par message : ${next.length - room} fichier(s) ignoré(s).`);
+    }
+    if (notes.length) {
+      setMessages((prev) => [...prev, { role: "assistant", content: notes.join("\n") }]);
+    }
+    if (kept.length) setPendingFiles((prev) => [...prev, ...kept].slice(0, MAX_CHAT_FILES));
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  /** Ctrl+V d'une capture d'écran ou d'une photo dans la zone de saisie. */
+  const onPasteFiles = (e: ClipboardEvent) => {
+    if (!isSignedIn) return;
+    const files = Array.from(e.clipboardData?.files || []);
+    if (!files.length) return;
+    e.preventDefault();
+    onPickFiles(files);
   };
 
   const onDragEnter = (e: DragEvent) => {
@@ -784,7 +905,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     if (!isSignedIn) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Connectez-vous pour déposer un PDF dans ScolIA." },
+        { role: "assistant", content: "Connectez-vous pour déposer des fichiers dans ScolIA." },
       ]);
       return;
     }
@@ -827,8 +948,10 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
       {dragOver ? (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[color:var(--dash-soft-muted)]/90 backdrop-blur-[2px]">
           <div className="rounded-[1.5rem] border-2 border-dashed border-[var(--dash-ink)] bg-white/95 px-6 py-5 text-center shadow-lg">
-            <p className="text-sm font-semibold text-[var(--dash-ink)]">Déposez votre PDF ici</p>
-            <p className="mt-1 text-[11px] text-neutral-600">ScolIA l’ajoutera à la conversation</p>
+            <p className="text-sm font-semibold text-[var(--dash-ink)]">Déposez vos fichiers ou photos ici</p>
+            <p className="mt-1 text-[11px] text-neutral-600">
+              PDF, photos, fichiers texte — {MAX_CHAT_FILES} maximum. ScolIA les lit et les analyse.
+            </p>
           </div>
         </div>
       ) : null}
@@ -877,7 +1000,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                 <ScoliaAiMark size="lg" inverted fill />
               </div>
               <p className="mt-5 max-w-sm text-[15px] font-medium leading-relaxed text-[var(--dash-ink)]">
-                Posez une question, faites réécrire ou corriger un message, dictez au micro, ou glissez un PDF.
+                Posez une question, faites réécrire un message, ou glissez jusqu’à 10 fichiers ou photos à analyser.
               </p>
               <p className="mt-2 max-w-sm text-xs leading-relaxed text-neutral-500">
                 Messages aux familles, infos d’élèves : utilisez ScolIA plutôt qu’une IA externe, vos textes restent dans l’ENT. Les actions importantes vous seront toujours confirmées.
@@ -987,22 +1110,37 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
           ) : null}
 
           {pendingFiles.length > 0 ? (
-            <div className="mb-2 flex flex-wrap gap-1.5">
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
               {pendingFiles.map((f, idx) => (
                 <span
                   key={`${f.name}_${idx}`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-black/8 bg-[color:var(--dash-soft-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--dash-ink)]"
+                  className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-full border border-black/8 bg-[color:var(--dash-soft-muted)] py-1 pl-1 pr-2.5 text-[11px] font-medium text-[var(--dash-ink)]"
                 >
-                  PDF · {f.name}
+                  {f.previewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- aperçu local (blob:)
+                    <img src={f.previewUrl} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <span className="pl-1.5" aria-hidden>
+                      📄
+                    </span>
+                  )}
+                  <span className="truncate">{f.name}</span>
                   <button
                     type="button"
+                    aria-label={`Retirer ${f.name}`}
                     className="text-neutral-400 hover:text-[var(--dash-ink)]"
-                    onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                    onClick={() => {
+                      if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+                      setPendingFiles((prev) => prev.filter((_, i) => i !== idx));
+                    }}
                   >
                     ×
                   </button>
                 </span>
               ))}
+              <span className="text-[10px] text-neutral-400">
+                {pendingFiles.length}/{MAX_CHAT_FILES}
+              </span>
             </div>
           ) : null}
 
@@ -1010,14 +1148,19 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
             <input
               ref={fileInputRef}
               type="file"
-              accept="application/pdf,.pdf"
+              accept={CHAT_FILE_ACCEPT}
+              multiple
               className="hidden"
               onChange={(e) => onPickFiles(e.target.files)}
             />
             <button
               type="button"
-              disabled={loading || !isSignedIn}
-              title={isSignedIn ? "Joindre un PDF" : "Connectez-vous pour joindre un PDF"}
+              disabled={loading || !isSignedIn || pendingFiles.length >= MAX_CHAT_FILES}
+              title={
+                isSignedIn
+                  ? `Joindre des fichiers ou des photos (${MAX_CHAT_FILES} max)`
+                  : "Connectez-vous pour joindre des fichiers"
+              }
               onClick={() => fileInputRef.current?.click()}
               className="shrink-0 rounded-xl px-2.5 py-2 text-sm text-neutral-600 transition hover:bg-white disabled:opacity-40"
             >
@@ -1027,6 +1170,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               value={input}
               rows={1}
               onChange={(e) => setInput(e.target.value)}
+              onPaste={onPasteFiles}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
+import { sanitizeChatAttachments } from "@/app/lib/brain-ai/chat-attachments";
 import { runBrainChat } from "@/app/lib/brain-ai/run-chat";
 import type { BrainToolCtx } from "@/app/lib/brain-ai/types";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
@@ -118,7 +119,8 @@ export async function POST(req: Request) {
       confirmAction: body.confirmAction ?? null,
       choiceApply,
       fileApply,
-      attachments: Array.isArray(body.attachments) ? body.attachments : undefined,
+      // Seulement les fichiers déposés par cet utilisateur (dossier à son nom), 10 max.
+      attachments: sanitizeChatAttachments(body.attachments, user.id),
     });
 
     return NextResponse.json(result);

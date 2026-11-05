@@ -18,6 +18,10 @@ import {
   getBrainTool,
   mistralToolsForUser,
 } from "@/app/lib/brain-ai/tools/registry";
+import {
+  loadChatAttachmentContent,
+  sanitizeChatAttachments,
+} from "@/app/lib/brain-ai/chat-attachments";
 import { isBrainPermissionDenied } from "@/app/lib/brain-ai/permissions";
 import {
   MISTRAL_LARGE_MODEL,
@@ -48,10 +52,16 @@ import type {
 
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 const MAX_TOOL_ROUNDS = 5;
+/** Nombre de messages pendant lesquels le dernier lot de fichiers reste relu. */
+const CHAT_FILES_TURNS = 6;
 
 type ChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  /** Texte, ou texte + images (vision) pour un message utilisateur avec photos. */
+  content:
+    | string
+    | null
+    | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: string }>;
   tool_calls?: Array<{
     id: string;
     type: "function";
@@ -614,18 +624,28 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     const prev = Array.isArray(conversationState.slots.attachments)
       ? (conversationState.slots.attachments as unknown[])
       : [];
+    // `attachments` = PDF réutilisables par les outils (photocopies) ;
+    // `chatFiles` = dernier lot déposé (tous types), relu par le modèle aux tours suivants.
+    const pdfs = input.attachments.filter((a) => a.contentType === "application/pdf");
     conversationState = {
       ...conversationState,
       slots: {
         ...conversationState.slots,
         attachments: [
           ...prev,
-          ...input.attachments.map((a) => ({
+          ...pdfs.map((a) => ({
             key: a.key,
             fileName: a.fileName,
-            contentType: a.contentType || "application/pdf",
+            contentType: "application/pdf",
           })),
         ],
+        chatFiles: input.attachments.map((a) => ({
+          key: a.key,
+          fileName: a.fileName,
+          contentType: a.contentType,
+        })),
+        chatDocTexts: [],
+        chatFilesTurnsLeft: CHAT_FILES_TURNS,
       },
     };
   }
@@ -784,7 +804,8 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   const signedIn = Boolean(input.toolCtx.userId) && input.audience === "private";
 
   // Bypass LLM : intention d'action → wizard UI tout de suite (select / boutons).
-  if (signedIn) {
+  // Pas avec des fichiers joints : le modèle doit d'abord les lire.
+  if (signedIn && !input.attachments?.length) {
     const wizardTool = detectWizardStartTool(input.message);
     if (wizardTool && getBrainTool(wizardTool)) {
       const result = await executeBrainTool(wizardTool, {}, {
@@ -923,15 +944,64 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     .map((m) => `${m.role === "user" ? "Utilisateur" : "Assistant"}: ${m.content}`)
     .join("\n");
 
+  // Dernier lot de fichiers déposés : relu à chaque tour pour les questions de suite.
+  // Les clés viennent du navigateur (état de conversation) : on revérifie le dossier.
+  const chatFiles = sanitizeChatAttachments(
+    conversationState.slots.chatFiles,
+    input.toolCtx.userId || "",
+  );
+  const cachedDocTexts = Array.isArray(conversationState.slots.chatDocTexts)
+    ? (conversationState.slots.chatDocTexts as Array<{ key: string; fileName: string; text: string }>)
+        .filter((d) => d && typeof d.key === "string" && typeof d.text === "string")
+    : [];
+  const filesContent = chatFiles.length
+    ? await loadChatAttachmentContent(chatFiles, cachedDocTexts)
+    : null;
+  if (filesContent) {
+    // Le lot reste lisible quelques questions, puis on l'oublie (coût + minimisation).
+    const turnsLeft = Number(conversationState.slots.chatFilesTurnsLeft ?? CHAT_FILES_TURNS) - 1;
+    conversationState = {
+      ...conversationState,
+      slots:
+        turnsLeft > 0
+          ? {
+              ...conversationState.slots,
+              chatDocTexts: filesContent.docTexts,
+              chatFilesTurnsLeft: turnsLeft,
+            }
+          : {
+              ...conversationState.slots,
+              chatFiles: [],
+              chatDocTexts: [],
+              chatFilesTurnsLeft: 0,
+            },
+    };
+  }
+  const filesNote = filesContent?.text
+    ? `\n${filesContent.text}\n` +
+      `Consignes fichiers : analyse-les vraiment (contenu, chiffres, dates, personnes, anomalies), ` +
+      `réponds à la question en citant « Fichier n », et si un fichier appelle une action de l'ENT ` +
+      `(justificatif d'absence, pièce d'inscription, document à photocopier, demande…), propose-la ` +
+      `ou lance l'outil adapté. Si aucune question n'est posée, résume chaque fichier et propose la suite utile.\n`
+    : "";
+
   const userPayload =
     `Historique récent:\n${historyText || "(aucun)"}\n\n` +
     `Contexte dictionnaire:\n${knowledge.context}\n` +
     attachmentNote +
+    filesNote +
     `\nQuestion: ${input.message}`;
+
+  const userContent: ChatMessage["content"] = filesContent?.images.length
+    ? [
+        { type: "text", text: userPayload },
+        ...filesContent.images.map((img) => ({ type: "image_url" as const, image_url: img.dataUrl })),
+      ]
+    : userPayload;
 
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
-    { role: "user", content: userPayload },
+    { role: "user", content: userContent },
   ];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
