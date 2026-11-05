@@ -183,7 +183,7 @@ impl PgInfirmerieRepo {
                 r#"UPDATE ent_fiche_sante SET allergies = $2, traitements = $3,
                        contre_indications = $4, medecin_nom = $5, urgence_tel = $6,
                        note_confidentielle = $7
-                   WHERE id = $1"#,
+                   WHERE id = $1 AND etablissement_id = $8"#,
             )
             .bind(row.id)
             .bind(&sc.allergies)
@@ -192,6 +192,7 @@ impl PgInfirmerieRepo {
             .bind(sc.medecin_nom.as_deref())
             .bind(sc.urgence_tel.as_deref())
             .bind(&sc.note_confidentielle)
+            .bind(row.etablissement_id)
             .execute(&self.pool)
             .await
             .map_err(map_sqlx)?;

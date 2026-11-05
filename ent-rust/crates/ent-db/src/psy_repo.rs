@@ -281,12 +281,13 @@ impl PgPsyRepo {
             let (axes, contacts, note) = self.sceller_dossier(row.id, d)?;
             sqlx::query(
                 "UPDATE ent_psy_dossier SET axes_suivi = $2, contacts_externes = $3, \
-                 note_confidentielle = $4 WHERE id = $1",
+                 note_confidentielle = $4 WHERE id = $1 AND etablissement_id = $5",
             )
             .bind(row.id)
             .bind(&axes)
             .bind(&contacts)
             .bind(&note)
+            .bind(row.etablissement_id)
             .execute(&self.pool)
             .await
             .map_err(map_sqlx)?;

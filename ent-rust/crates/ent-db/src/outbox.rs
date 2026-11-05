@@ -537,10 +537,11 @@ impl Distributeur {
                         UPDATE ent_outbox
                         SET statut = 'distribue', distribue_le = now(),
                             tentatives = tentatives + 1, derniere_erreur = NULL
-                        WHERE event_id = $1
+                        WHERE event_id = $1 AND etablissement_id = $2
                         "#,
                     )
                     .bind(evt.event.id)
+                    .bind(evt.event.etablissement_id)
                     .execute(&mut *verrou)
                     .await?;
                     rapport.distribues += 1;
@@ -560,12 +561,13 @@ impl Distributeur {
                             r#"
                             UPDATE ent_outbox
                             SET statut = 'echec', tentatives = $2, derniere_erreur = $3
-                            WHERE event_id = $1
+                            WHERE event_id = $1 AND etablissement_id = $4
                             "#,
                         )
                         .bind(evt.event.id)
                         .bind(tentatives)
                         .bind(&erreur)
+                        .bind(evt.event.etablissement_id)
                         .execute(&mut *verrou)
                         .await?;
                         rapport.echecs += 1;
@@ -584,13 +586,14 @@ impl Distributeur {
                             UPDATE ent_outbox
                             SET tentatives = $2, derniere_erreur = $3,
                                 prochaine_tentative = now() + make_interval(secs => $4)
-                            WHERE event_id = $1
+                            WHERE event_id = $1 AND etablissement_id = $5
                             "#,
                         )
                         .bind(evt.event.id)
                         .bind(tentatives)
                         .bind(&erreur)
                         .bind(delai.as_secs_f64())
+                        .bind(evt.event.etablissement_id)
                         .execute(&mut *verrou)
                         .await?;
                         rapport.reprises += 1;

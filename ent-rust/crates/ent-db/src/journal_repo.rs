@@ -12,13 +12,23 @@ impl PgJournalRepo {
         Self { pool }
     }
 
-    pub async fn insert(&self, e: &JournalEntree) -> Result<(), DomainError> {
-        sqlx::query(
+    /// Insère une entrée. Une entrée visant un élève **hors de l'établissement**
+    /// n'est pas écrite (C6 : un identifiant d'un autre établissement ne doit
+    /// laisser aucune trace dans le journal de celui-ci). Renvoie `false` dans
+    /// ce cas.
+    pub async fn insert(&self, e: &JournalEntree) -> Result<bool, DomainError> {
+        let r = sqlx::query(
             r#"
             INSERT INTO ent_journal_modif (
                 id, etablissement_id, eleve_id, domaine, action, libelle,
                 payload, visible_famille, actor_user_id, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            )
+            SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+            WHERE $3::uuid IS NULL
+               OR EXISTS (
+                    SELECT 1 FROM ent_eleve
+                    WHERE id = $3 AND etablissement_id = $2
+               )
             "#,
         )
         .bind(e.id)
@@ -34,7 +44,7 @@ impl PgJournalRepo {
         .execute(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(())
+        Ok(r.rows_affected() > 0)
     }
 
     pub async fn list_eleve(

@@ -47,14 +47,13 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 ### C. Isolation des établissements
 | # | Lot | Gravité | Statut |
 |---|---|---|---|
-| C1 | Correctifs ponctuels : filtres manquants (`periode_repo`, `competence_repo`, `update_credential`), `is_member` sur remplaçant EDT et absence RH, `user_labels` filtré par établissement, messages `NotMember`/`EmailTaken` neutres | Moyenne | partiel (filtres périodes et compétences, remplaçant et absence RH membres ; `user_labels` et messages neutres : à faire) |
+| C1 | Correctifs ponctuels : filtres manquants (`periode_repo`, `competence_repo`, `update_credential`), `is_member` sur remplaçant EDT et absence RH, `user_labels` filtré par établissement, messages `NotMember`/`EmailTaken` neutres | Moyenne | implémenté + testé en local (détail « C1 / C6 » ci-dessous ; reste : invitation de rattachement, parcours parent, `update_credential`) |
 | C2 | Établissement déduit de l'adresse (D-012) : table `etablissement` + domaines, middleware `Host`, session refusée si autre domaine, plus d'`etablissement_id` saisi | Élevée | en cours (session cloud) |
-| C1 | Correctifs ponctuels : filtres manquants (`periode_repo`, `competence_repo`, `update_credential`), `is_member` sur remplaçant EDT et absence RH, `user_labels` filtré par établissement, messages `NotMember`/`EmailTaken` neutres | Moyenne | à faire |
 | C2 | Établissement déduit de l'adresse (D-012) : table `etablissement` + domaines, middleware `Host`, session refusée si autre domaine, plus d'`etablissement_id` saisi | Élevée | implémenté + testé en local (détail ci-dessous) |
 | C3 | Type `Tenant` obtenu seulement de la session, imposé aux accès aux données sensibles et au stockage de fichiers | Structurant | à faire |
 | C4 | Row-Level Security PostgreSQL sur les tables les plus sensibles (santé, psy, sanctions, facturation), rôle applicatif non propriétaire | Défense en profondeur | à faire |
 | C5 | FK composites `(etablissement_id, id)` sur les tables enfants prioritaires | Défense en profondeur | à faire |
-| C6 | Matrice de séparation étendue : personne membre de deux établissements, références croisées en écriture, test statique des requêtes sans `etablissement_id` | Élevée | à faire |
+| C6 | Matrice de séparation étendue : personne membre de deux établissements, références croisées en écriture, test statique des requêtes sans `etablissement_id` | Élevée | implémenté + testé en local (matrice : 40 tests, 2292 cas ; garde statique ; détail ci-dessous) |
 
 #### C2 — détail (2026-11-05, branche `ent-socle1-tenant-host`)
 **Faits (implémenté + testé en local) :**
@@ -72,6 +71,31 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 - l'attribution d'un domaine est faite par l'Admin de l'établissement : pas encore de rôle « plateforme » ni de liste de suffixes autorisés (ex. `*.scolia.fr`) ; un Admin pourrait réserver un domaine non encore déclaré par un autre établissement (refus seulement s'il est déjà pris) — à encadrer avant la production ;
 - `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` ne sont pas encore liés à l'hôte ; la liste d'origines WebAuthn (A5) est traitée par ailleurs ; le cookie `__Host-` (A6) est en place côté `/web` ;
 - l'interface JavaScript existante envoie encore `etablissement_id` (accepté, ignoré sur une adresse connue) : à retirer lors du remplacement Leptos.
+
+#### C1 (reste) et C6 — détail (2026-11-05, branche `ent-socle1-matrice`)
+**Faits (implémenté + testé en local) :**
+- `user_labels(etablissement_id, ids)` (`ent-db`, `PgEnt`) : jointure `ent_membership` ; l'établissement de la session est passé aux 17 appels (`routes.rs`, `referentiel.rs`) ; un identifiant d'un autre établissement n'a plus de libellé (test `c1_user_labels_filtre_par_etablissement`).
+- `provisionner_personnel_for_actor` : adresse déjà membre **de l'établissement** → 409 (inchangé) ; adresse connue **ailleurs** → réponse indiscernable d'un succès (201, même forme, même coût Argon2id), **aucun compte créé ni modifié**, entrée de journal `personnel_provisionne_adresse_connue` (sans l'adresse) ; le mot de passe renvoyé n'est rattaché à rien. Le rattachement réel par **invitation acceptée par la personne** reste **à concevoir** (non implémenté).
+- SSO : une personne authentifiée par l'IdP mais non membre répond comme un compte inconnu (`OidcCompteInconnu`, 401), plus `Forbidden`.
+- Connexion d'un non-membre et mot de passe oublié : vérifiés déjà indiscernables (L5/A4) ; passkey `login/start` : défi factice indiscernable.
+- **Défauts trouvés par la matrice et corrigés** : (1) `POST /edt/creneaux/{id}/affectation` acceptait un `prof_user_id` d'un autre établissement (200) → membre exigé ; (2) `POST /facturation/factures` acceptait une ligne dont `eleve_id` est d'un autre établissement (201) → élève de l'établissement exigé ; (3) les traces de consultation sensible (`fiche_sante`, `pai`, `dossier_psy`, `entretiens_psy`, `passages_infirmerie`) et toute entrée de journal visant un `eleve_id` d'un autre établissement étaient écrites dans le journal de l'établissement de la session (et listées par `GET /eleves/{id}/journal`) → `ent_journal_modif` n'insère plus (ni événement) qu'un élève de l'établissement.
+- Inventaire des routes (`tests/separation/routes_src.rs`) : il ne lisait que `routes.rs` ; `referentiel.rs` et `roles.rs` (donc `/roles/*`, `/referentiel/groupes/{id}/responsables`) échappaient au test « 401 sans session ». Les trois fichiers sont lus et un test échoue si un autre fichier de `src/` déclare des routes.
+
+**Matrice étendue (`ent-api/tests/separation.rs`) :** 40 tests (30 auparavant), **2292 cas exécutés** (dont 519 dans les cinq tests C6 : double membre 304, références croisées 13, `*_user_id` 13, routes du socle 1 189 ; l'inventaire « 401 » passe de 2 × ~250 à 2 × 348 routes, `referentiel.rs` et `roles.rs` inclus) ; énumération : 12 comparaisons.
+- double membre : 8 comptes neufs (admin, direction, administratif, CPE, professeur, compta, infirmerie, psy) membres de A **et** de B, connectés sur A ; toutes les spécifications de la matrice rejouées avec des identifiants de B (chemin, query, corps) ; listes de A sans identifiant ni e-mail de B ; sessions, politique et domaines de A seulement ;
+- références croisées en écriture (session A, parent de B) : note (matière, période, devoir), devoir (matière, période), appel (élève, créneau), message (fil, réponse), facture (foyer, ligne), document (dépôt, décision de grant) → refus 4xx, rien d'écrit dans B ;
+- colonnes `*_user_id` du client : remplaçant EDT, affectation de créneau, contrainte EDT, absence RH, service d'enseignement, responsable de groupe, attribution / retrait / modification de rôle (dans les deux sens) ; la route de demande d'accès à un document n'accepte aucun bénéficiaire du client (le bénéficiaire est la session) ;
+- énumération : connexion (bon mot de passe d'un compte de B ≡ compte inconnu ≡ mauvais mot de passe), passkey, mot de passe oublié, provisionnement ;
+- nouvelles routes : `/roles/*`, `/auth/sessions*`, `/etablissement/securite|domaines|fiche`, les 4 routes `…/lien`, `/fichiers/{jeton}` (jeton inconnu ou altéré) : 401 sans session, refus des identifiants de B pour tout le personnel de A et les doubles membres, session de B non révocable depuis A. Le tenant par hôte reste couvert par `tests/tenant_hote.rs` (C2).
+
+**Garde statique (`ent-db/tests/isolation_sql_statique.rs`) :** déduit des migrations 124 tables portant `etablissement_id` et contrôle les littéraux SQL de `ent-db/src/*.rs` (hors `tests_*`) : tout `SELECT/UPDATE/DELETE … FROM|UPDATE|JOIN ent_x` sur ces tables doit contenir `etablissement_id` dans le même littéral. 430 requêtes contrôlées au premier passage, 26 sans filtre : **aucune n'était une fuite**, toutes justifiées une à une dans `EXCEPTIONS` (sessions, passkeys, états OIDC : clé = personne ou secret global ; purges et métriques globales ; chiffrement des secrets au démarrage). Une exception inutilisée fait échouer le test (pas de dette silencieuse).
+
+**Limites / reste à faire :**
+- le garde est syntaxique : il ne voit pas une requête construite par concaténation hors littéral, ni un `etablissement_id` présent dans le littéral mais seulement dans un `SET` ; il ne remplace ni la RLS (C4) ni les FK composites (C5) ;
+- parcours de rattachement d'un parent (`POST /foyers/{id}/liens`) et provisionnement en lot : une adresse déjà utilisée dans un autre établissement donne encore un 409 distinct (oracle d'existence) ; même traitement neutre à prévoir avec l'invitation ;
+- `update_credential` (C1) : non re-audité dans ce passage ;
+- les comptes parents / élèves n'ont pas été rejoués comme doubles membres (ils reçoivent un secret aléatoire, sans mot de passe de test) ; leurs routes exigent un lien par élève, refusé hors établissement dans la matrice standard ;
+- le temps de réponse du provisionnement d'une adresse connue ailleurs n'est égalé qu'au coût d'Argon2id, non mesuré.
 
 ### D. Documents et données
 | # | Lot | Gravité | Statut |
