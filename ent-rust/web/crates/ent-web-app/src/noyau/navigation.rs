@@ -4,6 +4,7 @@
 use ent_web_ui::{EntreeNav, NomIcone};
 
 use super::droits::Droits;
+use super::droits_moteur::DroitsMoteur;
 
 pub const ACCUEIL: &str = "/web";
 pub const EMPLOI_DU_TEMPS: &str = "/web/emploi-du-temps";
@@ -12,6 +13,9 @@ pub const CLASSES: &str = "/web/classes";
 pub const MES_CLASSES: &str = "/web/mes-classes";
 pub const VIE_SCOLAIRE: &str = "/web/vie-scolaire";
 pub const JOURNEE: &str = "/web/journee";
+pub const REFERENTIEL: &str = "/web/referentiel";
+pub const DISCIPLINE: &str = "/web/discipline";
+pub const SIGNALEMENTS: &str = "/web/signalements";
 pub const ABSENCES: &str = "/web/absences";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
@@ -31,8 +35,14 @@ fn entree(libelle: &str, href: &str, icone: NomIcone) -> EntreeNav {
     }
 }
 
-/// Entrées visibles pour ces droits, dans l'ordre d'affichage.
+/// Entrées visibles pour le profil de base seul (avant la réponse du moteur de droits).
 pub fn entrees(droits: Droits) -> Vec<EntreeNav> {
+    entrees_avec_moteur(droits, &DroitsMoteur::default())
+}
+
+/// Entrées visibles pour le profil de base **et** les droits effectifs du moteur (rôles
+/// paramétrés compris), dans l'ordre d'affichage. Le serveur revérifie chaque route.
+pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeNav> {
     let mut v = vec![entree("Aujourd'hui", ACCUEIL, NomIcone::Accueil)];
     if droits.emploi_du_temps {
         v.push(entree("Emploi du temps", EMPLOI_DU_TEMPS, NomIcone::Agenda));
@@ -46,9 +56,25 @@ pub fn entrees(droits: Droits) -> Vec<EntreeNav> {
     if droits.voir_classes {
         v.push(entree("Classes", CLASSES, NomIcone::Ecole));
     }
+    // Écrans d'administration : proposés à qui gère le référentiel. La lecture (classes, effectifs)
+    // reste accessible à tout le personnel par « Classes » ; l'adresse directe consulte sans écrire.
+    if moteur.peut_gerer_referentiel() {
+        v.push(entree("Référentiel", REFERENTIEL, NomIcone::Salle));
+    }
     if droits.trancher_justificatif {
         v.push(entree("Vie scolaire", VIE_SCOLAIRE, NomIcone::Personne));
+    }
+    if droits.trancher_justificatif
+        || moteur.peut_verifier_appels()
+        || moteur.peut_declarer_absence()
+    {
         v.push(entree("Journée", JOURNEE, NomIcone::Agenda));
+    }
+    if moteur.peut_donner_punition() || moteur.peut_gerer_discipline() {
+        v.push(entree("Discipline", DISCIPLINE, NomIcone::Personne));
+    }
+    if moteur.peut_signaler_assiduite() {
+        v.push(entree("Signalements", SIGNALEMENTS, NomIcone::Annonce));
     }
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("Absences", ABSENCES, NomIcone::Personne));
@@ -161,6 +187,66 @@ mod tests {
             .map(|e| e.href)
             .collect();
         assert_eq!(eleve, [ACCUEIL, EMPLOI_DU_TEMPS, ABSENCES, MESSAGES]);
+    }
+
+    fn droit(action: &str, portee: &str) -> ent_web_api::DroitEffectif {
+        ent_web_api::DroitEffectif {
+            action: action.into(),
+            portee: portee.into(),
+            cibles: Vec::new(),
+        }
+    }
+
+    fn adresses(droits: Droits, moteur: &DroitsMoteur) -> Vec<String> {
+        entrees_avec_moteur(droits, moteur)
+            .into_iter()
+            .map(|e| e.href)
+            .collect()
+    }
+
+    #[test]
+    fn le_moteur_ajoute_les_ecrans_selon_les_droits_effectifs() {
+        // Secrétariat : référentiel, journée et signalements selon ce que le moteur accorde.
+        let moteur = DroitsMoteur::new(vec![
+            droit("referentiel.gerer", "etablissement"),
+            droit("appel.verifier", "etablissement"),
+            droit("punitions.donner", "etablissement"),
+            droit("assiduite.signaler", "etablissement"),
+        ]);
+        let v = adresses(droits_du_role("administratif"), &moteur);
+        for attendu in [REFERENTIEL, JOURNEE, DISCIPLINE, SIGNALEMENTS] {
+            assert!(
+                v.contains(&attendu.to_string()),
+                "{attendu} manquant : {v:?}"
+            );
+        }
+        // Lecture seule du référentiel (tout le personnel) : pas d'entrée d'administration.
+        let lecture = DroitsMoteur::new(vec![droit("referentiel.lire", "etablissement")]);
+        assert!(!adresses(droits_du_role("cpe"), &lecture).contains(&REFERENTIEL.to_string()));
+        // Sans réponse du moteur, aucune entrée d'administration n'apparaît.
+        let seul = adresses(droits_du_role("administratif"), &DroitsMoteur::default());
+        for absent in [REFERENTIEL, DISCIPLINE, SIGNALEMENTS] {
+            assert!(!seul.contains(&absent.to_string()));
+        }
+    }
+
+    #[test]
+    fn un_role_parametre_ouvre_la_journee_sans_le_profil() {
+        // Un professeur qui reçoit « absences.declarer » voit « Journée » (l'accueil), pas « Vie scolaire ».
+        let moteur = DroitsMoteur::new(vec![droit("absences.declarer", "etablissement")]);
+        let v = adresses(droits_du_role("prof"), &moteur);
+        assert!(v.contains(&JOURNEE.to_string()));
+        assert!(!v.contains(&VIE_SCOLAIRE.to_string()));
+        // Un enseignant avec ses punitions « sur ses classes » voit « Discipline » mais pas « Référentiel ».
+        let p = DroitsMoteur::new(vec![droit("punitions.donner", "mes_classes")]);
+        let v = adresses(droits_du_role("prof"), &p);
+        assert!(v.contains(&DISCIPLINE.to_string()) && !v.contains(&REFERENTIEL.to_string()));
+    }
+
+    #[test]
+    fn famille_et_eleve_ne_voient_aucun_ecran_d_administration() {
+        let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
+        assert_eq!(v, [ACCUEIL, ABSENCES, MESSAGES]);
     }
 
     #[test]

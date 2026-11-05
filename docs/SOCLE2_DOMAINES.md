@@ -818,7 +818,7 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 
 ### 6.3 S2-2 — réalisé (2026-11-05, branche `ent-socle2-referentiel`)
 
-**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. La branche contient la fusion de `ent-socle2-outbox` (S2-0) ; les faits du référentiel publient via `tx.publier` (même transaction que l'écriture). Écrans Leptos : **non faits** (voir plan ci-dessous).
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. La branche contient la fusion de `ent-socle2-outbox` (S2-0) ; les faits du référentiel publient via `tx.publier` (même transaction que l'écriture). Écrans Leptos : **faits** dans la branche `ent-socle2-ecrans-ref-vs` (voir « Écrans réalisés » ci-dessous).
 
 **Livré [F]**
 
@@ -851,7 +851,11 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 3. Un lot de sécurité vérifie qu'aucune lecture métier ne dépend plus du texte (grep des requêtes).
 4. Rendre `classe_id` obligatoire (NOT NULL) puis retirer les colonnes texte et les triggers dans une migration dédiée.
 
-**Plan d'écrans Leptos (5, non faits)** : années et bascule (assistant préparer → reconduire → monter → ouvrir) ; classes (site/niveau/MEF, PP, archivage) ; périodes et calendrier ; grille horaire ; séances (plage, filtre classe/prof, régénération). Chacun s'appuie sur les routes `/referentiel/*` existantes.
+**Écrans réalisés (Leptos, `/web/referentiel/*`, 2026-11-05, branche `ent-socle2-ecrans-ref-vs`)** : années et bascule (étapes, préparation avec reconduction, montée avec aperçu serveur puis confirmation, ouverture et clôture confirmées, « forcer » tracé après refus), sites / niveaux / MEF (import collé), classes (rattachement, archivage, professeur principal) et groupes / ateliers (création, responsables), périodes (couverture contrôlée avant envoi) et calendrier (vacances, jours fermés), grille horaire (grille type, chevauchements), génération et liste des séances. Navigation selon les droits effectifs du moteur (`/roles/mes-droits`). Détail : `docs/FRONTEND_CIBLE.md` §10.
+
+**Écarts / reste à faire (écrans)** : route ajoutée `GET /referentiel/groupes-admin` (liste des groupes et ateliers avec responsables) ; la montée propose des classes d'arrivée par le code de classe (« 6A » → « 5A ») à vérifier, l'aperçu et l'application sont ceux du serveur ; pas d'aperçu serveur pour l'ouverture d'année (texte d'effets uniquement) ; pas d'affectation en lot hors montée ; pas de filtre par professeur sur les séances ; périodes par niveau (`niveau_id`) non éditées ; séances d'une classe archivée non traitées ; comparaison / rattachement `classe_id` non exposés à l'écran ; accessibilité vérifiée par tests de rendu seulement (axe-core, clavier, lecteur d'écran, 375 px au navigateur : non faits).
+
+---
 
 ### 6.4 S2-4 — réalisé (2026-11-05, branche `ent-socle2-vie-scolaire`)
 
@@ -877,7 +881,7 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 | Droits | `ent-auth/src/actions.rs` | Cinq actions : `absences.declarer`, `appel.verifier`, `punitions.donner`, `discipline.gerer`, `assiduite.signaler`. Modèles par défaut calés sur les profils déjà habilités ; test d'un rôle paramétré (prof + `absences.declarer`). |
 | Événements | `ent-db/src/vie_scolaire.rs` (`types_vs`) | `vs.absence_declaree`, `vs.declaration_annulee`, `vs.absence_rapprochee`, `vs.appel_relance`, `vs.punition_donnee`, `vs.procedure_engagee`, `vs.procedure_decidee`, `vs.conseil_discipline_decide`, `vs.sanction_effacee`, `vs.signalement_assiduite_emis` : tous publiés dans la transaction du fait (outbox S2-0). |
 | API | `ent-api/src/vie_scolaire.rs` | 27 chemins (29 méthodes HTTP). Les droits sont ceux d'`ent-db`. |
-| Écrans Leptos | `/web/journee`, dialogue de déclaration | Journée vie scolaire/accueil (absents prévenus ou non, retards, absences annoncées, appels à vérifier + relance, incohérences, saisie d'une absence annoncée) ; famille : « Déclarer une absence » dans `/web/absences`. |
+| Écrans Leptos | `/web/journee`, dialogue de déclaration ; `/web/discipline` ; `/web/signalements` | Journée vie scolaire/accueil (absents prévenus ou non, **demi-journées dérivées par le serveur**, retards, absences annoncées, appels à vérifier + relance, incohérences, saisie d'une absence annoncée — ouverte aux rôles paramétrés `absences.declarer` / `appel.verifier`) ; famille : « Déclarer une absence » dans `/web/absences` ; **punitions ≠ sanctions** (deux sections), procédure disciplinaire (observations, convocation, décision, classement), effacement des sanctions ; signalements d'assiduité (décompte, proposer, valider / refuser / émettre). Branche `ent-socle2-ecrans-ref-vs`. |
 
 **Écarts par rapport au §3 / aux actions VS [signalés]**
 - Agrégats d'événements **réutilisés** (`Absence`, `Appel`, `Sanction`) au lieu de variantes dédiées, pour ne pas toucher à l'enum partagée entre lots en parallèle ; types d'événements déclarés dans `ent-db` et non dans `ent_events::types`.
@@ -887,7 +891,7 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 - Le menu « Journée » est affiché selon le profil (même ensemble que « trancher un justificatif ») et non selon les droits effectifs du moteur : un rôle paramétré qui reçoit `appel.verifier` sans ce profil doit saisir l'adresse (le serveur reste l'autorité).
 
 **Non livré / reste à faire**
-- Écrans Leptos pour punitions, procédure disciplinaire, effacement, règles d'assiduité, signalement (API et tests prêts) ; affichage du pré-remplissage A1 dans la feuille d'appel (route prête ; feuille d'appel inchangée) ; liste et annulation des déclarations côté famille (route prête).
+- **Écrans : reste à faire** — édition des règles d'assiduité et des règles / catégories d'effacement (routes prêtes) ; prononcer une sanction depuis l'écran discipline (route historique `POST /eleves/{id}/sanctions`, liste en lecture seule seulement) ; rattacher la sanction à la décision (`sanction_id`) ; affichage du pré-remplissage A1 dans la feuille d'appel (route prête ; feuille d'appel inchangée) ; liste et annulation des déclarations côté famille (route prête) ; dossier de signalement détaillé (JSON `dossier` non affiché). Livrés dans la branche d'écrans : punitions, sanctions (lecture), procédure disciplinaire, effacement, signalements, demi-journées de la journée.
 - VS-03 (consulter un appel sans l'ouvrir, GET), VS-05 (corriger un appel clos), `appel.non_fait_detecte` / tâche périodique de détection et relance push automatique : la vérification est calculée à la demande, la relance est manuelle.
 - Dossier de signalement en PDF (VS-21) ; lettre de convocation (D9).
 - Jours fériés et vacances non exclus du repli de reprise (lundi à vendredi seulement) ; samedi matin non géré.

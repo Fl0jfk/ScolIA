@@ -62,6 +62,7 @@ mod referentiel_structure;
 mod referentiel_annee;
 mod referentiel_seances;
 mod referentiel_classe_id;
+mod referentiel_groupes;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
@@ -98,12 +99,8 @@ pub use ent_object::presign;
 pub use ent_object::ObjectStoreError;
 pub use assiduite::{
     bornes_mois, deriver_demi_journees, heure_paris, seance_couverte, Contribution, DemiJournee,
-    RegleAssiduite,
+    Periode, RegleAssiduite,
 };
-// Noms déjà pris à la racine par le référentiel (S2-2 : `Periode`, `Seance`) :
-// les types homonymes de la vie scolaire (S2-4) sont réexportés sous alias.
-pub use assiduite::Periode as PeriodeJournee;
-pub use vie_scolaire::Seance as SeanceVs;
 pub use discipline_vs::{
     date_effacement, regle_effacement_defaut, DonnerPunition, EffacementRapport, EngagerProcedure,
     ModeEffacement, ProcedureDisciplinaire, Punition, PunitionType, SignalementAssiduite,
@@ -111,7 +108,7 @@ pub use discipline_vs::{
 };
 pub use vie_scolaire::{
     types_vs, AbsentDuJour, DeclarationAbsence, DeclarationDuJour, DeclarerAbsence, DecompteEleve,
-    DecompteMois, DemiJourneeEleve, IncoherenceAppel, RelanceAppel, RetardDuJour,
+    DecompteMois, DemiJourneeEleve, IncoherenceAppel, RelanceAppel, RetardDuJour, Seance,
     SeanceSansAppel, TableauJour, VerificationAppels,
 };
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
@@ -156,12 +153,13 @@ pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
 pub use ref_commun::Acteur;
 pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
 pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};
+pub use referentiel_groupes::{GroupeAdmin, ResponsableGroupe};
 pub use referentiel_seances::{
-    planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance, SeancePlan,
+    planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance as SeanceRef, SeancePlan,
 };
 pub use referentiel_structure::{
     code_niveau_de_texte, grille_standard, verifier_couverture, CreneauGrille, CreneauGrilleSaisie,
-    JourCalendrier, Mef, MefImport, Niveau, Periode, PeriodeSaisie, RapportImportMef, Site,
+    JourCalendrier, Mef, MefImport, Niveau, Periode as PeriodeRef, PeriodeSaisie, RapportImportMef, Site,
     NIVEAUX_NATIONAUX,
 };
 pub use dossier_personnes::{

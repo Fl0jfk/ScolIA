@@ -8,7 +8,6 @@
 use super::*;
 use crate::appel_repo::{Appel, LigneEtat};
 use crate::outbox::ConfigDistribution;
-use crate::assiduite::Periode;
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use domain_eleve::{today_utc, DeclareAbsence, DomainError};
 use ent_auth::{Action, Portee, Role};

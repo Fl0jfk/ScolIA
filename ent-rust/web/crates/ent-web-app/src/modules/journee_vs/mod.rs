@@ -23,13 +23,14 @@ use uuid::Uuid;
 use crate::composants_metier::declaration::{
     libelle_periode_declaration, libelle_source, DialogueDeclaration, Origine,
 };
-use crate::noyau::coquille::use_droits;
+use crate::noyau::coquille::{use_droits, use_droits_moteur};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::temps::{aujourdhui, date_longue};
 use crate::noyau::{reconnexion, session};
 use modele::{
-    compteurs, libelle_absent, libelle_etat_appel, libelle_incoherence, libelle_incoherence_eleve,
-    libelle_retard_appel, libelle_seance, nom_complet, ton_etat_appel, trier_absents,
+    compteurs, libelle_absent, libelle_demi_journee, libelle_etat_appel, libelle_incoherence,
+    libelle_incoherence_eleve, libelle_retard_appel, libelle_seance, nom_complet, ton_etat_appel,
+    trier_absents,
 };
 
 fn message_echec(e: ApiError) -> String {
@@ -45,13 +46,20 @@ fn message_echec(e: ApiError) -> String {
 #[component]
 pub fn PageJourneeVs() -> impl IntoView {
     let droits = use_droits();
+    let moteur = use_droits_moteur();
     let ctx = session::use_session();
+    // Profil habilité, ou rôle paramétré qui a reçu `appel.verifier` / `absences.declarer`.
+    let autorise = move || {
+        droits.get().trancher_justificatif
+            || moteur.get().peut_verifier_appels()
+            || moteur.get().peut_declarer_absence()
+    };
     view! {
         <Title text="Journée"/>
         {move || match ctx.moi.get() {
             None => view! { <Squelette lignes=6 libelle="Chargement de la journée…"/> }.into_any(),
             Some(Err(e)) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| ctx.moi.refetch())/> }.into_any(),
-            Some(Ok(_)) if droits.get().trancher_justificatif => view! { <EcranJournee/> }.into_any(),
+            Some(Ok(_)) if autorise() => view! { <EcranJournee/> }.into_any(),
             Some(Ok(_)) => view! {
                 <EnTetePage titre="Journée".to_string()/>
                 <AccesRefuse message="La journée de la vie scolaire n'est pas accessible avec votre profil."/>
@@ -257,11 +265,13 @@ fn ContenuJournee(
                             .into_iter()
                             .map(|a| {
                                 let seances = a.seances.join(", ");
+                                let (eleve_id, nom_a) = (a.eleve_id, libelle_absent(&a));
                                 view! {
                                     <li class="jvs-ligne">
                                         <div>
                                             <strong>{libelle_absent(&a)}</strong>
                                             {(!seances.is_empty()).then(|| view! { <span class="texte-attenue">{format!(" — {seances}")}</span> })}
+                                            <DemiJourneesAbsent eleve_id=eleve_id jour=jour nom=nom_a/>
                                         </div>
                                         {if a.prevenue {
                                             view! { <Badge libelle="Prévenue" ton=TonEtat::Ok/> }.into_any()
@@ -334,6 +344,54 @@ fn ContenuJournee(
                     .into_any()
             }}
         </section>
+    }
+}
+
+/// Demi-journées d'absence de l'élève ce jour, dérivées **par le serveur** (jamais recalculées ici),
+/// chargées à la demande pour ne pas multiplier les requêtes.
+#[component]
+fn DemiJourneesAbsent(eleve_id: Uuid, jour: NaiveDate, nom: String) -> impl IntoView {
+    let ouvert = RwSignal::new(false);
+    let demandees = LocalResource::new(move || {
+        let veut = ouvert.get();
+        async move {
+            if veut {
+                session::client()
+                    .demi_journees_eleve(eleve_id, jour, jour)
+                    .await
+                    .map(Some)
+            } else {
+                Ok(None)
+            }
+        }
+    });
+    let accessible = format!("Afficher les demi-journées de {nom}");
+    view! {
+        <div class="jvs-demi">
+            <Bouton
+                variante=Variante::Discret
+                taille=Taille::Compacte
+                libelle_accessible=accessible
+                on_click=Callback::new(move |_| ouvert.update(|o| *o = !*o))
+            >
+                {move || if ouvert.get() { "Masquer les demi-journées" } else { "Demi-journées" }}
+            </Bouton>
+            {move || {
+                ouvert
+                    .get()
+                    .then(|| match demandees.get() {
+                        None | Some(Ok(None)) => view! { <p class="texte-attenue" role="status">"Chargement…"</p> }.into_any(),
+                        Some(Err(e)) => view! { <p class="texte-attenue" role="alert">{e.message_utilisateur()}</p> }.into_any(),
+                        Some(Ok(Some(l))) if l.is_empty() => view! { <p class="texte-attenue">"Aucune demi-journée comptée ce jour."</p> }.into_any(),
+                        Some(Ok(Some(l))) => view! {
+                            <ul class="jvs-liste jvs-liste--discrete" aria-label="Demi-journées d'absence">
+                                {l.iter().map(|d| view! { <li>{libelle_demi_journee(d)}</li> }).collect_view()}
+                            </ul>
+                        }
+                        .into_any(),
+                    })
+            }}
+        </div>
     }
 }
 

@@ -4,4 +4,5 @@
 pub mod absences;
 pub mod classes;
 pub mod declaration;
+pub mod recherche_eleve;
 pub mod seances;

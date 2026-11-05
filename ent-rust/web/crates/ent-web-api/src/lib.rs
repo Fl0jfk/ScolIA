@@ -19,10 +19,13 @@ mod transport;
 mod appel;
 mod auth;
 mod communication;
+mod discipline_vs;
 mod dossier;
+mod droits_moteur;
 mod edt;
 mod journee_vs;
 mod referentiel;
+mod referentiel_admin;
 mod roles;
 mod securite;
 mod vie_scolaire;
@@ -31,6 +34,7 @@ pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
+pub use droits_moteur::DroitEffectif;
 pub use roles::{
     ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
     PorteeCatalogue, RoleApi, SaisieRole,

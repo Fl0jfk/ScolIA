@@ -3,6 +3,7 @@
 //! (`absences.declarer`, `appel.verifier`…) sont vérifiés par le serveur.
 
 use chrono::NaiveDate;
+use ent_types::discipline::DemiJourneeDto;
 use ent_types::vie_scolaire::{
     DeclarationAbsenceDto, DeclarerAbsenceBody, RelancerAppelBody, TableauJourDto,
 };
@@ -79,5 +80,20 @@ impl ApiClient {
             )
             .await?;
         Ok(())
+    }
+
+    /// `GET /eleves/{id}/demi-journees?du=&au=` : demi-journées d'absence dérivées par le serveur.
+    pub async fn demi_journees_eleve(
+        &self,
+        eleve_id: Uuid,
+        du: NaiveDate,
+        au: NaiveDate,
+    ) -> Result<Vec<DemiJourneeDto>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/eleves/{eleve_id}/demi-journees?du={du}&au={au}"),
+            None,
+        )
+        .await
     }
 }
