@@ -61,6 +61,10 @@ impl MoiSecurite {
             role: self.role.clone(),
             eleve_id: self.eleve_id,
             passkey_count: self.passkey_count,
+            portee: self.portee.clone(),
+            assurance: self.assurance.clone(),
+            client: self.client.clone(),
+            passkey_obligatoire: self.passkey_obligatoire,
         }
     }
 }
