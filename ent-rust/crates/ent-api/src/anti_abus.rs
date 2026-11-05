@@ -65,6 +65,32 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
             Some(Quota::new(10, 900)),
             Some("token"),
         ),
+        // Récupération de passkey (D-018) : demande = envoi d'e-mail (seau par IP
+        // et par e-mail, strict) ; les jetons portent 256 bits, seau par IP/jeton.
+        "/auth/passkey/recuperation" => r(
+            "PASSKEY_RECUP",
+            Some(Quota::new(5, 900)),
+            Some(Quota::new(2, 3600)),
+            Some("email"),
+        ),
+        "/auth/passkey/recuperation/confirmer" => r(
+            "PASSKEY_RECUP_CONFIRMER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("token"),
+        ),
+        "/auth/passkey/recuperation/annuler" => r(
+            "PASSKEY_RECUP_ANNULER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("token"),
+        ),
+        "/auth/passkey/recuperation/finaliser" => r(
+            "PASSKEY_RECUP_FINALISER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("token"),
+        ),
         "/auth/passkey/login/start" => {
             r("PASSKEY_LOGIN_START", Some(Quota::new(30, 300)), None, None)
         }

@@ -236,6 +236,7 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
         Ok(_) => {}
         Err(e) => tracing::warn!("rechiffrement des champs sensibles impossible : {e}"),
     }
+    let _ = ent.purger_recuperations_passkey().await;
     let bind = std::env::var("ENT_API_BIND").unwrap_or_else(|_| "127.0.0.1:8088".into());
     Ok((AppState::nouveau(ent), bind))
 }
@@ -249,6 +250,8 @@ mod tests_l3;
 mod tests_abus;
 #[cfg(all(test, feature = "labo"))]
 mod tests_sso;
+#[cfg(all(test, feature = "labo"))]
+mod tests_recuperation;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;
