@@ -611,3 +611,42 @@ async fn l3_reset_passkeys_admin_supprime_reellement_les_passkeys_creees() {
     assert!(!vivante(&app, &prof.jeton).await, "sessions révoquées");
     connecter(&app, etab, &prof.email).await; // retombé en simple mot de passe
 }
+
+/// Socle 1 — la passkey appartient à la **personne** (D-013) : une passkey
+/// enrôlée depuis l'établissement A est exigée aussi à la connexion par B.
+/// Avant correction, un membre de deux établissements contournait son 2ᵉ
+/// facteur en se connectant par l'établissement où il n'avait rien enrôlé.
+#[tokio::test]
+async fn socle1_passkey_exigee_dans_tous_les_etablissements_de_la_personne() {
+    let Some((state, ent)) = etat().await else {
+        eprintln!("skip socle1: ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab_a = Uuid::new_v4();
+    let etab_b = Uuid::new_v4();
+    let prof = inscrire(&app, etab_a, "prof").await;
+    ajouter_appartenance(prof.id, etab_b, "prof").await;
+    let (st, b) = enroler(&app, &prof.jeton, Some(MDP), "Clé A").await;
+    assert_eq!(st, StatusCode::CREATED, "enrôlement depuis A : {b}");
+
+    for etab in [etab_a, etab_b] {
+        let (st, corps) = appel(
+            &app,
+            "POST",
+            "/auth/login",
+            None,
+            Some(json!({"email": prof.email, "password": MDP, "etablissement_id": etab})),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(
+            corps.get("token").map(|t| t.is_null()).unwrap_or(true),
+            "mot de passe seul : aucune session, établissement {etab}"
+        );
+        assert_eq!(corps["mfa_required"], json!(true),
+            "2ᵉ facteur exigé dans l'établissement {etab} : {corps}");
+    }
+    // La liste des passkeys est la même vue de A et de B.
+    assert_eq!(ent.list_passkeys_for_actor(etab_b, prof.id).await.unwrap().len(), 1);
+}

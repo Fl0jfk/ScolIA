@@ -107,14 +107,11 @@ impl PgPasskeyRepo {
     /// Identifiants de credential déjà enrôlés (liste d'exclusion WebAuthn).
     pub async fn list_credential_ids(
         &self,
-        etablissement_id: Uuid,
         user_id: Uuid,
     ) -> Result<Vec<CredentialID>, sqlx::Error> {
         let rows: Vec<(String,)> = sqlx::query_as(
-            r#"SELECT cred_id FROM ent_passkey_credential
-               WHERE etablissement_id = $1 AND user_id = $2"#,
+            r#"SELECT cred_id FROM ent_passkey_credential WHERE user_id = $1"#,
         )
-        .bind(etablissement_id)
         .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
@@ -124,18 +121,15 @@ impl PgPasskeyRepo {
             .collect())
     }
 
-    /// Passkeys d'un compte, désérialisées pour la vérification.
-    pub async fn list_passkeys(
-        &self,
-        etablissement_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<Vec<Passkey>, sqlx::Error> {
+    /// Passkeys d'une **personne**, tous établissements confondus (D-013) :
+    /// le 2ᵉ facteur se décide sur le compte, jamais sur l'établissement visé
+    /// (sinon un membre de deux établissements contournerait sa passkey).
+    pub async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<Passkey>, sqlx::Error> {
         let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
             r#"SELECT passkey FROM ent_passkey_credential
-               WHERE etablissement_id = $1 AND user_id = $2
+               WHERE user_id = $1
                ORDER BY created_at"#,
         )
-        .bind(etablissement_id)
         .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
@@ -146,12 +140,8 @@ impl PgPasskeyRepo {
     }
 
     /// Métadonnées (sans la matière cryptographique) pour l'écran de gestion.
-    pub async fn list_rows(
-        &self,
-        etablissement_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<Vec<PasskeyRow>, sqlx::Error> {
-        let rows = self.list_cred_rows(etablissement_id, user_id).await?;
+    pub async fn list_rows(&self, user_id: Uuid) -> Result<Vec<PasskeyRow>, sqlx::Error> {
+        let rows = self.list_cred_rows(user_id).await?;
         Ok(rows
             .into_iter()
             .map(|(id, user_id, _cred, _pk, name, created_at, last_used_at)| PasskeyRow {
@@ -164,18 +154,13 @@ impl PgPasskeyRepo {
             .collect())
     }
 
-    async fn list_cred_rows(
-        &self,
-        etablissement_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<Vec<CredRow>, sqlx::Error> {
+    async fn list_cred_rows(&self, user_id: Uuid) -> Result<Vec<CredRow>, sqlx::Error> {
         sqlx::query_as::<_, CredRow>(
             r#"SELECT id, user_id, cred_id, passkey, name, created_at, last_used_at
                FROM ent_passkey_credential
-               WHERE etablissement_id = $1 AND user_id = $2
+               WHERE user_id = $1
                ORDER BY created_at"#,
         )
-        .bind(etablissement_id)
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
@@ -211,36 +196,24 @@ impl PgPasskeyRepo {
     }
 
     /// Supprime une passkey d'un compte. Renvoie `false` si absente.
-    pub async fn delete_credential(
-        &self,
-        etablissement_id: Uuid,
-        user_id: Uuid,
-        id: Uuid,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn delete_credential(&self, user_id: Uuid, id: Uuid) -> Result<bool, sqlx::Error> {
         let res = sqlx::query(
             r#"DELETE FROM ent_passkey_credential
-               WHERE id = $1 AND etablissement_id = $2 AND user_id = $3"#,
+               WHERE id = $1 AND user_id = $2"#,
         )
         .bind(id)
-        .bind(etablissement_id)
         .bind(user_id)
         .execute(&self.pool)
         .await?;
         Ok(res.rows_affected() > 0)
     }
 
-    /// Suppression administrateur : toutes les passkeys d'un compte d'un
-    /// établissement (récupération après perte d'appareil).
-    pub async fn delete_all_for_user(
-        &self,
-        etablissement_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<u64, sqlx::Error> {
-        let res = sqlx::query(
-            r#"DELETE FROM ent_passkey_credential
-               WHERE etablissement_id = $1 AND user_id = $2"#,
-        )
-        .bind(etablissement_id)
+    /// Suppression administrateur : toutes les passkeys de la personne
+    /// (récupération après perte d'appareil). La passkey étant liée à la
+    /// personne (D-013), une suppression partielle laisserait un 2ᵉ facteur
+    /// inutilisable ou incohérent selon l'établissement.
+    pub async fn delete_all_for_user(&self, user_id: Uuid) -> Result<u64, sqlx::Error> {
+        let res = sqlx::query(r#"DELETE FROM ent_passkey_credential WHERE user_id = $1"#)
         .bind(user_id)
         .execute(&self.pool)
         .await?;

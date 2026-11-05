@@ -1542,7 +1542,7 @@ impl PgEnt {
         };
         let passkeys = self
             .passkeys
-            .list_passkeys(etablissement_id, identity.user_id)
+            .list_passkeys(identity.user_id)
             .await?;
         if passkeys.is_empty() {
             let session = self
@@ -1653,7 +1653,7 @@ impl PgEnt {
         self.verifier_plafond_passkeys(user_id).await?;
         let exclude = self
             .passkeys
-            .list_credential_ids(etablissement_id, user_id)
+            .list_credential_ids(user_id)
             .await?;
         let engine = self.passkey_engine()?;
         let (ccr, state) = engine.start_registration(user_id, &email, &display, exclude)?;
@@ -1740,7 +1740,7 @@ impl PgEnt {
         .await;
         let rows = self
             .passkeys
-            .list_rows(etablissement_id, user_id)
+            .list_rows(user_id)
             .await?;
         rows.into_iter()
             .last()
@@ -1756,7 +1756,7 @@ impl PgEnt {
         if !self.auth.is_member(etablissement_id, user_id).await? {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self.passkeys.list_rows(etablissement_id, user_id).await?)
+        Ok(self.passkeys.list_rows(user_id).await?)
     }
 
     /// Plafond de passkeys par compte.
@@ -1834,7 +1834,7 @@ impl PgEnt {
             .await?;
         let removed = self
             .passkeys
-            .delete_credential(etablissement_id, user_id, passkey_id)
+            .delete_credential(user_id, passkey_id)
             .await?;
         if removed {
             let _ = self
@@ -1874,7 +1874,7 @@ impl PgEnt {
         if !self.auth.is_member(etablissement_id, user_id).await? {
             return Ok(None);
         }
-        let passkeys = self.passkeys.list_passkeys(etablissement_id, user_id).await?;
+        let passkeys = self.passkeys.list_passkeys(user_id).await?;
         if passkeys.is_empty() {
             return Ok(None);
         }
@@ -1901,7 +1901,7 @@ impl PgEnt {
             .map_err(|_| EntDbError::Passkey(PasskeyError::BadState))?;
         let passkeys = self
             .passkeys
-            .list_passkeys(challenge.etablissement_id, challenge.user_id)
+            .list_passkeys(challenge.user_id)
             .await?;
         if passkeys.is_empty() {
             return Err(EntDbError::Passkey(PasskeyError::AuthFinish));
@@ -1969,7 +1969,7 @@ impl PgEnt {
             .await?;
         let removed = self
             .passkeys
-            .delete_all_for_user(etablissement_id, target_user_id)
+            .delete_all_for_user(target_user_id)
             .await?;
         let sessions = self.auth.revoke_all_for_user(target_user_id).await?;
         self.auth.invalidate_pending_resets(target_user_id).await?;
@@ -2391,7 +2391,7 @@ impl PgEnt {
         // laisse pas un compte à passkey esquiver sa clé en passant par l'IdP.
         let passkeys = self
             .passkeys
-            .list_passkeys(state.etablissement_id, user_id)
+            .list_passkeys(user_id)
             .await?;
         if !passkeys.is_empty() {
             let (token, options, expires_at) = self
