@@ -136,7 +136,8 @@ impl PgCompetenceRepo {
             SELECT e.id AS evaluation_id, e.item_id, i.domaine, i.libelle AS item_libelle,
                    i.code AS item_code, i.ordre, e.niveau, e.commentaire, e.maj_at
             FROM ent_competence_evaluation e
-            JOIN ent_competence_item i ON i.id = e.item_id
+            JOIN ent_competence_item i
+              ON i.id = e.item_id AND i.etablissement_id = e.etablissement_id
             WHERE e.etablissement_id = $1
               AND e.eleve_id = $2
               AND ($3::uuid IS NULL OR e.periode_id = $3)
@@ -168,7 +169,8 @@ impl PgCompetenceRepo {
                    i.libelle AS item_libelle, i.code AS item_code, i.ordre,
                    e.niveau, e.commentaire, e.maj_at
             FROM ent_competence_evaluation e
-            JOIN ent_competence_item i ON i.id = e.item_id
+            JOIN ent_competence_item i
+              ON i.id = e.item_id AND i.etablissement_id = e.etablissement_id
             WHERE e.etablissement_id = $1
               AND e.periode_id = $2
               AND e.eleve_id = ANY($3)

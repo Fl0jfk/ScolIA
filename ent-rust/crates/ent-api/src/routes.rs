@@ -6433,7 +6433,7 @@ async fn saisir_note(
     session.require_saisir_notes()?;
     let note = state
         .ent
-        .saisir_note(SaisirNote {
+        .saisir_note_for_actor(&session.role, SaisirNote {
             etablissement_id: session.etablissement_id,
             eleve_id: id,
             matiere_id: body.matiere_id,

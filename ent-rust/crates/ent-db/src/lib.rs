@@ -51,6 +51,7 @@ mod referentiel_repo;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
+mod perimetre;
 mod oidc_repo;
 mod pra;
 mod tva_repo;
@@ -128,6 +129,9 @@ mod scenarios;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_referentiel;
+
+#[cfg(all(test, feature = "labo"))]
+mod tests_socle1;
 
 #[cfg(test)]
 mod integration_tests {

@@ -223,6 +223,26 @@ mod tests {
         register_and_login_role(app, etab, email, "admin").await
     }
 
+    /// Socle 1 (B1) : donne au professeur (par e-mail) un créneau d'EDT dans la
+    /// classe, pour qu'il « suive » ses élèves (sinon notes et dossier lui sont fermés).
+    async fn rattacher_prof_classe(etab: Uuid, email: &str, classe: &str) {
+        let url = std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.expect("pool");
+        sqlx::query(
+            "INSERT INTO ent_edt_creneau (id, etablissement_id, classe, matiere_libelle,
+                                          prof_user_id, jour_semaine, heure_debut, heure_fin)
+             SELECT $1, $2, $3, 'Test', u.id, 1, '08:00', '09:00'
+               FROM ent_user u WHERE lower(u.email) = lower($4)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(classe)
+        .bind(email)
+        .execute(&pool)
+        .await
+        .expect("créneau du professeur");
+    }
+
     async fn register_and_login_role(
         app: &axum::Router,
         etab: Uuid,
@@ -1753,6 +1773,7 @@ mod tests {
         // Prof : évalue (niveau + code LSU renvoyés).
         let email_prof = format!("prof-c-{}@ent.test", &Uuid::new_v4().to_string()[..8]);
         let token_prof = register_and_login_role(&app, etab, &email_prof, "prof").await;
+        rattacher_prof_classe(etab, &email_prof, "4B").await;
         let evalue = app
             .clone()
             .oneshot(

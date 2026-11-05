@@ -57,7 +57,12 @@ impl PgPeriodeRepo {
         Ok(rows.into_iter().map(PeriodeRow::into_periode).collect())
     }
 
-    pub async fn apply_cutover(&self, op: &CutoverOp) -> Result<(), DomainError> {
+    /// `etablissement_id` borne les écritures par identifiant (défense en profondeur).
+    pub async fn apply_cutover(
+        &self,
+        etablissement_id: Uuid,
+        op: &CutoverOp,
+    ) -> Result<(), DomainError> {
         match op {
             CutoverOp::Noop => Ok(()),
             CutoverOp::ReplaceOpen {
@@ -68,11 +73,12 @@ impl PgPeriodeRepo {
                     r#"
                     UPDATE ent_eleve_periode
                     SET valeur = $2
-                    WHERE id = $1 AND date_fin IS NULL
+                    WHERE id = $1 AND etablissement_id = $3 AND date_fin IS NULL
                     "#,
                 )
                 .bind(period_id)
                 .bind(nouvelle_valeur)
+                .bind(etablissement_id)
                 .execute(&self.pool)
                 .await
                 .map_err(map_sqlx)?;

@@ -117,7 +117,7 @@ use domain_eleve::{
     CreerMandatSepa, CreerMsgModele, CreerPassageInfirmerie, CreerRdvPsy, DossierPsy, Echeance,
     EcheanceVue, EdtCalendrierAb, EdtException, EdtExceptionKind, EdtSemaineAb, EleveInvitation,
     FicheSante, Encaissement, EncaisserFacture, EntretienPsy, ExporterOgec, Facture, FactureLigne,
-    FactureStatut, InviterCompteEleve, MandatSepa, Message, MessageLue, MsgFil, MsgModele,
+    FactureStatut, InviterCompteEleve, MandatSepa, Message, MessageLue, MsgFil, MsgModele, MsgPriorite,
     MsgPiece, MsgPieceMeta, MoyenPaiement, OuvrirFil, PassageInfirmerie, PlanifierPrelevement,
     PoserEcheancier, PoserEdtException, PrelevementSepa, Quittance, RappelCanal, RappelFacture,
     RdvPsy, RepondreFil, SepaCrediteur, UpsertDossierPsy, UpsertFicheSante, NATURE_CANTINE_BADGE,
@@ -3113,7 +3113,7 @@ impl PgEnt {
         self.eleves.upsert(&planned.eleve).await?;
         for p in &planned.periodes_initiales {
             self.periodes
-                .apply_cutover(&CutoverOp::OpenFirst { period: p.clone() })
+                .apply_cutover(p.etablissement_id, &CutoverOp::OpenFirst { period: p.clone() })
                 .await?;
         }
         if let Some(event) = planned.event {
@@ -3559,6 +3559,27 @@ impl PgEnt {
                 continuum: false,
             });
         }
+        // Socle 1 (B1) : hors de ses élèves, un professeur ne voit que l'identité
+        // réduite et la scolarité (pas de notes, vie scolaire, famille, dispositifs).
+        if parsed == Role::Prof
+            && !self
+                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await?
+        {
+            return Ok(DossierSections {
+                identite: true,
+                scolarite: true,
+                famille: false,
+                options: true,
+                notes: false,
+                vs: false,
+                documents: false,
+                dispositifs: false,
+                repas: false,
+                bourses: false,
+                continuum: false,
+            });
+        }
         if parsed.can_read_all_eleves() {
             let notes = parsed.can_read_notes_staff();
             let vs = parsed.can_lire_vs_absences();
@@ -3640,7 +3661,7 @@ impl PgEnt {
             AttributKind::Mef => current.mef != planned.eleve.mef,
             AttributKind::Site => current.site != planned.eleve.site,
         };
-        self.periodes.apply_cutover(&planned.op).await?;
+        self.periodes.apply_cutover(etab, &planned.op).await?;
         self.eleves.upsert(&planned.eleve).await?;
         if let Some(event) = planned.event {
             self.events.publish(event).await?;
@@ -4075,7 +4096,9 @@ impl PgEnt {
             .await?)
     }
 
-    /// Parent lié avec flag justif, ou staff absences.
+    /// Justifier une absence (socle 1, B3) : vie scolaire (`can_trancher_justificatif`),
+    /// responsable lié avec le droit de justifier, ou l'élève **majeur** lui-même.
+    /// Un professeur constate l'absence (appel) mais ne la justifie pas.
     pub async fn actor_can_justifier_absence(
         &self,
         etablissement_id: Uuid,
@@ -4083,8 +4106,29 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<bool, EntDbError> {
-        self.actor_can_declare_absence(etablissement_id, actor_user_id, role, eleve_id)
-            .await
+        let Some(parsed) = Role::parse(role) else {
+            return Ok(false);
+        };
+        if parsed.can_trancher_justificatif() {
+            return Ok(true);
+        }
+        if parsed == Role::Parent {
+            let lien = self
+                .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await?;
+            return Ok(lien.map(|l| l.peut_justifier_absence).unwrap_or(false));
+        }
+        if parsed == Role::Eleve {
+            let linked = self
+                .eleve_comptes
+                .eleve_id_for_user(etablissement_id, actor_user_id)
+                .await?;
+            return Ok(linked == Some(eleve_id)
+                && self
+                    .eleve_est_majeur(etablissement_id, eleve_id, today_utc())
+                    .await?);
+        }
+        Ok(false)
     }
 
     pub async fn actor_can_read_absences(
@@ -4097,6 +4141,12 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
+        // Socle 1 (B1) : un professeur ne lit que la vie scolaire de ses élèves.
+        if parsed == Role::Prof {
+            return self
+                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await;
+        }
         if parsed.can_lire_vs_absences() {
             return Ok(true);
         }
@@ -4775,6 +4825,12 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
+        // Socle 1 (B1) : un professeur ne lit que les notes de ses élèves.
+        if parsed == Role::Prof {
+            return self
+                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await;
+        }
         if parsed.can_read_notes_staff() {
             return Ok(true);
         }
@@ -5220,6 +5276,14 @@ impl PgEnt {
         if !Self::role_can_saisir_notes(role) {
             return Err(EntDbError::Forbidden);
         }
+        // Socle 1 (B1) : un professeur n'évalue que ses élèves.
+        if Role::parse(role) == Some(Role::Prof)
+            && !self
+                .prof_suit_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
+                .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         self.eleves
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
@@ -5298,6 +5362,13 @@ impl PgEnt {
     ) -> Result<EleveDocument, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !(parsed.can_manage_eleves() || parsed.can_saisir_notes() || parsed == Role::Cpe) {
+            return Err(EntDbError::Forbidden);
+        }
+        if parsed == Role::Prof
+            && !self
+                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let eleve = self
@@ -5572,6 +5643,27 @@ impl PgEnt {
             .notes
             .list_devoirs_periode(etablissement_id, periode_id, Some(classe))
             .await?)
+    }
+
+    /// Saisie d'une note par un acteur (socle 1, B1) : un professeur ne note que
+    /// ses élèves ; les autres rôles autorisés à saisir gardent l'établissement.
+    pub async fn saisir_note_for_actor(
+        &self,
+        role: &str,
+        cmd: SaisirNote,
+    ) -> Result<Note, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        if !parsed.can_saisir_notes() {
+            return Err(EntDbError::Forbidden);
+        }
+        if parsed == Role::Prof
+            && !self
+                .prof_suit_eleve(cmd.etablissement_id, cmd.auteur_user_id, cmd.eleve_id)
+                .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        self.saisir_note(cmd).await
     }
 
     pub async fn saisir_note(&self, cmd: SaisirNote) -> Result<Note, EntDbError> {
@@ -5942,6 +6034,10 @@ impl PgEnt {
         if cmd.kind == EdtExceptionKind::Remplacement {
             if let Some(rid) = cmd.remplacant_user_id {
                 if rid == creneau.prof_user_id {
+                    return Err(DomainError::EdtExceptionInvalide.into());
+                }
+                // Socle 1 (C1) : le remplaçant doit être membre de l'établissement.
+                if !self.auth.is_member(cmd.etablissement_id, rid).await? {
                     return Err(DomainError::EdtExceptionInvalide.into());
                 }
             }
@@ -11039,6 +11135,11 @@ impl PgEnt {
         if !staff && !parent && !eleve {
             return Err(EntDbError::Forbidden);
         }
+        if parsed == Role::Prof
+            && !self.prof_suit_eleve(etablissement_id, user_id, eleve_id).await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         if parent
             && !self
                 .lien_parent_eleve(etablissement_id, user_id, eleve_id)
@@ -13005,6 +13106,10 @@ impl PgEnt {
         if !self_or_rh {
             return Err(EntDbError::Forbidden);
         }
+        // Socle 1 (C1) : la personne absente doit être membre de l'établissement.
+        if !self.auth.is_member(cmd.etablissement_id, cmd.user_id).await? {
+            return Err(EntDbError::Forbidden);
+        }
         let planned = plan_declarer_absence_rh(cmd)?;
         self.absences_rh.insert(&planned).await?;
         self.events
@@ -14843,6 +14948,12 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
+        // Socle 1 (B2) : un professeur n'écrit qu'à propos de ses élèves.
+        if parsed == Role::Prof {
+            return self
+                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await;
+        }
         if Self::role_can_messagerie_staff(role) {
             return Ok(true);
         }
@@ -14860,6 +14971,27 @@ impl PgEnt {
             return Ok(linked == Some(eleve_id));
         }
         Ok(false)
+    }
+
+    /// Accès à un fil existant (socle 1, B2) : pour un professeur, participation
+    /// au fil **ou** élève suivi ; pour les autres rôles, règle de l'élève du fil.
+    pub async fn actor_can_access_fil(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        fil: &MsgFil,
+    ) -> Result<bool, EntDbError> {
+        if Role::parse(role) == Some(Role::Prof)
+            && self
+                .messages
+                .participe_au_fil(etablissement_id, fil.id, actor_user_id)
+                .await?
+        {
+            return Ok(true);
+        }
+        self.actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
+            .await
     }
 
     pub async fn ouvrir_fil_for_actor(
@@ -14926,12 +15058,7 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
         let can = self
-            .actor_can_access_msg_fil(
-                cmd.etablissement_id,
-                cmd.actor_user_id,
-                role,
-                fil.eleve_id,
-            )
+            .actor_can_access_fil(cmd.etablissement_id, cmd.actor_user_id, role, &fil)
             .await?;
         if !can {
             return Err(EntDbError::Forbidden);
@@ -14983,6 +15110,50 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Err(EntDbError::Forbidden);
         };
+        // Socle 1 (B2) : un professeur voit les fils où il participe et ceux de
+        // ses élèves, jamais toute la boîte de l'établissement.
+        if parsed == Role::Prof {
+            let participe = self
+                .messages
+                .list_fils_participant(etablissement_id, actor_user_id)
+                .await?;
+            let mut fils = if let Some(eid) = eleve_id {
+                if self
+                    .prof_suit_eleve(etablissement_id, actor_user_id, eid)
+                    .await?
+                {
+                    self.messages.list_fils_eleve(etablissement_id, eid).await?
+                } else {
+                    Vec::new()
+                }
+            } else {
+                let suivis = self
+                    .eleves_suivis_par_prof(etablissement_id, actor_user_id, today_utc())
+                    .await?;
+                self.messages
+                    .list_fils_eleves(etablissement_id, &suivis)
+                    .await?
+            };
+            for f in participe {
+                if eleve_id.is_none_or(|eid| eid == f.eleve_id)
+                    && !fils.iter().any(|g| g.id == f.id)
+                {
+                    fils.push(f);
+                }
+            }
+            let dossier = dossier.map(str::trim).filter(|d| !d.is_empty());
+            fils.retain(|f| {
+                (include_archives || eleve_id.is_some() || !f.archive)
+                    && dossier.is_none_or(|d| f.dossier.as_deref() == Some(d))
+            });
+            fils.sort_by(|a, b| {
+                (a.priorite != MsgPriorite::Haute)
+                    .cmp(&(b.priorite != MsgPriorite::Haute))
+                    .then(b.last_message_at.cmp(&a.last_message_at))
+            });
+            fils.truncate(50);
+            return Ok(fils);
+        }
         if Self::role_can_messagerie_staff(role) {
             return if let Some(eid) = eleve_id {
                 Ok(self.messages.list_fils_eleve(etablissement_id, eid).await?)
@@ -15038,7 +15209,7 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
         let can = self
-            .actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
+            .actor_can_access_fil(etablissement_id, actor_user_id, role, &fil)
             .await?;
         if !can {
             return Err(EntDbError::Forbidden);
@@ -15098,12 +15269,7 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
         let can = self
-            .actor_can_access_msg_fil(
-                cmd.etablissement_id,
-                cmd.actor_user_id,
-                role,
-                fil.eleve_id,
-            )
+            .actor_can_access_fil(cmd.etablissement_id, cmd.actor_user_id, role, &fil)
             .await?;
         if !can {
             return Err(EntDbError::Forbidden);
@@ -15147,7 +15313,7 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
         let can = self
-            .actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
+            .actor_can_access_fil(etablissement_id, actor_user_id, role, &fil)
             .await?;
         if !can {
             return Err(EntDbError::Forbidden);
@@ -15207,6 +15373,12 @@ impl PgEnt {
         eleve_id: Uuid,
     ) -> Result<(MsgFil, Message), EntDbError> {
         if !Self::role_can_messagerie_staff(role) {
+            return Err(EntDbError::Forbidden);
+        }
+        if !self
+            .actor_can_access_msg_fil(etablissement_id, actor_user_id, role, eleve_id)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let modele = self
@@ -15271,6 +15443,12 @@ impl PgEnt {
             .get_fil(cmd.etablissement_id, cmd.fil_id)
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
+        if !self
+            .actor_can_access_fil(cmd.etablissement_id, cmd.actor_user_id, role, &fil)
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         let archived = plan_archiver_fil(&fil, &cmd)?;
         if !fil.archive {
             self.messages
@@ -15309,6 +15487,12 @@ impl PgEnt {
             .get_fil(cmd.etablissement_id, cmd.fil_id)
             .await?
             .ok_or(DomainError::MsgFilIntrouvable)?;
+        if !self
+            .actor_can_access_fil(cmd.etablissement_id, cmd.actor_user_id, role, &fil)
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         let actor = cmd.actor_user_id;
         let classed = plan_classer_fil(&fil, &cmd)?;
         self.messages

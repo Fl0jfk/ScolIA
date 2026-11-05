@@ -253,6 +253,59 @@ impl PgMsgRepo {
         Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
     }
 
+    /// Fils auxquels l'utilisateur participe (créateur ou auteur d'un message).
+    pub async fn list_fils_participant(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Vec<MsgFil>, DomainError> {
+        let rows = sqlx::query_as::<_, FilRow>(
+            r#"
+            SELECT f.id, f.etablissement_id, f.eleve_id, f.sujet, f.created_by_user_id,
+                   f.created_at, f.last_message_at, f.archive, f.modele_id, f.priorite, f.dossier
+            FROM ent_msg_fil f
+            WHERE f.etablissement_id = $1
+              AND (f.created_by_user_id = $2
+                   OR EXISTS (SELECT 1 FROM ent_msg m
+                               WHERE m.etablissement_id = f.etablissement_id
+                                 AND m.fil_id = f.id AND m.auteur_user_id = $2))
+            ORDER BY CASE f.priorite WHEN 'haute' THEN 0 ELSE 1 END, f.last_message_at DESC
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
+    }
+
+    /// L'utilisateur participe-t-il au fil ?
+    pub async fn participe_au_fil(
+        &self,
+        etablissement_id: Uuid,
+        fil_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<bool, DomainError> {
+        let (ok,): (bool,) = sqlx::query_as(
+            r#"
+            SELECT EXISTS (SELECT 1 FROM ent_msg_fil f
+                            WHERE f.etablissement_id = $1 AND f.id = $2
+                              AND f.created_by_user_id = $3)
+                OR EXISTS (SELECT 1 FROM ent_msg m
+                            WHERE m.etablissement_id = $1 AND m.fil_id = $2
+                              AND m.auteur_user_id = $3)
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(fil_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(ok)
+    }
+
     pub async fn list_fils_eleves(
         &self,
         etablissement_id: Uuid,
