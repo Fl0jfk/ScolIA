@@ -1,19 +1,7 @@
 import type { Metadata } from "next";
-import { Fraunces, Source_Sans_3 } from "next/font/google";
+import { partenariatsBody as body, partenariatsDisplay as display } from "@/app/fonts/partenariats";
 import PartenariatsPublicCatalogClient from "@/app/components/partenariats/PartenariatsPublicCatalogClient";
 import { listPublicPartenariatCards } from "@/app/lib/partenariats-db";
-
-const display = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-partenariats-display",
-  weight: ["500", "600", "700"],
-});
-
-const body = Source_Sans_3({
-  subsets: ["latin"],
-  variable: "--font-partenariats-body",
-  weight: ["400", "600", "700"],
-});
 
 export const metadata: Metadata = {
   title: "Partenariats & offres",

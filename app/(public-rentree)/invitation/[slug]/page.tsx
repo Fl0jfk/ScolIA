@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import InvitationPublicClient from "@/app/components/invitation/InvitationPublicClient";
+import "./invitation-fonts.css";
 import { loadAppConfig } from "@/app/lib/app-config";
 import {
   getInvitationPageBySlug,
@@ -57,14 +58,6 @@ export default async function InvitationPublicPage({ params }: Props) {
   };
 
   return (
-    <>
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Figtree:wght@400;500;600;700&display=swap"
-      />
-      <InvitationPublicClient page={publicPage} />
-    </>
+    <InvitationPublicClient page={publicPage} />
   );
 }

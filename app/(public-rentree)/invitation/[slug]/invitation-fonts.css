@@ -1,0 +1,17 @@
+/* Polices de la page d’invitation, servies depuis le projet (public/fonts, licence OFL) :
+   le navigateur des familles ne contacte pas Google. */
+@font-face {
+  font-family: "Figtree";
+  src: url("/fonts/figtree-latin-wght.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("/fonts/cormorant-garamond-latin-wght.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}

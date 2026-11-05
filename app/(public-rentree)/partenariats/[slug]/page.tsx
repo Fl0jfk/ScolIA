@@ -1,20 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Fraunces, Source_Sans_3 } from "next/font/google";
+import { partenariatsBody as body, partenariatsDisplay as display } from "@/app/fonts/partenariats";
 import PartenariatPublicDetailClient from "@/app/components/partenariats/PartenariatPublicDetailClient";
 import { getPublicPartenariatDetail } from "@/app/lib/partenariats-db";
-
-const display = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-partenariats-display",
-  weight: ["500", "600", "700"],
-});
-
-const body = Source_Sans_3({
-  subsets: ["latin"],
-  variable: "--font-partenariats-body",
-  weight: ["400", "600", "700"],
-});
 
 type Props = { params: Promise<{ slug: string }> };
 
