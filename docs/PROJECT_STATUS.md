@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Intégration du lot 3 (2026-11-05, branche `ent-integration-lot3`, base `ent-mc0hoe` 2897d49)
+Fusions git réelles, dans l'ordre : `ent-socle2-outbox`, `ent-socle1-r2-sensibles`, `ent-socle1-r2-gestion`, `ent-socle1-ecrans-roles`, `ent-socle1-matrice`, `ent-socle2-referentiel`, `ent-socle2-interop-etude`. Non fusionnées (en cours ailleurs) : `ent-socle1-rls`, `ent-socle1-rls-integre`, `ent-socle2-dossier`, `ent-socle2-vie-scolaire`.
+- Catalogue d'actions réuni : 38 actions (R1 + 11 sensibles + 14 de gestion + `referentiel.lire/gerer`) ; les tests de non-régression des deux volets R2 passent ensemble.
+- Migrations : … 099, 102 (outbox), 110–112 (référentiel) ; aucune collision de numéro, aucun renumérotage ; `MIGRATION_TAG` = `112_classe_id_rattachement`.
+- Corrections d'intégration : écran rôles adapté au cookie HttpOnly (`signaler_session_perdue` au lieu de `session::effacer`, supprimé par A6) ; garde SQL statique : filtre `etablissement_id` ajouté à 3 requêtes de l'outbox et aux 2 rechiffrements santé/psy, 13 exceptions justifiées pour la récupération de passkey (D-018, personne tous établissements) ; inventaire des routes de la matrice étendu à `referentiel_s2.rs`.
+- **Testé en local** dans les conditions de la CI (Rust 1.99.0, PostgreSQL 16 local au lieu de 18, base vierge par job) : formatage, clippy backend et frontend (dont wasm32 `hydrate`), build, contrôle L4, tests backend sans labo et complets, tests frontend unitaires, build Leptos release, tests contre le backend. Détail des résultats : message de fusion et compte rendu de session. Non validé pilote ; CI GitHub non lancée (branche hors `ENT`).
+
 ## Socle 2 — S2-0 outbox transactionnelle (2026-11-05)
 Outbox (`migrations/102_outbox.sql`, `ent-db/src/outbox.rs` : `tx.publier`, distributeur tokio, consommateurs idempotents, reprises, file des échecs, rejeu) et 3 réactions D5 → D0 (absence constatée, décision de justificatif, retard → notification des responsables `peut_voir_vs`) ; `clore_appel` et les décisions de justificatif publient dans la transaction du fait. **Implémenté + testé en local** (branche `ent-socle2-outbox`), non validé pilote, non fusionné. Détail, écarts et plan de migration des autres publications : `docs/SOCLE2_DOMAINES.md` §6.1.
 
