@@ -41,6 +41,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json"] }
 # Types partagés avec ent-api (workspace principal).
 ent-types = { path = "../crates/ent-types" }
 ent-web-ui = { path = "crates/ent-web-ui" }
+ent-web-session = { path = "crates/ent-web-session" }
 ent-web-api = { path = "crates/ent-web-api" }
 ent-web-app = { path = "crates/ent-web-app", default-features = false }
 # Backend existant, réutilisé sans modification.

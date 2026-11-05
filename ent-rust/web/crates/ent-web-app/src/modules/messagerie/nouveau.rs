@@ -10,7 +10,7 @@ use ent_web_ui::{
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
-use leptos_router::hooks::{use_location, use_navigate};
+use leptos_router::hooks::use_navigate;
 use uuid::Uuid;
 
 use super::fichiers::{lire_fichier_choisi, FichierChoisi, Lecture};
@@ -73,7 +73,6 @@ pub fn PageNouveauMessage() -> impl IntoView {
 #[component]
 fn Formulaire(mode: Mode) -> impl IntoView {
     let navigate = use_navigate();
-    let location = use_location();
     let notifications = use_notifications();
     let non_lus = use_non_lus();
 
@@ -222,7 +221,6 @@ fn Formulaire(mode: Mode) -> impl IntoView {
             erreur_envoi.set(None);
             let piece = fichier.get_untracked();
             let navigate = navigate.clone();
-            let chemin = location.pathname.get_untracked();
             spawn_local(async move {
                 let client = session::client();
                 let cree = match &modele {
@@ -237,7 +235,7 @@ fn Formulaire(mode: Mode) -> impl IntoView {
                     Ok(d) => d,
                     Err(e) => {
                         // Rien n'est parti : les saisies restent. 401/403/429 : on s'arrête, sans rien enchaîner.
-                        erreur_envoi.set(Some(traiter_echec(&e, &navigate, &chemin)));
+                        erreur_envoi.set(Some(traiter_echec(&e)));
                         en_envoi.set(false);
                         focaliser("msg-erreur-envoi");
                         return;
@@ -250,7 +248,7 @@ fn Formulaire(mode: Mode) -> impl IntoView {
                         .await
                     {
                         Ok(_) => IssuePiece::Jointe,
-                        Err(e) => IssuePiece::Echec(traiter_echec(&e, &navigate, &chemin)),
+                        Err(e) => IssuePiece::Echec(traiter_echec(&e)),
                     },
                     (Some(_), None) => IssuePiece::Echec("message introuvable".into()),
                 };
@@ -452,8 +450,6 @@ fn ChoixEleveRecherche(
     let erreur_recherche: RwSignal<Option<String>> = RwSignal::new(None);
     let resultats: RwSignal<Option<Vec<EleveTrouve>>> = RwSignal::new(None);
     let en_cours = RwSignal::new(false);
-    let navigate = use_navigate();
-    let location = use_location();
 
     let chercher = Callback::new(move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
@@ -468,8 +464,6 @@ fn ChoixEleveRecherche(
         }
         erreur_recherche.set(None);
         en_cours.set(true);
-        let navigate = navigate.clone();
-        let chemin = location.pathname.get_untracked();
         spawn_local(async move {
             match session::client().messagerie_chercher_eleves(&texte).await {
                 Ok(liste) => resultats.set(Some(liste)),
@@ -479,7 +473,7 @@ fn ChoixEleveRecherche(
                         ApiError::Interdit(_) => {
                             "La recherche d'élèves n'est pas autorisée pour votre profil.".into()
                         }
-                        e => traiter_echec(&e, &navigate, &chemin),
+                        e => traiter_echec(&e),
                     }));
                 }
             }

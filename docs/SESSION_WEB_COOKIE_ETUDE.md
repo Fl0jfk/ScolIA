@@ -1,6 +1,6 @@
 # Étude — session web : du jeton en `localStorage` au cookie `HttpOnly`
 
-Date : 2026-11-02 — Statut : **étude, rien n'est modifié**. Toute évolution d'`ent-auth` / `ent-api` demande une décision séparée (D-009, D-010).
+Date : 2026-11-02 — Statut : **étude (§1–§14) puis mise en œuvre A6 (§15, 2026-11-05)** : le relais cookie est intégré au serveur web `ent-web-server` et le frontend Leptos n'a plus de jeton en `localStorage`. `ent-auth` / `ent-api` restent inchangés (option A du §14).
 
 ## 1. Existant (vérifié dans le code)
 
@@ -226,7 +226,7 @@ Tests à ajouter au §9 : `Cache-Control: no-store` présent sur les réponses a
 
 ## 14. Prototype isolé (2026-11-03, D-016)
 
-**Aucune modification d'`ent-auth` ni d'`ent-api`.** Crate séparée `ent-rust/web/crates/ent-web-session`, qui n'est pas branchée sur `ent-web-server`. Statut : **prototype testé, PAS prêt pour la production** (limites ci-dessous), non déployé et non branché.
+**Aucune modification d'`ent-auth` ni d'`ent-api`.** Crate séparée `ent-rust/web/crates/ent-web-session`. Statut au 2026-11-03 : prototype testé, non branché. **Depuis le 2026-11-05 (§15) : intégré à `ent-web-server`, limites n° 1 (suivi en mémoire) et E3 levées** ; les autres limites restent valables.
 
 ### Conception : une passerelle devant l'API existante
 | Route du prototype | Rôle |
@@ -279,3 +279,42 @@ Tests à ajouter au §9 : `Cache-Control: no-store` présent sur les réponses a
 - **A. Passerelle** (ce prototype, intégrée à `ent-web-server`) : `ent-auth` et `ent-api` restent inchangés ; risque n° 2 à traiter par une liste autorisée ; les durées demandent tout de même une migration (risque n° 1).
 - **B. Dans `ent-api`** (§8, lot A) : l'extracteur `EntSession` lit aussi le cookie ; un seul endroit pour les règles, mais il faut modifier l'authentification existante et tester tous ses clients.
 - Recommandation : **A pour le transport et le CSRF** (le risque est cantonné à `/web`), **plus** une migration `ent_session` pour les durées. Rien n'est engagé sans ta décision.
+
+## 15. Mise en œuvre A6 (2026-11-05) — cookie `HttpOnly` dans le serveur web et le frontend Leptos
+
+Statut : **implémenté et testé en local** (PostgreSQL jetable, données de labo). Pas « prêt pilote » : voir les limites.
+
+### Ce qui change
+| Élément | Avant | Après |
+|---|---|---|
+| Session du frontend Leptos | jeton Bearer en `localStorage['ent_token']` | cookie `__Host-ent_session` `HttpOnly; Secure; SameSite=Lax`, posé par le relais ; **le WebAssembly n'a jamais le jeton** |
+| Appels API du navigateur | `Authorization: Bearer` direct sur `/auth/…` | `/web/api/…` (relais cookie → Bearer), en-tête `X-ENT-CSRF: 1` ; connexion/déconnexion par `/web/session/…` |
+| Inactivité / durée maximale | suivi **en mémoire** du relais (perdu au redémarrage, faux en multi-instance) | **la base seule** : `ent_session.last_seen_at`, `inactivite_max_secs`, `expires_at` appliqués par `resolve_bearer`. Le relais n'a plus aucun état. Un 401 efface le cookie |
+| Durée du cookie après enrôlement passkey (E3) | figée à celle de la connexion (15 min) | `POST /auth/passkey/register/finish` réussi par le relais → cookie **ré-émis** avec l'expiration lue en base (`GET /auth/sessions`, session `courante`) ≈ 12 h |
+| Type de session | le navigateur pouvait réclamer `client: "mobile"` | le relais **impose `client = web`** à la connexion et au début de passkey |
+| Montage | prototype autonome | `ent_web_server::assembler` : relais + pages Leptos + `ent_api::app` tel quel (`routeur_complet`) |
+
+Routes du relais : `/web/session/connexion`, `/web/session/passkey/debut`, `/web/session/passkey/fin`, `/web/session/deconnexion`, `/web/session/etat` (nouvelle : `{expire_dans, inactivite_max, client}`, lu en base), `/web/api/{*}`. Le cookie n'est lu que sous `/web/api` et `/web/session` : `/auth/…`, `/app`, les applis mobiles l'ignorent.
+
+Configuration du serveur (`ent_web_server::config_session`) : `ENT_WEB_ORIGINES` (origines publiques, défaut `http://localhost:<port>` et `127.0.0.1`), `ENT_WEB_COOKIE_SECURE=0` (essai local seulement, refusé hors écoute locale), `ENT_SESSION_WEB_MAX_HEURES` / `ENT_SESSION_WEB_INACTIVITE_MINUTES` (**mêmes variables que la base** : plafond du cookie et valeur annoncée ; la base reste seule juge).
+
+### Frontend (Leptos)
+- `noyau/session.rs` : `client()` = `ApiClient::relais()` ; plus de `jeton()`, `enregistrer()`, `effacer()`, événement `storage`. Synchro entre onglets par `BroadcastChannel("ent-session")` : messages **sans secret** (`fin`, `ouverte:<id>`, `activite:<t>`).
+- **Migration douce** : `purger_ancien_jeton()` (au chargement de la coquille, de la connexion et de l'enrôlement) efface `localStorage['ent_token']` s'il existe et le révoque au mieux côté serveur (`/auth/logout`). C'est le **seul** accès au stockage du navigateur, en lecture/suppression de l'ancienne clé.
+- **Reconnexion rapide (D-011)** : `noyau/expiration.rs` (logique pure testée : avertissement à 5 min, marge de prudence de 60 s car le serveur n'écrit l'activité qu'une fois par minute) ; `noyau/reconnexion.rs` : bandeau « votre session expire dans X min — Rester connecté » et **fenêtre de reconnexion** (`<dialog>` modal, mot de passe ou passkey) par-dessus la page quand un appel renvoie 401 ou que l'échéance est dépassée. La page, la saisie et l'URL sont conservées ; après reconnexion les chargements en échec se relancent (`ErreurChargement`). Une action qui a échoué n'est **pas rejouée automatiquement** (appel, message, passkey…) : la personne la refait. Autre compte reconnecté → rechargement complet.
+- Les 401 au **premier chargement** (aucun cookie) redirigent toujours vers `/web/connexion?retour=…`.
+
+### Applis mobiles et ancienne UI `/app`
+- Mobile : inchangé (Bearer, `/auth/login` renvoie le jeton, pas de CSRF) — testé (`bearer_mobile_et_ancienne_interface_inchanges`).
+- `/app` (`ent-api/src/ui.rs`, **figée, non modifiée**) garde son propre jeton dans `localStorage['ent_token']`, qu'elle partageait jusqu'ici avec Leptos. Conséquences : (1) se connecter sur `/web` ne connecte plus `/app` et inversement (déjà le cas du cookie, §12.4) ; (2) **ouvrir une page `/web` efface et révoque le jeton `/app` du même navigateur** (migration douce) — la personne se reconnecte sur `/app`. `/app` conserve donc le risque XSS/`localStorage` décrit en §2 jusqu'à son retrait module par module.
+
+### Tests (état au 2026-11-05)
+Voir « Résultats des vérifications » dans `SOCLE1_SECURITE.md` (A6). Couverture : cookie et attributs, CSRF, expiration par la base (inactivité, maximum, **autre instance du relais**), ré-émission après enrôlement (+ pas de cookie sur échec), déconnexion, `client=web` imposé, `etat`, intégration dans le serveur complet, absence de jeton côté frontend (test qui parcourt les sources `ent-web-app` et `ent-web-api` : aucun `local_storage`, `session_storage`, `set_item`, `document.cookie`…), échéances et diffusion entre onglets (tests purs).
+
+### Limites et suite
+1. **Non vérifié dans un navigateur réel** dans cette session : la fenêtre de reconnexion (`<dialog>`, passkey), le `BroadcastChannel` du frontend Leptos et l'alerte n'ont que leurs parties pures testées en natif et la compilation wasm. Essai Chrome/Firefox/Safari à faire avant tout pilote (le prototype avait été essayé sous Chrome, §14).
+2. `GET /web/session/etat` compte comme une activité (toute requête authentifiée passe par `resolve_bearer`) : le navigateur ne l'appelle qu'au chargement et sur « Rester connecté ». L'inactivité côté page est une **estimation** (dernières réponses reconnues, onglets compris) ; en cas d'écart la base tranche (401 → fenêtre de reconnexion).
+3. La session d'**enrôlement** (15 min) ne peut pas lire `/auth/sessions` (403) : pas d'alerte avant expiration pendant l'enrôlement ; l'enrôlement réussi ré-émet bien le cookie.
+4. Risque n° 2 du §14 (liste des routes émettrices **interdites** au relais, à tenir à jour) : inchangé ; un test de non-régression « aucune réponse relayée ne contient `token` de session » reste à écrire.
+5. Les sous-domaines par établissement (D-012), HTTPS réel et l'adresse WebAuthn de production ne sont pas couverts ici (origines configurables par `ENT_WEB_ORIGINES`).
+6. La purge des sessions antérieures à la migration 095 (sans délai d'inactivité) reste à faire au déploiement (voir `SOCLE1_SECURITE.md`).

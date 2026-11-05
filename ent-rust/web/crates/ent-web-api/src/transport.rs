@@ -2,11 +2,28 @@
 
 use crate::{ApiError, Methode};
 
+/// Façon de prouver la session à ent-api.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(any(target_arch = "wasm32", feature = "natif")), allow(dead_code))]
+pub(crate) enum Auth<'a> {
+    /// Aucune session (connexion, routes publiques).
+    Aucun,
+    /// Jeton Bearer (applis mobiles, tests contre le backend).
+    Bearer(&'a str),
+    /// Cookie `HttpOnly` de session web, joint par le navigateur lui-même (même origine) :
+    /// le code n'a jamais le jeton. Seul l'en-tête anti-CSRF est ajouté.
+    Cookie,
+}
+
+/// En-tête anti-CSRF exigé par le relais `/web` (voir `ent-web-session`).
+#[cfg_attr(not(any(target_arch = "wasm32", feature = "natif")), allow(dead_code))]
+pub(crate) const EN_TETE_CSRF: &str = "X-ENT-CSRF";
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) async fn envoyer(
     methode: Methode,
     url: &str,
-    jeton: Option<&str>,
+    auth: Auth<'_>,
     corps: Option<serde_json::Value>,
 ) -> Result<(u16, String), ApiError> {
     use gloo_net::http::Request;
@@ -18,8 +35,10 @@ pub(crate) async fn envoyer(
         Methode::Delete => Request::delete(url),
     };
     req = req.header("Accept", "application/json");
-    if let Some(j) = jeton {
-        req = req.header("Authorization", &format!("Bearer {j}"));
+    match auth {
+        Auth::Bearer(j) => req = req.header("Authorization", &format!("Bearer {j}")),
+        Auth::Cookie => req = req.header(EN_TETE_CSRF, "1"),
+        Auth::Aucun => {}
     }
     let reponse = match corps {
         Some(c) => {
@@ -40,7 +59,7 @@ pub(crate) async fn envoyer(
 pub(crate) async fn envoyer(
     methode: Methode,
     url: &str,
-    jeton: Option<&str>,
+    auth: Auth<'_>,
     corps: Option<serde_json::Value>,
 ) -> Result<(u16, String), ApiError> {
     let client = reqwest::Client::new();
@@ -51,8 +70,10 @@ pub(crate) async fn envoyer(
         Methode::Delete => client.delete(url),
     };
     req = req.header("Accept", "application/json");
-    if let Some(j) = jeton {
-        req = req.bearer_auth(j);
+    match auth {
+        Auth::Bearer(j) => req = req.bearer_auth(j),
+        Auth::Cookie => req = req.header(EN_TETE_CSRF, "1"),
+        Auth::Aucun => {}
     }
     if let Some(c) = corps {
         req = req.json(&c);
@@ -71,7 +92,7 @@ pub(crate) async fn envoyer(
 pub(crate) async fn envoyer(
     _methode: Methode,
     _url: &str,
-    _jeton: Option<&str>,
+    _auth: Auth<'_>,
     _corps: Option<serde_json::Value>,
 ) -> Result<(u16, String), ApiError> {
     Err(ApiError::Indisponible)
@@ -79,15 +100,14 @@ pub(crate) async fn envoyer(
 
 /// `GET` d'un contenu binaire (pièces jointes). Renvoie `(statut, octets)`.
 #[cfg(target_arch = "wasm32")]
-pub(crate) async fn envoyer_octets(
-    url: &str,
-    jeton: Option<&str>,
-) -> Result<(u16, Vec<u8>), ApiError> {
+pub(crate) async fn envoyer_octets(url: &str, auth: Auth<'_>) -> Result<(u16, Vec<u8>), ApiError> {
     use gloo_net::http::Request;
 
     let mut req = Request::get(url);
-    if let Some(j) = jeton {
-        req = req.header("Authorization", &format!("Bearer {j}"));
+    match auth {
+        Auth::Bearer(j) => req = req.header("Authorization", &format!("Bearer {j}")),
+        Auth::Cookie => req = req.header(EN_TETE_CSRF, "1"),
+        Auth::Aucun => {}
     }
     let reponse = req
         .send()
@@ -102,13 +122,12 @@ pub(crate) async fn envoyer_octets(
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "natif"))]
-pub(crate) async fn envoyer_octets(
-    url: &str,
-    jeton: Option<&str>,
-) -> Result<(u16, Vec<u8>), ApiError> {
+pub(crate) async fn envoyer_octets(url: &str, auth: Auth<'_>) -> Result<(u16, Vec<u8>), ApiError> {
     let mut req = reqwest::Client::new().get(url);
-    if let Some(j) = jeton {
-        req = req.bearer_auth(j);
+    match auth {
+        Auth::Bearer(j) => req = req.bearer_auth(j),
+        Auth::Cookie => req = req.header(EN_TETE_CSRF, "1"),
+        Auth::Aucun => {}
     }
     let reponse = req
         .send()
@@ -125,7 +144,7 @@ pub(crate) async fn envoyer_octets(
 #[cfg(all(not(target_arch = "wasm32"), not(feature = "natif")))]
 pub(crate) async fn envoyer_octets(
     _url: &str,
-    _jeton: Option<&str>,
+    _auth: Auth<'_>,
 ) -> Result<(u16, Vec<u8>), ApiError> {
     Err(ApiError::Indisponible)
 }

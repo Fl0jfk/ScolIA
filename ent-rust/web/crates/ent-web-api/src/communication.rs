@@ -297,7 +297,7 @@ impl ApiClient {
     pub async fn telecharger_piece(&self, piece_id: Uuid) -> Result<Vec<u8>, ApiError> {
         let (statut, octets) = crate::transport::envoyer_octets(
             &self.url(&format!("/messages/pieces/{piece_id}")),
-            self.jeton.as_deref(),
+            self.auth(),
         )
         .await?;
         if (200..300).contains(&statut) {

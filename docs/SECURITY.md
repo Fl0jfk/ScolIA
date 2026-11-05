@@ -42,7 +42,7 @@ Niveau : **implémenté + testé en local** ; non commitée à la date de rédac
 | Élevée | L3 non traité : e-mail de l'administrateur modifiable par un administratif ; réinitialisation du mot de passe d'un parent par la direction ; champ `password` du rattachement. Deux cas de test L3 restent ignorés |
 | Moyenne | Journal : l'application peut encore désactiver le trigger (pas de rôle de migration séparé) ; `TRUNCATE` non bloqué ; durée de conservation non définie ; e-mail en clair pour les connexions réussies (`audit_acces`) |
 | Faible | Empreinte e-mail non salée (HMAC à décider) ; libellés « Seed labo » dans l'ancienne UI ; mots de passe préremplis dans les applis mobiles ; date de début des périodes de classe visible aux rôles réduits |
-| Importante (avant pilote), inchangée | Jeton de session en `localStorage` ; `/app` sans CSP |
+| Importante (avant pilote) | Jeton de session en `localStorage` **uniquement dans l'ancienne UI `/app`** (sans CSP, figée) ; le frontend Leptos utilise un cookie `HttpOnly` depuis A6 (2026-11-05) |
 
 **Non fait** : audit complet ; L3 ; durée de conservation du journal ; aucun changement documenté sur la limitation de débit.
 
@@ -63,7 +63,7 @@ Niveau : **implémenté + testé en local** ; aucun audit complet, non validé p
 | Redirections ouvertes après connexion, envois répétés après 401/403/429, panique sur `?semaine=`, fuite par `Debug`, messages serveur non bornés | Moyenne / faible | `retour_sur` durci, arrêt des envois, bornage, `Debug` masqué | tests ent-web-app |
 
 **Limites restantes** (liste complète : `PROJECT_STATUS.md`)
-- Importante : jeton de session en `localStorage` (XSS atténué par la CSP, non supprimé) ; bascule vers le cookie HttpOnly à planifier avant pilote.
+- Importante : jeton de session en `localStorage` **limité à `/app`** (figée) ; frontend Leptos passé au cookie `HttpOnly` (A6, 2026-11-05, essai navigateur réel à faire).
 - Importante : `/app` (ancienne UI JS) partage l'origine et le jeton, sans CSP.
 - Moyenne : consultation d'une feuille d'appel via `POST` (écriture) ; `config_connexion` expose `ENT_WEB_ETABLISSEMENT_ID` (D-012) ; passkey non testée au navigateur.
 - Non fait : audit complet, test inter-établissement sur toutes les routes de l'appel, limitation de débit vérifiée.

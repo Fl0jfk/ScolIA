@@ -29,8 +29,8 @@ Dans chaque module métier :
 
 - Par défaut : **rendu serveur + hydratation** (structure et états de chargement immédiats).
 - Îlots (`islands`) : pour les pages surtout statiques (portails famille / élève, consultation).
-- Tant que la session est un jeton Bearer en `localStorage`, les données métier sont chargées **par le navigateur** (`LocalResource`) ; le serveur rend la coquille et des squelettes. Après passage au cookie `HttpOnly` (étude `SESSION_WEB_COOKIE_ETUDE.md`), le serveur pourra rendre les données.
-- Le rendu serveur et le navigateur doivent produire **exactement le même HTML initial** : pas de valeur dépendant de l'heure, du navigateur ou de `localStorage` dans le HTML rendu au premier passage (utiliser `prop:value`, des `Effect`, ou des ressources).
+- La session est un cookie `HttpOnly` posé par le relais `ent-web-session` (A6, `SESSION_WEB_COOKIE_ETUDE.md` §15) : le WebAssembly n'a **aucun jeton**. Les données métier restent chargées **par le navigateur** (`LocalResource`) ; le serveur rend la coquille et des squelettes. Rendre des données côté serveur (le cookie est désormais lisible par le serveur) est une évolution possible, pas encore faite.
+- Le rendu serveur et le navigateur doivent produire **exactement le même HTML initial** : pas de valeur dépendant de l'heure ou du navigateur dans le HTML rendu au premier passage (utiliser `prop:value`, des `Effect`, ou des ressources).
 
 ## 4. Réactivité et performances
 
@@ -58,7 +58,7 @@ Dans chaque module métier :
 
 - Jamais de `inner_html` (ni d'insertion HTML brute) avec des données venant d'un utilisateur ou de l'API : laisser Leptos échapper le texte.
 - Aucun secret dans le WebAssembly ou le HTML : tout ce qui est envoyé au navigateur est public.
-- Session : aujourd'hui jeton Bearer en `localStorage` (transitoire) ; cible cookie `HttpOnly` + protection CSRF (`docs/SESSION_WEB_COOKIE_ETUDE.md`). Ne pas multiplier les lectures de `localStorage` : passer par `session.rs`.
+- Session : cookie `HttpOnly` + protection CSRF (`X-ENT-CSRF` ajouté par `ApiClient::relais()`). **Interdit** : lire ou écrire un jeton dans `localStorage`/`sessionStorage`/`document.cookie` (un test parcourt les sources et échoue). Toujours `session::client()` ; une 401 pendant l'usage → `reconnexion::signaler_session_perdue()` (fenêtre par-dessus la page), jamais une redirection qui ferait perdre la saisie ; `ErreurChargement` relance le chargement après reconnexion.
 - CSP stricte à nonce par requête **en place** sur `/web` et `/pkg` (`ent-web-server`, `politique_csp`) ; ne couvre ni `/app` ni l'API. Voir § 11.
 
 ## 7. Compilation et environnement
@@ -100,12 +100,12 @@ Dans chaque module métier :
 ## 11. Conventions issues de la tranche 1 (2026-11-03)
 
 - **Environnement obligatoire** : toute compilation ou test passe par `. ent-rust/web/scripts/env.sh` (chaîne `_outils-scolia` : Rust 1.99 + cible `wasm32`, Strawberry Perl, cargo-leptos). La chaîne Rust système échoue (pas de `wasm32`, Perl MSYS sans module pour `openssl-src`).
-- **Ressources** : ne pas lire une `Resource` hors d'un `<Suspense/>` (avertissement d'hydratation). Les données qui dépendent de la session (jeton en `localStorage`) vont dans une `LocalResource`. Exception connue : `PageConnexion` lit une `Resource` serveur pour rendre le nom d'établissement côté serveur.
+- **Ressources** : ne pas lire une `Resource` hors d'un `<Suspense/>` (avertissement d'hydratation). Les données qui dépendent de la session (cookie, invisible du serveur pendant le rendu) vont dans une `LocalResource`. Exception connue : `PageConnexion` lit une `Resource` serveur pour rendre le nom d'établissement côté serveur.
 - **CSP et nonce** : la politique interdit style et script en ligne. Pas d'attribut `style=` en ligne (utiliser des classes CSS), pas de `<script>` en ligne sans le nonce fourni par Leptos. Toute nouvelle origine (image, connexion) impose de modifier `politique_csp` et son test.
 - **Adresses de retour** : `location.search` ne contient « ? » que s'il y a des paramètres ; reconstruire l'adresse avec le **chemin complet incluant « ? »** et passer par `retour_sur` (refuse redirections ouvertes, `..`, `\`, encodages, boucles).
 - **Identifiants** : `Uuid::new_v4` exige la feature `v4`, non activée ; ne pas l'utiliser côté frontend.
 - **Tests de rendu** : `pages_rendues` dépend du balisage ; tout changement de structure HTML impose de relire ces assertions.
-- **Types sensibles** : implémenter `Debug` à la main pour les structures portant jeton ou mot de passe (masquage) ; borner les messages renvoyés par le serveur avant affichage ; signaler un échec de `localStorage`.
+- **Types sensibles** : implémenter `Debug` à la main pour les structures portant jeton ou mot de passe (masquage) ; borner les messages renvoyés par le serveur avant affichage ; aucun secret de session dans la page.
 - **Écritures** : stopper l'envoi sur 401 / 403 / 429 au lieu d'enchaîner les requêtes.
 - **Accessibilité** : déplacer le focus et annoncer (zone `aria-live`) à chaque changement de page.
 - **Agents** : `explore-haiku` / `review-sonnet` sont restreints à `Read, Grep, Glob` ; les définitions sont lues au démarrage de la session, donc une modification n'agit qu'après redémarrage (à vérifier).

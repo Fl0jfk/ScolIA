@@ -1,35 +1,55 @@
 //! Erreurs de chargement : un seul comportement pour tous les écrans.
-//! 401 → session effacée et retour à la connexion ; 403 → accès refusé ;
-//! autres → message clair et « Réessayer ».
+//! 401 → fenêtre de reconnexion par-dessus la page (le chargement est relancé après la
+//! reconnexion) ; 403 → accès refusé ; autres → message clair et « Réessayer ».
 
 use ent_web_api::ApiError;
 use ent_web_ui::{AccesRefuse, Alerte, Bouton, Niveau, Variante};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_location, use_navigate};
 
-use super::session;
+use super::{reconnexion, session};
 
 #[component]
 pub fn ErreurChargement(erreur: ApiError, on_reessayer: Callback<()>) -> impl IntoView {
     match erreur {
         ApiError::NonConnecte => {
             // Session expirée ou révoquée (déconnexion dans un autre onglet…).
-            let navigate = use_navigate();
-            let location = use_location();
-            Effect::new(move |_| {
-                session::effacer();
-                let chemin = session::chemin_complet(
-                    &location.pathname.get_untracked(),
-                    &location.search.get_untracked(),
-                );
-                navigate(&session::adresse_connexion(&chemin), Default::default());
-            });
-            view! {
-                <Alerte niveau=Niveau::Info titre="Votre session a expiré.">
-                    <p>"Redirection vers la connexion…"</p>
-                </Alerte>
+            match reconnexion::use_reconnexion() {
+                Some(reco) => {
+                    // Dans la coquille : fenêtre de reconnexion, puis nouveau chargement.
+                    let version_initiale = reco.version.get_untracked();
+                    Effect::new(move |_| reco.ouvrir());
+                    Effect::new(move |_| {
+                        if reco.version.get() != version_initiale {
+                            on_reessayer.run(());
+                        }
+                    });
+                    view! {
+                        <Alerte niveau=Niveau::Info titre="Votre session a expiré.">
+                            <p>"Reconnectez-vous dans la fenêtre ouverte : cette page se rechargera ensuite."</p>
+                        </Alerte>
+                    }
+                    .into_any()
+                }
+                None => {
+                    // Hors coquille (page publique) : retour à la connexion.
+                    let navigate = use_navigate();
+                    let location = use_location();
+                    Effect::new(move |_| {
+                        let chemin = session::chemin_complet(
+                            &location.pathname.get_untracked(),
+                            &location.search.get_untracked(),
+                        );
+                        navigate(&session::adresse_connexion(&chemin), Default::default());
+                    });
+                    view! {
+                        <Alerte niveau=Niveau::Info titre="Votre session a expiré.">
+                            <p>"Redirection vers la connexion…"</p>
+                        </Alerte>
+                    }
+                    .into_any()
+                }
             }
-            .into_any()
         }
         // Session « enrôlement » : le serveur refuse tout sauf l'enrôlement d'une passkey.
         e @ ApiError::Interdit(_) if e.est_enrolement_requis() => {

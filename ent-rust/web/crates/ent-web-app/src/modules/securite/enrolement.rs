@@ -26,21 +26,14 @@ pub fn PageEnrolement() -> impl IntoView {
     let annonce = RwSignal::new(String::new());
     let en_deconnexion = RwSignal::new(false);
 
-    // Sans session : connexion (navigateur uniquement, comme la coquille).
-    {
-        let navigate = navigate.clone();
-        Effect::new(move |_| {
-            if session::jeton().is_none() {
-                navigate(&session::adresse_connexion("/web"), Default::default());
-            }
-        });
-    }
+    // Ancien jeton `localStorage` (avant A6) : effacé et révoqué (navigateur seulement).
+    Effect::new(move |_| session::purger_ancien_jeton());
     let moi = LocalResource::new(|| async { session::client().moi_securite().await });
     {
         let navigate = navigate.clone();
         Effect::new(move |_| match moi.get() {
+            // Pas de session (cookie absent ou expiré) : connexion.
             Some(Err(ApiError::NonConnecte)) => {
-                session::effacer();
                 navigate(&session::adresse_connexion("/web"), Default::default());
             }
             // Pas (ou plus) d'enrôlement à faire : accueil.
@@ -74,7 +67,6 @@ pub fn PageEnrolement() -> impl IntoView {
                     }
                     Err(e) => {
                         if e.session_perdue() {
-                            session::effacer();
                             navigate(&session::adresse_connexion("/web"), Default::default());
                             return;
                         }

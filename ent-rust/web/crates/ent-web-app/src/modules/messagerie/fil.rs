@@ -9,7 +9,7 @@ use ent_web_ui::{
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
-use leptos_router::hooks::{use_location, use_navigate, use_params_map};
+use leptos_router::hooks::{use_navigate, use_params_map};
 use uuid::Uuid;
 
 use super::fichiers::{enregistrer_telechargement, lire_fichier_choisi, FichierChoisi, Lecture};
@@ -105,7 +105,6 @@ pub fn PageConversation() -> impl IntoView {
 fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>) -> impl IntoView {
     let droits = use_droits();
     let navigate = use_navigate();
-    let location = use_location();
     let notifications = use_notifications();
     let non_lus = use_non_lus();
 
@@ -156,15 +155,12 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
     // --- Téléchargement d'une pièce jointe ------------------------------------------------
     let telechargement: RwSignal<Option<Uuid>> = RwSignal::new(None);
     let telecharger = Callback::new({
-        let navigate = navigate.clone();
         move |(piece_id, nom, mime): (Uuid, String, String)| {
             if telechargement.get_untracked().is_some() {
                 return;
             }
             telechargement.set(Some(piece_id));
             erreur_action.set(None);
-            let navigate = navigate.clone();
-            let chemin = location.pathname.get_untracked();
             spawn_local(async move {
                 match session::client().telecharger_piece(piece_id).await {
                     Ok(octets) => {
@@ -174,7 +170,7 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
                             erreur_action.set(Some(m));
                         }
                     }
-                    Err(e) => erreur_action.set(Some(traiter_echec(&e, &navigate, &chemin))),
+                    Err(e) => erreur_action.set(Some(traiter_echec(&e))),
                 }
                 telechargement.set(None);
             });
@@ -193,7 +189,6 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
             en_action.set(true);
             erreur_action.set(None);
             let navigate = navigate.clone();
-            let chemin = location.pathname.get_untracked();
             spawn_local(async move {
                 match session::client().archiver_fil(fid).await {
                     Ok(_) => {
@@ -204,7 +199,7 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
                         navigate(navigation::MESSAGES, Default::default());
                     }
                     Err(e) => {
-                        erreur_action.set(Some(traiter_echec(&e, &navigate, &chemin)));
+                        erreur_action.set(Some(traiter_echec(&e)));
                         focaliser("msg-erreur-action");
                     }
                 }
@@ -227,7 +222,6 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
         }
     });
     let classer = {
-        let navigate = navigate.clone();
         move |ev: leptos::ev::SubmitEvent| {
             ev.prevent_default();
             let Some(fid) = fil_id() else { return };
@@ -244,8 +238,6 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
             erreur_dossier.set(None);
             en_action.set(true);
             let priorite_choisie = valider_priorite(&priorite.get_untracked());
-            let navigate = navigate.clone();
-            let chemin = location.pathname.get_untracked();
             spawn_local(async move {
                 match session::client()
                     .classer_fil(fid, priorite_choisie, dossier_valide.as_deref())
@@ -262,7 +254,7 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
                         classement_ouvert.set(false);
                         notifications.succes("Classement enregistré.");
                     }
-                    Err(e) => erreur_dossier.set(Some(traiter_echec(&e, &navigate, &chemin))),
+                    Err(e) => erreur_dossier.set(Some(traiter_echec(&e))),
                 }
                 en_action.set(false);
             });
@@ -305,7 +297,6 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
     });
 
     let envoyer = {
-        let navigate = navigate.clone();
         move |ev: leptos::ev::SubmitEvent| {
             ev.prevent_default();
             if en_envoi.get_untracked() {
@@ -324,15 +315,13 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
             erreur_envoi.set(None);
             en_envoi.set(true);
             let piece = fichier.get_untracked();
-            let navigate = navigate.clone();
-            let chemin = location.pathname.get_untracked();
             spawn_local(async move {
                 let client = session::client();
                 let message = match client.repondre_fil(fid, &texte).await {
                     Ok(m) => m,
                     Err(e) => {
                         // Rien n'est envoyé : le texte reste dans le champ. Sur 401/403/429 on s'arrête là.
-                        erreur_envoi.set(Some(traiter_echec(&e, &navigate, &chemin)));
+                        erreur_envoi.set(Some(traiter_echec(&e)));
                         en_envoi.set(false);
                         focaliser("msg-erreur-envoi");
                         return;
@@ -345,7 +334,7 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
                         .await
                     {
                         Ok(_) => IssuePiece::Jointe,
-                        Err(e) => IssuePiece::Echec(traiter_echec(&e, &navigate, &chemin)),
+                        Err(e) => IssuePiece::Echec(traiter_echec(&e)),
                     },
                 };
                 corps.set(String::new());
@@ -357,7 +346,7 @@ fn Conversation(detail: RwSignal<Option<DetailFil>>, mon_id: Memo<Option<Uuid>>)
                 match client.detail_fil(fid).await {
                     Ok(d) => detail.set(Some(d)),
                     Err(e) if arret_definitif(&e) => {
-                        erreur_envoi.set(Some(traiter_echec(&e, &navigate, &chemin)));
+                        erreur_envoi.set(Some(traiter_echec(&e)));
                     }
                     Err(_) => {}
                 }

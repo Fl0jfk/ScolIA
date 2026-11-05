@@ -28,6 +28,7 @@ pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
+pub use securite::EtatSession;
 pub use securite::{
     AppareilSession, ChallengeEnrolement, MoiSecurite, PasskeyCompte, PolitiqueSecurite,
     ENROLEMENT_REQUIS,
@@ -81,6 +82,23 @@ impl EtatApi {
         }
     }
 }
+
+static DERNIERE_ACTIVITE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// Instant (secondes Unix) du dernier échange avec le serveur où la session a été
+/// reconnue (toute réponse autre que 401/5xx : le serveur a alors compté une activité).
+/// 0 si aucun. Sert à l'alerte avant expiration (inactivité de 2 h, D-011).
+pub fn derniere_activite() -> i64 {
+    DERNIERE_ACTIVITE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Enregistre une activité (ici, ou signalée par un autre onglet) ; ne recule jamais.
+pub fn noter_activite(instant: i64) {
+    DERNIERE_ACTIVITE.fetch_max(instant, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Préfixe du relais de session web (`ent-web-session`) : cookie → Bearer côté serveur.
+pub const PREFIXE_RELAIS: &str = "/web/api";
 
 /// Ce que l'API sait enregistrer. L'écran s'adapte à ces capacités au lieu de
 /// promettre un enregistrement qui n'existe pas.
@@ -197,6 +215,8 @@ impl ApiError {
 pub struct ApiClient {
     base: String,
     jeton: Option<String>,
+    /// Session web par cookie `HttpOnly` : appels via le relais `/web/api`, aucun jeton.
+    relais: bool,
 }
 
 // `Debug` manuel : le jeton de session ne doit jamais apparaître dans un journal ou une panique.
@@ -205,6 +225,7 @@ impl std::fmt::Debug for ApiClient {
         f.debug_struct("ApiClient")
             .field("base", &self.base)
             .field("jeton", &self.jeton.as_ref().map(|_| "<masqué>"))
+            .field("relais", &self.relais)
             .finish()
     }
 }
@@ -217,17 +238,46 @@ pub(crate) enum Methode {
 }
 
 impl ApiClient {
+    /// Client à jeton Bearer (applis mobiles, tests contre le backend). Le navigateur
+    /// n'utilise **pas** ce mode : voir [`ApiClient::relais`].
     pub fn new(base: impl Into<String>, jeton: Option<String>) -> Self {
         Self {
             base: base.into(),
             jeton,
+            relais: false,
         }
+    }
+
+    /// Client du navigateur (A6) : même origine, appels via `/web/api/…` avec le cookie de
+    /// session `HttpOnly` que le navigateur joint seul. Aucun jeton n'existe côté client.
+    pub fn relais() -> Self {
+        Self {
+            base: String::new(),
+            jeton: None,
+            relais: true,
+        }
+    }
+
+    /// Vrai pour le client du navigateur (cookie), faux pour un client à jeton Bearer.
+    pub fn est_relais(&self) -> bool {
+        self.relais
     }
 
     pub fn avec_jeton(&self, jeton: Option<String>) -> Self {
         Self {
             base: self.base.clone(),
             jeton,
+            relais: false,
+        }
+    }
+
+    pub(crate) fn auth(&self) -> transport::Auth<'_> {
+        if self.relais {
+            transport::Auth::Cookie
+        } else if let Some(j) = self.jeton.as_deref() {
+            transport::Auth::Bearer(j)
+        } else {
+            transport::Auth::Aucun
         }
     }
 
@@ -235,8 +285,13 @@ impl ApiClient {
         self.jeton.is_some()
     }
 
+    /// Adresse d'une route d'ent-api (via le relais `/web/api` en mode cookie).
     fn url(&self, chemin: &str) -> String {
-        format!("{}{}", self.base, chemin)
+        if self.relais {
+            format!("{PREFIXE_RELAIS}{chemin}")
+        } else {
+            format!("{}{}", self.base, chemin)
+        }
     }
 
     async fn appel<T: serde::de::DeserializeOwned>(
@@ -245,8 +300,20 @@ impl ApiClient {
         chemin: &str,
         corps: Option<serde_json::Value>,
     ) -> Result<T, ApiError> {
-        let (statut, texte) =
-            transport::envoyer(methode, &self.url(chemin), self.jeton.as_deref(), corps).await?;
+        self.appel_adresse(methode, &self.url(chemin), corps).await
+    }
+
+    /// Comme [`Self::appel`], avec l'adresse complète (routes `/web/session/…` du relais).
+    async fn appel_adresse<T: serde::de::DeserializeOwned>(
+        &self,
+        methode: Methode,
+        adresse: &str,
+        corps: Option<serde_json::Value>,
+    ) -> Result<T, ApiError> {
+        let (statut, texte) = transport::envoyer(methode, adresse, self.auth(), corps).await?;
+        if statut != 401 && statut < 500 {
+            noter_activite(chrono::Utc::now().timestamp());
+        }
         if (200..300).contains(&statut) {
             let texte = if texte.trim().is_empty() {
                 "null".to_string()
@@ -285,6 +352,7 @@ mod tests {
         assert!(!d.contains("SECRET-TOKEN-123"), "{d}");
         assert!(d.contains("masqué") && d.contains("http://x"));
         assert!(!format!("{:?}", ApiClient::default()).contains("masqué"));
+        assert!(!format!("{:?}", ApiClient::relais()).contains("masqué"));
         let s = Session {
             token: "SECRET-TOKEN-456".into(),
             user_id: uuid::Uuid::nil(),
@@ -294,6 +362,27 @@ mod tests {
             expires_at: chrono::Utc::now(),
         };
         assert!(!format!("{s:?}").contains("SECRET-TOKEN-456"));
+    }
+
+    #[test]
+    fn l_activite_ne_recule_jamais() {
+        noter_activite(1_000);
+        noter_activite(500);
+        assert!(derniere_activite() >= 1_000);
+    }
+
+    #[test]
+    fn le_client_du_navigateur_passe_par_le_relais_sans_jeton() {
+        let c = ApiClient::relais();
+        assert!(c.est_relais() && !c.a_un_jeton());
+        assert_eq!(c.url("/auth/me"), "/web/api/auth/me");
+        assert_eq!(c.url("/vs/absences?x=1"), "/web/api/vs/absences?x=1");
+        // Client à jeton (mobile, tests) : adresses inchangées.
+        let b = ApiClient::new("http://h", Some("t".into()));
+        assert!(!b.est_relais() && b.a_un_jeton());
+        assert_eq!(b.url("/auth/me"), "http://h/auth/me");
+        // Un jeton fourni à un client relais est impossible : `avec_jeton` repasse en Bearer.
+        assert!(!c.avec_jeton(Some("t".into())).est_relais());
     }
 
     #[test]

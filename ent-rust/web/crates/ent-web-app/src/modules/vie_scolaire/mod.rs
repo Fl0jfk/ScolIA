@@ -25,7 +25,7 @@ use ent_web_ui::{
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
-use leptos_router::hooks::{use_location, use_navigate, use_query_map};
+use leptos_router::hooks::{use_navigate, use_query_map};
 use uuid::Uuid;
 
 use crate::composants_metier::absences::{
@@ -35,24 +35,18 @@ use crate::composants_metier::absences::{
 use crate::noyau::coquille::use_droits;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
-use crate::noyau::session;
 use crate::noyau::temps::{aujourdhui, date_longue};
+use crate::noyau::{reconnexion, session};
 use modele::{classes_connues, filtrer, fusionner, trier, Filtre};
 
 /// Réaction commune à l'échec d'une action : session expirée → retour à la connexion
 /// (après effacement de la session) ; sinon le message est affiché là où l'action a eu lieu.
 /// Aucune requête n'est relancée automatiquement.
 pub(crate) fn gestionnaire_echec(erreur: RwSignal<Option<String>>) -> Callback<ApiError> {
-    let navigate = use_navigate();
-    let location = use_location();
     Callback::new(move |e: ApiError| match e {
         ApiError::NonConnecte => {
-            session::effacer();
-            let chemin = session::chemin_complet(
-                &location.pathname.get_untracked(),
-                &location.search.get_untracked(),
-            );
-            navigate(&session::adresse_connexion(&chemin), Default::default());
+            reconnexion::signaler_session_perdue();
+            erreur.set(Some(reconnexion::MESSAGE_SESSION_EXPIREE.into()));
         }
         autre => erreur.set(Some(autre.message_utilisateur())),
     })

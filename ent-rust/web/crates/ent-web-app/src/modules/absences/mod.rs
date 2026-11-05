@@ -21,7 +21,6 @@ use ent_web_ui::{
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
-use leptos_router::hooks::{use_location, use_navigate};
 use uuid::Uuid;
 
 use crate::composants_metier::absences::{
@@ -29,7 +28,7 @@ use crate::composants_metier::absences::{
 };
 use crate::noyau::coquille::use_droits;
 use crate::noyau::erreurs::ErreurChargement;
-use crate::noyau::session;
+use crate::noyau::{reconnexion, session};
 use modele::{
     a_justifier, acces, composer_justification, enfant_choisi, message_sans_droit_de_justifier,
     nom_enfant, options_motifs, peut_justifier, peut_retirer, recentes_d_abord, Acces,
@@ -476,16 +475,10 @@ fn SectionRetards(retards: LocalResource<Result<Vec<Retard>, ApiError>>) -> impl
 
 /// Même réaction que l'écran de vie scolaire : session expirée → connexion, sinon message.
 fn gestionnaire_echec(erreur: RwSignal<Option<String>>) -> Callback<ApiError> {
-    let navigate = use_navigate();
-    let location = use_location();
     Callback::new(move |e: ApiError| match e {
         ApiError::NonConnecte => {
-            session::effacer();
-            let chemin = session::chemin_complet(
-                &location.pathname.get_untracked(),
-                &location.search.get_untracked(),
-            );
-            navigate(&session::adresse_connexion(&chemin), Default::default());
+            reconnexion::signaler_session_perdue();
+            erreur.set(Some(reconnexion::MESSAGE_SESSION_EXPIREE.into()));
         }
         autre => erreur.set(Some(autre.message_utilisateur())),
     })

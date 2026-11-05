@@ -1,10 +1,14 @@
 //! Session web : **abstraction unique** du transport de la session.
 //!
-//! Aujourd'hui (validé pour la tranche 1) : l'authentification existante, inchangée,
-//! délivre un jeton opaque envoyé en `Authorization: Bearer` et rangé dans
-//! `localStorage` (`ent_token`, partagé avec l'ancienne interface `/app`).
-//! Demain (après décision) : cookie `HttpOnly` (prototype `ent-web-session`) ; seul
-//! ce fichier changera, les écrans passent tous par [`client`] et [`ContexteSession`].
+//! Depuis A6 (socle 1), la session est un cookie `__Host-ent_session` **`HttpOnly`** posé
+//! par le relais `ent-web-session` : le JavaScript et le WebAssembly de la page n'ont
+//! **jamais** le jeton, qui n'est donc plus dans `localStorage` ni `sessionStorage`. Les
+//! appels passent par [`client`] (relais `/web/api`, cookie joint par le navigateur, en-tête
+//! anti-CSRF). Les applis mobiles gardent le jeton Bearer : elles n'utilisent pas ce code.
+//!
+//! Ce que la page sait de la session : l'identité (`/auth/me`) et le temps restant
+//! (`/web/session/etat`), jamais le secret. Les onglets se préviennent entre eux par un
+//! `BroadcastChannel` (déconnexion, nouvelle connexion, activité) : messages **sans secret**.
 //!
 //! Le serveur ne voit pas la session pendant le rendu HTML : les données sont
 //! chargées par le navigateur.
@@ -16,57 +20,26 @@ use std::rc::Rc;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::NavigateOptions;
+use uuid::Uuid;
 
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-pub const CLE_JETON: &str = "ent_token";
+/// Clé `localStorage` de l'ancien stockage du jeton (avant A6). Elle n'est plus **jamais
+/// lue pour authentifier** ni écrite : seule [`purger_ancien_jeton`] la touche, pour l'effacer.
+pub const ANCIENNE_CLE_JETON: &str = "ent_token";
 
-/// Jeton courant (navigateur uniquement ; toujours `None` côté serveur).
-pub fn jeton() -> Option<String> {
+/// Migration douce : si un ancien jeton traîne dans `localStorage` (avant A6, ou posé par
+/// l'ancienne interface `/app`, figée, qui partageait cette clé), il est **effacé** puis
+/// révoqué côté serveur (appel `/auth/logout`, au mieux). Navigateur seulement.
+pub fn purger_ancien_jeton() {
     #[cfg(target_arch = "wasm32")]
-    {
-        let stockage = leptos::prelude::window().local_storage().ok().flatten()?;
-        stockage
-            .get_item(CLE_JETON)
-            .ok()
-            .flatten()
-            .filter(|j| !j.is_empty())
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        None
-    }
-}
-
-/// Le navigateur refuse d'enregistrer la session (navigation privée, stockage désactivé).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StockageIndisponible;
-
-impl StockageIndisponible {
-    pub const MESSAGE: &'static str = "Votre navigateur bloque l'enregistrement de la session (navigation privée ou stockage désactivé).";
-}
-
-/// Enregistre le jeton ; l'échec (stockage absent, refusé ou non relu) est **remonté**.
-pub fn enregistrer(jeton: &str) -> Result<(), StockageIndisponible> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let s = leptos::prelude::window()
-            .local_storage()
-            .ok()
-            .flatten()
-            .ok_or(StockageIndisponible)?;
-        s.set_item(CLE_JETON, jeton)
-            .map_err(|_| StockageIndisponible)?;
-        // Relecture : certains navigateurs n'échouent qu'à la lecture.
-        if s.get_item(CLE_JETON).ok().flatten().as_deref() == Some(jeton) {
-            Ok(())
-        } else {
-            Err(StockageIndisponible)
+    if let Some(s) = leptos::prelude::window().local_storage().ok().flatten() {
+        if let Ok(Some(ancien)) = s.get_item(ANCIENNE_CLE_JETON) {
+            let _ = s.remove_item(ANCIENNE_CLE_JETON);
+            if !ancien.is_empty() {
+                spawn_local(async move {
+                    let _ = ApiClient::new("", Some(ancien)).deconnexion().await;
+                });
+            }
         }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = jeton;
-        Ok(())
     }
 }
 
@@ -75,8 +48,7 @@ pub const MESSAGE_DECONNEXION_LOCALE: &str = "Déconnexion locale effectuée. Le
 
 /// Adresse de la page de connexion après une déconnexion demandée par la personne.
 /// Succès (204) et 401 (session déjà invalide côté serveur) : `deconnexion` ; réseau,
-/// 5xx, autre échec ou délai dépassé (`None`) : `locale`. Dans tous les cas le jeton
-/// local est effacé avant d'attendre la révocation.
+/// 5xx, autre échec ou délai dépassé (`None`) : `locale`.
 pub fn adresse_apres_deconnexion(resultat: Option<&Result<(), ApiError>>) -> &'static str {
     match resultat {
         Some(Ok(())) | Some(Err(ApiError::NonConnecte)) => "/web/connexion?fin=deconnexion",
@@ -88,15 +60,15 @@ pub fn adresse_apres_deconnexion(resultat: Option<&Result<(), ApiError>>) -> &'s
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 pub const DELAI_REVOCATION: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Termine la session : le jeton local est effacé tout de suite (les autres onglets le voient
-/// par l'événement `storage`), puis on attend la révocation en base, au plus
-/// [`DELAI_REVOCATION`], avant de rejoindre la page de connexion.
+/// Termine la session : les autres onglets sont prévenus tout de suite, puis on attend la
+/// révocation en base (le serveur efface aussi le cookie), au plus [`DELAI_REVOCATION`],
+/// avant de rejoindre la page de connexion.
 pub fn deconnecter<N>(navigate: N)
 where
     N: Fn(&str, NavigateOptions) + Clone + 'static,
 {
     let client = client();
-    effacer();
+    annoncer(Message::Fin);
     let fini = Rc::new(Cell::new(false));
     {
         let navigate = navigate.clone();
@@ -121,50 +93,149 @@ where
     );
 }
 
-/// Efface la session locale. Les autres onglets le voient (événement `storage`).
-pub fn effacer() {
-    #[cfg(target_arch = "wasm32")]
-    if let Some(s) = leptos::prelude::window().local_storage().ok().flatten() {
-        let _ = s.remove_item(CLE_JETON);
+/// Message diffusé aux autres onglets du même navigateur. **Aucun secret** : jamais le jeton.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Message {
+    /// Session terminée (déconnexion volontaire).
+    Fin,
+    /// Une session vient d'être ouverte pour cette personne.
+    Ouverte(Uuid),
+    /// Dernière activité reconnue par le serveur (secondes Unix).
+    Activite(i64),
+}
+
+impl Message {
+    pub fn encoder(&self) -> String {
+        match self {
+            Message::Fin => "fin".into(),
+            Message::Ouverte(id) => format!("ouverte:{id}"),
+            Message::Activite(t) => format!("activite:{t}"),
+        }
+    }
+
+    pub fn decoder(texte: &str) -> Option<Message> {
+        if texte == "fin" {
+            return Some(Message::Fin);
+        }
+        let (genre, valeur) = texte.split_once(':')?;
+        match genre {
+            "ouverte" => valeur.parse().ok().map(Message::Ouverte),
+            "activite" => valeur.parse().ok().map(Message::Activite),
+            _ => None,
+        }
     }
 }
 
-/// Suite à donner à un événement `storage` reçu d'un autre onglet.
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+/// Suite à donner dans cet onglet à un message d'un autre onglet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SuiteStockage {
-    /// Sans effet pour cet onglet.
+pub enum SuiteDiffusion {
     Ignorer,
     /// Session terminée ailleurs : retour à la connexion.
     Deconnexion,
-    /// Un autre compte (ou une nouvelle session) a pris la place : tout recharger,
-    /// sans quoi l'identité affichée ne serait plus celle du jeton envoyé.
+    /// Un autre compte a pris la place : tout recharger, sans quoi l'identité affichée ne
+    /// serait plus celle de la session.
     Recharger,
+    /// Le même compte s'est reconnecté ailleurs : fermer la fenêtre de reconnexion et
+    /// relancer les chargements.
+    Rouvrir,
 }
 
-/// Décision pure : `cle` vaut `None` pour un `clear()` du stockage ; `nouvelle` est la
-/// valeur écrite ; `jeton_onglet` est le jeton avec lequel **cet onglet** a chargé son état.
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-pub fn suite_evenement_stockage(
-    cle: Option<&str>,
-    nouvelle: Option<&str>,
-    jeton_onglet: Option<&str>,
-) -> SuiteStockage {
-    if cle.is_some_and(|c| c != CLE_JETON) {
-        return SuiteStockage::Ignorer;
-    }
-    let nouvelle = nouvelle.filter(|j| !j.is_empty());
-    match (nouvelle, jeton_onglet) {
-        (None, None) => SuiteStockage::Ignorer,
-        (None, Some(_)) => SuiteStockage::Deconnexion,
-        (Some(n), Some(c)) if n == c => SuiteStockage::Ignorer,
-        (Some(_), _) => SuiteStockage::Recharger,
+/// Décision pure : `utilisateur` est la personne avec laquelle **cet onglet** a chargé son état.
+pub fn suite_message(message: Message, utilisateur: Option<Uuid>) -> SuiteDiffusion {
+    match message {
+        Message::Fin => {
+            if utilisateur.is_some() {
+                SuiteDiffusion::Deconnexion
+            } else {
+                SuiteDiffusion::Ignorer
+            }
+        }
+        Message::Ouverte(id) => match utilisateur {
+            Some(u) if u == id => SuiteDiffusion::Rouvrir,
+            Some(_) => SuiteDiffusion::Recharger,
+            // Pas encore d'identité (page de connexion) : rien à corriger.
+            None => SuiteDiffusion::Ignorer,
+        },
+        Message::Activite(_) => SuiteDiffusion::Ignorer,
     }
 }
 
-/// Client API de même origine avec la session courante.
+#[cfg(target_arch = "wasm32")]
+mod canal {
+    use super::Message;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use leptos::wasm_bindgen::closure::Closure;
+    use leptos::wasm_bindgen::JsCast;
+
+    type Gestionnaire = Rc<dyn Fn(Message)>;
+
+    thread_local! {
+        static CANAL: RefCell<Option<web_sys::BroadcastChannel>> = const { RefCell::new(None) };
+        static GESTIONNAIRE: RefCell<Option<Gestionnaire>> = const { RefCell::new(None) };
+    }
+
+    fn canal() -> Option<web_sys::BroadcastChannel> {
+        CANAL.with(|c| {
+            if c.borrow().is_none() {
+                let ch = web_sys::BroadcastChannel::new("ent-session").ok()?;
+                let rappel = Closure::<dyn Fn(web_sys::MessageEvent)>::new(
+                    move |ev: web_sys::MessageEvent| {
+                        let Some(m) = ev.data().as_string().and_then(|t| Message::decoder(&t))
+                        else {
+                            return;
+                        };
+                        if let Message::Activite(t) = m {
+                            ent_web_api::noter_activite(t);
+                        }
+                        if let Some(g) = GESTIONNAIRE.with(|g| g.borrow().clone()) {
+                            g(m);
+                        }
+                    },
+                );
+                ch.set_onmessage(Some(rappel.as_ref().unchecked_ref()));
+                // Un seul canal par onglet, pour toute sa durée de vie.
+                rappel.forget();
+                *c.borrow_mut() = Some(ch);
+            }
+            c.borrow().clone()
+        })
+    }
+
+    pub fn annoncer(m: Message) {
+        if let Some(c) = canal() {
+            let _ = c.post_message(&m.encoder().into());
+        }
+    }
+
+    pub fn ecouter(g: Option<Gestionnaire>) {
+        if g.is_some() {
+            let _ = canal();
+        }
+        GESTIONNAIRE.with(|cell| *cell.borrow_mut() = g);
+    }
+}
+
+/// Prévient les autres onglets (navigateur seulement ; sans effet ailleurs).
+pub fn annoncer(message: Message) {
+    #[cfg(target_arch = "wasm32")]
+    canal::annoncer(message);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = message;
+}
+
+/// Branche (ou débranche avec `None`) le gestionnaire des messages des autres onglets.
+pub fn ecouter(gestionnaire: Option<Rc<dyn Fn(Message)>>) {
+    #[cfg(target_arch = "wasm32")]
+    canal::ecouter(gestionnaire);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = gestionnaire;
+}
+
+/// Client API de même origine : relais `/web/api`, cookie de session joint par le navigateur.
 pub fn client() -> ApiClient {
-    ApiClient::new("", jeton())
+    ApiClient::relais()
 }
 
 /// Adresse complète (chemin + « ? » + paramètres) : `location.search` est rendu sans « ? ».
@@ -232,14 +303,6 @@ pub fn adresse_connexion(chemin: &str) -> String {
     }
 }
 
-/// Comme [`adresse_connexion`], en signalant que la session a expiré pendant une saisie
-/// (la page de connexion prévient que les modifications non envoyées sont perdues).
-pub fn adresse_connexion_saisie_perdue(chemin: &str) -> String {
-    let base = adresse_connexion(chemin);
-    let sep = if base.contains('?') { '&' } else { '?' };
-    format!("{base}{sep}fin=expiree-saisie")
-}
-
 /// Encodage minimal d'un chemin interne pour un paramètre d'URL.
 fn encoder_retour(chemin: &str) -> String {
     chemin
@@ -282,6 +345,102 @@ pub fn use_session() -> ContexteSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn messages_entre_onglets_sans_secret() {
+        let id = Uuid::from_u128(7);
+        for m in [Message::Fin, Message::Ouverte(id), Message::Activite(1_234)] {
+            assert_eq!(Message::decoder(&m.encoder()), Some(m));
+        }
+        assert_eq!(Message::decoder("ouverte:pas-un-uuid"), None);
+        assert_eq!(Message::decoder("inconnu:1"), None);
+        assert_eq!(Message::decoder(""), None);
+    }
+
+    #[test]
+    fn synchro_entre_onglets() {
+        use SuiteDiffusion::*;
+        let (a, b) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        assert_eq!(suite_message(Message::Fin, Some(a)), Deconnexion);
+        assert_eq!(suite_message(Message::Fin, None), Ignorer);
+        assert_eq!(suite_message(Message::Ouverte(a), Some(a)), Rouvrir);
+        assert_eq!(suite_message(Message::Ouverte(b), Some(a)), Recharger);
+        assert_eq!(suite_message(Message::Ouverte(a), None), Ignorer);
+        assert_eq!(suite_message(Message::Activite(5), Some(a)), Ignorer);
+    }
+
+    #[test]
+    fn le_client_de_la_page_n_a_jamais_de_jeton() {
+        let c = client();
+        assert!(c.est_relais() && !c.a_un_jeton());
+    }
+
+    /// Garde-fou A6 : aucun code de la page n'écrit ni ne lit un jeton dans le stockage du
+    /// navigateur. Seul `session.rs` touche `localStorage`, uniquement pour **effacer** l'ancienne
+    /// clé (migration douce).
+    #[test]
+    fn aucun_acces_au_stockage_du_navigateur_pour_le_jeton() {
+        use std::path::Path;
+        fn sources(dossier: &Path, sortie: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dossier).unwrap() {
+                let chemin = e.unwrap().path();
+                if chemin.is_dir() {
+                    sources(&chemin, sortie);
+                } else if chemin.extension().is_some_and(|x| x == "rs") {
+                    sortie.push(chemin);
+                }
+            }
+        }
+        let racine = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut fichiers = vec![];
+        sources(&racine, &mut fichiers);
+        sources(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../ent-web-api/src"),
+            &mut fichiers,
+        );
+        let interdits = [
+            "local_storage",
+            "session_storage",
+            "set_item",
+            "get_item",
+            "localStorage",
+            "sessionStorage",
+            "IndexedDb",
+            "document.cookie",
+            "document().cookie",
+            "html_document",
+        ];
+        for f in fichiers {
+            let texte = std::fs::read_to_string(&f).unwrap();
+            // Le code de test (ce fichier contient la liste ci-dessus) n'est pas du code de la page.
+            let code: String = texte
+                .split("#[cfg(test)]")
+                .next()
+                .unwrap()
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let est_session = f.ends_with("noyau/session.rs");
+            for mot in interdits {
+                if est_session && matches!(mot, "local_storage" | "get_item") {
+                    continue; // lecture de l'ancienne clé pour l'effacer (voir ci-dessous)
+                }
+                assert!(
+                    !code.contains(mot),
+                    "{} utilise « {mot} » : le jeton ne doit jamais toucher le stockage du navigateur",
+                    f.display()
+                );
+            }
+            if est_session {
+                assert!(code.contains("remove_item(ANCIENNE_CLE_JETON)"));
+                assert!(
+                    !code.contains("set_item"),
+                    "session.rs n'écrit rien dans le stockage"
+                );
+            }
+        }
+    }
 
     #[test]
     fn adresse_apres_deconnexion_selon_la_revocation() {
@@ -352,18 +511,6 @@ mod tests {
     }
 
     #[test]
-    fn connexion_apres_saisie_perdue() {
-        assert_eq!(
-            adresse_connexion_saisie_perdue("/web/appel?jour=2026-11-03"),
-            "/web/connexion?retour=/web/appel%3Fjour%3D2026-11-03&fin=expiree-saisie"
-        );
-        assert_eq!(
-            adresse_connexion_saisie_perdue("/x"),
-            "/web/connexion?fin=expiree-saisie"
-        );
-    }
-
-    #[test]
     fn chemin_complet_retablit_le_point_d_interrogation() {
         assert_eq!(chemin_complet("/web/appel", ""), "/web/appel");
         assert_eq!(
@@ -388,40 +535,5 @@ mod tests {
             "/web/connexion?retour=/web/appel%3Fjour%3D2026-11-03%26creneau%3Dx"
         );
         assert_eq!(adresse_connexion("/web/connexion"), "/web/connexion");
-    }
-
-    #[test]
-    fn synchro_entre_onglets() {
-        use SuiteStockage::*;
-        let f = suite_evenement_stockage;
-        assert_eq!(
-            f(Some(CLE_JETON), None, Some("A")),
-            Deconnexion,
-            "déconnexion ailleurs"
-        );
-        assert_eq!(f(None, None, Some("A")), Deconnexion, "clear()");
-        assert_eq!(
-            f(Some(CLE_JETON), Some(""), Some("A")),
-            Deconnexion,
-            "valeur vide"
-        );
-        assert_eq!(
-            f(Some(CLE_JETON), Some("B"), Some("A")),
-            Recharger,
-            "autre compte"
-        );
-        assert_eq!(
-            f(Some(CLE_JETON), Some("A"), Some("A")),
-            Ignorer,
-            "même jeton"
-        );
-        assert_eq!(
-            f(Some(CLE_JETON), Some("B"), None),
-            Recharger,
-            "connexion ailleurs"
-        );
-        assert_eq!(f(Some(CLE_JETON), None, None), Ignorer);
-        assert_eq!(f(Some("autre_cle"), None, Some("A")), Ignorer);
-        assert_eq!(f(Some("autre_cle"), Some("B"), Some("A")), Ignorer);
     }
 }

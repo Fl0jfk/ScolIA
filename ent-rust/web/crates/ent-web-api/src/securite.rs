@@ -118,7 +118,32 @@ impl std::fmt::Debug for ChallengeEnrolement {
     }
 }
 
+/// Temps restant de la session web, lu en base par le relais (`GET /web/session/etat`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct EtatSession {
+    /// Secondes avant l'expiration **absolue** (durée maximale, D-011).
+    pub expire_dans: u64,
+    /// Inactivité maximale en secondes (D-011 : 2 h) : la session est refusée après ce délai
+    /// sans requête authentifiée.
+    pub inactivite_max: u64,
+}
+
+impl EtatSession {
+    /// Secondes avant la perte de la session si la personne n'agit plus : le plus proche de
+    /// l'expiration absolue et de la fin de l'inactivité.
+    pub fn reste_si_inactif(&self) -> u64 {
+        self.expire_dans.min(self.inactivite_max)
+    }
+}
+
 impl ApiClient {
+    /// `GET /web/session/etat` (relais seulement). Compte comme une activité : à n'appeler
+    /// qu'au chargement et à la demande, jamais en boucle.
+    pub async fn etat_session(&self) -> Result<EtatSession, ApiError> {
+        self.appel_adresse(Methode::Get, "/web/session/etat", None)
+            .await
+    }
+
     /// `GET /auth/me` avec la portée et le niveau d'assurance de la session.
     pub async fn moi_securite(&self) -> Result<MoiSecurite, ApiError> {
         self.appel(Methode::Get, "/auth/me", None).await

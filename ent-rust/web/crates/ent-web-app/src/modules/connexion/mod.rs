@@ -171,6 +171,8 @@ fn revenir_au_mot_de_passe(mot_de_passe: RwSignal<String>) {
 
 #[component]
 pub fn PageConnexion() -> impl IntoView {
+    // Ancien jeton `localStorage` (avant A6) : effacé et révoqué.
+    Effect::new(move |_| session::purger_ancien_jeton());
     let navigate = use_navigate();
     let query = use_query_map();
     let config = Resource::new(|| (), |_| config_connexion());
@@ -215,9 +217,6 @@ pub fn PageConnexion() -> impl IntoView {
             Some("deconnexion") => Some("Vous êtes déconnecté."),
             Some("locale") => Some(session::MESSAGE_DECONNEXION_LOCALE),
             Some("autre-onglet") => Some("Vous avez été déconnecté depuis un autre onglet."),
-            Some("expiree-saisie") => Some(
-                "Votre session a expiré pendant la saisie : les modifications non enregistrées ont été perdues. Reconnectez-vous puis refaites-les.",
-            ),
             _ => None,
         })
     };
@@ -225,13 +224,9 @@ pub fn PageConnexion() -> impl IntoView {
     let ouvrir_session = {
         let navigate = navigate.clone();
         move |s: Session| {
-            // Stockage bloqué : sans jeton conservé, la page /web renverrait ici en boucle.
-            if session::enregistrer(&s.token).is_err() {
-                mot_de_passe.set(String::new());
-                erreur.set(Some(session::StockageIndisponible::MESSAGE.into()));
-                return;
-            }
+            // Le cookie `HttpOnly` a été posé par le serveur : rien à enregistrer ici.
             mot_de_passe.set(String::new());
+            session::annoncer(session::Message::Ouverte(s.user_id));
             let retour = session::retour_sur(query.with_untracked(|q| q.get("retour")));
             navigate(&retour, Default::default());
         }

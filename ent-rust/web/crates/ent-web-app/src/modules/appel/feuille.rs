@@ -15,7 +15,6 @@ use ent_web_ui::{
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos::wasm_bindgen::JsCast;
-use leptos_router::hooks::{use_location, use_navigate};
 use uuid::Uuid;
 
 use super::modele::{
@@ -23,7 +22,7 @@ use super::modele::{
     Arret, Bilan, Blocage, Changement, Compteurs, EleveAppel, Feuille, Filtre, Saisie, Statut,
 };
 use crate::noyau::erreurs::ErreurChargement;
-use crate::noyau::session;
+use crate::noyau::{reconnexion, session};
 
 /// Signaux d'une ligne.
 #[derive(Clone, Copy)]
@@ -106,8 +105,6 @@ fn EcranSaisie(
     on_termine: Callback<Bilan>,
     on_incomplet: Callback<()>,
 ) -> impl IntoView {
-    let navigate = use_navigate();
-    let location = use_location();
     let close = feuille.close;
     let appel_id = feuille.appel_id;
     let eleves = StoredValue::new(feuille.eleves.clone());
@@ -222,11 +219,6 @@ fn EcranSaisie(
         echec.set(None);
         let total = liste.len();
         envoi.set(Envoi::EnCours { fait: 0, total });
-        let chemin = session::chemin_complet(
-            &location.pathname.get_untracked(),
-            &location.search.get_untracked(),
-        );
-        let navigate = navigate.clone();
         spawn_local(async move {
             let client = session::client();
             let mut echecs = Vec::new();
@@ -246,14 +238,9 @@ fn EcranSaisie(
             if let Some(a) = arret {
                 envoi.set(Envoi::Inactif);
                 if a == Arret::SessionExpiree {
-                    // La saisie non envoyée ne peut pas être gardée (l'écran disparaît) :
-                    // la page de connexion en informe explicitement.
-                    session::effacer();
-                    navigate(
-                        &session::adresse_connexion_saisie_perdue(&chemin),
-                        Default::default(),
-                    );
-                    return;
+                    // La saisie est conservée : la fenêtre de reconnexion s'ouvre par-dessus
+                    // la page, puis la personne renvoie l'appel (rien n'est rejoué seul).
+                    reconnexion::signaler_session_perdue();
                 }
                 echec.set(Some(EchecEnvoi {
                     message: message_arret(a, total - tentees),
@@ -285,12 +272,7 @@ fn EcranSaisie(
                 Err(e) => {
                     envoi.set(Envoi::Inactif);
                     if e == ApiError::NonConnecte {
-                        session::effacer();
-                        navigate(
-                            &session::adresse_connexion_saisie_perdue(&chemin),
-                            Default::default(),
-                        );
-                        return;
+                        reconnexion::signaler_session_perdue();
                     }
                     echec.set(Some(EchecEnvoi {
                         message: format!(

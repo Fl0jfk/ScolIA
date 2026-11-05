@@ -1,6 +1,6 @@
 //! Coquille authentifiée : charge la personne connectée une seule fois, protège les
 //! pages, construit la navigation selon les droits, gère la déconnexion (y compris
-//! dans les autres onglets).
+//! dans les autres onglets) et la reconnexion rapide quand la session expire.
 
 use ent_web_api::{ApiError, MoiSecurite};
 use ent_web_ui::{Coquille, Identite};
@@ -12,7 +12,8 @@ use super::droits::{droits_du_role, libelle_role, Droits};
 use super::navigation;
 use super::non_lus::{self, NonLus};
 use super::portee::{self, Portee};
-use super::session::{self, ContexteSession};
+use super::reconnexion::{self, BandeauExpiration, ReconnexionRapide};
+use super::session::{self, ContexteSession, SuiteDiffusion};
 use crate::modules::connexion::config_connexion;
 
 /// Droits de la personne connectée (aucun tant que `/auth/me` n'a pas répondu).
@@ -42,18 +43,11 @@ pub fn AppCoquille() -> impl IntoView {
         )
     };
 
-    // Sans session : connexion, puis retour ici (navigateur uniquement).
-    {
-        let navigate = navigate.clone();
-        Effect::new(move |_| {
-            if session::jeton().is_none() {
-                navigate(
-                    &session::adresse_connexion(&chemin_complet()),
-                    Default::default(),
-                );
-            }
-        });
-    }
+    // Ancien jeton `localStorage` (avant A6) : effacé et révoqué (navigateur seulement).
+    Effect::new(move |_| session::purger_ancien_jeton());
+
+    // Reconnexion rapide : échéances de la session, fenêtre par-dessus la page.
+    let reco = reconnexion::fournir();
 
     // Une seule requête `/auth/me` : identité + portée et niveau de la session.
     let securite = RwSignal::new(None::<MoiSecurite>);
@@ -86,43 +80,60 @@ pub fn AppCoquille() -> impl IntoView {
         });
     }
 
-    // Session refusée par le serveur (expirée, révoquée) : retour à la connexion.
+    // Pas de session (premier chargement) : connexion, puis retour ici. Session perdue
+    // pendant l'usage (identité déjà connue) : fenêtre de reconnexion, la page reste.
     {
         let navigate = navigate.clone();
         Effect::new(move |_| {
             if let Some(Err(ApiError::NonConnecte)) = moi.get() {
-                session::effacer();
-                navigate(
-                    &session::adresse_connexion(&chemin_complet()),
-                    Default::default(),
-                );
+                if securite.get_untracked().is_some() {
+                    reco.ouvrir();
+                } else {
+                    navigate(
+                        &session::adresse_connexion(&chemin_complet()),
+                        Default::default(),
+                    );
+                }
             }
         });
     }
 
-    // Déconnexion dans un autre onglet : `localStorage` vidé → cet onglet suit.
-    #[cfg(target_arch = "wasm32")]
+    // Identité connue : on demande au serveur le temps restant (une fois), et on prévient
+    // les autres onglets qu'une session est ouverte pour cette personne.
+    Effect::new(move |deja: Option<bool>| {
+        let connue = securite.with(Option::is_some);
+        reco.connue.set(connue);
+        if connue && deja != Some(true) {
+            reco.rafraichir();
+        }
+        connue
+    });
+
+    // Autres onglets : déconnexion, autre compte, reconnexion de la même personne.
     {
         let navigate = navigate.clone();
-        // Jeton avec lequel cet onglet a chargé son identité affichée.
-        let jeton_onglet = session::jeton();
-        let handle = window_event_listener(leptos::ev::storage, move |ev| {
-            match session::suite_evenement_stockage(
-                ev.key().as_deref(),
-                ev.new_value().as_deref(),
-                jeton_onglet.as_deref(),
-            ) {
-                session::SuiteStockage::Ignorer => {}
-                session::SuiteStockage::Deconnexion => {
+        session::ecouter(Some(std::rc::Rc::new(move |m| {
+            let utilisateur = securite.get_untracked().map(|s| s.user_id);
+            match session::suite_message(m, utilisateur) {
+                SuiteDiffusion::Ignorer => {}
+                SuiteDiffusion::Deconnexion => {
                     navigate("/web/connexion?fin=autre-onglet", Default::default());
                 }
                 // Autre compte ailleurs : on repart de zéro (identité, droits, données).
-                session::SuiteStockage::Recharger => {
+                SuiteDiffusion::Recharger => {
+                    #[cfg(target_arch = "wasm32")]
                     let _ = window().location().reload();
                 }
+                SuiteDiffusion::Rouvrir => {
+                    if reco.ouverte.get_untracked() {
+                        reco.ouverte.set(false);
+                        reco.version.update(|v| *v += 1);
+                    }
+                    reco.rafraichir();
+                }
             }
-        });
-        on_cleanup(move || handle.remove());
+        })));
+        on_cleanup(|| session::ecouter(None));
     }
 
     // Après chaque changement de page : focus sur <main> et annonce du titre.
@@ -230,6 +241,7 @@ pub fn AppCoquille() -> impl IntoView {
                         on_deconnexion=deconnecter
                     >
                         <div id="annonce-page" class="ui-sr" role="status" aria-live="polite" aria-atomic="true"></div>
+                        <BandeauExpiration ctx=reco/>
                         // Session « enrôlement » : aucune page métier ne se charge (redirection en cours).
                         {move || {
                             if en_enrolement.get() {
@@ -240,6 +252,7 @@ pub fn AppCoquille() -> impl IntoView {
                             }
                         }}
                     </Coquille>
+                    <ReconnexionRapide ctx=reco securite=securite/>
                 }
                     .into_any()
             }

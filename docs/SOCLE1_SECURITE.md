@@ -27,11 +27,11 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 | A3 | Session serveur : inactivité 2 h et maximum 12 h pour le web, longue révocable pour le mobile (D-011), niveau d'assurance (mot de passe / passkey), liste et révocation des appareils | Élevée | à faire (écran « mes appareils » : implémenté + testé en local) |
 | A4 | Anti-abus : limitation de débit (oubli de mot de passe, passkey, OIDC, réinitialisation), IP fiable derrière proxy, verrou sans déni de service, réponses indiscernables (énumération), bornes de taille | Élevée | en cours (sous-agent) |
 | A5 | WebAuthn fail-closed : `rp_id` `scolia.fr` validé au démarrage, liste d'origines (sous-domaines, applis natives) | Élevée | en cours (session cloud) |
-| A6 | Cookie `HttpOnly` en production pour le web (fin du jeton en `localStorage`), sur la base du prototype `ent-web-session` et de A3 | Élevée | à faire |
+| A6 | Cookie `HttpOnly` en production pour le web (fin du jeton en `localStorage`), sur la base du prototype `ent-web-session` et de A3 | Élevée | implémenté + testé en local (relais intégré à `ent-web-server`, base seule juge de l'expiration, cookie ré-émis après enrôlement, frontend sans jeton, reconnexion rapide ; **essai navigateur réel à faire**, voir `SESSION_WEB_COOKIE_ETUDE.md` §15) |
 | A7 | OIDC : `email_verified` obligatoire, state lié au navigateur, URL de découverte contrôlée (SSRF), secret client chiffré | Moyenne | en cours (session cloud) |
 | A8 | Récupération : codes de secours, délai et notification sur reset passkey par la direction, alerte si compteur de signature régresse, changement forcé du mot de passe temporaire, liste de mots de passe compromis, `needs_rehash` | Moyenne | à faire |
 | A5 | WebAuthn fail-closed : `rp_id` `scolia.fr` validé au démarrage, liste d'origines (sous-domaines, applis natives) | Élevée | implémenté + testé en local (natives iOS : voir détail) |
-| A6 | Cookie `HttpOnly` en production pour le web (fin du jeton en `localStorage`), sur la base du prototype `ent-web-session` et de A3 | Élevée | à faire |
+| A6 | Cookie `HttpOnly` en production pour le web (fin du jeton en `localStorage`), sur la base du prototype `ent-web-session` et de A3 | Élevée | implémenté + testé en local (relais intégré à `ent-web-server`, base seule juge de l'expiration, cookie ré-émis après enrôlement, frontend sans jeton, reconnexion rapide ; **essai navigateur réel à faire**, voir `SESSION_WEB_COOKIE_ETUDE.md` §15) |
 | A7 | OIDC : `email_verified` obligatoire, state lié au navigateur, URL de découverte contrôlée (SSRF), secret client chiffré | Moyenne | implémenté + testé en local |
 | A8 | Récupération : codes de secours, délai et notification sur reset passkey par la direction, alerte si compteur de signature régresse, changement forcé du mot de passe temporaire, liste de mots de passe compromis, `needs_rehash` | Moyenne | partiel : compteur régressé refusé + journalisé, mise à jour atomique ; reste : codes de secours, délai/notification sur reset, mot de passe temporaire, mots de passe compromis, `needs_rehash` |
 | A9 | Alerte de nouvelle connexion (nouvel appareil), ré-authentification passkey pour les actions sensibles | Moyenne | à faire |
@@ -74,7 +74,7 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 - en `souple` (défaut), un hôte inconnu garde l'ancien comportement : passer en `strict` en production après déclaration des domaines ;
 - une résolution en base par requête (clé primaire, sans cache) ;
 - l'attribution d'un domaine est faite par l'Admin de l'établissement : pas encore de rôle « plateforme » ni de liste de suffixes autorisés (ex. `*.scolia.fr`) ; un Admin pourrait réserver un domaine non encore déclaré par un autre établissement (refus seulement s'il est déjà pris) — à encadrer avant la production ;
-- `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` ne sont pas encore liés à l'hôte ; le cookie `__Host-` (A6) et la liste d'origines WebAuthn (A5) restent à faire ;
+- `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` ne sont pas encore liés à l'hôte ; la liste d'origines WebAuthn (A5) est traitée par ailleurs ; le cookie `__Host-` (A6) est en place côté `/web` ;
 - l'interface JavaScript existante envoie encore `etablissement_id` (accepté, ignoré sur une adresse connue) : à retirer lors du remplacement Leptos.
 
 ### D. Documents et données
@@ -116,9 +116,18 @@ A1 → B1 → (A4, D1 en parallèle) → A2 → A3 → B2–B4 → C1 → C2 →
 Vérifié non exploitable : contournement de la session d'enrôlement par variante de chemin ou relais `/web/api` ; session complète sans passkey par SSO, mot de passe, passkey, réinitialisation ou labo ; prolongation d'une session expirée ; révocation de la session d'autrui ; injection SQL (paramètres liés).
 Corrigé : E1 périmètre professeur incomplet (≈ 12 routes) ; E2 enrôlement sans mot de passe abusable avec un jeton d'enrôlement volé (mot de passe redemandé sauf SSO, e-mail d'alerte à chaque nouvelle passkey) ; E5 politique imposée sans moteur WebAuthn et sessions existantes non fermées ; E6 accès aux fils acquis par participation ; E10 tests (fenêtre de remplacement, variantes de chemin, prolongation mobile).
 Restent (décisions ou suites) :
-- **E3** le cookie du prototype `ent-web-session` garde la durée de la session d'enrôlement (15 min) : à traiter lors du passage du cookie en production (A6).
+- **E3** (traité le 2026-11-05, A6) le cookie du relais est ré-émis avec l'expiration lue en base après l'enrôlement de la passkey (15 min → 12 h) ; test `cookie_reemis_avec_la_bonne_duree_apres_l_enrolement_obligatoire`.
 - **E4** récupération d'une personne membre de deux établissements qui perd sa passkey : aucune direction ne peut agir (isolation) → **décision à prendre** avant d'activer l'obligation (support plateforme journalisé, ou récupération en libre-service avec délai et notification).
 - **E7** le type de client `mobile` est déclaré par le client (90 j) : à lier à l'appli (attestation d'appareil) avec le chantier mobile.
 - **E8** appareil et IP non conservés pour une connexion par passkey ; libellé d'appareil (User-Agent) à échapper à l'affichage.
 - **E9** créneaux EDT historiques sans date de fin (accès conservé tant que le créneau existe) ; comparaison de classe sensible à la casse ; jour UTC.
 - Sessions antérieures à la migration 095 sans délai d'inactivité : à purger au déploiement.
+
+## Résultats des vérifications — A6 (2026-11-05, local, Rust 1.99.0, PostgreSQL 16 jetable `ent_ci_test`)
+- Clippy `-D warnings` : ent-web-ui/api/app (ssr, `--all-targets`), ent-web-app wasm32 (`hydrate`), ent-web-server + ent-web-session (avec et sans `labo`) : 0 avertissement.
+- Tests unitaires `ent-web-ui` 18, `ent-web-api` 111, `ent-web-app` 14 : tous verts (dont échéances, messages entre onglets, aucun accès au stockage du navigateur pour le jeton).
+- `cargo leptos build --release --precompress` : OK (wasm 3,18 Mo, 0,84 Mo en brotli).
+- `entetes_securite` + `droits_parite` : 19 + 3 verts. `contre_backend` : 9 verts ; `session_cookie_serveur` (relais dans le serveur complet) : 1 vert.
+- `ent-web-session` (feature `ent-api/labo`) : 12 verts (cookie, CSRF, expiration par la base sur deux instances du relais, `etat`, `client=web` imposé, ré-émission après enrôlement, déconnexion, passkeys, mobile/`/app` inchangés).
+- `cargo fmt` (5 crates web) : conforme.
+- **Non fait** : essai dans un vrai navigateur (fenêtre de reconnexion, `BroadcastChannel`, passkey) ; `cargo deny` / `cargo audit` non relancés (dépendance de test `sqlx` ajoutée à `ent-web-session`, déjà dans le graphe).
