@@ -5,7 +5,8 @@ use chrono::NaiveDate;
 use ent_types::referentiel_admin::{AnneeStatutDto, RapportLotDto};
 use ent_web_api::ClasseApi;
 use ent_web_ui::{
-    Badge, Bouton, Case, ChampTexte, Confirmation, EtatVide, Selection, Squelette, Variante,
+    Badge, Bouton, Case, ChampTexte, Confirmation, Dialogue, EtatVide, Selection, Squelette,
+    Variante,
 };
 use leptos::prelude::*;
 use leptos_meta::Title;
@@ -14,10 +15,10 @@ use uuid::Uuid;
 use super::modele::{
     actions_annee, annee_courante, annee_suivante, apercu_ouverture, correspondances_choisies,
     etapes_bascule, libelle_annee_suivante, libelle_statut_annee, lire_date, lot_applicable,
-    proposer_correspondances, resume_lot, resume_ouverture, resume_reconduction,
-    ton_statut_annee, trier_annees, EtatEtape,
+    proposer_correspondances, resume_lot, resume_ouverture, resume_reconduction, ton_statut_annee,
+    trier_annees, EtatEtape,
 };
-use super::{peut_gerer, EnTeteReferentiel, Ecriture, RetourEcriture};
+use super::{peut_gerer, Ecriture, EnTeteReferentiel, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
 use crate::noyau::session;
@@ -25,9 +26,8 @@ use crate::noyau::temps::{aujourdhui, date_complete};
 
 #[component]
 pub fn PageAnnees() -> impl IntoView {
-    let annees = LocalResource::new(|| async {
-        session::client().annees_statut().await.map(trier_annees)
-    });
+    let annees =
+        LocalResource::new(|| async { session::client().annees_statut().await.map(trier_annees) });
     view! {
         <Title text="Années et bascule"/>
         <EnTeteReferentiel
@@ -271,15 +271,25 @@ fn CarteAnnee(
                         {format!("Année suivante : {} ({}).", s.libelle, libelle_statut_annee(&s.statut))}
                     </p>
                 })}
-        </li>
-        <Confirmation
-            ouvert=preparer_ouvert
-            id=ids.0
-            titre=titre_preparer
-            message=msg_preparer
-            libelle_confirmer="Préparer"
-            on_confirmer=preparer
-        />
+        <Dialogue ouvert=preparer_ouvert titre=titre_preparer id=ids.0>
+            <p>{msg_preparer}</p>
+            <Case
+                id=format!("avec-services-{id}")
+                libelle="Reconduire aussi les services d'enseignement (sans professeur principal)"
+                coche=avec_services
+            />
+            <div class="ui-dialogue__actions">
+                <Bouton variante=Variante::Secondaire on_click=Callback::new(move |_| preparer_ouvert.set(false))>
+                    "Annuler"
+                </Bouton>
+                <Bouton on_click=Callback::new(move |_| {
+                    preparer_ouvert.set(false);
+                    preparer.run(());
+                })>
+                    "Préparer"
+                </Bouton>
+            </div>
+        </Dialogue>
         <Confirmation
             ouvert=ouvrir_ouvert
             id=ids.1
@@ -307,22 +317,7 @@ fn CarteAnnee(
             danger=true
             on_confirmer=Callback::new(move |_| cloturer(true))
         />
-        // La case « avec services » se choisit avant de préparer.
-        {move || {
-            preparer_ouvert
-                .get()
-                .then(|| {
-                    view! {
-                        <div class="ra-option">
-                            <Case
-                                id=format!("avec-services-{id}")
-                                libelle="Reconduire aussi les services d'enseignement (sans professeur principal)"
-                                coche=avec_services
-                            />
-                        </div>
-                    }
-                })
-        }}
+        </li>
     }
 }
 
@@ -479,7 +474,10 @@ fn TableauMontee(
         ecriture.erreur.set(None);
         ecriture.en_cours.set(true);
         leptos::task::spawn_local(async move {
-            match session::client().monter_eleves(cible_id, source_id, &c, true).await {
+            match session::client()
+                .monter_eleves(cible_id, source_id, &c, true)
+                .await
+            {
                 Ok(r) => apercu.set(Some(r)),
                 Err(e) => ecriture.erreur.set(Some(super::message_echec(e))),
             }
@@ -492,7 +490,10 @@ fn TableauMontee(
             let r = session::client()
                 .monter_eleves(cible_id, source_id, &c, false)
                 .await?;
-            Ok(format!("Montée appliquée : {} affectation(s) créée(s).", r.a_creer))
+            Ok(format!(
+                "Montée appliquée : {} affectation(s) créée(s).",
+                r.a_creer
+            ))
         });
         apercu.set(None);
     });

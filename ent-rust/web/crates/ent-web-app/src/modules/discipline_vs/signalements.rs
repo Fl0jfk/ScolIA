@@ -50,8 +50,10 @@ pub fn PageSignalements() -> impl IntoView {
 
 #[component]
 fn ContenuMois(mois: chrono::NaiveDate) -> impl IntoView {
-    let decompte = LocalResource::new(move || async move { session::client().decompte_mensuel(mois).await });
-    let signalements = LocalResource::new(move || async move { session::client().signalements(mois).await });
+    let decompte =
+        LocalResource::new(move || async move { session::client().decompte_mensuel(mois).await });
+    let signalements =
+        LocalResource::new(move || async move { session::client().signalements(mois).await });
     let ecriture = Ecriture::nouveau(Callback::new(move |_| {
         decompte.refetch();
         signalements.refetch();
@@ -60,7 +62,10 @@ fn ContenuMois(mois: chrono::NaiveDate) -> impl IntoView {
     let proposer = Callback::new(move |_| {
         ecriture.lancer(async move {
             let l = session::client().proposer_signalements(mois).await?;
-            Ok(format!("{} signalement(s) proposé(s) pour ce mois.", l.len()))
+            Ok(format!(
+                "{} signalement(s) proposé(s) pour ce mois.",
+                l.len()
+            ))
         });
     });
     view! {
@@ -114,7 +119,12 @@ fn ContenuMois(mois: chrono::NaiveDate) -> impl IntoView {
 pub fn noms_depuis_decompte(d: &DecompteMoisDto) -> HashMap<Uuid, String> {
     d.eleves
         .iter()
-        .map(|e| (e.eleve_id, format!("{} {}", e.prenom, e.nom).trim().to_string()))
+        .map(|e| {
+            (
+                e.eleve_id,
+                format!("{} {}", e.prenom, e.nom).trim().to_string(),
+            )
+        })
         .collect()
 }
 
@@ -122,7 +132,11 @@ pub fn noms_depuis_decompte(d: &DecompteMoisDto) -> HashMap<Uuid, String> {
 fn TableauDecompte(decompte: DecompteMoisDto) -> impl IntoView {
     let seuil = decompte.seuil_signalement;
     let atteints = decompte.eleves.iter().filter(|e| e.seuil_atteint).count();
-    let ton_atteints = if atteints > 0 { TonEtat::Avertissement } else { TonEtat::Ok };
+    let ton_atteints = if atteints > 0 {
+        TonEtat::Avertissement
+    } else {
+        TonEtat::Ok
+    };
     if decompte.eleves.is_empty() {
         return view! { <EtatVide titre="Aucune absence ce mois-ci" message="Aucun élève n'a de demi-journée d'absence comptée."/> }.into_any();
     }
@@ -277,6 +291,9 @@ mod tests {
             }],
         };
         let m = noms_depuis_decompte(&d);
-        assert_eq!(m.get(&Uuid::from_u128(1)).map(String::as_str), Some("Harry Potter"));
+        assert_eq!(
+            m.get(&Uuid::from_u128(1)).map(String::as_str),
+            Some("Harry Potter")
+        );
     }
 }

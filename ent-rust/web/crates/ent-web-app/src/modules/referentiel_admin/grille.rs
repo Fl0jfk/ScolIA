@@ -13,7 +13,7 @@ use super::modele::{
     annee_courante, composer_grille, composer_plage_generation, lignes_depuis_grille,
     resume_seances, trier_annees, LigneCreneau, DEMI_JOURNEES,
 };
-use super::{peut_gerer, EnTeteReferentiel, Ecriture, RetourEcriture};
+use super::{peut_gerer, Ecriture, EnTeteReferentiel, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use crate::noyau::temps::{aujourdhui, date_complete, heure_courte};
@@ -95,7 +95,10 @@ fn SectionGrille() -> impl IntoView {
         lignes.update(|v| {
             v.push(CreneauEdit::depuis(
                 c,
-                &LigneCreneau { demi_journee: "matin".into(), ..Default::default() },
+                &LigneCreneau {
+                    demi_journee: "matin".into(),
+                    ..Default::default()
+                },
             ))
         });
     });
@@ -106,7 +109,11 @@ fn SectionGrille() -> impl IntoView {
         });
     });
     let enregistrer = Callback::new(move |_| {
-        let saisies: Vec<LigneCreneau> = lignes.get_untracked().iter().map(CreneauEdit::lire).collect();
+        let saisies: Vec<LigneCreneau> = lignes
+            .get_untracked()
+            .iter()
+            .map(CreneauEdit::lire)
+            .collect();
         match composer_grille(&saisies) {
             Err(e) => erreurs.set(e),
             Ok(corps) => {
@@ -201,9 +208,8 @@ fn LigneCreneauEdit(
 
 #[component]
 fn SectionSeances() -> impl IntoView {
-    let annees = LocalResource::new(|| async {
-        session::client().annees_statut().await.map(trier_annees)
-    });
+    let annees =
+        LocalResource::new(|| async { session::client().annees_statut().await.map(trier_annees) });
     view! {
         <section class="ra-section" aria-labelledby="ra-seances">
             <h2 id="ra-seances" class="vs-section-titre">"Séances datées"</h2>
@@ -249,7 +255,9 @@ fn GenerationSeances(annee: AnneeStatutDto) -> impl IntoView {
         }
     });
     let generer = Callback::new(move |_| {
-        let Some((d, a)) = plage.get_untracked() else { return };
+        let Some((d, a)) = plage.get_untracked() else {
+            return;
+        };
         ecriture.lancer(async move {
             let r = session::client().generer_seances(id, d, a).await?;
             let texte = resume_seances(&r);

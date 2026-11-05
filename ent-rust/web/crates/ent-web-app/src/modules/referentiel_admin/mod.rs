@@ -26,8 +26,8 @@ use leptos::prelude::*;
 use leptos_meta::Title;
 
 use crate::noyau::coquille::use_droits_moteur;
-use crate::noyau::navigation;
 pub(crate) use crate::noyau::ecriture::{message_echec, Ecriture, RetourEcriture};
+use crate::noyau::navigation;
 
 /// Sections de l'administration : (adresse, libellé).
 pub const SECTIONS: [(&str, &str); 6] = [

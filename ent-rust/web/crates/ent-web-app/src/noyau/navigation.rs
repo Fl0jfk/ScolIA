@@ -51,7 +51,9 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if droits.voir_classes {
         v.push(entree("Classes", CLASSES, NomIcone::Ecole));
     }
-    if moteur.peut_lire_referentiel() {
+    // Écrans d'administration : proposés à qui gère le référentiel. La lecture (classes, effectifs)
+    // reste accessible à tout le personnel par « Classes » ; l'adresse directe consulte sans écrire.
+    if moteur.peut_gerer_referentiel() {
         v.push(entree("Référentiel", REFERENTIEL, NomIcone::Salle));
     }
     if droits.trancher_justificatif {
@@ -205,8 +207,14 @@ mod tests {
         ]);
         let v = adresses(droits_du_role("administratif"), &moteur);
         for attendu in [REFERENTIEL, JOURNEE, DISCIPLINE, SIGNALEMENTS] {
-            assert!(v.contains(&attendu.to_string()), "{attendu} manquant : {v:?}");
+            assert!(
+                v.contains(&attendu.to_string()),
+                "{attendu} manquant : {v:?}"
+            );
         }
+        // Lecture seule du référentiel (tout le personnel) : pas d'entrée d'administration.
+        let lecture = DroitsMoteur::new(vec![droit("referentiel.lire", "etablissement")]);
+        assert!(!adresses(droits_du_role("cpe"), &lecture).contains(&REFERENTIEL.to_string()));
         // Sans réponse du moteur, aucune entrée d'administration n'apparaît.
         let seul = adresses(droits_du_role("administratif"), &DroitsMoteur::default());
         for absent in [REFERENTIEL, DISCIPLINE, SIGNALEMENTS] {

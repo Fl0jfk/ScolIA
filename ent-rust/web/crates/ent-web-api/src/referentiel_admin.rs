@@ -4,9 +4,9 @@
 
 use chrono::NaiveDate;
 use ent_types::referentiel_admin::{
-    AmorcageNiveauxDto, AnneeStatutDto, CorrespondanceDto, CreneauGrilleDto, CreneauGrilleSaisieDto,
-    GroupeAdminDto, JourCalendrierDto, MefDto, MefImportDto, NiveauDto, PeriodeDto,
-    PeriodeSaisieDto, PersonnelDto, PreparationDto, RapportImportMefDto, RapportLotDto,
+    AmorcageNiveauxDto, AnneeStatutDto, CorrespondanceDto, CreneauGrilleDto,
+    CreneauGrilleSaisieDto, GroupeAdminDto, JourCalendrierDto, MefDto, MefImportDto, NiveauDto,
+    PeriodeDto, PeriodeSaisieDto, PersonnelDto, PreparationDto, RapportImportMefDto, RapportLotDto,
     RapportOuvertureDto, RapportReconductionDto, RapportSeancesDto, SeanceDto, SiteDto,
 };
 use serde_json::json;
@@ -39,7 +39,8 @@ impl ApiClient {
         debut: NaiveDate,
         fin: NaiveDate,
     ) -> Result<serde_json::Value, ApiError> {
-        let c = json!({ "libelle": libelle, "date_debut": debut, "date_fin": fin, "courante": false });
+        let c =
+            json!({ "libelle": libelle, "date_debut": debut, "date_fin": fin, "courante": false });
         self.appel(Methode::Post, "/referentiel/annees", vide(c))
             .await
     }
@@ -81,7 +82,8 @@ impl ApiClient {
         correspondances: &[CorrespondanceDto],
         apercu: bool,
     ) -> Result<RapportLotDto, ApiError> {
-        let c = json!({ "source_id": source, "correspondances": correspondances, "apercu": apercu });
+        let c =
+            json!({ "source_id": source, "correspondances": correspondances, "apercu": apercu });
         self.appel(
             Methode::Post,
             &format!("/referentiel/annees/{cible}/monter"),

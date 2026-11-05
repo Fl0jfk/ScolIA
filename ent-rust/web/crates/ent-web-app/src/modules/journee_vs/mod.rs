@@ -28,8 +28,9 @@ use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::temps::{aujourdhui, date_longue};
 use crate::noyau::{reconnexion, session};
 use modele::{
-    compteurs, libelle_absent, libelle_etat_appel, libelle_incoherence, libelle_incoherence_eleve,
-    libelle_demi_journee, libelle_retard_appel, libelle_seance, nom_complet, ton_etat_appel, trier_absents,
+    compteurs, libelle_absent, libelle_demi_journee, libelle_etat_appel, libelle_incoherence,
+    libelle_incoherence_eleve, libelle_retard_appel, libelle_seance, nom_complet, ton_etat_appel,
+    trier_absents,
 };
 
 fn message_echec(e: ApiError) -> String {

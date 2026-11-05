@@ -14,16 +14,15 @@ use super::modele::{
     periodes_modele, regrouper_calendrier, trier_annees, LignePeriode, PlageCalendrier,
     SaisiePlage, KINDS_JOUR, KINDS_PERIODE, KINDS_VACANCES,
 };
-use super::{peut_gerer, EnTeteReferentiel, Ecriture, RetourEcriture};
+use super::{peut_gerer, Ecriture, EnTeteReferentiel, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use crate::noyau::temps::date_complete;
 
 #[component]
 pub fn PageCalendrier() -> impl IntoView {
-    let annees = LocalResource::new(|| async {
-        session::client().annees_statut().await.map(trier_annees)
-    });
+    let annees =
+        LocalResource::new(|| async { session::client().annees_statut().await.map(trier_annees) });
     view! {
         <Title text="Périodes et calendrier"/>
         <EnTeteReferentiel
@@ -116,7 +115,8 @@ fn ParAnnee(annee: AnneeStatutDto) -> impl IntoView {
 fn SectionPeriodes(annee: AnneeStatutDto) -> impl IntoView {
     let gerer = peut_gerer();
     let id = annee.id;
-    let periodes = LocalResource::new(move || async move { session::client().periodes_annee(id).await });
+    let periodes =
+        LocalResource::new(move || async move { session::client().periodes_annee(id).await });
     let lignes = RwSignal::new(Vec::<LigneEdit>::new());
     let prochaine_cle = RwSignal::new(0u32);
     let erreurs = RwSignal::new(Vec::<(String, String)>::new());
@@ -152,13 +152,17 @@ fn SectionPeriodes(annee: AnneeStatutDto) -> impl IntoView {
         lignes.update(|v| {
             v.push(LigneEdit::depuis(
                 cle,
-                &LignePeriode { kind: "trimestre".into(), ..Default::default() },
+                &LignePeriode {
+                    kind: "trimestre".into(),
+                    ..Default::default()
+                },
             ))
         });
     });
     let annee_envoi = annee.clone();
     let enregistrer = Callback::new(move |_| {
-        let saisies: Vec<LignePeriode> = lignes.get_untracked().iter().map(LigneEdit::lire).collect();
+        let saisies: Vec<LignePeriode> =
+            lignes.get_untracked().iter().map(LigneEdit::lire).collect();
         match composer_periodes(&saisies, &annee_envoi) {
             Err(e) => erreurs.set(e),
             Ok(corps) => {
@@ -272,7 +276,8 @@ fn LignePeriodeEdit(
 fn SectionCalendrier(annee: AnneeStatutDto) -> impl IntoView {
     let gerer = peut_gerer();
     let (debut, fin) = (annee.date_debut, annee.date_fin);
-    let calendrier = LocalResource::new(move || async move { session::client().calendrier(debut, fin).await });
+    let calendrier =
+        LocalResource::new(move || async move { session::client().calendrier(debut, fin).await });
     let ecriture = Ecriture::nouveau(Callback::new(move |_| calendrier.refetch()));
     view! {
         <section class="ra-section" aria-labelledby="ra-calendrier">
@@ -408,11 +413,16 @@ fn FormulairePlage(
         RwSignal::new(String::new()),
         RwSignal::new(String::new()),
     );
-    let kinds: &'static [(&'static str, &'static str)] =
-        if vacances { &KINDS_VACANCES } else { &KINDS_JOUR };
+    let kinds: &'static [(&'static str, &'static str)] = if vacances {
+        &KINDS_VACANCES
+    } else {
+        &KINDS_JOUR
+    };
     let kind = RwSignal::new(kinds[0].0.to_string());
-    let options: Vec<(String, String)> =
-        kinds.iter().map(|(k, l)| (k.to_string(), l.to_string())).collect();
+    let options: Vec<(String, String)> = kinds
+        .iter()
+        .map(|(k, l)| (k.to_string(), l.to_string()))
+        .collect();
     let erreurs = RwSignal::new(Vec::<(String, String)>::new());
     let prefixe = if vacances { "vac" } else { "jour" };
     let envoyer = move |ev: leptos::ev::SubmitEvent| {

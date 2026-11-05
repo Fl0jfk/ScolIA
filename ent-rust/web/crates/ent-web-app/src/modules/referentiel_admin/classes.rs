@@ -15,7 +15,7 @@ use super::modele::{
     ajouter_responsable, choix_option, filtrer_personnel, libelle_groupe, retirer_responsable,
     trier_classes_admin, Responsable,
 };
-use super::{message_echec, peut_gerer, EnTeteReferentiel, Ecriture, RetourEcriture};
+use super::{message_echec, peut_gerer, Ecriture, EnTeteReferentiel, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use crate::noyau::temps::aujourdhui;
@@ -23,7 +23,10 @@ use crate::noyau::temps::aujourdhui;
 #[component]
 pub fn PageClassesAdmin() -> impl IntoView {
     let classes = LocalResource::new(|| async {
-        session::client().classes(aujourdhui()).await.map(trier_classes_admin)
+        session::client()
+            .classes(aujourdhui())
+            .await
+            .map(trier_classes_admin)
     });
     let groupes = LocalResource::new(|| async { session::client().groupes_admin(None).await });
     let recharger = Callback::new(move |_| {
@@ -160,8 +163,10 @@ fn DialogueRattachement(
     ouvert: RwSignal<bool>,
     ecriture: Ecriture,
 ) -> impl IntoView {
-    let sites = LocalResource::new(|| async { session::client().sites().await.unwrap_or_default() });
-    let niveaux = LocalResource::new(|| async { session::client().niveaux().await.unwrap_or_default() });
+    let sites =
+        LocalResource::new(|| async { session::client().sites().await.unwrap_or_default() });
+    let niveaux =
+        LocalResource::new(|| async { session::client().niveaux().await.unwrap_or_default() });
     let mefs = LocalResource::new(|| async { session::client().mefs().await.unwrap_or_default() });
     let site = RwSignal::new(String::new());
     let niveau = RwSignal::new(String::new());
@@ -176,7 +181,9 @@ fn DialogueRattachement(
     });
     let enregistrer = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
-        let Some(c) = classe.get_untracked() else { return };
+        let Some(c) = classe.get_untracked() else {
+            return;
+        };
         let (s, n, m) = (
             choix_option(&site.get_untracked()),
             choix_option(&niveau.get_untracked()),
@@ -454,8 +461,15 @@ fn FormulaireGroupe(classes: Vec<ClasseApi>, ecriture: Ecriture) -> impl IntoVie
     let libelle = RwSignal::new(String::new());
     let classe = RwSignal::new(String::new());
     let erreur = RwSignal::new(None::<String>);
-    let mut options = vec![(String::new(), "Atelier transverse (aucune classe)".to_string())];
-    options.extend(classes.iter().map(|c| (c.id.to_string(), format!("Demi-groupe de {}", c.libelle))));
+    let mut options = vec![(
+        String::new(),
+        "Atelier transverse (aucune classe)".to_string(),
+    )];
+    options.extend(
+        classes
+            .iter()
+            .map(|c| (c.id.to_string(), format!("Demi-groupe de {}", c.libelle))),
+    );
     let envoyer = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let c = code.get_untracked();
@@ -509,21 +523,29 @@ fn DialogueResponsables(
                     .map(|g| {
                         g.responsables
                             .iter()
-                            .map(|r| Responsable { user_id: r.user_id, label: r.label.clone() })
+                            .map(|r| Responsable {
+                                user_id: r.user_id,
+                                label: r.label.clone(),
+                            })
                             .collect()
                     })
                     .unwrap_or_default(),
             );
         }
     });
-    let exclus = Signal::derive(move || choisis.get().iter().map(|r| r.user_id).collect::<Vec<_>>());
+    let exclus =
+        Signal::derive(move || choisis.get().iter().map(|r| r.user_id).collect::<Vec<_>>());
     let enregistrer = Callback::new(move |_| {
-        let Some(g) = groupe.get_untracked() else { return };
+        let Some(g) = groupe.get_untracked() else {
+            return;
+        };
         let ids: Vec<Uuid> = choisis.get_untracked().iter().map(|r| r.user_id).collect();
         ouvert.set(false);
         let nom = libelle_groupe(&g);
         ecriture.lancer(async move {
-            session::client().definir_responsables_groupe(g.id, &ids).await?;
+            session::client()
+                .definir_responsables_groupe(g.id, &ids)
+                .await?;
             Ok(format!("Responsables de {nom} enregistrés."))
         });
     });

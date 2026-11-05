@@ -24,12 +24,8 @@ impl ApiClient {
 
     /// `POST /vs/punition-types/amorcer` : types usuels (idempotent).
     pub async fn amorcer_types_punition(&self) -> Result<Vec<TypeVsDto>, ApiError> {
-        self.appel(
-            Methode::Post,
-            "/vs/punition-types/amorcer",
-            Some(json!({})),
-        )
-        .await
+        self.appel(Methode::Post, "/vs/punition-types/amorcer", Some(json!({})))
+            .await
     }
 
     /// `GET /eleves/{id}/punitions`.
@@ -182,7 +178,10 @@ impl ApiClient {
     }
 
     /// `POST /vs/sanctions/effacer?jour=` : efface les sanctions échues (idempotent).
-    pub async fn effacer_sanctions(&self, jour: NaiveDate) -> Result<EffacementRapportDto, ApiError> {
+    pub async fn effacer_sanctions(
+        &self,
+        jour: NaiveDate,
+    ) -> Result<EffacementRapportDto, ApiError> {
         self.appel(
             Methode::Post,
             &format!("/vs/sanctions/effacer?jour={jour}"),

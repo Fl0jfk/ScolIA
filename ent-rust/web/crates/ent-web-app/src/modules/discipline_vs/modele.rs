@@ -80,7 +80,10 @@ pub fn composer_punition(s: &SaisiePunition) -> Result<DonnerPunitionBody, Erreu
     if motif.is_empty() {
         e.push(err("pun-motif", "Le motif est obligatoire."));
     } else if motif.chars().count() > 500 {
-        e.push(err("pun-motif", "Motif trop long (500 caractères au plus)."));
+        e.push(err(
+            "pun-motif",
+            "Motif trop long (500 caractères au plus).",
+        ));
     }
     let echeance = if s.echeance.trim().is_empty() {
         None
@@ -88,9 +91,10 @@ pub fn composer_punition(s: &SaisiePunition) -> Result<DonnerPunitionBody, Erreu
         let d = lire_date(&s.echeance);
         match (d, jour) {
             (None, _) => e.push(err("pun-echeance", "Date d'échéance invalide.")),
-            (Some(d), Some(j)) if d < j => {
-                e.push(err("pun-echeance", "L'échéance précède la date de la punition."))
-            }
+            (Some(d), Some(j)) if d < j => e.push(err(
+                "pun-echeance",
+                "L'échéance précède la date de la punition.",
+            )),
             _ => {}
         }
         d
@@ -205,7 +209,10 @@ pub fn composer_procedure(
     if faits.is_empty() {
         e.push(err("proc-faits", "Décrivez les faits reprochés."));
     } else if faits.chars().count() > 500 {
-        e.push(err("proc-faits", "Description trop longue (500 caractères au plus)."));
+        e.push(err(
+            "proc-faits",
+            "Description trop longue (500 caractères au plus).",
+        ));
     }
     if e.is_empty() {
         Ok(ent_types::discipline::EngagerProcedureBody {
@@ -252,7 +259,10 @@ pub fn composer_decision(texte: &str, jour: &str) -> Result<(String, NaiveDate),
     let mut e = Erreurs::new();
     let t = texte.trim();
     if t.is_empty() || t.chars().count() > 500 {
-        e.push(err("dec-texte", "Décision obligatoire (500 caractères au plus)."));
+        e.push(err(
+            "dec-texte",
+            "Décision obligatoire (500 caractères au plus).",
+        ));
     }
     let j = lire_date(jour);
     if j.is_none() {
@@ -348,15 +358,31 @@ mod tests {
         let e = composer_punition(&SaisiePunition::default()).unwrap_err();
         let champs: Vec<&str> = e.iter().map(|(c, _)| c.as_str()).collect();
         assert_eq!(champs, ["pun-type", "pun-jour", "pun-motif"]);
-        let avant = SaisiePunition { echeance: "2026-11-01".into(), ..saisie() };
+        let avant = SaisiePunition {
+            echeance: "2026-11-01".into(),
+            ..saisie()
+        };
         assert_eq!(composer_punition(&avant).unwrap_err()[0].0, "pun-echeance");
-        let mauvais = SaisiePunition { echeance: "demain".into(), ..saisie() };
+        let mauvais = SaisiePunition {
+            echeance: "demain".into(),
+            ..saisie()
+        };
         assert!(composer_punition(&mauvais).is_err());
         for duree in ["0", "601", "abc", "-5"] {
-            let s = SaisiePunition { duree: duree.into(), ..saisie() };
-            assert_eq!(composer_punition(&s).unwrap_err()[0].0, "pun-duree", "{duree}");
+            let s = SaisiePunition {
+                duree: duree.into(),
+                ..saisie()
+            };
+            assert_eq!(
+                composer_punition(&s).unwrap_err()[0].0,
+                "pun-duree",
+                "{duree}"
+            );
         }
-        let long = SaisiePunition { motif: "x".repeat(501), ..saisie() };
+        let long = SaisiePunition {
+            motif: "x".repeat(501),
+            ..saisie()
+        };
         assert!(composer_punition(&long).is_err());
     }
 
@@ -368,7 +394,12 @@ mod tests {
         assert!(!punition_cloturable("effectuee") && !punition_cloturable("annulee"));
         assert_eq!(ton_statut_punition("effectuee"), TonEtat::Ok);
         assert_eq!(libelle_statut_punition("autre"), "Statut inconnu");
-        let types = vec![TypeVsDto { id: Uuid::from_u128(1), code: "RET".into(), libelle: "Retenue".into(), actif: true }];
+        let types = vec![TypeVsDto {
+            id: Uuid::from_u128(1),
+            code: "RET".into(),
+            libelle: "Retenue".into(),
+            actif: true,
+        }];
         assert_eq!(libelle_type(&types, Uuid::from_u128(1)), "Retenue");
         assert_eq!(libelle_type(&types, Uuid::nil()), "Type inconnu");
     }
@@ -395,12 +426,24 @@ mod tests {
         // Chef d'établissement : observations d'abord, décision ensuite.
         let a = actions_procedure(&procedure("chef_etablissement", "engagee", None));
         assert!(a.observations && a.classer && !a.decider && !a.convoquer);
-        let a = actions_procedure(&procedure("chef_etablissement", "engagee", Some("2026-11-02")));
+        let a = actions_procedure(&procedure(
+            "chef_etablissement",
+            "engagee",
+            Some("2026-11-02"),
+        ));
         assert!(a.decider && !a.observations);
         // Conseil : convocation, puis décision.
-        let a = actions_procedure(&procedure("conseil_discipline", "engagee", Some("2026-11-02")));
+        let a = actions_procedure(&procedure(
+            "conseil_discipline",
+            "engagee",
+            Some("2026-11-02"),
+        ));
         assert!(a.convoquer && !a.decider);
-        let a = actions_procedure(&procedure("conseil_discipline", "convoquee", Some("2026-11-02")));
+        let a = actions_procedure(&procedure(
+            "conseil_discipline",
+            "convoquee",
+            Some("2026-11-02"),
+        ));
         assert!(a.decider && !a.convoquer);
         // Procédure terminée : plus aucune action.
         for statut in ["decidee", "close"] {
@@ -409,7 +452,10 @@ mod tests {
                 ActionsProcedure::default()
             );
         }
-        assert_eq!(libelle_instance("conseil_discipline"), "Conseil de discipline");
+        assert_eq!(
+            libelle_instance("conseil_discipline"),
+            "Conseil de discipline"
+        );
         assert_eq!(libelle_statut_procedure("close"), "Classée");
         assert_eq!(ton_statut_procedure("decidee"), TonEtat::Ok);
     }
@@ -417,7 +463,14 @@ mod tests {
     #[test]
     fn procedure_decision_et_convocation_validees() {
         let id = Uuid::from_u128(9);
-        let b = composer_procedure(id, &SaisieProcedure { instance: "conseil_discipline".into(), faits: " Violence ".into() }).unwrap();
+        let b = composer_procedure(
+            id,
+            &SaisieProcedure {
+                instance: "conseil_discipline".into(),
+                faits: " Violence ".into(),
+            },
+        )
+        .unwrap();
         assert_eq!((b.eleve_id, b.faits.as_str()), (id, "Violence"));
         let e = composer_procedure(id, &SaisieProcedure::default()).unwrap_err();
         assert_eq!(e.len(), 2);
@@ -427,9 +480,17 @@ mod tests {
         assert!(e[0].1.contains("au moins 8 jour"));
         assert!(composer_convocation("x", "y", 8).is_err());
         // Décision.
-        assert_eq!(composer_decision(" Avertissement ", "2026-11-05").unwrap().0, "Avertissement");
+        assert_eq!(
+            composer_decision(" Avertissement ", "2026-11-05")
+                .unwrap()
+                .0,
+            "Avertissement"
+        );
         assert!(composer_decision("", "2026-11-05").is_err());
-        assert_eq!(composer_decision("ok", "n'importe quoi").unwrap_err()[0].0, "dec-jour");
+        assert_eq!(
+            composer_decision("ok", "n'importe quoi").unwrap_err()[0].0,
+            "dec-jour"
+        );
     }
 
     #[test]
@@ -440,7 +501,9 @@ mod tests {
         assert_eq!(lire_mois("novembre"), None);
         assert_eq!(decisions_signalement("propose").len(), 2);
         assert_eq!(decisions_signalement("valide")[0].0, "emettre");
-        assert!(decisions_signalement("emis").is_empty() && decisions_signalement("refuse").is_empty());
+        assert!(
+            decisions_signalement("emis").is_empty() && decisions_signalement("refuse").is_empty()
+        );
         assert_eq!(libelle_statut_signalement("emis"), "Émis");
         assert_eq!(ton_statut_signalement("valide"), TonEtat::Info);
         let s = SignalementDto {

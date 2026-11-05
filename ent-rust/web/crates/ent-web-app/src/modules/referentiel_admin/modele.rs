@@ -5,9 +5,9 @@
 
 use chrono::{Duration, NaiveDate, NaiveTime};
 use ent_types::referentiel_admin::{
-    AnneeStatutDto, CorrespondanceDto, CreneauGrilleDto, CreneauGrilleSaisieDto,
-    JourCalendrierDto, MefImportDto, PeriodeSaisieDto, RapportImportMefDto, RapportLotDto,
-    RapportOuvertureDto, RapportReconductionDto, RapportSeancesDto,
+    AnneeStatutDto, CorrespondanceDto, CreneauGrilleDto, CreneauGrilleSaisieDto, JourCalendrierDto,
+    MefImportDto, PeriodeSaisieDto, RapportImportMefDto, RapportLotDto, RapportOuvertureDto,
+    RapportReconductionDto, RapportSeancesDto,
 };
 use ent_web_api::ClasseApi;
 use ent_web_ui::TonEtat;
@@ -89,7 +89,7 @@ pub fn annee_courante(annees: &[AnneeStatutDto]) -> Option<&AnneeStatutDto> {
 
 /// Années triées de la plus récente à la plus ancienne.
 pub fn trier_annees(mut annees: Vec<AnneeStatutDto>) -> Vec<AnneeStatutDto> {
-    annees.sort_by(|a, b| b.date_debut.cmp(&a.date_debut));
+    annees.sort_by_key(|a| std::cmp::Reverse(a.date_debut));
     annees
 }
 
@@ -147,11 +147,19 @@ pub fn etapes_bascule(annees: &[AnneeStatutDto]) -> Vec<EtapeBascule> {
         },
         EtapeBascule {
             libelle: "Monter les élèves dans leurs nouvelles classes (aperçu puis application)",
-            etat: if ouvrable { EtatEtape::AFaire } else { EtatEtape::Attente },
+            etat: if ouvrable {
+                EtatEtape::AFaire
+            } else {
+                EtatEtape::Attente
+            },
         },
         EtapeBascule {
             libelle: "Ouvrir la nouvelle année (l'ancienne est clôturée)",
-            etat: if ouvrable { EtatEtape::AFaire } else { EtatEtape::Attente },
+            etat: if ouvrable {
+                EtatEtape::AFaire
+            } else {
+                EtatEtape::Attente
+            },
         },
     ]
 }
@@ -340,17 +348,29 @@ pub fn composer_periodes(
         let champ = |c: &str| format!("periode-{i}-{c}");
         let (code, libelle) = (l.code.trim(), l.libelle.trim());
         if code.is_empty() {
-            erreurs.push((champ("code"), format!("Période {} : le code est obligatoire.", i + 1)));
+            erreurs.push((
+                champ("code"),
+                format!("Période {} : le code est obligatoire.", i + 1),
+            ));
         }
         if libelle.is_empty() {
-            erreurs.push((champ("libelle"), format!("Période {} : le libellé est obligatoire.", i + 1)));
+            erreurs.push((
+                champ("libelle"),
+                format!("Période {} : le libellé est obligatoire.", i + 1),
+            ));
         }
         let (d, f) = (lire_date(&l.debut), lire_date(&l.fin));
         if d.is_none() {
-            erreurs.push((champ("debut"), format!("Période {} : date de début invalide.", i + 1)));
+            erreurs.push((
+                champ("debut"),
+                format!("Période {} : date de début invalide.", i + 1),
+            ));
         }
         if f.is_none() {
-            erreurs.push((champ("fin"), format!("Période {} : date de fin invalide.", i + 1)));
+            erreurs.push((
+                champ("fin"),
+                format!("Période {} : date de fin invalide.", i + 1),
+            ));
         }
         if let (Some(d), Some(f)) = (d, f) {
             if f < d {
@@ -383,12 +403,18 @@ pub fn composer_periodes(
         if w[1].date_debut <= w[0].date_fin {
             erreurs.push(erreur(
                 "periodes",
-                &format!("Les périodes « {} » et « {} » se chevauchent.", w[0].code, w[1].code),
+                &format!(
+                    "Les périodes « {} » et « {} » se chevauchent.",
+                    w[0].code, w[1].code
+                ),
             ));
         } else if w[1].date_debut != w[0].date_fin + Duration::days(1) {
             erreurs.push(erreur(
                 "periodes",
-                &format!("Il y a un trou entre « {} » et « {} ».", w[0].code, w[1].code),
+                &format!(
+                    "Il y a un trou entre « {} » et « {} ».",
+                    w[0].code, w[1].code
+                ),
             ));
         }
     }
@@ -469,7 +495,10 @@ pub fn composer_plage(s: &SaisiePlage, kinds: &[(&str, &str)]) -> Result<PlageVa
     if libelle.is_empty() {
         e.push(erreur("cal-libelle", "Le libellé est obligatoire."));
     } else if libelle.chars().count() > 120 {
-        e.push(erreur("cal-libelle", "Libellé trop long (120 caractères au plus)."));
+        e.push(erreur(
+            "cal-libelle",
+            "Libellé trop long (120 caractères au plus).",
+        ));
     }
     if !kinds.iter().any(|(k, _)| *k == s.kind) {
         e.push(erreur("cal-kind", "Choisissez un type."));
@@ -512,7 +541,15 @@ impl PlageCalendrier {
 /// Regroupe les jours consécutifs de même type, libellé, origine et site (lecture du calendrier).
 pub fn regrouper_calendrier(jours: &[JourCalendrierDto]) -> Vec<PlageCalendrier> {
     let mut tri: Vec<&JourCalendrierDto> = jours.iter().collect();
-    tri.sort_by_key(|j| (j.kind.clone(), j.libelle.clone(), j.origine.clone(), j.site_id, j.jour));
+    tri.sort_by_key(|j| {
+        (
+            j.kind.clone(),
+            j.libelle.clone(),
+            j.origine.clone(),
+            j.site_id,
+            j.jour,
+        )
+    });
     let mut plages: Vec<PlageCalendrier> = Vec::new();
     for j in tri {
         match plages.last_mut() {
@@ -586,24 +623,42 @@ pub fn composer_grille(lignes: &[LigneCreneau]) -> Result<Vec<CreneauGrilleSaisi
         let champ = |c: &str| format!("creneau-{i}-{c}");
         let n = i + 1;
         if l.code.trim().is_empty() {
-            e.push((champ("code"), format!("Créneau {n} : le code est obligatoire.")));
+            e.push((
+                champ("code"),
+                format!("Créneau {n} : le code est obligatoire."),
+            ));
         }
         if l.libelle.trim().is_empty() {
-            e.push((champ("libelle"), format!("Créneau {n} : le libellé est obligatoire.")));
+            e.push((
+                champ("libelle"),
+                format!("Créneau {n} : le libellé est obligatoire."),
+            ));
         }
         let (d, f) = (lire_heure(&l.debut), lire_heure(&l.fin));
         if d.is_none() {
-            e.push((champ("debut"), format!("Créneau {n} : heure de début invalide (HH:MM).")));
+            e.push((
+                champ("debut"),
+                format!("Créneau {n} : heure de début invalide (HH:MM)."),
+            ));
         }
         if f.is_none() {
-            e.push((champ("fin"), format!("Créneau {n} : heure de fin invalide (HH:MM).")));
+            e.push((
+                champ("fin"),
+                format!("Créneau {n} : heure de fin invalide (HH:MM)."),
+            ));
         }
         if !DEMI_JOURNEES.iter().any(|(k, _)| *k == l.demi_journee) {
-            e.push((champ("demi"), format!("Créneau {n} : choisissez matin ou après-midi.")));
+            e.push((
+                champ("demi"),
+                format!("Créneau {n} : choisissez matin ou après-midi."),
+            ));
         }
         if let (Some(d), Some(f)) = (d, f) {
             if f <= d {
-                e.push((champ("fin"), format!("Créneau {n} : la fin doit suivre le début.")));
+                e.push((
+                    champ("fin"),
+                    format!("Créneau {n} : la fin doit suivre le début."),
+                ));
             } else {
                 v.push(CreneauGrilleSaisieDto {
                     code: l.code.trim().to_string(),
@@ -623,7 +678,10 @@ pub fn composer_grille(lignes: &[LigneCreneau]) -> Result<Vec<CreneauGrilleSaisi
         if w[1].heure_debut < w[0].heure_fin {
             e.push(erreur(
                 "grille",
-                &format!("Les créneaux « {} » et « {} » se chevauchent.", w[0].code, w[1].code),
+                &format!(
+                    "Les créneaux « {} » et « {} » se chevauchent.",
+                    w[0].code, w[1].code
+                ),
             ));
         }
     }
@@ -678,10 +736,16 @@ pub fn composer_site(code: &str, libelle: &str) -> Result<(String, String), Erre
     let (code, libelle) = (code.trim(), libelle.trim());
     let mut e = Erreurs::new();
     if code.is_empty() || code.chars().count() > 40 {
-        e.push(erreur("site-code", "Code obligatoire (40 caractères au plus)."));
+        e.push(erreur(
+            "site-code",
+            "Code obligatoire (40 caractères au plus).",
+        ));
     }
     if libelle.is_empty() || libelle.chars().count() > 120 {
-        e.push(erreur("site-libelle", "Libellé obligatoire (120 caractères au plus)."));
+        e.push(erreur(
+            "site-libelle",
+            "Libellé obligatoire (120 caractères au plus).",
+        ));
     }
     if e.is_empty() {
         Ok((code.to_string(), libelle.to_string()))
@@ -711,7 +775,10 @@ pub fn lire_import_mef(texte: &str) -> (Vec<MefImportDto>, Vec<String>) {
                 .map(str::to_string)
         };
         if code.is_empty() || libelle.is_empty() {
-            rejetees.push(format!("Ligne {} : code et libellé sont obligatoires.", i + 1));
+            rejetees.push(format!(
+                "Ligne {} : code et libellé sont obligatoires.",
+                i + 1
+            ));
             continue;
         }
         lues.push(MefImportDto {
@@ -736,7 +803,7 @@ pub fn resume_import_mef(r: &RapportImportMefDto) -> String {
 
 /// Classes triées par libellé (ordre naturel : « 6A » avant « 6B »).
 pub fn trier_classes_admin(mut classes: Vec<ClasseApi>) -> Vec<ClasseApi> {
-    classes.sort_by(|a, b| a.libelle.to_lowercase().cmp(&b.libelle.to_lowercase()));
+    classes.sort_by_key(|a| a.libelle.to_lowercase());
     classes
 }
 
@@ -824,12 +891,15 @@ mod tests {
         let close = annee("cloturee", "2025-09-01", "2026-07-04");
         let toutes = vec![close.clone(), courante.clone(), prepa.clone()];
         let c = actions_annee(&courante, &toutes);
-        assert!(c.cloturer && !c.ouvrir && !c.preparer_suivante, "déjà préparée");
+        assert!(
+            c.cloturer && !c.ouvrir && !c.preparer_suivante,
+            "déjà préparée"
+        );
         assert!(actions_annee(&prepa, &toutes).ouvrir);
         let rien = actions_annee(&close, &toutes);
         assert!(!rien.ouvrir && !rien.cloturer && !rien.preparer_suivante);
         // Sans année suivante, on propose de la préparer.
-        assert!(actions_annee(&courante, &[courante.clone()]).preparer_suivante);
+        assert!(actions_annee(&courante, std::slice::from_ref(&courante)).preparer_suivante);
         assert_eq!(annee_suivante(&courante, &toutes).unwrap().id, prepa.id);
         assert_eq!(annee_courante(&toutes).unwrap().id, courante.id);
     }
@@ -838,12 +908,18 @@ mod tests {
     fn etapes_de_la_bascule() {
         let courante = annee("courante", "2026-09-01", "2027-07-04");
         let prepa = annee("preparation", "2027-09-01", "2028-07-04");
-        let e = etapes_bascule(&[courante.clone()]);
+        let e = etapes_bascule(std::slice::from_ref(&courante));
         assert_eq!(e[0].etat, EtatEtape::AFaire);
-        assert_eq!((e[1].etat, e[2].etat), (EtatEtape::Attente, EtatEtape::Attente));
+        assert_eq!(
+            (e[1].etat, e[2].etat),
+            (EtatEtape::Attente, EtatEtape::Attente)
+        );
         let e = etapes_bascule(&[courante, prepa]);
         assert_eq!(e[0].etat, EtatEtape::Fait);
-        assert_eq!((e[1].etat, e[2].etat), (EtatEtape::AFaire, EtatEtape::AFaire));
+        assert_eq!(
+            (e[1].etat, e[2].etat),
+            (EtatEtape::AFaire, EtatEtape::AFaire)
+        );
         assert_eq!(etapes_bascule(&[])[0].etat, EtatEtape::Attente);
         assert_eq!(EtatEtape::Fait.libelle(), "Fait");
     }
@@ -855,7 +931,10 @@ mod tests {
             annee("preparation", "2027-09-01", "2028-07-04"),
         ]);
         assert_eq!(v[0].libelle, "2027-2028");
-        assert_eq!(libelle_annee_suivante("2026-2027").as_deref(), Some("2027-2028"));
+        assert_eq!(
+            libelle_annee_suivante("2026-2027").as_deref(),
+            Some("2027-2028")
+        );
         assert_eq!(libelle_annee_suivante("2026-2028"), None);
         assert_eq!(libelle_annee_suivante("abc"), None);
         assert_eq!(libelle_statut_annee("preparation"), "En préparation");
@@ -885,7 +964,10 @@ mod tests {
         assert!(lignes[2].contains("non modifié"));
         assert!(lot_applicable(Some(&r)));
         // Rien à créer, ou résultat déjà appliqué : pas de second bouton.
-        assert!(!lot_applicable(Some(&RapportLotDto { a_creer: 0, ..r.clone() })));
+        assert!(!lot_applicable(Some(&RapportLotDto {
+            a_creer: 0,
+            ..r.clone()
+        })));
         assert!(!lot_applicable(Some(&RapportLotDto { apercu: false, ..r })));
         assert!(!lot_applicable(None));
     }
@@ -937,7 +1019,10 @@ mod tests {
         // Trou entre la 1re et la 2e.
         l[1].debut = "2026-12-20".into();
         let e = composer_periodes(&l, &a).unwrap_err();
-        assert!(e.iter().any(|(c, m)| c == "periodes" && m.contains("trou")), "{e:?}");
+        assert!(
+            e.iter().any(|(c, m)| c == "periodes" && m.contains("trou")),
+            "{e:?}"
+        );
         // Chevauchement.
         let mut l = periodes_modele(&a, "trimestre", 3);
         l[1].debut = "2026-10-01".into();
@@ -965,16 +1050,18 @@ mod tests {
     #[test]
     fn lignes_de_periodes_triees_par_ordre() {
         let a = annee("courante", "2026-09-01", "2027-07-04");
-        let mk = |ordre: i16, code: &str, debut: &str, fin: &str| ent_types::referentiel_admin::PeriodeDto {
-            id: Uuid::nil(),
-            annee_id: a.id,
-            niveau_id: None,
-            code: code.into(),
-            libelle: code.into(),
-            kind: "trimestre".into(),
-            ordre,
-            date_debut: d(debut),
-            date_fin: d(fin),
+        let mk = |ordre: i16, code: &str, debut: &str, fin: &str| {
+            ent_types::referentiel_admin::PeriodeDto {
+                id: Uuid::nil(),
+                annee_id: a.id,
+                niveau_id: None,
+                code: code.into(),
+                libelle: code.into(),
+                kind: "trimestre".into(),
+                ordre,
+                date_debut: d(debut),
+                date_fin: d(fin),
+            }
         };
         let l = lignes_depuis_periodes(&[
             mk(2, "T2", "2026-12-01", "2027-03-01"),
@@ -994,14 +1081,31 @@ mod tests {
         };
         let p = composer_plage(&ok, &KINDS_VACANCES).unwrap();
         assert_eq!(p.libelle, "Noël");
-        let inverse = SaisiePlage { au: "2026-12-01".into(), ..ok.clone() };
+        let inverse = SaisiePlage {
+            au: "2026-12-01".into(),
+            ..ok.clone()
+        };
         assert!(composer_plage(&inverse, &KINDS_VACANCES).is_err());
-        let sans_libelle = SaisiePlage { libelle: "  ".into(), ..ok.clone() };
-        assert_eq!(composer_plage(&sans_libelle, &KINDS_VACANCES).unwrap_err()[0].0, "cal-libelle");
-        let mauvais_type = SaisiePlage { kind: "autre".into(), ..ok.clone() };
+        let sans_libelle = SaisiePlage {
+            libelle: "  ".into(),
+            ..ok.clone()
+        };
+        assert_eq!(
+            composer_plage(&sans_libelle, &KINDS_VACANCES).unwrap_err()[0].0,
+            "cal-libelle"
+        );
+        let mauvais_type = SaisiePlage {
+            kind: "autre".into(),
+            ..ok.clone()
+        };
         assert!(composer_plage(&mauvais_type, &KINDS_JOUR).is_err());
-        let trop_long = SaisiePlage { au: "2029-01-01".into(), ..ok };
-        assert!(composer_plage(&trop_long, &KINDS_VACANCES).unwrap_err()[0].1.contains("trop longue"));
+        let trop_long = SaisiePlage {
+            au: "2029-01-01".into(),
+            ..ok
+        };
+        assert!(composer_plage(&trop_long, &KINDS_VACANCES).unwrap_err()[0]
+            .1
+            .contains("trop longue"));
     }
 
     #[test]
@@ -1021,8 +1125,14 @@ mod tests {
             j("2026-12-25", "ferie", "Noël"),
         ]);
         assert_eq!(plages.len(), 3);
-        assert_eq!((plages[0].debut, plages[0].nb_jours()), (d("2026-11-11"), 1));
-        assert_eq!((plages[1].debut, plages[1].fin), (d("2026-12-19"), d("2026-12-21")));
+        assert_eq!(
+            (plages[0].debut, plages[0].nb_jours()),
+            (d("2026-11-11"), 1)
+        );
+        assert_eq!(
+            (plages[1].debut, plages[1].fin),
+            (d("2026-12-19"), d("2026-12-21"))
+        );
         assert_eq!(libelle_kind_jour("ferme"), "Fermeture");
         assert_eq!(libelle_kind_jour("?"), "Jour neutralisé");
     }
@@ -1043,20 +1153,26 @@ mod tests {
         .unwrap();
         assert_eq!(ok[0].code, "M1", "triée par heure");
         // Chevauchement, fin avant début, heure invalide, demi-journée absente, doublon.
-        assert!(composer_grille(&[l("A", "matin", "08:00", "09:00"), l("B", "matin", "08:30", "09:30")])
-            .unwrap_err()
-            .iter()
-            .any(|(_, m)| m.contains("chevauchent")));
+        assert!(composer_grille(&[
+            l("A", "matin", "08:00", "09:00"),
+            l("B", "matin", "08:30", "09:30")
+        ])
+        .unwrap_err()
+        .iter()
+        .any(|(_, m)| m.contains("chevauchent")));
         assert!(composer_grille(&[l("A", "matin", "09:00", "08:00")]).is_err());
         assert_eq!(
             composer_grille(&[l("A", "matin", "8h", "09:00")]).unwrap_err()[0].0,
             "creneau-0-debut"
         );
         assert!(composer_grille(&[l("A", "", "08:00", "09:00")]).is_err());
-        assert!(composer_grille(&[l("A", "matin", "08:00", "09:00"), l("A", "matin", "09:00", "10:00")])
-            .unwrap_err()
-            .iter()
-            .any(|(_, m)| m.contains("même code")));
+        assert!(composer_grille(&[
+            l("A", "matin", "08:00", "09:00"),
+            l("A", "matin", "09:00", "10:00")
+        ])
+        .unwrap_err()
+        .iter()
+        .any(|(_, m)| m.contains("même code")));
         assert!(composer_grille(&[]).is_err());
         let depuis = lignes_depuis_grille(&[CreneauGrilleDto {
             id: Uuid::nil(),
@@ -1068,7 +1184,10 @@ mod tests {
             heure_debut: lire_heure("08:00:00").unwrap(),
             heure_fin: lire_heure("09:00").unwrap(),
         }]);
-        assert_eq!((depuis[0].debut.as_str(), depuis[0].fin.as_str()), ("08:00", "09:00"));
+        assert_eq!(
+            (depuis[0].debut.as_str(), depuis[0].fin.as_str()),
+            ("08:00", "09:00")
+        );
     }
 
     #[test]
@@ -1093,7 +1212,10 @@ mod tests {
     #[test]
     fn site_et_import_mef() {
         assert!(composer_site("", "x").is_err());
-        assert_eq!(composer_site(" PRINC ", " Site principal ").unwrap().0, "PRINC");
+        assert_eq!(
+            composer_site(" PRINC ", " Site principal ").unwrap().0,
+            "PRINC"
+        );
         assert!(composer_site(&"a".repeat(41), "x").is_err());
         let (lues, rejets) = lire_import_mef(
             "# MEF\n10110001110;6EME;6EME;1011\n10210002110;5EME\n;sans code\nseul\n\n",
@@ -1103,7 +1225,11 @@ mod tests {
         assert_eq!(lues[0].mefstat11.as_deref(), Some("1011"));
         assert_eq!(lues[1].niveau_code, None);
         assert_eq!(rejets.len(), 2);
-        let r = RapportImportMefDto { crees: 2, mis_a_jour: 1, rejets: vec![("X".into(), "doublon".into())] };
+        let r = RapportImportMefDto {
+            crees: 2,
+            mis_a_jour: 1,
+            rejets: vec![("X".into(), "doublon".into())],
+        };
         assert!(resume_import_mef(&r).contains("1 ligne(s) rejetée(s)"));
         assert_eq!(libelle_niveau(&[], None), "—");
     }
@@ -1121,7 +1247,10 @@ mod tests {
             professeur_principal_label: None,
         };
         let t = trier_classes_admin(vec![classe("6b"), classe("6A"), classe("5A")]);
-        assert_eq!(t.iter().map(|c| c.libelle.as_str()).collect::<Vec<_>>(), ["5A", "6A", "6b"]);
+        assert_eq!(
+            t.iter().map(|c| c.libelle.as_str()).collect::<Vec<_>>(),
+            ["5A", "6A", "6b"]
+        );
         assert_eq!(choix_option(""), None);
         assert_eq!(choix_option("pas un uuid"), None);
         let id = Uuid::from_u128(7);
@@ -1154,9 +1283,19 @@ mod tests {
 
     #[test]
     fn rapports_resumes() {
-        let r = RapportReconductionDto { annee_cible_id: Uuid::nil(), classes_creees: 10, groupes_crees: 4, periodes_creees: 3, services_crees: 0 };
+        let r = RapportReconductionDto {
+            annee_cible_id: Uuid::nil(),
+            classes_creees: 10,
+            groupes_crees: 4,
+            periodes_creees: 3,
+            services_crees: 0,
+        };
         assert!(resume_reconduction(&r).starts_with("10 classe(s)"));
-        let o = RapportOuvertureDto { annee_id: Uuid::nil(), annee_cloturee_id: None, eleves_synchronises: 220 };
+        let o = RapportOuvertureDto {
+            annee_id: Uuid::nil(),
+            annee_cloturee_id: None,
+            eleves_synchronises: 220,
+        };
         assert!(resume_ouverture(&o).contains("220"));
     }
 }

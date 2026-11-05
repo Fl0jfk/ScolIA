@@ -45,9 +45,23 @@ pub fn libelle_periode(periode: &str) -> &'static str {
 /// « Matin : 45 min, comptée, non justifiée » (le serveur décide ; ici on présente).
 pub fn libelle_demi_journee(d: &ent_types::discipline::DemiJourneeDto) -> String {
     let mut v = vec![format!("{} min", d.minutes)];
-    v.push(if d.comptee { "comptée" } else { "non comptée" }.to_string());
+    v.push(
+        if d.comptee {
+            "comptée"
+        } else {
+            "non comptée"
+        }
+        .to_string(),
+    );
     if d.comptee {
-        v.push(if d.non_justifiee { "non justifiée" } else { "justifiée" }.to_string());
+        v.push(
+            if d.non_justifiee {
+                "non justifiée"
+            } else {
+                "justifiée"
+            }
+            .to_string(),
+        );
     }
     format!("{} : {}", libelle_periode(&d.periode), v.join(", "))
 }
@@ -148,9 +162,18 @@ mod tests_demi_journees {
 
     #[test]
     fn libelles_de_demi_journees() {
-        assert_eq!(libelle_demi_journee(&dj("matin", 45, true, true)), "Matin : 45 min, comptée, non justifiée");
-        assert_eq!(libelle_demi_journee(&dj("apres_midi", 60, true, false)), "Après-midi : 60 min, comptée, justifiée");
-        assert_eq!(libelle_demi_journee(&dj("matin", 10, false, false)), "Matin : 10 min, non comptée");
+        assert_eq!(
+            libelle_demi_journee(&dj("matin", 45, true, true)),
+            "Matin : 45 min, comptée, non justifiée"
+        );
+        assert_eq!(
+            libelle_demi_journee(&dj("apres_midi", 60, true, false)),
+            "Après-midi : 60 min, comptée, justifiée"
+        );
+        assert_eq!(
+            libelle_demi_journee(&dj("matin", 10, false, false)),
+            "Matin : 10 min, non comptée"
+        );
         assert_eq!(libelle_periode("?"), "Période");
     }
 }

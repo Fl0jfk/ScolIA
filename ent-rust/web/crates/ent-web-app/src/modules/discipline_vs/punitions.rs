@@ -13,7 +13,7 @@ use super::modele::{
     actions_procedure, composer_convocation, composer_decision, composer_procedure,
     composer_punition, libelle_instance, libelle_statut_procedure, libelle_statut_punition,
     libelle_statut_sanction, libelle_type, lire_date, punition_cloturable, ton_statut_procedure,
-    ton_statut_punition, SaisiePunition, SaisieProcedure, INSTANCES,
+    ton_statut_punition, SaisieProcedure, SaisiePunition, INSTANCES,
 };
 use crate::composants_metier::recherche_eleve::RechercheEleve;
 use crate::noyau::coquille::use_droits_moteur;
@@ -69,10 +69,19 @@ pub fn PageDiscipline() -> impl IntoView {
 
 #[component]
 fn DossierDiscipline(eleve_id: Uuid) -> impl IntoView {
-    let punitions = LocalResource::new(move || async move { session::client().punitions_eleve(eleve_id).await });
+    let punitions =
+        LocalResource::new(
+            move || async move { session::client().punitions_eleve(eleve_id).await },
+        );
     let types = LocalResource::new(|| async { session::client().types_punition().await });
-    let sanctions = LocalResource::new(move || async move { session::client().sanctions_eleve(eleve_id).await });
-    let procedures = LocalResource::new(move || async move { session::client().procedures_eleve(eleve_id).await });
+    let sanctions =
+        LocalResource::new(
+            move || async move { session::client().sanctions_eleve(eleve_id).await },
+        );
+    let procedures =
+        LocalResource::new(
+            move || async move { session::client().procedures_eleve(eleve_id).await },
+        );
     let recharger = Callback::new(move |_| {
         punitions.refetch();
         types.refetch();
@@ -141,7 +150,11 @@ fn DossierDiscipline(eleve_id: Uuid) -> impl IntoView {
 }
 
 #[component]
-fn ListePunitions(punitions: Vec<PunitionDto>, types: Vec<TypeVsDto>, ecriture: Ecriture) -> impl IntoView {
+fn ListePunitions(
+    punitions: Vec<PunitionDto>,
+    types: Vec<TypeVsDto>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     if punitions.is_empty() {
         return view! { <EtatVide titre="Aucune punition" message="Aucune punition enregistrée pour cet élève."/> }.into_any();
     }
@@ -239,9 +252,10 @@ fn FormulairePunition(eleve_id: Uuid, types: Vec<TypeVsDto>, ecriture: Ecriture)
         }
         .into_any();
     }
-    let options: Vec<(String, String)> = std::iter::once((String::new(), "— choisir —".to_string()))
-        .chain(actifs.iter().map(|t| (t.id.to_string(), t.libelle.clone())))
-        .collect();
+    let options: Vec<(String, String)> =
+        std::iter::once((String::new(), "— choisir —".to_string()))
+            .chain(actifs.iter().map(|t| (t.id.to_string(), t.libelle.clone())))
+            .collect();
     let (type_id, jour, motif, echeance, duree) = (
         RwSignal::new(String::new()),
         RwSignal::new(String::new()),
@@ -257,7 +271,9 @@ fn FormulairePunition(eleve_id: Uuid, types: Vec<TypeVsDto>, ecriture: Ecriture)
     });
     let erreurs = RwSignal::new(Vec::<(String, String)>::new());
     let err = move |champ: &'static str| {
-        Signal::derive(move || erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone())))
+        Signal::derive(move || {
+            erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone()))
+        })
     };
     let envoyer = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
@@ -299,7 +315,8 @@ fn FormulairePunition(eleve_id: Uuid, types: Vec<TypeVsDto>, ecriture: Ecriture)
 #[component]
 fn ListeSanctions(sanctions: Vec<SanctionDto>) -> impl IntoView {
     if sanctions.is_empty() {
-        return view! { <EtatVide titre="Aucune sanction" message="Aucune sanction au dossier."/> }.into_any();
+        return view! { <EtatVide titre="Aucune sanction" message="Aucune sanction au dossier."/> }
+            .into_any();
     }
     view! {
         <ul class="jvs-liste">
@@ -449,17 +466,28 @@ fn date_du_jour() -> RwSignal<String> {
     s
 }
 
-fn erreur_de(erreurs: RwSignal<Vec<(String, String)>>, champ: &'static str) -> Signal<Option<String>> {
-    Signal::derive(move || erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone())))
+fn erreur_de(
+    erreurs: RwSignal<Vec<(String, String)>>,
+    champ: &'static str,
+) -> Signal<Option<String>> {
+    Signal::derive(move || {
+        erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone()))
+    })
 }
 
 #[component]
-fn DialogueObservations(cible: RwSignal<Option<ProcedureDto>>, ouvert: RwSignal<bool>, ecriture: Ecriture) -> impl IntoView {
+fn DialogueObservations(
+    cible: RwSignal<Option<ProcedureDto>>,
+    ouvert: RwSignal<bool>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     let jour = date_du_jour();
     let erreurs = RwSignal::new(Vec::<(String, String)>::new());
     let envoyer = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
-        let Some(p) = cible.get_untracked() else { return };
+        let Some(p) = cible.get_untracked() else {
+            return;
+        };
         match lire_date(&jour.get_untracked()) {
             None => erreurs.set(vec![("obs-jour".into(), "Date invalide.".into())]),
             Some(le) => {
@@ -487,14 +515,24 @@ fn DialogueObservations(cible: RwSignal<Option<ProcedureDto>>, ouvert: RwSignal<
 }
 
 #[component]
-fn DialogueConvocation(cible: RwSignal<Option<ProcedureDto>>, ouvert: RwSignal<bool>, ecriture: Ecriture) -> impl IntoView {
+fn DialogueConvocation(
+    cible: RwSignal<Option<ProcedureDto>>,
+    ouvert: RwSignal<bool>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     let envoi = date_du_jour();
     let conseil = RwSignal::new(String::new());
     let erreurs = RwSignal::new(Vec::<(String, String)>::new());
     let envoyer = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
-        let Some(p) = cible.get_untracked() else { return };
-        match composer_convocation(&envoi.get_untracked(), &conseil.get_untracked(), p.delai_convocation_jours) {
+        let Some(p) = cible.get_untracked() else {
+            return;
+        };
+        match composer_convocation(
+            &envoi.get_untracked(),
+            &conseil.get_untracked(),
+            p.delai_convocation_jours,
+        ) {
             Err(e) => erreurs.set(e),
             Ok((d, c)) => {
                 erreurs.set(Vec::new());
@@ -524,13 +562,19 @@ fn DialogueConvocation(cible: RwSignal<Option<ProcedureDto>>, ouvert: RwSignal<b
 }
 
 #[component]
-fn DialogueDecision(cible: RwSignal<Option<ProcedureDto>>, ouvert: RwSignal<bool>, ecriture: Ecriture) -> impl IntoView {
+fn DialogueDecision(
+    cible: RwSignal<Option<ProcedureDto>>,
+    ouvert: RwSignal<bool>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     let texte = RwSignal::new(String::new());
     let jour = date_du_jour();
     let erreurs = RwSignal::new(Vec::<(String, String)>::new());
     let envoyer = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
-        let Some(p) = cible.get_untracked() else { return };
+        let Some(p) = cible.get_untracked() else {
+            return;
+        };
         match composer_decision(&texte.get_untracked(), &jour.get_untracked()) {
             Err(e) => erreurs.set(e),
             Ok((t, j)) => {
@@ -564,10 +608,16 @@ fn FormulaireProcedure(eleve_id: Uuid, ecriture: Ecriture) -> impl IntoView {
     let instance = RwSignal::new("chef_etablissement".to_string());
     let faits = RwSignal::new(String::new());
     let erreurs = RwSignal::new(Vec::<(String, String)>::new());
-    let options: Vec<(String, String)> = INSTANCES.iter().map(|(k, l)| (k.to_string(), l.to_string())).collect();
+    let options: Vec<(String, String)> = INSTANCES
+        .iter()
+        .map(|(k, l)| (k.to_string(), l.to_string()))
+        .collect();
     let envoyer = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
-        let s = SaisieProcedure { instance: instance.get_untracked(), faits: faits.get_untracked() };
+        let s = SaisieProcedure {
+            instance: instance.get_untracked(),
+            faits: faits.get_untracked(),
+        };
         match composer_procedure(eleve_id, &s) {
             Err(e) => erreurs.set(e),
             Ok(corps) => {

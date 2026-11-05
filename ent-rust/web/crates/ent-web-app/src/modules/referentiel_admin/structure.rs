@@ -1,12 +1,14 @@
 //! Sites, niveaux (nomenclature nationale) et MEF (import SIECLE / BCN).
 
 use ent_types::referentiel_admin::{MefDto, NiveauDto, SiteDto};
-use ent_web_ui::{Alerte, Badge, Bouton, ChampTexte, EtatVide, Niveau, Squelette, TonEtat, Variante, ZoneTexte};
+use ent_web_ui::{
+    Alerte, Badge, Bouton, ChampTexte, EtatVide, Niveau, Squelette, TonEtat, Variante, ZoneTexte,
+};
 use leptos::prelude::*;
 use leptos_meta::Title;
 
 use super::modele::{composer_site, libelle_niveau, lire_import_mef, resume_import_mef};
-use super::{peut_gerer, EnTeteReferentiel, Ecriture, RetourEcriture};
+use super::{peut_gerer, Ecriture, EnTeteReferentiel, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 
@@ -134,8 +136,7 @@ fn FormulaireSite(ecriture: Ecriture) -> impl IntoView {
     let erreurs = RwSignal::new(Vec::<(String, String)>::new());
     let err = move |champ: &'static str| {
         Signal::derive(move || {
-            erreurs
-                .with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone()))
+            erreurs.with(|e| e.iter().find(|(c, _)| c == champ).map(|(_, m)| m.clone()))
         })
     };
     let envoyer = move |ev: leptos::ev::SubmitEvent| {
@@ -324,7 +325,9 @@ fn ImportMef(ecriture: Ecriture) -> impl IntoView {
         }
         erreur.set(None);
         ecriture.lancer(async move {
-            let r = session::client().importer_mefs("import_siecle", &lignes).await?;
+            let r = session::client()
+                .importer_mefs("import_siecle", &lignes)
+                .await?;
             Ok(resume_import_mef(&r))
         });
     };
