@@ -915,7 +915,7 @@ fn domaine_annuaire_et_vie_scolaire_famille() {
             lire("labels", "/eleves/labels?ids={eleve}", STAFF, STAFF),
             Spec { b: Attendu::RefuseOuIndistinct, ..lire("absent", "/eleves/{eleve}/absent?jour={jour}",
                 &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux],
-                STAFF) },
+                STAFF_HORS_PROF) },
             // Un parent doit avoir le drapeau « vie scolaire » (Narcissa, Molly : non).
             lire("journal", "/eleves/{eleve}/journal", &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve], STAFF_HORS_PROF),
             Spec { b: Attendu::RefuseOuIndistinct, ..lire("points-vs", "/eleves/{eleve}/points-vs",
