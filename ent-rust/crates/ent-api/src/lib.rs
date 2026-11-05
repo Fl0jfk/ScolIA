@@ -147,6 +147,11 @@ pub fn app(state: AppState) -> Router {
             state.clone(),
             tenant::resoudre_tenant,
         ))
+        // R2 (D-017) : droits effectifs de la personne, une fois par requête.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::contexte_droits,
+        ))
         .with_state(state.clone())
         // Limitation de débit des routes d'authentification publiques (quotas en
         // base, `429` + `Retry-After`). Interne au plafond de taille du corps.
@@ -246,6 +251,8 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
 mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_l3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_abus;
 #[cfg(all(test, feature = "labo"))]

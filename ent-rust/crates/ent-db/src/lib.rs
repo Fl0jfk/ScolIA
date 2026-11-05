@@ -57,6 +57,7 @@ mod passkey_repo;
 mod recuperation_repo;
 mod perimetre;
 mod droits_repo;
+mod droits_ctx;
 mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
@@ -120,6 +121,7 @@ pub use push_repo::PushDevice;
 pub use service::EnfantFamille;
 pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
+pub use droits_ctx::DroitsActeur;
 pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{

@@ -34,6 +34,35 @@ pub enum Action {
     RolesGerer,
     /// Politique de sécurité (passkey obligatoire…).
     SecuritePolitique,
+    // ── R2 (D-017) : domaines de gestion — actions d'établissement entier ──
+    /// Créer, émettre, encaisser les factures et prélèvements (facturation).
+    FacturationGerer,
+    /// Consulter la facturation (factures, mandats, rappels) sans émettre.
+    FacturationLire,
+    /// Affecter et trancher les bourses.
+    BoursesGerer,
+    /// Gérer l'emploi du temps : exceptions, import, calendrier, contraintes.
+    EdtGerer,
+    /// Publier ou annuler des annonces de l'établissement.
+    AnnoncesPublier,
+    /// Paramétrer la restauration (activités, grilles, dispenses, menus).
+    RepasGerer,
+    /// Scanner les badges de cantine et lister les passages.
+    RepasScanner,
+    /// Gérer l'internat (chambres, affectations, présence, suivis).
+    InternatGerer,
+    /// Gérer les sorties (règles, autorisations, demandes exceptionnelles).
+    SortiesGerer,
+    /// Contrôler les sorties au portail (scan de badge).
+    SortiesControler,
+    /// Gérer les élèves, foyers, liens et comptes (inscriptions, fiches).
+    ElevesGerer,
+    /// Gérer les matières et référentiels de compétences.
+    MatieresGerer,
+    /// Planifier et tenir les conseils de classe.
+    ConseilsGerer,
+    /// Publier et annuler les documents à signer.
+    DocsSignerPublier,
 }
 
 /// Sur quoi une action s'applique.
@@ -50,7 +79,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 11] = [
+    pub const TOUTES: [Action; 25] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -62,6 +91,21 @@ impl Action {
         Action::SuiviEleve,
         Action::RolesGerer,
         Action::SecuritePolitique,
+        // R2
+        Action::FacturationGerer,
+        Action::FacturationLire,
+        Action::BoursesGerer,
+        Action::EdtGerer,
+        Action::AnnoncesPublier,
+        Action::RepasGerer,
+        Action::RepasScanner,
+        Action::InternatGerer,
+        Action::SortiesGerer,
+        Action::SortiesControler,
+        Action::ElevesGerer,
+        Action::MatieresGerer,
+        Action::ConseilsGerer,
+        Action::DocsSignerPublier,
     ];
 
     pub fn code(self) -> &'static str {
@@ -77,6 +121,20 @@ impl Action {
             Self::SuiviEleve => "suivi.eleve",
             Self::RolesGerer => "roles.gerer",
             Self::SecuritePolitique => "securite.politique",
+            Self::FacturationGerer => "facturation.gerer",
+            Self::FacturationLire => "facturation.lire",
+            Self::BoursesGerer => "bourses.gerer",
+            Self::EdtGerer => "edt.gerer",
+            Self::AnnoncesPublier => "annonces.publier",
+            Self::RepasGerer => "repas.gerer",
+            Self::RepasScanner => "repas.scanner",
+            Self::InternatGerer => "internat.gerer",
+            Self::SortiesGerer => "sorties.gerer",
+            Self::SortiesControler => "sorties.controler",
+            Self::ElevesGerer => "eleves.gerer",
+            Self::MatieresGerer => "matieres.gerer",
+            Self::ConseilsGerer => "conseils.gerer",
+            Self::DocsSignerPublier => "docs_a_signer.publier",
         }
     }
 
@@ -93,6 +151,20 @@ impl Action {
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::RolesGerer => "Gérer les rôles et leurs attributions",
             Self::SecuritePolitique => "Gérer la politique de sécurité",
+            Self::FacturationGerer => "Facturation : créer, émettre, encaisser",
+            Self::FacturationLire => "Facturation : consulter sans émettre",
+            Self::BoursesGerer => "Affecter et trancher les bourses",
+            Self::EdtGerer => "Gérer l'emploi du temps (exceptions, import, contraintes)",
+            Self::AnnoncesPublier => "Publier des annonces de l'établissement",
+            Self::RepasGerer => "Paramétrer la restauration (activités, grilles, menus)",
+            Self::RepasScanner => "Scanner les badges de cantine",
+            Self::InternatGerer => "Gérer l'internat (chambres, présence, suivis)",
+            Self::SortiesGerer => "Gérer les sorties (règles, autorisations, demandes)",
+            Self::SortiesControler => "Contrôler les sorties au portail",
+            Self::ElevesGerer => "Gérer les élèves, foyers, liens et comptes",
+            Self::MatieresGerer => "Gérer les matières et compétences",
+            Self::ConseilsGerer => "Planifier et tenir les conseils de classe",
+            Self::DocsSignerPublier => "Publier et annuler les documents à signer",
         }
     }
 
@@ -100,11 +172,35 @@ impl Action {
         Self::TOUTES.into_iter().find(|a| a.code() == s.trim())
     }
 
+    /// Actions qui accordent aussi celle-ci : `facturation.gerer` permet de lire.
+    pub fn accordee_par(self) -> &'static [Action] {
+        match self {
+            Self::FacturationLire => &[Self::FacturationGerer],
+            _ => &[],
+        }
+    }
+
     /// Portées acceptées pour cette action. Les actions d'administration
     /// n'acceptent que l'établissement entier (garde-fou 4).
     pub fn portees_admises(self) -> &'static [Portee] {
         match self {
             Self::RolesGerer | Self::SecuritePolitique => &[Portee::Etablissement],
+            // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
+            // élève viendront avec les écrans (lot ultérieur), jamais en silence.
+            Self::FacturationGerer
+            | Self::FacturationLire
+            | Self::BoursesGerer
+            | Self::EdtGerer
+            | Self::AnnoncesPublier
+            | Self::RepasGerer
+            | Self::RepasScanner
+            | Self::InternatGerer
+            | Self::SortiesGerer
+            | Self::SortiesControler
+            | Self::ElevesGerer
+            | Self::MatieresGerer
+            | Self::ConseilsGerer
+            | Self::DocsSignerPublier => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -176,6 +272,8 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         ] {
             d.push((a, Portee::MesClasses));
         }
+        // R2 : le professeur tient les conseils de classe (contrôle d'établissement).
+        d.push(etab(ConseilsGerer));
         return d;
     }
     if role.can_read_notes_staff() {
@@ -207,6 +305,34 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(RolesGerer));
         d.push(etab(SecuritePolitique));
+    }
+    // ── R2 : domaines de gestion. Listes explicites par profil (la table de
+    // référence `Role::can_*` sert d'oracle au test de non-régression). ──
+    let direction_admin = matches!(role, Role::Admin | Role::Direction | Role::Administratif);
+    if direction_admin || role == Role::Compta {
+        for a in [FacturationGerer, FacturationLire, BoursesGerer, RepasGerer] {
+            d.push(etab(a));
+        }
+    }
+    if direction_admin || matches!(role, Role::Compta | Role::Cpe) {
+        d.push(etab(RepasScanner));
+    }
+    if direction_admin || role == Role::Cpe {
+        for a in [
+            EdtGerer,
+            AnnoncesPublier,
+            InternatGerer,
+            SortiesGerer,
+            SortiesControler,
+            DocsSignerPublier,
+            ConseilsGerer,
+        ] {
+            d.push(etab(a));
+        }
+    }
+    if direction_admin {
+        d.push(etab(ElevesGerer));
+        d.push(etab(MatieresGerer));
     }
     d
 }
@@ -261,6 +387,48 @@ mod tests {
         ] {
             for (x, p) in modele_par_defaut(r) {
                 assert!(x.portees_admises().contains(&p), "{r:?} {x:?} {p:?}");
+            }
+        }
+    }
+
+    /// R2 : chaque profil × action de gestion donne la même décision que la
+    /// capacité figée d'origine (`Role::can_*`, conservée comme oracle).
+    #[test]
+    fn r2_non_regression_profil_par_action() {
+        use Action::*;
+        let oracle: [(Action, fn(Role) -> bool); 14] = [
+            (FacturationGerer, Role::can_manage_facturation),
+            (FacturationLire, Role::can_manage_facturation),
+            (BoursesGerer, Role::can_manage_bourses),
+            (EdtGerer, Role::can_manage_edt),
+            (AnnoncesPublier, Role::can_publier_annonces),
+            (RepasGerer, Role::can_manage_repas),
+            (RepasScanner, Role::can_scan_repas),
+            (InternatGerer, Role::can_gerer_internat),
+            (SortiesGerer, Role::can_gerer_sorties),
+            (SortiesControler, Role::can_controle_sortie),
+            (ElevesGerer, Role::can_manage_eleves),
+            (MatieresGerer, Role::can_manage_matieres),
+            (ConseilsGerer, Role::can_gerer_conseil_classe),
+            (DocsSignerPublier, Role::can_publier_docs_a_signer),
+        ];
+        for role in [
+            Role::Admin,
+            Role::Direction,
+            Role::Administratif,
+            Role::Cpe,
+            Role::Compta,
+            Role::Prof,
+            Role::Infirmerie,
+            Role::Psy,
+            Role::Parent,
+            Role::Eleve,
+        ] {
+            let modele = modele_par_defaut(role);
+            for (action, ancien) in oracle {
+                let nouveau = modele.contains(&(action, Portee::Etablissement));
+                assert_eq!(nouveau, ancien(role), "{role:?} × {}", action.code());
+                assert_eq!(action.portees_admises(), &[Portee::Etablissement]);
             }
         }
     }
