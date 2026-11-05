@@ -53,6 +53,11 @@ mod vacances_repo;
 mod menu_cantine_repo;
 mod quotient_repo;
 mod referentiel_repo;
+mod ref_commun;
+mod referentiel_structure;
+mod referentiel_annee;
+mod referentiel_seances;
+mod referentiel_classe_id;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
@@ -123,9 +128,21 @@ pub use service::EnfantFamille;
 pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
 pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
+pub use ref_commun::Acteur;
+pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
+pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};
+pub use referentiel_seances::{
+    planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance, SeancePlan,
+};
+pub use referentiel_structure::{
+    code_niveau_de_texte, grille_standard, verifier_couverture, CreneauGrille, CreneauGrilleSaisie,
+    JourCalendrier, Mef, MefImport, Niveau, Periode, PeriodeSaisie, RapportImportMef, Site,
+    NIVEAUX_NATIONAUX,
+};
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
     niveau_de_code, role_peut_gerer_referentiel, role_peut_lire_referentiel, AnneeScolaire,
+    ROLE_AUTORISE_MOTEUR_GESTION, ROLE_AUTORISE_MOTEUR_LECTURE,
     Affectation, Classe, ClasseResume, CreerService, Groupe, RapportAmorcage,
     ServiceEnseignement,
 };
@@ -153,6 +170,8 @@ mod scenarios;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_referentiel;
+#[cfg(all(test, feature = "labo"))]
+mod tests_referentiel_s2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;

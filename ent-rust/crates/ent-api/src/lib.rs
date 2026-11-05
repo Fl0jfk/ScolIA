@@ -11,6 +11,7 @@ pub mod http_garde;
 mod ical;
 pub mod obs;
 mod referentiel;
+mod referentiel_s2;
 mod roles;
 mod routes;
 pub mod tenant;
