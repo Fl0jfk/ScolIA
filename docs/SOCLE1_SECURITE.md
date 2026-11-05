@@ -122,3 +122,12 @@ Restent (décisions ou suites) :
 - **E8** appareil et IP non conservés pour une connexion par passkey ; libellé d'appareil (User-Agent) à échapper à l'affichage.
 - **E9** créneaux EDT historiques sans date de fin (accès conservé tant que le créneau existe) ; comparaison de classe sensible à la casse ; jour UTC.
 - Sessions antérieures à la migration 095 sans délai d'inactivité : à purger au déploiement.
+
+## Résultats des vérifications — A6 (2026-11-05, local, Rust 1.99.0, PostgreSQL 16 jetable `ent_ci_test`)
+- Clippy `-D warnings` : ent-web-ui/api/app (ssr, `--all-targets`), ent-web-app wasm32 (`hydrate`), ent-web-server + ent-web-session (avec et sans `labo`) : 0 avertissement.
+- Tests unitaires `ent-web-ui` 18, `ent-web-api` 111, `ent-web-app` 14 : tous verts (dont échéances, messages entre onglets, aucun accès au stockage du navigateur pour le jeton).
+- `cargo leptos build --release --precompress` : OK (wasm 3,18 Mo, 0,84 Mo en brotli).
+- `entetes_securite` + `droits_parite` : 19 + 3 verts. `contre_backend` : 9 verts ; `session_cookie_serveur` (relais dans le serveur complet) : 1 vert.
+- `ent-web-session` (feature `ent-api/labo`) : 12 verts (cookie, CSRF, expiration par la base sur deux instances du relais, `etat`, `client=web` imposé, ré-émission après enrôlement, déconnexion, passkeys, mobile/`/app` inchangés).
+- `cargo fmt` (5 crates web) : conforme.
+- **Non fait** : essai dans un vrai navigateur (fenêtre de reconnexion, `BroadcastChannel`, passkey) ; `cargo deny` / `cargo audit` non relancés (dépendance de test `sqlx` ajoutée à `ent-web-session`, déjà dans le graphe).
