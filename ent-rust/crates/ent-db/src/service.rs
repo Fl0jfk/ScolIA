@@ -385,6 +385,12 @@ pub enum EntDbError {
     /// Envoi d'un lien impossible : la messagerie n'est pas prête (aucun secret n'est produit).
     #[error("envoi impossible : la messagerie n'est pas configurée")]
     EnvoiImpossible,
+    /// Lien de récupération de passkey inconnu, déjà utilisé, annulé ou expiré.
+    #[error("lien de récupération invalide ou expiré")]
+    RecuperationLienInvalide,
+    /// Finalisation demandée avant la fin du délai de sécurité (D-018).
+    #[error("délai de sécurité en cours")]
+    RecuperationDelaiEnCours(DateTime<Utc>),
     /// Plafond de passkeys atteint pour ce compte.
     #[error("limite de passkeys atteinte ({0} maximum)")]
     PasskeyPlafond(i64),
@@ -624,6 +630,7 @@ pub struct PgEnt {
     auth: PgAuthRepo,
     passkeys: PgPasskeyRepo,
     passkey_engine: Option<PasskeyEngine>,
+    recup: crate::recuperation_repo::PgRecuperationRepo,
     oidc: PgOidcRepo,
     oidc_transport: RwLock<Arc<dyn OidcTransport>>,
     events: PgEventStore,
@@ -704,6 +711,7 @@ impl PgEnt {
             presigner: Presigner::from_env(),
             auth: PgAuthRepo::new(pool.clone()),
             passkeys: PgPasskeyRepo::new(pool.clone()),
+            recup: crate::recuperation_repo::PgRecuperationRepo::new(pool.clone()),
             passkey_engine: PasskeyEngine::from_env().ok(),
             oidc: PgOidcRepo::new(pool.clone()),
             oidc_transport: RwLock::new(Arc::new(HttpOidcTransport::from_env())),
@@ -2164,6 +2172,10 @@ impl PgEnt {
             "Connexion par passkey",
         )
         .await;
+        // D-018 : une connexion réussie par passkey pendant le délai de
+        // sécurité annule toute récupération en cours.
+        self.annuler_recuperation_passkey_si_active(challenge.user_id, &identity.0, "connexion_passkey")
+            .await;
         Ok(session)
     }
 
@@ -2210,6 +2222,225 @@ impl PgEnt {
         )
         .await;
         Ok(removed)
+    }
+
+    // ---- Récupération de passkey en libre-service (D-018) -------------------
+
+    /// Journalise un événement de récupération **dans chaque établissement** de
+    /// la personne. Le payload ne contient ni e-mail en clair (empreinte) ni
+    /// aucune information sur les autres établissements (D-013).
+    async fn audit_recuperation_passkey(
+        &self,
+        user_id: Uuid,
+        email: &str,
+        action: &str,
+        libelle: &str,
+        extra: serde_json::Value,
+    ) {
+        for (etab, role) in self
+            .auth
+            .list_memberships_for_user(user_id)
+            .await
+            .unwrap_or_default()
+        {
+            let mut payload = json!({ "empreinte": empreinte_email(email) });
+            if let (Some(o), Some(e)) = (payload.as_object_mut(), extra.as_object()) {
+                for (k, v) in e {
+                    o.insert(k.clone(), v.clone());
+                }
+            }
+            self.audit_compte(etab, user_id, &role, action, libelle, payload)
+                .await;
+        }
+    }
+
+    /// Annule une éventuelle récupération active (connexion par passkey réussie).
+    /// Best-effort : n'échoue jamais la connexion.
+    async fn annuler_recuperation_passkey_si_active(
+        &self,
+        user_id: Uuid,
+        email: &str,
+        motif: &str,
+    ) {
+        match self.recup.annuler_pour_user(user_id).await {
+            Ok(n) if n > 0 => {
+                self.audit_recuperation_passkey(
+                    user_id,
+                    email,
+                    "passkey_recuperation_annulee",
+                    "Récupération de passkey annulée",
+                    json!({ "motif": motif }),
+                )
+                .await;
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("annulation de récupération de passkey : {e}"),
+        }
+    }
+
+    /// Étape 1 — demande publique. Crée une demande et envoie le lien de
+    /// confirmation **seulement si** le compte existe, appartient à
+    /// l'établissement et a au moins une passkey. Renvoie `true` si un e-mail
+    /// a été envoyé (tests) ; l'appelant HTTP répond 202 quoi qu'il arrive.
+    pub async fn demander_recuperation_passkey(
+        &self,
+        email: &str,
+        etablissement_id: Uuid,
+        public_base_url: &str,
+    ) -> Result<bool, EntDbError> {
+        let Ok(Some(user_id)) = self.auth.find_user_id_by_email(email).await else {
+            return Ok(false);
+        };
+        if !self.auth.is_member(etablissement_id, user_id).await.unwrap_or(false)
+            || self.passkeys.count_for_user(user_id).await? == 0
+        {
+            return Ok(false);
+        }
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            tracing::warn!("récupération de passkey : messagerie ou URL publique absente");
+            return Ok(false);
+        }
+        let (raw, hashed) = generate_reset_token();
+        let Some(id) = self.recup.creer(user_id, etablissement_id, &hashed).await? else {
+            return Ok(false); // déjà une récupération en attente : on ne l'écrase pas
+        };
+        let to = self.auth.resolve_user_email(user_id).await?;
+        let lien = format!(
+            "{}/recuperation-passkey/confirmer?token={raw}",
+            public_base_url.trim_end_matches('/')
+        );
+        let envoi = self
+            .mailer
+            .send(OutgoingMail {
+                to,
+                subject: "Récupération de votre passkey ENT".into(),
+                body_text: format!(
+                    "Bonjour,\n\nVous avez demandé à récupérer l'accès à votre compte après la perte de votre passkey. \
+Pour confirmer (lien valable {} minutes), ouvrez :\n{lien}\n\n\
+Un délai de sécurité de {} h s'appliquera ensuite avant tout changement : vous pourrez annuler pendant ce délai.\n\n\
+Si vous n'êtes pas à l'origine de cette demande, ignorez ce message : rien ne sera modifié.\n",
+                    crate::recuperation_repo::CONFIRMATION_TTL_MINUTES,
+                    crate::recuperation_repo::delai_securite_heures(),
+                ),
+                attachments: vec![],
+            })
+            .await;
+        match envoi {
+            Ok(r) if self.envoi_reussi(&r) => Ok(true),
+            _ => {
+                let _ = self.recup.abandonner(id).await;
+                tracing::warn!("récupération de passkey : lien non envoyé");
+                Ok(false)
+            }
+        }
+    }
+
+    /// Étape 2 — confirmation par le lien : démarre le délai de sécurité,
+    /// envoie à la personne l'alerte (lien d'annulation + lien de finalisation)
+    /// et journalise dans chaque établissement. Renvoie la fin du délai.
+    pub async fn confirmer_recuperation_passkey(
+        &self,
+        token: &str,
+        public_base_url: &str,
+    ) -> Result<DateTime<Utc>, EntDbError> {
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            return Err(EntDbError::EnvoiImpossible);
+        }
+        let (annul_raw, annul_hash) = generate_reset_token();
+        let (final_raw, final_hash) = generate_reset_token();
+        let delai = crate::recuperation_repo::delai_securite_heures();
+        let demande = self
+            .recup
+            .confirmer(&hash_token(token.trim()), &annul_hash, &final_hash, delai)
+            .await?
+            .ok_or(EntDbError::RecuperationLienInvalide)?;
+        let to = self.auth.resolve_user_email(demande.user_id).await?;
+        let base = public_base_url.trim_end_matches('/');
+        let quand = demande.effective_at.format("%d/%m/%Y à %H:%M UTC");
+        let envoi = self
+            .mailer
+            .send(OutgoingMail {
+                to: to.clone(),
+                subject: "Récupération de passkey en cours — annulez si ce n'est pas vous".into(),
+                body_text: format!(
+                    "Bonjour,\n\nUne récupération de votre passkey est en cours. Ce n'est pas vous ? \
+Annulez-la immédiatement :\n{base}/recuperation-passkey/annuler?token={annul_raw}\n\n\
+Si c'est bien vous : à partir du {quand}, ouvrez ce lien pour supprimer vos passkeys et vous reconnecter \
+par mot de passe (toutes vos sessions seront fermées ; si vous n'avez pas de mot de passe connu, utilisez \
+« mot de passe oublié » ensuite) :\n{base}/recuperation-passkey/finaliser?token={final_raw}\n\n\
+Ce dernier lien reste valable {} h après cette date. Une connexion réussie par passkey annule aussi la récupération.\n",
+                    crate::recuperation_repo::FINALISATION_FENETRE_HEURES,
+                ),
+                attachments: vec![],
+            })
+            .await;
+        if !matches!(&envoi, Ok(r) if self.envoi_reussi(r)) {
+            let _ = self.recup.abandonner(demande.id).await;
+            return Err(EntDbError::EnvoiImpossible);
+        }
+        self.audit_recuperation_passkey(
+            demande.user_id,
+            &to,
+            "passkey_recuperation_en_attente",
+            "Récupération de passkey demandée (délai de sécurité en cours)",
+            json!({ "demande_id": demande.id.to_string(), "effective_at": demande.effective_at.to_rfc3339() }),
+        )
+        .await;
+        Ok(demande.effective_at)
+    }
+
+    /// Annulation par le lien d'annulation (jeton distinct, usage unique).
+    pub async fn annuler_recuperation_passkey(&self, token: &str) -> Result<(), EntDbError> {
+        let user_id = self
+            .recup
+            .annuler_par_jeton(&hash_token(token.trim()))
+            .await?
+            .ok_or(EntDbError::RecuperationLienInvalide)?;
+        let email = self.auth.resolve_user_email(user_id).await.unwrap_or_default();
+        self.audit_recuperation_passkey(
+            user_id,
+            &email,
+            "passkey_recuperation_annulee",
+            "Récupération de passkey annulée",
+            json!({ "motif": "lien_annulation" }),
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Étape finale (vérifiée paresseusement) : si le délai est écoulé, supprime
+    /// les passkeys de la personne et révoque toutes ses sessions. Avant la fin
+    /// du délai : `RecuperationDelaiEnCours` (le jeton n'est pas consommé).
+    pub async fn finaliser_recuperation_passkey(&self, token: &str) -> Result<(), EntDbError> {
+        match self.recup.finaliser(&hash_token(token.trim())).await? {
+            crate::recuperation_repo::Finalisation::Invalide => {
+                Err(EntDbError::RecuperationLienInvalide)
+            }
+            crate::recuperation_repo::Finalisation::DelaiEnCours(t) => {
+                Err(EntDbError::RecuperationDelaiEnCours(t))
+            }
+            crate::recuperation_repo::Finalisation::Terminee {
+                user_id,
+                passkeys,
+                sessions,
+            } => {
+                let email = self.auth.resolve_user_email(user_id).await.unwrap_or_default();
+                self.audit_recuperation_passkey(
+                    user_id,
+                    &email,
+                    "passkey_recuperation_finalisee",
+                    "Passkeys supprimées par récupération en libre-service",
+                    json!({ "passkeys_retirees": passkeys, "sessions_revoquees": sessions }),
+                )
+                .await;
+                Ok(())
+            }
+        }
+    }
+
+    /// Purge les demandes de récupération closes/périmées (maintenance boot).
+    pub async fn purger_recuperations_passkey(&self) -> Result<u64, EntDbError> {
+        Ok(self.recup.purger().await?)
     }
 
     /// Autorise (ou refuse) la gestion des identifiants d'un compte par un

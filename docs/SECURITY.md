@@ -117,3 +117,11 @@ Niveau : **implémenté + testé en local** (ent-api, ent-db, ent-auth) ; non va
 - La limitation s'ouvre si la base répond en erreur. Le temps du challenge factice (`passkey/login/start`) n'est pas strictement égalé à celui du réel (quelques requêtes de moins) : écart non mesuré.
 - Les verrous de connexion renvoient 429 sans `Retry-After` ; seuls les seaux de débit l'émettent.
 - `oidc/complete`, `register`, `change_password` et le reste de l'API authentifiée n'ont pas de seau de débit (hors périmètre du lot).
+
+## Récupération de passkey en libre-service (D-018, Socle 1, lot A8)
+
+Niveau : **implémenté + testé en local** ; non validé pilote ; non prêt production. Détail du parcours : `SOCLE1_SECURITE.md` (lot A8).
+
+- Menace traitée : perte de passkey d'une personne de plusieurs établissements (aucune direction ne peut agir, E4). Menace introduite : prise de contrôle par qui contrôle la boîte e-mail → contre-mesures : confirmation par lien, **délai de sécurité** configurable (`ENT_RECUPERATION_PASSKEY_DELAI_HEURES`, 24 h par défaut), alerte à la personne avec annulation, événement journalisé dans **chaque** établissement, annulation automatique par connexion passkey.
+- Réponse publique **202 neutre** (anti-énumération), envoi différé ; limitation de débit dédiée ; trois jetons distincts 256 bits hachés, usage unique ; une seule demande active ; finalisation atomique (passkeys supprimées, toutes sessions révoquées).
+- Aucune adresse e-mail en clair dans le journal ni en base de la demande (empreintes). Le dry-run de la messagerie ne conserve les corps de message qu'en `dry_run_only()` (labo/tests), jamais en production.

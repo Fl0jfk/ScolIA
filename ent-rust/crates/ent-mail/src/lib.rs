@@ -70,6 +70,10 @@ pub struct MailService {
     live: bool,
     force_dry_run: bool,
     log: Arc<Mutex<Vec<MailReceipt>>>,
+    /// Corps des messages dry-run `(destinataire, sujet, texte)` — **seulement**
+    /// pour `dry_run_only()` (labo / tests : lire les liens envoyés). `None`
+    /// partout ailleurs : un corps (donc un jeton) n'est jamais conservé en mémoire.
+    corps_dry_run: Option<Arc<Mutex<Vec<(String, String, String)>>>>,
 }
 
 impl Default for MailService {
@@ -89,6 +93,7 @@ impl MailService {
             live,
             force_dry_run,
             log: Arc::new(Mutex::new(Vec::new())),
+            corps_dry_run: None,
         }
     }
 
@@ -99,6 +104,7 @@ impl MailService {
             live: false,
             force_dry_run: true,
             log: Arc::new(Mutex::new(Vec::new())),
+            corps_dry_run: Some(Arc::new(Mutex::new(Vec::new()))),
         }
     }
 
@@ -108,6 +114,7 @@ impl MailService {
             live,
             force_dry_run: !live,
             log: Arc::new(Mutex::new(Vec::new())),
+            corps_dry_run: None,
         }
     }
 
@@ -129,7 +136,19 @@ impl MailService {
         self.log.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
+    /// Corps `(destinataire, sujet, texte)` des messages dry-run (vide hors
+    /// `dry_run_only()`). Réservé aux tests / au labo.
+    pub fn dry_run_corps(&self) -> Vec<(String, String, String)> {
+        self.corps_dry_run
+            .as_ref()
+            .and_then(|c| c.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default()
+    }
+
     pub fn clear_receipts(&self) {
+        if let Some(Ok(mut g)) = self.corps_dry_run.as_ref().map(|c| c.lock()) {
+            g.clear();
+        }
         if let Ok(mut g) = self.log.lock() {
             g.clear();
         }
@@ -154,6 +173,11 @@ impl MailService {
         }
 
         let want_live = self.is_live();
+        if let (false, Some(corps)) = (want_live, self.corps_dry_run.as_ref()) {
+            if let Ok(mut g) = corps.lock() {
+                g.push((to.clone(), subject.clone(), mail.body_text.clone()));
+            }
+        }
         let receipt = if !want_live {
             if self.config.is_none() && !self.force_dry_run {
                 MailReceipt {

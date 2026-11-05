@@ -214,6 +214,7 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
         }
     }
     let _ = ent.purge_expired_password_resets().await;
+    let _ = ent.purger_recuperations_passkey().await;
     let bind = std::env::var("ENT_API_BIND").unwrap_or_else(|_| "127.0.0.1:8088".into());
     Ok((AppState::nouveau(ent), bind))
 }
@@ -225,6 +226,8 @@ mod tests_l6;
 mod tests_l3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_abus;
+#[cfg(all(test, feature = "labo"))]
+mod tests_recuperation;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;

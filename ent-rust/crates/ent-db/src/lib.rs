@@ -51,6 +51,7 @@ mod referentiel_repo;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
+mod recuperation_repo;
 mod perimetre;
 mod securite_repo;
 mod oidc_repo;

@@ -157,6 +157,19 @@ pub fn router() -> Router<AppState> {
         .route("/auth/password", post(change_password))
         .route("/auth/forgot-password", post(forgot_password))
         .route("/auth/reset-password", post(reset_password))
+        .route("/auth/passkey/recuperation", post(recuperation_passkey_demander))
+        .route(
+            "/auth/passkey/recuperation/confirmer",
+            post(recuperation_passkey_confirmer),
+        )
+        .route(
+            "/auth/passkey/recuperation/annuler",
+            post(recuperation_passkey_annuler),
+        )
+        .route(
+            "/auth/passkey/recuperation/finaliser",
+            post(recuperation_passkey_finaliser),
+        )
         .route("/auth/me", get(me))
         .route("/auth/sessions", get(list_sessions_appareils))
         .route("/auth/sessions/{id}", delete(revoquer_session_appareil))
@@ -2475,6 +2488,108 @@ async fn reset_password(
         .reinitialiser_mot_de_passe_par_token(&body.token, &body.new_password)
         .await
         .map_err(map_auth)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct RecuperationPasskeyBody {
+    email: String,
+    etablissement_id: Uuid,
+}
+
+#[derive(Deserialize)]
+struct RecuperationPasskeyJeton {
+    token: String,
+}
+
+/// Borne un jeton de récupération reçu (jamais journalisé).
+fn jeton_recuperation_valide(token: &str) -> Result<(), (StatusCode, String)> {
+    if token.trim().is_empty() || token.len() > 256 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "lien de récupération invalide ou expiré".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn map_recuperation_passkey(err: ent_db::EntDbError) -> (StatusCode, String) {
+    match &err {
+        ent_db::EntDbError::RecuperationLienInvalide => {
+            (StatusCode::BAD_REQUEST, err.to_string())
+        }
+        ent_db::EntDbError::RecuperationDelaiEnCours(_) => {
+            (StatusCode::CONFLICT, err.to_string())
+        }
+        _ => map_compte_sensible(&err).unwrap_or_else(|| map_db(err)),
+    }
+}
+
+/// Récupération de passkey (D-018), étape 1 — public. Réponse **toujours 202**
+/// (compte inconnu, sans passkey, hors établissement ou valide : indiscernable) ;
+/// traitement et envoi différés comme `forgot-password`.
+async fn recuperation_passkey_demander(
+    State(state): State<AppState>,
+    Json(body): Json<RecuperationPasskeyBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if body.email.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "e-mail vide".into()));
+    }
+    if body.email.trim().len() > ent_auth::MAX_EMAIL_LEN {
+        return Err((StatusCode::BAD_REQUEST, "e-mail trop long".into()));
+    }
+    let base = base_url_publique();
+    let ent = state.ent.clone();
+    state.lancer_tache(async move {
+        if let Err(e) = ent
+            .demander_recuperation_passkey(&body.email, body.etablissement_id, &base)
+            .await
+        {
+            tracing::warn!("récupération de passkey : {e}");
+        }
+    });
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Étape 2 — confirmation par le lien reçu : démarre le délai de sécurité.
+async fn recuperation_passkey_confirmer(
+    State(state): State<AppState>,
+    Json(body): Json<RecuperationPasskeyJeton>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    jeton_recuperation_valide(&body.token)?;
+    let fin = state
+        .ent
+        .confirmer_recuperation_passkey(&body.token, &base_url_publique())
+        .await
+        .map_err(map_recuperation_passkey)?;
+    Ok(Json(serde_json::json!({ "effective_at": fin })))
+}
+
+/// Annulation par le lien d'annulation reçu par e-mail.
+async fn recuperation_passkey_annuler(
+    State(state): State<AppState>,
+    Json(body): Json<RecuperationPasskeyJeton>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    jeton_recuperation_valide(&body.token)?;
+    state
+        .ent
+        .annuler_recuperation_passkey(&body.token)
+        .await
+        .map_err(map_recuperation_passkey)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Finalisation (après le délai) : supprime les passkeys, révoque les sessions.
+async fn recuperation_passkey_finaliser(
+    State(state): State<AppState>,
+    Json(body): Json<RecuperationPasskeyJeton>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    jeton_recuperation_valide(&body.token)?;
+    state
+        .ent
+        .finaliser_recuperation_passkey(&body.token)
+        .await
+        .map_err(map_recuperation_passkey)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

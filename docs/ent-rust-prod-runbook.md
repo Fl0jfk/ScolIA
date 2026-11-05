@@ -60,7 +60,8 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | `ENT_LOGIN_SLOWDOWN_MAX_MS` | `3000` | Plafond du délai. |
 | `ENT_TRUST_PROXY` | *(vide)* | Proxys de confiance devant l'API. Vide / `0` : IP de la socket (défaut sûr). `1` ou `N` : `N` proxys, IP cliente = N-ième entrée **en partant de la droite** de `X-Forwarded-For`. Liste de CIDR (`10.0.0.0/8,fd00::/8`) : remontée de la chaîne de droite à gauche. À régler **exactement** selon l'infrastructure (voir « Limitation de débit »). |
 | `ENT_RATE_LIMIT` | *(vide)* | `off` coupe toute la limitation de débit des routes d'authentification. |
-| `ENT_RATE_<ROUTE>_IP` / `ENT_RATE_<ROUTE>_ID` | voir tableau ci-dessous | Quota `max/secondes` (`off` = pas de seau). `<ROUTE>` ∈ `LOGIN`, `FORGOT_PASSWORD`, `RESET_PASSWORD`, `PASSKEY_LOGIN_START`, `PASSKEY_LOGIN_FINISH`, `OIDC_START`. |
+| `ENT_RATE_<ROUTE>_IP` / `ENT_RATE_<ROUTE>_ID` | voir tableau ci-dessous | Quota `max/secondes` (`off` = pas de seau). `<ROUTE>` ∈ `LOGIN`, `FORGOT_PASSWORD`, `RESET_PASSWORD`, `PASSKEY_LOGIN_START`, `PASSKEY_LOGIN_FINISH`, `OIDC_START`, `PASSKEY_RECUP`, `PASSKEY_RECUP_CONFIRMER`, `PASSKEY_RECUP_ANNULER`, `PASSKEY_RECUP_FINALISER`. |
+| `ENT_RECUPERATION_PASSKEY_DELAI_HEURES` | `24` | Délai de sécurité (heures, borné 1–168, valeur invalide → 24) entre la confirmation d'une récupération de passkey en libre-service et sa finalisation (D-018). Nécessite `ENT_PUBLIC_BASE_URL` et la messagerie. |
 | `ENT_MAX_BODY_BYTES` | `26214400` (25 Mio) | Taille max du corps de requête. |
 | `ENT_REQUEST_TIMEOUT_SECS` | `120` | Délai max d'une requête (`0` = désactivé) → HTTP 408. |
 | `ENT_CORS_ORIGINS` | *(vide)* | Liste d'origines (virgules) ou `*`. Vide → same-origin uniquement. |
@@ -199,6 +200,8 @@ SHA-256 en base. Défauts (`max/secondes`) :
 | `/auth/passkey/login/start` | `30/300` | *(aucun)* |
 | `/auth/passkey/login/finish` | `60/300` | *(aucun)* |
 | `/auth/oidc/{slug}/start` | `30/300` | *(aucun)* |
+| `/auth/passkey/recuperation` | `5/900` | `2/3600` (e-mail) |
+| `/auth/passkey/recuperation/{confirmer,annuler,finaliser}` | `20/900` | `10/900` (jeton) |
 
 Pas de seau par identifiant sur la connexion ni le démarrage passkey : un tiers
 épuiserait le seau de sa victime (déni de service). Si la base de limitation est
@@ -229,6 +232,14 @@ indisponible, la limitation s'ouvre (journal d'erreur) plutôt que de refuser.
 - Pages web publiques : `/mot-de-passe-oublie` et `/reset-mot-de-passe?token=…`.
 - Les jetons expirés / consommés sont purgés au démarrage ; l'action est
   journalisée (`domaine=auth`).
+
+### Récupération de passkey en libre-service (D-018)
+
+- `POST /auth/passkey/recuperation` `{ email, etablissement_id }` — public, **202 toujours**. Si le compte appartient à l'établissement et a une passkey : e-mail avec lien `{ENT_PUBLIC_BASE_URL}/recuperation-passkey/confirmer?token=…` (valable 60 min).
+- `POST /auth/passkey/recuperation/confirmer` `{ token }` → `200 { effective_at }` ; délai `ENT_RECUPERATION_PASSKEY_DELAI_HEURES` ; e-mail d'alerte avec liens `…/annuler?token=…` et `…/finaliser?token=…`. Alerte journalisée dans chaque établissement de la personne.
+- `POST …/annuler` `{ token }` → 204 ; `POST …/finaliser` `{ token }` → 204 après le délai (409 avant), supprime les passkeys et révoque toutes les sessions. Jeton inconnu/rejoué/expiré → 400. Une connexion par passkey pendant le délai annule la demande.
+- Après finalisation : connexion par mot de passe (réenrôlement si la passkey est obligatoire pour le rôle) ; sans mot de passe connu, passer par « mot de passe oublié ». Pages web des liens : à fournir côté Leptos.
+- Table volatile `ent_recuperation_passkey` (migration 097), exclue des inventaires PRA ; purge des demandes closes > 30 j au démarrage.
 
 ### Audit d'accès (RGPD)
 
