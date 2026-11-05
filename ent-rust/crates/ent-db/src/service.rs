@@ -4228,7 +4228,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let Some(parsed) = Role::parse(role) else {
             return Ok(none);
         };
-        if parsed.can_manage_eleves()
+        if Self::role_can_manage_eleves(role)
             || parsed == Role::Admin
             || parsed == Role::Direction
         {
@@ -4966,8 +4966,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         etablissement_id: Uuid,
         libelle: Option<&str>,
     ) -> Result<Uuid, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         self.create_foyer(etablissement_id, libelle).await
@@ -4981,9 +4980,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         user_id: Uuid,
         telephone: &str,
     ) -> Result<(), EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        // Profil inconnu : refus même pour sa propre fiche.
+        Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let self_edit = actor_user_id == user_id;
-        if !parsed.can_manage_eleves() && !self_edit {
+        if !Self::role_can_manage_eleves(role) && !self_edit {
             return Err(EntDbError::Forbidden);
         }
         if !self.auth.is_member(etablissement_id, user_id).await? {
@@ -5091,8 +5091,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         est_payeur: bool,
         part_paiement: Option<i16>,
     ) -> Result<(EleveLien, Option<bool>), EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         if self
@@ -5203,7 +5202,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         foyer_id: Uuid,
     ) -> Result<Option<(Uuid, Option<String>, Vec<LienDossierFoyer>)>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_manage_eleves() || matches!(parsed, Role::Compta | Role::Cpe)) {
+        if !(Self::role_can_manage_eleves(role) || matches!(parsed, Role::Compta | Role::Cpe)) {
             return Err(EntDbError::Forbidden);
         }
         let Some((id, libelle)) = self.foyers.get_foyer(etablissement_id, foyer_id).await? else {
@@ -5221,7 +5220,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         limit: i64,
     ) -> Result<Vec<(Uuid, Option<String>, i64)>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_manage_eleves() || matches!(parsed, Role::Compta | Role::Cpe)) {
+        if !(Self::role_can_manage_eleves(role) || matches!(parsed, Role::Compta | Role::Cpe)) {
             return Err(EntDbError::Forbidden);
         }
         Ok(self
@@ -5238,8 +5237,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: UpdateLien,
         actor_user_id: Uuid,
     ) -> Result<EleveLien, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let saved = self
@@ -5273,8 +5271,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmds: Vec<(Uuid, UpdateLien)>,
         actor_user_id: Uuid,
     ) -> Result<Vec<EleveLien>, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let saved = self
@@ -5322,8 +5319,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         lien_id: Uuid,
         actor_user_id: Uuid,
     ) -> Result<(), EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let before = self
@@ -5481,9 +5477,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_manage_eleves(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_manage_eleves())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::ElevesGerer)
     }
 
     /// Sauvegardes / PRA : seule la Direction (ou un admin plateforme) peut
@@ -5505,9 +5499,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_manage_matieres(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_manage_matieres())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::MatieresGerer)
     }
 
     pub fn role_can_saisir_notes(role: &str) -> bool {
@@ -5790,7 +5782,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         actor_user_id: Uuid,
     ) -> Result<EleveDocument, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_manage_eleves() || parsed.can_saisir_notes() || parsed == Role::Cpe) {
+        if !(Self::role_can_manage_eleves(role) || parsed.can_saisir_notes() || parsed == Role::Cpe) {
             return Err(EntDbError::Forbidden);
         }
         let periode = self
@@ -5970,8 +5962,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: CreerCompetenceItem,
     ) -> Result<CompetenceItem, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(Self::role_can_manage_matieres(role) || parsed.can_manage_eleves()) {
+        if !(Self::role_can_manage_matieres(role) || Self::role_can_manage_eleves(role)) {
             return Err(EntDbError::Forbidden);
         }
         let item = plan_creer_competence_item(cmd)?;
@@ -6092,7 +6083,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         actor_user_id: Uuid,
     ) -> Result<EleveDocument, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let gestion = parsed.can_manage_eleves() || parsed == Role::Cpe;
+        let gestion = Self::role_can_manage_eleves(role) || parsed == Role::Cpe;
         if !gestion
             && !(parsed.is_staff()
                 && self
@@ -6328,7 +6319,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     ) -> Result<Vec<Devoir>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !(parsed.can_saisir_notes()
-            || parsed.can_manage_eleves()
+            || Self::role_can_manage_eleves(role)
             || parsed.can_read_all_eleves())
         {
             return Err(EntDbError::Forbidden);
@@ -6750,9 +6741,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_manage_edt(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_manage_edt())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::EdtGerer)
     }
 
     pub async fn poser_edt_exception_for_actor(
@@ -8198,7 +8187,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         actor_user_id: Uuid,
     ) -> Result<AbsenceMotif, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves()
+        if !Self::role_can_manage_eleves(role)
             && !matches!(parsed, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)
         {
             return Err(EntDbError::Forbidden);
@@ -8246,9 +8235,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: InviterCompteEleve,
     ) -> Result<(EleveInvitation, String, String), EntDbError> {
-        if !Role::parse(role)
-            .map(|r| r.can_manage_eleves())
-            .unwrap_or(false)
+        if !Self::role_can_manage_eleves(role)
         {
             return Err(EntDbError::Forbidden);
         }
@@ -8308,9 +8295,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         etablissement_id: Uuid,
         role: &str,
     ) -> Result<Vec<Eleve>, EntDbError> {
-        if !Role::parse(role)
-            .map(|r| r.can_manage_eleves())
-            .unwrap_or(false)
+        if !Self::role_can_manage_eleves(role)
         {
             return Err(EntDbError::Forbidden);
         }
@@ -8353,9 +8338,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         etablissement_id: Uuid,
         role: &str,
     ) -> Result<Vec<EleveInvitation>, EntDbError> {
-        if !Role::parse(role)
-            .map(|r| r.can_manage_eleves())
-            .unwrap_or(false)
+        if !Self::role_can_manage_eleves(role)
         {
             return Err(EntDbError::Forbidden);
         }
@@ -9003,15 +8986,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_manage_repas(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_manage_repas())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::RepasGerer)
     }
 
     pub fn role_can_manage_bourses(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_manage_bourses())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::BoursesGerer)
     }
 
     pub async fn creer_repas_activite(
@@ -9353,9 +9332,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_scan_repas(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_scan_repas())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::RepasScanner)
     }
 
     /// Pointage badge cantine : résout l'élève, contrôle grille/dispense, enregistre le passage.
@@ -9450,7 +9427,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         fin: NaiveDate,
     ) -> Result<Vec<PassageRepas>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = Self::role_can_scan_repas(role) || parsed.can_manage_eleves();
+        let staff = Self::role_can_scan_repas(role) || Self::role_can_manage_eleves(role);
         if !staff {
             if matches!(parsed, Role::Parent) {
                 if self
@@ -9564,7 +9541,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         fin: NaiveDate,
         kind: RepasActiviteKind,
     ) -> Result<u32, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
+        if !Self::role_can_lire_facturation(role) {
             return Err(EntDbError::Forbidden);
         }
         let (n, _) = self
@@ -9587,8 +9564,8 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     ) -> Result<Vec<BourseType>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !(Self::role_can_manage_bourses(role)
-            || Self::role_can_manage_facturation(role)
-            || parsed.can_manage_eleves()
+            || Self::role_can_lire_facturation(role)
+            || Self::role_can_manage_eleves(role)
             || parsed.can_read_all_eleves())
         {
             return Err(EntDbError::Forbidden);
@@ -11285,15 +11262,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_gerer_sorties(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_gerer_sorties())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::SortiesGerer)
     }
 
     pub fn role_can_controle_sortie(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_controle_sortie())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::SortiesControler)
     }
 
     /// Consentement permanent parent, ou forbid établissement (staff).
@@ -11500,7 +11473,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     return Err(EntDbError::Forbidden);
                 }
             }
-            r if r.can_gerer_sorties() || r.can_read_all_eleves() => {}
+            r if Self::role_can_gerer_sorties(role) || r.can_read_all_eleves() => {}
             _ => return Err(EntDbError::Forbidden),
         }
         let autorisation = self
@@ -11543,7 +11516,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     return Err(EntDbError::Forbidden);
                 }
             }
-            r if r.can_gerer_sorties() => {}
+            _ if Self::role_can_gerer_sorties(role) => {}
             _ => return Err(EntDbError::Forbidden),
         }
         if let Some(auth) = self
@@ -11745,9 +11718,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_gerer_internat(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_gerer_internat())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::InternatGerer)
     }
 
     pub async fn creer_chambre_internat_for_actor(
@@ -12205,7 +12176,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         limit: i64,
     ) -> Result<Vec<JournalEntree>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_read_all_eleves() || parsed.can_manage_eleves();
+        let staff = parsed.can_read_all_eleves() || Self::role_can_manage_eleves(role);
         let parent = matches!(parsed, Role::Parent);
         let eleve = matches!(parsed, Role::Eleve);
         if !staff && !parent && !eleve {
@@ -12277,7 +12248,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !(Self::role_can_manage_repas(role)
             || parsed.can_read_all_eleves()
-            || parsed.can_manage_eleves()
+            || Self::role_can_manage_eleves(role)
             || matches!(parsed, Role::Parent | Role::Eleve))
         {
             return Err(EntDbError::Forbidden);
@@ -12433,15 +12404,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_publier_docs_a_signer(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_publier_docs_a_signer())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::DocsSignerPublier)
     }
 
     pub fn role_can_publier_annonces(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_publier_annonces())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::AnnoncesPublier)
     }
 
     /// Publie une annonce de l'établissement. Répercussions transverses :
@@ -12769,9 +12736,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_gerer_conseil_classe(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_gerer_conseil_classe())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::ConseilsGerer)
     }
 
     pub async fn creer_conseil_classe_for_actor(
@@ -13008,8 +12973,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: CreerInfoCompChamp,
     ) -> Result<InfoCompChamp, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_creer_info_comp_champ(cmd)?;
@@ -13034,7 +12998,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
     ) -> Result<Vec<InfoCompChamp>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_manage_eleves() || parsed.can_read_all_eleves()) {
+        if !(Self::role_can_manage_eleves(role) || parsed.can_read_all_eleves()) {
             return Err(EntDbError::Forbidden);
         }
         Ok(self.info_comp.list_champs(etablissement_id, true).await?)
@@ -13046,7 +13010,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: UpsertInfoCompValeur,
     ) -> Result<InfoCompValeur, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_manage_eleves() || Self::role_can_gerer_alertes_cpe(role);
+        let staff = Self::role_can_manage_eleves(role) || Self::role_can_gerer_alertes_cpe(role);
         let parent = matches!(parsed, Role::Parent);
         let eleve = matches!(parsed, Role::Eleve);
         if !staff && !parent && !eleve {
@@ -13108,7 +13072,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     ) -> Result<(Vec<InfoCompChamp>, Vec<InfoCompValeur>), EntDbError> {
         self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_manage_eleves() || parsed.can_read_all_eleves();
+        let staff = Self::role_can_manage_eleves(role) || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
         let eleve = matches!(parsed, Role::Eleve);
         if !staff && !parent && !eleve {
@@ -13156,8 +13120,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: CreerPeriodeVacances,
     ) -> Result<PeriodeVacances, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_creer_periode_vacances(cmd)?;
@@ -13213,8 +13176,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         periode_id: Uuid,
     ) -> Result<(), EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         if !self.vacances.delete(etablissement_id, periode_id).await? {
@@ -13230,7 +13192,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: RechercherHomonymes,
     ) -> Result<Vec<HomonymeCandidat>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() && !parsed.can_read_all_eleves() {
+        if !Self::role_can_manage_eleves(role) && !parsed.can_read_all_eleves() {
             return Err(EntDbError::Forbidden);
         }
         let date_naissance = cmd.date_naissance;
@@ -13364,7 +13326,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     ) -> Result<Option<QuotientFoyer>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff =
-            Self::role_can_manage_facturation(role) || Self::role_can_manage_bourses(role);
+            Self::role_can_lire_facturation(role) || Self::role_can_manage_bourses(role);
         let parent = matches!(parsed, Role::Parent);
         if !staff && !parent {
             return Err(EntDbError::Forbidden);
@@ -13414,7 +13376,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
     ) -> Result<Vec<TauxTva>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(Self::role_can_manage_facturation(role) || parsed.can_read_all_eleves()) {
+        if !(Self::role_can_lire_facturation(role) || parsed.can_read_all_eleves()) {
             return Err(EntDbError::Forbidden);
         }
         Ok(self.tva.list(etablissement_id, true).await?)
@@ -13429,7 +13391,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     ) -> Result<i64, EntDbError> {
         let _ = etablissement_id;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(Self::role_can_manage_facturation(role) || parsed.can_read_all_eleves()) {
+        if !(Self::role_can_lire_facturation(role) || parsed.can_read_all_eleves()) {
             return Err(EntDbError::Forbidden);
         }
         if !(0..=10000).contains(&taux_bps) {
@@ -13448,7 +13410,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         bytes: &[u8],
     ) -> Result<Eleve, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if parsed.can_manage_eleves() {
+        if Self::role_can_manage_eleves(role) {
             // staff manage
         } else if matches!(parsed, Role::Parent) {
             if self
@@ -13517,7 +13479,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         jour: NaiveDate,
     ) -> Result<Vec<TrombiEntree>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_manage_eleves()
+        if !(Self::role_can_manage_eleves(role)
             || parsed.can_read_all_eleves()
             || parsed.can_faire_appel())
         {
@@ -13589,8 +13551,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: UpsertParamEtab,
     ) -> Result<ParamEtab, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_upsert_param_etab(cmd)?;
@@ -13640,8 +13601,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: CreerSalle,
     ) -> Result<Salle, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_edt() && !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_edt(role) && !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_creer_salle(cmd)?;
@@ -13681,8 +13641,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: CreerFiliere,
     ) -> Result<Filiere, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_creer_filiere(cmd)?;
@@ -13723,7 +13682,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: PoserVoeu,
     ) -> Result<VoeuInscription, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_manage_eleves() || parsed.can_manage_continuum();
+        let staff = Self::role_can_manage_eleves(role) || parsed.can_manage_continuum();
         let parent = matches!(parsed, Role::Parent);
         let eleve = matches!(parsed, Role::Eleve);
         if !staff && !parent && !eleve {
@@ -13784,7 +13743,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     ) -> Result<Vec<VoeuInscription>, EntDbError> {
         self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_manage_eleves() || parsed.can_read_all_eleves();
+        let staff = Self::role_can_manage_eleves(role) || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
         let eleve = matches!(parsed, Role::Eleve);
         if !staff && !parent && !eleve {
@@ -13822,7 +13781,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         voeu_id: Uuid,
     ) -> Result<(), EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_manage_eleves() || parsed.can_manage_continuum();
+        let staff = Self::role_can_manage_eleves(role) || parsed.can_manage_continuum();
         let parent = matches!(parsed, Role::Parent);
         let eleve = matches!(parsed, Role::Eleve);
         if !staff && !parent && !eleve {
@@ -13865,7 +13824,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: UpsertInscriptionSuivi,
     ) -> Result<InscriptionSuivi, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() && !parsed.can_manage_continuum() {
+        if !Self::role_can_manage_eleves(role) && !parsed.can_manage_continuum() {
             return Err(EntDbError::Forbidden);
         }
         self.eleves
@@ -13902,7 +13861,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     ) -> Result<Option<InscriptionSuivi>, EntDbError> {
         self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_manage_eleves() || parsed.can_read_all_eleves();
+        let staff = Self::role_can_manage_eleves(role) || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
         if !staff && !parent {
             return Err(EntDbError::Forbidden);
@@ -13928,8 +13887,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         annee_scolaire: &str,
         etape: &str,
     ) -> Result<Vec<InscriptionSuivi>, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() {
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         Ok(self
@@ -13943,7 +13901,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: ExporterLsl,
     ) -> Result<String, EntDbError> {
-        if !Self::role_can_saisir_notes(role) && !Role::parse(role).is_some_and(|r| r.can_manage_eleves()) {
+        if !Self::role_can_saisir_notes(role) && !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_lsl(cmd)?;
@@ -14014,7 +13972,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: ExporterOnde,
     ) -> Result<String, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() && !parsed.can_manage_continuum() {
+        if !Self::role_can_manage_eleves(role) && !parsed.can_manage_continuum() {
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_onde(cmd)?;
@@ -14081,7 +14039,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     ) -> Result<Vec<TarifConso>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !(Self::role_can_manage_repas(role)
-            || Self::role_can_manage_facturation(role)
+            || Self::role_can_lire_facturation(role)
             || parsed.is_staff())
         {
             return Err(EntDbError::Forbidden);
@@ -14100,7 +14058,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
         if !Self::role_can_saisir_notes(role)
-            && !Role::parse(role).is_some_and(|r| r.can_manage_eleves())
+            && !Self::role_can_manage_eleves(role)
         {
             return Err(EntDbError::Forbidden);
         }
@@ -14152,7 +14110,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: ExporterParcoursup,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
-        if !Role::parse(role).is_some_and(|r| r.can_manage_eleves() || r.can_saisir_notes()) {
+        if !(Self::role_can_manage_eleves(role) || Self::role_can_saisir_notes(role)) {
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_parcoursup(cmd)?;
@@ -14212,7 +14170,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         // Soi-même ou admin RH.
         let self_or_rh = cmd.user_id == cmd.actor_user_id
-            || parsed.can_manage_eleves()
+            || Self::role_can_manage_eleves(role)
             || matches!(parsed, Role::Direction | Role::Admin);
         if !self_or_rh {
             return Err(EntDbError::Forbidden);
@@ -14250,7 +14208,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         actor_user_id: Uuid,
     ) -> Result<AbsenceRh, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() && !matches!(parsed, Role::Direction | Role::Admin) {
+        if !Self::role_can_manage_eleves(role) && !matches!(parsed, Role::Direction | Role::Admin) {
             return Err(EntDbError::Forbidden);
         }
         let current = self
@@ -14414,7 +14372,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: CreerEditionVs,
     ) -> Result<EditionVsTemplate, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves() && !matches!(parsed, Role::Cpe | Role::Direction | Role::Admin)
+        if !Self::role_can_manage_eleves(role) && !matches!(parsed, Role::Cpe | Role::Direction | Role::Admin)
         {
             return Err(EntDbError::Forbidden);
         }
@@ -14560,7 +14518,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: CreerEntreprise,
     ) -> Result<Entreprise, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves()
+        if !Self::role_can_manage_eleves(role)
             && !matches!(parsed, Role::Administratif | Role::Direction | Role::Admin)
         {
             return Err(EntDbError::Forbidden);
@@ -14602,7 +14560,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: CreerConventionStage,
     ) -> Result<ConventionStage, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_manage_eleves()
+        if !Self::role_can_manage_eleves(role)
             && !matches!(parsed, Role::Administratif | Role::Direction | Role::Admin | Role::Cpe)
         {
             return Err(EntDbError::Forbidden);
@@ -14685,7 +14643,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: ExporterLsun,
     ) -> Result<String, EntDbError> {
         if !Self::role_can_saisir_notes(role)
-            && !Role::parse(role).is_some_and(|r| r.can_manage_eleves())
+            && !Self::role_can_manage_eleves(role)
         {
             return Err(EntDbError::Forbidden);
         }
@@ -16984,9 +16942,12 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     }
 
     pub fn role_can_manage_facturation(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_manage_facturation())
-            .unwrap_or(false)
+        Self::peut_etablissement(role, Action::FacturationGerer)
+    }
+
+    /// Consulter la facturation : `facturation.lire`, ou `facturation.gerer` qui l'inclut.
+    pub fn role_can_lire_facturation(role: &str) -> bool {
+        Self::peut_etablissement(role, Action::FacturationLire)
     }
 
     async fn foyer_ids_parent(
@@ -17014,7 +16975,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
-        if Self::role_can_manage_facturation(role) {
+        if Self::role_can_lire_facturation(role) {
             return Ok(true);
         }
         if parsed == Role::Parent {
@@ -17135,7 +17096,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let Some(parsed) = Role::parse(role) else {
             return Err(EntDbError::Forbidden);
         };
-        if Self::role_can_manage_facturation(role) {
+        if Self::role_can_lire_facturation(role) {
             return Ok(self
                 .facturation
                 .list_factures_etab(etablissement_id, 80)
@@ -17246,7 +17207,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let Some(parsed) = Role::parse(role) else {
             return Err(EntDbError::Forbidden);
         };
-        if Self::role_can_manage_facturation(role) {
+        if Self::role_can_lire_facturation(role) {
             // Staff : via détail facture ; listing global = tous foyers non exposé ici.
             return Err(EntDbError::Forbidden);
         }
@@ -17625,7 +17586,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         limit: i64,
     ) -> Result<Vec<IbanHisto>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if Self::role_can_manage_facturation(role) {
+        if Self::role_can_lire_facturation(role) {
             // ok
         } else if matches!(parsed, Role::Parent) {
             let foyers = self
@@ -17654,7 +17615,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .facturation
             .list_sepa_mandats_etab(etablissement_id, 80)
             .await?;
-        if Self::role_can_manage_facturation(role) {
+        if Self::role_can_lire_facturation(role) {
             return Ok(all);
         }
         if matches!(parsed, Role::Parent) {
@@ -18235,7 +18196,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         etablissement_id: Uuid,
         role: &str,
     ) -> Result<Vec<RappelFacture>, EntDbError> {
-        if !Self::role_can_manage_facturation(role) {
+        if !Self::role_can_lire_facturation(role) {
             return Err(EntDbError::Forbidden);
         }
         Ok(self
@@ -18354,7 +18315,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 }
             }
             copilote::Intention::Impayes => {
-                if !r.can_manage_facturation() {
+                if !Self::role_can_lire_facturation(role) {
                     ReponseCopilote::refus("impayes", question)
                 } else {
                     let list = self
@@ -18380,7 +18341,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 }
             }
             copilote::Intention::SansCompte => {
-                if !r.can_manage_eleves() {
+                if !Self::role_can_manage_eleves(role) {
                     ReponseCopilote::refus("sans_compte", question)
                 } else {
                     let n = self

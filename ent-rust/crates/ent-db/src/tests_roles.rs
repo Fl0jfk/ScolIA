@@ -2,7 +2,7 @@
 //! Distribution du labo : Rogue (`profs[0]`) enseigne en 4B (Harry), pas en 5A (Draco).
 
 use super::*;
-use domain_eleve::{today_utc, DomainError};
+use domain_eleve::{today_utc, CreerTauxTva, DomainError};
 use ent_auth::{Action, Portee, Role};
 use uuid::Uuid;
 
@@ -443,6 +443,286 @@ async fn r2_psy_sanctions_documents_audit_sans_role_refuses_puis_ouverts() {
         .await
         .unwrap();
     for id in [ok.id, gestion.id, role.id] {
+        ent.supprimer_role_for_actor(etab, dir.0, dir.1, id).await.unwrap();
+    }
+}
+
+// ─────────────── R2 (D-017) : domaines de gestion basculés sur le moteur ───────────────
+
+/// Les 13 contrôles `role_can_*` de gestion et l'action qui les porte.
+fn controles_r2() -> Vec<(&'static str, Action, fn(&str) -> bool)> {
+    vec![
+        ("facturation", Action::FacturationGerer, PgEnt::role_can_manage_facturation),
+        ("bourses", Action::BoursesGerer, PgEnt::role_can_manage_bourses),
+        ("edt", Action::EdtGerer, PgEnt::role_can_manage_edt),
+        ("annonces", Action::AnnoncesPublier, PgEnt::role_can_publier_annonces),
+        ("repas", Action::RepasGerer, PgEnt::role_can_manage_repas),
+        ("scan repas", Action::RepasScanner, PgEnt::role_can_scan_repas),
+        ("internat", Action::InternatGerer, PgEnt::role_can_gerer_internat),
+        ("sorties", Action::SortiesGerer, PgEnt::role_can_gerer_sorties),
+        ("contrôle sortie", Action::SortiesControler, PgEnt::role_can_controle_sortie),
+        ("élèves", Action::ElevesGerer, PgEnt::role_can_manage_eleves),
+        ("matières", Action::MatieresGerer, PgEnt::role_can_manage_matieres),
+        ("conseils", Action::ConseilsGerer, PgEnt::role_can_gerer_conseil_classe),
+        ("docs à signer", Action::DocsSignerPublier, PgEnt::role_can_publier_docs_a_signer),
+    ]
+}
+
+fn ancien(role: Role, action: Action) -> bool {
+    match action {
+        Action::FacturationGerer | Action::FacturationLire => role.can_manage_facturation(),
+        Action::BoursesGerer => role.can_manage_bourses(),
+        Action::EdtGerer => role.can_manage_edt(),
+        Action::AnnoncesPublier => role.can_publier_annonces(),
+        Action::RepasGerer => role.can_manage_repas(),
+        Action::RepasScanner => role.can_scan_repas(),
+        Action::InternatGerer => role.can_gerer_internat(),
+        Action::SortiesGerer => role.can_gerer_sorties(),
+        Action::SortiesControler => role.can_controle_sortie(),
+        Action::ElevesGerer => role.can_manage_eleves(),
+        Action::MatieresGerer => role.can_manage_matieres(),
+        Action::ConseilsGerer => role.can_gerer_conseil_classe(),
+        Action::DocsSignerPublier => role.can_publier_docs_a_signer(),
+        _ => unreachable!(),
+    }
+}
+
+#[tokio::test]
+async fn r2_non_regression_profils_hors_et_dans_le_contexte() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let personas = [
+        (&cast.admin, Role::Admin),
+        (&cast.direction, Role::Direction),
+        (&cast.administratif, Role::Administratif),
+        (&cast.compta, Role::Compta),
+        (&cast.prof, Role::Prof),
+        (&cast.cpe, Role::Cpe),
+        (&cast.parent_lea, Role::Parent),
+    ];
+    for (persona, role) in personas {
+        let r = role.as_str();
+        for (nom, action, f) in controles_r2() {
+            // Sans contexte : modèle du profil.
+            assert_eq!(f(r), ancien(role, action), "hors contexte {r} × {nom}");
+            // Avec le contexte réel de la personne (aucun rôle attribué) : identique.
+            let dans = ent
+                .avec_acteur(etab, persona.user_id, r, async { f(r) })
+                .await
+                .unwrap();
+            assert_eq!(dans, ancien(role, action), "dans le contexte {r} × {nom}");
+        }
+        assert_eq!(
+            PgEnt::role_can_lire_facturation(r),
+            role.can_manage_facturation(),
+            "lecture facturation {r}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn r2_role_accueil_obtient_exactement_ses_droits() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let dir = (cast.direction.user_id, cast.direction.role.as_str());
+    let (user, base) = (cast.compta.user_id, Role::Compta.as_str());
+
+    let annonce = |titre: &str| CreerAnnonce {
+        etablissement_id: etab,
+        titre: titre.into(),
+        corps: "Fermeture exceptionnelle.".into(),
+        audience: "parents".into(),
+        cible_classe: None,
+        actor_user_id: user,
+    };
+    // Avant : la comptable ne publie pas et ne contrôle pas les sorties.
+    assert!(matches!(
+        ent.publier_annonce_for_actor(base, annonce("Avant")).await,
+        Err(EntDbError::Forbidden)
+    ));
+
+    let accueil = ent
+        .creer_role_for_actor(
+            etab,
+            dir.0,
+            dir.1,
+            saisie(
+                "Accueil",
+                vec![
+                    droit(Action::SortiesControler, Portee::Etablissement),
+                    droit(Action::AnnoncesPublier, Portee::Etablissement),
+                ],
+            ),
+        )
+        .await
+        .unwrap();
+    ent.attribuer_role_for_actor(etab, dir.0, dir.1, accueil.id, user, None)
+        .await
+        .unwrap();
+
+    let jour = today_utc();
+    ent.avec_acteur(etab, user, base, async {
+        // Exactement ces deux droits…
+        assert!(PgEnt::role_can_controle_sortie(base));
+        assert!(PgEnt::role_can_publier_annonces(base));
+        ent.publier_annonce_for_actor(base, annonce("Fermeture")).await.unwrap();
+        ent.list_controles_sortie_jour_for_actor(etab, base, jour).await.unwrap();
+        // … et pas un de plus (sorties.gerer, EDT, élèves, docs à signer, internat).
+        assert!(!PgEnt::role_can_gerer_sorties(base));
+        assert!(!PgEnt::role_can_manage_edt(base));
+        assert!(!PgEnt::role_can_manage_eleves(base));
+        assert!(!PgEnt::role_can_publier_docs_a_signer(base));
+        assert!(!PgEnt::role_can_gerer_internat(base));
+        // Ce que le profil Compta donne déjà reste acquis.
+        assert!(PgEnt::role_can_manage_facturation(base));
+        assert!(matches!(
+            ent.list_sortie_regles_niveau_for_actor(etab, base).await,
+            Err(EntDbError::Forbidden)
+        ));
+    })
+    .await
+    .unwrap();
+
+    // Le contexte d'un autre profil n'est jamais appliqué à un profil différent.
+    ent.avec_acteur(etab, user, base, async {
+        assert!(!PgEnt::role_can_publier_annonces(Role::Prof.as_str()));
+    })
+    .await
+    .unwrap();
+
+    // Retrait : effet immédiat à la requête suivante.
+    ent.retirer_role_for_actor(etab, dir.0, dir.1, accueil.id, user).await.unwrap();
+    ent.avec_acteur(etab, user, base, async {
+        assert!(!PgEnt::role_can_controle_sortie(base));
+        assert!(!PgEnt::role_can_publier_annonces(base));
+    })
+    .await
+    .unwrap();
+    ent.supprimer_role_for_actor(etab, dir.0, dir.1, accueil.id).await.unwrap();
+}
+
+#[tokio::test]
+async fn r2_comptable_adjoint_lit_sans_emettre() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let dir = (cast.direction.user_id, cast.direction.role.as_str());
+    // La CPE n'a aucun droit de facturation par son profil.
+    let (user, base) = (cast.cpe.user_id, Role::Cpe.as_str());
+    let tva = |code: &str| CreerTauxTva {
+        etablissement_id: etab,
+        code: format!("{code}{}", &Uuid::new_v4().simple().to_string()[..4]),
+        libelle: "Test".into(),
+        taux_bps: 550,
+        actor_user_id: user,
+    };
+    ent.avec_acteur(etab, user, base, async {
+        assert!(matches!(
+            ent.list_rappels_for_actor(etab, base).await,
+            Err(EntDbError::Forbidden)
+        ));
+    })
+    .await
+    .unwrap();
+
+    let lecteur = ent
+        .creer_role_for_actor(
+            etab,
+            dir.0,
+            dir.1,
+            saisie("Comptable adjoint", vec![droit(Action::FacturationLire, Portee::Etablissement)]),
+        )
+        .await
+        .unwrap();
+    ent.attribuer_role_for_actor(etab, dir.0, dir.1, lecteur.id, user, None).await.unwrap();
+    ent.avec_acteur(etab, user, base, async {
+        // Lit…
+        ent.list_rappels_for_actor(etab, base).await.unwrap();
+        ent.list_factures_for_actor(etab, user, base).await.unwrap();
+        // … n'émet ni ne paramètre rien.
+        assert!(!PgEnt::role_can_manage_facturation(base));
+        assert!(matches!(
+            ent.creer_taux_tva_for_actor(base, tva("A")).await,
+            Err(EntDbError::Forbidden)
+        ));
+    })
+    .await
+    .unwrap();
+    ent.retirer_role_for_actor(etab, dir.0, dir.1, lecteur.id, user).await.unwrap();
+    ent.supprimer_role_for_actor(etab, dir.0, dir.1, lecteur.id).await.unwrap();
+
+    // `facturation.gerer` inclut la lecture.
+    let gestion = ent
+        .creer_role_for_actor(
+            etab,
+            dir.0,
+            dir.1,
+            saisie("Facturation", vec![droit(Action::FacturationGerer, Portee::Etablissement)]),
+        )
+        .await
+        .unwrap();
+    ent.attribuer_role_for_actor(etab, dir.0, dir.1, gestion.id, user, None).await.unwrap();
+    ent.avec_acteur(etab, user, base, async {
+        ent.list_rappels_for_actor(etab, base).await.unwrap();
+        ent.creer_taux_tva_for_actor(base, tva("B")).await.unwrap();
+    })
+    .await
+    .unwrap();
+    ent.supprimer_role_for_actor(etab, dir.0, dir.1, gestion.id).await.unwrap();
+}
+
+#[tokio::test]
+async fn r2_garde_fous_portee_et_escalade() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let dir = (cast.direction.user_id, cast.direction.role.as_str());
+    let cpe = (cast.cpe.user_id, cast.cpe.role.as_str());
+
+    // Les actions de gestion n'acceptent que l'établissement entier.
+    for a in [Action::FacturationGerer, Action::EdtGerer, Action::ElevesGerer] {
+        let r = ent
+            .creer_role_for_actor(etab, dir.0, dir.1, saisie("x", vec![droit(a, Portee::MesClasses)]))
+            .await;
+        assert!(matches!(r, Err(EntDbError::Domain(DomainError::ValeurInvalide))), "{a:?} : {r:?}");
+    }
+    // La CPE reçoit la gestion des rôles, mais ne peut donner que ce qu'elle a.
+    let gestion = ent
+        .creer_role_for_actor(
+            etab,
+            dir.0,
+            dir.1,
+            saisie("Gestion VS", vec![droit(Action::RolesGerer, Portee::Etablissement)]),
+        )
+        .await
+        .unwrap();
+    ent.attribuer_role_for_actor(etab, dir.0, dir.1, gestion.id, cpe.0, None).await.unwrap();
+    let ok = ent
+        .creer_role_for_actor(
+            etab,
+            cpe.0,
+            cpe.1,
+            saisie("Sorties", vec![droit(Action::SortiesGerer, Portee::Etablissement)]),
+        )
+        .await
+        .unwrap();
+    for a in [Action::FacturationGerer, Action::FacturationLire, Action::BoursesGerer, Action::ElevesGerer] {
+        let r = ent
+            .creer_role_for_actor(etab, cpe.0, cpe.1, saisie("Escalade", vec![droit(a, Portee::Etablissement)]))
+            .await;
+        assert!(matches!(r, Err(EntDbError::Forbidden)), "{a:?} : {r:?}");
+    }
+    for id in [ok.id, gestion.id] {
         ent.supprimer_role_for_actor(etab, dir.0, dir.1, id).await.unwrap();
     }
 }

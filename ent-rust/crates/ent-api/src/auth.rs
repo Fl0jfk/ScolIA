@@ -173,6 +173,44 @@ impl EntSession {
     }
 }
 
+/// R2 (D-017) : charge **une fois par requête** les droits effectifs de la
+/// personne authentifiée (profil de base ∪ rôles attribués, lus en base : effet
+/// immédiat) et exécute le handler dans ce contexte. Les contrôles de gestion
+/// des services (`role_can_*`, `require_*`) y lisent leur décision : une seule
+/// règle, celle du moteur. Sans session valide ou en cas d'erreur de lecture, la
+/// requête passe **sans** contexte : repli sur le modèle du profil (droits
+/// historiques), jamais plus. La session résolue est mémorisée pour l'extracteur.
+pub async fn contexte_droits(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some(header) = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
+    else {
+        return next.run(req).await;
+    };
+    let Ok(info) = state.ent.resolve_session(&header).await else {
+        return next.run(req).await;
+    };
+    let ctx = state
+        .ent
+        .charger_droits_acteur(info.etablissement_id, info.user_id, &info.role)
+        .await;
+    req.extensions_mut().insert(SessionPreResolue(info));
+    match ctx {
+        Ok(Some(ctx)) => PgEnt::avec_droits_acteur(ctx, next.run(req)).await,
+        _ => next.run(req).await,
+    }
+}
+
+/// Session déjà résolue par [`contexte_droits`] (évite une seconde lecture).
+#[derive(Clone)]
+pub struct SessionPreResolue(pub ent_db::SessionInfo);
+
 impl FromRequestParts<AppState> for EntSession {
     type Rejection = (StatusCode, String);
 
@@ -186,17 +224,21 @@ impl FromRequestParts<AppState> for EntSession {
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| (StatusCode::UNAUTHORIZED, "authorization manquante".into()))?;
 
-        let info = state
-            .ent
-            .resolve_session(header)
-            .await
-            .map_err(|e| match e {
-                ent_db::EntDbError::Auth(_) => (StatusCode::UNAUTHORIZED, e.to_string()),
-                autre => crate::routes::erreur_infra(&autre).unwrap_or((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Erreur interne.".to_string(),
-                )),
-            })?;
+        let info = if let Some(SessionPreResolue(info)) = parts.extensions.get().cloned() {
+            info
+        } else {
+            state
+                .ent
+                .resolve_session(header)
+                .await
+                .map_err(|e| match e {
+                    ent_db::EntDbError::Auth(_) => (StatusCode::UNAUTHORIZED, e.to_string()),
+                    autre => crate::routes::erreur_infra(&autre).unwrap_or((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Erreur interne.".to_string(),
+                    )),
+                })?
+        };
 
         // C2 (D-012) : sur l'adresse d'un établissement, seule une session de cet
         // établissement est acceptée (jeton d'un autre établissement → 401).
