@@ -10,9 +10,11 @@ mod ical;
 pub mod obs;
 mod referentiel;
 mod routes;
+pub mod tenant;
 mod ui;
 
 pub use auth::EntSession;
+pub use tenant::TenantHote;
 /// Environnements non productifs (porte du labo et de l'inscription libre) ;
 /// exposé pour le test de parité avec le bandeau labo du frontend.
 pub use routes::ENVS_NON_PROD;
@@ -107,6 +109,11 @@ pub fn app(state: AppState) -> Router {
     let mut router = Router::new()
         .nest_service("/static", fonts)
         .merge(routes::router())
+        // Établissement déduit de l'adresse (C2, D-012) : résolu une fois par requête.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            tenant::resoudre_tenant,
+        ))
         .with_state(state.clone())
         // Garde-fou corps de requête (anti-DoS).
         .layer(RequestBodyLimitLayer::new(max_body_bytes()));

@@ -1,4 +1,5 @@
 use crate::auth::EntSession;
+use crate::tenant::TenantHote;
 use crate::ical::{render_edt_calendar, EdtOccurrence};
 use crate::dto::{
     AbsenceDto, AbsentDto, AnnonceDto, AppelDto, AppelLigneDto, CampagneDto, CarnetEntreeDto, ChangeClasseBody,
@@ -133,6 +134,10 @@ pub fn router() -> Router<AppState> {
         .route("/pra/inventaire", get(pra_inventaire))
         .route("/pra/inventaire/verifier", post(pra_verifier_inventaire))
         .route("/auth/login", post(login))
+        .route("/auth/etablissement", get(etablissement_de_l_hote))
+        .route("/etablissement/fiche", put(put_etablissement_fiche))
+        .route("/etablissement/domaines", get(list_etablissement_domaines).post(post_etablissement_domaine))
+        .route("/etablissement/domaines/{domaine}", delete(delete_etablissement_domaine))
         .route("/auth/passkey/register/start", post(passkey_register_start))
         .route(
             "/auth/passkey/register/finish",
@@ -1696,7 +1701,9 @@ pub struct RegisterBody {
     pub email: String,
     pub password: String,
     pub display_name: Option<String>,
-    pub etablissement_id: Uuid,
+    /// Ignoré si l'adresse désigne un établissement (C2, D-012).
+    #[serde(default)]
+    pub etablissement_id: Option<Uuid>,
     #[serde(default = "default_role")]
     pub role: String,
 }
@@ -1710,7 +1717,9 @@ fn default_role() -> String {
 pub struct LoginBody {
     pub email: String,
     pub password: String,
-    pub etablissement_id: Uuid,
+    /// Ignoré si l'adresse désigne un établissement (C2, D-012).
+    #[serde(default)]
+    pub etablissement_id: Option<Uuid>,
     /// `web` (défaut) ou `mobile` : durée de session (D-011).
     #[serde(default)]
     pub client: Option<String>,
@@ -1801,7 +1810,9 @@ pub struct PasskeyDeleteBody {
 #[derive(Debug, Deserialize)]
 pub struct PasskeyLoginStartBody {
     pub email: String,
-    pub etablissement_id: Uuid,
+    /// Ignoré si l'adresse désigne un établissement (C2, D-012).
+    #[serde(default)]
+    pub etablissement_id: Option<Uuid>,
     #[serde(default)]
     pub client: Option<String>,
 }
@@ -1868,12 +1879,16 @@ impl From<ent_db::OidcProviderRow> for OidcProviderDto {
 
 #[derive(Debug, Deserialize)]
 pub struct OidcEtabQuery {
-    pub etablissement_id: Uuid,
+    /// Ignoré si l'adresse désigne un établissement (C2, D-012).
+    #[serde(default)]
+    pub etablissement_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct OidcStartBody {
-    pub etablissement_id: Uuid,
+    /// Ignoré si l'adresse désigne un établissement (C2, D-012).
+    #[serde(default)]
+    pub etablissement_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1904,6 +1919,7 @@ pub struct OidcUpsertBody {
 #[cfg(feature = "labo")]
 async fn register(
     State(state): State<AppState>,
+    tenant: TenantHote,
     Json(body): Json<RegisterBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
     if !registration_open() {
@@ -1918,7 +1934,7 @@ async fn register(
             &body.email,
             &body.password,
             body.display_name.as_deref(),
-            body.etablissement_id,
+            tenant.etablissement_effectif(body.etablissement_id)?,
             &body.role,
         )
         .await
@@ -1969,16 +1985,18 @@ fn client_ip(headers: &HeaderMap) -> Option<String> {
 
 async fn login(
     State(state): State<AppState>,
+    tenant: TenantHote,
     headers: HeaderMap,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<LoginResponseDto>, (StatusCode, String)> {
+    let etablissement_id = tenant.etablissement_effectif(body.etablissement_id)?;
     let ip = client_ip(&headers);
     let outcome = state
         .ent
         .login_start_client(
             &body.email,
             &body.password,
-            body.etablissement_id,
+            etablissement_id,
             ip.as_deref(),
             ent_db::ClientSession::parse_client(body.client.as_deref()),
             libelle_appareil(&headers),
@@ -2102,12 +2120,13 @@ async fn delete_passkey(
 /// Réponse générique quand le compte n'a pas de passkey : pas d'énumération.
 async fn passkey_login_start(
     State(state): State<AppState>,
+    tenant: TenantHote,
     Json(body): Json<PasskeyLoginStartBody>,
 ) -> Result<Json<PasskeyChallengeDto>, (StatusCode, String)> {
     match state
         .ent
         .passkey_login_start_client(
-            body.etablissement_id,
+            tenant.etablissement_effectif(body.etablissement_id)?,
             &body.email,
             ent_db::ClientSession::parse_client(body.client.as_deref()),
         )
@@ -2130,6 +2149,7 @@ async fn passkey_login_start(
 /// Couvre le 2ᵉ facteur (après mot de passe) et le parcours sans mot de passe.
 async fn passkey_login_finish(
     State(state): State<AppState>,
+    tenant: TenantHote,
     Json(body): Json<PasskeyLoginFinishBody>,
 ) -> Result<Json<AuthSessionDto>, (StatusCode, String)> {
     let credential: ent_auth::PublicKeyCredential = serde_json::from_value(body.credential)
@@ -2139,6 +2159,10 @@ async fn passkey_login_finish(
         .passkey_login_finish(&body.token, &credential)
         .await
         .map_err(map_passkey)?;
+    // C2 : parcours commencé sur l'adresse d'un autre établissement → aucun jeton.
+    if !tenant.accepte(session.etablissement_id) {
+        return Err((StatusCode::UNAUTHORIZED, "session d'un autre établissement".into()));
+    }
     Ok(Json(AuthSessionDto {
         token: session.token,
         user_id: session.user_id,
@@ -2172,11 +2196,12 @@ async fn reset_passkeys_admin(
 /// Fournisseurs SSO visibles sur la page de connexion (public : slug + libellé).
 async fn oidc_public_providers(
     State(state): State<AppState>,
+    tenant: TenantHote,
     Query(q): Query<OidcEtabQuery>,
 ) -> Result<Json<Vec<OidcPublicProviderDto>>, (StatusCode, String)> {
     let rows = state
         .ent
-        .list_oidc_providers_public(q.etablissement_id)
+        .list_oidc_providers_public(tenant.etablissement_effectif(q.etablissement_id)?)
         .await
         .map_err(map_oidc)?;
     Ok(Json(
@@ -2249,12 +2274,13 @@ async fn delete_oidc_provider(
 /// Démarre le parcours SSO : renvoie l'URL d'autorisation à ouvrir.
 async fn oidc_start(
     State(state): State<AppState>,
+    tenant: TenantHote,
     Path(slug): Path<String>,
     Json(body): Json<OidcStartBody>,
 ) -> Result<Json<OidcStartDto>, (StatusCode, String)> {
     let url = state
         .ent
-        .oidc_start(body.etablissement_id, &slug)
+        .oidc_start(tenant.etablissement_effectif(body.etablissement_id)?, &slug)
         .await
         .map_err(map_oidc)?;
     Ok(Json(OidcStartDto { url }))
@@ -2265,6 +2291,7 @@ async fn oidc_start(
 /// 2ᵉ facteur passkey enrôlé reste exigé).
 async fn oidc_complete(
     State(state): State<AppState>,
+    tenant: TenantHote,
     Json(body): Json<OidcCompleteBody>,
 ) -> Result<Json<LoginResponseDto>, (StatusCode, String)> {
     let outcome = state
@@ -2272,6 +2299,12 @@ async fn oidc_complete(
         .oidc_complete(&body.code, &body.state)
         .await
         .map_err(map_oidc)?;
+    // C2 : parcours commencé sur l'adresse d'un autre établissement → aucun jeton.
+    if let ent_db::LoginOutcome::Session(s) = &outcome {
+        if !tenant.accepte(s.etablissement_id) {
+            return Err((StatusCode::UNAUTHORIZED, "session d'un autre établissement".into()));
+        }
+    }
     Ok(Json(login_response(outcome)))
 }
 
@@ -11381,4 +11414,149 @@ async fn put_politique_securite(
     Ok(Json(PolitiqueSecuriteDto {
         passkey_obligatoire_roles: p.passkey_obligatoire_roles,
     }))
+}
+
+// ───────────── Socle 1 (C2, D-012) : établissement déduit de l'adresse ─────────────
+
+#[derive(Debug, Serialize)]
+pub struct EtablissementPublicDto {
+    pub id: Uuid,
+    pub slug: String,
+    pub nom: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EtablissementFicheBody {
+    pub slug: String,
+    pub nom: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EtablissementDomaineBody {
+    pub domaine: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EtablissementDomainesDto {
+    pub etablissement: Option<EtablissementPublicDto>,
+    pub domaines: Vec<String>,
+}
+
+impl From<ent_db::EtablissementInfo> for EtablissementPublicDto {
+    fn from(e: ent_db::EtablissementInfo) -> Self {
+        Self {
+            id: e.id,
+            slug: e.slug,
+            nom: e.nom,
+        }
+    }
+}
+
+/// Public : établissement servi par l'adresse (page de connexion, sans
+/// `etablissement_id` à saisir). 404 si l'adresse ne désigne aucun établissement.
+async fn etablissement_de_l_hote(
+    State(state): State<AppState>,
+    tenant: TenantHote,
+) -> Result<Json<EtablissementPublicDto>, (StatusCode, String)> {
+    let introuvable = || {
+        (
+            StatusCode::NOT_FOUND,
+            "établissement inconnu pour cette adresse".to_string(),
+        )
+    };
+    let id = tenant.etablissement_id.ok_or_else(introuvable)?;
+    let info = state
+        .ent
+        .etablissement_info(id)
+        .await
+        .map_err(map_db)?
+        .ok_or_else(introuvable)?;
+    Ok(Json(info.into()))
+}
+
+/// Domaines de l'établissement de la session (Admin).
+async fn list_etablissement_domaines(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<EtablissementDomainesDto>, (StatusCode, String)> {
+    let domaines = state
+        .ent
+        .domaines_for_actor(session.etablissement_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    let etablissement = state
+        .ent
+        .etablissement_info(session.etablissement_id)
+        .await
+        .map_err(map_db)?
+        .map(EtablissementPublicDto::from);
+    Ok(Json(EtablissementDomainesDto {
+        etablissement,
+        domaines,
+    }))
+}
+
+/// Déclare / renomme l'établissement de la session (Admin, journalisé).
+async fn put_etablissement_fiche(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<EtablissementFicheBody>,
+) -> Result<Json<EtablissementPublicDto>, (StatusCode, String)> {
+    let info = state
+        .ent
+        .declarer_etablissement_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &body.slug,
+            &body.nom,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(info.into()))
+}
+
+/// Rattache un domaine à l'établissement de la session (Admin, journalisé).
+async fn post_etablissement_domaine(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<EtablissementDomaineBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
+    let domaine = state
+        .ent
+        .ajouter_domaine_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &body.domaine,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "domaine": domaine })),
+    ))
+}
+
+/// Retire un domaine de l'établissement de la session (Admin, journalisé).
+async fn delete_etablissement_domaine(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(domaine): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let retire = state
+        .ent
+        .retirer_domaine_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &domaine,
+        )
+        .await
+        .map_err(map_db)?;
+    if retire {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "domaine introuvable".into()))
+    }
 }

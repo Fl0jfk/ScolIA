@@ -399,6 +399,7 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/labo/bootstrap"), // fermé hors labo par ENT_ENV / ENT_ALLOW_LABO
     ("POST", "/auth/register"),  // fermé hors labo
     ("POST", "/auth/login"),
+    ("GET", "/auth/etablissement"), // C2 : fiche publique de l'établissement de l'adresse
     ("POST", "/auth/passkey/login/start"),
     ("POST", "/auth/passkey/login/finish"),
     ("GET", "/auth/oidc/public"),
