@@ -99,7 +99,7 @@ export function DocumentFileIcon({ ext }: { ext?: string }) {
       <svg viewBox="0 0 48 56" className={ICON_CLASS} aria-hidden>
         <DocSheet gid={gid} body="#F8FAFC" fold="#E2E8F0">
           <rect x="10" y="6" width="28" height="10" fill="#E53935" rx="1" />
-          <text x="24" y="13.5" textAnchor="middle" fill="#fff" fontSize="7" fontWeight="800" fontFamily="system-ui,sans-serif">
+          <text x="24" y="13.5" textAnchor="middle" fill="#fff" fontSize="7" fontWeight="800" fontFamily="Inter,sans-serif">
             PDF
           </text>
           <rect x="14" y="22" width="16" height="1.5" rx=".75" fill="#CBD5E1" />
@@ -116,7 +116,7 @@ export function DocumentFileIcon({ ext }: { ext?: string }) {
       <svg viewBox="0 0 48 56" className={ICON_CLASS} aria-hidden>
         <DocSheet gid={gid} body="#F8FAFC" fold="#E2E8F0">
           <rect x="10" y="6" width="28" height="14" fill="#2B579A" rx="1" />
-          <text x="24" y="16" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="800" fontFamily="Georgia,serif">
+          <text x="24" y="16" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="800" fontFamily="Inter,sans-serif">
             W
           </text>
           <rect x="14" y="24" width="18" height="1.5" rx=".75" fill="#CBD5E1" />
@@ -132,7 +132,7 @@ export function DocumentFileIcon({ ext }: { ext?: string }) {
       <svg viewBox="0 0 48 56" className={ICON_CLASS} aria-hidden>
         <DocSheet gid={gid} body="#F8FAFC" fold="#E2E8F0">
           <rect x="10" y="6" width="28" height="14" fill="#217346" rx="1" />
-          <text x="24" y="16" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="800" fontFamily="system-ui,sans-serif">
+          <text x="24" y="16" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="800" fontFamily="Inter,sans-serif">
             X
           </text>
           <g stroke="#94A3B8" strokeWidth="0.8">
@@ -149,7 +149,7 @@ export function DocumentFileIcon({ ext }: { ext?: string }) {
       <svg viewBox="0 0 48 56" className={ICON_CLASS} aria-hidden>
         <DocSheet gid={gid} body="#F8FAFC" fold="#E2E8F0">
           <rect x="10" y="6" width="28" height="14" fill="#D24726" rx="1" />
-          <text x="24" y="16" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="800" fontFamily="system-ui,sans-serif">
+          <text x="24" y="16" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="800" fontFamily="Inter,sans-serif">
             P
           </text>
           <circle cx="24" cy="32" r="6" fill="none" stroke="#FDBA74" strokeWidth="2" />
@@ -209,7 +209,7 @@ export function DocumentFileIcon({ ext }: { ext?: string }) {
     <svg viewBox="0 0 48 56" className={ICON_CLASS} aria-hidden>
       <DocSheet gid={gid} body="#F8FAFC" fold="#E2E8F0">
         <rect x="10" y="6" width="28" height="10" fill="#64748B" rx="1" />
-        <text x="24" y="13.5" textAnchor="middle" fill="#fff" fontSize="6.5" fontWeight="800" fontFamily="system-ui,sans-serif">
+        <text x="24" y="13.5" textAnchor="middle" fill="#fff" fontSize="6.5" fontWeight="800" fontFamily="Inter,sans-serif">
           {label}
         </text>
         <rect x="14" y="22" width="18" height="1.5" rx=".75" fill="#CBD5E1" />

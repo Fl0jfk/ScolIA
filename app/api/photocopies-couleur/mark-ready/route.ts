@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { INTER_FONT_FACE_CSS, INTER_FONT_STACK } from "@/app/lib/inter-font-css";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   createTenantTransporter,
@@ -37,7 +38,8 @@ function renderHtmlPage(opts: {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${opts.title}</title>
   <style>
-    body { font-family: system-ui, sans-serif; background: #f8fafc; margin: 0; padding: 2rem; color: #0f172a; }
+    ${INTER_FONT_FACE_CSS}
+    body { font-family: ${INTER_FONT_STACK}; background: #f8fafc; margin: 0; padding: 2rem; color: #0f172a; }
     .card { max-width: 32rem; margin: 4rem auto; background: white; border-radius: 1rem; padding: 2rem; box-shadow: 0 20px 50px -32px rgba(15,23,42,0.35); }
     h1 { font-size: 1.35rem; margin: 0 0 1rem; color: ${color}; }
     p { line-height: 1.55; margin: 0 0 0.75rem; }

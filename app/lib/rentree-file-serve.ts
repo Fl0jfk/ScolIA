@@ -1,4 +1,5 @@
 import "server-only";
+import { INTER_FONT_FACE_CSS, INTER_FONT_STACK } from "@/app/lib/inter-font-css";
 
 import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -84,7 +85,8 @@ export function rentreeFileNotFoundHtml(key: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Document introuvable</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; }
+    ${INTER_FONT_FACE_CSS}
+    body { font-family: ${INTER_FONT_STACK}; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; }
     main { max-width: 32rem; padding: 2rem; background: #fff; border: 1px solid #e2e8f0; border-radius: 1rem; box-shadow: 0 10px 30px rgba(15,23,42,.06); }
     h1 { font-size: 1.25rem; margin: 0 0 .75rem; }
     p { margin: 0 0 .5rem; line-height: 1.5; color: #475569; font-size: .95rem; }

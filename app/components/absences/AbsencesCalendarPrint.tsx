@@ -93,7 +93,7 @@ export function printDaySummary(date: Date, dayEvents: CalendarEvent[], teacherC
       width: 100%;
       margin: 0;
       padding: 0;
-      font-family: "Segoe UI", system-ui, sans-serif;
+      font-family: inherit;
       color: #0f172a;
       background: #fff;
     }
