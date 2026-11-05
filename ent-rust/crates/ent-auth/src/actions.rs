@@ -90,6 +90,15 @@ pub enum Action {
     ReferentielLire,
     /// Gérer le référentiel scolaire (S2-2, REF-01→14) : structures, bascule d'année.
     ReferentielGerer,
+    /// Créer et modifier les personnes (responsables, contacts), leurs liens
+    /// à l'élève et les contacts d'urgence (DOS-03, DOS-05, DOS-08).
+    PersonnesGerer,
+    /// Désigner les payeurs et leurs parts (DOS-07).
+    PayeursDefinir,
+    /// Suspendre ou rétablir le lien d'un responsable (décision de justice, DOS-06).
+    LiensSuspendre,
+    /// Fusionner ou défusionner des personnes en doublon (DOS-15).
+    PersonnesFusionner,
 }
 
 /// Sur quoi une action s'applique.
@@ -106,7 +115,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 38] = [
+    pub const TOUTES: [Action; 42] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -147,6 +156,10 @@ impl Action {
         Action::DocsSignerPublier,
         Action::ReferentielLire,
         Action::ReferentielGerer,
+        Action::PersonnesGerer,
+        Action::PayeursDefinir,
+        Action::LiensSuspendre,
+        Action::PersonnesFusionner,
     ];
 
     pub fn code(self) -> &'static str {
@@ -190,6 +203,10 @@ impl Action {
             Self::DocsSignerPublier => "docs_a_signer.publier",
             Self::ReferentielLire => "referentiel.lire",
             Self::ReferentielGerer => "referentiel.gerer",
+            Self::PersonnesGerer => "personnes.gerer",
+            Self::PayeursDefinir => "payeurs.definir",
+            Self::LiensSuspendre => "liens.suspendre",
+            Self::PersonnesFusionner => "personnes.fusionner",
         }
     }
 
@@ -234,6 +251,10 @@ impl Action {
             Self::DocsSignerPublier => "Publier et annuler les documents à signer",
             Self::ReferentielLire => "Consulter le référentiel scolaire",
             Self::ReferentielGerer => "Gérer le référentiel scolaire (années, classes, périodes…)",
+            Self::PersonnesGerer => "Gérer les responsables, contacts et liens d'un élève",
+            Self::PayeursDefinir => "Désigner les payeurs et leurs parts",
+            Self::LiensSuspendre => "Suspendre ou rétablir le lien d'un responsable",
+            Self::PersonnesFusionner => "Fusionner ou défusionner des personnes en doublon",
         }
     }
 
@@ -274,6 +295,12 @@ impl Action {
             | Self::MatieresGerer
             | Self::ConseilsGerer
             | Self::DocsSignerPublier => &[Portee::Etablissement],
+            // S2-1 : actions sur les personnes (non rattachées à une classe) :
+            // établissement entier seulement.
+            Self::PersonnesGerer
+            | Self::PayeursDefinir
+            | Self::LiensSuspendre
+            | Self::PersonnesFusionner => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -444,6 +471,19 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         d.push(etab(ElevesGerer));
         d.push(etab(MatieresGerer));
     }
+    // S2-1 : personnes et liens (mêmes profils que la gestion des élèves) ;
+    // payeurs aussi pour la comptabilité ; suspension et fusion : direction.
+    if role.can_manage_eleves() {
+        d.push(etab(PersonnesGerer));
+        d.push(etab(PayeursDefinir));
+    }
+    if role == Role::Compta {
+        d.push(etab(PayeursDefinir));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(LiensSuspendre));
+        d.push(etab(PersonnesFusionner));
+    }
     d
 }
 
@@ -482,6 +522,13 @@ mod tests {
         assert_eq!(a(Role::Compta, DossierLire), Some(Portee::Etablissement));
         assert_eq!(a(Role::Direction, RolesGerer), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, RolesGerer), None);
+        assert_eq!(a(Role::Administratif, PersonnesGerer), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Compta, PayeursDefinir), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Compta, PersonnesGerer), None);
+        assert_eq!(a(Role::Administratif, LiensSuspendre), None);
+        assert_eq!(a(Role::Direction, LiensSuspendre), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Cpe, PersonnesFusionner), None);
+        assert_eq!(a(Role::Prof, PersonnesGerer), None);
         assert!(modele_par_defaut(Role::Parent).is_empty());
         assert!(modele_par_defaut(Role::Eleve).is_empty());
         // Chaque droit d'un modèle respecte les portées admises.

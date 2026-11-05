@@ -167,6 +167,7 @@ pub(crate) fn aggregate_str(a: AggregateKind) -> &'static str {
         AggregateKind::Retard => "retard",
         AggregateKind::Competence => "competence",
         AggregateKind::Referentiel => "referentiel",
+        AggregateKind::Personne => "personne",
     }
 }
 
@@ -229,6 +230,7 @@ pub(crate) fn parse_aggregate(s: &str) -> AggregateKind {
         "retard" => AggregateKind::Retard,
         "competence" => AggregateKind::Competence,
         "referentiel" => AggregateKind::Referentiel,
+        "personne" => AggregateKind::Personne,
         _ => AggregateKind::Eleve,
     }
 }

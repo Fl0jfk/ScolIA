@@ -130,7 +130,7 @@ impl PgFoyerRepo {
             FROM ent_eleve_lien l
             JOIN ent_eleve e ON e.id = l.eleve_id AND e.etablissement_id = l.etablissement_id
             LEFT JOIN ent_user u ON u.id = l.user_id
-            WHERE l.etablissement_id = $1 AND l.foyer_id = $2
+            WHERE l.etablissement_id = $1 AND l.foyer_id = $2 AND l.user_id IS NOT NULL
             ORDER BY e.nom, e.prenom, l.created_at
             "#,
         )
@@ -229,13 +229,13 @@ impl PgFoyerRepo {
             .get_lien(etablissement_id, lien_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let mut existing = self
-            .list_liens_eleve(etablissement_id, current.eleve_id)
-            .await?;
-        existing.retain(|l| l.id != lien_id);
-        let mut parts: Vec<(bool, Option<i16>)> = existing
-            .iter()
-            .map(|l| (l.est_payeur, l.part_paiement))
+        // Parts : TOUS les liens de l'élève (avec ou sans compte, S2-1).
+        let mut parts: Vec<(bool, Option<i16>)> = self
+            .parts_eleve(etablissement_id, current.eleve_id)
+            .await?
+            .into_iter()
+            .filter(|(id, _, _, _)| *id != lien_id)
+            .map(|(_, _, p, part)| (p, part))
             .collect();
         parts.push((cmd.est_payeur, cmd.part_paiement));
         assert_parts_paiement(&parts)?;
@@ -301,13 +301,15 @@ impl PgFoyerRepo {
         }
         let cmd_map: std::collections::HashMap<Uuid, &UpdateLien> =
             cmds.iter().map(|(id, c)| (*id, c)).collect();
-        let parts: Vec<(bool, Option<i16>)> = existing
-            .iter()
-            .map(|l| {
-                if let Some(c) = cmd_map.get(&l.id) {
+        let parts: Vec<(bool, Option<i16>)> = self
+            .parts_eleve(etablissement_id, eleve_id)
+            .await?
+            .into_iter()
+            .map(|(id, _, p, part)| {
+                if let Some(c) = cmd_map.get(&id) {
                     (c.est_payeur, c.part_paiement)
                 } else {
-                    (l.est_payeur, l.part_paiement)
+                    (p, part)
                 }
             })
             .collect();
@@ -362,13 +364,12 @@ impl PgFoyerRepo {
             .get_lien(etablissement_id, lien_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let mut remaining = self
-            .list_liens_eleve(etablissement_id, current.eleve_id)
-            .await?;
-        remaining.retain(|l| l.id != lien_id);
-        let parts: Vec<(bool, Option<i16>)> = remaining
-            .iter()
-            .map(|l| (l.est_payeur, l.part_paiement))
+        let parts: Vec<(bool, Option<i16>)> = self
+            .parts_eleve(etablissement_id, current.eleve_id)
+            .await?
+            .into_iter()
+            .filter(|(id, _, _, _)| *id != lien_id)
+            .map(|(_, _, p, part)| (p, part))
             .collect();
         assert_parts_paiement(&parts)?;
         let res = sqlx::query(
@@ -399,7 +400,7 @@ impl PgFoyerRepo {
                    peut_voir_notes, peut_voir_vs, peut_justifier_absence,
                    peut_autoriser_sorties, est_payeur, part_paiement
             FROM ent_eleve_lien
-            WHERE etablissement_id = $1 AND id = $2
+            WHERE etablissement_id = $1 AND id = $2 AND user_id IS NOT NULL
             "#,
         )
         .bind(etablissement_id)
@@ -416,11 +417,12 @@ impl PgFoyerRepo {
         let lien = if lien.is_empty() { "autre" } else { lien };
 
         // Invariant parts 100 % après upsert de ce lien.
-        let mut existing = self.list_liens_eleve(cmd.etablissement_id, cmd.eleve_id).await?;
-        existing.retain(|l| l.user_id != cmd.user_id);
-        let mut parts: Vec<(bool, Option<i16>)> = existing
-            .iter()
-            .map(|l| (l.est_payeur, l.part_paiement))
+        let mut parts: Vec<(bool, Option<i16>)> = self
+            .parts_eleve(cmd.etablissement_id, cmd.eleve_id)
+            .await?
+            .into_iter()
+            .filter(|(_, user, _, _)| *user != Some(cmd.user_id))
+            .map(|(_, _, p, part)| (p, part))
             .collect();
         parts.push((cmd.est_payeur, cmd.part_paiement));
         assert_parts_paiement(&parts)?;
@@ -459,12 +461,33 @@ impl PgFoyerRepo {
         .await
         .map_err(map_sqlx)?;
 
-        self.lien_parent_eleve(cmd.etablissement_id, cmd.user_id, cmd.eleve_id)
+        // Lecture brute (le lien peut être suspendu : la mise à jour reste visible).
+        self.lien_compte_brut(cmd.etablissement_id, cmd.user_id, cmd.eleve_id)
             .await?
             .ok_or(DomainError::NotFound)
     }
 
-    pub async fn lien_parent_eleve(
+    /// Parts de paiement de tous les liens de l'élève : (lien, compte, payeur, part).
+    async fn parts_eleve(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Vec<(Uuid, Option<Uuid>, bool, Option<i16>)>, DomainError> {
+        sqlx::query_as(
+            r#"
+            SELECT id, user_id, est_payeur, part_paiement
+            FROM ent_eleve_lien
+            WHERE etablissement_id = $1 AND eleve_id = $2
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)
+    }
+
+    async fn lien_compte_brut(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
@@ -488,6 +511,57 @@ impl PgFoyerRepo {
         Ok(row.map(LienRow::into_lien))
     }
 
+    /// Liens ACTIFS d'un élève portant un compte (envois aux familles).
+    pub async fn list_liens_eleve_actifs(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Vec<EleveLien>, DomainError> {
+        let rows = sqlx::query_as::<_, LienRow>(
+            r#"
+            SELECT id, etablissement_id, eleve_id, user_id, foyer_id, lien,
+                   peut_voir_notes, peut_voir_vs, peut_justifier_absence,
+                   peut_autoriser_sorties, est_payeur, part_paiement
+            FROM ent_eleve_lien_actif
+            WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id IS NOT NULL
+            ORDER BY created_at
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(LienRow::into_lien).collect())
+    }
+
+    /// **Point unique des contrôles famille** (S2-1, B7) : lien ACTIF du compte
+    /// sur l'élève (vue `ent_eleve_lien_actif` : non suspendu, dans ses dates,
+    /// personne non fusionnée). `None` = aucun accès famille.
+    pub async fn lien_parent_eleve(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Option<EleveLien>, DomainError> {
+        let row = sqlx::query_as::<_, LienRow>(
+            r#"
+            SELECT id, etablissement_id, eleve_id, user_id, foyer_id, lien,
+                   peut_voir_notes, peut_voir_vs, peut_justifier_absence,
+                   peut_autoriser_sorties, est_payeur, part_paiement
+            FROM ent_eleve_lien_actif
+            WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(user_id)
+        .bind(eleve_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(LienRow::into_lien))
+    }
+
     /// E-mails des responsables liés à l'élève (portail famille).
     pub async fn emails_parents_eleve(
         &self,
@@ -497,7 +571,7 @@ impl PgFoyerRepo {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT DISTINCT u.email
-            FROM ent_eleve_lien l
+            FROM ent_eleve_lien_actif l
             JOIN ent_user u ON u.id = l.user_id
             WHERE l.etablissement_id = $1 AND l.eleve_id = $2
               AND u.email IS NOT NULL AND trim(u.email) <> ''
@@ -521,7 +595,7 @@ impl PgFoyerRepo {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT DISTINCT u.telephone
-            FROM ent_eleve_lien l
+            FROM ent_eleve_lien_actif l
             JOIN ent_user u ON u.id = l.user_id
             WHERE l.etablissement_id = $1 AND l.eleve_id = $2
               AND u.telephone IS NOT NULL AND trim(u.telephone) <> ''
@@ -547,7 +621,7 @@ impl PgFoyerRepo {
                    peut_voir_notes, peut_voir_vs, peut_justifier_absence,
                    peut_autoriser_sorties, est_payeur, part_paiement
             FROM ent_eleve_lien
-            WHERE etablissement_id = $1 AND eleve_id = $2
+            WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id IS NOT NULL
             ORDER BY created_at
             "#,
         )
@@ -573,7 +647,7 @@ impl PgFoyerRepo {
             FROM ent_eleve_lien l
             LEFT JOIN ent_foyer f ON f.id = l.foyer_id
             LEFT JOIN ent_user u ON u.id = l.user_id
-            WHERE l.etablissement_id = $1 AND l.eleve_id = $2
+            WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.user_id IS NOT NULL
             ORDER BY l.created_at
             "#,
         )
@@ -612,7 +686,7 @@ impl PgFoyerRepo {
         Ok(liens.into_iter().map(|l| l.eleve_id).collect())
     }
 
-    /// Tous les liens d'un responsable (parent) dans l'établissement.
+    /// Liens ACTIFS d'un responsable (parent) dans l'établissement (point unique).
     pub async fn liens_for_parent(
         &self,
         etablissement_id: Uuid,
@@ -623,7 +697,7 @@ impl PgFoyerRepo {
             SELECT id, etablissement_id, eleve_id, user_id, foyer_id, lien,
                    peut_voir_notes, peut_voir_vs, peut_justifier_absence,
                    peut_autoriser_sorties, est_payeur, part_paiement
-            FROM ent_eleve_lien
+            FROM ent_eleve_lien_actif
             WHERE etablissement_id = $1 AND user_id = $2
             ORDER BY eleve_id
             "#,

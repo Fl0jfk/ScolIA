@@ -74,6 +74,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("mes-classes") view=modules::classes::PageMesClasses/>
                     <Route path=path!("vie-scolaire") view=modules::vie_scolaire::PageVieScolaire/>
                     <Route path=path!("absences") view=modules::absences::PageAbsences/>
+                    <Route path=path!("eleves/:id") view=modules::dossier::PageFicheEleve/>
                     <Route path=path!("messages") view=modules::messagerie::PageMessages/>
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>

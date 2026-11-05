@@ -183,3 +183,32 @@ fn referentiel_aller_retour() {
     .unwrap();
     assert!(!a.courante);
 }
+
+#[test]
+fn dossier_fiche_et_chronologie() {
+    use crate::dossier::*;
+    let personne = r#"{"id":"6f1c3c80-0000-4000-8000-000000000010","nom":"Potter","prenom":"James",
+        "civilite":null,"email":null,"telephone":"06 11 22 33 44","telephone_2":null,"adresse":null,
+        "a_compte":false,"represente_eleve":false,"fusionnee_dans":null}"#;
+    aller_retour::<PersonneDto>(personne);
+    let resp = format!(
+        r#"{{"lien_id":"6f1c3c80-0000-4000-8000-000000000011","eleve_id":"6f1c3c80-0000-4000-8000-000000000002",
+        "personne":{personne},"foyer_id":null,"foyer_libelle":null,"lien":"père","autorite_parentale":true,
+        "garde":"alternee","date_debut":null,"date_fin":"2027-07-04","suspendu_le":"2026-11-05T10:00:00Z",
+        "suspension_motif":null,"suspension_reference":null,"actif":false,"peut_voir_notes":true,
+        "peut_voir_vs":true,"peut_justifier_absence":false,"peut_autoriser_sorties":false,
+        "est_payeur":true,"part_paiement":50}}"#
+    );
+    aller_retour::<ResponsableDto>(&resp);
+    aller_retour::<EntreeChronologieDto>(
+        r#"{"quand":"2026-11-05T10:00:00Z","source":"evenement","domaine":"vie_scolaire","titre":"Retard"}"#,
+    );
+    let c: ContactBody =
+        serde_json::from_str(r#"{"nouvelle_personne":{"nom":"Dursley"},"relation":"tante"}"#)
+            .unwrap();
+    assert_eq!(c.ordre, 1);
+    assert!(c.personne_id.is_none() && !c.peut_recuperer);
+    aller_retour::<PayeursBody>(
+        r#"{"payeurs":[{"lien_id":"6f1c3c80-0000-4000-8000-000000000011","part":100}]}"#,
+    );
+}

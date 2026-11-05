@@ -19,6 +19,7 @@ mod transport;
 mod appel;
 mod auth;
 mod communication;
+mod dossier;
 mod edt;
 mod referentiel;
 mod roles;
@@ -49,6 +50,10 @@ pub use vie_scolaire::DecisionApi;
 pub use ent_types::appel::{AppelDto as AppelApi, AppelLigneDto as LigneAppelApi};
 pub use ent_types::auth::{
     AuthSessionDto as Session, LoginResponseDto, MeDto as Moi, PasskeyChallengeDto,
+};
+pub use ent_types::dossier::{
+    ActionFicheDto, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto, LienBody,
+    PersonneBody, PersonneDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 pub use ent_types::referentiel::{

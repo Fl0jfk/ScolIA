@@ -6,6 +6,7 @@ pub mod accueil;
 pub mod appel;
 pub mod classes;
 pub mod connexion;
+pub mod dossier;
 pub mod edt;
 pub mod messagerie;
 pub mod recuperation;

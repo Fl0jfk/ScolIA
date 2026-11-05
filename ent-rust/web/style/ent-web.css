@@ -426,3 +426,9 @@
   .roles__cellule--vide { display: none; }
   .roles__cibles { border-style: dashed; }
 }
+
+/* --- Fiche élève 360° (S2-1) ------------------------------------------------ */
+.fiche-section__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-3); }
+.fiche-section__tete h2 { margin: 0; }
+.fiche-chronologie { max-height: 32rem; overflow-y: auto; }
+.fiche-chronologie__date { width: 6.5rem; flex-shrink: 0; font-size: var(--taille-s); color: var(--c-attenue); font-variant-numeric: tabular-nums; }
