@@ -58,7 +58,8 @@ async function enroler() {
     },
   };
   const fin = await appel("POST", "/web/api/auth/passkey/register/finish",
-    { token: debut.json.token, credential, name: "Navigateur de test" });
+    { token: debut.json.token, credential, name: "Navigateur de test",
+      current_password: $("mdp").value });
   $("etat").textContent = fin.statut === 201 ? "Passkey ajoutée." : `Échec (${fin.statut})`;
   await verifier();
 }

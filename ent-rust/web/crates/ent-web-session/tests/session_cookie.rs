@@ -517,7 +517,13 @@ async fn passkey_second_facteur_et_sans_mot_de_passe_posent_le_cookie() {
         "/web/api/auth/passkey/register/finish",
     )
     .header(header::COOKIE, format!("{COOKIE}={jeton}"))
-    .json(&json!({ "token": debut["token"], "credential": enr, "name": "Test" }))
+    // Depuis L3, l'ajout d'une passkey re-vérifie le mot de passe actuel.
+    .json(&json!({
+        "token": debut["token"],
+        "credential": enr,
+        "name": "Test",
+        "current_password": MDP
+    }))
     .send()
     .await
     .unwrap();
