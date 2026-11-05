@@ -406,6 +406,7 @@ pub fn router() -> Router<AppState> {
         .route("/docs-a-signer/{id}/annuler", post(annuler_doc_a_signer))
         .route("/vs/docs-a-signer", get(list_docs_a_signer_etab))
         .route("/annonces", get(list_annonces).post(publier_annonce))
+        .route("/notifications", get(mes_notifications))
         .route("/eleves/{id}/annonces", get(list_annonces_eleve))
         .route(
             "/eleves/{id}/retards",
@@ -4427,6 +4428,43 @@ async fn list_annonces(
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(AnnonceDto::from).collect()))
+}
+
+/// Notification interne produite par la toile des événements (socle 2, S2-0).
+#[derive(Debug, serde::Serialize)]
+struct NotificationDto {
+    id: Uuid,
+    eleve_id: Option<Uuid>,
+    kind: String,
+    titre: String,
+    corps: String,
+    lu: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Notifications de l'utilisateur connecté, dans l'établissement de sa session.
+async fn mes_notifications(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<Vec<NotificationDto>>, (StatusCode, String)> {
+    let list = state
+        .ent
+        .mes_notifications(session.etablissement_id, session.user_id, 100)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        list.into_iter()
+            .map(|n| NotificationDto {
+                id: n.id,
+                eleve_id: n.eleve_id,
+                kind: n.kind,
+                titre: n.titre,
+                corps: n.corps,
+                lu: n.lu_le.is_some(),
+                created_at: n.created_at,
+            })
+            .collect(),
+    ))
 }
 
 async fn list_annonces_eleve(
