@@ -59,6 +59,15 @@ import {
   handleSaveAppelLignes,
 } from "@/app/lib/brain-ai/tools/handlers/vs-appels";
 
+import { handleSendInternalMessage } from "@/app/lib/brain-ai/tools/handlers/messagerie";
+import {
+  handleGetCahierTexte,
+  handleGetEleveCarnet,
+  handleGetEleveSanctions,
+  handleGetMonPlanning,
+  handleListEvenements,
+} from "@/app/lib/brain-ai/tools/handlers/consultation";
+
 const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "get_my_pending_actions",
@@ -918,6 +927,114 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: true,
     handler: handleAssignInternatRoom,
+  },
+  {
+    name: "send_internal_message",
+    description:
+      "Envoie un message dans la messagerie interne de l’ENT à un ou plusieurs membres du PERSONNEL (pas aux familles ni aux élèves). Passer les noms dans recipients, un objet (subject) et le texte (body). Un récapitulatif est toujours présenté et l’envoi n’a lieu qu’après confirmation de l’utilisateur.",
+    parameters: {
+      type: "object",
+      properties: {
+        recipients: {
+          type: "array",
+          items: { type: "string" },
+          description: "Noms des destinataires (ex. « Mme Martin », « Jean Dupont »)",
+        },
+        subject: { type: "string", description: "Objet du message (court)" },
+        body: { type: "string", description: "Texte complet du message à envoyer" },
+      },
+      required: ["recipients", "body"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/messagerie",
+    moduleId: "messagerie",
+    requiresAuth: true,
+    mutates: true,
+    handler: handleSendInternalMessage,
+  },
+  {
+    name: "get_cahier_texte",
+    description:
+      "Consulte le cahier de textes : contenu des séances et travail à faire, par classe et/ou période. Lecture seule.",
+    parameters: {
+      type: "object",
+      properties: {
+        classe: { type: "string", description: "Classe (ex. 4B). Facultatif." },
+        from: { type: "string", description: "Date de début AAAA-MM-JJ. Facultatif." },
+        to: { type: "string", description: "Date de fin AAAA-MM-JJ. Facultatif." },
+        limit: { type: "number", description: "Nombre maximum d’entrées (12 par défaut, 30 max)" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/cahier-texte",
+    moduleId: "cahier-texte",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetCahierTexte,
+  },
+  {
+    name: "get_mon_planning",
+    description:
+      "Emploi du temps / planning de l’utilisateur connecté (semaines A/B pour un professeur, horaires ou missions pour le personnel). Uniquement SON planning. Lecture seule.",
+    parameters: {
+      type: "object",
+      properties: {
+        semaine: { type: "string", enum: ["A", "B"], description: "Semaine type A ou B (les deux par défaut)" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/mon-planning",
+    moduleId: "mon-planning",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetMonPlanning,
+  },
+  {
+    name: "get_eleve_sanctions",
+    description:
+      "Sanctions actives d’un élève (type, date, motif). Recherche par nom. Lecture seule, réservé à la vie scolaire / direction.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Nom et/ou prénom de l’élève" },
+        eleveId: { type: "string", description: "Id de l’élève (choix ou élève ouvert à l’écran) — query ou eleveId" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/sanctions",
+    moduleId: "vs-sanctions",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetEleveSanctions,
+  },
+  {
+    name: "get_eleve_carnet",
+    description:
+      "Entrées récentes du carnet de liaison d’un élève (messages établissement vers famille, accusé de lecture). Recherche par nom. Lecture seule ; un professeur ne voit que ses classes.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Nom et/ou prénom de l’élève" },
+        eleveId: { type: "string", description: "Id de l’élève (choix ou élève ouvert à l’écran) — query ou eleveId" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/carnet",
+    moduleId: "vs-carnet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetEleveCarnet,
+  },
+  {
+    name: "list_evenements",
+    description:
+      "Événements de l’établissement : créneaux de portes ouvertes à venir (inscrits, places, équipe). Lecture seule. Pour la semaine en cours, préférer les outils de feuille de semaine.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    pathPrefix: "/etablissement/evenements",
+    moduleId: "evenements",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleListEvenements,
   },
 ];
 

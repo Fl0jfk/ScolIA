@@ -32,7 +32,20 @@ type ChatRequest = {
     skipPdf?: boolean;
   } | null;
   attachments?: Array<{ key: string; fileName: string; contentType?: string }>;
+  pageContext?: { path?: unknown; eleveId?: unknown; tripId?: unknown } | null;
 };
+
+/** Identifiant envoyé par le navigateur : simple indice, les outils revérifient les droits. */
+function safeContextId(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : "";
+  return /^[A-Za-z0-9_-]{1,80}$/.test(s) ? s : null;
+}
+
+function safeContextPath(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.replace(/[^A-Za-z0-9/_-]/g, "").slice(0, 120);
+  return s.startsWith("/") ? s : null;
+}
 
 /** Soft rate-limit Postgres (30 / 60 s). */
 const chatbotLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 30 });
@@ -121,6 +134,11 @@ export async function POST(req: Request) {
       fileApply,
       // Seulement les fichiers déposés par cet utilisateur (dossier à son nom), 10 max.
       attachments: sanitizeChatAttachments(body.attachments, user.id),
+      pageContext: {
+        path: safeContextPath(body.pageContext?.path),
+        eleveId: safeContextId(body.pageContext?.eleveId),
+        tripId: safeContextId(body.pageContext?.tripId),
+      },
     });
 
     return NextResponse.json(result);

@@ -66,6 +66,17 @@ type PendingFile = {
   previewUrl?: string;
 };
 
+/** Reformulations en un clic sous la dernière réponse (détectées comme aide à la rédaction). */
+const REWRITE_ACTIONS: Array<{ label: string; prompt: string }> = [
+  { label: "Plus court", prompt: "Réécris ta dernière réponse en plus court, sans perdre l’essentiel." },
+  { label: "Plus formel", prompt: "Réécris ta dernière réponse sur un ton plus formel et professionnel." },
+  {
+    label: "Pour les familles",
+    prompt:
+      "Réécris ta dernière réponse sous forme de message aux familles : simple, bienveillant, clair, sans jargon.",
+  },
+];
+
 /** Même limite que le serveur (CHAT_MAX_ATTACHMENTS). */
 const MAX_CHAT_FILES = 10;
 const CHAT_FILE_ACCEPT =
@@ -360,6 +371,11 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
   const [choiceMulti, setChoiceMulti] = useState<string[]>([]);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  /** Ce que ScolIA est en train de faire (affiché pendant l'attente). */
+  const [loadingStep, setLoadingStep] = useState("");
+  /** Suggestions d'ouverture, selon les droits de l'utilisateur. */
+  const [suggestions, setSuggestions] = useState<Array<{ label: string; prompt: string }>>([]);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -391,6 +407,41 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     }
     setMemoryReady(true);
   }, []);
+
+  // Suggestions d'accueil : calculées côté serveur selon les droits réels.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let cancelled = false;
+    fetch("/api/chatbot/capabilities")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.suggestions)) setSuggestions(data.suggestions);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn]);
+
+  /** Page / élève ouverts : ScolIA comprend « son dossier », « ce séjour »… */
+  const pageContext = useMemo(() => {
+    const path = (pathname || "").slice(0, 200);
+    const fromPath = /^\/eleves\/dossier\/([^/?#]+)/.exec(path)?.[1] || null;
+    const eleveId = dossierModal?.eleveId || fromPath;
+    const tripSeg = /^\/travels\/([^/?#]+)/.exec(path)?.[1] || null;
+    const tripId = tripSeg && !/^(new|nouveau|create|creer)$/i.test(tripSeg) ? tripSeg : null;
+    return { path, eleveId, tripId };
+  }, [pathname, dossierModal?.eleveId]);
+
+  const copyMessage = async (text: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(text.trim());
+      setCopiedIndex(index);
+      window.setTimeout(() => setCopiedIndex((v) => (v === index ? null : v)), 1500);
+    } catch {
+      /* presse-papiers refusé : rien à faire */
+    }
+  };
 
   useEffect(() => {
     if (!memoryReady) return;
@@ -568,6 +619,13 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
     }
     setLoading(true);
     stopVoice();
+    // Étapes réelles côté navigateur ; le serveur ne renvoie qu'une réponse finale.
+    const n = filesToSend.length;
+    setLoadingStep(n ? `Envoi de ${n} fichier${n > 1 ? "s" : ""}…` : "ScolIA réfléchit…");
+    const slowTimer = window.setTimeout(
+      () => setLoadingStep((s) => (s ? `${s.replace(/…$/, "")} — encore un instant…` : s)),
+      9000,
+    );
     try {
       let attachments: Array<{ key: string; fileName: string; contentType: string }> | undefined;
       if (filesToSend.length > 0) {
@@ -591,6 +649,9 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
         }
         for (const pf of filesToSend) if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
         setPendingFiles([]);
+        setLoadingStep(
+          isFileApply || isConfirm ? "ScolIA prépare la demande…" : "ScolIA lit vos fichiers et réfléchit…",
+        );
       }
 
       const res = await fetch("/api/chatbot", {
@@ -608,6 +669,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                   : "Analyse ces fichiers."),
           audience: isSignedIn ? "private" : "public",
           history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+          pageContext,
           conversationState: conversationState || undefined,
           confirm: isConfirm,
           confirmAction: isConfirm
@@ -731,6 +793,8 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
         { role: "assistant", content: "Erreur réseau, merci de réessayer." },
       ]);
     } finally {
+      window.clearTimeout(slowTimer);
+      setLoadingStep("");
       setLoading(false);
     }
   };
@@ -1003,8 +1067,27 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                 Posez une question, faites réécrire un message, ou glissez jusqu’à 10 fichiers ou photos à analyser.
               </p>
               <p className="mt-2 max-w-sm text-xs leading-relaxed text-neutral-500">
-                Messages aux familles, infos d’élèves : utilisez ScolIA plutôt qu’une IA externe, vos textes restent dans l’ENT. Les actions importantes vous seront toujours confirmées.
+                Messages aux familles, infos d’élèves : utilisez ScolIA plutôt qu’une IA externe. Tout passe par l’IA de l’établissement (Mistral, Europe) et les noms connus sont masqués quand vous faites réécrire un texte. Les actions importantes vous seront toujours confirmées.
               </p>
+              {suggestions.length > 0 ? (
+                <div className="mt-6 flex max-w-xl flex-wrap justify-center gap-2">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.label}
+                      type="button"
+                      disabled={loading}
+                      onClick={() =>
+                        s.prompt.endsWith(":") || s.prompt.endsWith(": ")
+                          ? setInput(`${s.prompt.trimEnd()} `)
+                          : void send({ message: s.prompt })
+                      }
+                      className="rounded-full border border-black/8 bg-white px-3.5 py-1.5 text-[12px] font-medium text-[var(--dash-ink)] shadow-[0_1px_0_rgba(0,0,0,0.03)] transition hover:border-[color:var(--dash-lime)] hover:bg-[color:var(--dash-soft-muted)] disabled:opacity-50"
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
           {messages.map((m, i) => {
@@ -1074,6 +1157,29 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                         router.push(href);
                       }}
                     />
+                  ) : null}
+                  {!isUser && i > 0 && m.content.trim() ? (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-1">
+                      <button
+                        type="button"
+                        onClick={() => void copyMessage(m.content, i)}
+                        className="rounded-full px-2 py-0.5 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 hover:text-[var(--dash-ink)]"
+                      >
+                        {copiedIndex === i ? "Copié ✓" : "Copier"}
+                      </button>
+                      {i === messages.length - 1 && !loading && isSignedIn && !pendingConfirmation && !pendingChoices && !pendingFileUpload
+                        ? REWRITE_ACTIONS.map((a) => (
+                            <button
+                              key={a.label}
+                              type="button"
+                              onClick={() => void send({ message: a.prompt })}
+                              className="rounded-full px-2 py-0.5 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 hover:text-[var(--dash-ink)]"
+                            >
+                              {a.label}
+                            </button>
+                          ))
+                        : null}
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -1469,10 +1575,13 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
               isExpanded ? "w-fit" : "mr-8"
             }`}
           >
-            <div className="inline-flex items-center gap-1.5">
+            <div className="inline-flex items-center gap-1.5" role="status" aria-live="polite">
               <span className="h-2 w-2 rounded-full bg-[var(--dash-ink)] animate-bounce [animation-delay:-0.2s]" />
               <span className="h-2 w-2 rounded-full bg-[var(--dash-ink)] animate-bounce [animation-delay:-0.1s]" />
               <span className="h-2 w-2 rounded-full bg-[color:var(--dash-lime)] animate-bounce" />
+              {loadingStep ? (
+                <span className="ml-1.5 text-[12px] text-neutral-500">{loadingStep}</span>
+              ) : null}
             </div>
           </div>
         ) : null}

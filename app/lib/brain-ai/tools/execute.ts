@@ -13,6 +13,11 @@ function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
       out[k] = "[redacted]";
       continue;
     }
+    // Contenu rédigé (messages, objets…) : jamais dans les journaux ni l'audit, seulement sa taille.
+    if (/^(body|message|subject|texte|text|content|corps|objet)$/i.test(k)) {
+      out[k] = typeof v === "string" ? `[${v.length} caractères]` : "[masqué]";
+      continue;
+    }
     if (typeof v === "string" && v.length > 500) out[k] = `${v.slice(0, 500)}…`;
     else out[k] = v;
   }

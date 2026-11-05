@@ -23,6 +23,7 @@ import {
   sanitizeChatAttachments,
 } from "@/app/lib/brain-ai/chat-attachments";
 import { isBrainPermissionDenied } from "@/app/lib/brain-ai/permissions";
+import { pseudonymizeForLlm } from "@/app/lib/brain-ai/pseudonymize";
 import {
   MISTRAL_LARGE_MODEL,
   MISTRAL_SMALL_MODEL,
@@ -604,6 +605,8 @@ type RunBrainChatInput = {
     draftArgs: Record<string, unknown>;
     skipPdf?: boolean;
   } | null;
+  /** Page ouverte par l'utilisateur (indice de contexte, droits revérifiés par les outils). */
+  pageContext?: { path: string | null; eleveId: string | null; tripId: string | null };
   /** Pièces jointes déjà uploadées (PDF…). */
   attachments?: Array<{
     key: string;
@@ -871,6 +874,19 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       ? `\nContexte personnel : aucun signal chargé pour l’instant — si on demande « à faire / signatures / file », appelle get_my_pending_actions.\n`
       : "";
 
+  // Page ouverte : « son dossier », « ce séjour » désignent l'élève / le séjour affichés.
+  const page = input.pageContext;
+  const pageBlock =
+    signedIn && (page?.eleveId || page?.tripId || page?.path)
+      ? `\nPage ouverte par l'utilisateur : ${page?.path || "(inconnue)"}.\n` +
+        (page?.eleveId
+          ? `- Un dossier élève est affiché (eleveId=${page.eleveId}). « cet élève », « son dossier », « ses parents » = cet élève : passe eleveId=${page.eleveId} aux outils (get_eleve, open_eleve_dossier…) sans redemander son nom.\n`
+          : "") +
+        (page?.tripId
+          ? `- Un séjour/sortie est affiché (tripId=${page.tripId}). « ce séjour », « cette sortie » = celui-ci : utilise get_trip_status avec ce tripId.\n`
+          : "")
+      : "";
+
   const systemPrompt =
     `Tu es ScolIA, l'assistant institutionnel de l'établissement (Brain AI).\n` +
     `Réponds en français, précis, utile et concis.\n` +
@@ -879,6 +895,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       : "") +
     buildBrainAiClockContext() +
     personalBlock +
+    pageBlock +
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +
     `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat, file personnelle…) — toujours préférer un outil pour l'actualité.\n` +
@@ -909,6 +926,8 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- list_eleves_filtered : pour « tous les PAP du collège / d’une classe », appeler l’outil. L’UI affiche le catalogue complet groupé par classe — ne pas tronquer la liste dans le texte, juste confirmer le total et renvoyer vers les cartes.\n` +
     `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_eleve_preinscrit | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | decide_rh_absence | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room | resend_stage_signatures.\n` +
     `- Internat : get_internat_status | open_internat_appel | assign_internat_room.\n` +
+    `- Messagerie interne : send_internal_message (personnel uniquement, récap + confirmation avant envoi). « Envoie-le à … » après une rédaction = envoyer le dernier texte rédigé, tel quel.\n` +
+    `- Consultation : get_cahier_texte | get_mon_planning (son propre planning) | get_eleve_sanctions | get_eleve_carnet | list_evenements (portes ouvertes).\n` +
     `- Stages : get_stages_overview | resend_stage_signatures (relance e-mails / ouvrir convention).\n` +
     `- RH absences (direction) : decide_rh_absence avec {} pour la file à valider.\n` +
     `- Voyages : open_trip (ouvrir / lister existants) | list_trips_brief | get_trip_status | create_trip (créer neuf seulement).\n` +
@@ -985,12 +1004,31 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       `ou lance l'outil adapté. Si aucune question n'est posée, résume chaque fichier et propose la suite utile.\n`
     : "";
 
+  // Rédaction : les noms connus de l'établissement (élèves, parents, personnels) sont
+  // remplacés par des étiquettes avant l'envoi à Mistral, puis remis dans la réponse.
+  // Pas pour les actions : les outils ont besoin des vrais noms.
+  let restoreNames = (answer: string) => answer;
+  let maskedHistory = historyText;
+  let maskedMessage = input.message;
+  let pseudoNote = "";
+  if (writingHelp && signedIn && input.toolCtx.etablissementId) {
+    const pseudo = await pseudonymizeForLlm(input.toolCtx.etablissementId, [historyText, input.message]);
+    [maskedHistory, maskedMessage] = pseudo.texts;
+    restoreNames = pseudo.restore;
+    if (pseudo.maskedCount > 0) {
+      pseudoNote =
+        `\nLes étiquettes entre crochets ([Élève 1], [Parent 2 nom], [Personnel 1]…) remplacent des noms réels : ` +
+        `recopie-les EXACTEMENT, sans les traduire, les accorder ni les compléter.\n`;
+    }
+  }
+
   const userPayload =
-    `Historique récent:\n${historyText || "(aucun)"}\n\n` +
+    `Historique récent:\n${maskedHistory || "(aucun)"}\n\n` +
     `Contexte dictionnaire:\n${knowledge.context}\n` +
     attachmentNote +
     filesNote +
-    `\nQuestion: ${input.message}`;
+    pseudoNote +
+    `\nQuestion: ${maskedMessage}`;
 
   const userContent: ChatMessage["content"] = filesContent?.images.length
     ? [
@@ -1056,7 +1094,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
     if (!toolCalls?.length) {
       const answer = stripEleveDocumentLinks(
-        normalizeLinks(mistralMessageText(msg?.content).trim()),
+        normalizeLinks(restoreNames(mistralMessageText(msg?.content).trim())),
       );
       conversationState = withPendingConfirmation(conversationState, pendingConfirmation);
       conversationState = withPendingChoices(conversationState, pendingChoices);
