@@ -101,6 +101,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/091_journal_ajout_seul.sql"),
     include_str!("../../../migrations/092_referentiel_scolaire.sql"),
     include_str!("../../../migrations/093_passkey_par_personne.sql"),
+    include_str!("../../../migrations/094_limitation_debit.sql"),
     include_str!("../../../migrations/095_session_assurance.sql"),
 ];
 

@@ -58,7 +58,12 @@ async fn run_api() {
         });
     tracing::info!("ent-api listening on http://{bind} (local only)");
 
-    axum::serve(listener, app(state))
+    // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
+    // (base des gardes anti-abus ; voir `client_ip`).
+    axum::serve(
+        listener,
+        app(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("serve");

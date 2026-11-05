@@ -42,7 +42,7 @@ ent-types = { path = "../ent-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace", "fs", "cors", "limit", "catch-panic", "set-header", "request-id", "timeout"] }
 tracing = "0.1"

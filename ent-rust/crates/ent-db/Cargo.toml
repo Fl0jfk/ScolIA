@@ -36,10 +36,10 @@ sqlx = { version = "0.8", default-features = false, features = [
 thiserror = { workspace = true }
 tracing = "0.1"
 sha2 = "0.10"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 url = "2"
 uuid = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }

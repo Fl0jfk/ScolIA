@@ -3,7 +3,9 @@
 
 #[macro_use]
 mod masque;
+pub mod anti_abus;
 mod auth;
+pub mod client_ip;
 mod dto;
 pub mod http_garde;
 mod ical;
@@ -46,9 +48,38 @@ pub struct AppState {
     pub obs: Arc<ent_obs::Metrics>,
     /// Politique d'accès à `/metrics` (jeton, ouvert, désactivé).
     pub metrics_acces: obs::MetricsAcces,
+    /// Tâches de fond lancées par des handlers (compteur de tâches en cours).
+    taches: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl AppState {
+    /// Lance un traitement différé hors requête (ex. envoi d'un e-mail dont le
+    /// temps ne doit pas être observable par le client). Le compteur permet aux
+    /// tests d'attendre la fin (`attendre_taches`).
+    pub(crate) fn lancer_tache<F>(&self, travail: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        use std::sync::atomic::Ordering;
+        let compteur = self.taches.clone();
+        compteur.fetch_add(1, Ordering::SeqCst);
+        tokio::spawn(async move {
+            travail.await;
+            compteur.fetch_sub(1, Ordering::SeqCst);
+        });
+    }
+
+    /// Attend la fin des tâches différées (tests ; borné à 10 s).
+    pub async fn attendre_taches(&self) {
+        use std::sync::atomic::Ordering;
+        for _ in 0..1000 {
+            if self.taches.load(Ordering::SeqCst) == 0 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
     /// État de production/test : familles de métriques déclarées, politique
     /// d'accès lue dans l'environnement.
     pub fn nouveau(ent: PgEnt) -> Self {
@@ -58,6 +89,7 @@ impl AppState {
             ent: Arc::new(ent),
             obs,
             metrics_acces: obs::MetricsAcces::depuis_env(),
+            taches: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 }
@@ -108,6 +140,12 @@ pub fn app(state: AppState) -> Router {
         .nest_service("/static", fonts)
         .merge(routes::router())
         .with_state(state.clone())
+        // Limitation de débit des routes d'authentification publiques (quotas en
+        // base, `429` + `Retry-After`). Interne au plafond de taille du corps.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            anti_abus::limiter_debit,
+        ))
         // Garde-fou corps de requête (anti-DoS).
         .layer(RequestBodyLimitLayer::new(max_body_bytes()));
 
@@ -185,6 +223,8 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
 mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_l3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_abus;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;
@@ -427,7 +467,12 @@ mod tests {
                 .method("POST")
                 .uri("/auth/login")
                 .header("content-type", "application/json")
-                .header("x-forwarded-for", ip)
+                // Le proxy de confiance (socket 10.0.0.1) ajoute l'IP vue en dernier.
+                .header("x-forwarded-for", format!("6.6.6.6, {ip}"))
+                .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                    [10, 0, 0, 1],
+                    4000,
+                ))))
                 .body(Body::from(format!(
                     r#"{{"email":"{email}","password":"MauvaisPass1!","etablissement_id":"{etab}"}}"#
                 )))
@@ -1397,7 +1442,12 @@ mod tests {
                     .method("POST")
                     .uri("/auth/forgot-password")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"email":"personne@nulle.part"}"#))
+                    // E-mail unique par exécution : le seau par identifiant
+                    // (3/heure) persiste en base entre deux lancements.
+                    .body(Body::from(format!(
+                        r#"{{"email":"personne-{}@nulle.part"}}"#,
+                        Uuid::new_v4().simple()
+                    )))
                     .unwrap(),
             )
             .await
@@ -2073,7 +2123,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        // Anti-énumération (M4) : même forme de réponse qu'un compte avec passkey
+        // (200 + challenge factice), plus de 401 « aucune passkey ».
+        assert_eq!(res.status(), StatusCode::OK);
+        let faux = json_body(res).await;
+        assert!(faux["token"].is_string() && faux["options"]["publicKey"]["challenge"].is_string());
 
         // 5) Garde de rôle : un parent ne réinitialise pas les passkeys d'autrui.
         let admin_email = format!("pkadm-{}@ent.local", Uuid::new_v4());
@@ -2133,7 +2187,8 @@ mod tests {
         assert_eq!(body["mfa_required"], false);
         assert!(body["token"].is_string(), "session directe rétablie");
 
-        // 7) Sans passkey, le parcours passwordless est indisponible (401 générique).
+        // 7) Sans passkey, la réponse reste un 200 avec challenge factice (M4) ;
+        //    l'étape `finish` le refusera comme tout jeton inconnu.
         let res = app
             .oneshot(
                 Request::builder()
@@ -2151,7 +2206,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(json_body(res).await["token"].is_string());
     }
 
     /// SSO OIDC via HTTP : configuration validée par découverte (Direction /

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Duration, Utc};
 use ent_auth::{
-    assert_password_policy, generate_session_token, hash_password, hash_token, normalize_email,
+    assert_password_max_len, assert_password_policy, generate_session_token, hash_password, hash_token, normalize_email,
     verify_password, AuthError, Role,
 };
 use sqlx::PgPool;
@@ -185,6 +185,43 @@ fn login_lock_minutes() -> i64 {
         .unwrap_or(15)
 }
 
+fn env_u64(nom: &str, defaut: u64) -> u64 {
+    std::env::var(nom)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(defaut)
+}
+
+/// Ralentissement progressif par compte (toutes IP confondues) : au-delà de
+/// `ENT_LOGIN_SLOWDOWN_AFTER` échecs nets dans la fenêtre (défaut 5), chaque
+/// tentative est retardée de `ENT_LOGIN_SLOWDOWN_BASE_MS` (défaut 200 ms)
+/// doublé à chaque échec supplémentaire, plafonné à `ENT_LOGIN_SLOWDOWN_MAX_MS`
+/// (défaut 3000 ms). Retarde l'attaque distribuée sans jamais refuser un
+/// utilisateur légitime.
+fn slowdown_ms(echecs_comptes: i32) -> u64 {
+    slowdown_calcul(
+        echecs_comptes,
+        env_u64("ENT_LOGIN_SLOWDOWN_AFTER", 5) as i32,
+        env_u64("ENT_LOGIN_SLOWDOWN_BASE_MS", 200),
+        env_u64("ENT_LOGIN_SLOWDOWN_MAX_MS", 3000),
+    )
+}
+
+fn slowdown_calcul(echecs: i32, apres: i32, base_ms: u64, max_ms: u64) -> u64 {
+    if echecs <= apres || base_ms == 0 {
+        return 0;
+    }
+    let exposant = (echecs - apres - 1).clamp(0, 16) as u32;
+    base_ms.saturating_mul(1u64 << exposant).min(max_ms)
+}
+
+/// Résultat d'une tentative comptabilisée par `login_attempt`.
+struct Tentative {
+    /// Tentatives nettes dans la fenêtre, celle-ci comprise.
+    compte: i32,
+    verrouille: bool,
+}
+
 /// Hash factice (généré une fois) : on vérifie un mot de passe même quand
 /// l'e-mail est inconnu, pour lisser le temps de réponse (anti-énumération).
 static DUMMY_PASSWORD_HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -315,6 +352,19 @@ impl PgAuthRepo {
 
     /// Contrôle mot de passe + appartenance, **sans** créer de session.
     /// C'est le point d'entrée pour un parcours à 2ᵉ facteur (passkey).
+    ///
+    /// Anti-force brute (trois compteurs, tous incrémentés **avant** la
+    /// vérification du mot de passe, de façon atomique) :
+    /// - verrou dur par couple **(compte, IP)** : un tiers qui martèle un compte
+    ///   depuis son IP ne bloque que lui-même, jamais la victime (M1) ;
+    /// - verrou dur par **IP** (bourrage d'identifiants réparti sur des comptes) ;
+    /// - **ralentissement progressif** par compte, toutes IP confondues
+    ///   (`slowdown_ms`) : freine l'attaque distribuée sans jamais refuser la
+    ///   victime.
+    ///
+    /// `NotMember` n'est jamais exposé : mot de passe correct mais hors
+    /// établissement = mêmes `InvalidCredentials` qu'un mauvais mot de passe
+    /// (la cause réelle est seulement journalisée).
     pub async fn verify_credentials(
         &self,
         email: &str,
@@ -322,22 +372,36 @@ impl PgAuthRepo {
         etablissement_id: Uuid,
         client_ip: Option<&str>,
     ) -> Result<LoginIdentity, AuthError> {
-        // Clé de garde dérivée de l'IP (préfixe `ip:` pour ne pas confondre avec
-        // un e-mail dans la même table).
-        let ip_key = client_ip.map(|ip| format!("ip:{ip}"));
         let email = normalize_email(email)?;
+        // Borne de taille avant tout hachage Argon2.
+        assert_password_max_len(password)?;
         if etablissement_id.is_nil() {
-            return Err(AuthError::NotMember);
+            tracing::info!("connexion refusée : établissement nul");
+            return Err(AuthError::InvalidCredentials);
         }
 
-        // Verrouillage temporaire après trop d'échecs (compte, puis IP).
-        if self.login_lock_until(&email).await?.is_some() {
+        // Clés de garde. La clé du compteur global est l'e-mail normalisé (clé
+        // historique) ; les deux autres portent un préfixe (`ip:`, `compte-ip:`).
+        let ip_key = client_ip.map(|ip| format!("ip:{ip}"));
+        let hard_key = format!("compte-ip:{email}|{}", client_ip.unwrap_or("-"));
+
+        if self
+            .login_attempt(&hard_key, login_max_failed())
+            .await?
+            .verrouille
+        {
             return Err(AuthError::TooManyAttempts);
         }
         if let Some(k) = &ip_key {
-            if self.login_lock_until(k).await?.is_some() {
+            if self.login_attempt(k, login_max_failed_ip()).await?.verrouille {
                 return Err(AuthError::TooManyAttempts);
             }
+        }
+        // Compteur global du compte (aucun seuil de refus) → ralentissement.
+        let global = self.login_attempt(&email, i32::MAX).await?;
+        let delai = slowdown_ms(global.compte);
+        if delai > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delai)).await;
         }
 
         let row: Option<(Uuid, String, Option<String>)> = sqlx::query_as(
@@ -354,14 +418,10 @@ impl PgAuthRepo {
             // E-mail inconnu : on hache quand même un mot de passe factice pour
             // éviter de révéler l'existence du compte par le temps de réponse.
             let _ = verify_password(password, DUMMY_PASSWORD_HASH.as_str());
-            self.record_login_failure_all(&email, ip_key.as_deref())
-                .await?;
             return Err(AuthError::InvalidCredentials);
         };
 
         if !verify_password(password, &password_hash)? {
-            self.record_login_failure_all(&email, ip_key.as_deref())
-                .await?;
             return Err(AuthError::InvalidCredentials);
         }
 
@@ -378,15 +438,26 @@ impl PgAuthRepo {
         .map_err(|_| AuthError::InvalidCredentials)?;
 
         let Some((role,)) = membership else {
-            self.record_login_failure_all(&email, ip_key.as_deref())
-                .await?;
-            return Err(AuthError::NotMember);
+            // Mot de passe correct mais hors établissement : réponse identique à
+            // un échec (ne confirme pas le mot de passe), tentative non rendue.
+            tracing::info!(
+                user_id = %user_id,
+                etablissement_id = %etablissement_id,
+                "connexion refusée : mot de passe correct mais compte non membre de l'établissement"
+            );
+            return Err(AuthError::InvalidCredentials);
         };
 
-        // Connexion réussie : le compteur du compte repart à zéro. Le compteur
-        // par IP n'est **pas** remis à zéro (un succès isolé ne doit pas rendre
-        // son budget à un attaquant qui partage l'IP) ; il expire avec la fenêtre.
-        self.clear_login_failures(&email).await?;
+        // Connexion réussie : le verrou (compte, IP) repart à zéro, et les
+        // tentatives réussies sont rendues aux compteurs IP et compte (qui ne
+        // reflètent que les échecs : un succès isolé ne rend pas son budget à
+        // un attaquant qui partage l'IP, il ne fait que compenser sa propre
+        // tentative).
+        self.clear_login_failures(&hard_key).await?;
+        if let Some(k) = &ip_key {
+            self.login_attempt_refund(k).await?;
+        }
+        self.login_attempt_refund(&email).await?;
 
         Ok(LoginIdentity {
             user_id,
@@ -563,108 +634,82 @@ impl PgAuthRepo {
         Ok(res.rows_affected() > 0)
     }
 
-    /// Verrou encore actif pour cet e-mail (garde anti-force brute).
-    async fn login_lock_until(&self, email: &str) -> Result<Option<DateTime<Utc>>, AuthError> {
-        let row: Option<(Option<DateTime<Utc>>,)> = sqlx::query_as(
-            r#"
-            SELECT locked_until FROM ent_login_guard
-            WHERE email = $1 AND locked_until IS NOT NULL AND locked_until > now()
-            "#,
-        )
-        .bind(email)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| AuthError::InvalidCredentials)?;
-        Ok(row.and_then(|(locked,)| locked))
-    }
-
-    /// Enregistre un échec sur le compte **et** sur l'IP (si connue).
-    async fn record_login_failure_all(
-        &self,
-        email: &str,
-        ip_key: Option<&str>,
-    ) -> Result<(), AuthError> {
-        self.record_login_failure(email, login_max_failed()).await?;
-        if let Some(k) = ip_key {
-            self.record_login_failure(k, login_max_failed_ip()).await?;
-        }
-        Ok(())
-    }
-
-    /// Enregistre un échec et verrouille temporairement au-delà du seuil.
+    /// Comptabilise une tentative de façon **atomique et avant** la vérification
+    /// du mot de passe (une seule requête `INSERT … ON CONFLICT … DO UPDATE …
+    /// RETURNING`) : plusieurs requêtes concurrentes ne peuvent pas toutes
+    /// passer sous le seuil (course contrôle/enregistrement corrigée). Au-delà de
+    /// `max_failed` tentatives nettes dans la fenêtre, la clé est verrouillée
+    /// (`login_lock_minutes`) et la tentative refusée. Un succès rend son
+    /// décompte (`login_attempt_refund`) ou efface la clé : le compteur reflète
+    /// donc les **échecs**. Sans seuil (`i32::MAX`) : simple compteur.
     /// Le compteur vit en base : la politique est partagée entre instances.
-    /// `max_failed` est paramétré (seuil compte vs seuil IP).
-    async fn record_login_failure(&self, key: &str, max_failed: i32) -> Result<(), AuthError> {
-        let now = Utc::now();
-        let window_floor = now - Duration::minutes(login_window_minutes());
-        let lock_until = now + Duration::minutes(login_lock_minutes());
-
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| AuthError::InvalidCredentials)?;
-
-        let row: Option<(i32, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
+    async fn login_attempt(&self, key: &str, max_failed: i32) -> Result<Tentative, AuthError> {
+        let (compte, verrouille): (i32, bool) = sqlx::query_as(
             r#"
-            SELECT failed_count, window_start, locked_until
-            FROM ent_login_guard WHERE email = $1
-            FOR UPDATE
-            "#,
-        )
-        .bind(key)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| AuthError::InvalidCredentials)?;
-
-        // Nouvelle entrée : la fenêtre **commence maintenant**. Utiliser le
-        // plancher (`now - fenêtre`) ferait croire à chaque appel que la fenêtre
-        // est expirée → compteur bloqué à 1, verrou jamais atteint (bug corrigé).
-        let (failed, window_start, existing_lock) = row.unwrap_or((0, now, None));
-
-        // Nouvelle fenêtre si la précédente est expirée, ou si le verrou l'est.
-        let lock_expired = existing_lock.map(|l| l <= now).unwrap_or(true);
-        let reset = window_start < window_floor || (existing_lock.is_some() && lock_expired);
-        let failed_new = if reset { 1 } else { failed + 1 };
-        let window_start_new = if reset { now } else { window_start };
-        let locked_until_new = if failed_new >= max_failed {
-            Some(lock_until)
-        } else {
-            existing_lock.filter(|l| *l > now)
-        };
-
-        sqlx::query(
-            r#"
-            INSERT INTO ent_login_guard (
+            INSERT INTO ent_login_guard AS g (
                 email, failed_count, window_start, locked_until, last_attempt_at
-            ) VALUES ($1, $2, $3, $4, $5)
+            ) VALUES ($1, 1, now(), NULL, now())
             ON CONFLICT (email) DO UPDATE SET
-                failed_count = EXCLUDED.failed_count,
-                window_start = EXCLUDED.window_start,
-                locked_until = EXCLUDED.locked_until,
-                last_attempt_at = EXCLUDED.last_attempt_at
+                failed_count = CASE
+                    WHEN (g.locked_until IS NOT NULL AND g.locked_until <= now())
+                      OR (g.locked_until IS NULL
+                          AND g.window_start < now() - make_interval(secs => $3::float8))
+                    THEN 1 ELSE g.failed_count + 1 END,
+                window_start = CASE
+                    WHEN (g.locked_until IS NOT NULL AND g.locked_until <= now())
+                      OR (g.locked_until IS NULL
+                          AND g.window_start < now() - make_interval(secs => $3::float8))
+                    THEN now() ELSE g.window_start END,
+                locked_until = CASE
+                    WHEN (g.locked_until IS NOT NULL AND g.locked_until <= now())
+                      OR (g.locked_until IS NULL
+                          AND g.window_start < now() - make_interval(secs => $3::float8))
+                    THEN NULL
+                    WHEN g.failed_count + 1 > $2
+                    THEN COALESCE(g.locked_until, now() + make_interval(secs => $4::float8))
+                    ELSE g.locked_until END,
+                last_attempt_at = now()
+            RETURNING failed_count, (failed_count > $2)
             "#,
         )
         .bind(key)
-        .bind(failed_new)
-        .bind(window_start_new)
-        .bind(locked_until_new)
-        .bind(now)
-        .execute(&mut *tx)
+        .bind(max_failed)
+        .bind((login_window_minutes() * 60) as f64)
+        .bind((login_lock_minutes() * 60) as f64)
+        .fetch_one(&self.pool)
         .await
         .map_err(|_| AuthError::InvalidCredentials)?;
-
-        tx.commit()
-            .await
-            .map_err(|_| AuthError::InvalidCredentials)?;
 
         // Ménage opportuniste : au-delà d'un jour, un compteur n'a plus d'usage.
-        let _ = sqlx::query(
-            "DELETE FROM ent_login_guard WHERE last_attempt_at < now() - interval '1 day'",
-        )
-        .execute(&self.pool)
-        .await;
+        if compte == 1 {
+            let _ = sqlx::query(
+                "DELETE FROM ent_login_guard WHERE last_attempt_at < now() - interval '1 day'",
+            )
+            .execute(&self.pool)
+            .await;
+        }
+        Ok(Tentative { compte, verrouille })
+    }
 
+    /// Rend le décompte d'une tentative **réussie** (le compteur ne reflète que
+    /// les échecs). Sans effet si la clé est verrouillée.
+    async fn login_attempt_refund(&self, key: &str) -> Result<(), AuthError> {
+        // Une ligne revenue à zéro est supprimée (pas de résidu par connexion
+        // réussie) ; sinon le compteur est décrémenté. Une seule requête.
+        sqlx::query(
+            "WITH purge AS ( \
+                 DELETE FROM ent_login_guard \
+                 WHERE email = $1 AND locked_until IS NULL AND failed_count <= 1 \
+                 RETURNING 1 \
+             ) \
+             UPDATE ent_login_guard SET failed_count = GREATEST(failed_count - 1, 0) \
+             WHERE email = $1 AND locked_until IS NULL \
+               AND NOT EXISTS (SELECT 1 FROM purge)",
+        )
+        .bind(key)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| AuthError::InvalidCredentials)?;
         Ok(())
     }
 
@@ -1216,7 +1261,13 @@ impl PgAuthRepo {
         password: &str,
     ) -> Result<bool, AuthError> {
         let key = format!("reauth:{user_id}");
-        if self.login_lock_until(&key).await?.is_some() {
+        assert_password_max_len(password)?;
+        // Tentative comptabilisée atomiquement AVANT la vérification.
+        if self
+            .login_attempt(&key, reauth_max_failed())
+            .await?
+            .verrouille
+        {
             return Err(AuthError::TooManyAttempts);
         }
         let row: Option<(String,)> =
@@ -1233,7 +1284,7 @@ impl PgAuthRepo {
             self.clear_login_failures(&key).await?;
             Ok(true)
         } else {
-            self.record_login_failure(&key, reauth_max_failed()).await?;
+            // Échec déjà comptabilisé (incrément avant vérification).
             Ok(false)
         }
     }
@@ -1386,5 +1437,25 @@ impl std::fmt::Debug for SessionInfo {
             .field("email", &"[masqué]")
             .field("token", &"[masqué]")
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests_ralentissement {
+    use super::slowdown_calcul;
+
+    #[test]
+    fn ralentissement_progressif_plafonne() {
+        // Aucun délai jusqu'au seuil.
+        assert_eq!(slowdown_calcul(1, 5, 200, 3000), 0);
+        assert_eq!(slowdown_calcul(5, 5, 200, 3000), 0);
+        // Puis doublement à chaque échec, plafonné.
+        assert_eq!(slowdown_calcul(6, 5, 200, 3000), 200);
+        assert_eq!(slowdown_calcul(7, 5, 200, 3000), 400);
+        assert_eq!(slowdown_calcul(8, 5, 200, 3000), 800);
+        assert_eq!(slowdown_calcul(10, 5, 200, 3000), 3000);
+        assert_eq!(slowdown_calcul(i32::MAX, 5, 200, 3000), 3000);
+        // Désactivable.
+        assert_eq!(slowdown_calcul(50, 5, 0, 3000), 0);
     }
 }
