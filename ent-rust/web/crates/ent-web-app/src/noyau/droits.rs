@@ -95,6 +95,9 @@ pub struct Droits {
     /// Messagerie côté personnel : écrire à propos de n'importe quel élève, modèles,
     /// archiver, classer (`PgEnt::role_can_messagerie_staff`).
     pub messagerie_personnel: bool,
+    /// Politique de sécurité de l'établissement (passkey obligatoire par rôle) :
+    /// `GET`/`PUT /etablissement/securite`, réservé à Admin et Direction.
+    pub gerer_securite: bool,
 }
 
 pub fn droits_du_role(role: &str) -> Droits {
@@ -124,6 +127,7 @@ pub fn droits_du_role(role: &str) -> Droits {
         mes_classes: r == Role::Prof,
         messagerie: messagerie_personnel || matches!(r, Role::Parent | Role::Eleve),
         messagerie_personnel,
+        gerer_securite: matches!(r, Role::Admin | Role::Direction),
     }
 }
 

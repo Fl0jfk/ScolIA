@@ -9,8 +9,13 @@
 //! Le serveur ne voit pas la session pendant le rendu HTML : les données sont
 //! chargées par le navigateur.
 
-use ent_web_api::{ApiClient, ApiError, Moi};
+use ent_web_api::{ApiClient, ApiError, Moi, MoiSecurite};
+use std::cell::Cell;
+use std::rc::Rc;
+
 use leptos::prelude::*;
+use leptos::task::spawn_local;
+use leptos_router::NavigateOptions;
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 pub const CLE_JETON: &str = "ent_token";
@@ -82,6 +87,39 @@ pub fn adresse_apres_deconnexion(resultat: Option<&Result<(), ApiError>>) -> &'s
 /// Durée maximale d'attente de la révocation serveur lors d'une déconnexion.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 pub const DELAI_REVOCATION: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Termine la session : le jeton local est effacé tout de suite (les autres onglets le voient
+/// par l'événement `storage`), puis on attend la révocation en base, au plus
+/// [`DELAI_REVOCATION`], avant de rejoindre la page de connexion.
+pub fn deconnecter<N>(navigate: N)
+where
+    N: Fn(&str, NavigateOptions) + Clone + 'static,
+{
+    let client = client();
+    effacer();
+    let fini = Rc::new(Cell::new(false));
+    {
+        let navigate = navigate.clone();
+        let fini = fini.clone();
+        spawn_local(async move {
+            let resultat = client.deconnexion().await;
+            if !fini.replace(true) {
+                navigate(
+                    adresse_apres_deconnexion(Some(&resultat)),
+                    Default::default(),
+                );
+            }
+        });
+    }
+    set_timeout(
+        move || {
+            if !fini.replace(true) {
+                navigate(adresse_apres_deconnexion(None), Default::default());
+            }
+        },
+        DELAI_REVOCATION,
+    );
+}
 
 /// Efface la session locale. Les autres onglets le voient (événement `storage`).
 pub fn effacer() {
@@ -231,6 +269,9 @@ pub fn retour_sur(retour: Option<String>) -> String {
 #[derive(Clone, Copy)]
 pub struct ContexteSession {
     pub moi: LocalResource<Result<Moi, ApiError>>,
+    /// Portée et niveau de la session (`/auth/me`), renseignés par le même chargement
+    /// que `moi` ; `None` tant que la réponse n'est pas arrivée.
+    pub securite: RwSignal<Option<MoiSecurite>>,
 }
 
 /// Contexte de session (dans une page de la coquille authentifiée).

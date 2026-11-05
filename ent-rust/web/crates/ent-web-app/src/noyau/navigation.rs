@@ -13,6 +13,8 @@ pub const MES_CLASSES: &str = "/web/mes-classes";
 pub const VIE_SCOLAIRE: &str = "/web/vie-scolaire";
 pub const ABSENCES: &str = "/web/absences";
 pub const MESSAGES: &str = "/web/messages";
+pub const SECURITE: &str = "/web/securite";
+pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
 
 fn entree(libelle: &str, href: &str, icone: NomIcone) -> EntreeNav {
     EntreeNav {
@@ -48,6 +50,11 @@ pub fn entrees(droits: Droits) -> Vec<EntreeNav> {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
     }
     v
+}
+
+/// Liens du pied de navigation, communs à tous les profils : le compte de la personne.
+pub fn liens_compte() -> Vec<EntreeNav> {
+    vec![entree("Compte", SECURITE, NomIcone::Passkey)]
 }
 
 /// Texte du compteur de messages non lus (rien à zéro, « 99+ » au-delà de 99).
@@ -156,6 +163,16 @@ mod tests {
         assert!(badges[..badges.len() - 1].iter().all(Option::is_none));
         let sans = avec_compteur_messages(entrees(droits_du_role("compta")), 3);
         assert!(sans.iter().all(|x| x.badge.is_none()));
+    }
+
+    #[test]
+    fn le_compte_est_accessible_a_tous_les_profils() {
+        let liens = liens_compte();
+        assert_eq!(liens.len(), 1);
+        assert_eq!(liens[0].href, SECURITE);
+        // Le lien « Compte » est actif sur ses sous-pages, pas sur la politique de l'établissement.
+        assert!(ent_web_ui::lien_actif(SECURITE, "/web/securite"));
+        assert!(!ent_web_ui::lien_actif(SECURITE, POLITIQUE_SECURITE));
     }
 
     #[test]

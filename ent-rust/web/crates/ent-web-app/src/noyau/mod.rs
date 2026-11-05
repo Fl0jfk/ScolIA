@@ -7,5 +7,7 @@ pub mod droits;
 pub mod erreurs;
 pub mod navigation;
 pub mod non_lus;
+pub mod portee;
 pub mod session;
 pub mod temps;
+pub mod webauthn;

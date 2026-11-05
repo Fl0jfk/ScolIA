@@ -14,6 +14,8 @@ pub(crate) async fn envoyer(
     let mut req = match methode {
         Methode::Get => Request::get(url),
         Methode::Post => Request::post(url),
+        Methode::Put => Request::put(url),
+        Methode::Delete => Request::delete(url),
     };
     req = req.header("Accept", "application/json");
     if let Some(j) = jeton {
@@ -45,6 +47,8 @@ pub(crate) async fn envoyer(
     let mut req = match methode {
         Methode::Get => client.get(url),
         Methode::Post => client.post(url),
+        Methode::Put => client.put(url),
+        Methode::Delete => client.delete(url),
     };
     req = req.header("Accept", "application/json");
     if let Some(j) = jeton {

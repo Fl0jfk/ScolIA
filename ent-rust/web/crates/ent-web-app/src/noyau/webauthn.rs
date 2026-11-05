@@ -1,5 +1,6 @@
-//! Signature d'un défi WebAuthn (passkey) par l'appareil, en Rust (API du navigateur
-//! `navigator.credentials.get`), au format JSON attendu par `webauthn-rs` côté serveur.
+//! Passkey (WebAuthn) en Rust, via les API du navigateur, au format JSON attendu par
+//! `webauthn-rs` côté serveur : signature d'un défi (`navigator.credentials.get`, connexion)
+//! et création d'une passkey (`navigator.credentials.create`, enrôlement).
 //! Aucune clé ni aucun secret ne transite par cette page : seul l'appareil signe.
 
 /// Encodage base64url sans remplissage (format de `webauthn-rs`).
@@ -112,6 +113,95 @@ pub async fn signer_defi(options: &serde_json::Value) -> Result<serde_json::Valu
             "userHandle": b64(lire(&r, "userHandle")),
         },
     }))
+}
+
+/// Demande à l'appareil de créer une passkey (`options` = `CreationChallengeResponse` JSON
+/// renvoyé par `POST /auth/passkey/register/start`). Renvoie l'attestation
+/// (`RegisterPublicKeyCredential` JSON) à transmettre à `register/finish`.
+#[cfg(target_arch = "wasm32")]
+pub async fn creer_passkey(options: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use leptos::wasm_bindgen::{JsCast, JsValue};
+    use web_sys::js_sys::{Array, ArrayBuffer, Function, Object, Reflect, Uint8Array, JSON};
+
+    let erreur = |m: &str| m.to_string();
+    let pk = options
+        .get("publicKey")
+        .ok_or_else(|| erreur("défi passkey invalide"))?;
+    let objet = JSON::parse(&pk.to_string()).map_err(|_| erreur("défi passkey illisible"))?;
+    let en_octets = |b64: &str| -> Result<JsValue, String> {
+        let o = b64url_decoder(b64).ok_or_else(|| erreur("défi passkey mal encodé"))?;
+        Ok(Uint8Array::from(o.as_slice()).into())
+    };
+    let defi = pk["challenge"]
+        .as_str()
+        .ok_or_else(|| erreur("défi passkey sans challenge"))?;
+    Reflect::set(&objet, &"challenge".into(), &en_octets(defi)?)
+        .map_err(|_| erreur("défi passkey"))?;
+    let id_utilisateur = pk["user"]["id"]
+        .as_str()
+        .ok_or_else(|| erreur("défi passkey sans identifiant"))?;
+    let utilisateur = Reflect::get(&objet, &"user".into()).map_err(|_| erreur("défi passkey"))?;
+    Reflect::set(&utilisateur, &"id".into(), &en_octets(id_utilisateur)?)
+        .map_err(|_| erreur("défi passkey"))?;
+    if let Some(liste) = pk.get("excludeCredentials").and_then(|v| v.as_array()) {
+        let tableau: Array = Reflect::get(&objet, &"excludeCredentials".into())
+            .map_err(|_| erreur("défi passkey"))?
+            .unchecked_into();
+        for (i, c) in liste.iter().enumerate() {
+            if let Some(id) = c["id"].as_str() {
+                Reflect::set(&tableau.get(i as u32), &"id".into(), &en_octets(id)?)
+                    .map_err(|_| erreur("défi passkey"))?;
+            }
+        }
+    }
+    let demande = Object::new();
+    Reflect::set(&demande, &"publicKey".into(), &objet).map_err(|_| erreur("défi passkey"))?;
+
+    let fenetre = web_sys::window().ok_or_else(|| erreur("navigateur indisponible"))?;
+    let promesse = fenetre
+        .navigator()
+        .credentials()
+        .create_with_options(demande.unchecked_ref())
+        .map_err(|_| erreur("passkey non prise en charge par ce navigateur"))?;
+    let reponse = wasm_bindgen_futures::JsFuture::from(promesse)
+        .await
+        .map_err(|_| erreur("création de la passkey annulée ou refusée"))?;
+
+    let lire = |o: &JsValue, cle: &str| Reflect::get(o, &cle.into()).unwrap_or(JsValue::NULL);
+    let b64 = |v: JsValue| -> Option<String> {
+        v.dyn_into::<ArrayBuffer>()
+            .ok()
+            .map(|b| b64url_encoder(&Uint8Array::new(&b).to_vec()))
+    };
+    let r = lire(&reponse, "response");
+    // Moyens de transport de l'authentificateur (facultatif : ignoré s'il manque).
+    let transports = lire(&r, "getTransports")
+        .dyn_into::<Function>()
+        .ok()
+        .and_then(|f| f.call0(&r).ok())
+        .and_then(|v| JSON::stringify(&v).ok())
+        .and_then(|s| s.as_string())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+    let mut reponse_json = serde_json::json!({
+        "attestationObject": b64(lire(&r, "attestationObject")),
+        "clientDataJSON": b64(lire(&r, "clientDataJSON")),
+    });
+    if let Some(t) = transports.filter(|t| t.is_array()) {
+        reponse_json["transports"] = t;
+    }
+    Ok(serde_json::json!({
+        "id": lire(&reponse, "id").as_string(),
+        "rawId": b64(lire(&reponse, "rawId")),
+        "type": lire(&reponse, "type").as_string(),
+        "extensions": {},
+        "response": reponse_json,
+    }))
+}
+
+/// Hors navigateur (rendu serveur, tests) : indisponible.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn creer_passkey(_options: &serde_json::Value) -> Result<serde_json::Value, String> {
+    Err("passkey disponible uniquement dans le navigateur".into())
 }
 
 /// Hors navigateur (rendu serveur, tests) : indisponible.
