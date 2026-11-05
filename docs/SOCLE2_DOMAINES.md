@@ -803,6 +803,53 @@ Destinataires relus **au traitement** : lien `ent_eleve_lien` de l'établissemen
 
 **Plan d'écrans Leptos (5, non faits)** : années et bascule (assistant préparer → reconduire → monter → ouvrir) ; classes (site/niveau/MEF, PP, archivage) ; périodes et calendrier ; grille horaire ; séances (plage, filtre classe/prof, régénération). Chacun s'appuie sur les routes `/referentiel/*` existantes.
 
+---
+
+### 6.3 S2-4 — réalisé (2026-11-05, branche `ent-socle2-vie-scolaire`)
+
+**Niveau : implémenté + testé en local** (PostgreSQL jetable). Non validé pilote, non fusionné. Construit sur `ent-socle2-outbox` (fusionnée dans la branche). `origin/ent-socle2-referentiel` **n'existait pas** au moment du lot : la « séance » est donc provisoire (voir ci-dessous) et à rebrancher sur les séances datées de S2-2.
+
+**Règles réglementaires : non vérifiées.** Les textes officiels (Code de l'éducation L131-8, R511-12 et suivants, circulaire sur l'assiduité) n'ont pas pu être consultés depuis l'environnement du lot (domaines Légifrance et education.gouv.fr non résolus). Tous les seuils, délais et durées ci-dessous sont des **hypothèses de travail [H] paramétrables**, à vérifier avant pilote (D-019).
+
+**Conception livrée [F]**
+
+| Élément | Où | Détail |
+|---|---|---|
+| Absences à la séance (D-020) | migration `130_vs_absence_seance.sql`, `ent-db/src/assiduite.rs`, `vie_scolaire.rs` | `ent_absence` reste l'unité de justification ; `ent_absence_seance` détaille les séances manquées (horaires figés, source, « prévenue »). `clore_appel` écrit l'absence **et** sa ligne de séance dans la même transaction que l'événement. |
+| Demi-journées dérivées | `assiduite::deriver_demi_journees` (pure) | Jamais saisies. Journée coupée à `heure_coupure` (défaut 12:00) ; une séance à cheval est ventilée à la minute ; union des intervalles (pas de double compte) ; une demi-journée « compte » à `seuil_minutes` (défaut 30) ; « non justifiée » quand les minutes non justifiées atteignent le seuil ; absence annulée (remise présent) ignorée. Règles par établissement : `ent_vs_regle_assiduite`. |
+| Reprise de l'existant | fin de la migration 130 + repli de lecture | Chaque absence à la journée existante devient deux demi-journées par jour ouvré (lundi à vendredi, plafond 365 jours). Idempotente. Les absences créées plus tard par l'ancien chemin (sans ligne de séance) sont lues par un repli équivalent : pas de double compte. |
+| Séance provisoire | `PgEnt::seances_du_jour`, colonne `seance_source` | Créneau EDT + jour, filtré semaine A/B et annulations, remplaçant substitué. **Seul point à remplacer** par les séances datées de S2-2. |
+| Déclarations (VS-06, VS-07) | migration 131, `declarer_absence_accueil` / `_famille` | Accueil : action `absences.declarer`, identité de l'appelant obligatoire. Famille : responsable avec `peut_justifier_absence`, ou élève **majeur** ; identité tirée du compte. Période avec heures facultatives, avant ou après les faits ; motif contrôlé ; pièce = document de l'élève vérifié. Annulation par le déclarant ou le personnel habilité. |
+| Rapprochement (VS-08, A1) | `rapprocher_seance_tx`, `rapprocher_declaration_tx` | Dans les deux sens, dans la transaction : une déclaration active qui **couvre entièrement** la séance (bornes incluses) marque l'absence « prévenue ». `GET /appels/{id}/attendus-absents` pré-remplit la prévision à l'appel. La notification « absence constatée » n'est plus envoyée à la famille pour une absence prévenue. |
+| Vérification de l'appel (VS-04, A2) | migration 132, `verifier_appels_for_actor`, `relancer_appel` | Calculée à la demande : séance sans appel à H + délai (défaut 15 min, paramétrable), appel ouvert après la fin de séance, incohérences (absent puis présent ; présent malgré une absence annoncée). Relance tracée + événement `vs.appel_relance` + notification de l'enseignant (consommateur `d5.relance_appel`, destinataire relu). Heure locale : `heure_paris`. |
+| Punitions ≠ sanctions (VS-15) | migration 133, `discipline_vs.rs` | Tables et droits distincts (`punitions.donner` : professeur sur ses élèves, vie scolaire sur l'établissement). Aucune ligne dans `ent_sanction`. Types usuels amorcés [H]. |
+| Sanctions : catégories et effacement (VS-18) | migration 134 | Catégorie de l'échelle [H] sur le type de sanction ; règles d'effacement par catégorie (fin d'année scolaire, N mois, jamais) ; effacement idempotent qui vide le texte libre, date l'opération, conserve la trace d'existence ; la liste du dossier masque les sanctions effacées. Défauts [H] : avertissement/blâme/mesure de responsabilisation à la fin de l'année scolaire, exclusions temporaires 12 mois, exclusion définitive jamais. |
+| Procédure disciplinaire (VS-17) | migration 134 | Deux instances : chef d'établissement (observations de l'élève obligatoires avant décision) et conseil de discipline (convocation avec délai minimal, défaut 8 jours [H] ; décision à partir du jour du conseil). Sanction liée = même élève. Classement sans suite. |
+| Signalement d'assiduité (VS-21, A5) | migration 134, `proposer_signalements` | Le CPE propose (élèves au seuil du mois, défaut 4 demi-journées non justifiées [H]), la direction valide/refuse puis émet. Dossier JSON détaillé. |
+| Droits | `ent-auth/src/actions.rs` | Cinq actions : `absences.declarer`, `appel.verifier`, `punitions.donner`, `discipline.gerer`, `assiduite.signaler`. Modèles par défaut calés sur les profils déjà habilités ; test d'un rôle paramétré (prof + `absences.declarer`). |
+| Événements | `ent-db/src/vie_scolaire.rs` (`types_vs`) | `vs.absence_declaree`, `vs.declaration_annulee`, `vs.absence_rapprochee`, `vs.appel_relance`, `vs.punition_donnee`, `vs.procedure_engagee`, `vs.procedure_decidee`, `vs.conseil_discipline_decide`, `vs.sanction_effacee`, `vs.signalement_assiduite_emis` : tous publiés dans la transaction du fait (outbox S2-0). |
+| API | `ent-api/src/vie_scolaire.rs` | 27 chemins (29 méthodes HTTP). Les droits sont ceux d'`ent-db`. |
+| Écrans Leptos | `/web/journee`, dialogue de déclaration | Journée vie scolaire/accueil (absents prévenus ou non, retards, absences annoncées, appels à vérifier + relance, incohérences, saisie d'une absence annoncée) ; famille : « Déclarer une absence » dans `/web/absences`. |
+
+**Écarts par rapport au §3 / aux actions VS [signalés]**
+- Agrégats d'événements **réutilisés** (`Absence`, `Appel`, `Sanction`) au lieu de variantes dédiées, pour ne pas toucher à l'enum partagée entre lots en parallèle ; types d'événements déclarés dans `ent-db` et non dans `ent_events::types`.
+- VS-08 n'émet pas `eleve.absence_justif_soumis` (une absence prévenue n'est pas un justificatif soumis) mais `vs.absence_rapprochee`.
+- Le rapprochement n'accepte qu'une **couverture entière** de la séance ; une déclaration partielle (ex. « jusqu'à 9 h 30 » pour une séance 9 h–10 h) ne rend pas l'absence prévenue (visible comme incohérence potentielle côté vérification).
+- La prononciation d'une sanction (VS-16) garde son contrôle historique par profil (`can_saisir_sanctions`) : non migrée vers le moteur de droits (reste de R2).
+- Le menu « Journée » est affiché selon le profil (même ensemble que « trancher un justificatif ») et non selon les droits effectifs du moteur : un rôle paramétré qui reçoit `appel.verifier` sans ce profil doit saisir l'adresse (le serveur reste l'autorité).
+
+**Non livré / reste à faire**
+- Écrans Leptos pour punitions, procédure disciplinaire, effacement, règles d'assiduité, signalement (API et tests prêts) ; affichage du pré-remplissage A1 dans la feuille d'appel (route prête ; feuille d'appel inchangée) ; liste et annulation des déclarations côté famille (route prête).
+- VS-03 (consulter un appel sans l'ouvrir, GET), VS-05 (corriger un appel clos), `appel.non_fait_detecte` / tâche périodique de détection et relance push automatique : la vérification est calculée à la demande, la relance est manuelle.
+- Dossier de signalement en PDF (VS-21) ; lettre de convocation (D9).
+- Jours fériés et vacances non exclus du repli de reprise (lundi à vendredi seulement) ; samedi matin non géré.
+- Compteurs historiques en jours (`apres_absence_ecrite`, signal de seuil annuel) inchangés : ils comptent encore des absences, pas des demi-journées. Le seuil mensuel de signalement utilise, lui, les demi-journées dérivées.
+- Séance du référentiel (S2-2) : à brancher sur `seances_du_jour` ; migrer `seance_ref` vers l'identifiant de la séance datée.
+- Appli mobile : non commencée dans ce lot.
+- Vérification des textes officiels (voir ci-dessus).
+
+**Tests** : voir la ligne « Tests S2-4 » de `docs/PROJECT_STATUS.md` pour les résultats exacts.
+
 ## 7. Décisions à soumettre à Florian (questions fermées)
 
 | # | Question | Options | Recommandation |

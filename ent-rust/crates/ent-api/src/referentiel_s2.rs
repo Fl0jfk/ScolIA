@@ -14,8 +14,8 @@ use axum::{Json, Router};
 use chrono::NaiveDate;
 use ent_db::{
     AnneeDetail, ComparaisonClasse, CreneauGrille, CreneauGrilleSaisie, JourCalendrier, Mef,
-    MefImport, Niveau, Periode, PeriodeSaisie, RapportImportMef, RapportLot, RapportOuverture,
-    RapportReconduction, RapportSeances, Seance, Site,
+    MefImport, Niveau, PeriodeRef as Periode, PeriodeSaisie, RapportImportMef, RapportLot, RapportOuverture,
+    RapportReconduction, RapportSeances, SeanceRef as Seance, Site,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

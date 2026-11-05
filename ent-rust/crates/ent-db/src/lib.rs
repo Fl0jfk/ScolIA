@@ -4,6 +4,9 @@
 //! **Anti-doublon :** pas de table miroir de `ent_eleve` (effectif = query datée).
 
 mod absence_repo;
+mod assiduite;
+mod discipline_vs;
+mod vie_scolaire;
 mod champs_chiffres;
 mod annonce_repo;
 mod appel_repo;
@@ -90,6 +93,20 @@ pub use rate_limit::{Decision, Quota, RateLimiter};
 pub use ent_events::EventBusError;
 pub use ent_object::presign;
 pub use ent_object::ObjectStoreError;
+pub use assiduite::{
+    bornes_mois, deriver_demi_journees, heure_paris, seance_couverte, Contribution, DemiJournee,
+    Periode, RegleAssiduite,
+};
+pub use discipline_vs::{
+    date_effacement, regle_effacement_defaut, DonnerPunition, EffacementRapport, EngagerProcedure,
+    ModeEffacement, ProcedureDisciplinaire, Punition, PunitionType, SignalementAssiduite,
+    CATEGORIES_SANCTION,
+};
+pub use vie_scolaire::{
+    types_vs, AbsentDuJour, DeclarationAbsence, DeclarationDuJour, DeclarerAbsence, DecompteEleve,
+    DecompteMois, DemiJourneeEleve, IncoherenceAppel, RelanceAppel, RetardDuJour, Seance,
+    SeanceSansAppel, TableauJour, VerificationAppels,
+};
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
     AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
@@ -132,11 +149,11 @@ pub use ref_commun::Acteur;
 pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
 pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};
 pub use referentiel_seances::{
-    planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance, SeancePlan,
+    planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance as SeanceRef, SeancePlan,
 };
 pub use referentiel_structure::{
     code_niveau_de_texte, grille_standard, verifier_couverture, CreneauGrille, CreneauGrilleSaisie,
-    JourCalendrier, Mef, MefImport, Niveau, Periode, PeriodeSaisie, RapportImportMef, Site,
+    JourCalendrier, Mef, MefImport, Niveau, Periode as PeriodeRef, PeriodeSaisie, RapportImportMef, Site,
     NIVEAUX_NATIONAUX,
 };
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
@@ -182,6 +199,8 @@ mod tests_roles;
 mod tests_sso_securite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_outbox;
+#[cfg(all(test, feature = "labo"))]
+mod tests_vie_scolaire;
 
 #[cfg(test)]
 mod integration_tests {

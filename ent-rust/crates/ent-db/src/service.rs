@@ -7418,6 +7418,19 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 decision_par_user_id: None,
             };
             self.absences.upsert_tx(&mut tx, &absence).await?;
+            // S2-4 (D-020) : l'absence est aussi enregistrée à la séance et rapprochée
+            // des déclarations (accueil, famille) — même transaction.
+            let prevenue = self
+                .enregistrer_absence_seance_tx(
+                    &mut tx,
+                    etablissement_id,
+                    eleve_id,
+                    absence.id,
+                    appel_id,
+                    appel.creneau_id,
+                    appel.jour,
+                )
+                .await?;
             publies.push(
                 tx.publier_avec(
                     MetierEventDraft {
@@ -7432,7 +7445,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                             "statut": absence.statut.as_str(),
                             "source": "appel",
                             "appel_id": appel_id,
-                            "prevenue": false,
+                            "prevenue": prevenue,
                         }),
                         actor_user_id: actor_user_id.clone(),
                     },

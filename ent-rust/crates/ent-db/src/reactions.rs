@@ -38,7 +38,10 @@ const TYPES_NOTIFICATIONS: &[&str] = &[
 
 /// Consommateurs installés par défaut dans le distributeur de l'ENT.
 pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
-    vec![Arc::new(ConsommateurNotifications)]
+    vec![
+        Arc::new(ConsommateurNotifications),
+        Arc::new(ConsommateurRelanceAppel),
+    ]
 }
 
 struct Message {
@@ -62,6 +65,11 @@ fn message_pour(evt: &EvenementDistribue, prenom: &str) -> Option<Message> {
             // Seule l'absence **constatée** à l'appel est notifiée : une absence
             // déclarée par la famille ou l'accueil est déjà connue de la famille.
             if p.get("source").and_then(|v| v.as_str()) != Some("appel") {
+                return None;
+            }
+            // Absence déjà annoncée (déclaration de l'accueil ou de la famille
+            // rapprochée à l'appel, S2-4) : la famille est déjà prévenue.
+            if p.get("prevenue").and_then(|v| v.as_bool()) == Some(true) {
                 return None;
             }
             let jour = jour_fr(p.get("debut").and_then(|v| v.as_str()));
@@ -212,4 +220,89 @@ pub(crate) async fn notifications_de(
     .bind(limite.clamp(1, 200))
     .fetch_all(pool)
     .await
+}
+
+// ---------------------------------------------------------------------------
+// Relance d'un appel non fait (S2-4, VS-04 / A2) : notifie l'enseignant.
+// ---------------------------------------------------------------------------
+
+pub const CONSOMMATEUR_RELANCE_APPEL: &str = "d5.relance_appel";
+
+pub struct ConsommateurRelanceAppel;
+
+const TYPES_RELANCE: &[&str] = &["vs.appel_relance"];
+
+/// Le destinataire est **relu** dans la relance de l'établissement de l'événement
+/// (jamais pris dans la charge utile) : un événement forgé ne notifie personne.
+async fn notifier_relance(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), String> {
+    let etab = evt.etablissement_id();
+    let Some(relance_id) = evt
+        .event()
+        .payload
+        .get("relance_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok())
+    else {
+        return Ok(());
+    };
+    let row: Option<(Uuid, chrono::NaiveDate, String, String, chrono::NaiveTime)> = sqlx::query_as(
+        r#"
+        SELECT r.destinataire_user_id, r.jour, c.classe, c.matiere_libelle, c.heure_debut
+        FROM ent_appel_relance r
+        JOIN ent_edt_creneau c
+          ON c.id = r.creneau_id AND c.etablissement_id = r.etablissement_id
+        JOIN ent_membership m
+          ON m.user_id = r.destinataire_user_id AND m.etablissement_id = r.etablissement_id
+        WHERE r.etablissement_id = $1 AND r.id = $2
+        "#,
+    )
+    .bind(etab)
+    .bind(relance_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some((user_id, jour, classe, matiere, heure)) = row else {
+        return Ok(());
+    };
+    sqlx::query(
+        r#"
+        INSERT INTO ent_notification (
+            id, etablissement_id, destinataire_user_id, eleve_id,
+            kind, titre, corps, source_event_id
+        ) VALUES ($1,$2,$3,NULL,'appel_a_faire',$4,$5,$6)
+        ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(user_id)
+    .bind(format!("Appel à faire : {classe}"))
+    .bind(format!(
+        "L'appel de {matiere} ({classe}) du {} à {} n'est pas fait. Merci de le faire dès que possible.",
+        jour_fr(Some(&jour.to_string())),
+        heure.format("%H:%M")
+    ))
+    .bind(evt.event().id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+impl Consommateur for ConsommateurRelanceAppel {
+    fn nom(&self) -> &'static str {
+        CONSOMMATEUR_RELANCE_APPEL
+    }
+
+    fn types(&self) -> &'static [&'static str] {
+        TYPES_RELANCE
+    }
+
+    fn traiter<'a>(
+        &'a self,
+        tx: &'a mut PgConnection,
+        evt: &'a EvenementDistribue,
+    ) -> FutureTraitement<'a> {
+        Box::pin(notifier_relance(tx, evt))
+    }
 }
