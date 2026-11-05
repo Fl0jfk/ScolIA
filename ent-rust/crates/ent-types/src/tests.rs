@@ -67,8 +67,19 @@ fn session_aplatie_et_defi_passkey() {
     aller_retour::<MeDto>(
         r#"{"user_id":"6f1c3c80-0000-4000-8000-000000000001","email":"a@exemple.test",
             "etablissement_id":"6f1c3c80-0000-4000-8000-000000000002","role":"eleve",
-            "eleve_id":"6f1c3c80-0000-4000-8000-000000000009","passkey_count":0}"#,
+            "eleve_id":"6f1c3c80-0000-4000-8000-000000000009","passkey_count":0,
+            "portee":"complete","assurance":"mot_de_passe","client":"web",
+            "passkey_obligatoire":false}"#,
     );
+    // Ancien format (avant le socle 1) : toujours lisible, valeurs par défaut sûres.
+    let ancien: MeDto = serde_json::from_str(
+        r#"{"user_id":"6f1c3c80-0000-4000-8000-000000000001","email":"a@exemple.test",
+            "etablissement_id":"6f1c3c80-0000-4000-8000-000000000002","role":"prof",
+            "passkey_count":1}"#,
+    )
+    .unwrap();
+    assert_eq!(ancien.portee, "complete");
+    assert!(!ancien.passkey_obligatoire);
 }
 
 #[test]
