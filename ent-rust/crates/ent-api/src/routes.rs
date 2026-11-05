@@ -686,6 +686,8 @@ pub fn router() -> Router<AppState> {
             "/facturation/rappels",
             get(list_rappels).post(lancer_rappels),
         );
+    // Référentiel scolaire (module séparé : `referentiel.rs`).
+    let r = r.merge(crate::referentiel::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -1049,29 +1051,82 @@ async fn provisionner_personnel(
 #[derive(Serialize)]
 struct MotDePasseReinitialiseDto {
     user_id: Uuid,
-    mot_de_passe_temporaire: String,
+    /// Présent uniquement pour une cible du personnel ; jamais pour un parent / élève.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mot_de_passe_temporaire: Option<String>,
+    /// `true` : un lien de réinitialisation a été envoyé (aucun secret renvoyé).
+    lien_envoye: bool,
 }
 
-/// Réinitialise le mot de passe d'un membre du personnel (Direction / Admin).
+/// Erreurs « mot de passe actuel » / envoi / plafond / nom de passkey, mappées
+/// avant les heuristiques génériques. `None` : laisser la fonction appelante décider.
+fn map_compte_sensible(err: &ent_db::EntDbError) -> Option<(StatusCode, String)> {
+    match err {
+        ent_db::EntDbError::MotDePasseActuelInvalide => {
+            Some((StatusCode::FORBIDDEN, err.to_string()))
+        }
+        ent_db::EntDbError::EnvoiImpossible => {
+            Some((StatusCode::SERVICE_UNAVAILABLE, err.to_string()))
+        }
+        ent_db::EntDbError::PasskeyPlafond(_) => Some((StatusCode::CONFLICT, err.to_string())),
+        ent_db::EntDbError::PasskeyNomInvalide => {
+            Some((StatusCode::BAD_REQUEST, err.to_string()))
+        }
+        ent_db::EntDbError::Auth(ent_auth::AuthError::TooManyAttempts) => {
+            Some((StatusCode::TOO_MANY_REQUESTS, err.to_string()))
+        }
+        _ => None,
+    }
+}
+
+/// URL publique pour les liens envoyés par e-mail. Hors feature `labo`, son
+/// absence renvoie une chaîne vide : le service refuse alors d'émettre un jeton
+/// (`EnvoiImpossible`, 503) au lieu de produire un lien vers localhost.
+fn base_url_publique() -> String {
+    match std::env::var("ENT_PUBLIC_BASE_URL") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ if cfg!(feature = "labo") => "http://localhost:8088".into(),
+        _ => String::new(),
+    }
+}
+
+/// Réinitialise le mot de passe d'un compte (Direction / Admin). Parent / élève :
+/// un lien est envoyé (202, aucun secret). Personnel : mot de passe temporaire
+/// affiché une seule fois (200).
 async fn reinitialiser_mot_de_passe(
     State(state): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
-) -> Result<Json<MotDePasseReinitialiseDto>, (StatusCode, String)> {
-    let mdp = state
+) -> Result<(StatusCode, Json<MotDePasseReinitialiseDto>), (StatusCode, String)> {
+    let issue = state
         .ent
         .reinitialiser_mot_de_passe_for_actor(
             session.etablissement_id,
             session.user_id,
             &session.role,
             id,
+            &base_url_publique(),
         )
         .await
-        .map_err(map_db)?;
-    Ok(Json(MotDePasseReinitialiseDto {
-        user_id: id,
-        mot_de_passe_temporaire: mdp,
-    }))
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_db(e)))?;
+    Ok(match issue {
+        ent_db::ReinitialisationMdp::LienEnvoye => (
+            StatusCode::ACCEPTED,
+            Json(MotDePasseReinitialiseDto {
+                user_id: id,
+                mot_de_passe_temporaire: None,
+                lien_envoye: true,
+            }),
+        ),
+        ent_db::ReinitialisationMdp::MotDePasseTemporaire(mdp) => (
+            StatusCode::OK,
+            Json(MotDePasseReinitialiseDto {
+                user_id: id,
+                mot_de_passe_temporaire: Some(mdp),
+                lien_envoye: false,
+            }),
+        ),
+    })
 }
 
 async fn get_personnel(
@@ -1707,6 +1762,16 @@ pub struct PasskeyRegisterFinishBody {
     pub credential: serde_json::Value,
     #[serde(default)]
     pub name: Option<String>,
+    /// Mot de passe actuel, re-vérifié avant tout ajout de passkey.
+    #[serde(default)]
+    pub current_password: String,
+}
+
+/// Corps de `DELETE /auth/passkeys/{id}` : mot de passe actuel obligatoire.
+#[derive(Deserialize)]
+pub struct PasskeyDeleteBody {
+    #[serde(default)]
+    pub current_password: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1936,7 +2001,7 @@ async fn passkey_register_start(
         .ent
         .passkey_register_start_for_actor(session.etablissement_id, session.user_id)
         .await
-        .map_err(map_passkey)?;
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_passkey(e)))?;
     Ok(Json(PasskeyRegisterStartDto { token, options }))
 }
 
@@ -1951,15 +2016,17 @@ async fn passkey_register_finish(
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("credential invalide: {e}")))?;
     let row = state
         .ent
-        .passkey_register_finish_for_actor(
+        .passkey_register_finish_verified(
             session.etablissement_id,
             session.user_id,
+            session.session_id,
+            &body.current_password,
             &body.token,
             &credential,
             body.name.clone(),
         )
         .await
-        .map_err(map_passkey)?;
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_passkey(e)))?;
     Ok((StatusCode::CREATED, Json(row.into())))
 }
 
@@ -1981,12 +2048,20 @@ async fn delete_passkey(
     State(state): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
+    body: Option<Json<PasskeyDeleteBody>>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    let password = body.map(|Json(b)| b.current_password).unwrap_or_default();
     let removed = state
         .ent
-        .delete_passkey_for_actor(session.etablissement_id, session.user_id, id)
+        .delete_passkey_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            session.session_id,
+            &password,
+            id,
+        )
         .await
-        .map_err(map_passkey)?;
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_passkey(e)))?;
     if removed {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -2050,7 +2125,12 @@ async fn reset_passkeys_admin(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let removed = state
         .ent
-        .reset_passkeys_admin_for_actor(session.etablissement_id, &session.role, user_id)
+        .reset_passkeys_admin_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            user_id,
+        )
         .await
         .map_err(map_passkey)?;
     Ok(Json(serde_json::json!({ "removed": removed })))
@@ -2220,8 +2300,7 @@ async fn forgot_password(
     if body.email.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "e-mail vide".into()));
     }
-    let base = std::env::var("ENT_PUBLIC_BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:8088".into());
+    let base = base_url_publique();
     // Best-effort : une erreur interne ne doit pas distinguer les cas.
     if let Err(e) = state
         .ent
@@ -4731,7 +4810,7 @@ async fn rattacher_responsable_foyer(
     Path(id): Path<Uuid>,
     Json(body): Json<RattacherResponsableFoyerBody>,
 ) -> Result<(StatusCode, Json<EleveLienDto>), (StatusCode, String)> {
-    let saved = state
+    let (saved, activation) = state
         .ent
         .rattacher_responsable_foyer_for_actor(
             &session.role,
@@ -4742,7 +4821,7 @@ async fn rattacher_responsable_foyer(
             body.email.trim(),
             body.display_name.as_deref(),
             body.telephone.as_deref(),
-            body.password.as_deref(),
+            &base_url_publique(),
             body.lien.as_deref().unwrap_or("autre"),
             body.peut_voir_notes.unwrap_or(true),
             body.peut_voir_vs.unwrap_or(true),
@@ -4767,6 +4846,7 @@ async fn rattacher_responsable_foyer(
             peut_autoriser_sorties: saved.peut_autoriser_sorties,
             est_payeur: saved.est_payeur,
             part_paiement: saved.part_paiement,
+            activation_envoyee: activation,
         }),
     ))
 }
@@ -4805,9 +4885,10 @@ async fn set_user_email(
             session.user_id,
             id,
             body.email.trim(),
+            body.current_password.as_deref(),
         )
         .await
-        .map_err(map_db)?;
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_db(e)))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -4935,6 +5016,7 @@ async fn update_lien_eleve(
         peut_autoriser_sorties: updated.peut_autoriser_sorties,
         est_payeur: updated.est_payeur,
         part_paiement: updated.part_paiement,
+        activation_envoyee: None,
     }))
 }
 
@@ -4988,6 +5070,7 @@ async fn update_liens_eleve_batch(
                 peut_autoriser_sorties: u.peut_autoriser_sorties,
                 est_payeur: u.est_payeur,
                 part_paiement: u.part_paiement,
+                activation_envoyee: None,
             })
             .collect(),
     ))
@@ -11124,7 +11207,7 @@ debug_masque!(LoginBody { etablissement_id } masque { email, password });
 debug_masque!(AuthSessionDto { user_id, etablissement_id, role, expires_at } masque { token, email });
 debug_masque!(PasskeyChallengeDto { expires_at } masque { token, options });
 debug_masque!(PasskeyRegisterStartDto { } masque { token, options });
-debug_masque!(PasskeyRegisterFinishBody { name } masque { token, credential });
+debug_masque!(PasskeyRegisterFinishBody { name } masque { token, credential, current_password });
 debug_masque!(PasskeyLoginFinishBody { } masque { token, credential });
 debug_masque!(ChangePasswordBody { } masque { current_password, new_password });
 debug_masque!(ResetPasswordBody { } masque { token, new_password });

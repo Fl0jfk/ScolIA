@@ -643,6 +643,9 @@ impl PgEnt {
         )
         .await?;
 
+        // Référentiel scolaire : classes, affectations et services déduits du labo.
+        self.amorcer_referentiel(etab).await?;
+
         let parent_weasley = weasley_parent_foyer
             .map(|(p, _)| p)
             .or_else(|| labo_eleve_prenom(&eleves, "Ron").map(|r| r.parent.clone()));

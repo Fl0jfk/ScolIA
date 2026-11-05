@@ -128,6 +128,25 @@ async fn pages_rendues_par_le_serveur() {
         "champ date étiqueté (label englobant, nom accessible)"
     );
 
+    // Écrans du référentiel scolaire : rendus côté serveur avec leur état de chargement.
+    for (chemin, attendu) in [
+        ("/web/classes", "Chargement des classes"),
+        ("/web/mes-classes", "Chargement de vos classes"),
+        (
+            "/web/classes/6f1c3c80-0000-4000-8000-000000000001",
+            "Chargement de la classe",
+        ),
+    ] {
+        let r = http.get(format!("{base}{chemin}")).send().await.unwrap();
+        assert_eq!(r.status(), 200, "{chemin}");
+        let html = r.text().await.unwrap();
+        assert!(html.contains(attendu), "{chemin} : {attendu}");
+        assert!(
+            html.contains("Aller au contenu"),
+            "{chemin} : lien d'évitement"
+        );
+    }
+
     let html = http
         .get(format!("{base}/web/connexion"))
         .send()
@@ -852,4 +871,76 @@ async fn tranche1_deconnexion_annonces_messages_passkey() {
     assert_eq!(api2.moi().await.unwrap_err(), ApiError::NonConnecte);
     // La première session (autre jeton) reste valable.
     assert!(api.moi().await.is_ok());
+}
+
+/// Référentiel scolaire contre le vrai backend : « Mes classes » du professeur, détail,
+/// liste complète et amorçage pour la gestion, refus pour la famille.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn referentiel_classes_contre_vrai_backend() {
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let jour = chrono::Local::now().date_naive();
+
+    // Professeur : ses classes, avec effectif ; détail avec élèves et enseignants.
+    let rogue = prof(&base, &l, 0).await;
+    let mes = rogue.mes_classes(jour).await.expect("mes classes");
+    let c4b = mes
+        .iter()
+        .find(|c| c.code == "4B")
+        .expect("4B du professeur");
+    assert!(c4b.effectif >= 1, "effectif issu du référentiel");
+    let detail = rogue.classe(c4b.id, jour).await.expect("détail");
+    assert_eq!(detail.classe.id, c4b.id);
+    assert_eq!(detail.eleves.len() as i64, c4b.effectif);
+    assert!(detail
+        .eleves
+        .iter()
+        .all(|e| e.ine.is_none() && e.date_naissance.is_none()));
+    assert!(detail
+        .services
+        .iter()
+        .any(|s| s.matiere_libelle == "Potions"));
+    // Rapprochement avec la séance de l'appel (composant partagé).
+    let creneau = creneau_4b(&rogue, jour_neuf()).await;
+    let trouvee = ent_web_app::composants_metier::classes::classe_du_creneau(&mes, &creneau.classe);
+    assert_eq!(trouvee.map(|c| c.id), Some(c4b.id));
+
+    // Gestion : liste complète, amorçage idempotent.
+    let adm = l.premier("administratif").expect("administratif de labo");
+    let s = labo::connecter(&base, &l, &adm.email).await.unwrap();
+    let api_adm = ApiClient::new(&base, Some(s.token));
+    let toutes = api_adm.classes(jour).await.expect("classes");
+    assert!(toutes.len() >= mes.len());
+    let r = api_adm.amorcer_referentiel().await.expect("amorçage");
+    assert_eq!(
+        (r.classes_creees, r.affectations_creees, r.services_crees),
+        (0, 0, 0)
+    );
+
+    // Famille : refus (403) sur chaque route.
+    let parent = l.persona("parent").expect("persona parent");
+    let sp = labo::connecter(&base, &l, &parent.email).await.unwrap();
+    let api_parent = ApiClient::new(&base, Some(sp.token));
+    assert!(matches!(
+        api_parent.classes(jour).await,
+        Err(ApiError::Interdit(_))
+    ));
+    assert!(matches!(
+        api_parent.mes_classes(jour).await,
+        Err(ApiError::Interdit(_))
+    ));
+    assert!(matches!(
+        api_parent.amorcer_referentiel().await,
+        Err(ApiError::Interdit(_))
+    ));
+    // Le professeur ne peut pas amorcer (gestion seulement).
+    assert!(matches!(
+        rogue.amorcer_referentiel().await,
+        Err(ApiError::Interdit(_))
+    ));
+    // Identifiant inconnu : introuvable.
+    assert!(matches!(
+        api_adm.classe(uuid::Uuid::new_v4(), jour).await,
+        Err(ApiError::Introuvable(_))
+    ));
 }

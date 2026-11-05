@@ -227,6 +227,26 @@ fn droits_emploi_du_temps_conforme_a_la_route() {
     }
 }
 
+/// Messagerie : le personnel autorisé est exactement `PgEnt::role_can_messagerie_staff`
+/// (ent-db) ; la famille et l'élève lisent leurs propres fils ; les autres rôles
+/// (comptabilité, infirmerie, psychologue) n'y ont pas accès (`list_fils_for_actor`).
+#[test]
+fn droits_messagerie_conformes_a_ent_db() {
+    for r in tous_auth() {
+        let d = droits_du_role(r.as_str());
+        let personnel = ent_db::PgEnt::role_can_messagerie_staff(r.as_str());
+        assert_eq!(
+            d.messagerie_personnel, personnel,
+            "`messagerie_personnel` diverge de role_can_messagerie_staff pour {r:?}"
+        );
+        let attendu = personnel || matches!(r, Auth::Parent | Auth::Eleve);
+        assert_eq!(
+            d.messagerie, attendu,
+            "`messagerie` diverge de la règle ent-db (personnel, parent, élève) pour {r:?}"
+        );
+    }
+}
+
 #[test]
 fn droits_via_alias_identiques_au_role_canonique() {
     for (alias, role) in ALIAS {
@@ -243,7 +263,7 @@ fn role_inconnu_n_obtient_aucun_droit() {
     for s in ["", "inconnu", "root", "élève", "admin2"] {
         let d = droits_du_role(s);
         assert!(
-            !d.personnel && !d.faire_appel && !d.emploi_du_temps,
+            d == ent_web_app::noyau::droits::Droits::default(),
             "un rôle inconnu ({s:?}) obtient des droits : {d:?}"
         );
         assert_eq!(
@@ -285,4 +305,89 @@ fn environnements_non_productifs_identiques() {
         api, web,
         "ENVS_NON_PROD diverge entre ent-api et ent-web-app"
     );
+}
+
+/// Vie scolaire : `lire_vs_absences` = `Role::can_lire_vs_absences` (route `/vs/absences`,
+/// `/vs/signaux`, `/eleves/{id}/absences` pour le personnel).
+#[test]
+fn droits_lire_vs_absences_identique_a_ent_auth() {
+    for r in tous_auth() {
+        assert_eq!(
+            droits_du_role(r.as_str()).lire_vs_absences,
+            r.can_lire_vs_absences(),
+            "`lire_vs_absences` diverge de ent_auth::Role::can_lire_vs_absences pour {r:?}"
+        );
+    }
+}
+
+/// `trancher_justificatif` = `Role::can_trancher_justificatif` (accepter, refuser,
+/// signaux d'absence répétée).
+#[test]
+fn droits_trancher_justificatif_identique_a_ent_auth() {
+    for r in tous_auth() {
+        assert_eq!(
+            droits_du_role(r.as_str()).trancher_justificatif,
+            r.can_trancher_justificatif(),
+            "`trancher_justificatif` diverge de ent_auth::Role::can_trancher_justificatif pour {r:?}"
+        );
+    }
+}
+
+/// `annuler_absence_present` = `Role::can_annuler_absence_vers_present`.
+#[test]
+fn droits_annuler_absence_present_identique_a_ent_auth() {
+    for r in tous_auth() {
+        assert_eq!(
+            droits_du_role(r.as_str()).annuler_absence_present,
+            r.can_annuler_absence_vers_present(),
+            "`annuler_absence_present` diverge de ent_auth::Role::can_annuler_absence_vers_present pour {r:?}"
+        );
+    }
+}
+
+/// `portail_famille` : `GET /famille/enfants` (`mes_enfants_for_parent`) exige le rôle
+/// responsable légal. `mes_absences` : seul le rôle élève consulte « ses » absences.
+/// Ni l'un ni l'autre n'ont de méthode dans `ent-auth` : la règle est celle des routes.
+#[test]
+fn droits_portail_famille_et_eleve_conformes_aux_routes() {
+    for r in tous_auth() {
+        let d = droits_du_role(r.as_str());
+        assert_eq!(
+            d.portail_famille,
+            r == Auth::Parent,
+            "portail_famille pour {r:?}"
+        );
+        assert_eq!(d.mes_absences, r == Auth::Eleve, "mes_absences pour {r:?}");
+        // Cohérence : jamais à la fois personnel de vie scolaire et famille/élève.
+        assert!(
+            !(d.portail_famille && d.lire_vs_absences),
+            "{r:?} cumule portail famille et lecture VS"
+        );
+        assert!(
+            !(d.mes_absences && d.trancher_justificatif),
+            "{r:?} cumule consultation élève et décision VS"
+        );
+    }
+}
+
+/// Référentiel scolaire : gestion = `role_peut_gerer_referentiel`, lecture du personnel =
+/// `role_peut_lire_referentiel`, « Mes classes » = enseignant (liste filtrée par le serveur).
+#[test]
+fn droits_classes_conformes_a_ent_db() {
+    for r in tous_auth() {
+        let d = droits_du_role(r.as_str());
+        assert_eq!(
+            d.gerer_classes,
+            ent_db::role_peut_gerer_referentiel(r.as_str()),
+            "`gerer_classes` diverge d'ent-db pour {r:?}"
+        );
+        let peut_lire = ent_db::role_peut_lire_referentiel(r.as_str());
+        assert_eq!(
+            d.voir_classes || d.mes_classes,
+            peut_lire,
+            "l'interface propose (ou cache) les classes à tort pour {r:?}"
+        );
+        assert_eq!(d.mes_classes, r == Auth::Prof, "{r:?}");
+        assert!(!(d.voir_classes && d.mes_classes), "{r:?}");
+    }
 }

@@ -24,6 +24,16 @@ fn login_max_failed() -> i32 {
         .unwrap_or(5)
 }
 
+/// Échecs de ré-authentification (mot de passe actuel d'une session ouverte)
+/// avant verrouillage de ces seules routes. Compteur distinct du login.
+fn reauth_max_failed() -> i32 {
+    std::env::var("ENT_REAUTH_MAX_FAILED")
+        .ok()
+        .and_then(|v| v.trim().parse::<i32>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(5)
+}
+
 /// Seuil d'échecs par **adresse IP** (défense en profondeur : freine le
 /// bourrage d'identifiants réparti sur de nombreux comptes). Volontairement
 /// plus haut que le seuil par compte : une école derrière un NAT partage une IP.
@@ -844,6 +854,15 @@ impl PgAuthRepo {
         let Some((user_id,)) = row else {
             return Err(AuthError::ResetTokenInvalide);
         };
+        // Les autres liens encore actifs du même compte meurent avec celui-ci.
+        sqlx::query(
+            "UPDATE ent_password_reset SET used_at = now()
+             WHERE user_id = $1 AND used_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| AuthError::InvalidCredentials)?;
         sqlx::query("UPDATE ent_user SET password_hash = $2, updated_at = now() WHERE id = $1")
             .bind(user_id)
             .bind(&new_hash)
@@ -862,6 +881,53 @@ impl PgAuthRepo {
             .await
             .map_err(|_| AuthError::InvalidCredentials)?;
         Ok(user_id)
+    }
+
+    /// Invalide tous les jetons de réinitialisation encore actifs d'un compte
+    /// (changement d'e-mail, réinitialisation par le personnel, reset passkeys).
+    pub async fn invalidate_pending_resets(&self, user_id: Uuid) -> Result<u64, AuthError> {
+        let res = sqlx::query(
+            "UPDATE ent_password_reset SET used_at = now()
+             WHERE user_id = $1 AND used_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| AuthError::InvalidCredentials)?;
+        Ok(res.rows_affected())
+    }
+
+    /// Vérifie le mot de passe actuel d'un utilisateur **déjà authentifié**
+    /// (ré-authentification d'une action sensible) sans toucher au compteur de
+    /// CONNEXION : un mauvais mot de passe n'incrémente que le compteur dédié
+    /// `reauth:<user_id>` (même table de garde, clé distincte d'un e-mail), qui
+    /// verrouille ces seules routes (`TooManyAttempts`), jamais le login.
+    pub async fn verify_current_password(
+        &self,
+        user_id: Uuid,
+        password: &str,
+    ) -> Result<bool, AuthError> {
+        let key = format!("reauth:{user_id}");
+        if self.login_lock_until(&key).await?.is_some() {
+            return Err(AuthError::TooManyAttempts);
+        }
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT password_hash FROM ent_user WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|_| AuthError::InvalidCredentials)?;
+        let Some((hash,)) = row else {
+            let _ = verify_password(password, DUMMY_PASSWORD_HASH.as_str());
+            return Ok(false);
+        };
+        if verify_password(password, &hash)? {
+            self.clear_login_failures(&key).await?;
+            Ok(true)
+        } else {
+            self.record_login_failure(&key, reauth_max_failed()).await?;
+            Ok(false)
+        }
     }
 
     /// Purge les jetons de réinitialisation expirés ou consommés (> 1 jour).

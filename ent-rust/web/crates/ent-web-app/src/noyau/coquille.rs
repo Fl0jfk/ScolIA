@@ -14,6 +14,7 @@ use leptos_router::hooks::{use_location, use_navigate};
 
 use super::droits::{droits_du_role, libelle_role, Droits};
 use super::navigation;
+use super::non_lus::{self, NonLus};
 use super::session::{self, ContexteSession};
 use crate::modules::connexion::config_connexion;
 
@@ -117,7 +118,46 @@ pub fn AppCoquille() -> impl IntoView {
             .map(|m| droits_du_role(&m.role))
             .unwrap_or_default()
     });
-    let entrees = Signal::derive(move || navigation::entrees(droits.get()));
+    // Messages non lus : lus au chargement, à chaque changement de page et sur demande
+    // (la messagerie rafraîchit après lecture ou envoi).
+    let version_non_lus = RwSignal::new(0u32);
+    let total_non_lus = RwSignal::new(0i64);
+    let non_lus_res = LocalResource::new(move || {
+        version_non_lus.track();
+        let autorise = droits.get().messagerie;
+        async move {
+            if autorise {
+                session::client()
+                    .fils_messages()
+                    .await
+                    .map(|l| non_lus::total_non_lus(&l))
+                    .ok()
+            } else {
+                Some(0)
+            }
+        }
+    });
+    Effect::new(move |_| {
+        if let Some(Some(n)) = non_lus_res.get() {
+            total_non_lus.set(n);
+        }
+    });
+    {
+        let chemin = Memo::new(move |_| location.pathname.get());
+        Effect::new(move |precedent: Option<()>| {
+            chemin.track();
+            if precedent.is_some() {
+                version_non_lus.update(|v| *v += 1);
+            }
+        });
+    }
+    provide_context(NonLus {
+        total: total_non_lus,
+        rafraichir: Callback::new(move |_| version_non_lus.update(|v| *v += 1)),
+    });
+    let entrees = Signal::derive(move || {
+        navigation::avec_compteur_messages(navigation::entrees(droits.get()), total_non_lus.get())
+    });
     let courant = Signal::derive(move || location.pathname.get());
     let rail = Signal::derive(move || navigation::ecran_de_saisie(&location.pathname.get()));
     let identite = Signal::derive(move || {

@@ -70,6 +70,31 @@ pub struct Droits {
     pub faire_appel: bool,
     /// Voir « mon emploi du temps » : route `/edt/mes-creneaux` (élève, ou droit d'appel).
     pub emploi_du_temps: bool,
+    /// Lire les absences de l'établissement : route `/vs/absences`
+    /// (`Role::can_lire_vs_absences`).
+    pub lire_vs_absences: bool,
+    /// Accepter ou refuser un justificatif, gérer les signaux d'absence répétée
+    /// (`Role::can_trancher_justificatif`).
+    pub trancher_justificatif: bool,
+    /// Remettre un élève présent après une erreur d'appel
+    /// (`Role::can_annuler_absence_vers_present`).
+    pub annuler_absence_present: bool,
+    /// Portail famille : route `/famille/enfants`, réservée au rôle responsable légal.
+    pub portail_famille: bool,
+    /// Consulter ses propres absences (compte élève lié à une fiche).
+    pub mes_absences: bool,
+    /// Voir la liste complète des classes (`/referentiel/classes`) : personnel hors enseignant.
+    pub voir_classes: bool,
+    /// Gérer le référentiel (`role_peut_gerer_referentiel` : Admin, Direction, Administratif).
+    pub gerer_classes: bool,
+    /// « Mes classes » : enseignant (classes de ses services).
+    pub mes_classes: bool,
+    /// Consulter et écrire dans la messagerie : personnel autorisé, famille, élève
+    /// (`PgEnt::role_can_messagerie_staff` ou parent / élève).
+    pub messagerie: bool,
+    /// Messagerie côté personnel : écrire à propos de n'importe quel élève, modèles,
+    /// archiver, classer (`PgEnt::role_can_messagerie_staff`).
+    pub messagerie_personnel: bool,
 }
 
 pub fn droits_du_role(role: &str) -> Droits {
@@ -80,10 +105,25 @@ pub fn droits_du_role(role: &str) -> Droits {
         r,
         Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Prof
     );
+    // Mêmes rôles que `role_can_messagerie_staff` (ent-db) : ni comptabilité, ni infirmerie, ni psy.
+    let messagerie_personnel = faire_appel;
     Droits {
         personnel: !matches!(r, Role::Parent | Role::Eleve),
         faire_appel,
         emploi_du_temps: faire_appel || r == Role::Eleve,
+        lire_vs_absences: faire_appel,
+        trancher_justificatif: matches!(
+            r,
+            Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
+        ),
+        annuler_absence_present: faire_appel,
+        portail_famille: r == Role::Parent,
+        mes_absences: r == Role::Eleve,
+        voir_classes: !matches!(r, Role::Parent | Role::Eleve | Role::Prof),
+        gerer_classes: matches!(r, Role::Admin | Role::Direction | Role::Administratif),
+        mes_classes: r == Role::Prof,
+        messagerie: messagerie_personnel || matches!(r, Role::Parent | Role::Eleve),
+        messagerie_personnel,
     }
 }
 
@@ -102,6 +142,37 @@ mod tests {
         let c = droits_du_role("compta");
         assert!(c.personnel && !c.faire_appel);
         assert_eq!(droits_du_role("inconnu"), Droits::default());
+        // Référentiel : l'enseignant a « Mes classes », la gestion gère, la famille n'a rien.
+        assert!(p.mes_classes && !p.voir_classes && !p.gerer_classes);
+        let a = droits_du_role("administratif");
+        assert!(a.voir_classes && a.gerer_classes && !a.mes_classes);
+        assert!(droits_du_role("cpe").voir_classes && !droits_du_role("cpe").gerer_classes);
+        assert!(!f.voir_classes && !f.gerer_classes && !f.mes_classes);
+        assert!(!e.voir_classes && !e.gerer_classes && !e.mes_classes);
+        assert!(p.messagerie && p.messagerie_personnel);
+        assert!(f.messagerie && !f.messagerie_personnel);
+        assert!(e.messagerie && !e.messagerie_personnel);
+        assert!(!c.messagerie && !c.messagerie_personnel);
+        assert!(!droits_du_role("infirmerie").messagerie);
         assert_eq!(libelle_role("ENSEIGNANT"), "Enseignant");
+    }
+
+    #[test]
+    fn droits_vie_scolaire() {
+        let cpe = droits_du_role("cpe");
+        assert!(cpe.lire_vs_absences && cpe.trancher_justificatif && cpe.annuler_absence_present);
+        assert!(!cpe.portail_famille && !cpe.mes_absences);
+        // Un enseignant lit les absences et corrige une erreur d'appel, mais ne tranche pas.
+        let prof = droits_du_role("prof");
+        assert!(
+            prof.lire_vs_absences && prof.annuler_absence_present && !prof.trancher_justificatif
+        );
+        let parent = droits_du_role("parent");
+        assert!(
+            parent.portail_famille && !parent.lire_vs_absences && !parent.trancher_justificatif
+        );
+        let eleve = droits_du_role("eleve");
+        assert!(eleve.mes_absences && !eleve.portail_famille && !eleve.trancher_justificatif);
+        assert!(!droits_du_role("compta").lire_vs_absences);
     }
 }

@@ -29,6 +29,16 @@ pub struct Personnel {
     pub label: String,
 }
 
+/// Élève de la distribution de labo (`POST /labo/bootstrap`).
+#[derive(Clone, Debug, Deserialize)]
+pub struct EleveLabo {
+    pub id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    #[serde(default)]
+    pub classe: Option<String>,
+}
+
 /// Réponse de `POST /labo/bootstrap` (champs utiles).
 #[derive(Clone, Deserialize)]
 pub struct Labo {
@@ -36,6 +46,8 @@ pub struct Labo {
     pub password: String,
     pub personas: Vec<Persona>,
     pub personnel: Vec<Personnel>,
+    #[serde(default)]
+    pub eleves: Vec<EleveLabo>,
 }
 
 // `Debug` manuel : le mot de passe de labo ne doit pas fuiter dans un journal ou une panique.
@@ -46,6 +58,7 @@ impl std::fmt::Debug for Labo {
             .field("password", &"<masqué>")
             .field("personas", &self.personas)
             .field("personnel", &self.personnel)
+            .field("eleves", &self.eleves.len())
             .finish()
     }
 }
@@ -53,6 +66,11 @@ impl std::fmt::Debug for Labo {
 impl Labo {
     pub fn premier(&self, role: &str) -> Option<&Personnel> {
         self.personnel.iter().find(|p| p.role == role)
+    }
+
+    /// Élève de labo par prénom (« Harry », « Draco »…).
+    pub fn eleve(&self, prenom: &str) -> Option<&EleveLabo> {
+        self.eleves.iter().find(|e| e.prenom == prenom)
     }
 
     pub fn persona(&self, role: &str) -> Option<&Persona> {
@@ -243,6 +261,7 @@ mod tests {
             password: "MOT-DE-PASSE-SECRET".into(),
             personas: vec![],
             personnel: vec![],
+            eleves: vec![],
         };
         let d = format!("{l:?}");
         assert!(!d.contains("MOT-DE-PASSE-SECRET"), "{d}");

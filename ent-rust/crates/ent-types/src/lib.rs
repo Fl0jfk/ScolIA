@@ -16,6 +16,8 @@
 pub mod appel;
 pub mod auth;
 pub mod edt;
+pub mod referentiel;
+pub mod vie_scolaire;
 
 #[cfg(test)]
 mod tests;

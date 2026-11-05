@@ -60,7 +60,7 @@ pub fn Coquille(
                 <ul class="ui-coquille__liens">
                     <For
                         each=move || entrees.get()
-                        key=|e| e.href.clone()
+                        key=|e| (e.href.clone(), e.badge.clone())
                         children=move |e| {
                             let href = e.href.clone();
                             let libelle = e.libelle.clone();

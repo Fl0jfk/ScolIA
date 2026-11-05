@@ -4,7 +4,7 @@ use crate::annonce_repo::PgAnnonceRepo;
 use crate::retard_repo::PgRetardRepo;
 use crate::competence_repo::{EvaluationLue, PgCompetenceRepo};
 use crate::auth_repo::{AuthUser, PgAuthRepo, SessionInfo, StaffMember};
-use crate::passkey_repo::{PasskeyRow, PgPasskeyRepo};
+use crate::passkey_repo::{InsertPasskey, PasskeyRow, PgPasskeyRepo};
 use crate::oidc_repo::{
     OidcProviderPublic, OidcProviderRow, OidcProviderUpsert, OidcStateInsert, PgOidcRepo,
 };
@@ -195,7 +195,7 @@ use ent_auth::{
 };
 use ent_brain::{react, BrainAction, BrainP0};
 use ent_events::{types, AggregateKind, EventBusError, EventHandler, MetierEvent, MetierEventDraft};
-use ent_mail::{MailAttachment, MailService, OutgoingMail};
+use ent_mail::{MailAttachment, MailReceipt, MailSendStatus, MailService, OutgoingMail};
 use ent_sms::{OutgoingSms, SmsService};
 use ent_push::{OutgoingPush, PushPlatform, PushService};
 use ent_bank::{plan_action_ligne, BankConnector, BankMatchAction, BankParseError};
@@ -219,6 +219,58 @@ pub struct ProvisionnerPersonnel {
     pub display_name: Option<String>,
     pub role: String,
 }
+/// Issue d'une réinitialisation de mot de passe par un tiers habilité.
+#[derive(Clone)]
+pub enum ReinitialisationMdp {
+    /// Parent / élève : un lien a été envoyé, aucun secret n'est renvoyé.
+    LienEnvoye,
+    /// Personnel : mot de passe temporaire, affiché une seule fois.
+    MotDePasseTemporaire(String),
+}
+
+/// Famille d'opérations de gestion de compte par un tiers (hiérarchies distinctes).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OperationCompte {
+    Email,
+    Identifiants,
+}
+
+/// Empreinte SHA-256 tronquée d'une adresse (pseudonymisation pour le journal).
+fn empreinte_email(email: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let norm = email.trim().to_ascii_lowercase();
+    Sha256::digest(norm.as_bytes())
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Catégories Unicode Cf (format : bidi U+202A-202E/2066-2069, largeur nulle
+/// U+200B-200F, U+2060-2064, BOM U+FEFF, tags…) et séparateurs de ligne /
+/// paragraphe Zl/Zp : invisibles ou trompeurs dans un libellé affiché.
+fn est_format_unicode(c: char) -> bool {
+    matches!(c as u32,
+        0x00AD | 0x0600..=0x0605 | 0x061C | 0x06DD | 0x070F | 0x0890..=0x0891 | 0x08E2
+        | 0x180E | 0x200B..=0x200F | 0x2028..=0x202E | 0x2060..=0x2064 | 0x2066..=0x206F
+        | 0xFEFF | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD | 0x13430..=0x1343F
+        | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A | 0xE0001 | 0xE0020..=0xE007F)
+}
+
+/// Nom de passkey : trim, 64 caractères maximum, pas de caractère de contrôle
+/// ni de format Unicode (Cf).
+fn nettoyer_nom_passkey(name: Option<String>) -> Result<Option<String>, EntDbError> {
+    let Some(n) = name else { return Ok(None) };
+    let n = n.trim();
+    if n.is_empty() {
+        return Ok(None);
+    }
+    if n.chars().count() > 64 || n.chars().any(|c| c.is_control() || est_format_unicode(c)) {
+        return Err(EntDbError::PasskeyNomInvalide);
+    }
+    Ok(Some(n.to_string()))
+}
+
 
 /// Résultat d'un provisionnement staff : mot de passe temporaire (affiché une fois).
 #[derive(Clone)]
@@ -293,6 +345,18 @@ pub enum EntDbError {
     PasskeyRequis,
     #[error("accès refusé pour ce rôle")]
     Forbidden,
+    /// Mot de passe actuel absent ou incorrect (re-vérification d'une action sensible).
+    #[error("mot de passe actuel requis ou incorrect")]
+    MotDePasseActuelInvalide,
+    /// Envoi d'un lien impossible : la messagerie n'est pas prête (aucun secret n'est produit).
+    #[error("envoi impossible : la messagerie n'est pas configurée")]
+    EnvoiImpossible,
+    /// Plafond de passkeys atteint pour ce compte.
+    #[error("limite de passkeys atteinte ({0} maximum)")]
+    PasskeyPlafond(i64),
+    /// Nom de passkey invalide (trop long ou caractères de contrôle).
+    #[error("nom de passkey invalide")]
+    PasskeyNomInvalide,
     #[error("inventaire de sauvegarde d'un autre établissement refusé")]
     InventairePorteeEtrangere,
     #[error("code ou libellé matière vide")]
@@ -526,6 +590,8 @@ pub struct PgEnt {
     oidc_transport: RwLock<Arc<dyn OidcTransport>>,
     events: PgEventStore,
     brain: Option<BrainP0>,
+    /// Un envoi `DryRun` compte comme réussi (labo / tests uniquement).
+    mail_dry_run_accepte: bool,
 }
 
 impl PgEnt {
@@ -605,12 +671,15 @@ impl PgEnt {
             events: PgEventStore::new(pool.clone()),
             pool,
             brain: None,
+            mail_dry_run_accepte: cfg!(feature = "labo"),
         }
     }
 
     /// Lab : force dry-run SMTP / SMS / push + banque + objet mémoire.
     pub fn install_mail_dry_run(&mut self) {
         self.mailer = MailService::dry_run_only();
+        // Mode lab/test explicite : un reçu `DryRun` vaut envoi réussi.
+        self.mail_dry_run_accepte = true;
         self.sms = SmsService::dry_run_only();
         self.push = PushService::dry_run_only();
         self.bank = BankConnector::dry_run_only();
@@ -622,6 +691,26 @@ impl PgEnt {
         {
             self.objects = ObjectStore::memory_only();
         }
+    }
+
+    /// Tests (labo uniquement) : messagerie « prête » mais qui n'envoie rien de
+    /// confirmé. `live = false` → reçus `DryRun` ; `live = true` → tentative SMTP
+    /// vers un port local fermé (reçu `Failed`). `accepter_dry_run = false`
+    /// reproduit le comportement de production (un `DryRun` n'est pas un envoi).
+    #[cfg(feature = "labo")]
+    pub fn installer_mailer_de_test(&mut self, live: bool, accepter_dry_run: bool) {
+        self.mailer = MailService::with_config(
+            ent_mail::SmtpConfig {
+                from: "ent-test@example.test".into(),
+                auth_user: "ent-test".into(),
+                pass: "x".into(),
+                host: "127.0.0.1".into(),
+                port: 1,
+                secure: false,
+            },
+            live,
+        );
+        self.mail_dry_run_accepte = accepter_dry_run;
     }
 
     pub fn mailer(&self) -> &MailService {
@@ -1561,6 +1650,7 @@ impl PgEnt {
         let display = display_name
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| email.clone());
+        self.verifier_plafond_passkeys(user_id).await?;
         let exclude = self
             .passkeys
             .list_credential_ids(etablissement_id, user_id)
@@ -1596,6 +1686,8 @@ impl PgEnt {
         credential: &RegisterPublicKeyCredential,
         name: Option<String>,
     ) -> Result<PasskeyRow, EntDbError> {
+        let name = nettoyer_nom_passkey(name)?;
+        self.verifier_plafond_passkeys(user_id).await?;
         let token_hash = hash_token(token);
         let challenge = self
             .passkeys
@@ -1611,13 +1703,26 @@ impl PgEnt {
             .map_err(|_| EntDbError::Passkey(PasskeyError::BadState))?;
         let engine = self.passkey_engine()?;
         let passkey = engine.finish_registration(credential, &state)?;
-        let stored = self
+        match self
             .passkeys
-            .insert_credential(etablissement_id, user_id, &passkey, name.as_deref())
-            .await?;
-        if !stored {
+            .insert_credential_plafonne(
+                etablissement_id,
+                user_id,
+                &passkey,
+                name.as_deref(),
+                Self::PASSKEYS_MAX,
+            )
+            .await?
+        {
+            InsertPasskey::Stored => {}
+            // Plafond vérifié sous verrou : les enrôlements concurrents ne le dépassent pas.
+            InsertPasskey::Plafond => {
+                return Err(EntDbError::PasskeyPlafond(Self::PASSKEYS_MAX))
+            }
             // Même appareil déjà enrôlé (identifiant de credential connu).
-            return Err(EntDbError::Passkey(PasskeyError::RegisterFinish));
+            InsertPasskey::Duplicate => {
+                return Err(EntDbError::Passkey(PasskeyError::RegisterFinish))
+            }
         }
         let email = self
             .auth
@@ -1654,18 +1759,88 @@ impl PgEnt {
         Ok(self.passkeys.list_rows(etablissement_id, user_id).await?)
     }
 
+    /// Plafond de passkeys par compte.
+    pub const PASSKEYS_MAX: i64 = 10;
+
+    async fn verifier_plafond_passkeys(&self, user_id: Uuid) -> Result<(), EntDbError> {
+        if self.passkeys.count_for_user(user_id).await? >= Self::PASSKEYS_MAX {
+            return Err(EntDbError::PasskeyPlafond(Self::PASSKEYS_MAX));
+        }
+        Ok(())
+    }
+
+    /// Re-vérifie le mot de passe actuel d'un utilisateur déjà authentifié
+    /// (action sensible). **Ne touche jamais au compteur de connexion** : un
+    /// mauvais mot de passe n'incrémente que le compteur dédié de
+    /// ré-authentification (`reauth:<user>`, 5 échecs / 15 min par défaut →
+    /// `TooManyAttempts`/429 sur ces seules routes). Une session volée ne
+    /// permet donc ni la force brute ni le verrouillage du login du propriétaire.
+    pub async fn verifier_mot_de_passe_actuel(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        password: &str,
+    ) -> Result<(), EntDbError> {
+        if password.is_empty() {
+            return Err(EntDbError::MotDePasseActuelInvalide);
+        }
+        if !self.auth.is_member(etablissement_id, user_id).await? {
+            return Err(EntDbError::Forbidden);
+        }
+        if self.auth.verify_current_password(user_id, password).await? {
+            Ok(())
+        } else {
+            Err(EntDbError::MotDePasseActuelInvalide)
+        }
+    }
+
+    /// Enrôlement passkey (point d'entrée HTTP) : exige le mot de passe actuel,
+    /// puis révoque les **autres** sessions du compte (la session courante est
+    /// conservée).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn passkey_register_finish_verified(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        keep_session_id: Uuid,
+        current_password: &str,
+        token: &str,
+        credential: &RegisterPublicKeyCredential,
+        name: Option<String>,
+    ) -> Result<PasskeyRow, EntDbError> {
+        self.verifier_mot_de_passe_actuel(etablissement_id, user_id, current_password)
+            .await?;
+        let row = self
+            .passkey_register_finish_for_actor(etablissement_id, user_id, token, credential, name)
+            .await?;
+        let _ = self
+            .auth
+            .revoke_other_sessions_for_user(user_id, Some(keep_session_id))
+            .await?;
+        Ok(row)
+    }
+
     /// Retire une passkey du compte connecté (peut désactiver son 2ᵉ facteur).
+    /// Exige le mot de passe actuel ; révoque ensuite les autres sessions.
     pub async fn delete_passkey_for_actor(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
+        keep_session_id: Uuid,
+        current_password: &str,
         passkey_id: Uuid,
     ) -> Result<bool, EntDbError> {
+        self.verifier_mot_de_passe_actuel(etablissement_id, user_id, current_password)
+            .await?;
         let removed = self
             .passkeys
             .delete_credential(etablissement_id, user_id, passkey_id)
             .await?;
         if removed {
+            let _ = self
+                .auth
+                .revoke_other_sessions_for_user(user_id, Some(keep_session_id))
+                .await?;
             let email = self
                 .auth
                 .resolve_user_email(user_id)
@@ -1771,40 +1946,150 @@ impl PgEnt {
     }
 
     /// Récupération après perte d'appareil : Direction / Admin retire toutes
-    /// les passkeys d'un membre de **son** établissement. Le compte retombe en
-    /// simple mot de passe, puis l'utilisateur réenrôle une passkey.
+    /// les passkeys d'un membre de **son** établissement. Même hiérarchie que
+    /// la réinitialisation de mot de passe (pas soi-même ; la Direction ne
+    /// touche ni un Admin ni une autre Direction). Le compte retombe en simple
+    /// mot de passe, **toutes ses sessions sont révoquées**, puis la personne
+    /// réenrôle une passkey. Le journal porte l'acteur réel et la cible.
     pub async fn reset_passkeys_admin_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         actor_role: &str,
         target_user_id: Uuid,
     ) -> Result<u64, EntDbError> {
-        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
-        if !matches!(actor, Role::Admin | Role::Direction) {
-            return Err(EntDbError::Forbidden);
-        }
-        if !self.auth.is_member(etablissement_id, target_user_id).await? {
-            return Err(EntDbError::Forbidden);
-        }
+        let target = self
+            .cible_compte_autorisee(
+                etablissement_id,
+                actor_user_id,
+                actor_role,
+                target_user_id,
+                OperationCompte::Identifiants,
+            )
+            .await?;
         let removed = self
             .passkeys
             .delete_all_for_user(etablissement_id, target_user_id)
             .await?;
-        let email = self
-            .auth
-            .resolve_user_email(target_user_id)
-            .await
-            .unwrap_or_default();
-        self.audit_acces(
+        let sessions = self.auth.revoke_all_for_user(target_user_id).await?;
+        self.auth.invalidate_pending_resets(target_user_id).await?;
+        self.audit_compte(
             etablissement_id,
-            Some(target_user_id),
-            &email,
+            actor_user_id,
             actor_role,
             "passkey_reset_admin",
             "Réinitialisation des passkeys (récupération)",
+            json!({
+                "cible_user_id": target_user_id.to_string(),
+                "cible_role": target.as_str(),
+                "passkeys_retirees": removed,
+                "sessions_revoquees": sessions,
+            }),
         )
         .await;
         Ok(removed)
+    }
+
+    /// Autorise (ou refuse) la gestion des identifiants d'un compte par un
+    /// tiers et renvoie le rôle de la cible dans l'établissement de l'acteur.
+    ///
+    /// L'identité (e-mail, mot de passe, passkeys) est **globale** : si la
+    /// cible a une appartenance dans un autre établissement (tout rôle),
+    /// l'acteur n'a aucun droit dessus (cloisonnement) → refus.
+    async fn cible_compte_autorisee(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        actor_role: &str,
+        target_user_id: Uuid,
+        op: OperationCompte,
+    ) -> Result<Role, EntDbError> {
+        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
+        let permis_acteur = match op {
+            OperationCompte::Email => {
+                matches!(actor, Role::Admin | Role::Direction | Role::Administratif)
+            }
+            OperationCompte::Identifiants => matches!(actor, Role::Admin | Role::Direction),
+        };
+        if !permis_acteur {
+            return Err(EntDbError::Forbidden);
+        }
+        if op == OperationCompte::Identifiants && target_user_id == actor_user_id {
+            return Err(EntDbError::Forbidden);
+        }
+        let memberships = self
+            .auth
+            .list_memberships_for_user(target_user_id)
+            .await?;
+        // 403 uniforme (jamais de 404 : on ne révèle pas l'appartenance).
+        let Some(role_ici) = memberships
+            .iter()
+            .find(|(etab, _)| *etab == etablissement_id)
+            .map(|(_, r)| r.clone())
+        else {
+            return Err(EntDbError::Forbidden);
+        };
+        let target = Role::parse(&role_ici).ok_or(EntDbError::Forbidden)?;
+        // Identité globale : dès que la cible appartient à un AUTRE
+        // établissement (quel que soit son rôle), aucun tiers n'a de droit
+        // dessus ; seul le propriétaire agit sur son compte.
+        if memberships.iter().any(|(etab, _)| *etab != etablissement_id) {
+            return Err(EntDbError::Forbidden);
+        }
+        let ok = match (op, actor) {
+            (_, Role::Admin) => true,
+            (OperationCompte::Email, Role::Direction) => target != Role::Admin,
+            (OperationCompte::Email, Role::Administratif) => matches!(
+                target,
+                Role::Parent
+                    | Role::Eleve
+                    | Role::Prof
+                    | Role::Cpe
+                    | Role::Compta
+                    | Role::Infirmerie
+                    | Role::Psy
+            ),
+            (OperationCompte::Identifiants, Role::Direction) => {
+                !matches!(target, Role::Admin | Role::Direction)
+            }
+            _ => false,
+        };
+        if !ok {
+            return Err(EntDbError::Forbidden);
+        }
+        Ok(target)
+    }
+
+    /// Journal d'une action de gestion de compte : **acteur réel**, jamais
+    /// d'adresse en clair (le payload ne contient que des identifiants et des
+    /// empreintes). Best-effort comme `audit_acces`.
+    async fn audit_compte(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        actor_role: &str,
+        action: &str,
+        libelle: &str,
+        mut payload: serde_json::Value,
+    ) {
+        if let Some(o) = payload.as_object_mut() {
+            o.insert("role".into(), json!(actor_role));
+        }
+        if let Err(e) = self
+            .enregistrer_journal_interne(EnregistrerJournal {
+                etablissement_id,
+                eleve_id: None,
+                domaine: "auth".into(),
+                action: action.into(),
+                libelle: libelle.into(),
+                payload,
+                visible_famille: false,
+                actor_user_id: Some(actor_user_id),
+            })
+            .await
+        {
+            tracing::error!(action, error = %e, "échec d'écriture du journal d'audit");
+        }
     }
 
     // ---- SSO OIDC ----------------------------------------------------------
@@ -2208,62 +2493,137 @@ impl PgEnt {
         })
     }
 
-    /// Réinitialise le mot de passe d'un membre du personnel par un tiers
-    /// habilité (Direction / Admin). Renvoie le mot de passe temporaire et
-    /// révoque **toutes** les sessions de la cible. Un utilisateur ne peut pas
-    /// se réinitialiser lui-même par ce chemin (voir `POST /auth/password`).
+    /// Réinitialisation du mot de passe d'un compte par un tiers habilité
+    /// (Direction / Admin, hiérarchie : la Direction ne touche ni un Admin ni
+    /// une autre Direction ; jamais soi-même, voir `POST /auth/password`).
+    ///
+    /// * cible **Parent / Élève** : aucun secret n'est produit ni renvoyé ; un
+    ///   lien de réinitialisation (jeton à usage unique) est envoyé à
+    ///   l'adresse du compte. Messagerie non prête → `EnvoiImpossible`.
+    /// * cible **personnel** : mot de passe temporaire renvoyé une seule fois,
+    ///   toutes les sessions de la cible sont révoquées.
     pub async fn reinitialiser_mot_de_passe_for_actor(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
         actor_role: &str,
         target_user_id: Uuid,
-    ) -> Result<String, EntDbError> {
-        let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
-        if !matches!(actor, Role::Admin | Role::Direction) {
-            return Err(EntDbError::Forbidden);
-        }
-        if target_user_id == actor_user_id {
-            return Err(EntDbError::Forbidden);
-        }
-        let target_role = self
-            .auth
-            .role_in(etablissement_id, target_user_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        let target = Role::parse(&target_role).ok_or(EntDbError::Forbidden)?;
-        if matches!(target, Role::Admin | Role::Direction) && actor != Role::Admin {
-            return Err(EntDbError::Forbidden);
+        public_base_url: &str,
+    ) -> Result<ReinitialisationMdp, EntDbError> {
+        let target = self
+            .cible_compte_autorisee(
+                etablissement_id,
+                actor_user_id,
+                actor_role,
+                target_user_id,
+                OperationCompte::Identifiants,
+            )
+            .await?;
+
+        if !target.is_staff() {
+            self.envoyer_lien_reinitialisation(
+                target_user_id,
+                public_base_url,
+                30,
+                "Réinitialisation de votre mot de passe ENT",
+                "Un membre de l'établissement a demandé la réinitialisation de votre mot de passe.\nPour en choisir un nouveau, ouvrez ce lien (valable 30 minutes)",
+            )
+            .await?;
+            self.audit_compte(
+                etablissement_id,
+                actor_user_id,
+                actor_role,
+                "lien_reinitialisation_envoye",
+                "Lien de réinitialisation envoyé à un responsable / élève",
+                json!({
+                    "cible_user_id": target_user_id.to_string(),
+                    "cible_role": target.as_str(),
+                }),
+            )
+            .await;
+            return Ok(ReinitialisationMdp::LienEnvoye);
         }
 
         let mot_de_passe_temporaire = generate_temp_password();
         self.auth
             .set_password(target_user_id, &mot_de_passe_temporaire)
             .await?;
-        let _ = self.auth.revoke_all_for_user(target_user_id).await?;
+        let sessions = self.auth.revoke_all_for_user(target_user_id).await?;
+        self.auth.invalidate_pending_resets(target_user_id).await?;
+        self.audit_compte(
+            etablissement_id,
+            actor_user_id,
+            actor_role,
+            "mot_de_passe_reinitialise",
+            "Mot de passe d'un membre du personnel réinitialisé",
+            json!({
+                "cible_user_id": target_user_id.to_string(),
+                "cible_role": target.as_str(),
+                "sessions_revoquees": sessions,
+            }),
+        )
+        .await;
+        Ok(ReinitialisationMdp::MotDePasseTemporaire(
+            mot_de_passe_temporaire,
+        ))
+    }
 
-        let email = self
-            .auth
-            .resolve_user_email(target_user_id)
-            .await
-            .unwrap_or_default();
-        let _ = self
-            .enregistrer_journal_interne(EnregistrerJournal {
-                etablissement_id,
-                eleve_id: None,
-                domaine: "etablissement".into(),
-                action: "mot_de_passe_reinitialise".into(),
-                libelle: format!("Mot de passe réinitialisé : {email}"),
-                payload: json!({
-                    "email": email,
-                    "par": actor_user_id.to_string(),
-                }),
-                visible_famille: false,
-                actor_user_id: Some(actor_user_id),
+    /// Un reçu vaut « envoyé » seulement si le statut est `Sent` ; `DryRun`
+    /// n'est accepté qu'en build `labo` ou après `install_mail_dry_run` (tests),
+    /// jamais en production : sinon un échec / une config absente produirait un
+    /// faux « lien envoyé ».
+    fn envoi_reussi(&self, receipt: &MailReceipt) -> bool {
+        match receipt.status {
+            MailSendStatus::Sent => true,
+            MailSendStatus::DryRun => self.mail_dry_run_accepte,
+            MailSendStatus::SkippedNoConfig | MailSendStatus::Failed => false,
+        }
+    }
+
+    /// Crée un jeton de réinitialisation à usage unique et envoie le lien.
+    /// Strict : URL publique absente (`public_base_url` vide), messagerie non
+    /// prête ou envoi non confirmé → `EnvoiImpossible`. Dans le dernier cas le
+    /// jeton créé est invalidé (aucun lien orphelin actif).
+    async fn envoyer_lien_reinitialisation(
+        &self,
+        user_id: Uuid,
+        public_base_url: &str,
+        ttl_minutes: i64,
+        sujet: &str,
+        intro: &str,
+    ) -> Result<(), EntDbError> {
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            return Err(EntDbError::EnvoiImpossible);
+        }
+        let to = self.auth.resolve_user_email(user_id).await?;
+        let (raw, hashed) = generate_reset_token();
+        let expires_at = Utc::now() + chrono::Duration::minutes(ttl_minutes);
+        self.auth
+            .create_password_reset(user_id, &hashed, expires_at)
+            .await?;
+        let lien = format!(
+            "{}/reset-mot-de-passe?token={}",
+            public_base_url.trim_end_matches('/'),
+            raw
+        );
+        let envoi = self
+            .mailer
+            .send(OutgoingMail {
+                to,
+                subject: sujet.into(),
+                body_text: format!(
+                    "Bonjour,\n\n{intro} :\n{lien}\n\nSi vous n'êtes pas concerné(e), ignorez ce message.\n"
+                ),
+                attachments: vec![],
             })
             .await;
-
-        Ok(mot_de_passe_temporaire)
+        match envoi {
+            Ok(r) if self.envoi_reussi(&r) => Ok(()),
+            _ => {
+                let _ = self.auth.invalidate_pending_resets(user_id).await;
+                Err(EntDbError::EnvoiImpossible)
+            }
+        }
     }
 
     /// Purge les sessions expirées (maintenance au démarrage du conteneur).
@@ -2357,30 +2717,20 @@ impl PgEnt {
         let Ok(Some(user_id)) = self.auth.find_user_id_by_email(email).await else {
             return Ok(false);
         };
-        let (raw, hashed) = generate_reset_token();
-        let expires_at = Utc::now() + chrono::Duration::minutes(30);
-        self.auth
-            .create_password_reset(user_id, &hashed, expires_at)
-            .await?;
-
-        if self.mailer.is_ready() {
-            let to = self.auth.resolve_user_email(user_id).await.unwrap_or_default();
-            let lien = format!(
-                "{}/reset-mot-de-passe?token={}",
-                public_base_url.trim_end_matches('/'),
-                raw
-            );
-            let _ = self
-                .mailer
-                .send(OutgoingMail {
-                    to,
-                    subject: "Réinitialisation de votre mot de passe ENT".into(),
-                    body_text: format!(
-                        "Bonjour,\n\nPour choisir un nouveau mot de passe, ouvrez ce lien (valable 30 minutes) :\n{lien}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
-                    ),
-                    attachments: vec![],
-                })
-                .await;
+        // Réponse HTTP neutre (202) quoi qu'il arrive : si l'URL publique est
+        // absente, la messagerie non prête ou l'envoi non confirmé, aucun jeton
+        // ne reste actif ; on journalise seulement (côté serveur).
+        if let Err(e) = self
+            .envoyer_lien_reinitialisation(
+                user_id,
+                public_base_url,
+                30,
+                "Réinitialisation de votre mot de passe ENT",
+                "Pour choisir un nouveau mot de passe, ouvrez ce lien (valable 30 minutes)",
+            )
+            .await
+        {
+            tracing::warn!("mot de passe oublié : lien non envoyé ({e})");
         }
 
         // Audit best-effort pour chaque établissement de l'utilisateur.
@@ -2773,15 +3123,29 @@ impl PgEnt {
     }
 
     pub async fn change_classe(&self, cmd: ChangeClasse) -> Result<Eleve, EntDbError> {
-        self.change_attribut(ChangeAttribut {
-            etablissement_id: cmd.etablissement_id,
-            eleve_id: cmd.eleve_id,
-            kind: AttributKind::Classe,
-            nouvelle_valeur: cmd.nouvelle_classe,
-            date_effet: cmd.date_effet,
-            actor_user_id: cmd.actor_user_id,
-        })
-        .await
+        let (etab, eleve_id, date_effet) = (cmd.etablissement_id, cmd.eleve_id, cmd.date_effet);
+        let classe = cmd.nouvelle_classe.clone();
+        let eleve = self
+            .change_attribut(ChangeAttribut {
+                etablissement_id: cmd.etablissement_id,
+                eleve_id: cmd.eleve_id,
+                kind: AttributKind::Classe,
+                nouvelle_valeur: cmd.nouvelle_classe,
+                date_effet: cmd.date_effet,
+                actor_user_id: cmd.actor_user_id,
+            })
+            .await?;
+        // Référentiel scolaire (domaine propriétaire) : le champ texte reste la
+        // compatibilité, l'affectation le suit. Un échec de synchronisation ne défait
+        // pas un changement de classe déjà enregistré : il est journalisé, et
+        // l'amorçage (idempotent) le signalera comme divergence.
+        if let Err(e) = self
+            .sync_affectation_classe(etab, eleve_id, &classe, date_effet)
+            .await
+        {
+            tracing::warn!(error = %e, "synchronisation du référentiel après changement de classe");
+        }
+        Ok(eleve)
     }
 
     pub async fn change_regime(&self, cmd: ChangeRegime) -> Result<Eleve, EntDbError> {
@@ -3847,6 +4211,15 @@ impl PgEnt {
         self.set_user_telephone(user_id, telephone).await
     }
 
+    /// Changement d'adresse e-mail (identité globale, donc strictement encadré).
+    ///
+    /// * soi-même : uniquement avec le mot de passe actuel (`current_password`) ;
+    /// * Admin → tout membre ; Direction → tout membre sauf Admin ;
+    ///   Administratif → Parent, Élève, Prof, Cpe, Compta, Infirmerie, Psy.
+    ///
+    /// Après changement : **toutes** les sessions de la cible sont révoquées,
+    /// le journal porte l'acteur réel et des empreintes (jamais d'adresse en
+    /// clair), et l'ANCIENNE adresse est prévenue si la messagerie est prête.
     pub async fn set_user_email_for_actor(
         &self,
         role: &str,
@@ -3854,16 +4227,67 @@ impl PgEnt {
         actor_user_id: Uuid,
         user_id: Uuid,
         email: &str,
+        current_password: Option<&str>,
     ) -> Result<(), EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let self_edit = actor_user_id == user_id;
-        if !parsed.can_manage_eleves() && !self_edit {
-            return Err(EntDbError::Forbidden);
+        let target_role = if actor_user_id == user_id {
+            if !self.auth.is_member(etablissement_id, user_id).await? {
+                return Err(EntDbError::Forbidden);
+            }
+            self.verifier_mot_de_passe_actuel(
+                etablissement_id,
+                user_id,
+                current_password.unwrap_or(""),
+            )
+            .await?;
+            role.to_string()
+        } else {
+            self.cible_compte_autorisee(
+                etablissement_id,
+                actor_user_id,
+                role,
+                user_id,
+                OperationCompte::Email,
+            )
+            .await?
+            .as_str()
+            .to_string()
+        };
+
+        let ancien = self.auth.resolve_user_email(user_id).await?;
+        let nouveau = ent_auth::normalize_email(email)?;
+        self.auth.set_email(user_id, &nouveau).await?;
+        let sessions = self.auth.revoke_all_for_user(user_id).await?;
+        // Un lien envoyé à l'ANCIENNE adresse ne doit plus rien permettre.
+        self.auth.invalidate_pending_resets(user_id).await?;
+        self.audit_compte(
+            etablissement_id,
+            actor_user_id,
+            role,
+            "email_modifie",
+            "Adresse e-mail d'un compte modifiée",
+            json!({
+                "cible_user_id": user_id.to_string(),
+                "cible_role": target_role,
+                "ancienne_empreinte": empreinte_email(&ancien),
+                "nouvelle_empreinte": empreinte_email(&nouveau),
+                "sessions_revoquees": sessions,
+            }),
+        )
+        .await;
+
+        // Prévenir l'ancienne adresse (best-effort, silencieux si pas de messagerie).
+        if self.mailer.is_ready() && ancien != nouveau {
+            let _ = self
+                .mailer
+                .send(OutgoingMail {
+                    to: ancien,
+                    subject: "L'adresse e-mail de votre compte ENT a changé".into(),
+                    body_text: "Bonjour,\n\nL'adresse e-mail de votre compte ENT vient d'être modifiée et toutes vos sessions ont été fermées. Si vous n'êtes pas à l'origine de ce changement, contactez immédiatement l'établissement.\n".into(),
+                    attachments: vec![],
+                })
+                .await;
         }
-        if !self.auth.is_member(etablissement_id, user_id).await? {
-            return Err(DomainError::NotFound.into());
-        }
-        self.set_user_email(user_id, email).await
+        Ok(())
     }
 
     /// Crée (ou retrouve) un compte parent et le rattache à un élève sur ce foyer.
@@ -3877,7 +4301,7 @@ impl PgEnt {
         email: &str,
         display_name: Option<&str>,
         telephone: Option<&str>,
-        password: Option<&str>,
+        public_base_url: &str,
         lien: &str,
         peut_voir_notes: bool,
         peut_voir_vs: bool,
@@ -3885,7 +4309,7 @@ impl PgEnt {
         peut_autoriser_sorties: bool,
         est_payeur: bool,
         part_paiement: Option<i16>,
-    ) -> Result<EleveLien, EntDbError> {
+    ) -> Result<(EleveLien, Option<bool>), EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !parsed.can_manage_eleves() {
             return Err(EntDbError::Forbidden);
@@ -3903,6 +4327,7 @@ impl PgEnt {
         };
         let _ = eleve;
 
+        let mut compte_cree = false;
         let user_id = if let Some(uid) = self
             .auth
             .find_member_id_by_email(etablissement_id, email)
@@ -3910,27 +4335,20 @@ impl PgEnt {
         {
             uid
         } else {
-            // Jamais de mot de passe par défaut connu : sans mot de passe
-            // fourni, le compte reçoit un secret aléatoire que personne ne
-            // connaît ; le responsable définit le sien via « mot de passe
-            // oublié » (flux d'invitation complet : lot L3).
-            let pwd_alea;
-            let pwd = match password {
-                Some(p) => p,
-                None => {
-                    pwd_alea = ent_auth::generate_temp_password();
-                    pwd_alea.as_str()
-                }
-            };
+            // Jamais de mot de passe choisi par un tiers : le compte reçoit un
+            // secret aléatoire que personne ne connaît ; le responsable définit
+            // le sien via le lien d'activation (flux « mot de passe oublié »).
+            let pwd_alea = ent_auth::generate_temp_password();
             let created = self
                 .register_user(
                     email,
-                    pwd,
+                    pwd_alea.as_str(),
                     display_name,
                     etablissement_id,
                     Role::Parent.as_str(),
                 )
                 .await?;
+            compte_cree = true;
             created.id
         };
 
@@ -3974,7 +4392,27 @@ impl PgEnt {
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
-        Ok(saved)
+        // Nouveau compte : lien d'activation tenté automatiquement. Jamais
+        // d'erreur ici (le rattachement est déjà fait) ; l'issue est renvoyée :
+        // `Some(true)` envoyé, `Some(false)` non envoyé (URL publique absente,
+        // messagerie indisponible ou en échec : jeton invalidé, le parent
+        // utilisera « mot de passe oublié »), `None` si aucun compte créé.
+        let activation = if compte_cree {
+            Some(
+                self.envoyer_lien_reinitialisation(
+                    user_id,
+                    public_base_url,
+                    72 * 60,
+                    "Activation de votre compte ENT",
+                    "Un compte ENT vient d'être créé pour vous. Pour choisir votre mot de passe, ouvrez ce lien (valable 72 heures)",
+                )
+                .await
+                .is_ok(),
+            )
+        } else {
+            None
+        };
+        Ok((saved, activation))
     }
 
     pub async fn get_foyer_detail_for_actor(

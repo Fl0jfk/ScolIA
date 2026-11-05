@@ -8,6 +8,7 @@ mod dto;
 pub mod http_garde;
 mod ical;
 pub mod obs;
+mod referentiel;
 mod routes;
 mod ui;
 
@@ -182,6 +183,8 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
 // Tests L6 : ceux qui exigent `/auth/register` ou le cast labo sont gatés un à un.
 #[cfg(test)]
 mod tests_l6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_l3;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;
@@ -1947,6 +1950,7 @@ mod tests {
                             "token": reg_token,
                             "credential": registration,
                             "name": "Pixel L2",
+                            "current_password": password,
                         }))
                         .unwrap(),
                     ))
@@ -2089,7 +2093,10 @@ mod tests {
                     .method("DELETE")
                     .uri(format!("/auth/passkeys/{passkey_id}"))
                     .header("authorization", format!("Bearer {session_token}"))
-                    .body(Body::empty())
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({"current_password": password})).unwrap(),
+                    ))
                     .unwrap(),
             )
             .await

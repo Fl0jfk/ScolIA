@@ -26,6 +26,14 @@ pub struct ChallengeRow {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Issue d'une insertion de passkey sous plafond.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertPasskey {
+    Stored,
+    Duplicate,
+    Plafond,
+}
+
 type CredRow = (
     Uuid,
     Uuid,
@@ -45,17 +53,33 @@ impl PgPasskeyRepo {
         Self { pool }
     }
 
-    /// Enregistre une passkey. Renvoie `false` si l'identifiant de credential
-    /// est déjà connu (même appareil enrôlé deux fois).
-    pub async fn insert_credential(
+    /// Enregistre une passkey **sous plafond atomique** : un verrou consultatif
+    /// par utilisateur (tenu jusqu'à la fin de la transaction) sérialise les
+    /// enrôlements concurrents ; comptage et insertion partagent la transaction.
+    /// `Duplicate` si l'identifiant de credential est déjà connu.
+    pub async fn insert_credential_plafonne(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
         passkey: &Passkey,
         name: Option<&str>,
-    ) -> Result<bool, sqlx::Error> {
+        max: i64,
+    ) -> Result<InsertPasskey, sqlx::Error> {
         let cred_id = credential_id_b64(passkey.cred_id());
         let payload = serde_json::to_value(passkey).unwrap_or(serde_json::Value::Null);
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('passkey:' || $1::uuid::text, 0))")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        let (n,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM ent_passkey_credential WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if n >= max {
+            return Ok(InsertPasskey::Plafond);
+        }
         let res = sqlx::query(
             r#"
             INSERT INTO ent_passkey_credential (
@@ -70,9 +94,14 @@ impl PgPasskeyRepo {
         .bind(&cred_id)
         .bind(&payload)
         .bind(name)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(res.rows_affected() > 0)
+        tx.commit().await?;
+        Ok(if res.rows_affected() > 0 {
+            InsertPasskey::Stored
+        } else {
+            InsertPasskey::Duplicate
+        })
     }
 
     /// Identifiants de credential déjà enrôlés (liste d'exclusion WebAuthn).

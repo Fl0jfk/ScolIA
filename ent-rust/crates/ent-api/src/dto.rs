@@ -3632,8 +3632,8 @@ pub struct RattacherResponsableFoyerBody {
     pub email: String,
     pub display_name: Option<String>,
     pub telephone: Option<String>,
-    /// Mot de passe initial si création du compte (défaut labo).
-    pub password: Option<String>,
+    // Pas de mot de passe ici : le compte créé reçoit un secret aléatoire et le
+    // responsable définit le sien via le lien d'activation (champ éventuel ignoré).
     pub lien: Option<String>,
     pub peut_voir_notes: Option<bool>,
     pub peut_voir_vs: Option<bool>,
@@ -3648,9 +3648,12 @@ pub struct SetTelephoneBody {
     pub telephone: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct SetEmailBody {
     pub email: String,
+    /// Mot de passe actuel : obligatoire quand on change **sa propre** adresse.
+    #[serde(default)]
+    pub current_password: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3720,6 +3723,10 @@ pub struct EleveLienDto {
     pub peut_autoriser_sorties: bool,
     pub est_payeur: bool,
     pub part_paiement: Option<i16>,
+    /// Rattachement créant un compte : `Some(true)` lien d'activation envoyé,
+    /// `Some(false)` non envoyé (le parent passe par « mot de passe oublié »).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation_envoyee: Option<bool>,
 }
 
 #[allow(dead_code)]
@@ -3870,4 +3877,5 @@ impl From<&ent_db::Annonce> for AnnonceDto {
 
 // `Debug` masqué : mot de passe / identité de connexion (voir `masque.rs`).
 debug_masque!(CompteProvisionneDto { invitation_id, eleve_id, statut, user_id } masque { email, mot_de_passe_temporaire });
-debug_masque!(RattacherResponsableFoyerBody { eleve_id } masque { email, password });
+debug_masque!(RattacherResponsableFoyerBody { eleve_id } masque { email });
+debug_masque!(SetEmailBody {} masque { email, current_password });

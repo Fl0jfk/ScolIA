@@ -2450,13 +2450,13 @@ async fn passkeys_enrolement_2fa_passwordless_et_isolation() {
 
     // 6) Récupération : un prof ne peut pas réinitialiser ; la Direction oui.
     assert!(
-        ent.reset_passkeys_admin_for_actor(etab, Role::Prof.as_str(), user_id)
+        ent.reset_passkeys_admin_for_actor(etab, Uuid::new_v4(), Role::Prof.as_str(), user_id)
             .await
             .is_err(),
         "seuls Direction / Admin réinitialisent les passkeys"
     );
     let removed = ent
-        .reset_passkeys_admin_for_actor(etab, Role::Direction.as_str(), user_id)
+        .reset_passkeys_admin_for_actor(etab, Uuid::new_v4(), Role::Direction.as_str(), user_id)
         .await
         .expect("réinitialisation direction");
     assert!(removed >= 1);
@@ -3347,7 +3347,7 @@ async fn rattachement_parent_sans_mot_de_passe_pas_de_mot_de_passe_public() {
         &email,
         None,
         None,
-        None,
+        "http://localhost:8088",
         "parent",
         true,
         true,
@@ -3714,4 +3714,49 @@ mod fichiers_documents {
         }
         assert!(avec_cle >= 2, "PAP + assurance au moins");
     }
+}
+
+/// L3 : le rattachement d'un nouveau responsable envoie le lien d'activation
+/// (messagerie prête) et ne fixe jamais de mot de passe connu.
+#[tokio::test]
+async fn rattachement_parent_envoie_le_lien_d_activation() {
+    let Some((mut ent, cast)) = labo().await else {
+        eprintln!("skip scénario: ENT_DATABASE_URL");
+        return;
+    };
+    ent.install_mail_dry_run();
+    let email = format!("parent-l3-{}@example.test", Uuid::new_v4());
+    ent.rattacher_responsable_foyer_for_actor(
+        cast.administratif.role.as_str(),
+        cast.etablissement_id,
+        cast.administratif.user_id,
+        cast.foyer_lea_id,
+        cast.eleve_lea_id,
+        &email,
+        None,
+        None,
+        "http://localhost:8088",
+        "parent",
+        true,
+        true,
+        true,
+        true,
+        false,
+        None,
+    )
+    .await
+    .expect("rattachement");
+    assert!(
+        ent.mailer()
+            .receipts()
+            .iter()
+            .any(|r| r.to == email && r.subject.contains("Activation")),
+        "lien d'activation envoyé au nouveau compte"
+    );
+    assert!(
+        ent.login(&email, LABO_PASSWORD, cast.etablissement_id)
+            .await
+            .is_err(),
+        "aucun mot de passe connu"
+    );
 }

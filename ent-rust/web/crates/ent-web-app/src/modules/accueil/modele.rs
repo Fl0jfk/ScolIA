@@ -20,6 +20,33 @@ pub fn libelle_non_lus(n: i64) -> String {
     }
 }
 
+/// « Aucun élève absent », « 1 élève absent », « 7 élèves absents ».
+pub fn libelle_absents(n: usize) -> String {
+    match n {
+        0 => "Aucun élève absent".into(),
+        1 => "1 élève absent".into(),
+        n => format!("{n} élèves absents"),
+    }
+}
+
+/// « Aucune absence à justifier », « 3 absences à justifier ».
+pub fn libelle_a_justifier(n: usize) -> String {
+    match n {
+        0 => "Aucune absence à justifier".into(),
+        1 => "1 absence à justifier".into(),
+        n => format!("{n} absences à justifier"),
+    }
+}
+
+/// « Aucun justificatif en attente », « 2 justificatifs en attente ».
+pub fn libelle_en_attente(n: usize) -> String {
+    match n {
+        0 => "Aucun justificatif en attente".into(),
+        1 => "1 justificatif en attente".into(),
+        n => format!("{n} justificatifs en attente"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,5 +76,17 @@ mod tests {
         assert_eq!(libelle_non_lus(0), "Aucun message non lu");
         assert_eq!(libelle_non_lus(1), "1 message non lu");
         assert_eq!(libelle_non_lus(4), "4 messages non lus");
+    }
+
+    #[test]
+    fn libelles_absences() {
+        assert_eq!(libelle_absents(0), "Aucun élève absent");
+        assert_eq!(libelle_absents(1), "1 élève absent");
+        assert_eq!(libelle_absents(7), "7 élèves absents");
+        assert_eq!(libelle_a_justifier(0), "Aucune absence à justifier");
+        assert_eq!(libelle_a_justifier(1), "1 absence à justifier");
+        assert_eq!(libelle_a_justifier(3), "3 absences à justifier");
+        assert_eq!(libelle_en_attente(0), "Aucun justificatif en attente");
+        assert_eq!(libelle_en_attente(2), "2 justificatifs en attente");
     }
 }

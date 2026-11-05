@@ -697,7 +697,6 @@ async fn rattacher_parent_neuf(m: &Monde, mot_de_passe: Option<&str>) -> (String
 }
 
 #[test]
-#[ignore = "faille L3 ouverte — à activer après correction"]
 fn l3_administratif_ne_change_pas_l_email_de_l_admin() {
     let Some(m) = monde() else { return };
     rt().block_on(async {
@@ -706,27 +705,53 @@ fn l3_administratif_ne_change_pas_l_email_de_l_admin() {
         let rep = m
             .appel("PUT", &format!("/users/{admin}/email"), Some(m.jeton(Administratif)), Some(&json!({"email": piege})))
             .await;
-        // Remise en état par le titulaire (auto-modification autorisée), succès ou non.
-        let _ = m
-            .appel("PUT", &format!("/users/{admin}/email"), Some(m.jeton(Admin)),
-                   Some(&json!({"email": m.a.emails[&Admin]})))
-            .await;
+        // Le refus est le contrat : aucune remise en état n'est nécessaire (et une
+        // modification réussie aurait révoqué les sessions du monde partagé).
         assert!(rep.est_refus(), "l'administratif a modifié l'e-mail de l'admin → {}", rep.statut);
     });
 }
 
+/// Règle L3 : la direction peut déclencher l'envoi d'un lien à un parent, mais ne
+/// reçoit jamais de secret et ne peut pas se connecter à sa place. Le mot de
+/// passe envoyé au rattachement est ignoré.
 #[test]
-#[ignore = "faille L3 ouverte — à activer après correction"]
-fn l3_direction_ne_reinitialise_pas_le_mot_de_passe_d_un_parent() {
+fn l3_direction_declenche_un_lien_pour_un_parent_et_ne_recoit_aucun_secret() {
     let Some(m) = monde() else { return };
     rt().block_on(async {
-        let (_email, uid, prep) = rattacher_parent_neuf(m, Some(&m.a.mot_de_passe)).await;
+        let (email, uid, prep) = rattacher_parent_neuf(m, Some("MotDePasseImpose-1")).await;
         assert!(prep.est_succes(), "préparation : rattachement refusé ({})", prep.statut);
         let uid = uid.expect("user_id du parent créé");
         let rep = m
             .appel("POST", &format!("/etablissement/personnel/{uid}/reset-mot-de-passe"), Some(m.jeton(Direction)), Some(&json!({})))
             .await;
-        assert!(rep.est_refus(), "la direction a réinitialisé le mot de passe d'un parent → {}", rep.statut);
+        assert!(
+            [202, 503].contains(&rep.statut.as_u16()),
+            "envoi de lien (202) ou « envoi impossible » attendu, reçu {}",
+            rep.statut
+        );
+        assert!(!rep.texte.contains("mot_de_passe_temporaire"), "secret renvoyé : {}", rep.texte);
+        for mdp in ["MotDePasseImpose-1", m.a.mot_de_passe.as_str()] {
+            let l = m
+                .appel("POST", "/auth/login", None,
+                       Some(&json!({"email": email, "password": mdp, "etablissement_id": m.a.objets.etab})))
+                .await;
+            assert!(!l.est_succes(), "connexion possible avec un secret connu de l'appelant");
+        }
+    });
+}
+
+/// Règle L3 : le personnel n'est jamais réinitialisé hors hiérarchie (administratif refusé).
+#[test]
+fn l3_administratif_ne_reinitialise_pas_un_parent() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        let (_e, uid, prep) = rattacher_parent_neuf(m, None).await;
+        assert!(prep.est_succes(), "préparation : rattachement refusé ({})", prep.statut);
+        let uid = uid.expect("user_id du parent créé");
+        let rep = m
+            .appel("POST", &format!("/etablissement/personnel/{uid}/reset-mot-de-passe"), Some(m.jeton(Administratif)), Some(&json!({})))
+            .await;
+        assert!(rep.est_refus(), "l'administratif a déclenché une réinitialisation → {}", rep.statut);
     });
 }
 

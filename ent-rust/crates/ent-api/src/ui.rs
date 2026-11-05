@@ -25059,10 +25059,11 @@ function messagePasskey(e) {
 }
 
 /* Étape 1 : enrôlement d'une nouvelle passkey (session requise). */
-async function enrollerPasskey(name) {
+async function enrollerPasskey(name, motDePasse) {
   if (!passkeysSupportes()) {
     throw new Error('Ce navigateur ne gère pas les passkeys (WebAuthn).');
   }
+  if (!motDePasse) throw new Error('Mot de passe actuel requis pour ajouter une passkey.');
   const start = await api('/auth/passkey/register/start', { method: 'POST', body: '{}' });
   let cred;
   try {
@@ -25073,7 +25074,7 @@ async function enrollerPasskey(name) {
   if (!cred) throw new Error('Enrôlement annulé.');
   return api('/auth/passkey/register/finish', {
     method: 'POST',
-    body: JSON.stringify({ token: start.token, credential: credentialVersJson(cred), name: name || null }),
+    body: JSON.stringify({ token: start.token, credential: credentialVersJson(cred), name: name || null, current_password: motDePasse }),
   });
 }
 
@@ -28986,6 +28987,7 @@ function viewFamilleHome() {
       <p class="muted">E-mail de connexion et téléphone pour SMS vie scolaire / RH (self-service · foyer) — <span class="muted empty-state-hint">CC-B</span>.</p>
       <div class="row" style="flex-wrap:wrap;gap:.5rem">
         <label>E-mail <input id="famEmail" type="email" placeholder="parent@…" style="min-width:14rem"/></label>
+        <label>Mot de passe actuel <input id="famEmailPwd" type="password" autocomplete="current-password" style="min-width:10rem"/></label>
         <button type="button" class="primary" id="btnFamEmail">Enregistrer l’e-mail</button>
       </div>
       <div id="famEmailMsg" class="muted"></div>
@@ -29905,14 +29907,16 @@ async function bindFamilleHome() {
         const msg = document.getElementById('famEmailMsg');
         const email = (document.getElementById('famEmail') || {}).value.trim();
         if (!email) { if (msg) msg.innerHTML = '<span class="bad">E-mail requis</span>'; return; }
+        const mdpActuel = (document.getElementById('famEmailPwd') || {}).value || '';
+        if (!mdpActuel) { if (msg) msg.innerHTML = '<span class="bad">Mot de passe actuel requis pour changer l’e-mail</span>'; return; }
         try {
           await api('/users/' + me.user_id + '/email', {
             method: 'PUT',
-            body: JSON.stringify({ email }),
+            body: JSON.stringify({ email, current_password: mdpActuel }),
           });
-          await ensureMe();
-          if (msg) msg.innerHTML = '<span class="ok">E-mail enregistré</span>';
+          if (msg) msg.innerHTML = '<span class="ok">E-mail enregistré : toutes vos sessions ont été fermées, reconnectez-vous avec la nouvelle adresse.</span>';
           toastFamEmailEnregistre(email);
+          setTimeout(() => { try { STORE.token = ""; } catch {} location.reload(); }, 2500);
         } catch (err) {
           if (msg) msg.innerHTML = `<span class="bad">${esc(err.message)}</span>`;
         }
@@ -48923,7 +48927,7 @@ async function bindFoyerDetail(id) {
                 part_paiement: linkPayload.partPaiement,
               }),
             });
-            msg.innerHTML = '<span class="ok">Rattaché</span>';
+            msg.innerHTML = '<span class="ok">Rattaché · un lien d’activation est envoyé au responsable si la messagerie est prête (sinon « mot de passe oublié »)</span>';
             toastFoyerLienParentRattache(linkPayload);
             await load();
           } catch (e) {
@@ -53393,6 +53397,8 @@ function viewSecurite(active) {
       <div class="row">
         <label style="flex:1;min-width:12rem">Nom de l’appareil (facultatif)
           <input id="pkName" placeholder="MacBook de Claire" style="width:100%"/></label>
+        <label style="flex:1;min-width:12rem">Mot de passe actuel (requis pour ajouter ou retirer)
+          <input id="pkPwd" type="password" autocomplete="current-password" style="width:100%"/></label>
         <button type="button" class="primary" id="btnPkAjouter" ${support ? '' : 'disabled'}>Enrôler une passkey</button>
         <span id="pkMsg" class="muted"></span>
       </div>
@@ -53478,8 +53484,13 @@ async function bindSecurite() {
       liste.querySelectorAll('button[data-pk-id]').forEach(b => {
         b.onclick = async () => {
           try {
-            await api('/auth/passkeys/' + encodeURIComponent(b.getAttribute('data-pk-id')), { method: 'DELETE' });
-            if (msg) msg.innerHTML = '<span class="ok">Passkey retirée.</span>';
+            const mdp = (document.getElementById('pkPwd') || {}).value || '';
+            if (!mdp) { if (msg) msg.innerHTML = '<span class="bad">Saisissez votre mot de passe actuel pour retirer une passkey.</span>'; return; }
+            await api('/auth/passkeys/' + encodeURIComponent(b.getAttribute('data-pk-id')), {
+              method: 'DELETE',
+              body: JSON.stringify({ current_password: mdp }),
+            });
+            if (msg) msg.innerHTML = '<span class="ok">Passkey retirée (vos autres sessions ont été fermées).</span>';
             await charge();
           } catch (e) {
             if (msg) msg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
@@ -53497,8 +53508,8 @@ async function bindSecurite() {
       const name = (document.getElementById('pkName') || {}).value || '';
       if (msg) msg.innerHTML = '<span class="muted">Suivez l’invite de votre appareil…</span>';
       try {
-        await enrollerPasskey(name.trim());
-        if (msg) msg.innerHTML = '<span class="ok">Passkey enrôlée : le 2ᵉ facteur est actif.</span>';
+        await enrollerPasskey(name.trim(), (document.getElementById('pkPwd') || {}).value || '');
+        if (msg) msg.innerHTML = '<span class="ok">Passkey enrôlée : le 2ᵉ facteur est actif (vos autres sessions ont été fermées).</span>';
         const el = document.getElementById('pkName'); if (el) el.value = '';
         await charge();
       } catch (e) {
@@ -53519,9 +53530,25 @@ async function bindSecurite() {
               ${rows.map(m => `<tr>
                 <td>${esc(m.label || m.email)}<br><span class="muted">${esc(m.email)}</span></td>
                 <td>${esc(m.role)}</td>
-                <td><button type="button" class="danger" data-pk-reset="${esc(m.user_id)}">Réinitialiser les passkeys</button></td>
+                <td><button type="button" class="danger" data-pk-reset="${esc(m.user_id)}">Réinitialiser les passkeys</button>
+                    <button type="button" class="danger" data-mdp-reset="${esc(m.user_id)}">Réinitialiser le mot de passe</button></td>
               </tr>`).join('')}</tbody></table>`
           : '<p class="muted">Aucun membre trouvé.</p>';
+        out.querySelectorAll('button[data-mdp-reset]').forEach(b => {
+          b.onclick = async () => {
+            if (!confirm('Réinitialiser le mot de passe de ce compte ? Ses sessions seront fermées.')) return;
+            try {
+              const res = await api('/etablissement/personnel/' + encodeURIComponent(b.getAttribute('data-mdp-reset')) + '/reset-mot-de-passe', { method: 'POST' });
+              out.innerHTML = (res && res.lien_envoye)
+                ? '<span class="ok">Lien de réinitialisation envoyé à l’adresse du compte (aucun mot de passe n’est communiqué).</span>'
+                : `<span class="ok">Mot de passe temporaire : <code>${esc(String(res && res.mot_de_passe_temporaire || ''))}</code> (à communiquer, affiché une seule fois).</span>`;
+            } catch (e) {
+              out.innerHTML = e.status === 503
+                ? '<span class="bad">Envoi impossible : la messagerie n’est pas configurée. Aucun mot de passe n’a été modifié.</span>'
+                : `<span class="bad">${esc(e.message)}</span>`;
+            }
+          };
+        });
         out.querySelectorAll('button[data-pk-reset]').forEach(b => {
           b.onclick = async () => {
             try {

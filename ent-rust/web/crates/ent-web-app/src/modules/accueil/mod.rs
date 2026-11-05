@@ -12,6 +12,7 @@ use ent_web_ui::{
 use leptos::prelude::*;
 use leptos_meta::Title;
 
+use crate::composants_metier::absences::{eleves_absents, nom_eleve, Compteurs, StatutAbsence};
 use crate::composants_metier::seances::{
     libelle_moment, lien_appel, moment, prochaine, trier, Moment,
 };
@@ -20,7 +21,9 @@ use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
 use crate::noyau::session;
 use crate::noyau::temps::{aujourdhui, date_longue, heure_courte, maintenant};
-use modele::{fils_recents, libelle_non_lus};
+use modele::{
+    fils_recents, libelle_a_justifier, libelle_absents, libelle_en_attente, libelle_non_lus,
+};
 
 /// Texte raccourci sans couper un caractère.
 fn tronquer(texte: &str, max: usize) -> String {
@@ -76,6 +79,8 @@ pub fn PageAccueil() -> impl IntoView {
                         }
                     })
             }}
+            {move || droits.get().trancher_justificatif.then(|| view! { <TuileVieScolaire/> })}
+            {move || droits.get().portail_famille.then(|| view! { <TuileAbsencesFamille/> })}
             <TuileMessages fils=fils/>
             <TuileAnnonces annonces=annonces/>
         </GrilleBento>
@@ -186,7 +191,7 @@ fn TuileSeances(creneaux: LocalResource<Result<Vec<Creneau>, ApiError>>) -> impl
 fn TuileMessages(
     fils: LocalResource<Result<Vec<ent_web_api::FilMessages>, ApiError>>,
 ) -> impl IntoView {
-    let action = ViewFn::from(|| view! { <a href="/app">"Ouvrir la messagerie"</a> });
+    let action = ViewFn::from(|| view! { <a href=navigation::MESSAGES>"Ouvrir la messagerie"</a> });
     view! {
         <Tuile id="messages" titre="Messages" largeur=Largeur::Six action=action>
             {move || match fils.get() {
@@ -210,7 +215,7 @@ fn TuileMessages(
                                         .map(|f| view! {
                                             <li class="ui-liste__element">
                                                 <span class="ui-liste__principal">
-                                                    <span class="ui-liste__titre">{f.sujet.clone()}</span>
+                                                    <a class="ui-liste__titre" href=format!("{}/{}", navigation::MESSAGES, f.id)>{f.sujet.clone()}</a>
                                                     <span class="ui-liste__detail">{f.eleve_label.clone().unwrap_or_else(|| "Conversation".into())}</span>
                                                 </span>
                                                 {(f.nb_non_lus > 0).then(|| view! { <Badge libelle=format!("{} non lu(s)", f.nb_non_lus) ton=TonEtat::Info/> })}
@@ -260,6 +265,124 @@ fn TuileAnnonces(annonces: LocalResource<Result<Vec<Annonce>, ApiError>>) -> imp
                         }
                             .into_any()
                     }
+                }
+            }}
+        </Tuile>
+    }
+}
+
+/// Tuile du personnel de vie scolaire : absences du jour (issues des appels clos et des
+/// déclarations des familles), justificatifs à trancher.
+#[component]
+fn TuileVieScolaire() -> impl IntoView {
+    let jour = aujourdhui();
+    let absences =
+        LocalResource::new(move || async move { session::client().absences_a_traiter(jour).await });
+    let action =
+        ViewFn::from(|| view! { <a href=navigation::VIE_SCOLAIRE>"Traiter les absences"</a> });
+    view! {
+        <Tuile id="vie-scolaire" titre="Absences du jour" largeur=Largeur::Six action=action>
+            {move || match absences.get() {
+                None => view! { <Squelette lignes=3 libelle="Chargement des absences…"/> }.into_any(),
+                Some(Err(ApiError::Interdit(_))) => view! { <p class="texte-attenue">"Absences non disponibles pour votre profil."</p> }.into_any(),
+                Some(Err(e)) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| absences.refetch())/> }.into_any(),
+                Some(Ok(mut l)) => {
+                    let absents = eleves_absents(&l);
+                    let attente = Compteurs::de(&l).en_attente;
+                    // Les justificatifs à trancher d'abord.
+                    l.sort_by_key(|a| StatutAbsence::depuis(a) != StatutAbsence::JustificatifEnAttente);
+                    view! {
+                        <p class="accueil-chiffre">
+                            <span class="accueil-chiffre__valeur">{absents}</span>
+                            <span class="accueil-chiffre__libelle">{libelle_absents(absents)}</span>
+                        </p>
+                        <p class="texte-attenue">{libelle_en_attente(attente)}</p>
+                        {if l.is_empty() {
+                            view! { <p class="texte-attenue">"Les absences relevées par les appels clos apparaissent ici."</p> }.into_any()
+                        } else {
+                            view! {
+                                <ul class="ui-liste">
+                                    {l
+                                        .into_iter()
+                                        .take(3)
+                                        .map(|a| {
+                                            let s = StatutAbsence::depuis(&a);
+                                            view! {
+                                                <li class="ui-liste__element">
+                                                    <span class="ui-liste__principal">
+                                                        <span class="ui-liste__titre">{nom_eleve(&a)}</span>
+                                                        <span class="ui-liste__detail">{a.motif.clone()}</span>
+                                                    </span>
+                                                    <Badge libelle=s.libelle() ton=s.ton()/>
+                                                </li>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </ul>
+                            }
+                                .into_any()
+                        }}
+                    }
+                        .into_any()
+                }
+            }}
+        </Tuile>
+    }
+}
+
+/// Tuile famille : absences encore à justifier, enfant par enfant (seulement ceux dont le
+/// lien autorise la justification).
+#[component]
+fn TuileAbsencesFamille() -> impl IntoView {
+    let a_justifier = LocalResource::new(|| async {
+        let client = session::client();
+        let enfants = client.enfants_famille().await?;
+        let mut v: Vec<(String, usize)> = Vec::new();
+        let mut aucun_droit = true;
+        for e in enfants.iter().filter(|e| e.peut_justifier_absence) {
+            aucun_droit = false;
+            match client.resume_enfant(e.id).await {
+                Ok(r) => v.push((e.prenom.clone(), r.absences_a_justifier.len())),
+                Err(ApiError::NonConnecte) => return Err(ApiError::NonConnecte),
+                Err(_) => {}
+            }
+        }
+        Ok::<_, ApiError>((v, aucun_droit))
+    });
+    let action = ViewFn::from(|| view! { <a href=navigation::ABSENCES>"Voir les absences"</a> });
+    view! {
+        <Tuile id="absences-famille" titre="Absences à justifier" largeur=Largeur::Six action=action>
+            {move || match a_justifier.get() {
+                None => view! { <Squelette lignes=2 libelle="Chargement des absences…"/> }.into_any(),
+                Some(Err(ApiError::Interdit(_))) => view! { <p class="texte-attenue">"Absences non disponibles pour votre profil."</p> }.into_any(),
+                Some(Err(e)) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| a_justifier.refetch())/> }.into_any(),
+                Some(Ok((_, true))) => view! {
+                    <p class="texte-attenue">"Votre lien ne vous permet pas de justifier d'absence ; vous pouvez les consulter."</p>
+                }
+                    .into_any(),
+                Some(Ok((v, false))) => {
+                    let total: usize = v.iter().map(|(_, n)| n).sum();
+                    view! {
+                        <p class="accueil-chiffre">
+                            <span class="accueil-chiffre__valeur">{total}</span>
+                            <span class="accueil-chiffre__libelle">{libelle_a_justifier(total)}</span>
+                        </p>
+                        <ul class="ui-liste">
+                            {v
+                                .into_iter()
+                                .filter(|(_, n)| *n > 0)
+                                .map(|(prenom, n)| view! {
+                                    <li class="ui-liste__element">
+                                        <span class="ui-liste__principal">
+                                            <span class="ui-liste__titre">{prenom}</span>
+                                            <span class="ui-liste__detail">{libelle_a_justifier(n)}</span>
+                                        </span>
+                                    </li>
+                                })
+                                .collect_view()}
+                        </ul>
+                    }
+                        .into_any()
                 }
             }}
         </Tuile>

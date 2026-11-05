@@ -63,6 +63,14 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
                     <Route path=path!("emploi-du-temps") view=modules::edt::PageEmploiDuTemps/>
                     <Route path=path!("appel") view=modules::appel::PageAppel/>
+                    <Route path=path!("classes") view=modules::classes::PageClasses/>
+                    <Route path=path!("classes/:id") view=modules::classes::PageClasse/>
+                    <Route path=path!("mes-classes") view=modules::classes::PageMesClasses/>
+                    <Route path=path!("vie-scolaire") view=modules::vie_scolaire::PageVieScolaire/>
+                    <Route path=path!("absences") view=modules::absences::PageAbsences/>
+                    <Route path=path!("messages") view=modules::messagerie::PageMessages/>
+                    <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
+                    <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>
                 </ParentRoute>
             </Routes>
             <ent_web_ui::ZoneNotifications/>

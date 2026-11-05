@@ -99,13 +99,14 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/089_passkey.sql"),
     include_str!("../../../migrations/090_oidc.sql"),
     include_str!("../../../migrations/091_journal_ajout_seul.sql"),
+    include_str!("../../../migrations/092_referentiel_scolaire.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "091_journal_ajout_seul";
+pub const MIGRATION_TAG: &str = "092_referentiel_scolaire";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -187,7 +188,7 @@ mod tests {
     use super::*;
 
     /// Garde anti-dérive : le tag annoncé par `/health` suit le dernier fichier
-    /// de `migrations/`. Ajouter `091_xxx.sql` sans bumper `MIGRATION_TAG` fait
+    /// de `migrations/`. Ajouter `092_xxx.sql` sans bumper `MIGRATION_TAG` fait
     /// échouer ce test (le tag est une preuve de schéma, il ne doit pas mentir).
     #[test]
     fn migration_tag_suit_la_derniere_migration() {

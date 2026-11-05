@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use modele::jour_demande;
 
+use crate::composants_metier::classes::{classe_du_creneau, sous_titre_appel};
 use crate::composants_metier::seances::{lien_appel, moment, trier, Moment};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
@@ -71,6 +72,20 @@ pub fn PageAppel() -> impl IntoView {
             .and_then(|l| l.into_iter().find(|c| c.id == id))
     });
 
+    // Libellé et effectif de la classe issus du référentiel scolaire (sans effet sur la
+    // logique d'appel) : chargés seulement quand une séance est ouverte ; en cas d'échec ou
+    // de classe inconnue du référentiel, l'écran reste celui d'avant.
+    let classes_ref = LocalResource::new(move || {
+        let ouverte = creneau_id.get().is_some();
+        let j = jour.get();
+        async move {
+            if !ouverte {
+                return Vec::new();
+            }
+            session::client().mes_classes(j).await.unwrap_or_default()
+        }
+    });
+
     let titre = Signal::derive(move || match seance.get() {
         Some(c) => format!("{} · {}", c.classe, c.matiere_libelle),
         None => "Faire l'appel".into(),
@@ -83,10 +98,11 @@ pub fn PageAppel() -> impl IntoView {
                 heure_courte(&c.heure_debut),
                 heure_courte(&c.heure_fin)
             );
-            if let Some(salle) = c.salle.filter(|s| !s.is_empty()) {
+            if let Some(salle) = c.salle.clone().filter(|s| !s.is_empty()) {
                 s.push_str(&format!(" · Salle {salle}"));
             }
-            s
+            let classes = classes_ref.get().unwrap_or_default();
+            sous_titre_appel(&s, classe_du_creneau(&classes, &c.classe))
         }
         None => date_longue(jour.get()),
     });

@@ -140,6 +140,30 @@ impl PgEleveRepo {
         Ok(rows.into_iter().map(EleveRow::into_eleve).collect())
     }
 
+    /// Élèves d'un établissement par identifiants (ordre alphabétique).
+    pub async fn list_by_ids(
+        &self,
+        etablissement_id: Uuid,
+        ids: &[Uuid],
+    ) -> Result<Vec<Eleve>, DomainError> {
+        let rows = sqlx::query_as::<_, EleveRow>(
+            r#"
+            SELECT id, etablissement_id, nom, prenom, ine, sexe, date_naissance, numero_badge,
+                   redoublant, photo_key, status, classe, regime, mef, site,
+                   date_entree, date_sortie, motif_sortie
+            FROM ent_eleve
+            WHERE etablissement_id = $1 AND id = ANY($2)
+            ORDER BY nom, prenom
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(EleveRow::into_eleve).collect())
+    }
+
     /// Effectif d'une classe **au jour J** = périodes + dates d'entrée/sortie.
     pub async fn list_en_classe_au(
         &self,

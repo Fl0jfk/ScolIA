@@ -20,8 +20,14 @@ mod appel;
 mod auth;
 mod communication;
 mod edt;
+mod referentiel;
+mod vie_scolaire;
 
-pub use communication::{Annonce, FilMessages};
+pub use communication::{
+    base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
+    FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
+};
+pub use vie_scolaire::DecisionApi;
 
 // ---------------------------------------------------------------------------
 // Types (contrat JSON d'ent-api)
@@ -34,6 +40,15 @@ pub use ent_types::auth::{
     AuthSessionDto as Session, LoginResponseDto, MeDto as Moi, PasskeyChallengeDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
+pub use ent_types::referentiel::{
+    ClasseDetailDto as ClasseDetailApi, ClasseDto as ClasseApi, EleveClasseDto as EleveClasseApi,
+    RapportAmorcageDto as RapportAmorcageApi, ServiceDto as ServiceApi,
+};
+pub use ent_types::vie_scolaire::{
+    AbsenceDto as Absence, AbsenceMotifDto as MotifAbsence, EleveFicheDto as FicheEleve,
+    EnfantFamilleDto as Enfant, FamilleResumeDto as ResumeFamille, RetardDto as Retard,
+    SignalAbsenceDto as SignalAbsence,
+};
 
 /// Issue d'une connexion par mot de passe.
 #[derive(Clone, Debug, PartialEq)]

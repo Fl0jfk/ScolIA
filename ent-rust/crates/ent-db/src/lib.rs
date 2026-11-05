@@ -47,6 +47,7 @@ mod info_comp_repo;
 mod vacances_repo;
 mod menu_cantine_repo;
 mod quotient_repo;
+mod referentiel_repo;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
@@ -99,6 +100,11 @@ pub use sms_repo::SmsOutboxRow;
 pub use push_repo::PushDevice;
 pub use service::EnfantFamille;
 pub use matiere_repo::{CreateMatiere, Matiere};
+pub use referentiel_repo::{
+    niveau_de_code, role_peut_gerer_referentiel, role_peut_lire_referentiel, AnneeScolaire,
+    Affectation, Classe, ClasseResume, CreerService, Groupe, RapportAmorcage,
+    ServiceEnseignement,
+};
 pub use migrate::{apply_socle_migrations, MigrateError, MIGRATION_TAG};
 pub use pra::{
     EcartInventaire, Inventaire, InventaireTable, RapportIntegrite, INVENTAIRE_VERSION,
@@ -111,7 +117,7 @@ pub use option_repo::PgOptionRepo;
 pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
 pub use service::{
     BankRapprochementSummary, EntDbError, LoginOutcome, OidcProviderParams, PgEnt,
-    PersonnelProvisionne, ProvisionnerPersonnel, SondeMetrique,
+    PersonnelProvisionne, ProvisionnerPersonnel, ReinitialisationMdp, SondeMetrique,
 };
 pub use ent_oidc::{OidcError, OidcTransport};
 pub use domain_eleve::SignalAbsence;
@@ -119,6 +125,9 @@ pub use url_guard::{assert_local_postgres_url, UrlGuardError};
 
 #[cfg(all(test, feature = "labo"))]
 mod scenarios;
+
+#[cfg(all(test, feature = "labo"))]
+mod tests_referentiel;
 
 #[cfg(test)]
 mod integration_tests {

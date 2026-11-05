@@ -6,5 +6,6 @@ pub mod coquille;
 pub mod droits;
 pub mod erreurs;
 pub mod navigation;
+pub mod non_lus;
 pub mod session;
 pub mod temps;

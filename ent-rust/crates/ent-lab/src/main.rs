@@ -10664,7 +10664,7 @@ async fn explorer_passkeys_websauthn(
 
     // 7) Récupération : la direction retire les passkeys, mot de passe redevient suffisant.
     let removed = ent
-        .reset_passkeys_admin_for_actor(etab, Role::Direction.as_str(), user_id)
+        .reset_passkeys_admin_for_actor(etab, Uuid::new_v4(), Role::Direction.as_str(), user_id)
         .await
         .map_err(|e| e.to_string())?;
     if removed == 0 {
