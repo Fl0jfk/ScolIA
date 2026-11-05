@@ -46,6 +46,16 @@ type CredRow = (
     Option<DateTime<Utc>>,
 );
 
+/// Résultat de [`PgPasskeyRepo::apply_authentication`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CounterOutcome {
+    Updated,
+    Unchanged,
+    Unknown,
+    /// Compteur reçu ≤ compteur stocké : clonage possible, authentification à refuser.
+    Regressed { stored: u64, received: u64 },
+}
+
 pub struct PgPasskeyRepo {
     pool: PgPool,
 }
@@ -195,6 +205,53 @@ impl PgPasskeyRepo {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Applique **atomiquement** le résultat d'une authentification au credential
+    /// utilisé : verrou de ligne (`FOR UPDATE`), relecture du compteur stocké,
+    /// refus si le compteur régresse (clonage), écriture, commit. Deux
+    /// connexions simultanées sur la même clé ne peuvent donc pas se
+    /// réécraser le compteur (le plus bas ne remplace jamais le plus haut).
+    pub async fn apply_authentication(
+        &self,
+        res: &ent_auth::AuthenticationResult,
+    ) -> Result<CounterOutcome, sqlx::Error> {
+        let cred_id = credential_id_b64(res.cred_id());
+        let mut tx = self.pool.begin().await?;
+        let row: Option<(serde_json::Value,)> = sqlx::query_as(
+            "SELECT passkey FROM ent_passkey_credential WHERE cred_id = $1 FOR UPDATE",
+        )
+        .bind(&cred_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((payload,)) = row else {
+            tx.rollback().await?;
+            return Ok(CounterOutcome::Unknown);
+        };
+        let Ok(mut pk) = serde_json::from_value::<ent_auth::Passkey>(payload) else {
+            tx.rollback().await?;
+            return Ok(CounterOutcome::Unknown);
+        };
+        let stored = serde_json::to_value(&pk)
+            .ok()
+            .and_then(|v| v.pointer("/cred/counter").and_then(|c| c.as_u64()))
+            .unwrap_or(0);
+        let new = u64::from(res.counter());
+        if (new > 0 || stored > 0) && new <= stored {
+            tx.rollback().await?;
+            return Ok(CounterOutcome::Regressed { stored, received: new });
+        }
+        let changed = ent_auth::PasskeyEngine::apply_counter(&mut pk, res).unwrap_or(false);
+        let payload = serde_json::to_value(&pk).unwrap_or(serde_json::Value::Null);
+        sqlx::query(
+            "UPDATE ent_passkey_credential SET passkey = $2, last_used_at = now() WHERE cred_id = $1",
+        )
+        .bind(&cred_id)
+        .bind(&payload)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(if changed { CounterOutcome::Updated } else { CounterOutcome::Unchanged })
     }
 
     /// Supprime une passkey d'un compte. Renvoie `false` si absente.

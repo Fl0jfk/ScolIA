@@ -39,6 +39,8 @@ pub struct OidcStateRow {
     pub code_verifier: String,
     pub nonce: String,
     pub redirect_uri: String,
+    /// SHA-256 (hex) du secret de liaison au navigateur (`None` = état antérieur).
+    pub binding_hash: Option<String>,
 }
 
 /// Paramètres d'enregistrement d'un fournisseur (endpoints déjà résolus par
@@ -66,6 +68,7 @@ pub struct OidcStateInsert<'a> {
     pub code_verifier: &'a str,
     pub nonce: &'a str,
     pub redirect_uri: &'a str,
+    pub binding_hash: &'a str,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -160,6 +163,25 @@ impl PgOidcRepo {
         .fetch_one(&self.pool)
         .await?;
         Ok(id.0)
+    }
+
+    /// Remplace la valeur stockée du secret client (rechiffrement d'un secret hérité).
+    pub async fn set_client_secret_raw(&self, id: Uuid, stored: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE ent_oidc_provider SET client_secret = $2 WHERE id = $1")
+            .bind(id)
+            .bind(stored)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Fournisseurs dont le secret est encore en clair (sans préfixe `enc:v1:`).
+    pub async fn list_plaintext_secret_ids(&self) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT id, client_secret FROM ent_oidc_provider WHERE client_secret NOT LIKE 'enc:v1:%'",
+        )
+        .fetch_all(&self.pool)
+        .await
     }
 
     /// Fournisseurs d'un établissement (vue gestion, staff).
@@ -275,8 +297,8 @@ impl PgOidcRepo {
             r#"
             INSERT INTO ent_oidc_state (
                 id, token_hash, provider_id, etablissement_id, code_verifier,
-                nonce, redirect_uri, created_at, expires_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8)
+                nonce, redirect_uri, created_at, expires_at, binding_hash
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8, $9)
             "#,
         )
         .bind(Uuid::new_v4())
@@ -287,6 +309,7 @@ impl PgOidcRepo {
         .bind(s.nonce)
         .bind(s.redirect_uri)
         .bind(s.expires_at)
+        .bind(s.binding_hash)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -295,16 +318,16 @@ impl PgOidcRepo {
     /// Consomme un état : `DELETE ... RETURNING` le rend **à usage unique**
     /// (un `state` rejoué ne trouve plus rien) et l'expiration est vérifiée.
     pub async fn take_state(&self, token_hash: &str) -> Result<Option<OidcStateRow>, sqlx::Error> {
-        let row: Option<(Uuid, Uuid, Uuid, String, String, String)> = sqlx::query_as(
+        let row: Option<(Uuid, Uuid, Uuid, String, String, String, Option<String>)> = sqlx::query_as(
             r#"DELETE FROM ent_oidc_state
                WHERE token_hash = $1 AND expires_at > now()
-               RETURNING id, provider_id, etablissement_id, code_verifier, nonce, redirect_uri"#,
+               RETURNING id, provider_id, etablissement_id, code_verifier, nonce, redirect_uri, binding_hash"#,
         )
         .bind(token_hash)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(
-            |(id, provider_id, etablissement_id, code_verifier, nonce, redirect_uri)| {
+            |(id, provider_id, etablissement_id, code_verifier, nonce, redirect_uri, binding_hash)| {
                 OidcStateRow {
                     id,
                     provider_id,
@@ -312,6 +335,7 @@ impl PgOidcRepo {
                     code_verifier,
                     nonce,
                     redirect_uri,
+                    binding_hash,
                 }
             },
         ))

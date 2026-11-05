@@ -61,9 +61,14 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | `ENT_CORS_ORIGINS` | *(vide)* | Liste d'origines (virgules) ou `*`. Vide → same-origin uniquement. |
 | `RUST_LOG` | `info` | Filtre de logs (`tracing_subscriber`). |
 | `ENT_OBJECT_DIR` / `ENT_OBJECT_S3_HTTP` / `ENT_MAIL_LIVE` / `ENT_SMS_LIVE` / `ENT_PUSH_LIVE` / `ENT_BANK_LIVE` | *(dry-run)* | Sorties live optionnelles (S3 / SMTP / SMS / push / banque). |
-| `ENT_RP_ID` / `ENT_RP_ORIGIN` / `ENT_RP_NAME` | dev `localhost` / `http://localhost:3000` / `ScolIA ENT` | Identité du *relying party* WebAuthn pour les **passkeys**. En prod : domaine réel **en HTTPS** (sinon le navigateur refuse WebAuthn). |
+| `ENT_RP_ID` | dev `localhost` | Domaine du *relying party* WebAuthn (ex. `scolia.fr`, D-013). **Obligatoire hors labo/test** : domaine public (ni `localhost`, ni IP, ni nom sans point) ; sinon l'API **refuse de démarrer** (fail-closed). |
+| `ENT_RP_ORIGIN` / `ENT_RP_ORIGINS` | dev `http://localhost:3000` | Origine(s) autorisées : `ENT_RP_ORIGIN` (une) et/ou `ENT_RP_ORIGINS` (liste séparée par des virgules). **Hors labo/test : au moins une origine `https`, toutes en `https`**, sous le `rp_id` (hôte égal ou sous-domaine), sans chemin ni requête. Les origines natives Android `android:apk-key-hash:<hash base64url>` sont acceptées en plus (au moins une origine web reste requise). iOS (associated domains) utilise l'origine `https` du `rp_id` : rien à ajouter. |
+| `ENT_RP_ALLOW_SUBDOMAINS` | `0` | `1` : toute origine sous-domaine d'une origine autorisée est acceptée (ex. `https://lpnb.scolia.fr` pour `https://scolia.fr`, D-012). Par défaut les sous-domaines doivent être listés. Risque : prise de contrôle d'un sous-domaine = passkeys phishables sur celui-ci. |
+| `ENT_RP_NAME` | `ScolIA ENT` | Libellé affiché par le navigateur à l'enrôlement. |
+| `ENT_SECRETS_KEY` | *(labo/test : clé de dev publique)* | Clé AES-256-GCM des secrets au repos (secret client OIDC) : **32 octets en hex (64 car.) ou base64**. **Obligatoire hors labo/test** (absente/invalide → l'API refuse de démarrer). À conserver hors de la base et des sauvegardes de la base ; sa perte rend les secrets clients illisibles (à ressaisir). Pas de rotation automatique (format `enc:v1:`). |
+| `ENT_OIDC_MAX_BYTES` | `1048576` | Taille maximale d'une réponse d'IdP (découverte, JWKS, tokens), min. 1024. |
 | `ENT_PASSKEY_CHALLENGE_MINUTES` | `5` | Durée de vie d'un challenge passkey (à usage unique). |
-| `ENT_OIDC_TIMEOUT_SECS` | `10` | Délai réseau par appel d'IdP (découverte, échange de code, JWKS). |
+| `ENT_OIDC_TIMEOUT_SECS` | `10` | Délai réseau par appel d'IdP (découverte, échange de code, JWKS). Hors labo/test, les URL d'IdP doivent être en **`https`** et ne pas viser d'adresse interne (loopback, privée, link-local dont métadonnées cloud, CGNAT) après résolution DNS ; redirections limitées à 3, revalidées. |
 | `ENT_OIDC_STATE_MINUTES` | `10` | Durée de vie d'un parcours SSO (`state`/PKCE/nonce, à usage unique). |
 | `ENT_METRICS_TOKEN` | *(vide)* | Jeton Bearer exigé par `GET /metrics`. **Recommandé en prod.** Sans jeton et sans `ENT_METRICS` → `404`. |
 | `ENT_METRICS` | *(vide)* | `1` → `/metrics` en accès libre (scrape **local** uniquement, jamais exposé à Internet). |

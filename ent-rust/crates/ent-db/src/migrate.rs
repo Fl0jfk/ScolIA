@@ -102,13 +102,14 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/092_referentiel_scolaire.sql"),
     include_str!("../../../migrations/093_passkey_par_personne.sql"),
     include_str!("../../../migrations/095_session_assurance.sql"),
+    include_str!("../../../migrations/096_oidc_securite.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "095_session_assurance";
+pub const MIGRATION_TAG: &str = "096_oidc_securite";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

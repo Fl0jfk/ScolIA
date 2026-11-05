@@ -22,6 +22,7 @@
 mod jwt;
 mod pkce;
 mod provider;
+pub mod ssrf;
 pub mod testing;
 mod transport;
 
@@ -31,6 +32,7 @@ pub use provider::{
     build_authorization_url, discover, exchange_authorization_code, OidcDiscovery, OidcIdentity,
     OidcProviderConfig,
 };
+pub use ssrf::{ip_interdite, valider_url, UrlPolicy};
 pub use transport::{HttpOidcTransport, OidcTransport};
 
 use thiserror::Error;

@@ -44,6 +44,9 @@ impl OidcProviderConfig {
 pub struct OidcIdentity {
     pub subject: String,
     pub email: Option<String>,
+    /// Claim `email_verified` tel que rendu par l'IdP (`None` = absent). Le
+    /// rattachement par e-mail exige `Some(true)` (décision de l'appelant).
+    pub email_verified: Option<bool>,
     pub name: Option<String>,
 }
 
@@ -142,16 +145,13 @@ pub async fn exchange_authorization_code(
         now,
     )?;
 
-    // Un e-mail explicitement marqué non vérifié ne sert pas de clé de
-    // rattachement (mais un IdP qui n'émet pas le claim reste accepté : le
-    // rattachement par `sub` est la voie normale).
-    if claims.email_verified == Some(false) {
-        return Err(OidcError::EmailNotVerified);
-    }
-
+    // `email_verified` n'est PAS filtré ici : un compte déjà rattaché par `sub`
+    // se connecte quel que soit l'état de l'e-mail. Seul le rattachement par
+    // e-mail (première connexion) exige `Some(true)` — voir `ent-db`.
     Ok(OidcIdentity {
         subject: claims.sub,
         email: claims.email,
+        email_verified: claims.email_verified,
         name: claims.name.or(claims.preferred_username),
     })
 }
@@ -262,5 +262,22 @@ mod tests {
             discover(&transport, &idp.issuer).await.unwrap_err(),
             OidcError::Discovery(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn email_verified_est_transmis_tel_quel_sans_filtre() {
+        for (emis, attendu) in [(Some(true), Some(true)), (Some(false), Some(false)), (None, None)] {
+            let idp = TestIdp::new();
+            let transport = FakeOidcTransport::new(idp.clone());
+            let discovery = discover(&transport, &idp.issuer).await.expect("découverte");
+            transport.arm_nonce("n");
+            transport.set_email_verified(emis);
+            let id = exchange_authorization_code(
+                &transport, &discovery, &config(&idp), "c", "v", "n", 1_800_000_000,
+            )
+            .await
+            .expect("échange : la décision revient à l'appelant");
+            assert_eq!(id.email_verified, attendu);
+        }
     }
 }

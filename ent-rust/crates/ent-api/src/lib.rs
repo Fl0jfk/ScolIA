@@ -176,6 +176,12 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
         }
     }
     let _ = ent.purge_expired_password_resets().await;
+    // A7 : rechiffre les secrets clients OIDC hérités en clair (idempotent).
+    match ent.rechiffrer_secrets_oidc().await {
+        Ok(n) if n > 0 => tracing::info!("secrets clients OIDC rechiffrés : {n}"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("rechiffrement des secrets OIDC impossible : {e}"),
+    }
     let bind = std::env::var("ENT_API_BIND").unwrap_or_else(|_| "127.0.0.1:8088".into());
     Ok((AppState::nouveau(ent), bind))
 }
@@ -185,6 +191,8 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
 mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_l3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sso;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;
