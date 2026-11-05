@@ -13,6 +13,7 @@ pub mod obs;
 mod referentiel;
 mod roles;
 mod routes;
+mod vie_scolaire;
 pub mod tenant;
 mod ui;
 

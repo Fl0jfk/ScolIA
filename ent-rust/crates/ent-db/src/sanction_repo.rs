@@ -419,6 +419,7 @@ impl PgSanctionRepo {
                    jour, duree_minutes, note, statut, created_by_user_id
             FROM ent_sanction
             WHERE etablissement_id = $1 AND eleve_id = $2
+              AND effacee_at IS NULL -- S2-4 : effacée du dossier administratif
             ORDER BY jour DESC, created_at DESC
             "#,
         )
