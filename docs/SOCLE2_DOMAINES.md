@@ -826,7 +826,11 @@ Destinataires relus **au traitement** : lien `ent_eleve_lien` de l'établissemen
 - `ent-web-server/tests/cahier.rs` — 3 tests contre le vrai backend : pages rendues (CSP, langue, aucun style en ligne), parcours enseignant → élève → famille → copie → correction avec lien signé réellement servi, 401 sans session.
 - `ent-web-app` (`modele.rs`) — 11 tests natifs ; `droits_parite.rs` — parité des droits d'affichage avec `ent-auth`.
 
-**Résultats (2026-11-05, Postgres 16 local jetable)** : voir le message de fin de session ; les chiffres de la suite complète y figurent avec les SHA.
+**Résultats (2026-11-05, Postgres 16 local jetable, Rust 1.97 — la CI vise 1.99)** :
+- suite backend complète `cargo test --locked --no-fail-fast --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1` : **564 réussis, 0 échec, 1 ignoré** (code de sortie 0) ; `tests_cahier` 15/15 ;
+- clippy du job backend (3 commandes) : code de sortie 0 ; `cargo build --locked --workspace` : réussi ;
+- frontend : clippy `-D warnings` (SSR, serveur, serveur + labo, wasm32 `hydrate`) propre ; tests natifs `ent-web-ui` / `ent-web-api` / `ent-web-app` : 153 réussis ; `ent-web-server` : `cahier` 3/3, `droits_parite` 20/20, `entetes_securite` 3/3 ; formatage CI (`cargo fmt … --check` web + `ent-types`) : OK ; `ent-rust/web/Cargo.lock` et `ent-rust/Cargo.lock` à jour (une ligne chacun : `ent-db` → `ent-types`) ;
+- **non exécutés** : `cargo leptos build --release --precompress` (outil absent de ce poste), `contre_backend` et `ent-web-session` du job frontend, audits `cargo deny` / `cargo audit`, CI GitHub.
 
 **Écarts par rapport au §3 et limites [signalés]**
 - **CDT-08** : l'agenda inclut les contrôles annoncés **saisis comme travail de type `controle`** ; il ne lit pas encore les devoirs notés (`ent_devoir`) : à relier avec le lot évaluations (EVA).
