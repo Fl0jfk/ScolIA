@@ -13,10 +13,10 @@ use leptos_meta::Title;
 use uuid::Uuid;
 
 use super::modele::{
-    actions_annee, annee_courante, annee_suivante, apercu_ouverture, correspondances_choisies,
-    etapes_bascule, libelle_annee_suivante, libelle_statut_annee, lire_date, lot_applicable,
-    proposer_correspondances, resume_lot, resume_ouverture, resume_reconduction, ton_statut_annee,
-    trier_annees, EtatEtape,
+    actions_annee, annee_cible, annee_courante, annee_suivante, apercu_ouverture,
+    correspondances_choisies, etapes_bascule, libelle_annee_suivante, libelle_statut_annee,
+    lire_date, lot_applicable, proposer_correspondances, resume_lot, resume_ouverture,
+    resume_reconduction, ton_statut_annee, trier_annees, EtatEtape,
 };
 use super::{peut_gerer, Ecriture, EnTeteReferentiel, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
@@ -55,11 +55,7 @@ fn ContenuAnnees(annees: Vec<AnneeStatutDto>, recharger: Callback<()>) -> impl I
     let ecriture = Ecriture::nouveau(recharger);
     let etapes = etapes_bascule(&annees);
     let courante = annee_courante(&annees).cloned();
-    let cible = annees
-        .iter()
-        .filter(|a| a.statut == "preparation")
-        .min_by_key(|a| a.date_debut)
-        .cloned();
+    let cible = annee_cible(&annees).cloned();
     let montee = courante.clone().zip(cible);
     let vide = annees.is_empty();
     let proposition = annees.first().and_then(|a| {

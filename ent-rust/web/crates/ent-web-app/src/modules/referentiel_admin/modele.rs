@@ -82,6 +82,16 @@ pub fn annee_suivante<'a>(
         .min_by_key(|x| x.date_debut)
 }
 
+/// Année en préparation qui suit la courante (cible de la bascule) : une année en préparation
+/// antérieure à la courante n'est pas une cible de montée.
+pub fn annee_cible(annees: &[AnneeStatutDto]) -> Option<&AnneeStatutDto> {
+    let courante = annee_courante(annees)?;
+    annees
+        .iter()
+        .filter(|a| a.statut == "preparation" && a.date_debut > courante.date_fin)
+        .min_by_key(|a| a.date_debut)
+}
+
 /// Année dont l'état est `courante`, si elle existe.
 pub fn annee_courante(annees: &[AnneeStatutDto]) -> Option<&AnneeStatutDto> {
     annees.iter().find(|a| a.statut == "courante")
@@ -129,10 +139,7 @@ pub struct EtapeBascule {
 /// et l'année ouverte à la demande, avec aperçu avant toute écriture.
 pub fn etapes_bascule(annees: &[AnneeStatutDto]) -> Vec<EtapeBascule> {
     let courante = annee_courante(annees);
-    let preparation = annees
-        .iter()
-        .filter(|a| a.statut == "preparation")
-        .min_by_key(|a| a.date_debut);
+    let preparation = annee_cible(annees);
     let (prepare, ouvrable) = (preparation.is_some(), preparation.is_some());
     vec![
         EtapeBascule {
@@ -902,6 +909,21 @@ mod tests {
         assert!(actions_annee(&courante, std::slice::from_ref(&courante)).preparer_suivante);
         assert_eq!(annee_suivante(&courante, &toutes).unwrap().id, prepa.id);
         assert_eq!(annee_courante(&toutes).unwrap().id, courante.id);
+    }
+
+    #[test]
+    fn la_cible_suit_la_courante() {
+        let courante = annee("courante", "2026-09-01", "2027-07-04");
+        let ancienne = annee("preparation", "2025-09-01", "2026-07-04");
+        let suivante = annee("preparation", "2027-09-01", "2028-07-04");
+        assert!(annee_cible(&[courante.clone(), ancienne.clone()]).is_none());
+        assert_eq!(
+            annee_cible(&[ancienne, courante, suivante.clone()])
+                .unwrap()
+                .id,
+            suivante.id
+        );
+        assert!(annee_cible(&[]).is_none());
     }
 
     #[test]
