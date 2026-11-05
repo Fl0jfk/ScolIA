@@ -210,6 +210,9 @@ async fn panne_outbox_annule_la_cloture_d_appel() {
     let etab = cast.etablissement_id;
     let jour = today_utc();
     let appel = appel_4b(&ent, &cast, &[(cast.eleve_lea_id, LigneEtat::Absent)]).await;
+    // Le jeu labo peut déjà contenir des absences du jour : on compare avant/après.
+    let absences_harry = "SELECT count(*) FROM ent_absence WHERE eleve_id = $1";
+    let avant = compter(&ent, absences_harry, cast.eleve_lea_id).await;
 
     let suffixe = etab.simple().to_string();
     let fonction = format!("ent_test_panne_outbox_{suffixe}");
@@ -242,9 +245,9 @@ async fn panne_outbox_annule_la_cloture_d_appel() {
         .unwrap();
 
     assert!(r.is_err(), "la clôture doit échouer avec l'outbox");
-    assert!(!ent.eleve_est_absent(etab, cast.eleve_lea_id, jour).await.unwrap(), "aucune absence");
+    assert_eq!(compter(&ent, absences_harry, cast.eleve_lea_id).await, avant, "aucune absence");
     assert_eq!(
-        compter(&ent, "SELECT count(*) FROM ent_metier_event WHERE aggregate_id = $1", appel.id).await,
+        compter(&ent, "SELECT count(*) FROM ent_metier_event WHERE aggregate_id = $1 AND type = 'appel.closed'", appel.id).await,
         0,
         "aucun appel.closed pour un fait annulé"
     );
@@ -260,6 +263,7 @@ async fn panne_outbox_annule_la_cloture_d_appel() {
         .await
         .expect("clore après réparation");
     assert!(ent.eleve_est_absent(etab, cast.eleve_lea_id, jour).await.unwrap());
+    assert_eq!(compter(&ent, absences_harry, cast.eleve_lea_id).await, avant + 1);
     assert_eq!(
         compter(&ent, "SELECT count(*) FROM ent_outbox WHERE aggregate_id = $1 AND type = 'appel.closed'", appel.id).await,
         1
