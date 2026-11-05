@@ -5,8 +5,12 @@ import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-roo
 import { canManageRoomReservation } from "@/app/lib/prof-room-reservation-ownership";
 import {
   listReservationBookings,
+  listReservationRooms,
   saveReservationBookings,
 } from "@/app/lib/reservation-rooms-storage";
+import { loadAppConfig } from "@/app/lib/app-config";
+import { isBeyondBookingHorizon } from "@/app/lib/prof-room-booking-rules";
+import { loadEdtRoomOccupancy } from "@/app/lib/rh/planning-room-occupancy";
 import type { RoomReservationRow } from "@/app/lib/prof-room-reservations-normalize";
 import { resolvePersonNameParts } from "@/app/lib/prof-room-reservation-label";
 
@@ -156,6 +160,62 @@ export async function POST(req: NextRequest) {
           { error: "Conflit d'horaire détecté pour un des créneaux." },
           { status: 409 },
         );
+      }
+    }
+
+    // Mêmes règles que la création, seulement pour les créneaux qui changent de date ou d'heure
+    // (corriger un commentaire ou une classe ne doit pas être bloqué).
+    const movedSlots = reservationsToUpdate
+      .map((res) => {
+        const oldStart = String(res.startsAt || "");
+        const baseDate = !updateAllSeries && date ? date : oldStart.split("T")[0];
+        const oldHour = Number(oldStart.split("T")[1]?.slice(0, 2));
+        return { res, baseDate, moved: baseDate !== oldStart.split("T")[0] || oldHour !== hour };
+      })
+      .filter((s) => s.moved);
+
+    if (movedSlots.length > 0) {
+      const profCfg = (await loadAppConfig()).profRoom;
+      const horizonDays = profCfg.bookingHorizonDays || 56;
+      if (!isModuleAdmin) {
+        const tooFar = movedSlots.find((s) => isBeyondBookingHorizon(s.baseDate, horizonDays));
+        if (tooFar) {
+          return NextResponse.json(
+            {
+              error: `Hors horizon de réservation (${horizonDays} jours) : ${tooFar.baseDate}.`,
+              code: "BEYOND_HORIZON",
+            },
+            { status: 409 },
+          );
+        }
+      }
+
+      const roomCatalog = await listReservationRooms();
+      const roomIds = [...new Set(movedSlots.map((s) => String(s.res.roomId)))];
+      for (const roomId of roomIds) {
+        const room = roomCatalog.find((r) => r.id === roomId);
+        if (!room) continue;
+        const slots = movedSlots.filter((s) => String(s.res.roomId) === roomId);
+        const dates = slots.map((s) => s.baseDate).sort();
+        const occupancy = await loadEdtRoomOccupancy({
+          room,
+          from: dates[0]!,
+          to: dates[dates.length - 1]!,
+        });
+        for (const s of slots) {
+          const hit = occupancy.cells.find((c) => c.date === s.baseDate && c.hour === hour);
+          if (hit) {
+            return NextResponse.json(
+              {
+                error: `${s.baseDate} ${String(hour).padStart(2, "0")}h30 occupé par l’EDT (${hit.teacherName} — ${hit.subject}${
+                  hit.classes.length ? `, ${hit.classes.join(", ")}` : ""
+                }, sem. ${hit.weekType}).`,
+                code: "EDT_CONFLICT",
+              },
+              { status: 409 },
+            );
+          }
+        }
       }
     }
 
