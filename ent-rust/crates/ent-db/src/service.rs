@@ -765,6 +765,11 @@ impl PgEnt {
         &self.pool
     }
 
+    /// Limiteur de débit (seaux en base, partagés entre instances).
+    pub fn limiteur_debit(&self) -> crate::RateLimiter {
+        crate::RateLimiter::new(self.pool.clone())
+    }
+
     /// Sondes chiffrées exposées par `/metrics` (jauges). Une seule requête par
     /// famille : volontairement peu coûteuses pour un scrape toutes les 15 s.
     ///
@@ -1882,6 +1887,49 @@ impl PgEnt {
             .open_authentication_challenge(etablissement_id, user_id, &passkeys)
             .await?;
         Ok(Some((token, options, expires_at)))
+    }
+
+    /// Challenge **factice** de même forme qu'un vrai (jeton opaque, options
+    /// WebAuthn, expiration) pour répondre à `passkey_login_start` quand le
+    /// compte n'existe pas, n'est pas membre ou n'a pas de passkey : la réponse
+    /// HTTP est ainsi indiscernable (anti-énumération). Rien n'est persisté : le
+    /// jeton renvoyé est refusé comme n'importe quel jeton inconnu à l'étape
+    /// `finish`.
+    pub fn passkey_challenge_factice(&self) -> (String, serde_json::Value, DateTime<Utc>) {
+        fn b64url(octets: &[u8]) -> String {
+            const A: &[u8; 64] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+            let mut s = String::with_capacity(octets.len() * 4 / 3 + 2);
+            for bloc in octets.chunks(3) {
+                let n = bloc.iter().enumerate().fold(0u32, |a, (i, b)| a | (u32::from(*b) << (16 - 8 * i)));
+                for i in 0..=bloc.len() {
+                    s.push(A[((n >> (18 - 6 * i)) & 63) as usize] as char);
+                }
+            }
+            s
+        }
+        fn aleatoire_32() -> [u8; 32] {
+            let mut o = [0u8; 32];
+            o[..16].copy_from_slice(Uuid::new_v4().as_bytes());
+            o[16..].copy_from_slice(Uuid::new_v4().as_bytes());
+            o
+        }
+        let (jeton, _) = generate_challenge_token();
+        let (rp_id, _, _) = ent_auth::rp_config_from_env();
+        let options = json!({
+            "publicKey": {
+                "challenge": b64url(&aleatoire_32()),
+                "timeout": 300000,
+                "rpId": rp_id,
+                "allowCredentials": [{
+                    "type": "public-key",
+                    "id": b64url(&aleatoire_32()),
+                }],
+                "userVerification": "preferred",
+            }
+        });
+        let expires_at = Utc::now() + chrono::Duration::minutes(passkey_challenge_minutes());
+        (jeton, options, expires_at)
     }
 
     /// Finalise une connexion par passkey (2ᵉ facteur **ou** sans mot de passe) :

@@ -552,6 +552,7 @@ async fn l3_pas_de_faux_202_messagerie_sans_envoi_confirme_503_et_jeton_invalide
         ent.migrate().await.unwrap();
         ent.installer_mailer_de_test(live, false);
         let state = AppState::nouveau(ent);
+        let taches = state.clone();
         let app = app(state);
         let etab = Uuid::new_v4();
         let dir = inscrire(&app, etab, "direction").await;
@@ -567,6 +568,8 @@ async fn l3_pas_de_faux_202_messagerie_sans_envoi_confirme_503_et_jeton_invalide
         let (st, _) = appel(&app, "POST", "/auth/forgot-password", None,
             Some(json!({"email": parent.email}))).await;
         assert_eq!(st, StatusCode::ACCEPTED, "{nom} : réponse publique neutre");
+        // L'envoi est différé hors requête : attendre la fin avant de vérifier.
+        taches.attendre_taches().await;
         assert_eq!(jetons_actifs(parent.id).await, 0, "{nom} : aucun jeton public actif");
     }
 

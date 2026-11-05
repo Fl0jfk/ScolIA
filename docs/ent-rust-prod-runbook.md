@@ -51,11 +51,16 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | `ENT_SESSION_TTL_DAYS` | `14` | Durée de vie d'une session. |
 | `ENT_PUBLIC_BASE_URL` | `http://localhost:8088` | Base des liens publics : e-mails (ex. réinitialisation de mot de passe) **et `redirect_uri` par défaut du SSO** (`{base}/auth/oidc/callback`). En prod : l'URL réelle en HTTPS. |
 | `ENT_WORKER_STACK_MB` | `16` | Taille de pile des workers tokio (≥ 2). Élargir si des chaînes async très profondes débordent (seed labo en debug). |
-| `ENT_LOGIN_MAX_FAILED` | `5` | Échecs avant verrouillage **par compte**. |
+| `ENT_LOGIN_MAX_FAILED` | `5` | Échecs avant verrouillage du couple **(compte, IP)**. |
 | `ENT_LOGIN_MAX_FAILED_IP` | `50` | Échecs avant verrouillage **par IP** (plus haut : une école partage une IP via NAT). |
 | `ENT_LOGIN_WINDOW_MINUTES` | `15` | Fenêtre glissante de comptage. |
 | `ENT_LOGIN_LOCK_MINUTES` | `15` | Durée du verrou. |
-| `ENT_TRUST_PROXY` | *(vide)* | `1` → lit l'IP cliente dans `x-forwarded-for` / `x-real-ip` (garde par IP). À activer **uniquement** derrière un proxy de confiance. |
+| `ENT_LOGIN_SLOWDOWN_AFTER` | `5` | Échecs par compte (toutes IP) avant ralentissement progressif. |
+| `ENT_LOGIN_SLOWDOWN_BASE_MS` | `200` | Délai au premier échec au-delà du seuil, doublé à chaque échec suivant (`0` = désactivé). |
+| `ENT_LOGIN_SLOWDOWN_MAX_MS` | `3000` | Plafond du délai. |
+| `ENT_TRUST_PROXY` | *(vide)* | Proxys de confiance devant l'API. Vide / `0` : IP de la socket (défaut sûr). `1` ou `N` : `N` proxys, IP cliente = N-ième entrée **en partant de la droite** de `X-Forwarded-For`. Liste de CIDR (`10.0.0.0/8,fd00::/8`) : remontée de la chaîne de droite à gauche. À régler **exactement** selon l'infrastructure (voir « Limitation de débit »). |
+| `ENT_RATE_LIMIT` | *(vide)* | `off` coupe toute la limitation de débit des routes d'authentification. |
+| `ENT_RATE_<ROUTE>_IP` / `ENT_RATE_<ROUTE>_ID` | voir tableau ci-dessous | Quota `max/secondes` (`off` = pas de seau). `<ROUTE>` ∈ `LOGIN`, `FORGOT_PASSWORD`, `RESET_PASSWORD`, `PASSKEY_LOGIN_START`, `PASSKEY_LOGIN_FINISH`, `OIDC_START`. |
 | `ENT_MAX_BODY_BYTES` | `26214400` (25 Mio) | Taille max du corps de requête. |
 | `ENT_REQUEST_TIMEOUT_SECS` | `120` | Délai max d'une requête (`0` = désactivé) → HTTP 408. |
 | `ENT_CORS_ORIGINS` | *(vide)* | Liste d'origines (virgules) ou `*`. Vide → same-origin uniquement. |
@@ -140,20 +145,60 @@ explicite (`=1`), y compris en prod :
 
 ### Anti-force brute (login)
 
-Deux verrous complémentaires, compteurs **en base** (`ent_login_guard`), donc
-partagés entre instances :
+Trois mécanismes complémentaires, compteurs **en base** (`ent_login_guard`),
+donc partagés entre instances. Chaque tentative est comptée de façon atomique
+**avant** la vérification du mot de passe (une seule requête `INSERT … ON
+CONFLICT … DO UPDATE … RETURNING`), puis rendue en cas de succès : le compteur
+reflète les échecs.
 
-- **par compte** : après `ENT_LOGIN_MAX_FAILED` échecs dans la fenêtre → verrou
-  `ENT_LOGIN_LOCK_MINUTES` → HTTP **429** (même avec le bon mot de passe) ;
+- **par couple (compte, IP)** : au-delà de `ENT_LOGIN_MAX_FAILED` échecs dans la
+  fenêtre → verrou `ENT_LOGIN_LOCK_MINUTES` → HTTP **429** (même avec le bon mot
+  de passe, *depuis cette IP*). Un tiers qui martèle un compte depuis son IP ne
+  bloque donc que lui-même, pas la victime connectée depuis une autre IP.
+  Clé `compte-ip:<e-mail>|<ip>` ;
 - **par IP** : après `ENT_LOGIN_MAX_FAILED_IP` échecs → même verrou. Freine le
   bourrage d'identifiants réparti sur de nombreux comptes. Le seuil est plus
-  haut (NAT d'établissement) et un succès ne rend **pas** son budget à l'IP.
-  Clé préfixée `ip:` dans la même table.
+  haut (NAT d'établissement). Clé préfixée `ip:` ;
+- **par compte, toutes IP confondues** : pas de blocage, un **ralentissement
+  progressif** (`ENT_LOGIN_SLOWDOWN_*`) qui freine l'attaque distribuée.
 
-L'IP cliente n'est lue que si `ENT_TRUST_PROXY=1` (en-têtes `x-forwarded-for`,
-repli `x-real-ip`, valeur bornée à 45 caractères) : sans proxy de confiance, un
-client pourrait falsifier ces en-têtes, donc la garde par IP est **désactivée**
-par défaut.
+La connexion par passkey n'est soumise à aucun de ces compteurs.
+Mot de passe correct mais compte non membre de l'établissement : réponse
+identique à des identifiants invalides (401 générique ; cause journalisée).
+Bornes : e-mail ≤ 254 octets, mot de passe ≤ 256 caractères, refusés (400) avant
+tout hachage.
+
+### IP cliente fiable (`ENT_TRUST_PROXY`)
+
+Le serveur est lancé avec `into_make_service_with_connect_info` : l'adresse de la
+**socket** est toujours connue et sert par défaut. `X-Forwarded-For` n'est lu que
+si `ENT_TRUST_PROXY` déclare des proxys de confiance, et c'est alors l'entrée de
+**droite** (ajoutée par notre proxy) qui est retenue, jamais la première (écrite
+par le client). Entrées invalides ou chaîne trop courte → repli sur la socket.
+`X-Real-IP` n'est plus lu. En IPv6, la clé est le préfixe `/64`. Une valeur
+`ENT_TRUST_PROXY` trop petite fait voir l'IP du proxy (tous les clients
+partagent alors les mêmes quotas) ; trop grande, elle permet l'usurpation.
+
+### Limitation de débit des routes d'authentification publiques
+
+Seaux à jetons en base (`ent_rate_limit`, table volatile purgée au fil de l'eau),
+une requête atomique par contrôle, partagés entre instances. Dépassement :
+**429** + `Retry-After` (secondes), message neutre. Clés : (route, IP) et, pour
+certaines routes, (route, identifiant normalisé en minuscules) ; empreintes
+SHA-256 en base. Défauts (`max/secondes`) :
+
+| Route | `_IP` | `_ID` |
+|---|---|---|
+| `/auth/login` | `120/60` | *(aucun)* |
+| `/auth/forgot-password` | `10/900` | `3/3600` (e-mail) |
+| `/auth/reset-password` | `20/900` | `10/900` (jeton) |
+| `/auth/passkey/login/start` | `30/300` | *(aucun)* |
+| `/auth/passkey/login/finish` | `60/300` | *(aucun)* |
+| `/auth/oidc/{slug}/start` | `30/300` | *(aucun)* |
+
+Pas de seau par identifiant sur la connexion ni le démarrage passkey : un tiers
+épuiserait le seau de sa victime (déni de service). Si la base de limitation est
+indisponible, la limitation s'ouvre (journal d'erreur) plutôt que de refuser.
 
 - e-mail inconnu : un hash factice est vérifié pour lisser le temps de réponse
   (anti-énumération) ; les compteurs inactifs > 1 jour sont purgés.

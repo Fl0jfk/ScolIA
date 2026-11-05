@@ -69,6 +69,8 @@ mod seed;
 mod service;
 mod signal_repo;
 pub mod url_guard;
+pub mod rate_limit;
+pub use rate_limit::{Decision, Quota, RateLimiter};
 
 pub use ent_events::EventBusError;
 pub use ent_object::ObjectStoreError;

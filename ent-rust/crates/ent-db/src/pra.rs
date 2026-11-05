@@ -37,6 +37,7 @@ pub const TABLES_VOLATILES: &[&str] = &[
     "ent_passkey_challenge",
     "ent_oidc_state",
     "ent_login_guard",
+    "ent_rate_limit",
     "ent_password_reset",
 ];
 

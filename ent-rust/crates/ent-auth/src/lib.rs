@@ -40,11 +40,33 @@ pub enum AuthError {
     TooManyAttempts,
     #[error("lien de réinitialisation invalide ou expiré")]
     ResetTokenInvalide,
+    #[error("e-mail ou mot de passe trop long")]
+    TooLong,
     #[error(transparent)]
     Password(#[from] PasswordError),
 }
 
+/// Longueur maximale d'une adresse e-mail (RFC 5321), en octets.
+pub const MAX_EMAIL_LEN: usize = 254;
+/// Longueur maximale d'un mot de passe saisi, en caractères. Refusé **avant**
+/// tout hachage Argon2 (anti-amplification CPU / mémoire).
+pub const MAX_PASSWORD_CHARS: usize = 256;
+
+/// Refuse un mot de passe trop long sans le hacher.
+pub fn assert_password_max_len(password: &str) -> Result<(), AuthError> {
+    // Court-circuit sur les octets (un caractère UTF-8 pèse au plus 4 octets).
+    if password.len() > MAX_PASSWORD_CHARS * 4
+        || password.chars().take(MAX_PASSWORD_CHARS + 1).count() > MAX_PASSWORD_CHARS
+    {
+        return Err(AuthError::TooLong);
+    }
+    Ok(())
+}
+
 pub fn normalize_email(email: &str) -> Result<String, AuthError> {
+    if email.trim().len() > MAX_EMAIL_LEN {
+        return Err(AuthError::TooLong);
+    }
     let e = email.trim().to_ascii_lowercase();
     if e.is_empty() || !e.contains('@') {
         return Err(AuthError::EmptyEmail);
@@ -53,6 +75,7 @@ pub fn normalize_email(email: &str) -> Result<String, AuthError> {
 }
 
 pub fn assert_password_policy(password: &str) -> Result<(), AuthError> {
+    assert_password_max_len(password)?;
     if password.chars().count() < 10 {
         return Err(AuthError::WeakPassword);
     }
@@ -77,6 +100,26 @@ mod tests {
         assert!(assert_password_policy(&pwd).is_ok());
         // Deux tirages diffèrent (aléatoire).
         assert_ne!(pwd, generate_temp_password());
+    }
+
+    #[test]
+    fn bornes_de_taille_email_et_mot_de_passe() {
+        let long_mdp = "a".repeat(MAX_PASSWORD_CHARS + 1);
+        assert_eq!(assert_password_max_len(&long_mdp), Err(AuthError::TooLong));
+        assert_eq!(assert_password_policy(&long_mdp), Err(AuthError::TooLong));
+        assert!(assert_password_max_len(&"a".repeat(MAX_PASSWORD_CHARS)).is_ok());
+        // 256 caractères multi-octets : accepté ; 257 : refusé.
+        assert!(assert_password_max_len(&"é".repeat(MAX_PASSWORD_CHARS)).is_ok());
+        assert_eq!(
+            assert_password_max_len(&"é".repeat(MAX_PASSWORD_CHARS + 1)),
+            Err(AuthError::TooLong)
+        );
+        let local = "a".repeat(MAX_EMAIL_LEN - "@x.fr".len());
+        assert!(normalize_email(&format!("{local}@x.fr")).is_ok());
+        assert_eq!(
+            normalize_email(&format!("{local}a@x.fr")),
+            Err(AuthError::TooLong)
+        );
     }
 
     #[test]

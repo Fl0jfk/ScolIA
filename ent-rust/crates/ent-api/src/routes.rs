@@ -65,6 +65,7 @@ use crate::dto::{
     RattacherResponsableFoyerBody, SetEmailBody, SetTelephoneBody, UpdateLienBody, UpdateLiensEleveBody,
     UpdateIdentiteBody,
 };
+use crate::client_ip::ClientIp;
 use crate::ui;
 use crate::AppState;
 use axum::body::Body;
@@ -1907,46 +1908,16 @@ async fn register(
     ))
 }
 
-/// IP cliente de confiance pour la garde par IP.
-///
-/// **Uniquement** si `ENT_TRUST_PROXY=1` : sans proxy de confiance, un client
-/// pourrait falsifier `x-forwarded-for` et contourner le verrou par IP. Hôte
-/// absent / trop long → `None` (la garde par compte reste active).
-fn client_ip(headers: &HeaderMap) -> Option<String> {
-    let trust = std::env::var("ENT_TRUST_PROXY")
-        .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
-        .unwrap_or(false);
-    if !trust {
-        return None;
-    }
-    let valeur = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|v| v.to_str().ok())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-        })?;
-    // Longueur bornée (IPv6 max 45) : évite d'injecter une clé arbitraire.
-    if valeur.len() > 45 {
-        return None;
-    }
-    Some(valeur)
-}
+// L'IP cliente fiable (socket, puis `X-Forwarded-For` seulement derrière un
+// proxy de confiance déclaré par `ENT_TRUST_PROXY`) est calculée par
+// l'extracteur `crate::client_ip::ClientIp`.
 
 async fn login(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ip: ClientIp,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<LoginResponseDto>, (StatusCode, String)> {
-    let ip = client_ip(&headers);
+    let ip = ip.0;
     let outcome = state
         .ent
         .login_start_with_ip(
@@ -2070,27 +2041,28 @@ async fn delete_passkey(
 }
 
 /// Connexion sans mot de passe — étape 1 (options pour l'e-mail donné).
-/// Réponse générique quand le compte n'a pas de passkey : pas d'énumération.
+/// Réponse **de même forme** (200 + challenge) que le compte existe, soit
+/// membre ou non, avec ou sans passkey : quand il n'y en a pas, un challenge
+/// factice plausible est renvoyé (anti-énumération). L'étape `finish` le refuse
+/// comme tout jeton inconnu.
 async fn passkey_login_start(
     State(state): State<AppState>,
     Json(body): Json<PasskeyLoginStartBody>,
 ) -> Result<Json<PasskeyChallengeDto>, (StatusCode, String)> {
-    match state
+    let (token, options, expires_at) = match state
         .ent
         .passkey_login_start(body.etablissement_id, &body.email)
         .await
         .map_err(map_passkey)?
     {
-        Some((token, options, expires_at)) => Ok(Json(PasskeyChallengeDto {
-            token,
-            options,
-            expires_at,
-        })),
-        None => Err((
-            StatusCode::UNAUTHORIZED,
-            "aucune passkey pour ce compte".into(),
-        )),
-    }
+        Some(reel) => reel,
+        None => state.ent.passkey_challenge_factice(),
+    };
+    Ok(Json(PasskeyChallengeDto {
+        token,
+        options,
+        expires_at,
+    }))
 }
 
 /// Connexion par passkey — étape 2 (vérification de l'assertion → session).
@@ -2300,15 +2272,25 @@ async fn forgot_password(
     if body.email.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "e-mail vide".into()));
     }
-    let base = base_url_publique();
-    // Best-effort : une erreur interne ne doit pas distinguer les cas.
-    if let Err(e) = state
-        .ent
-        .demander_reinitialisation_mot_de_passe(&body.email, &base)
-        .await
-    {
-        tracing::warn!("forgot-password: {e}");
+    // Borne avant tout traitement (sans lien avec l'existence du compte).
+    if body.email.trim().len() > ent_auth::MAX_EMAIL_LEN {
+        return Err((StatusCode::BAD_REQUEST, "e-mail trop long".into()));
     }
+    let base = base_url_publique();
+    // Traitement différé : la recherche du compte, l'INSERT du jeton et l'envoi
+    // SMTP (seulement si le compte existe) se font hors requête, pour que le
+    // temps de réponse ne distingue pas un compte existant d'un compte inconnu.
+    // Best-effort : une erreur interne est seulement journalisée.
+    let ent = state.ent.clone();
+    let email = body.email;
+    state.lancer_tache(async move {
+        if let Err(e) = ent
+            .demander_reinitialisation_mot_de_passe(&email, &base)
+            .await
+        {
+            tracing::warn!("forgot-password: {e}");
+        }
+    });
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -2320,6 +2302,9 @@ async fn reset_password(
 ) -> Result<StatusCode, (StatusCode, String)> {
     if body.token.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "jeton manquant".into()));
+    }
+    if body.token.len() > 256 {
+        return Err((StatusCode::BAD_REQUEST, "lien de réinitialisation invalide".into()));
     }
     state
         .ent
@@ -8931,7 +8916,7 @@ fn map_auth(err: ent_db::EntDbError) -> (StatusCode, String) {
         (StatusCode::TOO_MANY_REQUESTS, msg)
     } else if msg.contains("déjà") {
         (StatusCode::CONFLICT, msg)
-    } else if msg.contains("trop court") || msg.contains("e-mail vide") {
+    } else if msg.contains("trop court") || msg.contains("trop long") || msg.contains("e-mail vide") {
         (StatusCode::BAD_REQUEST, msg)
     } else if msg.contains("réinitialisation") {
         (StatusCode::BAD_REQUEST, msg)
@@ -11114,46 +11099,6 @@ mod tests {
         assert!(!gate_open(Some("PRODUCTION"), Some("0")));
         assert!(gate_open(Some("prod"), Some("1")));
         assert!(gate_open(None, Some("1")));
-    }
-}
-
-#[cfg(test)]
-mod client_ip_tests {
-    use axum::http::{HeaderMap, HeaderName};
-    use std::str::FromStr;
-
-    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
-        let mut m = HeaderMap::new();
-        for (k, v) in pairs {
-            m.insert(HeaderName::from_str(k).unwrap(), v.parse().unwrap());
-        }
-        m
-    }
-
-    #[test]
-    fn extraction_ip_cliente_selon_confiance_proxy() {
-        std::env::remove_var("ENT_TRUST_PROXY");
-        // Sans proxy de confiance : jamais d'IP (anti-falsification XFF).
-        assert_eq!(super::client_ip(&headers(&[("x-forwarded-for", "1.2.3.4")])), None);
-
-        std::env::set_var("ENT_TRUST_PROXY", "1");
-        // XFF : premier hop (le client), espaces ignorés.
-        assert_eq!(
-            super::client_ip(&headers(&[("x-forwarded-for", "1.2.3.4, 10.0.0.1")])),
-            Some("1.2.3.4".to_string())
-        );
-        // Repli sur x-real-ip.
-        assert_eq!(
-            super::client_ip(&headers(&[("x-real-ip", "5.6.7.8")])),
-            Some("5.6.7.8".to_string())
-        );
-        // Valeur trop longue → ignorée (clé bornée).
-        let long = "a".repeat(200);
-        assert_eq!(super::client_ip(&headers(&[("x-real-ip", &long)])), None);
-        // Absente → None.
-        assert_eq!(super::client_ip(&headers(&[])), None);
-
-        std::env::remove_var("ENT_TRUST_PROXY");
     }
 }
 

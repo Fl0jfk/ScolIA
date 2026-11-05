@@ -108,7 +108,8 @@ Voir le runbook complet : [`ent-rust-prod-runbook.md`](ent-rust-prod-runbook.md)
 | Arrêt gracieux | `SIGTERM` / `SIGINT` → fin des requêtes en cours | smoke `target/release/ent-api` |
 | Portes de dev | fail-closed : `register` / `labo/bootstrap` fermés (403) sauf `ENT_ENV` ∈ lab/labo/dev/local/test ou dérogation `=1` | tests `gate_*` + smoke prod |
 | Force brute | verrou Postgres partagé **par compte** (`ent_login_guard`) → 429 | test `login_locked_after_repeated_failures` |
-| Force brute (IP) | verrou par **IP** (clé `ip:`, seuil `ENT_LOGIN_MAX_FAILED_IP`, actif si `ENT_TRUST_PROXY=1`) | tests `garde_login_par_ip`, `extraction_ip_cliente_selon_confiance_proxy` |
+| Force brute (IP) | verrou par **IP** (clé `ip:`, seuil `ENT_LOGIN_MAX_FAILED_IP`), IP de la socket (`ConnectInfo`), `X-Forwarded-For` seulement derrière `ENT_TRUST_PROXY` (entrée de droite) | tests `garde_login_par_ip`, `client_ip::tests`, `abus_*` |
+| Limitation de débit auth | seaux à jetons Postgres (`ent_rate_limit`), 429 + `Retry-After` | tests `abus_429_*`, `abus_limiteur_atomique_sous_concurrence` |
 | Sessions | TTL configurable + purge boot + révocation autres sessions au changement de mdp | test `api_change_password_et_audit_connexion` |
 | Audit d’accès | `ent_journal_modif` `domaine=auth` + `GET /audit/journal` (staff) | idem |
 | Provisionnement staff | `POST /etablissement/personnel` (Direction/Admin ; Admin seul ⇒ Admin) | test `api_provisionne_personnel_garde_fous` |

@@ -69,3 +69,29 @@ Niveau : **implémenté + testé en local** ; aucun audit complet, non validé p
 - Non fait : audit complet, test inter-établissement sur toutes les routes de l'appel, limitation de débit vérifiée.
 
 **Hypothèse / recommandation** : d'autres routes d'`ent-db` peuvent avoir le même défaut de contrôle « horizontal » que l'appel ; revue ciblée par domaine à prévoir.
+
+## Anti-abus de l'authentification (Socle 1, lot L5)
+
+Niveau : **implémenté + testé en local** (ent-api, ent-db, ent-auth) ; non validé pilote ; non prêt production ; aucun audit complet. Configuration : `ent-rust-prod-runbook.md`.
+
+**Constats corrigés (faits vérifiés par les tests `abus_*`, `client_ip::tests`, `ent-auth`)**
+
+| Constat | Correction |
+|---|---|
+| E5 : aucune limitation de débit sur `forgot-password`, `reset-password`, `passkey/login/start|finish`, `oidc/{slug}/start`, `login` | Seaux à jetons Postgres (`ent_rate_limit`, migration 094), une requête atomique par contrôle, clés (route, IP) et (route, e-mail ou jeton normalisé) ; 429 + `Retry-After`, message neutre ; quotas par variables `ENT_RATE_<ROUTE>_IP/_ID`. Atomicité vérifiée sous 30 appels concurrents (exactement le quota) |
+| M2 : `X-Forwarded-For` falsifiable (première valeur), garde par IP désactivée sans `ENT_TRUST_PROXY` | IP de la socket par défaut (`ConnectInfo`, serveur lancé avec `into_make_service_with_connect_info`) ; derrière proxy de confiance (`ENT_TRUST_PROXY` = nombre ou CIDR) entrée de **droite** ; entrée invalide ou chaîne trop courte → socket ; `X-Real-IP` ignoré ; clé IPv6 en `/64` |
+| M1 : 5 essais faux bloquent la victime 15 min | Verrou dur par couple (compte, IP) ; ralentissement progressif par compte toutes IP confondues (200 ms doublé, plafond 3 s) ; pas de seau de débit par compte sur la connexion ni le démarrage passkey |
+| M3 : contrôle du verrou et enregistrement de l'échec non atomiques | Incrément atomique (`INSERT … ON CONFLICT … RETURNING`) **avant** la vérification du mot de passe, rendu en cas de succès ; 20 essais concurrents : exactement 5 mots de passe vérifiés. Même mécanisme pour la ré-authentification (`reauth:<id>`) |
+| M4 : énumération par `passkey/login/start`, par le temps de `forgot-password`, par `NotMember` | `passkey/login/start` renvoie toujours 200 avec un challenge (factice, non persisté, de même forme que le réel, vérifié) ; `forgot-password` : traitement différé (`tokio::spawn`), 202 immédiat ; `NotMember` → 401 générique identique à des identifiants invalides, cause journalisée (niveau info, identifiants internes seulement) |
+| F4 : pas de borne de taille | E-mail ≤ 254 octets, mot de passe ≤ 256 caractères, jeton de réinitialisation ≤ 256 : refus 400 avant tout hachage (`ent-auth`, appliqué à la connexion, l'inscription, le changement et la réinitialisation) |
+
+**Changements de comportement** : `passkey/login/start` ne renvoie plus 401 « aucune passkey » ; `NotMember` n'est plus un 403 distinct à la connexion ; `forgot-password` répond avant l'envoi (une erreur d'envoi n'est que journalisée).
+
+**Limites restantes (faits)**
+- Verrou (compte, IP) : un attaquant disposant de nombreuses IP obtient 5 essais par IP et par fenêtre ; au niveau du compte seul joue le ralentissement (par connexion, contournable en parallèle). Pas de plafond global par compte : choix délibéré contre le déni de service ; compensé par la politique de mot de passe et la passkey. Les IPv6 sont groupées par /64.
+- La victime qui se connecte depuis l'IP de l'attaquant (NAT partagé) est bloquée avec lui.
+- Le seau par e-mail de `forgot-password` (3/h) permet à un tiers d'empêcher une victime de demander un lien pendant une heure (le personnel peut réinitialiser) ; c'est le prix de l'anti-bombardement.
+- `ENT_TRUST_PROXY` mal réglé : trop petit, les quotas sont partagés entre clients ; trop grand, usurpation possible. À valider sur l'infrastructure réelle (Scaleway), non vérifié ici.
+- La limitation s'ouvre si la base répond en erreur. Le temps du challenge factice (`passkey/login/start`) n'est pas strictement égalé à celui du réel (quelques requêtes de moins) : écart non mesuré.
+- Les verrous de connexion renvoient 429 sans `Retry-After` ; seuls les seaux de débit l'émettent.
+- `oidc/complete`, `register`, `change_password` et le reste de l'API authentifiée n'ont pas de seau de débit (hors périmètre du lot).
