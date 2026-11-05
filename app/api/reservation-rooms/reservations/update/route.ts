@@ -1,7 +1,8 @@
 import { NextResponse, NextRequest } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
-import { isListedProfRoomAdmin } from "@/app/lib/prof-room-auth";
+import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
+import { canManageRoomReservation } from "@/app/lib/prof-room-reservation-ownership";
 import {
   listReservationBookings,
   saveReservationBookings,
@@ -50,6 +51,9 @@ export async function POST(req: NextRequest) {
     }
 
     const hour = Number(newHour);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 22) {
+      return NextResponse.json({ error: "Horaire invalide." }, { status: 400 });
+    }
     const existing: ReservationRow[] = await listReservationBookings();
     const originalRes = existing.find((r) => r.id === id);
     if (!originalRes) {
@@ -58,6 +62,19 @@ export async function POST(req: NextRequest) {
 
     const canReassign = await isListedProfRoomAdmin();
     const sessionUser = await safeCurrentUser();
+    const isModuleAdmin = await isProfRoomModuleAdmin();
+    if (
+      !canManageRoomReservation(
+        originalRes,
+        { userId, email: String(sessionUser?.primaryEmailAddress?.emailAddress || "") },
+        isModuleAdmin,
+      )
+    ) {
+      return NextResponse.json(
+        { error: "Vous ne pouvez modifier que vos propres réservations." },
+        { status: 403 },
+      );
+    }
     const bookedBy = resolvePersonNameParts({
       firstName: sessionUser?.firstName,
       lastName: sessionUser?.lastName,
@@ -142,6 +159,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const updatedRows: ReservationRow[] = [];
     for (const res of reservationsToUpdate) {
       const idx = existing.findIndex((r) => r.id === res.id);
       if (idx === -1) continue;
@@ -166,9 +184,11 @@ export async function POST(req: NextRequest) {
             }
           : {}),
       };
+      updatedRows.push(existing[idx]!);
     }
 
-    await saveReservationBookings(existing);
+    // Upsert uniquement les créneaux modifiés — réécrire toute la table dépassait le délai client (25 s).
+    await saveReservationBookings(updatedRows);
     return NextResponse.json({
       success: true,
       reassigned: Boolean(ownershipPatch),

@@ -92,3 +92,21 @@ export function isOwnRoomReservation(
     ...viewerNames,
   });
 }
+
+/**
+ * Droit de modifier / annuler un créneau (contrôle serveur).
+ * Admin du module ; sinon bénéficiaire (compte ou e-mail) ou personne qui a réservé pour un collègue.
+ */
+export function canManageRoomReservation(
+  reservation: RoomReservationOwnershipRow,
+  viewer: { userId: string; email?: string },
+  isModuleAdmin: boolean,
+): boolean {
+  if (isModuleAdmin) return true;
+  if (!viewer.userId) return false;
+  if (reservation.userId && reservation.userId === viewer.userId) return true;
+  if (reservation.bookedByUserId && reservation.bookedByUserId === viewer.userId) return true;
+  const emailNorm = normalizeRequestEmail(viewer.email || "");
+  if (emailNorm && normalizeRequestEmail(reservation.email || "") === emailNorm) return true;
+  return false;
+}

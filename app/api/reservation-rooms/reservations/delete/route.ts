@@ -1,6 +1,8 @@
 import { NextResponse, NextRequest } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveTenantCurrentUser } from "@/app/lib/tenant-session";
+import { isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
+import { canManageRoomReservation } from "@/app/lib/prof-room-reservation-ownership";
 import {
   listReservationBookings,
   listReservationRooms,
@@ -62,6 +64,15 @@ export async function POST(req: NextRequest) {
 
     if (targets.length === 0) {
       return NextResponse.json({ error: "Réservation introuvable ou déjà annulée." }, { status: 404 });
+    }
+
+    const isModuleAdmin = await isProfRoomModuleAdmin();
+    const viewer = { userId: gate.ctx.userId, email: sessionEmail };
+    if (!targets.every((r) => canManageRoomReservation(r, viewer, isModuleAdmin))) {
+      return NextResponse.json(
+        { error: "Vous ne pouvez annuler que vos propres réservations." },
+        { status: 403 },
+      );
     }
 
     // Upsert uniquement les lignes annulées — jamais toute la table (évite timeout client).

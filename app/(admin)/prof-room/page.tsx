@@ -1,5 +1,6 @@
 "use client";
 import React, { Suspense, useEffect, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useAppContext } from "@/app/hooks/useAppContext";
@@ -247,8 +248,19 @@ function ProfRoomPageContent() {
     }
     void load();
     const closeMenu = () => setContextMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeMenu();
+    };
     window.addEventListener("click", closeMenu);
-    return () => window.removeEventListener("click", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   useEffect(() => {
@@ -365,7 +377,13 @@ function ProfRoomPageContent() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleContextMenu = (e: React.MouseEvent, dateStr: string, hour: number, resExist?: any) => {
     e.preventDefault();
-    setContextMenu({ x: e.pageX, y: e.pageY, res: resExist, dateStr, hour });
+    // Menu en position fixe : coordonnées écran (clientX/Y), pas page (pageX/Y) —
+    // sinon, page défilée, le menu s’ouvrait hors de l’écran. Bornées pour rester visible.
+    const MENU_W = 240;
+    const MENU_H = 64;
+    const x = Math.max(8, Math.min(e.clientX, window.innerWidth - MENU_W - 8));
+    const y = Math.max(8, Math.min(e.clientY, window.innerHeight - MENU_H - 8));
+    setContextMenu({ x, y, res: resExist, dateStr, hour });
   };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const copyReservation = (res: any) => {
@@ -658,8 +676,10 @@ function ProfRoomPageContent() {
           <div className="absolute bottom-10 left-1/3 h-[14rem] w-[14rem] rounded-full bg-[color:var(--dash-mid)]/15 blur-3xl" />
         </div>
 
-        {contextMenu ? (
+        {contextMenu && typeof document !== "undefined" ? createPortal(
           <div
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
             className="fixed z-[100] min-w-[180px] overflow-hidden rounded-xl border border-white/70 bg-white/90 p-1 text-xs font-semibold shadow-xl backdrop-blur-xl"
             style={{ top: contextMenu.y, left: contextMenu.x }}
           >
@@ -682,7 +702,8 @@ function ProfRoomPageContent() {
             ) : (
               <div className={`p-3 italic ${dash.textMid}`}>Rien à coller...</div>
             )}
-          </div>
+          </div>,
+          document.body,
         ) : null}
 
         <ModulePageHeader
