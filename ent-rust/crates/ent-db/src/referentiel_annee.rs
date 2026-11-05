@@ -421,7 +421,23 @@ impl PgEnt {
             .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
-        for (niveau_id, code, libelle, kind, ordre, d, f) in periodes {
+        // Dates décalées d'années entières, puis continuité rétablie : une année bissextile
+        // ne doit créer ni trou ni chevauchement (la fin = veille du début de la suivante).
+        let mut periodes = periodes;
+        periodes.sort_by_key(|p| (p.0, p.5));
+        let mut decalees: Vec<(NaiveDate, NaiveDate)> = periodes
+            .iter()
+            .map(|p| (decaler(p.5, decalage), decaler(p.6, decalage)))
+            .collect();
+        for i in 0..periodes.len().saturating_sub(1) {
+            let contigues = periodes[i].0 == periodes[i + 1].0
+                && periodes[i + 1].5 == periodes[i].6 + chrono::Duration::days(1);
+            if contigues {
+                decalees[i].1 = decalees[i + 1].0 - chrono::Duration::days(1);
+            }
+        }
+        for (i, (niveau_id, code, libelle, kind, ordre, _, _)) in periodes.into_iter().enumerate() {
+            let (d, f) = decalees[i];
             let n = sqlx::query(
                 "INSERT INTO ent_periode
                    (id, etablissement_id, annee_id, niveau_id, code, libelle, kind, ordre, date_debut, date_fin)
@@ -435,8 +451,8 @@ impl PgEnt {
             .bind(libelle)
             .bind(kind)
             .bind(ordre)
-            .bind(decaler(d, decalage))
-            .bind(decaler(f, decalage))
+            .bind(d)
+            .bind(f)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
