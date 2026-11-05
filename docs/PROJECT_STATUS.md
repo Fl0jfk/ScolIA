@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 2 — S2-1 dossier élève et personnes (2026-11-05)
+Personne distincte du compte (`ent_personne`, reprise idempotente des liens), liens d'autorité (autorité, garde, dates, suspension) vérifiés en un point unique (vue `ent_eleve_lien_actif`), contacts d'urgence, payeurs, fusion réversible des personnes, 21 routes `/dossier/*`, fiche élève 360° Leptos `/web/eleves/{id}` avec chronologie. **Implémenté + testé en local** (branche `ent-socle2-dossier`, inclut S2-0), non validé pilote, non fusionné. Détail, écarts et reste à faire : `docs/SOCLE2_DOMAINES.md` §6.2.
+
 ## Socle 2 — S2-0 outbox transactionnelle (2026-11-05)
 Outbox (`migrations/102_outbox.sql`, `ent-db/src/outbox.rs` : `tx.publier`, distributeur tokio, consommateurs idempotents, reprises, file des échecs, rejeu) et 3 réactions D5 → D0 (absence constatée, décision de justificatif, retard → notification des responsables `peut_voir_vs`) ; `clore_appel` et les décisions de justificatif publient dans la transaction du fait. **Implémenté + testé en local** (branche `ent-socle2-outbox`), non validé pilote, non fusionné. Détail, écarts et plan de migration des autres publications : `docs/SOCLE2_DOMAINES.md` §6.1.
 
