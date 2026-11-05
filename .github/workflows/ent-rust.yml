@@ -107,7 +107,7 @@ jobs:
           cargo clippy --locked --workspace --all-targets
           cargo clippy --locked --workspace --all-targets --features ent-api/labo,ent-lab/labo
           cargo clippy --locked -p ent-types --all-targets -- -D warnings
-      - name: Compilation (profil production : SANS la feature labo)
+      - name: "Compilation (profil production, SANS la feature labo)"
         run: cargo build --locked --workspace
       - name: Séparation labo / production (L4, le binaire sans feature ne contient aucun code de labo)
         run: |
