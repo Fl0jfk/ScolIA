@@ -54,6 +54,7 @@ mod passkey_repo;
 mod perimetre;
 mod droits_repo;
 mod securite_repo;
+mod etablissement_repo;
 mod oidc_repo;
 mod pra;
 mod tva_repo;
@@ -111,6 +112,7 @@ pub use service::EnfantFamille;
 pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
 pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
+pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
     niveau_de_code, role_peut_gerer_referentiel, role_peut_lire_referentiel, AnneeScolaire,
     Affectation, Classe, ClasseResume, CreerService, Groupe, RapportAmorcage,

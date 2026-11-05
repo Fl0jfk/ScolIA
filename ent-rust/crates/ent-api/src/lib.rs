@@ -13,9 +13,11 @@ pub mod obs;
 mod referentiel;
 mod roles;
 mod routes;
+pub mod tenant;
 mod ui;
 
 pub use auth::EntSession;
+pub use tenant::TenantHote;
 /// Environnements non productifs (porte du labo et de l'inscription libre) ;
 /// exposé pour le test de parité avec le bandeau labo du frontend.
 pub use routes::ENVS_NON_PROD;
@@ -140,6 +142,11 @@ pub fn app(state: AppState) -> Router {
     let mut router = Router::new()
         .nest_service("/static", fonts)
         .merge(routes::router())
+        // Établissement déduit de l'adresse (C2, D-012) : résolu une fois par requête.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            tenant::resoudre_tenant,
+        ))
         .with_state(state.clone())
         // Limitation de débit des routes d'authentification publiques (quotas en
         // base, `429` + `Retry-After`). Interne au plafond de taille du corps.

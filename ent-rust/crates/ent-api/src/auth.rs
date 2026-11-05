@@ -223,6 +223,16 @@ impl FromRequestParts<AppState> for EntSession {
                 )),
             })?;
 
+        // C2 (D-012) : sur l'adresse d'un établissement, seule une session de cet
+        // établissement est acceptée (jeton d'un autre établissement → 401).
+        let tenant = crate::tenant::TenantHote::from_request_parts(parts, state).await?;
+        if !tenant.accepte(info.etablissement_id) {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "session d'un autre établissement".into(),
+            ));
+        }
+
         // Socle 1 (A2) : une session d'enrôlement n'ouvre aucune donnée.
         if info.portee == ent_db::PorteeSession::Enrolement
             && !ROUTES_ENROLEMENT.contains(&parts.uri.path())

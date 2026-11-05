@@ -1618,6 +1618,12 @@ impl PgEnt {
             Err(e) => {
                 self.tracer_echec_connexion(etablissement_id, email, client_ip.is_some(), &e)
                     .await;
+                // C2 : un non-membre reçoit la même réponse que de mauvais
+                // identifiants (pas d'énumération) ; le journal garde la cause.
+                let e = match e {
+                    AuthError::NotMember => AuthError::InvalidCredentials,
+                    autre => autre,
+                };
                 return Err(e.into());
             }
         };

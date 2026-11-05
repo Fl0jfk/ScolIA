@@ -61,6 +61,8 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | `ENT_TRUST_PROXY` | *(vide)* | Proxys de confiance devant l'API. Vide / `0` : IP de la socket (défaut sûr). `1` ou `N` : `N` proxys, IP cliente = N-ième entrée **en partant de la droite** de `X-Forwarded-For`. Liste de CIDR (`10.0.0.0/8,fd00::/8`) : remontée de la chaîne de droite à gauche. À régler **exactement** selon l'infrastructure (voir « Limitation de débit »). |
 | `ENT_RATE_LIMIT` | *(vide)* | `off` coupe toute la limitation de débit des routes d'authentification. |
 | `ENT_RATE_<ROUTE>_IP` / `ENT_RATE_<ROUTE>_ID` | voir tableau ci-dessous | Quota `max/secondes` (`off` = pas de seau). `<ROUTE>` ∈ `LOGIN`, `FORGOT_PASSWORD`, `RESET_PASSWORD`, `PASSKEY_LOGIN_START`, `PASSKEY_LOGIN_FINISH`, `OIDC_START`. |
+| `ENT_TRUST_PROXY` | *(vide)* | `1` → lit l'IP cliente dans `x-forwarded-for` / `x-real-ip` (garde par IP) **et** l'hôte dans `x-forwarded-host` (établissement de l'adresse, C2). À activer **uniquement** derrière un proxy de confiance qui réécrit ces en-têtes. |
+| `ENT_TENANT_PAR_HOTE` | `souple` | Établissement déduit de l'adresse (D-012). `strict` : hôte inconnu → 404 (sauf `/health`, `/ready`, `/metrics`), `etablissement_id` du client ignoré, session d'un autre établissement → 401. `souple` : hôte connu → comme `strict`, sinon comportement antérieur (`etablissement_id` fourni par le client). **Production : `strict`** une fois les domaines déclarés. |
 | `ENT_MAX_BODY_BYTES` | `26214400` (25 Mio) | Taille max du corps de requête. |
 | `ENT_REQUEST_TIMEOUT_SECS` | `120` | Délai max d'une requête (`0` = désactivé) → HTTP 408. |
 | `ENT_CORS_ORIGINS` | *(vide)* | Liste d'origines (virgules) ou `*`. Vide → same-origin uniquement. |
@@ -278,8 +280,23 @@ Les comptes **élève** ont leur propre flux (`POST /eleves/{id}/compte/inviter`
 ### Multi-tenant
 
 - Le `etablissement_id` provient **exclusivement** de la session
-  (`ent_session`), jamais du corps de requête (sauf `register` / `login`,
-  contrôlés par l'appartenance).
+  (`ent_session`), jamais du corps de requête.
+- Routes de connexion (`/auth/login`, `/auth/passkey/login/start`,
+  `/auth/oidc/public`, `/auth/oidc/{slug}/start`, `/auth/register` en labo) :
+  l'établissement est celui de l'**adresse** (`ent_etablissement_domaine`,
+  C2 / D-012) ; l'`etablissement_id` du client n'est lu qu'en mode `souple` et
+  sur un hôte inconnu. `GET /auth/etablissement` renvoie la fiche publique
+  (id, slug, nom) de l'établissement de l'adresse.
+- Une session n'est acceptée que sur l'adresse de son établissement (sinon 401).
+- Mise en service d'un établissement (rôle **Admin** de cet établissement,
+  journalisé) : `PUT /etablissement/fiche` `{slug, nom}`, puis
+  `POST /etablissement/domaines` `{domaine}` (normalisé : minuscules, sans
+  port ni point final ; un domaine déjà servi par un autre établissement est
+  refusé, 409). `GET` / `DELETE /etablissement/domaines/{domaine}`.
+  Désactivation : `ent_etablissement.actif = false` (l'adresse ne résout plus).
+- Ordre de bascule : déclarer fiche + domaines de chaque établissement en
+  `souple`, vérifier `GET /auth/etablissement` sur chaque adresse, puis passer
+  `ENT_TENANT_PAR_HOTE=strict`.
 - Toute table métier est filtrée par `etablissement_id`.
 
 ---
