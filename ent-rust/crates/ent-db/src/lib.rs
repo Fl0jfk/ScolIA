@@ -4,6 +4,9 @@
 //! **Anti-doublon :** pas de table miroir de `ent_eleve` (effectif = query datée).
 
 mod absence_repo;
+mod assiduite;
+mod discipline_vs;
+mod vie_scolaire;
 mod champs_chiffres;
 mod annonce_repo;
 mod appel_repo;
@@ -93,6 +96,24 @@ pub use rate_limit::{Decision, Quota, RateLimiter};
 pub use ent_events::EventBusError;
 pub use ent_object::presign;
 pub use ent_object::ObjectStoreError;
+pub use assiduite::{
+    bornes_mois, deriver_demi_journees, heure_paris, seance_couverte, Contribution, DemiJournee,
+    RegleAssiduite,
+};
+// Noms déjà pris à la racine par le référentiel (S2-2 : `Periode`, `Seance`) :
+// les types homonymes de la vie scolaire (S2-4) sont réexportés sous alias.
+pub use assiduite::Periode as PeriodeJournee;
+pub use vie_scolaire::Seance as SeanceVs;
+pub use discipline_vs::{
+    date_effacement, regle_effacement_defaut, DonnerPunition, EffacementRapport, EngagerProcedure,
+    ModeEffacement, ProcedureDisciplinaire, Punition, PunitionType, SignalementAssiduite,
+    CATEGORIES_SANCTION,
+};
+pub use vie_scolaire::{
+    types_vs, AbsentDuJour, DeclarationAbsence, DeclarationDuJour, DeclarerAbsence, DecompteEleve,
+    DecompteMois, DemiJourneeEleve, IncoherenceAppel, RelanceAppel, RetardDuJour,
+    SeanceSansAppel, TableauJour, VerificationAppels,
+};
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
     AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
@@ -195,6 +216,8 @@ mod tests_sso_securite;
 mod tests_outbox;
 #[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
+#[cfg(all(test, feature = "labo"))]
+mod tests_vie_scolaire;
 
 #[cfg(test)]
 mod integration_tests {

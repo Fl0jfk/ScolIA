@@ -11,6 +11,7 @@ pub const APPEL: &str = "/web/appel";
 pub const CLASSES: &str = "/web/classes";
 pub const MES_CLASSES: &str = "/web/mes-classes";
 pub const VIE_SCOLAIRE: &str = "/web/vie-scolaire";
+pub const JOURNEE: &str = "/web/journee";
 pub const ABSENCES: &str = "/web/absences";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
@@ -47,6 +48,7 @@ pub fn entrees(droits: Droits) -> Vec<EntreeNav> {
     }
     if droits.trancher_justificatif {
         v.push(entree("Vie scolaire", VIE_SCOLAIRE, NomIcone::Personne));
+        v.push(entree("Journée", JOURNEE, NomIcone::Agenda));
     }
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("Absences", ABSENCES, NomIcone::Personne));
@@ -114,6 +116,7 @@ mod tests {
                 APPEL,
                 CLASSES,
                 VIE_SCOLAIRE,
+                JOURNEE,
                 MESSAGES
             ]
         );
@@ -147,6 +150,7 @@ mod tests {
                 APPEL,
                 CLASSES,
                 VIE_SCOLAIRE,
+                JOURNEE,
                 MESSAGES
             ]
         );

@@ -8,6 +8,7 @@ pub mod classes;
 pub mod connexion;
 pub mod dossier;
 pub mod edt;
+pub mod journee_vs;
 pub mod messagerie;
 pub mod recuperation;
 pub mod roles;

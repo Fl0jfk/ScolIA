@@ -21,6 +21,7 @@ mod auth;
 mod communication;
 mod dossier;
 mod edt;
+mod journee_vs;
 mod referentiel;
 mod roles;
 mod securite;
@@ -64,6 +65,13 @@ pub use ent_types::vie_scolaire::{
     AbsenceDto as Absence, AbsenceMotifDto as MotifAbsence, EleveFicheDto as FicheEleve,
     EnfantFamilleDto as Enfant, FamilleResumeDto as ResumeFamille, RetardDto as Retard,
     SignalAbsenceDto as SignalAbsence,
+};
+pub use ent_types::vie_scolaire::{
+    AbsentDuJourDto as AbsentDuJour, DeclarationAbsenceDto as DeclarationAbsence,
+    DeclarationDuJourDto as DeclarationDuJour, DeclarerAbsenceBody as DeclarerAbsence,
+    IncoherenceAppelDto as IncoherenceAppel, RetardDuJourDto as RetardDuJour,
+    SeanceSansAppelDto as SeanceSansAppel, TableauJourDto as TableauJour,
+    VerificationAppelsDto as VerificationAppels,
 };
 
 /// Issue d'une connexion par mot de passe.

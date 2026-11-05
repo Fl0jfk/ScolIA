@@ -432,3 +432,17 @@
 .fiche-section__tete h2 { margin: 0; }
 .fiche-chronologie { max-height: 32rem; overflow-y: auto; }
 .fiche-chronologie__date { width: 6.5rem; flex-shrink: 0; font-size: var(--taille-s); color: var(--c-attenue); font-variant-numeric: tabular-nums; }
+
+/* Journée vie scolaire / accueil et déclaration d'absence (socle 2, S2-4) */
+.jvs-barre { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-2); margin-bottom: var(--esp-3); }
+.jvs-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--esp-2); margin-bottom: var(--esp-3); }
+.jvs-section { margin-block: var(--esp-4); }
+.jvs-sous-titre { font-size: var(--taille-l); margin-top: var(--esp-3); }
+.jvs-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-1); }
+.jvs-ligne { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-2); padding: var(--esp-2); border: 1px solid var(--c-ligne); border-radius: var(--rayon); overflow-wrap: anywhere; }
+.jvs-recherche { margin-block: var(--esp-4); }
+.decl-form { display: grid; gap: var(--esp-2); }
+.decl-ligne { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--esp-2); }
+.decl-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--esp-2); }
+.decl-eleve { font-weight: var(--graisse-forte); overflow-wrap: anywhere; }
+.abs-declarer { margin-block: var(--esp-2); }
