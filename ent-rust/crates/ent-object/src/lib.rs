@@ -10,6 +10,8 @@
 //!   HTTP PUT optionnel si `ENT_OBJECT_S3_ENDPOINT` (ex. `http://127.0.0.1:9000`)
 //!   + `ENT_OBJECT_S3_HTTP=1` — PUT path-style `{endpoint}/{bucket}/{key}`.
 
+pub mod presign;
+
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};

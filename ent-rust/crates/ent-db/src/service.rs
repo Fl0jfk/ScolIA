@@ -202,6 +202,7 @@ use ent_mail::{MailAttachment, MailReceipt, MailSendStatus, MailService, Outgoin
 use ent_sms::{OutgoingSms, SmsService};
 use ent_push::{OutgoingPush, PushPlatform, PushService};
 use ent_bank::{plan_action_ligne, BankConnector, BankMatchAction, BankParseError};
+use ent_object::presign::{Disposition, LinkSpec, PresignError, Presigner};
 use ent_object::{ObjectStore, ObjectStoreError};
 use ent_oidc::{
     build_authorization_url, discover, exchange_authorization_code, generate_pkce, random_token,
@@ -319,6 +320,36 @@ fn oidc_default_redirect_uri() -> String {
     format!("{base}/auth/oidc/callback")
 }
 
+/// Lien court d'accès à un fichier privé (réponse des routes `…/lien`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LienFichier {
+    pub url: String,
+    /// Expiration, secondes Unix (UTC).
+    pub expires_at: i64,
+}
+
+/// Nom de fichier affiché et type MIME d'un document (partagé téléchargement / lien).
+pub fn nom_fichier_document(doc: &EleveDocument) -> (String, String) {
+    let mime = doc
+        .mime_type
+        .as_deref()
+        .unwrap_or("application/octet-stream");
+    let base = doc.titre.replace('/', "_").replace('\\', "_");
+    let ext = match mime {
+        "application/pdf" => ".pdf",
+        "image/png" => ".png",
+        "image/jpeg" | "image/jpg" => ".jpg",
+        "text/plain" => ".txt",
+        _ => "",
+    };
+    let nom = if base.contains('.') {
+        base
+    } else {
+        format!("{base}{ext}")
+    };
+    (nom, mime.to_string())
+}
+
 #[derive(Debug, Error)]
 pub enum EntDbError {
     #[error(transparent)]
@@ -380,6 +411,9 @@ pub enum EntDbError {
     EdtImport(#[from] EdtImportParseError),
     #[error("fichier absent pour ce document")]
     FichierAbsent,
+    /// Liens courts de fichiers non émissibles (secret de signature absent ou invalide : fail-closed).
+    #[error("liens de fichiers indisponibles")]
+    LiensIndisponibles,
     #[error("import EDT refusé : conflits détectés")]
     EdtImportConflicts,
 }
@@ -586,6 +620,7 @@ pub struct PgEnt {
     bank_repo: BankRepo,
     bank: BankConnector,
     objects: ObjectStore,
+    presigner: Presigner,
     auth: PgAuthRepo,
     passkeys: PgPasskeyRepo,
     passkey_engine: Option<PasskeyEngine>,
@@ -666,6 +701,7 @@ impl PgEnt {
             bank_repo: BankRepo::new(pool.clone()),
             bank: BankConnector::from_env(),
             objects: ObjectStore::from_env(),
+            presigner: Presigner::from_env(),
             auth: PgAuthRepo::new(pool.clone()),
             passkeys: PgPasskeyRepo::new(pool.clone()),
             passkey_engine: PasskeyEngine::from_env().ok(),
@@ -734,6 +770,16 @@ impl PgEnt {
 
     pub fn objects(&self) -> &ObjectStore {
         &self.objects
+    }
+
+    /// Émetteur de liens courts (jetons HMAC locaux ou URL SigV4).
+    pub fn presigner(&self) -> &Presigner {
+        &self.presigner
+    }
+
+    /// Remplace l'émetteur de liens (tests / démarrage explicite).
+    pub fn installer_presigner(&mut self, presigner: Presigner) {
+        self.presigner = presigner;
     }
 
     pub async fn set_user_telephone(
@@ -7818,14 +7864,15 @@ impl PgEnt {
         Err(EntDbError::Forbidden)
     }
 
-    /// Télécharge le fichier d’un document si l’acteur peut le lire.
-    pub async fn telecharger_document_bytes_for_actor(
+    /// Contrôle d'accès commun au téléchargement ET à l'émission d'un lien :
+    /// le document existe dans l'établissement et l'acteur peut le lire.
+    async fn document_lisible_for_actor(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
         role: &str,
         document_id: Uuid,
-    ) -> Result<(EleveDocument, Vec<u8>), EntDbError> {
+    ) -> Result<EleveDocument, EntDbError> {
         let doc = self
             .documents
             .get_document(etablissement_id, document_id)
@@ -7837,6 +7884,20 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
+        Ok(doc)
+    }
+
+    /// Télécharge le fichier d’un document si l’acteur peut le lire.
+    pub async fn telecharger_document_bytes_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        document_id: Uuid,
+    ) -> Result<(EleveDocument, Vec<u8>), EntDbError> {
+        let doc = self
+            .document_lisible_for_actor(etablissement_id, actor_user_id, role, document_id)
+            .await?;
         let Some(key) = doc.storage_key.as_ref() else {
             return Err(EntDbError::FichierAbsent);
         };
@@ -12587,6 +12648,24 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Option<Vec<u8>>, EntDbError> {
+        let Some(key) = self
+            .photo_cle_for_actor(etablissement_id, user_id, role, eleve_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(self.objects.get(&key)?))
+    }
+
+    /// Contrôle d'accès commun au téléchargement ET à l'émission d'un lien de photo :
+    /// retourne la clé objet **vérifiée comme appartenant à cet élève**, ou `None`.
+    async fn photo_cle_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<Option<String>, EntDbError> {
         let eleve = self
             .get_eleve_for_actor(etablissement_id, user_id, role, eleve_id)
             .await?
@@ -12604,7 +12683,7 @@ impl PgEnt {
             );
             return Ok(None);
         }
-        Ok(Some(self.objects.get(key)?))
+        Ok(Some(key.clone()))
     }
 
     pub async fn upsert_param_etab_for_actor(
@@ -14273,14 +14352,16 @@ impl PgEnt {
         Ok(pieces.iter().map(PaiPieceMeta::from).collect())
     }
 
-    async fn telecharger_pai_piece_for_actor_sans_trace(
+    /// Contrôle d'accès commun au téléchargement ET à l'émission d'un lien de pièce PAI
+    /// (sans lire le contenu) : staff / parent lié + PAI actif.
+    async fn pai_piece_autorisee_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
         role: &str,
         piece_id: Uuid,
     ) -> Result<PaiPiece, EntDbError> {
-        let mut piece = self
+        let piece = self
             .infirmerie
             .get_pai_piece(etablissement_id, piece_id)
             .await?
@@ -14290,6 +14371,19 @@ impl PgEnt {
             .get_pai_for_actor_sans_trace(etablissement_id, actor_user_id, role, piece.eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        Ok(piece)
+    }
+
+    async fn telecharger_pai_piece_for_actor_sans_trace(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        piece_id: Uuid,
+    ) -> Result<PaiPiece, EntDbError> {
+        let mut piece = self
+            .pai_piece_autorisee_sans_trace(etablissement_id, actor_user_id, role, piece_id)
+            .await?;
         if let Some(ref key) = piece.storage_key {
             // Clé non conforme : jamais lue dans le magasin (traité comme sans contenu).
             if pai_storage_key_is_owned(&piece, key) {
@@ -15451,6 +15545,218 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         Ok(piece)
+    }
+
+    // ───────────── Liens courts d'accès aux fichiers (URL pré-signées) ─────────────
+    //
+    // Chaque émission passe par EXACTEMENT le même contrôle d'accès que le
+    // téléchargement correspondant (fonctions partagées ci-dessus) ; le client ne
+    // fournit jamais de clé de stockage.
+
+    fn emettre_lien(
+        &self,
+        key: &str,
+        user_id: Uuid,
+        etablissement_id: Uuid,
+        disposition: Disposition,
+        filename: &str,
+        mime: &str,
+    ) -> Result<LienFichier, EntDbError> {
+        let link = self
+            .presigner
+            .issue(
+                &LinkSpec {
+                    key: key.to_string(),
+                    user_id,
+                    etablissement_id,
+                    disposition,
+                    filename: filename.to_string(),
+                    mime: mime.to_string(),
+                },
+                ent_object::presign::now_unix(),
+            )
+            .map_err(|e| match e {
+                PresignError::Disabled => EntDbError::LiensIndisponibles,
+                // Clé hors établissement / hostile : traitée comme fichier absent.
+                _ => EntDbError::FichierAbsent,
+            })?;
+        Ok(LienFichier {
+            url: link.url,
+            expires_at: link.expires_at,
+        })
+    }
+
+    /// Copie dans le magasin d'objets un contenu stocké en base (pièces de messagerie,
+    /// pièces PAI historiques) pour pouvoir le servir par lien court. Idempotent.
+    fn refleter_dans_magasin(&self, key: &str, bytes: &[u8]) -> Result<(), EntDbError> {
+        if !self.objects.exists(key) {
+            self.objects.put(key, bytes)?;
+        }
+        Ok(())
+    }
+
+    /// Lien court vers le fichier d'un document (mêmes droits que le téléchargement).
+    pub async fn lien_document_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        document_id: Uuid,
+    ) -> Result<LienFichier, EntDbError> {
+        if !self.presigner.is_enabled() {
+            return Err(EntDbError::LiensIndisponibles);
+        }
+        let doc = self
+            .document_lisible_for_actor(etablissement_id, actor_user_id, role, document_id)
+            .await?;
+        let key = doc
+            .storage_key
+            .as_deref()
+            .filter(|k| document_storage_key_is_owned(&doc, k) && self.objects.exists(k))
+            .ok_or(EntDbError::FichierAbsent)?;
+        let (nom, mime) = nom_fichier_document(&doc);
+        let lien = self.emettre_lien(
+            key,
+            actor_user_id,
+            etablissement_id,
+            Disposition::Inline,
+            &nom,
+            &mime,
+        )?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            Some(doc.eleve_id),
+            "telechargement",
+            "lien_document",
+            &format!("Lien court vers le document {document_id}"),
+        )
+        .await;
+        Ok(lien)
+    }
+
+    /// Lien court vers la photo d'un élève (mêmes droits que `GET /eleves/{id}/photo`).
+    /// `None` : pas de photo.
+    pub async fn lien_photo_eleve_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<Option<LienFichier>, EntDbError> {
+        if !self.presigner.is_enabled() {
+            return Err(EntDbError::LiensIndisponibles);
+        }
+        let Some(key) = self
+            .photo_cle_for_actor(etablissement_id, actor_user_id, role, eleve_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if !self.objects.exists(&key) {
+            return Ok(None);
+        }
+        // La route de téléchargement sert toujours « image/jpeg ».
+        Ok(Some(self.emettre_lien(
+            &key,
+            actor_user_id,
+            etablissement_id,
+            Disposition::Inline,
+            "photo.jpg",
+            "image/jpeg",
+        )?))
+    }
+
+    /// Lien court vers une pièce du PAI (mêmes droits que le téléchargement ; trace d'accès).
+    pub async fn lien_pai_piece_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        piece_id: Uuid,
+    ) -> Result<LienFichier, EntDbError> {
+        if !self.presigner.is_enabled() {
+            return Err(EntDbError::LiensIndisponibles);
+        }
+        let piece = self
+            .pai_piece_autorisee_sans_trace(etablissement_id, actor_user_id, role, piece_id)
+            .await?;
+        let key = match piece.storage_key.as_deref() {
+            Some(k) if pai_storage_key_is_owned(&piece, k) => k.to_string(),
+            // Pièce historique stockée en base : recopiée sous une clé conforme.
+            _ if !piece.contenu.is_empty() => {
+                let ext = piece.nom.rsplit_once('.').map(|(_, e)| e).unwrap_or("bin");
+                let k = ObjectStore::key_for(piece.etablissement_id, "pai", piece.id, ext);
+                self.refleter_dans_magasin(&k, &piece.contenu)?;
+                k
+            }
+            _ => return Err(EntDbError::FichierAbsent),
+        };
+        if !self.objects.exists(&key) {
+            return Err(EntDbError::FichierAbsent);
+        }
+        let lien = self.emettre_lien(
+            &key,
+            actor_user_id,
+            etablissement_id,
+            Disposition::Attachment,
+            &piece.nom,
+            &piece.mime_type,
+        )?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            Some(piece.eleve_id),
+            "consultation",
+            "lien_pai_piece",
+            "Lien court vers une pièce du PAI",
+        )
+        .await;
+        Ok(lien)
+    }
+
+    /// Lien court vers une pièce jointe de messagerie (mêmes droits que le téléchargement).
+    /// Le contenu, stocké en base, est recopié dans le magasin d'objets (idempotent).
+    pub async fn lien_piece_message_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        piece_id: Uuid,
+    ) -> Result<LienFichier, EntDbError> {
+        if !self.presigner.is_enabled() {
+            return Err(EntDbError::LiensIndisponibles);
+        }
+        let piece = self
+            .telecharger_piece_for_actor(etablissement_id, actor_user_id, role, piece_id)
+            .await?;
+        if piece.contenu.is_empty() {
+            return Err(EntDbError::FichierAbsent);
+        }
+        let ext = piece.nom.rsplit_once('.').map(|(_, e)| e).unwrap_or("bin");
+        let key = ObjectStore::key_for(piece.etablissement_id, "messages", piece.id, ext);
+        self.refleter_dans_magasin(&key, &piece.contenu)?;
+        let lien = self.emettre_lien(
+            &key,
+            actor_user_id,
+            etablissement_id,
+            Disposition::Attachment,
+            &piece.nom,
+            &piece.mime_type,
+        )?;
+        self.tracer_acces_sensible(
+            etablissement_id,
+            actor_user_id,
+            role,
+            None,
+            "telechargement",
+            "lien_piece_message",
+            &format!("Lien court vers la pièce jointe {piece_id}"),
+        )
+        .await;
+        Ok(lien)
     }
 
     pub async fn creer_msg_modele_for_actor(

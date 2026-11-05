@@ -61,6 +61,10 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | `ENT_CORS_ORIGINS` | *(vide)* | Liste d'origines (virgules) ou `*`. Vide → same-origin uniquement. |
 | `RUST_LOG` | `info` | Filtre de logs (`tracing_subscriber`). |
 | `ENT_OBJECT_DIR` / `ENT_OBJECT_S3_HTTP` / `ENT_MAIL_LIVE` / `ENT_SMS_LIVE` / `ENT_PUSH_LIVE` / `ENT_BANK_LIVE` | *(dry-run)* | Sorties live optionnelles (S3 / SMTP / SMS / push / banque). |
+| `ENT_OBJECT_SIGNING_KEY` | *(vide)* | Secret HMAC (≥ 32 octets, aléatoire) des liens courts de fichiers (`GET /fichiers/{jeton}`). **Obligatoire en prod** : sans lui, les routes `…/lien` répondent 503 (fail-closed). En `ENT_ENV` lab/labo/dev/local/test, une clé éphémère est générée. |
+| `ENT_OBJECT_LINK_TTL_SECS` | `60` | Durée de vie d'un lien court (plafond 900). |
+| `ENT_OBJECT_PUBLIC_BASE_URL` | *(vide)* | Préfixe absolu des liens locaux (ex. `https://ent.exemple.fr`) ; vide → URL relative `/fichiers/…`. |
+| `ENT_OBJECT_PRESIGN_MODE` | `local` | `s3` → URL pré-signées SigV4 : `ENT_OBJECT_S3_BUCKET`, `ENT_OBJECT_S3_REGION` (`fr-par`), `ENT_OBJECT_S3_ACCESS_KEY`, `ENT_OBJECT_S3_SECRET_KEY` (secrets : coffre, jamais en dépôt), `ENT_OBJECT_S3_ENDPOINT` (défaut `https://s3.{région}.scw.cloud`), `ENT_OBJECT_S3_VIRTUAL_HOST=1` (virtual-host au lieu de path-style). Configuration incomplète → désactivé. |
 | `ENT_RP_ID` / `ENT_RP_ORIGIN` / `ENT_RP_NAME` | dev `localhost` / `http://localhost:3000` / `ScolIA ENT` | Identité du *relying party* WebAuthn pour les **passkeys**. En prod : domaine réel **en HTTPS** (sinon le navigateur refuse WebAuthn). |
 | `ENT_PASSKEY_CHALLENGE_MINUTES` | `5` | Durée de vie d'un challenge passkey (à usage unique). |
 | `ENT_OIDC_TIMEOUT_SECS` | `10` | Délai réseau par appel d'IdP (découverte, échange de code, JWKS). |

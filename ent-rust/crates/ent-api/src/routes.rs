@@ -69,7 +69,7 @@ use crate::ui;
 use crate::AppState;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
@@ -196,6 +196,9 @@ pub fn router() -> Router<AppState> {
             get(list_documents_meta_eleve).post(deposer_document_eleve),
         )
         .route("/documents/{id}/fichier", get(telecharger_document_fichier))
+        .route("/documents/{id}/lien", post(lien_document_fichier))
+        // Mode local des liens courts : route PUBLIQUE, le jeton signé fait foi.
+        .route("/fichiers/{jeton}", get(servir_fichier_signe))
         .route("/documents/{id}/grants", post(demander_grant_document))
         .route("/documents/grants/pending", get(list_grants_pending))
         .route("/documents/grants/{id}/decider", post(decider_grant_document))
@@ -457,6 +460,7 @@ pub fn router() -> Router<AppState> {
             "/eleves/{id}/photo",
             get(get_photo_eleve).post(poser_photo_eleve),
         )
+        .route("/eleves/{id}/photo/lien", post(lien_photo_eleve))
         .route(
             "/etab/params",
             get(list_params_etab).post(upsert_param_etab),
@@ -576,6 +580,7 @@ pub fn router() -> Router<AppState> {
             get(list_pai_pieces).post(attacher_ordonnance_pai),
         )
         .route("/pai/pieces/{id}", get(telecharger_pai_piece))
+        .route("/pai/pieces/{id}/lien", post(lien_pai_piece))
         .route(
             "/psy/entretiens",
             get(list_entretiens_psy).post(creer_entretien_psy),
@@ -603,6 +608,7 @@ pub fn router() -> Router<AppState> {
         .route("/messages/modeles", get(list_msg_modeles).post(creer_msg_modele))
         .route("/messages/{id}/pieces", post(attacher_piece))
         .route("/messages/pieces/{id}", get(telecharger_piece))
+        .route("/messages/pieces/{id}/lien", post(lien_piece_message))
         .route(
             "/reinscription/campagne",
             get(get_campagne).post(ouvrir_campagne),
@@ -1475,26 +1481,149 @@ async fn telecharger_document_fichier(
         .await
         .map_err(map_db)?;
     tracer_acces(&state, &session, "telechargement", "document", &format!("Téléchargement du document {id}")).await;
-    let mime = doc
-        .mime_type
-        .as_deref()
-        .unwrap_or("application/octet-stream");
-    let filename = {
-        let base = doc.titre.replace('/', "_").replace('\\', "_");
-        let ext = match mime {
-            "application/pdf" => ".pdf",
-            "image/png" => ".png",
-            "image/jpeg" | "image/jpg" => ".jpg",
-            "text/plain" => ".txt",
-            _ => "",
-        };
-        if base.contains('.') {
-            base
-        } else {
-            format!("{base}{ext}")
+    let (filename, mime) = ent_db::nom_fichier_document(&doc);
+    attachment_response_dyn(bytes, &filename, &mime)
+}
+
+/// Réponse des routes `…/lien` : URL courte d'accès au fichier.
+#[derive(Debug, Serialize)]
+struct LienFichierDto {
+    /// URL à ouvrir telle quelle (relative à l'API en mode local, absolue en mode S3).
+    url: String,
+    /// Expiration, secondes Unix (UTC). Durée courte (60 s par défaut, 15 min maximum).
+    expires_at: i64,
+}
+
+impl From<ent_db::LienFichier> for LienFichierDto {
+    fn from(l: ent_db::LienFichier) -> Self {
+        Self {
+            url: l.url,
+            expires_at: l.expires_at,
         }
+    }
+}
+
+/// Émet un lien court vers le fichier d'un document. Mêmes droits que
+/// `GET /documents/{id}/fichier` ; le client ne fournit jamais de clé de stockage.
+async fn lien_document_fichier(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<LienFichierDto>, (StatusCode, String)> {
+    let lien = state
+        .ent
+        .lien_document_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(lien.into()))
+}
+
+/// Lien court vers la photo d'un élève (mêmes droits que `GET /eleves/{id}/photo`).
+async fn lien_photo_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<LienFichierDto>, (StatusCode, String)> {
+    let lien = state
+        .ent
+        .lien_photo_eleve_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?
+        .ok_or((StatusCode::NOT_FOUND, "pas de photo".into()))?;
+    Ok(Json(lien.into()))
+}
+
+/// Lien court vers une pièce du PAI (mêmes droits que `GET /pai/pieces/{id}`).
+async fn lien_pai_piece(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<LienFichierDto>, (StatusCode, String)> {
+    let lien = state
+        .ent
+        .lien_pai_piece_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(lien.into()))
+}
+
+/// Lien court vers une pièce jointe de messagerie (mêmes droits que `GET /messages/pieces/{id}`).
+async fn lien_piece_message(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<LienFichierDto>, (StatusCode, String)> {
+    let lien = state
+        .ent
+        .lien_piece_message_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(lien.into()))
+}
+
+/// Mode local des liens courts : sert le fichier désigné par un jeton signé.
+///
+/// Route publique : le jeton (HMAC-SHA256, expiration courte) est la seule preuve.
+/// L'objet doit appartenir à l'établissement signé ; type, nom et disposition viennent
+/// du jeton (jamais du client) ; les types actifs (html, svg, xml…) sont forcés en
+/// téléchargement. Le jeton n'est jamais journalisé (le span ne porte que le gabarit).
+async fn servir_fichier_signe(
+    State(state): State<AppState>,
+    Path(jeton): Path<String>,
+) -> Result<Response, (StatusCode, String)> {
+    use ent_db::presign::{
+        content_disposition, key_belongs_to_etab, now_unix, Disposition, PresignError,
     };
-    attachment_response_dyn(bytes, &filename, mime)
+    let claims = state
+        .ent
+        .presigner()
+        .verify_local(&jeton, now_unix())
+        .map_err(|e| match e {
+            PresignError::Expired => (StatusCode::GONE, "Lien expiré.".to_string()),
+            PresignError::Disabled => (StatusCode::NOT_FOUND, "Introuvable.".to_string()),
+            _ => (StatusCode::FORBIDDEN, "Lien invalide.".to_string()),
+        })?;
+    // Défense en profondeur : l'objet doit appartenir à l'établissement signé.
+    if !key_belongs_to_etab(&claims.key, claims.etablissement_id) {
+        return Err((StatusCode::FORBIDDEN, "Lien invalide.".into()));
+    }
+    let bytes = state
+        .ent
+        .objects()
+        .get(&claims.key)
+        .map_err(|e| map_db(e.into()))?;
+    let mut res = Response::new(Body::from(bytes));
+    *res.status_mut() = StatusCode::OK;
+    let h = res.headers_mut();
+    let ct = HeaderValue::from_str(&claims.mime)
+        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+    h.insert(header::CONTENT_TYPE, ct);
+    h.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&content_disposition(claims.disposition, &claims.filename))
+            .map_err(|_| erreur_interne(&"en-tête de disposition invalide"))?,
+    );
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    // Aucun contenu actif : rien ne se charge ni ne s'exécute depuis ce fichier. Le
+    // bac à sable est omis uniquement pour un PDF affiché en ligne (le lecteur PDF du
+    // navigateur est bloqué par `sandbox`) ; un PDF n'est jamais interprété comme HTML
+    // (type signé + nosniff).
+    let csp = if claims.disposition == Disposition::Inline && claims.mime == "application/pdf" {
+        "default-src 'none'; frame-ancestors 'self'"
+    } else {
+        "default-src 'none'; sandbox"
+    };
+    h.insert(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static(csp),
+    );
+    h.insert(
+        HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("same-site"),
+    );
+    Ok(res)
 }
 
 async fn demander_grant_document(
@@ -10682,6 +10811,13 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
     // validation métier reste un 4xx, seules les vraies pannes sont des 500.
     match &err {
         ent_db::EntDbError::FichierAbsent => return (StatusCode::NOT_FOUND, err.to_string()),
+        ent_db::EntDbError::LiensIndisponibles => {
+            tracing::error!("liens de fichiers désactivés : ENT_OBJECT_SIGNING_KEY absente ou invalide (fail-closed)");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Liens de fichiers indisponibles.".to_string(),
+            );
+        }
         ent_db::EntDbError::Object(ent_db::ObjectStoreError::NotFound(_)) => {
             return (StatusCode::NOT_FOUND, "Fichier introuvable.".to_string());
         }

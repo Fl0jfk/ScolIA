@@ -73,6 +73,7 @@ mod signal_repo;
 pub mod url_guard;
 
 pub use ent_events::EventBusError;
+pub use ent_object::presign;
 pub use ent_object::ObjectStoreError;
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
@@ -121,8 +122,9 @@ pub use note_repo::{Note, SaisirNote};
 pub use option_repo::PgOptionRepo;
 #[cfg(feature = "labo")]
 pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
+pub use service::nom_fichier_document;
 pub use service::{
-    BankRapprochementSummary, EntDbError, LoginOutcome, OidcProviderParams, PgEnt,
+    BankRapprochementSummary, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
     PersonnelProvisionne, ProvisionnerPersonnel, ReinitialisationMdp, SondeMetrique,
 };
 pub use ent_oidc::{OidcError, OidcTransport};

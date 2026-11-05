@@ -408,6 +408,7 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/auth/forgot-password"),
     ("POST", "/auth/reset-password"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
+    ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
 ];
 /// Pages HTML de l'application (coquilles sans donnée) servies par `ui_page`.
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];

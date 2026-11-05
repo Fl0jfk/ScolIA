@@ -639,6 +639,9 @@ dependencies = [
 name = "ent-object"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "hmac",
+ "sha2",
  "thiserror 2.0.21",
  "uuid",
 ]

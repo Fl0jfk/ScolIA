@@ -355,6 +355,10 @@ fn erreurs_de_validation_metier_restent_des_4xx() {
     let (code, msg) = routes::map_db(E::FichierAbsent);
     assert_eq!(code, StatusCode::NOT_FOUND);
     assert_eq!(msg, "fichier absent pour ce document");
+    // Liens courts sans secret de signature valide : fail-closed, 503 sans détail.
+    let (code, msg) = routes::map_db(E::LiensIndisponibles);
+    assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!msg.contains("SIGNING_KEY"), "{msg}");
     // Les vraies pannes restent des 500 génériques.
     let (code, msg) = routes::map_db(E::Object(ent_db::ObjectStoreError::Io("/var/x: disk".into())));
     assert_eq!(code, StatusCode::INTERNAL_SERVER_ERROR);

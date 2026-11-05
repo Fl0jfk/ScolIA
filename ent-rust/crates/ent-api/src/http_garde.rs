@@ -75,7 +75,13 @@ pub async fn en_tetes_et_erreurs(req: Request, next: Next) -> Response<Body> {
     }
 
     let h = res.headers_mut();
-    if !statique {
+    // Un handler qui a déjà posé un `Cache-Control` contenant `no-store` (ex. fichiers
+    // servis par lien signé : `private, no-store`) le conserve.
+    let deja_no_store = h
+        .get(header::CACHE_CONTROL)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("no-store"));
+    if !statique && !deja_no_store {
         h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
         h.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
     }
