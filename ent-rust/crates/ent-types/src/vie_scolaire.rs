@@ -119,3 +119,128 @@ pub struct EleveFicheDto {
     pub prenom: String,
     pub classe: Option<String>,
 }
+
+// ---------------------------------------------------------------------------
+// Vie scolaire complète (socle 2, lot S2-4) : journée de la vie scolaire / de l'accueil,
+// déclarations d'absence, vérification de l'appel. Lecture des routes `ent-api/src/vie_scolaire.rs`
+// (le JSON est celui des structures de `ent-db`, les champs inconnus sont ignorés).
+// ---------------------------------------------------------------------------
+
+use chrono::NaiveTime;
+
+/// Déclaration d'absence faite par l'accueil ou par la famille.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclarationAbsenceDto {
+    pub id: Uuid,
+    pub eleve_id: Uuid,
+    /// `accueil` | `famille`.
+    pub source: String,
+    pub debut_jour: NaiveDate,
+    pub debut_heure: Option<NaiveTime>,
+    pub fin_jour: NaiveDate,
+    pub fin_heure: Option<NaiveTime>,
+    pub motif: String,
+    pub commentaire: Option<String>,
+    pub declarant_nom: Option<String>,
+    pub declarant_qualite: Option<String>,
+    /// `active` | `annulee`.
+    pub statut: String,
+}
+
+/// Corps de `POST /vs/declarations/accueil` et `/vs/declarations/famille`. L'identité du
+/// déclarant n'est lue que pour l'accueil (côté famille, elle vient du compte).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclarerAbsenceBody {
+    pub eleve_id: Uuid,
+    pub debut_jour: NaiveDate,
+    pub debut_heure: Option<NaiveTime>,
+    pub fin_jour: NaiveDate,
+    pub fin_heure: Option<NaiveTime>,
+    pub motif: String,
+    pub commentaire: Option<String>,
+    pub declarant_nom: Option<String>,
+    pub declarant_qualite: Option<String>,
+    pub piece_document_id: Option<Uuid>,
+}
+
+/// Élève absent ce jour (une ligne par absence).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AbsentDuJourDto {
+    pub eleve_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    pub absence_id: Uuid,
+    pub statut: String,
+    /// Une déclaration (accueil ou famille) couvrait la séance.
+    pub prevenue: bool,
+    /// Horaires des séances manquées ; vide pour une absence historique à la journée.
+    pub seances: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetardDuJourDto {
+    pub eleve_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    pub minutes: Option<i32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclarationDuJourDto {
+    #[serde(flatten)]
+    pub declaration: DeclarationAbsenceDto,
+    pub nom: String,
+    pub prenom: String,
+}
+
+/// Séance dont l'appel n'est pas fait (`non_fait`) ou pas clos (`non_clos`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeanceSansAppelDto {
+    pub creneau_id: Uuid,
+    pub classe: String,
+    pub matiere: String,
+    pub prof_user_id: Uuid,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    pub etat: String,
+    pub minutes_depuis_debut: i64,
+    pub nb_relances: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IncoherenceAppelDto {
+    pub eleve_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    pub jour: NaiveDate,
+    /// `absent_puis_present` | `present_malgre_declaration`.
+    pub kind: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerificationAppelsDto {
+    pub jour: NaiveDate,
+    pub heure_locale: NaiveTime,
+    pub delai_minutes: i32,
+    pub seances_sans_appel: Vec<SeanceSansAppelDto>,
+    pub incoherences: Vec<IncoherenceAppelDto>,
+}
+
+/// `GET /vs/tableau-jour?jour=`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableauJourDto {
+    pub jour: NaiveDate,
+    pub absents: Vec<AbsentDuJourDto>,
+    pub retards: Vec<RetardDuJourDto>,
+    pub declarations: Vec<DeclarationDuJourDto>,
+    pub a_traiter: i64,
+    pub verification: VerificationAppelsDto,
+}
+
+/// Corps de `POST /vs/appels/relancer`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelancerAppelBody {
+    pub creneau_id: Uuid,
+    pub jour: NaiveDate,
+}

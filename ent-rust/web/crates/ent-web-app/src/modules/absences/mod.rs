@@ -26,6 +26,7 @@ use uuid::Uuid;
 use crate::composants_metier::absences::{
     libelle_periode, libelle_retard, nombre_de_jours, StatutAbsence,
 };
+use crate::composants_metier::declaration::{DialogueDeclaration, Origine};
 use crate::noyau::coquille::use_droits;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::{reconnexion, session};
@@ -256,11 +257,35 @@ fn FicheEnfant(
         });
     });
 
+    // Déclaration d'absence (S2-4) : possible pour un lien qui peut justifier ; le serveur revérifie.
+    let decl_ouvert = RwSignal::new(false);
+    let decl_eleve = nom_enfant(&enfant);
+    let declaree = Callback::new(move |_| {
+        let t = "Absence déclarée : la vie scolaire est prévenue.";
+        notifications.succes(t);
+        annonce.set(t.to_string());
+        absences.refetch();
+    });
+
     let enfant_pour_liste = enfant.clone();
     let peut_agir = enfant.peut_justifier_absence;
     view! {
         <Annonce message=Signal::derive(move || annonce.get())/>
         <p class="abs-enfant">{titre_enfant}</p>
+        {peut_agir
+            .then(|| view! {
+                <div class="abs-declarer">
+                    <Bouton on_click=Callback::new(move |_| decl_ouvert.set(true))>
+                        "Déclarer une absence"
+                    </Bouton>
+                </div>
+            })}
+        <DialogueDeclaration
+            ouvert=decl_ouvert
+            origine=Origine::Famille
+            eleve=Signal::derive(move || Some((id, decl_eleve.clone())))
+            on_fait=declaree
+        />
         {match niveau {
             Acces::Aucun => view! {
                 <Alerte niveau=Niveau::Info titre=format!("Vous n'avez pas accès aux absences de {prenom}.")>
