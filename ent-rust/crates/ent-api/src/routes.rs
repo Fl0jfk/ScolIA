@@ -1698,7 +1698,7 @@ async fn list_grants_pending(
 ) -> Result<Json<Vec<DocumentGrantDto>>, (StatusCode, String)> {
     let list = state
         .ent
-        .list_grants_pending_for_actor(session.etablissement_id, &session.role)
+        .list_grants_pending_pour_acteur(session.etablissement_id, session.user_id, &session.role)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -3325,11 +3325,13 @@ async fn list_commissions(
     session: EntSession,
     Query(q): Query<CommissionsQuery>,
 ) -> Result<Json<Vec<CommissionDto>>, (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let jour = q.jour.unwrap_or_else(today_utc);
     let list = state
         .ent
-        .list_commissions_for_actor(session.etablissement_id, &session.role, jour)
+        .list_commissions_pour_acteur(session.etablissement_id, session.user_id, &session.role, jour)
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(CommissionDto::from).collect()))
@@ -3340,7 +3342,9 @@ async fn creer_commission(
     session: EntSession,
     Json(body): Json<CreerCommissionBody>,
 ) -> Result<(StatusCode, Json<CommissionDto>), (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let heure = parse_heure_hm(&body.heure).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -3370,10 +3374,12 @@ async fn list_dossiers_commission(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<CommissionDossierDto>>, (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let list = state
         .ent
-        .list_dossiers_commission_for_actor(session.etablissement_id, &session.role, id)
+        .list_dossiers_commission_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -3392,7 +3398,9 @@ async fn convoquer_commission(
     Path(id): Path<Uuid>,
     Json(body): Json<ConvoquerCommissionBody>,
 ) -> Result<(StatusCode, Json<CommissionDossierDto>), (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let d = state
         .ent
         .convoquer_commission_for_actor(
@@ -3429,7 +3437,9 @@ async fn decider_commission_dossier(
     Path(id): Path<Uuid>,
     Json(body): Json<DeciderCommissionBody>,
 ) -> Result<Json<CommissionDossierDto>, (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let decision = DecisionCommission::parse(&body.decision).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -3493,7 +3503,9 @@ async fn list_incident_types(
     State(state): State<AppState>,
     session: EntSession,
 ) -> Result<Json<Vec<ReferentielVsDto>>, (StatusCode, String)> {
-    session.require_declarer_incident()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::IncidentsDeclarer, "rôle insuffisant pour déclarer un incident")
+        .await?;
     let list = state
         .ent
         .list_incident_types(session.etablissement_id)
@@ -3528,7 +3540,9 @@ async fn list_sanction_types(
     State(state): State<AppState>,
     session: EntSession,
 ) -> Result<Json<Vec<ReferentielVsDto>>, (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let list = state
         .ent
         .list_sanction_types(session.etablissement_id)
@@ -3563,7 +3577,9 @@ async fn list_sanction_motifs(
     State(state): State<AppState>,
     session: EntSession,
 ) -> Result<Json<Vec<ReferentielVsDto>>, (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let list = state
         .ent
         .list_sanction_motifs(session.etablissement_id)
@@ -3625,7 +3641,9 @@ async fn declarer_incident(
     Path(id): Path<Uuid>,
     Json(body): Json<DeclarerIncidentBody>,
 ) -> Result<(StatusCode, Json<IncidentDto>), (StatusCode, String)> {
-    session.require_declarer_incident()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::IncidentsDeclarer, "rôle insuffisant pour déclarer un incident")
+        .await?;
     let incident = state
         .ent
         .declarer_incident_for_actor(
@@ -3684,7 +3702,9 @@ async fn prononcer_sanction(
     Path(id): Path<Uuid>,
     Json(body): Json<PrononcerSanctionBody>,
 ) -> Result<(StatusCode, Json<SanctionDto>), (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let sanction = state
         .ent
         .prononcer_sanction_for_actor(
@@ -3720,7 +3740,9 @@ async fn annuler_sanction(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<SanctionDto>, (StatusCode, String)> {
-    session.require_saisir_sanctions()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanctionsPrononcer, "rôle insuffisant pour la commission / sanctions VS")
+        .await?;
     let sanction = state
         .ent
         .annuler_sanction_for_actor(
@@ -4138,12 +4160,12 @@ async fn list_audit_journal(
     session: EntSession,
     Query(q): Query<AuditJournalQuery>,
 ) -> Result<Json<Vec<JournalEntreeDto>>, (StatusCode, String)> {
-    session.require_manage_eleves()?;
     let domaine = q.domaine.unwrap_or_else(|| "auth".into());
     let list = state
         .ent
         .list_journal_domaine_for_actor(
             session.etablissement_id,
+            session.user_id,
             &session.role,
             &domaine,
             q.limit.unwrap_or(100),
@@ -7993,7 +8015,9 @@ async fn creer_passage_infirmerie(
     session: EntSession,
     Json(body): Json<CreerPassageInfirmerieBody>,
 ) -> Result<(StatusCode, Json<PassageInfirmerieDto>), (StatusCode, String)> {
-    session.require_saisir_infirmerie()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanteSaisir, "rôle insuffisant pour l'infirmerie")
+        .await?;
     let motif = PassageInfirmerieMotif::parse(&body.motif).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -8082,7 +8106,9 @@ async fn upsert_pai(
     Path(id): Path<Uuid>,
     Json(body): Json<UpsertPaiBody>,
 ) -> Result<Json<PaiDto>, (StatusCode, String)> {
-    session.require_saisir_infirmerie()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::SanteSaisir, "rôle insuffisant pour l'infirmerie")
+        .await?;
     let pai = state
         .ent
         .upsert_pai_for_actor(
@@ -8255,7 +8281,9 @@ async fn creer_entretien_psy(
     session: EntSession,
     Json(body): Json<CreerEntretienPsyBody>,
 ) -> Result<(StatusCode, Json<EntretienPsyDto>), (StatusCode, String)> {
-    session.require_saisir_psy()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::PsySaisir, "rôle insuffisant pour la psychologie scolaire")
+        .await?;
     let kind = EntretienPsyKind::parse(&body.kind).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -8326,7 +8354,9 @@ async fn creer_rdv_psy(
     session: EntSession,
     Json(body): Json<CreerRdvPsyBody>,
 ) -> Result<(StatusCode, Json<RdvPsyDto>), (StatusCode, String)> {
-    session.require_saisir_psy()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::PsySaisir, "rôle insuffisant pour la psychologie scolaire")
+        .await?;
     let kind = EntretienPsyKind::parse(&body.kind).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -8379,7 +8409,9 @@ async fn changer_statut_rdv_psy(
     Path(id): Path<Uuid>,
     Json(body): Json<ChangerStatutRdvPsyBody>,
 ) -> Result<Json<RdvPsyDto>, (StatusCode, String)> {
-    session.require_saisir_psy()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::PsySaisir, "rôle insuffisant pour la psychologie scolaire")
+        .await?;
     let statut = RdvPsyStatut::parse(&body.statut).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -8432,7 +8464,9 @@ async fn upsert_dossier_psy(
     Path(eleve_id): Path<Uuid>,
     Json(body): Json<UpsertDossierPsyBody>,
 ) -> Result<Json<DossierPsyDto>, (StatusCode, String)> {
-    session.require_saisir_psy()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::PsySaisir, "rôle insuffisant pour la psychologie scolaire")
+        .await?;
     let dossier = state
         .ent
         .upsert_dossier_psy_for_actor(

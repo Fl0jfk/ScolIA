@@ -192,7 +192,7 @@ use domain_eleve::{
     LigneLivretCompetence, LivretCompetences, NiveauMaitrise,
 };
 use ent_auth::{
-    generate_challenge_token, Action, generate_reset_token, generate_temp_password, hash_token, AuthError,
+    generate_challenge_token, Action, Portee, generate_reset_token, generate_temp_password, hash_token, AuthError,
     Passkey, PasskeyAuthentication, PasskeyEngine, PasskeyError, PasskeyRegistration,
     PublicKeyCredential, RegisterPublicKeyCredential, Role, SecretBox, SecretBoxError,
 };
@@ -8376,10 +8376,70 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .await?)
     }
 
-    pub fn role_can_manage_documents(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_manage_documents())
-            .unwrap_or(false)
+    // ───── R2 (D-017) : domaines sensibles, droits via le moteur ─────
+
+    /// Le personnel `role` a-t-il `action` sur cet élève ? Familles et élèves :
+    /// jamais (garde-fou 1) — leurs règles relationnelles restent à l'appelant.
+    async fn staff_eleve(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        action: Action,
+        eleve_id: Uuid,
+    ) -> Result<bool, EntDbError> {
+        if !Role::parse(role).is_some_and(|r| r.is_staff()) {
+            return Ok(false);
+        }
+        self.autoriser_eleve(etablissement_id, user_id, role, action, eleve_id)
+            .await
+    }
+
+    /// Le personnel a-t-il `action` avec au moins une portée (pré-filtre des
+    /// routes et des listes ; le contrôle par élève reste à `autoriser_eleve`) ?
+    pub async fn a_action_quelconque(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        action: Action,
+    ) -> Result<bool, EntDbError> {
+        if !Role::parse(role).is_some_and(|r| r.is_staff()) {
+            return Ok(false);
+        }
+        Ok(self
+            .droits_effectifs(etablissement_id, user_id, role)
+            .await?
+            .iter()
+            .any(|d| d.action == action))
+    }
+
+    /// Variante d'`a_action_quelconque` qui échoue en `Forbidden`.
+    pub async fn exiger_action_quelconque(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        action: Action,
+    ) -> Result<(), EntDbError> {
+        if self
+            .a_action_quelconque(etablissement_id, user_id, role, action)
+            .await?
+        {
+            Ok(())
+        } else {
+            Err(EntDbError::Forbidden)
+        }
+    }
+
+    /// Droit d'établissement du seul profil de base (sans rôle paramétré) :
+    /// utilisé par les anciens points d'entrée sans identité d'acteur (seed, lab).
+    fn modele_a_etablissement(role: &str, action: Action) -> bool {
+        Role::parse(role).is_some_and(|r| {
+            ent_auth::modele_par_defaut(r)
+                .iter()
+                .any(|(a, p)| *a == action && *p == Portee::Etablissement)
+        })
     }
 
     pub async fn deposer_document(
@@ -8445,7 +8505,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         // que par le serveur, si du contenu est écrit (voir `deposer_document_with_contenu`).
         cmd.storage_key = None;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if Self::role_can_manage_documents(role) {
+        if self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::DocumentsDeposer,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return self.deposer_document_with_contenu(cmd, contenu).await;
         }
         if matches!(parsed, Role::Parent) {
@@ -8621,12 +8690,56 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         .await
     }
 
+    /// Demandes d'accès en attente, limitées aux élèves sur lesquels l'acteur a
+    /// `documents.gerer_droits` (D-017, R2).
+    pub async fn list_grants_pending_pour_acteur(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+    ) -> Result<Vec<DocumentGrant>, EntDbError> {
+        self.exiger_action_quelconque(
+            etablissement_id,
+            actor_user_id,
+            role,
+            Action::DocumentsGererDroits,
+        )
+        .await?;
+        let autorises = self
+            .eleves_autorises(
+                etablissement_id,
+                actor_user_id,
+                role,
+                Action::DocumentsGererDroits,
+            )
+            .await?;
+        let tous = self.documents.list_grants_pending(etablissement_id).await?;
+        let Some(autorises) = autorises else {
+            return Ok(tous);
+        };
+        let mut out = Vec::new();
+        for g in tous {
+            if let Some(doc) = self
+                .documents
+                .get_document(etablissement_id, g.document_id)
+                .await?
+            {
+                if autorises.contains(&doc.eleve_id) {
+                    out.push(g);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ancien point d'entrée sans identité d'acteur : profil de base seulement
+    /// (seed et labo). Les routes utilisent `list_grants_pending_pour_acteur`.
     pub async fn list_grants_pending_for_actor(
         &self,
         etablissement_id: Uuid,
         role: &str,
     ) -> Result<Vec<DocumentGrant>, EntDbError> {
-        if !Self::role_can_manage_documents(role) {
+        if !Self::modele_a_etablissement(role, Action::DocumentsGererDroits) {
             return Err(EntDbError::Forbidden);
         }
         Ok(self.documents.list_grants_pending(etablissement_id).await?)
@@ -8731,7 +8844,33 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: DeciderGrant,
     ) -> Result<DocumentGrant, EntDbError> {
-        if !Self::role_can_manage_documents(role) {
+        self.exiger_action_quelconque(
+            cmd.etablissement_id,
+            cmd.actor_user_id,
+            role,
+            Action::DocumentsGererDroits,
+        )
+        .await?;
+        let grant = self
+            .documents
+            .get_grant(cmd.etablissement_id, cmd.grant_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let doc = self
+            .documents
+            .get_document(cmd.etablissement_id, grant.document_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::DocumentsGererDroits,
+                doc.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.decider_grant_document(cmd).await
@@ -8785,11 +8924,26 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
-        if parsed.can_manage_documents() {
-            return Ok(true);
-        }
-        if doc.confidentialite == DocConfidentialite::Sante && parsed.can_read_sante_docs() {
-            return Ok(true);
+        if parsed.is_staff() {
+            if self
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::DocumentsLire, doc.eleve_id)
+                .await?
+            {
+                return Ok(true);
+            }
+            if doc.confidentialite == DocConfidentialite::Sante
+                && self
+                    .autoriser_eleve(
+                        etablissement_id,
+                        actor_user_id,
+                        role,
+                        Action::DocumentsLireSante,
+                        doc.eleve_id,
+                    )
+                    .await?
+            {
+                return Ok(true);
+            }
         }
         // Parent : tiroir famille + standard seulement (sans grant).
         if parsed == Role::Parent
@@ -10452,17 +10606,6 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .unwrap_or(false)
     }
 
-    pub fn role_can_saisir_sanctions(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_saisir_sanctions())
-            .unwrap_or(false)
-    }
-
-    pub fn role_can_declarer_incident(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_declarer_incident())
-            .unwrap_or(false)
-    }
 
     pub async fn creer_incident_type(
         &self,
@@ -10634,7 +10777,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: DeclarerIncident,
     ) -> Result<Incident, EntDbError> {
-        if !Self::role_can_declarer_incident(role) {
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::IncidentsDeclarer,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.declarer_incident(cmd).await
@@ -10733,7 +10885,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: PrononcerSanction,
     ) -> Result<Sanction, EntDbError> {
-        if !Self::role_can_saisir_sanctions(role) {
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanctionsPrononcer,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.prononcer_sanction(cmd).await
@@ -10783,7 +10944,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: CreerCommissionVs,
     ) -> Result<CommissionVs, EntDbError> {
-        if !Self::role_can_saisir_sanctions(role) {
+        if !self
+            .a_action_etablissement(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanctionsPrononcer,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let actor = cmd.actor_user_id;
@@ -10812,7 +10981,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: ConvoquerCommission,
     ) -> Result<CommissionDossier, EntDbError> {
-        if !Self::role_can_saisir_sanctions(role) {
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanctionsPrononcer,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.eleves
@@ -10849,14 +11027,30 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: DeciderCommissionDossier,
     ) -> Result<CommissionDossier, EntDbError> {
-        if !Self::role_can_saisir_sanctions(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.exiger_action_quelconque(
+            cmd.etablissement_id,
+            cmd.actor_user_id,
+            role,
+            Action::SanctionsPrononcer,
+        )
+        .await?;
         let current = self
             .sanctions
             .get_commission_dossier(cmd.etablissement_id, cmd.dossier_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanctionsPrononcer,
+                current.eleve_id,
+            )
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         let commission = self
             .sanctions
             .get_commission(cmd.etablissement_id, current.commission_id)
@@ -10883,13 +11077,18 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Ok(dossier)
     }
 
-    pub async fn list_commissions_for_actor(
+    /// Commissions du jour : exige `sanctions.prononcer` sur tout l'établissement.
+    pub async fn list_commissions_pour_acteur(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         jour: NaiveDate,
     ) -> Result<Vec<CommissionVs>, EntDbError> {
-        if !Self::role_can_saisir_sanctions(role) {
+        if !self
+            .a_action_etablissement(etablissement_id, actor_user_id, role, Action::SanctionsPrononcer)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         Ok(self
@@ -10898,13 +11097,58 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .await?)
     }
 
+    /// Ancien point d'entrée sans identité d'acteur : profil de base seulement
+    /// (seed et labo). Les routes utilisent `list_commissions_pour_acteur`.
+    pub async fn list_commissions_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        role: &str,
+        jour: NaiveDate,
+    ) -> Result<Vec<CommissionVs>, EntDbError> {
+        if !Self::modele_a_etablissement(role, Action::SanctionsPrononcer) {
+            return Err(EntDbError::Forbidden);
+        }
+        Ok(self
+            .sanctions
+            .list_commissions_jour(etablissement_id, jour, 50)
+            .await?)
+    }
+
+    /// Dossiers d'une commission, limités aux élèves couverts par `sanctions.prononcer`.
+    pub async fn list_dossiers_commission_pour_acteur(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        commission_id: Uuid,
+    ) -> Result<Vec<CommissionDossier>, EntDbError> {
+        self.exiger_action_quelconque(
+            etablissement_id,
+            actor_user_id,
+            role,
+            Action::SanctionsPrononcer,
+        )
+        .await?;
+        let autorises = self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::SanctionsPrononcer)
+            .await?;
+        let mut list = self
+            .sanctions
+            .list_dossiers_commission(etablissement_id, commission_id)
+            .await?;
+        if let Some(autorises) = autorises {
+            list.retain(|d| autorises.contains(&d.eleve_id));
+        }
+        Ok(list)
+    }
+
     pub async fn list_dossiers_commission_for_actor(
         &self,
         etablissement_id: Uuid,
         role: &str,
         commission_id: Uuid,
     ) -> Result<Vec<CommissionDossier>, EntDbError> {
-        if !Self::role_can_saisir_sanctions(role) {
+        if !Self::modele_a_etablissement(role, Action::SanctionsPrononcer) {
             return Err(EntDbError::Forbidden);
         }
         Ok(self
@@ -10921,7 +11165,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         eleve_id: Uuid,
     ) -> Result<Vec<CommissionDossier>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_saisir_sanctions();
+        let staff = self
+            .staff_eleve(etablissement_id, actor_user_id, role, Action::SanctionsPrononcer, eleve_id)
+            .await?;
         if !staff {
             if parsed != Role::Parent {
                 return Err(EntDbError::Forbidden);
@@ -10955,7 +11201,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         eleve_id: Uuid,
     ) -> Result<i32, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_saisir_sanctions();
+        let staff = self
+            .staff_eleve(etablissement_id, actor_user_id, role, Action::SanctionsPrononcer, eleve_id)
+            .await?;
         if !staff {
             if parsed != Role::Parent {
                 return Err(EntDbError::Forbidden);
@@ -11009,7 +11257,28 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: AnnulerSanction,
     ) -> Result<Sanction, EntDbError> {
-        if !Self::role_can_saisir_sanctions(role) {
+        self.exiger_action_quelconque(
+            cmd.etablissement_id,
+            cmd.actor_user_id,
+            role,
+            Action::SanctionsPrononcer,
+        )
+        .await?;
+        let sanction = self
+            .sanctions
+            .get_sanction(cmd.etablissement_id, cmd.sanction_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanctionsPrononcer,
+                sanction.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.annuler_sanction(cmd).await
@@ -11981,12 +12250,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn list_journal_domaine_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         domaine: &str,
         limit: i64,
     ) -> Result<Vec<JournalEntree>, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_read_all_eleves() || parsed.can_manage_eleves()) {
+        // D-017 R2 : journal d'audit (dont les consultations sensibles) = `audit.lire`.
+        if !self
+            .a_action_etablissement(etablissement_id, actor_user_id, role, Action::AuditLire)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let lim = if limit <= 0 { 50 } else { limit.min(500) };
@@ -14562,18 +14835,21 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .unwrap_or(false)
     }
 
-    pub fn role_can_saisir_infirmerie(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_saisir_infirmerie())
-            .unwrap_or(false)
-    }
-
     pub async fn creer_passage_infirmerie_for_actor(
         &self,
         role: &str,
         cmd: CreerPassageInfirmerie,
     ) -> Result<PassageInfirmerie, EntDbError> {
-        if !Self::role_can_saisir_infirmerie(role) {
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanteSaisir,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.eleves
@@ -14610,7 +14886,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         jour: Option<NaiveDate>,
     ) -> Result<Vec<PassageInfirmerie>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff_saisie = parsed.can_saisir_infirmerie();
+        let staff_saisie = match eleve_id {
+            Some(eid) => {
+                self.staff_eleve(etablissement_id, actor_user_id, role, Action::SanteLire, eid)
+                    .await?
+            }
+            None => {
+                self.a_action_quelconque(etablissement_id, actor_user_id, role, Action::SanteLire)
+                    .await?
+            }
+        };
         let is_parent = parsed == Role::Parent;
         let is_eleve = parsed == Role::Eleve;
 
@@ -14651,6 +14936,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             return Err(EntDbError::Forbidden);
         };
 
+        // Listes du jour : limitées aux élèves couverts par la portée de `sante.lire`.
+        if eleve_id.is_none() && staff_saisie {
+            if let Some(ens) = self
+                .eleves_autorises(etablissement_id, actor_user_id, role, Action::SanteLire)
+                .await?
+            {
+                list.retain(|p| ens.contains(&p.eleve_id));
+            }
+        }
         if is_parent || is_eleve {
             list = list
                 .into_iter()
@@ -14667,7 +14961,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: UpsertFicheSante,
     ) -> Result<FicheSante, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = Self::role_can_saisir_infirmerie(role);
+        let staff = self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanteSaisir,
+                cmd.eleve_id,
+            )
+            .await?;
         let parent = matches!(parsed, Role::Parent);
         if !staff && !parent {
             return Err(EntDbError::Forbidden);
@@ -14727,7 +15029,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         eleve_id: Uuid,
     ) -> Result<Option<FicheSante>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_saisir_infirmerie();
+        let staff = self
+            .staff_eleve(etablissement_id, actor_user_id, role, Action::SanteLire, eleve_id)
+            .await?;
         if staff {
             return Ok(self.infirmerie.get_fiche(etablissement_id, eleve_id).await?);
         }
@@ -14766,7 +15070,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: UpsertPai,
     ) -> Result<Pai, EntDbError> {
-        if !Self::role_can_saisir_infirmerie(role) {
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanteSaisir,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.eleves
@@ -14814,7 +15127,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         eleve_id: Uuid,
     ) -> Result<Option<Pai>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_saisir_infirmerie();
+        let staff = self
+            .staff_eleve(etablissement_id, actor_user_id, role, Action::SanteLire, eleve_id)
+            .await?;
         if staff {
             return Ok(self.infirmerie.get_pai(etablissement_id, eleve_id).await?);
         }
@@ -14896,7 +15211,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: AttacherOrdonnancePai,
     ) -> Result<PaiPiece, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = Self::role_can_saisir_infirmerie(role);
+        let staff = self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::SanteSaisir,
+                cmd.eleve_id,
+            )
+            .await?;
         let parent = matches!(parsed, Role::Parent);
         if !staff && !parent {
             return Err(EntDbError::Forbidden);
@@ -15034,7 +15357,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         eleve_id: Uuid,
     ) -> Result<Vec<u8>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = parsed.can_saisir_infirmerie();
+        let staff = self
+            .staff_eleve(etablissement_id, actor_user_id, role, Action::SanteLire, eleve_id)
+            .await?;
         if !staff {
             if parsed == Role::Eleve {
                 let linked = self
@@ -15092,18 +15417,21 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Ok(bytes)
     }
 
-    pub fn role_can_saisir_psy(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| r.can_saisir_psy())
-            .unwrap_or(false)
-    }
-
     pub async fn creer_entretien_psy_for_actor(
         &self,
         role: &str,
         cmd: CreerEntretienPsy,
     ) -> Result<EntretienPsy, EntDbError> {
-        if !Self::role_can_saisir_psy(role) {
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::PsySaisir,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.eleves
@@ -15141,7 +15469,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         jour: Option<NaiveDate>,
     ) -> Result<Vec<EntretienPsy>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff_psy = parsed.can_saisir_psy();
+        let staff_psy = match eleve_id {
+            Some(eid) => {
+                self.staff_eleve(etablissement_id, actor_user_id, role, Action::PsyLire, eid)
+                    .await?
+            }
+            None => {
+                self.a_action_quelconque(etablissement_id, actor_user_id, role, Action::PsyLire)
+                    .await?
+            }
+        };
         let is_parent = parsed == Role::Parent;
 
         let mut list = if let Some(eid) = eleve_id {
@@ -15172,6 +15509,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             return Err(EntDbError::Forbidden);
         };
 
+        // Listes du jour : limitées aux élèves couverts par la portée de `psy.lire`.
+        if eleve_id.is_none() && staff_psy {
+            if let Some(ens) = self
+                .eleves_autorises(etablissement_id, actor_user_id, role, Action::PsyLire)
+                .await?
+            {
+                list.retain(|x| ens.contains(&x.eleve_id));
+            }
+        }
         if is_parent {
             list = list
                 .into_iter()
@@ -15187,7 +15533,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: UpsertDossierPsy,
     ) -> Result<DossierPsy, EntDbError> {
-        if !Self::role_can_saisir_psy(role) {
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::PsySaisir,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.eleves
@@ -15223,7 +15578,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         eleve_id: Uuid,
     ) -> Result<Option<DossierPsy>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if parsed.can_saisir_psy() {
+        if self
+            .staff_eleve(etablissement_id, actor_user_id, role, Action::PsyLire, eleve_id)
+            .await?
+        {
             return Ok(self.psy.get_dossier(etablissement_id, eleve_id).await?);
         }
         if parsed == Role::Parent {
@@ -15289,7 +15647,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         eleve_id: Uuid,
     ) -> Result<Vec<u8>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff_psy = parsed.can_saisir_psy();
+        let staff_psy = self
+            .staff_eleve(etablissement_id, actor_user_id, role, Action::PsyLire, eleve_id)
+            .await?;
         if !staff_psy {
             if parsed != Role::Parent {
                 return Err(EntDbError::Forbidden);
@@ -15338,8 +15698,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         eleve_id: Uuid,
     ) -> Result<usize, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_saisir_psy() {
+        if !self
+            .staff_eleve(etablissement_id, actor_user_id, role, Action::PsySaisir, eleve_id)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let dossier = self
@@ -15390,7 +15752,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: CreerRdvPsy,
     ) -> Result<RdvPsy, EntDbError> {
-        if !Self::role_can_saisir_psy(role) {
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::PsySaisir,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.eleves
@@ -15426,14 +15797,30 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         role: &str,
         cmd: ChangerStatutRdvPsy,
     ) -> Result<RdvPsy, EntDbError> {
-        if !Self::role_can_saisir_psy(role) {
-            return Err(EntDbError::Forbidden);
-        }
+        self.exiger_action_quelconque(
+            cmd.etablissement_id,
+            cmd.actor_user_id,
+            role,
+            Action::PsySaisir,
+        )
+        .await?;
         let current = self
             .psy
             .get_rdv(cmd.etablissement_id, cmd.rdv_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        if !self
+            .staff_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::PsySaisir,
+                current.eleve_id,
+            )
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         let actor = cmd.actor_user_id;
         let updated = plan_changer_statut_rdv_psy(&current, &cmd)?;
         self.psy.update_rdv_statut(&updated).await?;
@@ -15463,7 +15850,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         jour: Option<NaiveDate>,
     ) -> Result<Vec<RdvPsy>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff_psy = parsed.can_saisir_psy();
+        let staff_psy = match eleve_id {
+            Some(eid) => {
+                self.staff_eleve(etablissement_id, actor_user_id, role, Action::PsyLire, eid)
+                    .await?
+            }
+            None => {
+                self.a_action_quelconque(etablissement_id, actor_user_id, role, Action::PsyLire)
+                    .await?
+            }
+        };
         let is_parent = parsed == Role::Parent;
 
         let mut list = if let Some(eid) = eleve_id {
@@ -15493,6 +15889,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             return Err(EntDbError::Forbidden);
         };
 
+        // Listes du jour : limitées aux élèves couverts par la portée de `psy.lire`.
+        if eleve_id.is_none() && staff_psy {
+            if let Some(ens) = self
+                .eleves_autorises(etablissement_id, actor_user_id, role, Action::PsyLire)
+                .await?
+            {
+                list.retain(|x| ens.contains(&x.eleve_id));
+            }
+        }
         if is_parent {
             list = list
                 .into_iter()

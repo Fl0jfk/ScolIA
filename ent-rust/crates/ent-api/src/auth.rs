@@ -118,25 +118,22 @@ impl EntSession {
         }
     }
 
-    pub fn require_saisir_infirmerie(&self) -> Result<(), (StatusCode, String)> {
-        if PgEnt::role_can_saisir_infirmerie(&self.role) {
-            Ok(())
-        } else {
-            Err((
-                StatusCode::FORBIDDEN,
-                "rôle insuffisant pour l'infirmerie".into(),
-            ))
-        }
-    }
-
-    pub fn require_saisir_psy(&self) -> Result<(), (StatusCode, String)> {
-        if PgEnt::role_can_saisir_psy(&self.role) {
-            Ok(())
-        } else {
-            Err((
-                StatusCode::FORBIDDEN,
-                "rôle insuffisant pour la psychologie scolaire".into(),
-            ))
+    /// D-017 (R2) : pré-filtre d'une route — l'acteur doit avoir `action` avec au
+    /// moins une portée (rôle de base ou rôles paramétrés). Le contrôle par élève
+    /// reste fait par le service (`autoriser_eleve`).
+    pub async fn require_action(
+        &self,
+        ent: &PgEnt,
+        action: ent_auth::Action,
+        refus: &str,
+    ) -> Result<(), (StatusCode, String)> {
+        match ent
+            .a_action_quelconque(self.etablissement_id, self.user_id, &self.role, action)
+            .await
+        {
+            Ok(true) => Ok(()),
+            Ok(false) => Err((StatusCode::FORBIDDEN, refus.to_string())),
+            Err(e) => Err(crate::routes::map_db(e)),
         }
     }
 
@@ -147,28 +144,6 @@ impl EntSession {
             Err((
                 StatusCode::FORBIDDEN,
                 "rôle insuffisant pour gérer l'EDT".into(),
-            ))
-        }
-    }
-
-    pub fn require_saisir_sanctions(&self) -> Result<(), (StatusCode, String)> {
-        if PgEnt::role_can_saisir_sanctions(&self.role) {
-            Ok(())
-        } else {
-            Err((
-                StatusCode::FORBIDDEN,
-                "rôle insuffisant pour la commission / sanctions VS".into(),
-            ))
-        }
-    }
-
-    pub fn require_declarer_incident(&self) -> Result<(), (StatusCode, String)> {
-        if PgEnt::role_can_declarer_incident(&self.role) {
-            Ok(())
-        } else {
-            Err((
-                StatusCode::FORBIDDEN,
-                "rôle insuffisant pour déclarer un incident".into(),
             ))
         }
     }
