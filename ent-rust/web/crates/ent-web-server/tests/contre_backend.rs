@@ -868,7 +868,11 @@ async fn tranche1_deconnexion_annonces_messages_passkey() {
             .map(|m| m.keys().cloned().collect::<Vec<_>>())
             .unwrap_or_default()
     };
-    assert_eq!(cles(&connu.options), cles(&inconnu.options), "même forme de défi");
+    assert_eq!(
+        cles(&connu.options),
+        cles(&inconnu.options),
+        "même forme de défi"
+    );
 
     // Déconnexion : la session est révoquée, `moi()` répond 401.
     let s = labo::connecter(&base, &l, &p.email).await.unwrap();
