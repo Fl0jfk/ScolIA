@@ -1,7 +1,8 @@
 //! Connexion : passkey (sans mot de passe), ou mot de passe puis passkey si le compte
 //! en a une (second facteur). Routes d'authentification existantes, **inchangées**.
 
-pub mod webauthn;
+// WebAuthn partagé (connexion et enrôlement) : vit dans le noyau.
+pub use crate::noyau::webauthn;
 
 use ent_web_api::{ApiError, Connexion, PasskeyChallengeDto, Session};
 use ent_web_ui::{Alerte, Bouton, ChampTexte, Icone, Niveau, NomIcone, Variante};

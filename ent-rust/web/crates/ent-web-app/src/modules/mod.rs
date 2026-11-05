@@ -8,4 +8,5 @@ pub mod classes;
 pub mod connexion;
 pub mod edt;
 pub mod messagerie;
+pub mod securite;
 pub mod vie_scolaire;

@@ -114,3 +114,26 @@ Niveau : **implémenté + testé en local**. Pas validé pilote, pas prêt produ
 - Sécurité ajoutée : CSP à nonce sur `/web` et `/pkg`, durcissement de l'adresse de retour, synchro d'onglets (voir `SECURITY.md`).
 
 Limites restantes : `PROJECT_STATUS.md`, section « Tranche 1 ».
+
+## 8. Module « Sécurité du compte » (socle 1, 2026-11-05)
+
+Statut : **implémenté + testé en local** sur la branche `ent-socle1-ecrans-securite` ; pas validé pilote. Plan et suivi sécurité : `docs/SOCLE1_SECURITE.md`.
+
+| Écran | Route | Rôle |
+|---|---|---|
+| Enrôlement obligatoire | `/web/securite/enrolement` (hors coquille) | écran plein, accessible, 375 px ; seule sortie « Se déconnecter » ; succès → accueil |
+| Sécurité du compte | `/web/securite` (coquille ; lien « Compte » dans le pied de navigation, visible sur téléphone) | niveau de la session, passkeys (ajout / suppression avec mot de passe actuel et confirmation), appareils (liste, déconnexion confirmée) |
+| Politique de sécurité | `/web/direction/securite` (Admin, Direction ; lien depuis « Compte ») | passkey obligatoire par rôle, enregistrement après confirmation |
+
+Architecture :
+- `noyau/portee.rs` : décision pure de redirection selon la portée de la session (`complete` / `enrolement`) ; `noyau/coquille.rs` charge `/auth/me` une seule fois (identité **et** portée, niveau d'assurance, client) et expose `ContexteSession.securite` ;
+- `noyau/webauthn.rs` : signature d'un défi **et création d'une passkey** (déplacé depuis `modules/connexion/` pour être partagé : un module ne dépend pas d'un autre) ;
+- `ent-web-api/src/securite.rs` : `MoiSecurite`, `PasskeyCompte`, `AppareilSession`, `PolitiqueSecurite` + méthodes du client (`PUT`, `DELETE` ajoutés au transport). `ent_types::auth::MeDto` n'a pas encore `portee`/`assurance`/`client`/`passkey_obligatoire` : `MoiSecurite` les décode (valeurs sûres si absents) ; à remonter dans `ent-types` quand le backend pourra être modifié ;
+- `modules/securite/modele.rs` : libellés, validation, tri des appareils, édition de la politique (aucune règle de sécurité : le serveur décide) ;
+- `ent-web-ui::Coquille` : nouvelle propriété `liens_pied` (liens avant « Se déconnecter »).
+
+Tests : `ent-web-app` (modèle, redirection), `ent-web-api` (contrats JSON, 403 `passkey_enrolement_requis`), `ent-web-server/tests/securite.rs` (rendu serveur, sans base) et `droits_parite.rs` (`gerer_securite` = Admin et Direction).
+
+Vérifications : tests contre le vrai backend (`ent-web-server/tests/securite_backend.rs`, base locale jetable) ; parcours complet essayé dans Chrome (Playwright) avec authentificateur WebAuthn virtuel : enrôlement obligatoire à 375 px sans défilement horizontal, contournements refusés, ajout / suppression de passkey, appareils, politique, accès refusé à un professeur ; aucun avertissement d'hydratation.
+
+Limites : axe-core et lecteur d'écran non faits ; Firefox / Safari non essayés ; `contre_backend::contrat_json_ent_types_lot1` échoue (MeDto d'`ent-types` en retard sur `/auth/me`, voir `SOCLE1_SECURITE.md`) ; la barre d'onglets du téléphone compte une entrée de plus (« Compte ») ; supprimer une passkey est refusé ou provoque un retour à l'enrôlement selon le backend ; aucune route pour renommer une passkey ni lister les sessions d'autres établissements (voulu, D-013).

@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 1 — écrans de sécurité du compte (2026-11-05)
+Frontend Leptos : enrôlement obligatoire d'une passkey (`/web/securite/enrolement`), « Sécurité du compte » (`/web/securite`), politique de sécurité de l'établissement (`/web/direction/securite`). **Implémenté + testé en local** (branche `ent-socle1-ecrans-securite`), non validé pilote, non fusionné. Backend non modifié. Détail, limites et divergence `ent-types::MeDto` : `docs/SOCLE1_SECURITE.md` (« Écrans frontend ») et `docs/FRONTEND_CIBLE.md` § 8.
+
 ## Vague produit 1 (2026-11-04 → 05)
 
 **Niveau atteint : implémenté + testé en local.** Non validé pilote, non prêt production. Commité et poussé sur `ENT` dans la foulée ; SHA à compléter par le coordinateur. CI GitHub sur ces commits : non vérifiée.

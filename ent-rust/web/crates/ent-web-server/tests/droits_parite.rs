@@ -391,3 +391,17 @@ fn droits_classes_conformes_a_ent_db() {
         assert!(!(d.voir_classes && d.mes_classes), "{r:?}");
     }
 }
+
+/// Politique de sécurité de l'établissement (`GET`/`PUT /etablissement/securite`) : la route
+/// n'accepte que Admin et Direction (`routes.rs::get_politique_securite`, et
+/// `definir_politique_securite_for_actor` dans ent-db). L'interface ne propose la page qu'à ces rôles.
+#[test]
+fn droit_gerer_securite_reserve_a_admin_et_direction() {
+    for r in tous_auth() {
+        assert_eq!(
+            droits_du_role(r.as_str()).gerer_securite,
+            matches!(r, Auth::Admin | Auth::Direction),
+            "`gerer_securite` diverge de la route pour {r:?}"
+        );
+    }
+}

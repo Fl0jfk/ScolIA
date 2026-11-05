@@ -21,8 +21,8 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 | # | Lot | Gravité | Statut |
 |---|---|---|---|
 | A1 | Passkey rattachée à la personne : le 2ᵉ facteur n'était exigé que dans l'établissement d'enrôlement (contournement par un autre établissement ou son SSO) | Critique | implémenté + testé en local (`f80c634`) |
-| A2 | Obligation de passkey : politique par rôle et date, session « enrôlement seulement » tant qu'aucune passkey, lien d'enrôlement initial sans mot de passe (D-009) | Critique | à faire |
-| A3 | Session serveur : inactivité 2 h et maximum 12 h pour le web, longue révocable pour le mobile (D-011), niveau d'assurance (mot de passe / passkey), liste et révocation des appareils | Élevée | à faire |
+| A2 | Obligation de passkey : politique par rôle et date, session « enrôlement seulement » tant qu'aucune passkey, lien d'enrôlement initial sans mot de passe (D-009) | Critique | à faire (écrans web : implémentés + testés en local, voir « Écrans frontend ») |
+| A3 | Session serveur : inactivité 2 h et maximum 12 h pour le web, longue révocable pour le mobile (D-011), niveau d'assurance (mot de passe / passkey), liste et révocation des appareils | Élevée | à faire (écran « mes appareils » : implémenté + testé en local) |
 | A4 | Anti-abus : limitation de débit (oubli de mot de passe, passkey, OIDC, réinitialisation), IP fiable derrière proxy, verrou sans déni de service, réponses indiscernables (énumération), bornes de taille | Élevée | en cours (sous-agent) |
 | A5 | WebAuthn fail-closed : `rp_id` `scolia.fr` validé au démarrage, liste d'origines (sous-domaines, applis natives) | Élevée | à faire |
 | A6 | Cookie `HttpOnly` en production pour le web (fin du jeton en `localStorage`), sur la base du prototype `ent-web-session` et de A3 | Élevée | à faire |
@@ -61,6 +61,24 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 
 ### E. Transverse
 HSTS et CSP sur l'API, tests de sécurité en CI, journal (rôle de migration séparé, conservation), RGPD (droit d'accès, conservation). À planifier après A–D.
+
+## Écrans frontend du socle 1 (2026-11-05)
+Branche `ent-socle1-ecrans-securite`, module `ent-rust/web/crates/ent-web-app/src/modules/securite/`. Backend **non modifié** : les écrans s'appuient sur les routes décrites ci-dessous.
+
+| Écran | Route web | Routes `ent-api` utilisées | Statut |
+|---|---|---|---|
+| Enrôlement obligatoire d'une passkey (écran plein, hors coquille, seule sortie : « Se déconnecter ») | `/web/securite/enrolement` | `GET /auth/me` (`portee`), `POST /auth/passkey/register/start` et `/finish` (mot de passe vide accepté en session « enrôlement »), `POST /auth/logout` | implémenté + testé en local (unitaires, rendu serveur, contre le backend, Chrome avec authentificateur WebAuthn virtuel à 375 px : redirection, contournement refusé, création de passkey, retour à l'accueil) |
+| Sécurité du compte : niveau de la session, mes passkeys (liste, ajout et suppression avec mot de passe actuel), mes appareils (liste, « cet appareil », déconnexion confirmée) | `/web/securite` | `GET /auth/me`, `GET`/`DELETE /auth/passkeys`, `GET`/`DELETE /auth/sessions` | implémenté + testé en local (idem ; ajout, suppression avec mauvais puis bon mot de passe, déconnexion d'un autre appareil vérifiés au navigateur) |
+| Politique de sécurité (cases par rôle, enregistrement confirmé) | `/web/direction/securite` (lien depuis « Compte » pour Admin et Direction) | `GET`/`PUT /etablissement/securite` | implémenté + testé en local (idem ; confirmation, enregistrement, refus à un professeur vérifiés au navigateur) |
+
+Comportement de redirection (`noyau/portee.rs`, testé) : session « enrôlement » → toute page de la coquille redirige vers l'écran d'enrôlement et ne charge aucune donnée ; un 403 `passkey_enrolement_requis` reçu par un écran déjà ouvert redirige de même ; session complète sur l'écran d'enrôlement → accueil. Le serveur reste l'autorité : contourner l'écran ne donne accès à rien.
+
+Constats (2026-11-05) :
+- le serveur calcule la portée **à l'ouverture de la session** : supprimer la dernière passkey d'un rôle obligatoire ne bascule pas la session en cours en « enrôlement » ; l'obligation s'applique à la prochaine connexion (l'écran l'annonce ainsi) ;
+- **API manquante / divergence** : `ent_types::auth::MeDto` n'a pas `portee`, `assurance`, `client`, `passkey_obligatoire` alors que `GET /auth/me` les renvoie ; le test `contre_backend::contrat_json_ent_types_lot1` échoue donc sur cette route (ancien test de contrat, non lié aux écrans). Correction côté `ent-types` (hors périmètre de cette branche). Le frontend décode ces champs dans `ent_web_api::MoiSecurite` en attendant ;
+- aucune route de renommage de passkey.
+
+À faire avant « CI verte » / « validé » : CI complète, axe-core et lecteur d'écran, essais Firefox / Safari (passkey), appareils mobiles réels.
 
 ## Ordre de réalisation
 A1 → B1 → (A4, D1 en parallèle) → A2 → A3 → B2–B4 → C1 → C2 → A5 → A6 → B5–B7 → C3–C6 → A7–A9, D2–D3, E.

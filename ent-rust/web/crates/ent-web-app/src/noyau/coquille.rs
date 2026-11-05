@@ -2,19 +2,16 @@
 //! pages, construit la navigation selon les droits, gère la déconnexion (y compris
 //! dans les autres onglets).
 
-use std::cell::Cell;
-use std::rc::Rc;
-
-use ent_web_api::ApiError;
+use ent_web_api::{ApiError, MoiSecurite};
 use ent_web_ui::{Coquille, Identite};
 use leptos::prelude::*;
-use leptos::task::spawn_local;
 use leptos_router::components::Outlet;
 use leptos_router::hooks::{use_location, use_navigate};
 
 use super::droits::{droits_du_role, libelle_role, Droits};
 use super::navigation;
 use super::non_lus::{self, NonLus};
+use super::portee::{self, Portee};
 use super::session::{self, ContexteSession};
 use crate::modules::connexion::config_connexion;
 
@@ -58,8 +55,36 @@ pub fn AppCoquille() -> impl IntoView {
         });
     }
 
-    let moi = LocalResource::new(|| async { session::client().moi().await });
-    provide_context(ContexteSession { moi });
+    // Une seule requête `/auth/me` : identité + portée et niveau de la session.
+    let securite = RwSignal::new(None::<MoiSecurite>);
+    let moi = LocalResource::new(move || async move {
+        let m = session::client().moi_securite().await?;
+        let identite = m.identite();
+        securite.set(Some(m));
+        Ok(identite)
+    });
+    provide_context(ContexteSession { moi, securite });
+
+    // Passkey obligatoire non enrôlée : écran d'enrôlement, sans autre chemin.
+    let en_enrolement = Memo::new(move |_| {
+        securite.with(|s| {
+            s.as_ref()
+                .is_some_and(|m| Portee::depuis(&m.portee) == Portee::Enrolement)
+        })
+    });
+    {
+        let navigate = navigate.clone();
+        Effect::new(move |_| {
+            let portee = if en_enrolement.get() {
+                Portee::Enrolement
+            } else {
+                Portee::Complete
+            };
+            if let Some(cible) = portee::decision_redirection(portee, &location.pathname.get()) {
+                navigate(cible, Default::default());
+            }
+        });
+    }
 
     // Session refusée par le serveur (expirée, révoquée) : retour à la connexion.
     {
@@ -159,6 +184,7 @@ pub fn AppCoquille() -> impl IntoView {
         navigation::avec_compteur_messages(navigation::entrees(droits.get()), total_non_lus.get())
     });
     let courant = Signal::derive(move || location.pathname.get());
+    let liens_pied = Signal::derive(navigation::liens_compte);
     let rail = Signal::derive(move || navigation::ecran_de_saisie(&location.pathname.get()));
     let identite = Signal::derive(move || {
         moi.get().and_then(Result::ok).map(|m| Identite {
@@ -177,35 +203,7 @@ pub fn AppCoquille() -> impl IntoView {
             return;
         }
         en_deconnexion.set(true);
-        // Le client a copié le jeton : on efface la session locale tout de suite (les
-        // autres onglets le voient par l'événement `storage`), puis on attend la
-        // révocation en base, au plus `DELAI_REVOCATION`. L'écran « Déconnexion… »
-        // masque l'interface pendant l'attente.
-        let client = session::client();
-        session::effacer();
-        let fini = Rc::new(Cell::new(false));
-        {
-            let navigate = navigate.clone();
-            let fini = fini.clone();
-            spawn_local(async move {
-                let resultat = client.deconnexion().await;
-                if !fini.replace(true) {
-                    navigate(
-                        session::adresse_apres_deconnexion(Some(&resultat)),
-                        Default::default(),
-                    );
-                }
-            });
-        }
-        let navigate = navigate.clone();
-        set_timeout(
-            move || {
-                if !fini.replace(true) {
-                    navigate(session::adresse_apres_deconnexion(None), Default::default());
-                }
-            },
-            session::DELAI_REVOCATION,
-        );
+        session::deconnecter(navigate.clone());
     });
 
     // Pendant la révocation, toute l'interface est démontée : aucune donnée de la
@@ -228,10 +226,19 @@ pub fn AppCoquille() -> impl IntoView {
                         etablissement=etablissement
                         identite=identite
                         rail=rail
+                        liens_pied=liens_pied
                         on_deconnexion=deconnecter
                     >
                         <div id="annonce-page" class="ui-sr" role="status" aria-live="polite" aria-atomic="true"></div>
-                        <Outlet/>
+                        // Session « enrôlement » : aucune page métier ne se charge (redirection en cours).
+                        {move || {
+                            if en_enrolement.get() {
+                                view! { <p role="status">"Redirection vers l'enregistrement de votre passkey…"</p> }
+                                    .into_any()
+                            } else {
+                                view! { <Outlet/> }.into_any()
+                            }
+                        }}
                     </Coquille>
                 }
                     .into_any()

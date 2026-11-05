@@ -21,11 +21,16 @@ mod auth;
 mod communication;
 mod edt;
 mod referentiel;
+mod securite;
 mod vie_scolaire;
 
 pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
+};
+pub use securite::{
+    AppareilSession, ChallengeEnrolement, MoiSecurite, PasskeyCompte, PolitiqueSecurite,
+    ENROLEMENT_REQUIS,
 };
 pub use vie_scolaire::DecisionApi;
 
@@ -139,10 +144,19 @@ fn ligne_bornee(texte: &str) -> String {
 }
 
 impl ApiError {
+    /// Le serveur exige d'abord l'enrôlement d'une passkey (session « enrôlement ») :
+    /// 403 avec le corps texte `passkey_enrolement_requis`.
+    pub fn est_enrolement_requis(&self) -> bool {
+        matches!(self, ApiError::Interdit(corps) if corps.trim() == ENROLEMENT_REQUIS)
+    }
+
     /// Message destiné à l'utilisateur (français, sans détail technique inutile).
     pub fn message_utilisateur(&self) -> String {
         match self {
             ApiError::NonConnecte => "Votre session a expiré. Reconnectez-vous.".into(),
+            ApiError::Interdit(_) if self.est_enrolement_requis() => {
+                "Vous devez d'abord enregistrer une passkey pour utiliser votre compte.".into()
+            }
             ApiError::Interdit(_) => {
                 "Vous n'avez pas les droits nécessaires pour cette action.".into()
             }
@@ -198,6 +212,8 @@ impl std::fmt::Debug for ApiClient {
 pub(crate) enum Methode {
     Get,
     Post,
+    Put,
+    Delete,
 }
 
 impl ApiClient {
@@ -311,6 +327,24 @@ mod tests {
             ApiError::depuis_statut(503, "x".into()),
             ApiError::Serveur(503, _)
         ));
+    }
+
+    #[test]
+    fn enrolement_requis_reconnu_dans_un_403() {
+        let e = ApiError::depuis_statut(403, "passkey_enrolement_requis".into());
+        assert!(e.est_enrolement_requis());
+        assert!(
+            ApiError::depuis_statut(403, " passkey_enrolement_requis\n".into())
+                .est_enrolement_requis()
+        );
+        assert!(
+            !ApiError::depuis_statut(403, "réservé à la direction".into()).est_enrolement_requis()
+        );
+        assert!(
+            !ApiError::depuis_statut(401, "passkey_enrolement_requis".into())
+                .est_enrolement_requis()
+        );
+        assert!(e.message_utilisateur().contains("passkey"));
     }
 
     #[test]

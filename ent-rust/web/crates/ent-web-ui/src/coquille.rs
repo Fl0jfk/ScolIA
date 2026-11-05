@@ -43,6 +43,9 @@ pub fn Coquille(
     /// Rail d'icônes même sur grand écran (écrans de saisie).
     #[prop(optional, into)]
     rail: Signal<bool>,
+    /// Liens du pied de navigation, avant « Se déconnecter » (ex. « Compte »).
+    #[prop(optional, into)]
+    liens_pied: Signal<Vec<EntreeNav>>,
     on_deconnexion: Callback<()>,
     children: Children,
 ) -> impl IntoView {
@@ -97,6 +100,27 @@ pub fn Coquille(
                                     </div>
                                 }
                             })
+                    }}
+                    {move || {
+                        liens_pied
+                            .get()
+                            .into_iter()
+                            .map(|e| {
+                                let href = e.href.clone();
+                                let titre = e.libelle.clone();
+                                view! {
+                                    <a
+                                        class="ui-coquille__lien"
+                                        href=e.href.clone()
+                                        title=titre
+                                        aria-current=move || courant.with(|c| lien_actif(&href, c)).then_some("page")
+                                    >
+                                        <Icone nom=e.icone/>
+                                        <span class="ui-coquille__libelle">{e.libelle.clone()}</span>
+                                    </a>
+                                }
+                            })
+                            .collect_view()
                     }}
                     <button
                         type="button"

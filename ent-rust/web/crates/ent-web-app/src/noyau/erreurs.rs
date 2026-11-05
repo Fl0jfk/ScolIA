@@ -31,6 +31,17 @@ pub fn ErreurChargement(erreur: ApiError, on_reessayer: Callback<()>) -> impl In
             }
             .into_any()
         }
+        // Session « enrôlement » : le serveur refuse tout sauf l'enrôlement d'une passkey.
+        e @ ApiError::Interdit(_) if e.est_enrolement_requis() => {
+            let navigate = use_navigate();
+            Effect::new(move |_| navigate(super::portee::ENROLEMENT, Default::default()));
+            view! {
+                <Alerte niveau=Niveau::Info titre="Une passkey doit d'abord être enregistrée.">
+                    <p>"Redirection vers l'enregistrement de votre passkey…"</p>
+                </Alerte>
+            }
+            .into_any()
+        }
         ApiError::Interdit(_) => view! {
             <AccesRefuse message="Votre profil ne permet pas d'accéder à ces informations."/>
         }

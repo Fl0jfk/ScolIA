@@ -58,6 +58,7 @@ pub fn App() -> impl IntoView {
         <Router>
             <Routes fallback=PageIntrouvable>
                 <Route path=path!("/web/connexion") view=modules::connexion::PageConnexion/>
+                <Route path=path!("/web/securite/enrolement") view=modules::securite::PageEnrolement/>
                 <Route path=path!("/web/_composants") view=composants::PageComposants/>
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
@@ -71,6 +72,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("messages") view=modules::messagerie::PageMessages/>
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>
+                    <Route path=path!("securite") view=modules::securite::PageSecurite/>
+                    <Route path=path!("direction/securite") view=modules::securite::PagePolitiqueSecurite/>
                 </ParentRoute>
             </Routes>
             <ent_web_ui::ZoneNotifications/>
