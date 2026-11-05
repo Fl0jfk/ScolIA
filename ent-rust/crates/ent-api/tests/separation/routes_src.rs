@@ -17,8 +17,23 @@ const METHODES: [(&str, &str); 5] = [
     ("patch(", "PATCH"),
 ];
 
+/// Toutes les sources qui déclarent des routes (routeurs fusionnés par
+/// `routes.rs` : référentiel, rôles). Une nouvelle source de routes doit
+/// être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
+pub const SOURCES: [&str; 3] = [
+    include_str!("../../src/routes.rs"),
+    include_str!("../../src/referentiel.rs"),
+    include_str!("../../src/roles.rs"),
+];
+
+/// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
+pub const NOMS_SOURCES: [&str; 3] = ["routes.rs", "referentiel.rs", "roles.rs"];
+
 pub fn routes() -> Vec<RouteDecl> {
-    let src: &str = include_str!("../../src/routes.rs");
+    SOURCES.iter().flat_map(|s| routes_de(s)).collect()
+}
+
+fn routes_de(src: &str) -> Vec<RouteDecl> {
     let b = src.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;

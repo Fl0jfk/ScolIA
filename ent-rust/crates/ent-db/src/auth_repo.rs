@@ -1007,6 +1007,28 @@ impl PgAuthRepo {
         Ok(())
     }
 
+    /// Vrai si une personne portant cette adresse est membre de l'établissement.
+    pub async fn email_membre_de(
+        &self,
+        etablissement_id: Uuid,
+        email: &str,
+    ) -> Result<bool, AuthError> {
+        let email = normalize_email(email)?;
+        let r: Option<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT u.id FROM ent_user u
+            JOIN ent_membership m ON m.user_id = u.id AND m.etablissement_id = $2
+            WHERE u.email = $1
+            "#,
+        )
+        .bind(&email)
+        .bind(etablissement_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthError::InvalidCredentials)?;
+        Ok(r.is_some())
+    }
+
     pub async fn set_email(&self, user_id: Uuid, email: &str) -> Result<(), AuthError> {
         let email = normalize_email(email)?;
         let updated = sqlx::query(
@@ -1320,6 +1342,7 @@ impl PgAuthRepo {
     /// Résout des libellés d’affichage pour une liste d’utilisateurs (display_name ou e-mail).
     pub async fn user_labels(
         &self,
+        etablissement_id: Uuid,
         user_ids: &[Uuid],
     ) -> Result<std::collections::HashMap<Uuid, String>, AuthError> {
         if user_ids.is_empty() {
@@ -1327,12 +1350,15 @@ impl PgAuthRepo {
         }
         let rows: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT id, email, display_name
-            FROM ent_user
-            WHERE id = ANY($1)
+            SELECT u.id, u.email, u.display_name
+            FROM ent_user u
+            JOIN ent_membership m
+              ON m.user_id = u.id AND m.etablissement_id = $2
+            WHERE u.id = ANY($1)
             "#,
         )
         .bind(user_ids)
+        .bind(etablissement_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| AuthError::InvalidCredentials)?;

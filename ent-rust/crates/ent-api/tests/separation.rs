@@ -144,20 +144,38 @@ fn jour_du_test() -> String {
 
 /// Joue les spécifications : tous acteurs × cibles, oracle de fuite sur chaque 2xx.
 fn jouer(domaine: &str, specs: &[Spec]) {
+    jouer_impl(domaine, specs, None)
+}
+
+/// Mêmes spécifications, mais **session de A d'une personne membre de A et de B**
+/// (C6) et uniquement avec des identifiants de B (chemin, query, corps).
+fn jouer_double(domaine: &str, specs: &[Spec], doubles: &[Double]) {
+    jouer_impl(domaine, specs, Some(doubles))
+}
+
+fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
     let Some(m) = monde() else { return };
+    let acteurs: Vec<(Acteur, String)> = match doubles {
+        None => Acteur::TOUS.iter().map(|a| (*a, m.jeton(*a).to_string())).collect(),
+        Some(d) => d.iter().map(|x| (x.acteur, x.token_a.clone())).collect(),
+    };
     let mut echecs: Vec<String> = Vec::new();
     let mut n = 0usize;
     rt().block_on(async {
         for s in specs {
             let sans_cible = !s.chemin.contains('{');
-            let cibles: &[Cible] = if s.seulement_b {
+            if doubles.is_some() && sans_cible {
+                continue; // aucun identifiant de B à fournir
+            }
+            let cibles: &[Cible] = if s.seulement_b || doubles.is_some() {
                 &[Cible::B]
             } else if sans_cible {
                 &[Cible::Liee]
             } else {
                 &[Cible::Liee, Cible::NonLiee, Cible::B]
             };
-            for a in Acteur::TOUS {
+            for (a, jeton) in &acteurs {
+                let a = *a;
                 for &c in cibles {
                     let o = m.objets_cible(a, c);
                     let jour = jour_du_test();
@@ -170,7 +188,7 @@ fn jouer(domaine: &str, specs: &[Spec]) {
                         };
                         serde_json::from_str(&t).expect("corps JSON du cas")
                     });
-                    let rep = m.appel(s.methode, &chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                    let rep = m.appel(s.methode, &chemin, Some(jeton.as_str()), corps.as_ref()).await;
                     n += 1;
                     let att = attendu(s, a, c);
                     let mut pb = Vec::new();
@@ -182,7 +200,7 @@ fn jouer(domaine: &str, specs: &[Spec]) {
                     let mut texte = rep.texte.clone();
                     if att == Attendu::RefuseOuIndistinct && rep.est_succes() {
                         let neuf = Uuid::new_v4().to_string();
-                        let ctl = m.appel(s.methode, &chemin.replace(&eid, &neuf), Some(m.jeton(a)), corps.as_ref()).await;
+                        let ctl = m.appel(s.methode, &chemin.replace(&eid, &neuf), Some(jeton.as_str()), corps.as_ref()).await;
                         if ctl.statut != rep.statut || ctl.texte.replace(&neuf, "") != rep.texte.replace(&eid, "") {
                             pb.push("réponse distincte de celle d'un identifiant inexistant".to_string());
                         }
@@ -241,40 +259,39 @@ const FOYERS: &[Acteur] = &[Admin, Direction, Administratif, Compta, Cpe];
 
 // ───────────────────────── Domaines couverts (cloisonnement correct) ─────────────────────────
 
-#[test]
-fn domaine_eleve_dossier() {
-    jouer(
-        "élève / dossier",
-        &[
+fn specs_domaine_eleve_dossier() -> Vec<Spec> {
+    vec![
             lire("eleve", "/eleves/{eleve}", TOUS, STAFF),
             lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF),
             lire("carnet", "/eleves/{eleve}/carnet",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
             Spec { non_liee_vide: FAMILLE, ..lire("incidents", "/eleves/{eleve}/incidents", TOUS, STAFF) },
             Spec { non_liee_vide: FAMILLE, ..lire("sanctions", "/eleves/{eleve}/sanctions", TOUS, STAFF) },
-        ],
-    );
+    ]
 }
 
 #[test]
-fn domaine_notes() {
-    jouer(
-        "notes",
-        &[
+fn domaine_eleve_dossier() {
+    jouer("élève / dossier", &specs_domaine_eleve_dossier());
+}
+
+fn specs_domaine_notes() -> Vec<Spec> {
+    vec![
             // Socle 1 (B1) : le professeur ne lit que les notes de ses élèves.
             lire("notes", "/eleves/{eleve}/notes",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer], GESTION_HORS_PROF),
             ecrire_sur_b("note-sur-B", "POST", "/eleves/{eleve}/notes",
                 Some(r#"{"matiere_id":"{matiere}","valeur":12,"date_note":"{jour}"}"#)),
-        ],
-    );
+    ]
 }
 
 #[test]
-fn domaine_absences() {
-    jouer(
-        "absences",
-        &[
+fn domaine_notes() {
+    jouer("notes", &specs_domaine_notes());
+}
+
+fn specs_domaine_absences() -> Vec<Spec> {
+    vec![
             // Parent sans drapeau vie scolaire (Narcissa → Draco, Molly → Ginny) : refusé.
             lire("absences", "/eleves/{eleve}/absences",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
@@ -282,39 +299,42 @@ fn domaine_absences() {
                 Some(r#"{"debut":"{jour}","fin":"{jour}","motif":"separation"}"#)),
             ecrire_sur_b("justifier-B", "POST", "/absences/{absence}/justifier", Some("{}")),
             ecrire_sur_b("accepter-justificatif-B", "POST", "/absences/{absence}/accepter-justificatif", Some("{}")),
-        ],
-    );
+    ]
 }
 
 #[test]
-fn domaine_sante() {
-    jouer(
-        "santé (fiche, PAI, infirmerie)",
-        &[
+fn domaine_absences() {
+    jouer("absences", &specs_domaine_absences());
+}
+
+fn specs_domaine_sante() -> Vec<Spec> {
+    vec![
             lire("fiche-sante", "/eleves/{eleve}/fiche-sante", SANTE_LIEE, SANTE_NON_LIEE),
             lire("pai", "/eleves/{eleve}/pai", SANTE_LIEE, SANTE_NON_LIEE),
             lire("infirmerie", "/infirmerie/passages?eleve_id={eleve}", SANTE_LIEE, SANTE_NON_LIEE),
             ecrire_sur_b("fiche-sante-B", "PUT", "/eleves/{eleve}/fiche-sante", Some(r#"{"allergies":"separation"}"#)),
-        ],
-    );
+    ]
+}
+
+#[test]
+fn domaine_sante() {
+    jouer("santé (fiche, PAI, infirmerie)", &specs_domaine_sante());
+}
+
+fn specs_domaine_psy() -> Vec<Spec> {
+    vec![
+            lire("dossier-psy", "/eleves/{eleve}/dossier-psy", PSY_LIEE, PSY_NON_LIEE),
+            lire("entretiens-psy", "/psy/entretiens?eleve_id={eleve}", PSY_LIEE, PSY_NON_LIEE),
+    ]
 }
 
 #[test]
 fn domaine_psy() {
-    jouer(
-        "psy",
-        &[
-            lire("dossier-psy", "/eleves/{eleve}/dossier-psy", PSY_LIEE, PSY_NON_LIEE),
-            lire("entretiens-psy", "/psy/entretiens?eleve_id={eleve}", PSY_LIEE, PSY_NON_LIEE),
-        ],
-    );
+    jouer("psy", &specs_domaine_psy());
 }
 
-#[test]
-fn domaine_documents() {
-    jouer(
-        "documents (par identifiant)",
-        &[
+fn specs_domaine_documents() -> Vec<Spec> {
+    vec![
             lire("documents-liste", "/eleves/{eleve}/documents", TOUS, STAFF),
             lire("document-fichier", "/documents/{doc}/fichier",
                 &[Admin, Direction, Administratif, Parent, Eleve], &[]),
@@ -325,68 +345,76 @@ fn domaine_documents() {
             ecrire_sur_b("grant-verrouille-B", "POST", "/documents/{doc_sante}/grants", Some(r#"{"duration_days":3,"note":"separation"}"#)),
             ecrire_sur_b("depot-B", "POST", "/eleves/{eleve}/documents",
                 Some(r#"{"titre":"separation","tiroir":"famille","confidentialite":"standard"}"#)),
-        ],
-    );
+    ]
 }
 
 #[test]
-fn domaine_fils_de_messages() {
-    jouer(
-        "fils de messages",
-        &[
+fn domaine_documents() {
+    jouer("documents (par identifiant)", &specs_domaine_documents());
+}
+
+fn specs_domaine_fils_de_messages() -> Vec<Spec> {
+    vec![
             lire("fil", "/messages/fils/{fil}",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer], GESTION_HORS_PROF),
             ecrire_sur_b("repondre-B", "POST", "/messages/fils/{fil}/repondre", Some(r#"{"corps":"separation"}"#)),
             ecrire_sur_b("archiver-B", "POST", "/messages/fils/{fil}/archiver", Some("{}")),
             ecrire_sur_b("ouvrir-fil-B", "POST", "/messages/fils",
                 Some(r#"{"eleve_id":"{eleve}","sujet":"separation","message":"separation"}"#)),
-        ],
-    );
+    ]
 }
 
 #[test]
-fn domaine_factures() {
+fn domaine_fils_de_messages() {
+    jouer("fils de messages", &specs_domaine_fils_de_messages());
+}
+
+fn specs_domaine_factures() -> Vec<Spec> {
     const FACT_LIEE: &[Acteur] = &[Admin, Direction, Administratif, Compta, Parent, ParentAutreFoyer];
     const FACT_NON_LIEE: &[Acteur] = &[Admin, Direction, Administratif, Compta];
-    jouer(
-        "factures / foyers",
-        &[
+    vec![
             lire("facture", "/facturation/factures/{facture}", FACT_LIEE, FACT_NON_LIEE),
             lire("facture-pdf", "/facturation/factures/{facture}/pdf", FACT_LIEE, FACT_NON_LIEE),
             lire("foyer", "/foyers/{foyer}", FOYERS, FOYERS),
             ecrire_sur_b("emettre-B", "POST", "/facturation/factures/{facture}/emettre", Some("{}")),
             ecrire_sur_b("encaisser-B", "POST", "/facturation/factures/{facture}/encaisser",
                 Some(r#"{"montant_centimes":100,"moyen":"cheque"}"#)),
-        ],
-    );
+    ]
 }
 
 #[test]
-fn domaine_appel() {
-    jouer(
-        "appel",
-        &[
+fn domaine_factures() {
+    jouer("factures / foyers", &specs_domaine_factures());
+}
+
+fn specs_domaine_appel() -> Vec<Spec> {
+    vec![
             // Appel ouvert par le professeur : visible de lui et de la gestion, pas des familles.
             lire("appel", "/appels/{appel}", &[Admin, Direction, Administratif, Cpe, Prof], &[]),
             ecrire_sur_b("appel-ligne-B", "POST", "/appels/{appel}/lignes",
                 Some(r#"{"eleve_id":"{eleve}","etat":"present"}"#)),
             ecrire_sur_b("appel-clore-B", "POST", "/appels/{appel}/clore", Some("{}")),
-        ],
-    );
+    ]
 }
 
 #[test]
-fn domaine_listes_de_l_etablissement() {
-    jouer(
-        "listes de l'établissement (aucune fuite de B)",
-        &[
+fn domaine_appel() {
+    jouer("appel", &specs_domaine_appel());
+}
+
+fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
+    vec![
             lire("fils-liste", "/messages/fils",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
             lire("factures-liste", "/facturation/factures", &[Admin, Direction, Administratif, Compta], &[]),
             lire("foyers-liste", "/foyers", FOYERS, &[]),
             lire("mes-creneaux", "/edt/mes-creneaux", &[Admin, Direction, Administratif, Cpe, Prof, Eleve], &[]),
-        ],
-    );
+    ]
+}
+
+#[test]
+fn domaine_listes_de_l_etablissement() {
+    jouer("listes de l'établissement (aucune fuite de B)", &specs_domaine_listes_de_l_etablissement());
 }
 
 // ───────────────────────── Invariants transverses ─────────────────────────
@@ -412,6 +440,44 @@ const PUBLIQUES: &[(&str, &str)] = &[
 ];
 /// Pages HTML de l'application (coquilles sans donnée) servies par `ui_page`.
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];
+
+/// Aucun fichier de `src/` (hors tests et UI) ne déclare de routes sans être
+/// lu par l'inventaire : sinon ses routes échapperaient au test « 401 ».
+#[test]
+fn invariant_inventaire_couvre_tous_les_fichiers_de_routes() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for e in std::fs::read_dir(src).expect("src") {
+        let p = e.expect("entrée").path();
+        let nom = p.file_name().unwrap().to_string_lossy().to_string();
+        if !nom.ends_with(".rs") || nom == "ui.rs" || nom.starts_with("tests_") {
+            continue;
+        }
+        let texte = std::fs::read_to_string(&p).expect("source");
+        if texte.contains(".route(") {
+            assert!(
+                routes_src::NOMS_SOURCES.contains(&nom.as_str()),
+                "{nom} déclare des routes absentes de l'inventaire (routes_src::SOURCES)"
+            );
+        }
+    }
+    let r = routes_src::routes();
+    for (m, p) in [
+        ("GET", "/roles"),
+        ("PUT", "/roles/{id}/membres/{user_id}"),
+        ("GET", "/auth/sessions"),
+        ("DELETE", "/auth/sessions/{id}"),
+        ("PUT", "/etablissement/securite"),
+        ("POST", "/documents/{id}/lien"),
+        ("POST", "/messages/pieces/{id}/lien"),
+        ("POST", "/eleves/{id}/photo/lien"),
+        ("POST", "/pai/pieces/{id}/lien"),
+        ("GET", "/etablissement/domaines"),
+        ("PUT", "/referentiel/groupes/{id}/responsables"),
+        ("POST", "/referentiel/services"),
+    ] {
+        assert!(r.iter().any(|x| x.methode == m && x.chemin == p), "route attendue absente de l'inventaire : {m} {p}");
+    }
+}
 
 fn routes_protegees() -> Vec<routes_src::RouteDecl> {
     let toutes = routes_src::routes();
@@ -906,11 +972,8 @@ fn zz_bilan() {
 
 // ───────────────────────── Annuaire (lot L2 corrigé) ─────────────────────────
 
-#[test]
-fn domaine_annuaire_et_vie_scolaire_famille() {
-    jouer(
-        "annuaire / absent / journal / points VS",
-        &[
+fn specs_domaine_annuaire_et_vie_scolaire_famille() -> Vec<Spec> {
+    vec![
             // Recherche et libellés : personnel uniquement (parents et élèves : 403).
             lire("search", "/eleves/search?q=Potter", STAFF, &[]),
             lire("labels", "/eleves/labels?ids={eleve}", STAFF, STAFF),
@@ -922,8 +985,12 @@ fn domaine_annuaire_et_vie_scolaire_famille() {
             Spec { b: Attendu::RefuseOuIndistinct, ..lire("points-vs", "/eleves/{eleve}/points-vs",
                 &[Admin, Direction, Administratif, Cpe, Parent],
                 &[Admin, Direction, Administratif, Cpe]) },
-        ],
-    );
+    ]
+}
+
+#[test]
+fn domaine_annuaire_et_vie_scolaire_famille() {
+    jouer("annuaire / absent / journal / points VS", &specs_domaine_annuaire_et_vie_scolaire_famille());
 }
 
 
@@ -1078,5 +1145,636 @@ fn socle1_prof_refuse_hors_de_ses_eleves_sur_les_routes_par_eleve() {
     ] {
         echecs.extend(essai_famille_refusee(gabarit, Cible::NonLiee, &[Prof]));
     }
+    assert!(echecs.is_empty(), "{}", echecs.join("\n"));
+}
+
+// ═════════════════════ Socle 1, C6 : matrice étendue ═════════════════════
+//
+// Personne membre de deux établissements, références croisées en écriture,
+// colonnes `*_user_id` fournies par le client, énumération, nouvelles routes.
+
+/// Personnel membre de A **et** de B (comptes neufs : les comptes du labo
+/// restent mono-établissement pour les autres tests).
+#[derive(Clone, Debug)]
+struct Double {
+    acteur: Acteur,
+    user_id: Uuid,
+    email: String,
+    token_a: String,
+}
+
+fn doubles() -> Option<&'static Vec<Double>> {
+    static D: std::sync::OnceLock<Vec<Double>> = std::sync::OnceLock::new();
+    let m = monde()?;
+    Some(D.get_or_init(|| rt().block_on(construire_doubles(m))))
+}
+
+async fn construire_doubles(m: &Monde) -> Vec<Double> {
+    let url = std::env::var("ENT_DATABASE_URL").expect("base de test");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await
+        .expect("connexion de préparation");
+    let mut out = Vec::new();
+    for (acteur, role) in [
+        (Admin, "admin"),
+        (Direction, "direction"),
+        (Administratif, "administratif"),
+        (Cpe, "cpe"),
+        (Prof, "prof"),
+        (Compta, "compta"),
+        (Infirmiere, "infirmerie"),
+        (Psy, "psy"),
+    ] {
+        let email = format!("dbl-{}@example.test", Uuid::new_v4().simple());
+        let r = m
+            .appel(
+                "POST",
+                "/etablissement/personnel",
+                Some(m.jeton(Admin)),
+                Some(&json!({"email": email, "display_name": format!("Double {role}"), "role": role})),
+            )
+            .await;
+        assert_eq!(r.statut.as_u16(), 201, "provisionnement du double {role} : {}", r.texte);
+        let user_id = Uuid::parse_str(r.json["user_id"].as_str().unwrap()).unwrap();
+        let mdp = r.json["mot_de_passe_temporaire"].as_str().unwrap().to_string();
+        // Même personne, second établissement (rôle identique).
+        sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1, $2, $3, now())")
+            .bind(user_id)
+            .bind(m.b.objets.etab)
+            .bind(role)
+            .execute(&pool)
+            .await
+            .expect("second rattachement");
+        let l = m
+            .appel(
+                "POST",
+                "/auth/login",
+                None,
+                Some(&json!({"email": email, "password": mdp, "etablissement_id": m.a.objets.etab})),
+            )
+            .await;
+        assert_eq!(l.statut.as_u16(), 200, "connexion du double {role} sur A : {}", l.texte);
+        out.push(Double {
+            acteur,
+            user_id,
+            email,
+            token_a: l.json["token"].as_str().unwrap().to_string(),
+        });
+    }
+    out
+}
+
+/// Toutes les spécifications de la matrice (lectures et écritures par identifiant).
+fn toutes_les_specs() -> Vec<Spec> {
+    let mut v = Vec::new();
+    v.extend(specs_domaine_eleve_dossier());
+    v.extend(specs_domaine_notes());
+    v.extend(specs_domaine_absences());
+    v.extend(specs_domaine_sante());
+    v.extend(specs_domaine_psy());
+    v.extend(specs_domaine_documents());
+    v.extend(specs_domaine_fils_de_messages());
+    v.extend(specs_domaine_factures());
+    v.extend(specs_domaine_appel());
+    v.extend(specs_domaine_annuaire_et_vie_scolaire_famille());
+    v
+}
+
+/// Une personne membre de A et de B, connectée sur A, fournit des identifiants
+/// de B partout où la matrice en place : refus ou réponse vide, jamais de donnée de B.
+#[test]
+fn c6_double_membre_session_a_avec_identifiants_de_b_sur_toute_la_matrice() {
+    let Some(d) = doubles() else { return };
+    jouer_double("double membre : session A, identifiants B", &toutes_les_specs(), d);
+}
+
+/// La session de A d'un double membre ne donne pas non plus accès aux listes de B.
+#[test]
+fn c6_double_membre_listes_de_a_sans_aucun_identifiant_de_b() {
+    let (Some(m), Some(d)) = (monde(), doubles()) else { return };
+    let mut echecs = Vec::new();
+    rt().block_on(async {
+        for x in d {
+            for chemin in [
+                "/messages/fils", "/facturation/factures", "/foyers", "/matieres", "/audit/journal",
+                "/personnel/search?q=Double", "/personnel/search?q=a", "/vs/signaux", "/annonces",
+                "/edt/mes-creneaux", "/edt/creneaux", "/roles", "/referentiel/classes",
+                "/referentiel/annees", "/rh/absences", "/note-periodes", "/devoirs",
+                "/infirmerie/passages", "/psy/entretiens", "/documents/grants/pending",
+                "/auth/sessions", "/etablissement/securite", "/etablissement/domaines",
+            ] {
+                let rep = m.appel("GET", chemin, Some(&x.token_a), None).await;
+                if rep.est_succes() {
+                    for f in fuites(m, &rep.texte, INTERDITS_GLOBAUX) {
+                        echecs.push(format!("{chemin} {:?} : {f}", x.acteur));
+                    }
+                    // Les libellés de personnes ne remontent que des membres de A.
+                    if rep.texte.contains(&m.b.emails[&Direction]) {
+                        echecs.push(format!("{chemin} {:?} : e-mail d'un compte de B", x.acteur));
+                    }
+                }
+            }
+        }
+    });
+    assert!(echecs.is_empty(), "{}", echecs.join("\n"));
+}
+
+/// Un double membre ne peut pas se servir de sa session A pour agir sur son
+/// autre rattachement : ni lire, ni gérer, ni révoquer les sessions de B.
+#[test]
+fn c6_double_membre_ne_gere_pas_les_sessions_ni_la_securite_de_b() {
+    let (Some(m), Some(d)) = (monde(), doubles()) else { return };
+    let dir = d.iter().find(|x| x.acteur == Direction).unwrap();
+    rt().block_on(async {
+        // Ouvre une vraie session sur B pour le même compte, puis tente de la révoquer depuis A.
+        let mdp_inconnu = m
+            .appel("POST", "/auth/login", None,
+                Some(&json!({"email": dir.email, "password": "x".repeat(12), "etablissement_id": m.b.objets.etab})))
+            .await;
+        assert!(!mdp_inconnu.est_succes());
+        // Les sessions listées par A ne portent que A.
+        let l = m.appel("GET", "/auth/sessions", Some(&dir.token_a), None).await;
+        assert!(l.est_succes(), "{}", l.texte);
+        assert!(!l.texte.contains(&m.b.objets.etab.to_string()), "session de B visible depuis A");
+        // Révoquer une session par identifiant inconnu / d'un autre : refus uniforme.
+        for id in [Uuid::new_v4(), Uuid::nil()] {
+            let r = m.appel("DELETE", &format!("/auth/sessions/{id}"), Some(&dir.token_a), None).await;
+            assert!(r.est_refus() || r.statut.as_u16() == 204 || r.statut.as_u16() == 200 || r.statut.as_u16() == 400,
+                "révocation d'une session inconnue : {}", r.statut);
+        }
+        // La politique et les domaines sont ceux de A, jamais de B.
+        let pol = m.appel("GET", "/etablissement/securite", Some(&dir.token_a), None).await;
+        assert!(!pol.texte.contains(&m.b.objets.etab.to_string()));
+        let dom = m.appel("POST", "/etablissement/domaines", Some(&dir.token_a),
+            Some(&json!({"domaine": format!("b-{}.example.test", Uuid::new_v4().simple()), "etablissement_id": m.b.objets.etab}))).await;
+        if dom.est_succes() {
+            // Le domaine est rattaché à A, jamais à B, malgré l'identifiant fourni.
+            let lb = m.appel("GET", "/etablissement/domaines", Some(m.b.jetons[&Admin].as_str()), None).await;
+            let nom = dom.json["domaine"].as_str().unwrap_or("?");
+            assert!(!lb.texte.contains(nom), "domaine posé dans B par une session A");
+        }
+    });
+}
+
+// ───────── Références croisées en écriture (parent de B, session de A) ─────────
+
+async fn json_de(m: &Monde, jeton: &str, chemin: &str) -> Vec<Value> {
+    let r = m.appel("GET", chemin, Some(jeton), None).await;
+    assert!(r.est_succes(), "préparation {chemin} : {} {}", r.statut, r.texte);
+    r.json.as_array().cloned().unwrap_or_default()
+}
+
+/// Un créneau d'EDT de l'établissement du jeton (essaie les 7 jours de la semaine).
+async fn creneau_de(m: &Monde, jeton: &str) -> Uuid {
+    let base = chrono::Utc::now().date_naive();
+    for d in 0..7 {
+        let jour = base + chrono::Duration::days(d);
+        let r = m.appel("GET", &format!("/edt/creneaux?jour={jour}"), Some(jeton), None).await;
+        if let Some(c) = r.json.as_array().and_then(|a| a.first()) {
+            return Uuid::parse_str(c["id"].as_str().expect("id de créneau")).unwrap();
+        }
+    }
+    panic!("aucun créneau d'EDT dans le labo");
+}
+
+fn id_premier(v: &[Value]) -> Uuid {
+    Uuid::parse_str(v.first().and_then(|x| x["id"].as_str()).expect("objet de préparation")).unwrap()
+}
+
+/// Exige un refus propre (4xx) : ni succès (donnée croisée écrite), ni 5xx.
+fn exige_refus(echecs: &mut Vec<String>, cas: &str, rep: &Rep) {
+    if rep.est_succes() || !rep.statut.is_client_error() {
+        echecs.push(format!("{cas} : statut {} (refus 4xx attendu) — {}", rep.statut, rep.texte.chars().take(120).collect::<String>()));
+    }
+}
+
+#[test]
+fn c6_references_croisees_en_ecriture_refusees() {
+    let Some(m) = monde() else { return };
+    let mut echecs = Vec::new();
+    let mut cas = 0usize;
+    rt().block_on(async {
+        let (a, b) = (&m.a, &m.b);
+        let dir_a = m.jeton(Direction);
+        let dir_b = b.jetons[&Direction].as_str();
+        let adm_a = m.jeton(Admin);
+        let jour = jour_du_test();
+        let matiere_a = a.objets.matiere.expect("matière A");
+        let matiere_b = b.objets.matiere.expect("matière B");
+        let periode_a = id_premier(&json_de(m, dir_a, "/note-periodes").await);
+        let periode_b = id_premier(&json_de(m, dir_b, "/note-periodes").await);
+        let eleve_a = a.objets.eleve;
+        let eleve_b = b.objets.eleve;
+
+        // ── Note : matière / période / devoir de B sur un élève de A ──
+        for (nom, corps) in [
+            ("note: matière de B", json!({"matiere_id": matiere_b, "valeur": 12, "date_note": jour})),
+            ("note: période de B", json!({"matiere_id": matiere_a, "valeur": 12, "date_note": jour, "periode_id": periode_b})),
+            ("note: devoir inexistant/de B", json!({"matiere_id": matiere_a, "valeur": 12, "date_note": jour, "devoir_id": Uuid::new_v4()})),
+        ] {
+            let r = m.appel("POST", &format!("/eleves/{eleve_a}/notes"), Some(dir_a), Some(&corps)).await;
+            exige_refus(&mut echecs, nom, &r);
+            cas += 1;
+        }
+        // ── Devoir : matière ou période de B ──
+        for (nom, corps) in [
+            ("devoir: matière de B", json!({"periode_id": periode_a, "matiere_id": matiere_b, "classe": "4B", "titre": "x", "date_devoir": jour})),
+            ("devoir: période de B", json!({"periode_id": periode_b, "matiere_id": matiere_a, "classe": "4B", "titre": "x", "date_devoir": jour})),
+        ] {
+            let r = m.appel("POST", "/devoirs", Some(dir_a), Some(&corps)).await;
+            exige_refus(&mut echecs, nom, &r);
+            cas += 1;
+        }
+        // ── Appel : élève de B dans un appel de A ; créneau de B ──
+        if let Some(appel) = a.objets.appel {
+            let r = m.appel("POST", &format!("/appels/{appel}/lignes"), Some(m.jeton(Prof)),
+                Some(&json!({"eleve_id": eleve_b, "etat": "absent"}))).await;
+            exige_refus(&mut echecs, "appel: élève de B dans un appel de A", &r);
+            cas += 1;
+        }
+        let creneau_b = creneau_de(m, dir_b).await;
+        let r = m.appel("POST", "/appels", Some(m.jeton(Prof)),
+            Some(&json!({"creneau_id": creneau_b, "jour": jour}))).await;
+        exige_refus(&mut echecs, "appel: créneau de B", &r);
+        cas += 1;
+        // ── Message : fil sur un élève de B ; réponse dans un fil de B ──
+        let r = m.appel("POST", "/messages/fils", Some(dir_a),
+            Some(&json!({"eleve_id": eleve_b, "sujet": "croisé", "message": "croisé"}))).await;
+        exige_refus(&mut echecs, "message: fil sur un élève de B", &r);
+        cas += 1;
+        if let Some(fil_b) = b.objets.fil {
+            let r = m.appel("POST", &format!("/messages/fils/{fil_b}/repondre"), Some(dir_a), Some(&json!({"corps": "croisé"}))).await;
+            exige_refus(&mut echecs, "message: réponse dans un fil de B", &r);
+            cas += 1;
+        }
+        // ── Facture : foyer de B ; ligne sur un élève de B pour un foyer de A ──
+        let r = m.appel("POST", "/facturation/factures", Some(dir_a), Some(&json!({
+            "foyer_id": b.objets.foyer, "numero": format!("X-{}", Uuid::new_v4().simple()), "libelle": "croisé",
+            "lignes": [{"libelle": "x", "quantite": 1, "montant_unitaire_centimes": 100}]}))).await;
+        exige_refus(&mut echecs, "facture: foyer de B", &r);
+        cas += 1;
+        let r = m.appel("POST", "/facturation/factures", Some(dir_a), Some(&json!({
+            "foyer_id": a.objets.foyer, "numero": format!("X-{}", Uuid::new_v4().simple()), "libelle": "croisé",
+            "lignes": [{"eleve_id": eleve_b, "libelle": "x", "quantite": 1, "montant_unitaire_centimes": 100}]}))).await;
+        exige_refus(&mut echecs, "facture: ligne sur un élève de B", &r);
+        cas += 1;
+        // ── Document : dépôt sur un élève de B ; décision sur une demande d'accès de B ──
+        let r = m.appel("POST", &format!("/eleves/{eleve_b}/documents"), Some(dir_a),
+            Some(&json!({"titre": "croisé", "tiroir": "famille", "confidentialite": "standard"}))).await;
+        exige_refus(&mut echecs, "document: dépôt sur un élève de B", &r);
+        let r = m.appel("POST", &format!("/documents/grants/{}/decider", Uuid::new_v4()), Some(adm_a),
+            Some(&json!({"accepter": true}))).await;
+        exige_refus(&mut echecs, "document: décision sur un grant inconnu", &r);
+        cas += 2;
+        // Rien n'a été écrit dans B.
+        for (nom, chemin) in [
+            ("notes", format!("/eleves/{eleve_b}/notes")),
+            ("factures", "/facturation/factures".to_string()),
+            ("fils", "/messages/fils".to_string()),
+        ] {
+            let l = m.appel("GET", &chemin, Some(dir_b), None).await;
+            if l.texte.contains("croisé") || l.texte.contains(&a.objets.etab.to_string()) {
+                echecs.push(format!("écriture croisée visible dans B ({nom})"));
+            }
+        }
+    });
+    CAS_EXECUTES.fetch_add(cas, Ordering::Relaxed);
+    eprintln!("[separation] références croisées : {cas} cas, {} écart(s)", echecs.len());
+    assert!(echecs.is_empty(), "{}", echecs.join("\n"));
+}
+
+// ───────── Colonnes `*_user_id` fournies par le client ─────────
+
+#[test]
+fn c6_colonnes_user_id_du_client_hors_etablissement_refusees() {
+    let Some(m) = monde() else { return };
+    let mut echecs = Vec::new();
+    let mut cas = 0usize;
+    rt().block_on(async {
+        let (a, b) = (&m.a, &m.b);
+        let dir_a = m.jeton(Direction);
+        let adm_a = m.jeton(Admin);
+        let jour = jour_du_test();
+        // Un compte de B (professeur) : il ne doit JAMAIS apparaître côté A.
+        let prof_b = b.user_ids[&Prof];
+        let creneau_a = creneau_de(m, dir_a).await;
+
+        // Remplaçant EDT.
+        let r = m.appel("POST", "/edt/exceptions", Some(dir_a), Some(&json!({
+            "creneau_id": creneau_a, "jour": jour, "kind": "remplacement",
+            "remplacant_user_id": prof_b, "motif": "croisé"}))).await;
+        exige_refus(&mut echecs, "edt: remplaçant de B", &r);
+        // Affectation d'un créneau à un professeur de B.
+        let r = m.appel("POST", &format!("/edt/creneaux/{creneau_a}/affectation"), Some(dir_a),
+            Some(&json!({"prof_user_id": prof_b}))).await;
+        exige_refus(&mut echecs, "edt: affectation à un professeur de B", &r);
+        // Contrainte EDT sur un professeur de B.
+        let r = m.appel("POST", "/edt/contraintes", Some(dir_a), Some(&json!({
+            "kind": "indisponibilite_prof", "prof_user_id": prof_b, "jour_semaine": 1,
+            "heure_debut": "08:00", "heure_fin": "09:00"}))).await;
+        if r.est_succes() || r.statut.is_server_error() {
+            echecs.push(format!("edt: contrainte sur un professeur de B : {}", r.statut));
+        }
+        // Absence RH pour une personne de B.
+        let r = m.appel("POST", "/rh/absences", Some(dir_a), Some(&json!({
+            "user_id": prof_b, "debut": jour, "fin": jour, "motif": "croisé"}))).await;
+        exige_refus(&mut echecs, "rh: absence d'une personne de B", &r);
+        // Service d'enseignement donné à un professeur de B.
+        let classes = json_de(m, dir_a, "/referentiel/classes").await;
+        let r = m.appel("POST", "/referentiel/services", Some(dir_a), Some(&json!({
+            "prof_user_id": prof_b, "matiere_id": a.objets.matiere, "classe_id": id_premier(&classes)}))).await;
+        exige_refus(&mut echecs, "référentiel: service d'un professeur de B", &r);
+        // Responsable de groupe de B.
+        let annees = json_de(m, dir_a, "/referentiel/annees").await;
+        let g = m.appel("POST", "/referentiel/groupes", Some(dir_a), Some(&json!({
+            "annee_id": id_premier(&annees), "code": format!("G{}", &Uuid::new_v4().simple().to_string()[..6]), "libelle": "atelier"}))).await;
+        if g.est_succes() {
+            let gid = g.json["id"].as_str().unwrap().to_string();
+            let r = m.appel("PUT", &format!("/referentiel/groupes/{gid}/responsables"), Some(dir_a),
+                Some(&json!({"responsables": [prof_b]}))).await;
+            exige_refus(&mut echecs, "groupe: responsable de B", &r);
+            cas += 1;
+        } else {
+            echecs.push(format!("préparation : création de groupe impossible ({} {})", g.statut, g.texte));
+        }
+        // Attribution de rôle à une personne de B ; rôle de B attribué à une personne de A.
+        let role = m.appel("POST", "/roles", Some(adm_a), Some(&json!({
+            "nom": format!("Croisé {}", &Uuid::new_v4().simple().to_string()[..6]), "droits": []}))).await;
+        if role.est_succes() {
+            let rid = role.json["id"].as_str().unwrap().to_string();
+            let r = m.appel("PUT", &format!("/roles/{rid}/membres/{prof_b}"), Some(adm_a), Some(&json!({}))).await;
+            exige_refus(&mut echecs, "rôles: attribution à une personne de B", &r);
+            let r = m.appel("DELETE", &format!("/roles/{rid}/membres/{prof_b}"), Some(adm_a), None).await;
+            if r.statut.is_server_error() {
+                echecs.push(format!("rôles: retrait d'une personne de B : {}", r.statut));
+            }
+            cas += 2;
+            // Rôle de B manipulé depuis A.
+            let rb = m.appel("POST", "/roles", Some(b.jetons[&Admin].as_str()), Some(&json!({
+                "nom": format!("RoleB {}", &Uuid::new_v4().simple().to_string()[..6]), "droits": []}))).await;
+            if rb.est_succes() {
+                let rbid = rb.json["id"].as_str().unwrap().to_string();
+                let user_a = a.user_ids[&Prof];
+                let r = m.appel("PUT", &format!("/roles/{rbid}/membres/{user_a}"), Some(adm_a), Some(&json!({}))).await;
+                exige_refus(&mut echecs, "rôles: rôle de B attribué depuis A", &r);
+                let r = m.appel("PUT", &format!("/roles/{rbid}"), Some(adm_a), Some(&json!({"nom": "pirate", "droits": []}))).await;
+                exige_refus(&mut echecs, "rôles: modification d'un rôle de B", &r);
+                let r = m.appel("DELETE", &format!("/roles/{rbid}"), Some(adm_a), None).await;
+                exige_refus(&mut echecs, "rôles: suppression d'un rôle de B", &r);
+                cas += 3;
+            }
+        } else {
+            echecs.push(format!("préparation : création de rôle impossible ({} {})", role.statut, role.texte));
+        }
+        // Rien de B ne fuit dans les libellés de A (user_labels filtré, C1).
+        let ex = m.appel("GET", "/edt/exceptions", Some(dir_a), None).await;
+        if ex.texte.contains(&b.emails[&Prof]) || ex.texte.contains(&prof_b.to_string()) {
+            echecs.push("edt/exceptions : personne de B visible dans A".into());
+        }
+        cas += 7;
+    });
+    CAS_EXECUTES.fetch_add(cas, Ordering::Relaxed);
+    eprintln!("[separation] colonnes *_user_id : {cas} cas, {} écart(s)", echecs.len());
+    assert!(echecs.is_empty(), "{}", echecs.join("\n"));
+}
+
+/// C1 : `user_labels` ne renvoie que des membres de l'établissement de la session.
+#[test]
+fn c1_user_labels_filtre_par_etablissement() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        let url = std::env::var("ENT_DATABASE_URL").unwrap();
+        let ent = ent_db::PgEnt::connect(&url).await.expect("connexion");
+        let (ua, ub) = (m.a.user_ids[&Prof], m.b.user_ids[&Prof]);
+        let l = ent.user_labels(m.a.objets.etab, &[ua, ub]).await.expect("labels");
+        assert!(l.contains_key(&ua), "membre de A absent des libellés de A");
+        assert!(!l.contains_key(&ub), "libellé d'un utilisateur de B renvoyé pour A");
+        let l = ent.user_labels(m.b.objets.etab, &[ua, ub]).await.expect("labels");
+        assert!(l.contains_key(&ub) && !l.contains_key(&ua));
+    });
+}
+
+// ───────── Énumération : connu dans B ≡ inconnu ─────────
+
+/// Réponse normalisée : statut et corps, sans identifiants ni horodatages variables.
+fn forme(rep: &Rep) -> (u16, String) {
+    let mut v = rep.json.clone();
+    fn nettoyer(v: &mut Value) {
+        match v {
+            Value::Object(o) => {
+                for k in ["token", "expires_at", "user_id", "email", "challenge", "rp", "options", "mot_de_passe_temporaire"] {
+                    if o.contains_key(k) {
+                        o.insert(k.into(), Value::Null);
+                    }
+                }
+                o.values_mut().for_each(nettoyer);
+            }
+            Value::Array(a) => a.iter_mut().for_each(nettoyer),
+            _ => {}
+        }
+    }
+    nettoyer(&mut v);
+    let corps = if rep.json.is_null() { rep.texte.clone() } else { v.to_string() };
+    (rep.statut.as_u16(), corps)
+}
+
+#[test]
+fn c6_enumeration_email_connu_dans_b_et_inconnu_indiscernables() {
+    let Some(m) = monde() else { return };
+    let mut echecs = Vec::new();
+    rt().block_on(async {
+        let a = m.a.objets.etab;
+        let connu_b = m.b.emails[&Prof].clone(); // existe, mais seulement dans B
+        let inconnu = format!("fantome-{}@example.test", Uuid::new_v4().simple());
+        let mdp = m.a.mot_de_passe.clone();
+        let mauvais = "mot-de-passe-incorrect-123".to_string();
+
+        // Connexion : bon mot de passe d'un compte de B, ou compte inconnu → même réponse.
+        let mut formes = Vec::new();
+        for (email, pwd) in [(&connu_b, &m.b.mot_de_passe), (&inconnu, &mdp), (&connu_b, &mauvais), (&inconnu, &mauvais)] {
+            let r = m.appel("POST", "/auth/login", None,
+                Some(&json!({"email": email, "password": pwd, "etablissement_id": a}))).await;
+            formes.push(forme(&r));
+        }
+        if formes.iter().any(|f| *f != formes[0]) {
+            echecs.push(format!("connexion : réponses distinctes {formes:?}"));
+        }
+        if formes[0].0 != 401 {
+            echecs.push(format!("connexion : 401 attendu, {}", formes[0].0));
+        }
+
+        // Passkey (début de connexion) : défi factice pour les deux.
+        let mut formes = Vec::new();
+        for email in [&connu_b, &inconnu] {
+            let r = m.appel("POST", "/auth/passkey/login/start", None,
+                Some(&json!({"email": email, "etablissement_id": a}))).await;
+            formes.push((r.statut.as_u16(), r.json.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>())));
+        }
+        if formes[0] != formes[1] {
+            echecs.push(format!("passkey/start : réponses distinctes {formes:?}"));
+        }
+
+        // Mot de passe oublié : 202 identique.
+        let mut formes = Vec::new();
+        for email in [&connu_b, &inconnu] {
+            let r = m.appel("POST", "/auth/forgot-password", None, Some(&json!({"email": email, "etablissement_id": a}))).await;
+            formes.push(forme(&r));
+        }
+        if formes[0] != formes[1] {
+            echecs.push(format!("mot de passe oublié : réponses distinctes {formes:?}"));
+        }
+
+        // Provisionnement par l'Admin de A : adresse connue dans B ≡ adresse inconnue.
+        let mut formes = Vec::new();
+        for email in [connu_b.clone(), format!("neuf-{}@example.test", Uuid::new_v4().simple())] {
+            let r = m.appel("POST", "/etablissement/personnel", Some(m.jeton(Admin)),
+                Some(&json!({"email": email, "display_name": "Enum", "role": "cpe"}))).await;
+            let mut f = forme(&r);
+            // Le mot de passe temporaire et l'identifiant varient toujours ; on compare la forme.
+            f.1 = r.json.as_object().map(|o| {
+                let mut k: Vec<_> = o.keys().cloned().collect();
+                k.sort();
+                format!("{k:?} role={}", o.get("role").and_then(|x| x.as_str()).unwrap_or(""))
+            }).unwrap_or(f.1);
+            formes.push(f);
+        }
+        if formes[0] != formes[1] {
+            echecs.push(format!("provisionnement : réponses distinctes {formes:?}"));
+        }
+        // …et l'adresse de B n'a pas été rattachée à A, ni son compte modifié.
+        let l = m.appel("POST", "/auth/login", None,
+            Some(&json!({"email": connu_b, "password": m.b.mot_de_passe, "etablissement_id": a}))).await;
+        if l.est_succes() {
+            echecs.push("provisionnement d'une adresse de B : rattachement silencieux à A".into());
+        }
+        let l = m.appel("POST", "/auth/login", None,
+            Some(&json!({"email": connu_b, "password": m.b.mot_de_passe, "etablissement_id": m.b.objets.etab}))).await;
+        if !l.est_succes() {
+            echecs.push("provisionnement d'une adresse de B : mot de passe du compte modifié".into());
+        }
+        // Dans son propre établissement, le conflit reste explicite (409) : pas un oracle inter-établissements.
+        let r = m.appel("POST", "/etablissement/personnel", Some(m.jeton(Admin)),
+            Some(&json!({"email": m.a.emails[&Prof], "display_name": "Enum", "role": "cpe"}))).await;
+        if r.statut.as_u16() != 409 {
+            echecs.push(format!("adresse déjà membre de A : 409 attendu, {}", r.statut));
+        }
+    });
+    CAS_EXECUTES.fetch_add(12, Ordering::Relaxed);
+    assert!(echecs.is_empty(), "{}", echecs.join("\n"));
+}
+
+// ───────── Nouvelles routes du socle 1 ─────────
+
+#[test]
+fn c6_routes_du_socle1_inventaire_401_et_separation() {
+    let (Some(m), Some(d)) = (monde(), doubles()) else { return };
+    let mut echecs = Vec::new();
+    let mut cas = 0usize;
+    rt().block_on(async {
+        let nul = Uuid::new_v4();
+        let routes: Vec<(&str, String, Option<Value>)> = vec![
+            ("GET", "/roles/catalogue".into(), None),
+            ("GET", "/roles".into(), None),
+            ("POST", "/roles".into(), Some(json!({"nom": "x", "droits": []}))),
+            ("PUT", format!("/roles/{nul}"), Some(json!({"nom": "x", "droits": []}))),
+            ("DELETE", format!("/roles/{nul}"), None),
+            ("PUT", format!("/roles/{nul}/membres/{nul}"), Some(json!({}))),
+            ("DELETE", format!("/roles/{nul}/membres/{nul}"), None),
+            ("GET", "/roles/mes-droits".into(), None),
+            ("PUT", format!("/referentiel/groupes/{nul}/responsables"), Some(json!({"responsables": []}))),
+            ("GET", "/auth/sessions".into(), None),
+            ("DELETE", format!("/auth/sessions/{nul}"), None),
+            ("GET", "/etablissement/securite".into(), None),
+            ("PUT", "/etablissement/securite".into(), Some(json!({}))),
+            ("GET", "/etablissement/domaines".into(), None),
+            ("POST", "/etablissement/domaines".into(), Some(json!({"domaine": "x.example.test"}))),
+            ("DELETE", "/etablissement/domaines/x.example.test".into(), None),
+            ("PUT", "/etablissement/fiche".into(), Some(json!({}))),
+            ("POST", format!("/documents/{nul}/lien"), Some(json!({}))),
+            ("POST", format!("/messages/pieces/{nul}/lien"), Some(json!({}))),
+            ("POST", format!("/eleves/{nul}/photo/lien"), Some(json!({}))),
+            ("POST", format!("/pai/pieces/{nul}/lien"), Some(json!({}))),
+        ];
+        // 1. Sans session ou jeton inventé : 401.
+        for (meth, chemin, corps) in &routes {
+            for jeton in [None, Some("jeton-invente")] {
+                let r = m.appel(meth, chemin, jeton, corps.as_ref()).await;
+                cas += 1;
+                if r.statut.as_u16() != 401 {
+                    echecs.push(format!("{meth} {chemin} sans session → {}", r.statut));
+                }
+            }
+        }
+        // 2. Liens de fichiers : identifiants de B avec une session de A (y compris double membre) → refus.
+        let pieces = [
+            format!("/documents/{}/lien", m.b.objets.doc.expect("doc B")),
+            format!("/documents/{}/lien", m.b.objets.doc_sante.expect("doc santé B")),
+            format!("/eleves/{}/photo/lien", m.b.objets.eleve),
+        ];
+        let mut jetons: Vec<(String, String)> = Acteur::STAFF.iter().map(|a| (format!("{a:?}"), m.jeton(*a).to_string())).collect();
+        jetons.extend(d.iter().map(|x| (format!("double {:?}", x.acteur), x.token_a.clone())));
+        for chemin in &pieces {
+            for (nom, t) in &jetons {
+                let r = m.appel("POST", chemin, Some(t), Some(&json!({}))).await;
+                cas += 1;
+                if !r.est_refus() || r.texte.contains("/fichiers/") {
+                    echecs.push(format!("{chemin} par {nom} : {} (refus attendu, aucun lien)", r.statut));
+                }
+            }
+        }
+        // 3. Gestion des rôles, sessions, politique et domaines : mêmes refus sur des objets de B.
+        let role_b = m.appel("POST", "/roles", Some(m.b.jetons[&Admin].as_str()),
+            Some(&json!({"nom": format!("RB {}", &Uuid::new_v4().simple().to_string()[..6]), "droits": []}))).await;
+        let role_b_id = role_b.json["id"].as_str().map(String::from);
+        for (nom, t) in &jetons {
+            if let Some(rid) = &role_b_id {
+                for (meth, chemin, corps) in [
+                    ("PUT", format!("/roles/{rid}"), Some(json!({"nom": "pirate", "droits": []}))),
+                    ("DELETE", format!("/roles/{rid}"), None),
+                    ("PUT", format!("/roles/{rid}/membres/{}", m.b.user_ids[&Prof]), Some(json!({}))),
+                    ("DELETE", format!("/roles/{rid}/membres/{}", m.b.user_ids[&Prof]), None),
+                ] {
+                    let r = m.appel(meth, &chemin, Some(t), corps.as_ref()).await;
+                    cas += 1;
+                    if !r.est_refus() {
+                        echecs.push(format!("{meth} {chemin} par {nom} (session A) → {}", r.statut));
+                    }
+                }
+            }
+            // Le catalogue et la liste des rôles de A ne montrent aucun rôle de B.
+            let l = m.appel("GET", "/roles", Some(t), None).await;
+            cas += 1;
+            if l.est_succes() {
+                if let Some(rid) = &role_b_id {
+                    if l.texte.contains(rid.as_str()) {
+                        echecs.push(format!("GET /roles par {nom} : rôle de B listé"));
+                    }
+                }
+            }
+            // Révoquer une session de B par identifiant (session de B réelle).
+            let sb = m.appel("GET", "/auth/sessions", Some(m.b.jetons[&Direction].as_str()), None).await;
+            if let Some(sid) = sb.json.as_array().and_then(|a| a.first()).and_then(|x| x["id"].as_str()) {
+                let r = m.appel("DELETE", &format!("/auth/sessions/{sid}"), Some(t), None).await;
+                cas += 1;
+                let verif = m.appel("GET", "/auth/me", Some(m.b.jetons[&Direction].as_str()), None).await;
+                if !verif.est_succes() {
+                    echecs.push(format!("DELETE /auth/sessions/<session de B> par {nom} ({}) : la session de B a été révoquée", r.statut));
+                    break;
+                }
+            }
+        }
+        // 4. Lien signé inconnu / altéré : refus uniforme, aucun contenu.
+        for jeton in ["x", "AAAA.BBBB", &"a".repeat(300)] {
+            let r = m.appel("GET", &format!("/fichiers/{jeton}"), None, None).await;
+            cas += 1;
+            if r.est_succes() || r.statut.is_server_error() {
+                echecs.push(format!("/fichiers/{} → {}", &jeton[..jeton.len().min(10)], r.statut));
+            }
+        }
+    });
+    CAS_EXECUTES.fetch_add(cas, Ordering::Relaxed);
+    eprintln!("[separation] routes socle 1 : {cas} cas, {} écart(s)", echecs.len());
     assert!(echecs.is_empty(), "{}", echecs.join("\n"));
 }

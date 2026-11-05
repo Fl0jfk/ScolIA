@@ -4982,7 +4982,7 @@ async fn list_absences_rh(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_absences_rh(&state, list.iter().map(AbsenceRhDto::from).collect()).await?,
+        enrich_absences_rh(&state, session.etablissement_id, list.iter().map(AbsenceRhDto::from).collect()).await?,
     ))
 }
 
@@ -5006,7 +5006,7 @@ async fn declarer_absence_rh(
         )
         .await
         .map_err(map_db)?;
-    let mut enriched = enrich_absences_rh(&state, vec![AbsenceRhDto::from(&a)]).await?;
+    let mut enriched = enrich_absences_rh(&state, session.etablissement_id, vec![AbsenceRhDto::from(&a)]).await?;
     Ok((StatusCode::CREATED, Json(enriched.remove(0))))
 }
 
@@ -5025,7 +5025,7 @@ async fn valider_absence_rh(
         )
         .await
         .map_err(map_db)?;
-    let mut enriched = enrich_absences_rh(&state, vec![AbsenceRhDto::from(&a)]).await?;
+    let mut enriched = enrich_absences_rh(&state, session.etablissement_id, vec![AbsenceRhDto::from(&a)]).await?;
     Ok(Json(enriched.remove(0)))
 }
 
@@ -7073,7 +7073,7 @@ async fn list_edt_creneaux(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_creneaux(&state, list.iter().map(VersDto::vers_dto).collect()).await?,
+        enrich_edt_creneaux(&state, session.etablissement_id, list.iter().map(VersDto::vers_dto).collect()).await?,
     ))
 }
 
@@ -7100,7 +7100,7 @@ async fn list_edt_eleve(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_creneaux(&state, list.iter().map(VersDto::vers_dto).collect()).await?,
+        enrich_edt_creneaux(&state, session.etablissement_id, list.iter().map(VersDto::vers_dto).collect()).await?,
     ))
 }
 
@@ -7252,7 +7252,7 @@ async fn affecter_edt_creneau(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_creneau(&state, c.vers_dto()).await?,
+        enrich_edt_creneau(&state, session.etablissement_id, c.vers_dto()).await?,
     ))
 }
 
@@ -7273,7 +7273,7 @@ async fn list_edt_contraintes(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_contraintes(&state, list.iter().map(EdtContrainteDto::from).collect()).await?,
+        enrich_edt_contraintes(&state, session.etablissement_id, list.iter().map(EdtContrainteDto::from).collect()).await?,
     ))
 }
 
@@ -7308,7 +7308,7 @@ async fn creer_edt_contrainte(
         .await
         .map_err(map_db)?;
     let enriched =
-        enrich_edt_contraintes(&state, vec![EdtContrainteDto::from(&c)]).await?;
+        enrich_edt_contraintes(&state, session.etablissement_id, vec![EdtContrainteDto::from(&c)]).await?;
     Ok((
         StatusCode::CREATED,
         Json(
@@ -7341,7 +7341,7 @@ async fn list_mes_creneaux(
         .await
         .map_err(map_db)?;
     Ok(Json(
-        enrich_edt_creneaux(&state, list.iter().map(VersDto::vers_dto).collect()).await?,
+        enrich_edt_creneaux(&state, session.etablissement_id, list.iter().map(VersDto::vers_dto).collect()).await?,
     ))
 }
 
@@ -8373,7 +8373,7 @@ async fn ouvrir_fil(
         StatusCode::CREATED,
         Json(FilDetailDto {
             fil: MsgFilDto::from(&fil),
-            messages: enrich_messages(&state, vec![MessageDto::from(&msg)]).await?,
+            messages: enrich_messages(&state, session.etablissement_id, vec![MessageDto::from(&msg)]).await?,
         }),
     ))
 }
@@ -8398,7 +8398,7 @@ async fn ouvrir_fil_depuis_modele(
         StatusCode::CREATED,
         Json(FilDetailDto {
             fil: MsgFilDto::from(&fil),
-            messages: enrich_messages(&state, vec![MessageDto::from(&msg)]).await?,
+            messages: enrich_messages(&state, session.etablissement_id, vec![MessageDto::from(&msg)]).await?,
         }),
     ))
 }
@@ -8504,7 +8504,7 @@ async fn get_fil(
         .map_err(map_db)?;
     Ok(Json(FilDetailDto {
         fil: MsgFilDto::from(&fil),
-        messages: enrich_messages(&state, msgs.iter().map(MessageDto::from).collect()).await?,
+        messages: enrich_messages(&state, session.etablissement_id, msgs.iter().map(MessageDto::from).collect()).await?,
     }))
 }
 
@@ -8529,7 +8529,7 @@ async fn repondre_fil(
         .map_err(map_db)?;
     Ok((
         StatusCode::CREATED,
-        Json(enrich_message(&state, MessageDto::from(&msg)).await?),
+        Json(enrich_message(&state, session.etablissement_id, MessageDto::from(&msg)).await?),
     ))
 }
 
@@ -10078,10 +10078,11 @@ async fn poser_echeancier_parts(
 
 async fn enrich_edt_creneaux(
     state: &AppState,
+    etablissement_id: Uuid,
     mut list: Vec<EdtCreneauDto>,
 ) -> Result<Vec<EdtCreneauDto>, (StatusCode, String)> {
     let ids: Vec<Uuid> = list.iter().map(|c| c.prof_user_id).collect();
-    let labels = state.ent.user_labels(&ids).await.map_err(map_db)?;
+    let labels = state.ent.user_labels(etablissement_id, &ids).await.map_err(map_db)?;
     for c in &mut list {
         c.prof_label = labels.get(&c.prof_user_id).cloned();
     }
@@ -10090,11 +10091,12 @@ async fn enrich_edt_creneaux(
 
 async fn enrich_edt_creneau(
     state: &AppState,
+    etablissement_id: Uuid,
     mut c: EdtCreneauDto,
 ) -> Result<EdtCreneauDto, (StatusCode, String)> {
     let labels = state
         .ent
-        .user_labels(&[c.prof_user_id])
+        .user_labels(etablissement_id, &[c.prof_user_id])
         .await
         .map_err(map_db)?;
     c.prof_label = labels.get(&c.prof_user_id).cloned();
@@ -10126,10 +10128,11 @@ async fn enrich_notes(
 
 async fn enrich_messages(
     state: &AppState,
+    etablissement_id: Uuid,
     mut list: Vec<MessageDto>,
 ) -> Result<Vec<MessageDto>, (StatusCode, String)> {
     let ids: Vec<Uuid> = list.iter().map(|m| m.auteur_user_id).collect();
-    let labels = state.ent.user_labels(&ids).await.map_err(map_db)?;
+    let labels = state.ent.user_labels(etablissement_id, &ids).await.map_err(map_db)?;
     for m in &mut list {
         m.auteur_label = labels.get(&m.auteur_user_id).cloned();
     }
@@ -10138,11 +10141,12 @@ async fn enrich_messages(
 
 async fn enrich_message(
     state: &AppState,
+    etablissement_id: Uuid,
     mut m: MessageDto,
 ) -> Result<MessageDto, (StatusCode, String)> {
     let labels = state
         .ent
-        .user_labels(&[m.auteur_user_id])
+        .user_labels(etablissement_id, &[m.auteur_user_id])
         .await
         .map_err(map_db)?;
     m.auteur_label = labels.get(&m.auteur_user_id).cloned();
@@ -10156,7 +10160,7 @@ async fn enrich_grants(
 ) -> Result<Vec<DocumentGrantDto>, (StatusCode, String)> {
     let user_ids: Vec<Uuid> = list.iter().map(|g| g.grantee_user_id).collect();
     let doc_ids: Vec<Uuid> = list.iter().map(|g| g.document_id).collect();
-    let labels = state.ent.user_labels(&user_ids).await.map_err(map_db)?;
+    let labels = state.ent.user_labels(etablissement_id, &user_ids).await.map_err(map_db)?;
     let titres = state
         .ent
         .document_labels(etablissement_id, &doc_ids)
@@ -10176,7 +10180,7 @@ async fn enrich_grant(
 ) -> Result<DocumentGrantDto, (StatusCode, String)> {
     let labels = state
         .ent
-        .user_labels(&[g.grantee_user_id])
+        .user_labels(etablissement_id, &[g.grantee_user_id])
         .await
         .map_err(map_db)?;
     let titres = state
@@ -10235,7 +10239,7 @@ async fn enrich_appreciations(
     let by_mat: std::collections::HashMap<Uuid, String> =
         matieres.into_iter().map(|m| (m.id, m.libelle)).collect();
     let auteurs: Vec<Uuid> = list.iter().map(|a| a.auteur_user_id).collect();
-    let labels = state.ent.user_labels(&auteurs).await.map_err(map_db)?;
+    let labels = state.ent.user_labels(etablissement_id, &auteurs).await.map_err(map_db)?;
     for a in &mut list {
         a.matiere_libelle = a.matiere_id.and_then(|id| by_mat.get(&id).cloned());
         a.auteur_label = labels.get(&a.auteur_user_id).cloned();
@@ -10255,7 +10259,7 @@ async fn enrich_edt_exceptions(
     let creneau_ids: Vec<Uuid> = list.iter().map(|e| e.creneau_id).collect();
     let labels = state
         .ent
-        .user_labels(&remplacant_ids)
+        .user_labels(etablissement_id, &remplacant_ids)
         .await
         .map_err(map_db)?;
     let creneau_labels = state
@@ -10274,10 +10278,11 @@ async fn enrich_edt_exceptions(
 
 async fn enrich_edt_contraintes(
     state: &AppState,
+    etablissement_id: Uuid,
     mut list: Vec<EdtContrainteDto>,
 ) -> Result<Vec<EdtContrainteDto>, (StatusCode, String)> {
     let ids: Vec<Uuid> = list.iter().filter_map(|c| c.prof_user_id).collect();
-    let labels = state.ent.user_labels(&ids).await.map_err(map_db)?;
+    let labels = state.ent.user_labels(etablissement_id, &ids).await.map_err(map_db)?;
     for c in &mut list {
         c.prof_label = c.prof_user_id.and_then(|id| labels.get(&id).cloned());
     }
@@ -10286,10 +10291,11 @@ async fn enrich_edt_contraintes(
 
 async fn enrich_absences_rh(
     state: &AppState,
+    etablissement_id: Uuid,
     mut list: Vec<AbsenceRhDto>,
 ) -> Result<Vec<AbsenceRhDto>, (StatusCode, String)> {
     let ids: Vec<Uuid> = list.iter().map(|a| a.user_id).collect();
-    let labels = state.ent.user_labels(&ids).await.map_err(map_db)?;
+    let labels = state.ent.user_labels(etablissement_id, &ids).await.map_err(map_db)?;
     for a in &mut list {
         a.user_label = labels.get(&a.user_id).cloned();
     }
@@ -10327,7 +10333,7 @@ async fn enrich_invitations(
 ) -> Result<Vec<InvitationCompteDto>, (StatusCode, String)> {
     let user_ids: Vec<Uuid> = list.iter().filter_map(|i| i.activated_user_id).collect();
     let eleve_ids: Vec<Uuid> = list.iter().map(|i| i.eleve_id).collect();
-    let labels = state.ent.user_labels(&user_ids).await.map_err(map_db)?;
+    let labels = state.ent.user_labels(etablissement_id, &user_ids).await.map_err(map_db)?;
     let eleves = state
         .ent
         .eleve_labels(etablissement_id, &eleve_ids)
@@ -10371,7 +10377,7 @@ async fn enrich_signaux_eleve(
         .eleve_labels(etablissement_id, &ids)
         .await
         .map_err(map_db)?;
-    let users = state.ent.user_labels(&user_ids).await.map_err(map_db)?;
+    let users = state.ent.user_labels(etablissement_id, &user_ids).await.map_err(map_db)?;
     for s in &mut list {
         s.eleve_label = labels.get(&s.eleve_id).cloned();
         s.traite_par_label = s
@@ -10612,7 +10618,7 @@ async fn enrich_carnet(
         .eleve_labels(etablissement_id, &eleve_ids)
         .await
         .map_err(map_db)?;
-    let users = state.ent.user_labels(&user_ids).await.map_err(map_db)?;
+    let users = state.ent.user_labels(etablissement_id, &user_ids).await.map_err(map_db)?;
     for c in &mut list {
         c.eleve_label = eleves.get(&c.eleve_id).cloned();
         c.signe_par_label = c

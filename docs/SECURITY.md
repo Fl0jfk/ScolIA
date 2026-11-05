@@ -134,3 +134,24 @@ Niveau : **implémenté + testé en local** ; non validé pilote ; non prêt pro
 - `ENT_RP_ALLOW_SUBDOMAINS=1` : un sous-domaine détourné pourrait solliciter des passkeys du `rp_id`.
 - Régression de compteur : pas de désactivation automatique de la clé ni d'alerte à l'utilisateur ; les passkeys synchronisées (compteur 0) ne sont pas concernées.
 - Fichier `apple-app-site-association` (iOS) non fourni.
+
+## Socle 1 — C1 (reste) et C6 : matrice d'isolation étendue (2026-11-05)
+
+Niveau : **implémenté + testé en local** ; non validé pilote ; non prêt production ; aucun audit externe. Détail : `docs/SOCLE1_SECURITE.md` (C1, C6).
+
+**Constats corrigés (trouvés par la matrice étendue, faits vérifiés par test)**
+| Constat | Gravité | Correction |
+|---|---|---|
+| `user_labels` renvoyait le libellé (nom ou e-mail) de n'importe quel utilisateur par UUID, même d'un autre établissement | Moyenne | jointure `ent_membership`, établissement de la session passé aux 17 appels |
+| `POST /edt/creneaux/{id}/affectation` acceptait un `prof_user_id` d'un autre établissement (200) | Moyenne | membre de l'établissement exigé |
+| `POST /facturation/factures` acceptait une ligne dont `eleve_id` est d'un autre établissement (201) | Moyenne | élève de l'établissement exigé |
+| Une consultation sensible d'un `eleve_id` d'un autre établissement laissait une trace dans le journal de l'acteur, listée par `GET /eleves/{id}/journal` | Faible | l'insertion au journal (et l'événement) exige un élève de l'établissement |
+| Provisionnement d'une adresse connue dans un autre établissement : 409 « déjà utilisé » (oracle d'existence inter-établissements) | Moyenne | réponse indiscernable d'un succès, aucun compte créé ni modifié, journalisée sans l'adresse |
+| SSO : non-membre (403) distinct d'un compte inconnu (401) | Faible | même réponse (401) |
+| Le test « 401 sans session » ne couvrait que `routes.rs` : `/roles/*` et `/referentiel/groupes/{id}/responsables` hors inventaire | Faible (test) | inventaire sur 3 fichiers + test de couverture |
+
+**Limites connues**
+- Provisionnement neutre : le mot de passe renvoyé pour une adresse connue ailleurs ne sert à rien ; l'administrateur ne voit pas d'échec et la personne n'est pas rattachée tant que l'invitation (acceptée par la personne) n'est pas conçue. Un administrateur peut donc croire un compte créé : à traiter par l'invitation et un message d'interface.
+- Le rattachement d'un parent (`POST /foyers/{id}/liens`) et le provisionnement en lot gardent un 409 distinct pour une adresse existant ailleurs.
+- Garde statique SQL : syntaxique (littéraux seulement) ; les 17 exceptions sont justifiées dans le test ; sans RLS (C4) ni FK composites (C5), l'isolation repose toujours sur la discipline du code.
+- Les doubles membres de la matrice sont du personnel ; parents et élèves n'y sont pas rejoués.

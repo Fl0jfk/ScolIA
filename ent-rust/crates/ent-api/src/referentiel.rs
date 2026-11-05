@@ -130,12 +130,12 @@ fn classe_simple_dto(c: &Classe) -> ClasseDto {
     }
 }
 
-async fn libelles_classes(state: &AppState, list: &[ClasseResume]) -> Res<HashMap<Uuid, String>> {
+async fn libelles_classes(state: &AppState, etablissement_id: Uuid, list: &[ClasseResume]) -> Res<HashMap<Uuid, String>> {
     let ids: Vec<Uuid> = list
         .iter()
         .filter_map(|c| c.professeur_principal_id)
         .collect();
-    state.ent.user_labels(&ids).await.map_err(map_db)
+    state.ent.user_labels(etablissement_id, &ids).await.map_err(map_db)
 }
 
 fn classe_introuvable() -> (StatusCode, String) {
@@ -197,7 +197,7 @@ async fn list_classes(
         )
         .await
         .map_err(map_db)?;
-    let labels = libelles_classes(&state, &list).await?;
+    let labels = libelles_classes(&state, session.etablissement_id, &list).await?;
     Ok(Json(list.iter().map(|c| classe_dto(c, &labels)).collect()))
 }
 
@@ -252,7 +252,7 @@ async fn get_classe(
         .map_err(map_db)?;
     let mut ids: Vec<Uuid> = services.iter().map(|s| s.prof_user_id).collect();
     ids.extend(resume.professeur_principal_id);
-    let labels = state.ent.user_labels(&ids).await.map_err(map_db)?;
+    let labels = state.ent.user_labels(session.etablissement_id, &ids).await.map_err(map_db)?;
     Ok(Json(ClasseDetailDto {
         classe: classe_dto(&resume, &labels),
         jour,
@@ -339,7 +339,7 @@ async fn creer_service(
         .map_err(map_db)?;
     let labels = state
         .ent
-        .user_labels(&[s.prof_user_id])
+        .user_labels(session.etablissement_id, &[s.prof_user_id])
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(service_dto(&s, &labels))))
@@ -389,6 +389,6 @@ async fn mes_classes(
             .await
     }
     .map_err(map_db)?;
-    let labels = libelles_classes(&state, &list).await?;
+    let labels = libelles_classes(&state, session.etablissement_id, &list).await?;
     Ok(Json(list.iter().map(|c| classe_dto(c, &labels)).collect()))
 }

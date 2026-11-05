@@ -2769,14 +2769,16 @@ impl PgEnt {
             }
         };
 
+        // Non-membre : même réponse que « compte inconnu » (pas d'oracle
+        // d'appartenance inter-établissements, C1/D-013).
         if !self.auth.is_member(state.etablissement_id, user_id).await? {
-            return Err(EntDbError::Forbidden);
+            return Err(EntDbError::OidcCompteInconnu);
         }
         let role = self
             .auth
             .role_in(state.etablissement_id, user_id)
             .await?
-            .ok_or(EntDbError::Forbidden)?;
+            .ok_or(EntDbError::OidcCompteInconnu)?;
         let email = self
             .auth
             .resolve_user_email(user_id)
@@ -2874,7 +2876,7 @@ impl PgEnt {
         }
 
         let mot_de_passe_temporaire = generate_temp_password();
-        let user = self
+        let user = match self
             .auth
             .register(
                 &cmd.email,
@@ -2883,7 +2885,53 @@ impl PgEnt {
                 etablissement_id,
                 target.as_str(),
             )
-            .await?;
+            .await
+        {
+            Ok(u) => u,
+            Err(AuthError::EmailTaken) => {
+                // Adresse déjà connue. Membre de CET établissement : le
+                // conflit est légitime (409). Connue ailleurs : réponse
+                // **indiscernable d'un succès** (C1/D-013, pas d'oracle
+                // d'existence inter-établissements) ; aucun compte n'est
+                // créé ni modifié, le mot de passe renvoyé n'est attaché à
+                // rien. Le rattachement passera par une invitation
+                // acceptée par la personne (à concevoir, SOCLE1 C1).
+                if self
+                    .auth
+                    .email_membre_de(etablissement_id, &cmd.email)
+                    .await?
+                {
+                    return Err(AuthError::EmailTaken.into());
+                }
+                // Même coût CPU qu'une création (Argon2id).
+                let _ = ent_auth::hash_password(&mot_de_passe_temporaire);
+                let email = ent_auth::normalize_email(&cmd.email)?;
+                let _ = self
+                    .enregistrer_journal_interne(EnregistrerJournal {
+                        etablissement_id,
+                        eleve_id: None,
+                        domaine: "etablissement".into(),
+                        action: "personnel_provisionne_adresse_connue".into(),
+                        libelle: "Provisionnement d'une adresse déjà utilisée ailleurs : \
+                                  aucun compte créé (invitation à concevoir)"
+                            .into(),
+                        payload: json!({
+                            "role": target.as_str(),
+                            "par": actor_user_id.to_string(),
+                        }),
+                        visible_famille: false,
+                        actor_user_id: Some(actor_user_id),
+                    })
+                    .await;
+                return Ok(PersonnelProvisionne {
+                    user_id: Uuid::new_v4(),
+                    email,
+                    role: target.as_str().to_string(),
+                    mot_de_passe_temporaire,
+                });
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         let _ = self
             .enregistrer_journal_interne(EnregistrerJournal {
@@ -3720,11 +3768,14 @@ impl PgEnt {
         Ok(self.auth.get_staff_member(etablissement_id, user_id).await?)
     }
 
+    /// Libellés des utilisateurs **membres de l'établissement** (D-013) : un
+    /// identifiant d'un autre établissement n'a aucun libellé.
     pub async fn user_labels(
         &self,
+        etablissement_id: Uuid,
         user_ids: &[Uuid],
     ) -> Result<std::collections::HashMap<Uuid, String>, EntDbError> {
-        Ok(self.auth.user_labels(user_ids).await?)
+        Ok(self.auth.user_labels(etablissement_id, user_ids).await?)
     }
 
     pub async fn document_labels(
@@ -11576,7 +11627,10 @@ impl PgEnt {
         cmd: EnregistrerJournal,
     ) -> Result<JournalEntree, EntDbError> {
         let planned = plan_enregistrer_journal(cmd)?;
-        self.journal.insert(&planned).await?;
+        if !self.journal.insert(&planned).await? {
+            // Élève d'un autre établissement : ni trace ni événement.
+            return Ok(planned);
+        }
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: planned.etablissement_id,
@@ -13727,6 +13781,13 @@ impl PgEnt {
             }
         }
 
+        // Le professeur affecté est fourni par le client : il doit être membre
+        // de CET établissement (C6, D-013).
+        if let Some(prof) = cmd.prof_user_id {
+            if !self.auth.is_member(cmd.etablissement_id, prof).await? {
+                return Err(DomainError::NotFound.into());
+            }
+        }
         let planned = plan_affecter_edt_creneau(
             current.prof_user_id,
             current.salle.as_deref(),
@@ -16291,6 +16352,15 @@ impl PgEnt {
             return Err(DomainError::NotFound.into());
         }
         let (facture, lignes) = plan_creer_facture(cmd)?;
+        // Une ligne ne peut viser qu'un élève de l'établissement (C6, D-013).
+        for l in &lignes {
+            if let Some(eid) = l.eleve_id {
+                self.eleves
+                    .get(facture.etablissement_id, eid)
+                    .await?
+                    .ok_or(DomainError::NotFound)?;
+            }
+        }
         self.facturation
             .insert_facture(&facture, &lignes)
             .await?;
