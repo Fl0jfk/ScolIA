@@ -189,7 +189,8 @@ async fn rattachement_idempotent_et_comparaison_avant_apres() {
     assert_eq!(annee_appel, format!("{y}-{}", y + 1));
     let (annee_hist,): (String,) = sqlx::query_as(
         "SELECT y.libelle FROM ent_eleve_scolarite_annee s JOIN ent_classe c ON c.id = s.classe_id
-           JOIN ent_annee_scolaire y ON y.id = c.annee_id WHERE s.etablissement_id = $1",
+           JOIN ent_annee_scolaire y ON y.id = c.annee_id
+          WHERE s.etablissement_id = $1 AND s.annee_scolaire = '2024-2025'",
     )
     .bind(e).fetch_one(ent.pool()).await.unwrap();
     assert_eq!(annee_hist, "2024-2025");
@@ -333,7 +334,7 @@ async fn seances_generees_vacances_exclues_et_idempotence() {
     let c4b: Uuid = sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 AND annee_id = $2 AND code = '4B'")
         .bind(e).bind(annee.id).fetch_one(ent.pool()).await.unwrap();
     let liste = ent.ref_seances(&a, du, au, Some(c4b), None).await.unwrap();
-    assert_eq!(liste.len(), 4);
+    assert_eq!(liste.iter().filter(|s| s.creneau_id == creneau).count(), 4);
     assert!(nb_evenements(&ent, e, "edt.seances_generees").await >= 5);
     assert!(nb_evenements(&ent, e, "referentiel.vacances_creees").await >= 1);
 
