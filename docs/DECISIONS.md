@@ -29,6 +29,8 @@
 | Calendrier | Sortie de l'ENT visée dans ~1 an (indicatif) | **Validé** (objectif) | D-007 |
 | Rôles et droits | Rôles **créés par chaque établissement** à partir d'un catalogue d'actions fourni par ScolIA, chaque action avec une portée ; cumul de rôles ; familles et élèves hors rôles libres (lien légal) | **Validé** | D-017 |
 | Récupération de passkey | Par la personne elle-même, par e-mail, avec délai de sécurité et alertes | **Validé** | D-018 |
+| Cible commerciale du socle 2 | **Public et privé ensemble** (ÉduConnect, GAR, interfaces nationales prévues dès le socle 2) | **Validé** | D-019 |
+| Modèle personne / compte, absences | Personne distincte du compte pour les responsables ; absences à la séance avec dérivation en demi-journées | **Validé** | D-020 |
 | Next.js production | Intouchable | Règle absolue | — |
 | DB production | Aucun accès même lecture | Règle absolue | — |
 
@@ -253,4 +255,16 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
 - **Date :** 2026-11-05 — **Validateur :** Florian
 - **Contexte :** une personne rattachée à plusieurs établissements qui perd sa passkey ne peut être débloquée par aucune direction (isolation, revue socle 1 E4).
 - **Décision :** récupération en libre-service : lien envoyé par e-mail, **délai de sécurité** (24 à 48 h) avant effet, alerte dans chaque établissement de la personne et à la personne, annulation possible pendant le délai. La récupération par la direction reste possible pour une personne d'un seul établissement.
+
+## D-019 — Socle 2 : public et privé ensemble
+
+- **Date :** 2026-11-05 — **Validateur :** Florian (question Q1 de `docs/SOCLE2_DOMAINES.md`)
+- **Décision :** le socle 2 vise **en même temps** les établissements publics et privés (contre la recommandation « privé d'abord »).
+- **Impacts :** l'interopérabilité publique (lot S2-15 : ÉduConnect, GAR, schéma directeur des ENT, ONDE/SIECLE/STS, Op@le selon vérification) n'est plus repoussée en fin de socle : à étudier et planifier en parallèle des premiers lots ; les modèles (référentiel, personnes, absences, évaluations) doivent rester compatibles avec les nomenclatures nationales. Les règles citées de mémoire dans la conception (formats, seuils) sont à vérifier sur les textes officiels avant chaque lot.
+
+## D-020 — Personne distincte du compte ; absences à la séance
+
+- **Date :** 2026-11-05 — **Validateur :** Florian (questions Q4 et Q6 de `docs/SOCLE2_DOMAINES.md`)
+- **Décision :** (1) une **personne** (responsable, contact) existe indépendamment d'un **compte** de connexion : parent sans e-mail, parents séparés (D-014), élève majeur ; (2) les absences sont enregistrées **à la séance**, les demi-journées sont dérivées automatiquement (décompte réglementaire).
+- **Impacts :** lots S2-1 (dossier élève et personnes) et S2-4 (vie scolaire complète) ; migrations additives avec reprise de l'existant.
 
