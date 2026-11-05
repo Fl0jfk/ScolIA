@@ -714,22 +714,22 @@ async fn effacement_automatique_des_sanctions() {
     assert!(initiales >= 4);
 
     // Veille de la rentrée : rien. Le 1er septembre : l'avertissement.
-    let r = ent.effacer_sanctions_echues_for_actor(etab, dir.0, dir.1, d(2027, 8, 31)).await.unwrap();
+    let r = ent.effacer_sanctions_echues(etab, d(2027, 8, 31), None).await.unwrap();
     assert!(r.effacees.is_empty());
-    let r = ent.effacer_sanctions_echues_for_actor(etab, dir.0, dir.1, d(2027, 9, 1)).await.unwrap();
+    let r = ent.effacer_sanctions_echues(etab, d(2027, 9, 1), None).await.unwrap();
     assert_eq!(r.effacees, vec![avert]);
     // Idempotent ; le texte libre est vidé ; la sanction disparaît du dossier.
-    assert!(ent.effacer_sanctions_echues_for_actor(etab, dir.0, dir.1, d(2027, 9, 1)).await.unwrap().effacees.is_empty());
+    assert!(ent.effacer_sanctions_echues(etab, d(2027, 9, 1), None).await.unwrap().effacees.is_empty());
     let (note,): (Option<String>,) = sqlx::query_as("SELECT note FROM ent_sanction WHERE id = $1").bind(avert).fetch_one(ent.pool()).await.unwrap();
     assert!(note.is_none());
     assert!(listes().await.unwrap().iter().all(|s| s.id != avert));
     // Délai en mois (12 mois par défaut pour l'exclusion temporaire) : 12 octobre 2027.
-    let r = ent.effacer_sanctions_echues_for_actor(etab, dir.0, dir.1, d(2027, 10, 11)).await.unwrap();
+    let r = ent.effacer_sanctions_echues(etab, d(2027, 10, 11), None).await.unwrap();
     assert!(r.effacees.is_empty());
-    let r = ent.effacer_sanctions_echues_for_actor(etab, dir.0, dir.1, d(2027, 10, 12)).await.unwrap();
+    let r = ent.effacer_sanctions_echues(etab, d(2027, 10, 12), None).await.unwrap();
     assert_eq!(r.effacees, vec![exclu]);
     // Exclusion définitive et type sans catégorie : jamais effacés automatiquement.
-    let r = ent.effacer_sanctions_echues_for_actor(etab, dir.0, dir.1, d(2060, 1, 1)).await.unwrap();
+    let r = ent.effacer_sanctions_echues(etab, d(2060, 1, 1), None).await.unwrap();
     assert!(r.effacees.is_empty());
     let restantes: Vec<Uuid> = listes().await.unwrap().iter().map(|s| s.id).collect();
     assert!(restantes.contains(&defin) && restantes.contains(&sans_cat));
@@ -740,6 +740,8 @@ async fn effacement_automatique_des_sanctions() {
     let r = ent.effacer_sanctions_echues(etab, d(2036, 10, 12), None).await.unwrap();
     assert_eq!(r.effacees, vec![defin]);
     assert_eq!(compter(&ent, "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND type = 'vs.sanction_effacee'", etab).await, 3);
+    // Un effacement manuel à une date future est refusé (irréversible).
+    assert!(ent.effacer_sanctions_echues_for_actor(etab, dir.0, dir.1, today_utc() + Duration::days(400)).await.is_err());
     // Droits : CPE et professeur ne gèrent pas la discipline ; catégorie inconnue refusée.
     assert!(matches!(
         ent.effacer_sanctions_echues_for_actor(etab, cast.cpe.user_id, "cpe", d(2027, 9, 1)).await,
@@ -785,6 +787,7 @@ async fn procedure_disciplinaire_contradictoire_et_conseil() {
     ));
     // Le conseil ne se convoque pas pour une procédure de chef d'établissement.
     assert!(ent.convoquer_conseil(etab, p.id, dir.0, dir.1, d(2026, 11, 20), d(2026, 12, 20)).await.is_err());
+    assert!(ent.recueillir_observations(etab, p.id, dir.0, dir.1, today_utc() + Duration::days(2)).await.is_err());
     let p = ent.recueillir_observations(etab, p.id, dir.0, dir.1, today_utc()).await.unwrap();
     assert!(p.observations_recueillies_le.is_some());
     // La sanction liée doit concerner le même élève.
@@ -806,12 +809,17 @@ async fn procedure_disciplinaire_contradictoire_et_conseil() {
     assert!(ent.convoquer_conseil(etab, p.id, dir.0, dir.1, envoi - Duration::days(30), envoi + Duration::days(8)).await.is_err(), "convocation antérieure à l'engagement");
     let p = ent.convoquer_conseil(etab, p.id, dir.0, dir.1, envoi, envoi + Duration::days(8)).await.unwrap();
     assert_eq!((p.statut.as_str(), p.conseil_le), ("convoquee", Some(envoi + Duration::days(8))));
-    // Pas de décision avant la date du conseil.
+    // Pas de décision avant la date du conseil (dates ramenées dans le passé en base).
+    sqlx::query("UPDATE ent_procedure_disciplinaire SET engagee_le = engagee_le - 30, convocation_envoyee_le = convocation_envoyee_le - 30, conseil_le = conseil_le - 30 WHERE id = $1")
+        .bind(p.id).execute(ent.pool()).await.unwrap();
+    let conseil = envoi + Duration::days(8) - Duration::days(30);
     assert!(matches!(
-        ent.decider_procedure(etab, p.id, dir.0, dir.1, "Exclusion", envoi + Duration::days(7), None).await,
+        ent.decider_procedure(etab, p.id, dir.0, dir.1, "Exclusion", conseil - Duration::days(1), None).await,
         Err(EntDbError::Domain(DomainError::Conflit))
     ));
-    let p = ent.decider_procedure(etab, p.id, dir.0, dir.1, "Exclusion temporaire", envoi + Duration::days(8), None).await.unwrap();
+    // Jamais de décision datée dans le futur.
+    assert!(ent.decider_procedure(etab, p.id, dir.0, dir.1, "Exclusion", today_utc() + Duration::days(3), None).await.is_err());
+    let p = ent.decider_procedure(etab, p.id, dir.0, dir.1, "Exclusion temporaire", conseil, None).await.unwrap();
     assert_eq!(p.statut, "decidee");
     assert!(compter(&ent, "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND type = 'vs.conseil_discipline_decide'", etab).await == 1);
     assert_eq!(ent.procedures_eleve_for_actor(etab, dir.0, dir.1, lea).await.unwrap().len(), 2);

@@ -1146,7 +1146,7 @@ impl PgEnt {
                JOIN ent_appel_ligne l ON l.appel_id = a.id
                JOIN ent_edt_creneau c ON c.id = a.creneau_id AND c.etablissement_id = a.etablissement_id
                JOIN ent_eleve e ON e.id = l.eleve_id AND e.etablissement_id = a.etablissement_id
-              WHERE a.etablissement_id = $1 AND a.jour = $2",
+              WHERE a.etablissement_id = $1 AND a.jour = $2 AND a.statut = 'clos'",
         )
         .bind(etablissement_id)
         .bind(jour)
@@ -1331,10 +1331,19 @@ impl PgEnt {
             let horaire = d
                 .zip(f)
                 .map(|(d, f)| format!("{}–{}", d.format("%H:%M"), f.format("%H:%M")));
-            match absents.iter_mut().find(|x| x.absence_id == absence_id) {
+            match absents.iter_mut().find(|x| x.eleve_id == eleve_id) {
                 Some(x) => {
-                    x.prevenue |= prevenue;
-                    x.seances.extend(horaire);
+                    // Un élève = une ligne : séances agrégées ; « prévenue » seulement si
+                    // toutes ses absences le sont ; à traiter dès qu'une absence l'est.
+                    x.prevenue &= prevenue;
+                    if statut == "a_traiter" {
+                        x.statut = statut;
+                    }
+                    if let Some(h) = horaire {
+                        if !x.seances.contains(&h) {
+                            x.seances.push(h);
+                        }
+                    }
                 }
                 None => absents.push(AbsentDuJour {
                     eleve_id,
@@ -1347,7 +1356,16 @@ impl PgEnt {
                 }),
             }
         }
-        let a_traiter = absents.iter().filter(|a| a.statut == "a_traiter").count() as i64;
+        // Justificatifs à traiter : par absence (et non par élève).
+        let a_traiter: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM ent_absence
+              WHERE etablissement_id = $1 AND debut <= $2 AND fin >= $2 AND statut = 'a_traiter'",
+        )
+        .bind(etablissement_id)
+        .bind(jour)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db)?;
         let retards: Vec<(Uuid, String, String, Option<i32>)> = sqlx::query_as(
             "SELECT r.eleve_id, e.nom, e.prenom, r.minutes
                FROM ent_retard r

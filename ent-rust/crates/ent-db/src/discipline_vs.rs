@@ -168,6 +168,10 @@ pub struct SignalementAssiduite {
     pub dossier: serde_json::Value,
 }
 
+fn aujourdhui() -> NaiveDate {
+    PgEnt::maintenant_local().date()
+}
+
 fn texte(v: &str, max: usize) -> Result<String, EntDbError> {
     let v = v.trim();
     if v.is_empty() || v.chars().count() > max || v.chars().any(|c| c.is_control() && c != '\n') {
@@ -521,6 +525,10 @@ impl PgEnt {
     ) -> Result<EffacementRapport, EntDbError> {
         self.exiger_action_etab(etablissement_id, acteur, role, Action::DisciplineGerer)
             .await?;
+        // L'effacement est irréversible (texte libre vidé) : jamais à une date future.
+        if au_jour > aujourdhui() {
+            return Err(invalide());
+        }
         self.effacer_sanctions_echues(etablissement_id, au_jour, Some(acteur))
             .await
     }
@@ -693,6 +701,9 @@ impl PgEnt {
         if matches!(p.statut.as_str(), "decidee" | "close") || le < p.engagee_le {
             return Err(EntDbError::Domain(DomainError::Conflit));
         }
+        if le > aujourdhui() {
+            return Err(invalide());
+        }
         sqlx::query(
             "UPDATE ent_procedure_disciplinaire SET observations_recueillies_le = $3
               WHERE etablissement_id = $1 AND id = $2",
@@ -729,7 +740,10 @@ impl PgEnt {
             return Err(EntDbError::Domain(DomainError::Conflit));
         }
         let minimum = convocation_envoyee_le + chrono::Duration::days(i64::from(p.delai_convocation_jours));
-        if convocation_envoyee_le < p.engagee_le || conseil_le < minimum {
+        if convocation_envoyee_le < p.engagee_le
+            || convocation_envoyee_le > aujourdhui()
+            || conseil_le < minimum
+        {
             return Err(invalide());
         }
         sqlx::query(
@@ -775,6 +789,12 @@ impl PgEnt {
         };
         if !pret {
             return Err(EntDbError::Domain(DomainError::Conflit));
+        }
+        // Une décision n'est jamais datée dans le futur ni avant le contradictoire.
+        if decision_le > aujourdhui()
+            || p.observations_recueillies_le.is_some_and(|o| decision_le < o)
+        {
+            return Err(invalide());
         }
         if let Some(sid) = sanction_id {
             let ok: Option<(i32,)> = sqlx::query_as(
