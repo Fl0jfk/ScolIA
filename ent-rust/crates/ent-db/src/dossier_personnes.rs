@@ -1986,14 +1986,22 @@ impl PgEnt {
         }
         let compte_transfere = source.user_id.filter(|_| cible.user_id.is_none());
         if let Some(u) = compte_transfere {
-            sqlx::query("UPDATE ent_personne SET user_id = NULL, updated_at = now() WHERE id = $1")
+            sqlx::query(
+                "UPDATE ent_personne SET user_id = NULL, updated_at = now() \
+                  WHERE id = $1 AND etablissement_id = $2",
+            )
                 .bind(source.id)
+                .bind(etab)
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-            sqlx::query("UPDATE ent_personne SET user_id = $2, updated_at = now() WHERE id = $1")
+            sqlx::query(
+                "UPDATE ent_personne SET user_id = $2, updated_at = now() \
+                  WHERE id = $1 AND etablissement_id = $3",
+            )
                 .bind(cible.id)
                 .bind(u)
+                .bind(etab)
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
@@ -2050,10 +2058,12 @@ impl PgEnt {
         .await
         .map_err(db)?;
         sqlx::query(
-            "UPDATE ent_personne SET fusionnee_dans = $2, updated_at = now() WHERE id = $1",
+            "UPDATE ent_personne SET fusionnee_dans = $2, updated_at = now() \
+              WHERE id = $1 AND etablissement_id = $3",
         )
         .bind(source.id)
         .bind(cible.id)
+        .bind(etab)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -2175,8 +2185,12 @@ impl PgEnt {
                 .cloned()
                 .unwrap_or_default()
         };
-        sqlx::query("UPDATE ent_personne SET fusionnee_dans = NULL, updated_at = now() WHERE id = $1")
+        sqlx::query(
+            "UPDATE ent_personne SET fusionnee_dans = NULL, updated_at = now() \
+              WHERE id = $1 AND etablissement_id = $2",
+        )
             .bind(source_id)
+            .bind(etab)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
@@ -2188,14 +2202,22 @@ impl PgEnt {
             if cible.user_id != Some(u) {
                 return Err(EntDbError::ConflitDossier("le compte de la fiche a changé depuis la fusion"));
             }
-            sqlx::query("UPDATE ent_personne SET user_id = NULL, updated_at = now() WHERE id = $1")
+            sqlx::query(
+                "UPDATE ent_personne SET user_id = NULL, updated_at = now() \
+                  WHERE id = $1 AND etablissement_id = $2",
+            )
                 .bind(cible_id)
+                .bind(etab)
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-            sqlx::query("UPDATE ent_personne SET user_id = $2, updated_at = now() WHERE id = $1")
+            sqlx::query(
+                "UPDATE ent_personne SET user_id = $2, updated_at = now() \
+                  WHERE id = $1 AND etablissement_id = $3",
+            )
                 .bind(source_id)
                 .bind(u)
+                .bind(etab)
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
