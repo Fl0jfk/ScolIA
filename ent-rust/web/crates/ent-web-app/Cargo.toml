@@ -28,6 +28,7 @@ leptos_meta = { workspace = true }
 leptos_axum = { workspace = true, optional = true }
 ent-web-ui = { workspace = true }
 ent-web-api = { workspace = true }
+ent-types = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }

@@ -9,6 +9,7 @@ use leptos_router::components::Outlet;
 use leptos_router::hooks::{use_location, use_navigate};
 
 use super::droits::{droits_du_role, libelle_role, Droits};
+use super::droits_moteur::DroitsMoteur;
 use super::navigation;
 use super::non_lus::{self, NonLus};
 use super::portee::{self, Portee};
@@ -26,6 +27,12 @@ pub fn use_droits() -> Signal<Droits> {
             .map(|m| droits_du_role(&m.role))
             .unwrap_or_default()
     })
+}
+
+/// Droits effectifs du moteur (rôles paramétrés compris) ; vides hors de la coquille ou tant
+/// que `/roles/mes-droits` n'a pas répondu. Affichage seulement : le serveur décide.
+pub fn use_droits_moteur() -> Signal<DroitsMoteur> {
+    use_context::<Signal<DroitsMoteur>>().unwrap_or_else(|| Signal::derive(DroitsMoteur::default))
 }
 
 #[component]
@@ -154,6 +161,26 @@ pub fn AppCoquille() -> impl IntoView {
             .map(|m| droits_du_role(&m.role))
             .unwrap_or_default()
     });
+    // Droits effectifs (moteur D-017) : une requête après l'identité ; un échec laisse la
+    // navigation du profil de base (le serveur reste l'autorité).
+    let droits_res = LocalResource::new(move || {
+        let connue = moi.get().is_some_and(|m| m.is_ok());
+        async move {
+            if connue {
+                session::client().mes_droits().await.ok()
+            } else {
+                None
+            }
+        }
+    });
+    let moteur = Signal::derive(move || {
+        droits_res
+            .get()
+            .flatten()
+            .map(DroitsMoteur::new)
+            .unwrap_or_default()
+    });
+    provide_context(moteur);
     // Messages non lus : lus au chargement, à chaque changement de page et sur demande
     // (la messagerie rafraîchit après lecture ou envoi).
     let version_non_lus = RwSignal::new(0u32);
@@ -192,7 +219,10 @@ pub fn AppCoquille() -> impl IntoView {
         rafraichir: Callback::new(move |_| version_non_lus.update(|v| *v += 1)),
     });
     let entrees = Signal::derive(move || {
-        navigation::avec_compteur_messages(navigation::entrees(droits.get()), total_non_lus.get())
+        navigation::avec_compteur_messages(
+            navigation::entrees_avec_moteur(droits.get(), &moteur.get()),
+            total_non_lus.get(),
+        )
     });
     let courant = Signal::derive(move || location.pathname.get());
     let liens_pied = Signal::derive(navigation::liens_compte);

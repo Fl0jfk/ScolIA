@@ -9,5 +9,6 @@ pub mod connexion;
 pub mod edt;
 pub mod journee_vs;
 pub mod messagerie;
+pub mod referentiel_admin;
 pub mod securite;
 pub mod vie_scolaire;

@@ -74,6 +74,12 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>
                     <Route path=path!("securite") view=modules::securite::PageSecurite/>
+                    <Route path=path!("referentiel") view=modules::referentiel_admin::PageReferentiel/>
+                    <Route path=path!("referentiel/annees") view=modules::referentiel_admin::PageAnnees/>
+                    <Route path=path!("referentiel/structure") view=modules::referentiel_admin::PageStructure/>
+                    <Route path=path!("referentiel/classes") view=modules::referentiel_admin::PageClassesAdmin/>
+                    <Route path=path!("referentiel/calendrier") view=modules::referentiel_admin::PageCalendrier/>
+                    <Route path=path!("referentiel/grille") view=modules::referentiel_admin::PageGrille/>
                     <Route path=path!("direction/securite") view=modules::securite::PagePolitiqueSecurite/>
                 </ParentRoute>
             </Routes>
