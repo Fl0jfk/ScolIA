@@ -30,6 +30,8 @@ mod push_repo;
 mod bank_repo;
 mod msg_repo;
 mod note_repo;
+pub mod outbox;
+pub mod reactions;
 mod option_repo;
 mod periode_repo;
 mod pg_err;
@@ -159,6 +161,8 @@ mod tests_socle1;
 mod tests_roles;
 #[cfg(all(test, feature = "labo"))]
 mod tests_sso_securite;
+#[cfg(all(test, feature = "labo"))]
+mod tests_outbox;
 
 #[cfg(test)]
 mod integration_tests {
