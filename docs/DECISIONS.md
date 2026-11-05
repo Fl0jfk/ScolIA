@@ -27,6 +27,8 @@
 | Bureautique | Suite ArtCraft (Wordcraft, GridCraft, DeckCraft) intégrée en WebAssembly | **Validé** | D-006 |
 | WASM | Bureautique ArtCraft (iframe) et îlots interactifs Leptos | **Validé** | D-006, D-008 |
 | Calendrier | Sortie de l'ENT visée dans ~1 an (indicatif) | **Validé** (objectif) | D-007 |
+| Rôles et droits | Rôles **créés par chaque établissement** à partir d'un catalogue d'actions fourni par ScolIA, chaque action avec une portée ; cumul de rôles ; familles et élèves hors rôles libres (lien légal) | **Validé** | D-017 |
+| Récupération de passkey | Par la personne elle-même, par e-mail, avec délai de sécurité et alertes | **Validé** | D-018 |
 | Next.js production | Intouchable | Règle absolue | — |
 | DB production | Aucun accès même lecture | Règle absolue | — |
 
@@ -232,3 +234,23 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
   - **cookie HttpOnly** : principe de migration progressive validé, `SameSite=Lax` comme hypothèse de travail ; **aucune modification d'`ent-auth` / `ent-api`** ; d'abord un prototype isolé (connexion mot de passe et passkey, cookie HttpOnly/Secure, CSRF, révocation et expiration, déconnexion multi-onglets, coexistence Bearer mobile, coexistence `/app` et `/web`), résultats et risques présentés avant toute modification.
 - **Toujours en attente :** exception `cargo audit` RUSTSEC-2023-0071 (faux positif `rsa`, non tranchée).
 - **Réalisé le 2026-11-03 :** MPL-2.0 épinglée (`3e7ea701`) ; plan Clippy (`dd543579`) ; procédure de formatage, non exécutée (`d7716c28`) ; `target-web` supprimé (21 Go) ; puis, sur autorisation, trois commits locaux distincts : lot 1 `ent-types` dans `ent-api` (contrat JSON identique), prototype isolé de session par cookie (`ent-web-session`, pas prêt pour la production), correction de la CI (F-003). **Aucun push** sans autorisation explicite.
+
+## D-017 — Rôles paramétrables par l'établissement, droits portés par les actions
+
+- **Date :** 2026-11-05 — **Validateur :** Florian
+- **Contexte :** les rôles sont aujourd'hui une liste fixe (`ent-auth/src/roles.rs` : Admin, Direction, Administratif, Cpe, Compta, Prof, Infirmerie, Psy, Parent, Eleve), un seul rôle par personne et par établissement, des droits codés en dur. Or les besoins varient : un professeur peut animer un atelier (théâtre…) et voir un groupe hors de ses classes ; un établissement peut vouloir un rôle Accueil, Surveillant, etc.
+- **Décision :** ScolIA fournit une **coquille sécurisée**, l'établissement paramètre l'intérieur :
+  - **catalogue d'actions** fixe, défini et contrôlé côté serveur par ScolIA (lire les notes, saisir une note, justifier une absence…) ;
+  - chaque action accordée l'est avec une **portée** : établissement, mes classes (enseignement), mes groupes/ateliers (responsable), classes ou groupes désignés, moi-même ;
+  - **rôles créés par l'établissement** (nom libre), modèles fournis (Professeur, CPE, Secrétariat, Comptabilité, Accueil, Direction…) copiables et modifiables ;
+  - **cumul** : une personne peut avoir plusieurs rôles, droits additionnés (ex. « Professeur » + « Professeur de théâtre ») ;
+  - **groupes et ateliers** créés par l'établissement dans le référentiel, avec un ou plusieurs responsables.
+- **Garde-fous :** pas d'escalade (on ne donne pas un droit qu'on n'a pas) ; un administrateur indélébile ; modifications journalisées et appliquées aux sessions ; familles et élèves hors rôles libres (droits issus du lien légal et des droits cochés sur la fiche).
+- **Impacts :** remplace les lots B5/B6 du socle 1 ; la règle « un professeur ne voit que ses élèves » devient la portée « mes classes » ; les rôles actuels deviennent les modèles par défaut (bascule sans changement de comportement).
+
+## D-018 — Récupération de passkey par la personne, par e-mail
+
+- **Date :** 2026-11-05 — **Validateur :** Florian
+- **Contexte :** une personne rattachée à plusieurs établissements qui perd sa passkey ne peut être débloquée par aucune direction (isolation, revue socle 1 E4).
+- **Décision :** récupération en libre-service : lien envoyé par e-mail, **délai de sécurité** (24 à 48 h) avant effet, alerte dans chaque établissement de la personne et à la personne, annulation possible pendant le délai. La récupération par la direction reste possible pour une personne d'un seul établissement.
+
