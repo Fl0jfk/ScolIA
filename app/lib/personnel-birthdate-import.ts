@@ -84,7 +84,9 @@ function classifyHeaders(headers: string[]): Cols {
       if (cols.date < 0) cols.date = i;
       return;
     }
-    if (h.includes("prenom") && h.includes("nom")) {
+    // « prenom » contient « nom » : on compare des mots entiers (« nom prenom », « prenom nom »…).
+    const words = h.split(" ");
+    if (words.includes("prenom") && words.includes("nom")) {
       if (cols.full < 0) cols.full = i;
       return;
     }

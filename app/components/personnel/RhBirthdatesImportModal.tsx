@@ -132,7 +132,7 @@ export default function RhBirthdatesImportModal({
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr>
-                          <th className="text-left px-3 py-2">Ligne</th>
+                          <th className="text-left px-3 py-2" title="Numéro de ligne dans le fichier Excel (la ligne 1 est l'en-tête)">Ligne Excel</th>
                           <th className="text-left px-3 py-2">Nom</th>
                           <th className="text-left px-3 py-2">Prénom</th>
                           <th className="text-left px-3 py-2">Actuelle</th>

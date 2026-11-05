@@ -71,5 +71,40 @@ test("parse xlsx avec en-têtes souples", () => {
   if (p.ok) {
     assert.equal(p.rows.length, 1);
     assert.equal(p.rows[0]!.lastName, "Dupont");
+    assert.equal(p.rows[0]!.firstName, "Jean-Pierre");
+    assert.equal(p.rows[0]!.fullName, "");
   }
+});
+
+test("trois colonnes Nom / Prénom / Date de naissance : la ligne est reconnue", () => {
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["NOM", "Prénom", "Date de naissance"],
+    ["Dupont", "Jean-Pierre", "02/01/1970"],
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "S");
+  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  const p = parseBirthdateSheetBuffer(buf);
+  assert.ok(p.ok);
+  if (!p.ok) return;
+  assert.equal(p.rows[0]!.line, 2);
+  assert.equal(p.rows[0]!.firstName, "Jean-Pierre");
+  const [r] = matchBirthdateRows(p.rows, staff);
+  assert.equal(r!.status, "ok");
+  assert.equal(r!.newDate, "1970-01-02");
+});
+
+test("colonne unique « Nom Prénom » reste un nom complet", () => {
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["Nom Prénom", "Date de naissance"],
+    ["DUPONT Jean-Pierre", "02/01/1970"],
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "S");
+  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  const p = parseBirthdateSheetBuffer(buf);
+  assert.ok(p.ok);
+  if (!p.ok) return;
+  assert.equal(p.rows[0]!.fullName, "DUPONT Jean-Pierre");
+  assert.equal(matchBirthdateRows(p.rows, staff)[0]!.status, "ok");
 });
