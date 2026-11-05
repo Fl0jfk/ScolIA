@@ -10,5 +10,3 @@ ALTER TABLE ent_oidc_state ADD COLUMN IF NOT EXISTS binding_hash TEXT;
 -- `enc:v1:…` (AES-256-GCM, clé `ENT_SECRETS_KEY`) ; une valeur sans ce préfixe
 -- est un secret hérité en clair, relu tel quel puis rechiffré (voir
 -- docs/SOCLE1_SECURITE.md, A7).
-COMMENT ON COLUMN ent_oidc_provider.client_secret IS
-    'enc:v1:<base64url(nonce||chiffré||tag)> (AES-256-GCM) ; héritage en clair toléré en lecture';

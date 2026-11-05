@@ -39,7 +39,9 @@ pub struct SecretBox {
 
 impl std::fmt::Debug for SecretBox {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SecretBox").field("key", &"[masquée]").finish()
+        f.debug_struct("SecretBox")
+            .field("key", &"[masquée]")
+            .finish()
     }
 }
 
@@ -155,7 +157,10 @@ mod tests {
     #[test]
     fn clair_herite_lu_tel_quel() {
         let b = SecretBox::dev();
-        assert_eq!(b.open("ancien-secret-en-clair", b"ctx").unwrap(), "ancien-secret-en-clair");
+        assert_eq!(
+            b.open("ancien-secret-en-clair", b"ctx").unwrap(),
+            "ancien-secret-en-clair"
+        );
         assert!(!is_sealed("ancien-secret-en-clair"));
     }
 
@@ -172,17 +177,38 @@ mod tests {
         raw[n - 3] = if raw[n - 3] == b'A' { b'B' } else { b'A' };
         let alt = String::from_utf8(raw).unwrap();
         assert_eq!(b.open(&alt, b"ctx").unwrap_err(), SecretBoxError::Decrypt);
-        assert_eq!(b.open("enc:v1:@@@", b"ctx").unwrap_err(), SecretBoxError::Decrypt);
-        assert_eq!(b.open("enc:v1:AAAA", b"ctx").unwrap_err(), SecretBoxError::Decrypt);
+        assert_eq!(
+            b.open("enc:v1:@@@", b"ctx").unwrap_err(),
+            SecretBoxError::Decrypt
+        );
+        assert_eq!(
+            b.open("enc:v1:AAAA", b"ctx").unwrap_err(),
+            SecretBoxError::Decrypt
+        );
     }
 
     #[test]
     fn cle_fail_closed_hors_labo() {
-        assert_eq!(SecretBox::resolve(None, false).unwrap_err(), SecretBoxError::KeyMissing);
-        assert_eq!(SecretBox::resolve(Some("  "), false).unwrap_err(), SecretBoxError::KeyMissing);
-        assert_eq!(SecretBox::resolve(Some("trop-court"), false).unwrap_err(), SecretBoxError::KeyInvalid);
-        assert_eq!(SecretBox::resolve(Some("trop-court"), true).unwrap_err(), SecretBoxError::KeyInvalid);
-        assert!(SecretBox::resolve(None, true).is_ok(), "clé de dev en labo/test");
+        assert_eq!(
+            SecretBox::resolve(None, false).unwrap_err(),
+            SecretBoxError::KeyMissing
+        );
+        assert_eq!(
+            SecretBox::resolve(Some("  "), false).unwrap_err(),
+            SecretBoxError::KeyMissing
+        );
+        assert_eq!(
+            SecretBox::resolve(Some("trop-court"), false).unwrap_err(),
+            SecretBoxError::KeyInvalid
+        );
+        assert_eq!(
+            SecretBox::resolve(Some("trop-court"), true).unwrap_err(),
+            SecretBoxError::KeyInvalid
+        );
+        assert!(
+            SecretBox::resolve(None, true).is_ok(),
+            "clé de dev en labo/test"
+        );
         assert!(SecretBox::resolve(Some(K1), false).is_ok());
         let b64 = base64::engine::general_purpose::STANDARD.encode(hex::decode(K1).unwrap());
         let a = SecretBox::resolve(Some(&b64), false).unwrap();

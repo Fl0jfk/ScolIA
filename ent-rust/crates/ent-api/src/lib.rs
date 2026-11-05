@@ -2350,6 +2350,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(start.status(), StatusCode::OK);
+        // A7 : cookie de liaison au navigateur, exigé au retour.
+        let cookie_liaison = start
+            .headers()
+            .get("set-cookie")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(';').next())
+            .expect("cookie de liaison posé au start")
+            .to_string();
         let url = json_body(start).await["url"].as_str().unwrap().to_string();
         assert!(url.starts_with(&idp.authorization_endpoint()));
         assert!(url.contains("code_challenge_method=S256"));
@@ -2364,6 +2372,7 @@ mod tests {
                     .method("POST")
                     .uri("/auth/oidc/complete")
                     .header("content-type", "application/json")
+                    .header("cookie", &cookie_liaison)
                     .body(Body::from(
                         serde_json::to_vec(&json!({ "code": "code-1", "state": state_param }))
                             .unwrap(),
@@ -2388,6 +2397,7 @@ mod tests {
                     .method("POST")
                     .uri("/auth/oidc/complete")
                     .header("content-type", "application/json")
+                    .header("cookie", &cookie_liaison)
                     .body(Body::from(
                         serde_json::to_vec(&json!({ "code": "code-1", "state": state_param }))
                             .unwrap(),

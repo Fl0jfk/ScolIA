@@ -36,7 +36,13 @@ mod tests {
         for v in ["lab", "LABO", " dev ", "local", "test"] {
             assert!(env_non_prod_from(Some(v)), "{v:?}");
         }
-        for v in [None, Some(""), Some("prod"), Some("production"), Some("staging")] {
+        for v in [
+            None,
+            Some(""),
+            Some("prod"),
+            Some("production"),
+            Some("staging"),
+        ] {
             assert!(!env_non_prod_from(v), "{v:?}");
         }
     }

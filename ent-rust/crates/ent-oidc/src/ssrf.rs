@@ -101,7 +101,8 @@ fn v6_interdit(a: Ipv6Addr) -> bool {
     if s[..6] == [0, 0, 0, 0, 0, 0] {
         return true; // ::/96 (inclut ::1 et IPv4-compatible)
     }
-    let embarque = |hi: u16, lo: u16| Ipv4Addr::new((hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8);
+    let embarque =
+        |hi: u16, lo: u16| Ipv4Addr::new((hi >> 8) as u8, hi as u8, (lo >> 8) as u8, lo as u8);
     // NAT64 64:ff9b::/96
     if s[0] == 0x64 && s[1] == 0xff9b && s[2..6] == [0, 0, 0, 0] {
         return v4_interdit(embarque(s[6], s[7]));
@@ -144,7 +145,11 @@ pub fn valider_url(url: &str, policy: UrlPolicy) -> Result<Url, OidcError> {
         }
         if let Some(url::Host::Domain(d)) = u.host() {
             let d = d.trim_end_matches('.').to_ascii_lowercase();
-            if d == "localhost" || d.ends_with(".localhost") || d.ends_with(".internal") || d.ends_with(".local") {
+            if d == "localhost"
+                || d.ends_with(".localhost")
+                || d.ends_with(".internal")
+                || d.ends_with(".local")
+            {
                 return Err(refuse("URL refusée : nom interne"));
             }
         }
@@ -160,7 +165,9 @@ pub async fn resoudre_controle(
     delai: Duration,
 ) -> Result<Vec<SocketAddr>, OidcError> {
     let host = url.host().ok_or_else(|| refuse("hôte manquant"))?;
-    let port = url.port_or_known_default().ok_or_else(|| refuse("port inconnu"))?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| refuse("port inconnu"))?;
     let addrs: Vec<SocketAddr> = match host {
         url::Host::Ipv4(a) => vec![SocketAddr::new(IpAddr::V4(a), port)],
         url::Host::Ipv6(a) => vec![SocketAddr::new(IpAddr::V6(a), port)],
@@ -174,13 +181,19 @@ pub async fn resoudre_controle(
         return Err(OidcError::Network("aucune adresse pour l'hôte".into()));
     }
     if policy.forbid_private && addrs.iter().any(|a| ip_interdite(a.ip())) {
-        return Err(refuse("URL refusée : l'hôte résout vers une adresse interne"));
+        return Err(refuse(
+            "URL refusée : l'hôte résout vers une adresse interne",
+        ));
     }
     Ok(addrs)
 }
 
 /// Cible d'une redirection : relative à l'URL courante, revalidée, sans rétrogradation.
-pub fn cible_redirection(courante: &Url, location: &str, policy: UrlPolicy) -> Result<Url, OidcError> {
+pub fn cible_redirection(
+    courante: &Url,
+    location: &str,
+    policy: UrlPolicy,
+) -> Result<Url, OidcError> {
     let cible = courante
         .join(location)
         .map_err(|_| refuse("redirection illisible"))?;
@@ -201,11 +214,32 @@ mod tests {
     #[test]
     fn adresses_internes_refusees() {
         for a in [
-            "127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254",
-            "100.64.0.1", "100.100.100.200", "0.0.0.0", "224.0.0.1", "255.255.255.255", "192.0.2.1",
-            "198.18.0.1", "240.0.0.1", "::1", "::", "fe80::1", "fc00::1", "fd12:3456::1", "ff02::1",
-            "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:10.0.0.1", "64:ff9b::a9fe:a9fe",
-            "2002:a9fe:a9fe::1", "2001:db8::1",
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "100.100.100.200",
+            "0.0.0.0",
+            "224.0.0.1",
+            "255.255.255.255",
+            "192.0.2.1",
+            "198.18.0.1",
+            "240.0.0.1",
+            "::1",
+            "::",
+            "fe80::1",
+            "fc00::1",
+            "fd12:3456::1",
+            "ff02::1",
+            "::ffff:127.0.0.1",
+            "::ffff:169.254.169.254",
+            "::ffff:10.0.0.1",
+            "64:ff9b::a9fe:a9fe",
+            "2002:a9fe:a9fe::1",
+            "2001:db8::1",
         ] {
             assert!(ip_interdite(ip(a)), "{a} doit être interdite");
         }
@@ -213,7 +247,14 @@ mod tests {
 
     #[test]
     fn adresses_publiques_acceptees() {
-        for a in ["8.8.8.8", "51.158.57.80", "172.32.0.1", "100.128.0.1", "2606:4700:4700::1111", "::ffff:8.8.8.8"] {
+        for a in [
+            "8.8.8.8",
+            "51.158.57.80",
+            "172.32.0.1",
+            "100.128.0.1",
+            "2606:4700:4700::1111",
+            "::ffff:8.8.8.8",
+        ] {
             assert!(!ip_interdite(ip(a)), "{a} doit être permise");
         }
     }
@@ -246,12 +287,18 @@ mod tests {
         let strict = UrlPolicy::strict();
         // Littéral : pas de DNS.
         let u = Url::parse("https://8.8.8.8/").unwrap();
-        assert_eq!(resoudre_controle(&u, strict, d).await.unwrap()[0].port(), 443);
+        assert_eq!(
+            resoudre_controle(&u, strict, d).await.unwrap()[0].port(),
+            443
+        );
         // Hôte qui résout en loopback (via /etc/hosts) : refusé même si le nom est « public ».
         let u = Url::parse("https://localhost./").unwrap();
         assert!(valider_url(u.as_str(), strict).is_err());
         let u = Url::parse("https://localhost/").unwrap();
-        let perm = UrlPolicy { require_https: true, forbid_private: false };
+        let perm = UrlPolicy {
+            require_https: true,
+            forbid_private: false,
+        };
         let addrs = resoudre_controle(&u, perm, d).await.unwrap();
         assert!(addrs.iter().all(|a| a.ip().is_loopback()));
         // Le contrôle post-DNS refuse un domaine résolvant en interne (strict, sans filtre de nom).
@@ -266,7 +313,10 @@ mod tests {
             cible_redirection(&base, "/c", s).unwrap().as_str(),
             "https://idp.example.org/c"
         );
-        assert!(cible_redirection(&base, "http://idp.example.org/c", s).is_err(), "downgrade");
+        assert!(
+            cible_redirection(&base, "http://idp.example.org/c", s).is_err(),
+            "downgrade"
+        );
         assert!(cible_redirection(&base, "https://169.254.169.254/", s).is_err());
         assert!(cible_redirection(&base, "https://10.0.0.5/", s).is_err());
         assert!(cible_redirection(&base, "https://[fd00::1]/", s).is_err());
