@@ -13,6 +13,9 @@
 //! « existant ») ; chaque rejet porte ses motifs et se traite à part (ignorer
 //! ou corriger puis créer).
 
+// Lignes SQL lues en tuples (requêtes ponctuelles) : types longs assumés.
+#![allow(clippy::type_complexity)]
+
 use chrono::{NaiveDate, Utc};
 use domain_eleve::DomainError;
 use ent_auth::Action;

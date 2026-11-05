@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 2 — S2-3 admissions et inscriptions (2026-11-05)
+Campagnes d'admission et de réinscription, préinscription par la famille avec e-mail vérifié avant tout affichage (anti-énumération), second parent invité à la validation, instruction / décision / validation transactionnelle publiant `inscription.validee` (réactions : affectation, invitations, accueil), IBAN reproposé masqué et nouveau mandat SEPA, import `scolia_eleves_v1` avec rejets, 31 routes, 4 écrans Leptos. **Implémenté + testé en local** (branche `ent-socle2-inscriptions`, migrations 140-145, inclut S2-0, S2-1, S2-2), non validé pilote, non fusionné. Détail et écarts : `docs/SOCLE2_DOMAINES.md` §6.3.
+
 ## Socle 2 — S2-1 dossier élève et personnes (2026-11-05)
 Personne distincte du compte (`ent_personne`, reprise idempotente des liens), liens d'autorité (autorité, garde, dates, suspension) vérifiés en un point unique (vue `ent_eleve_lien_actif`), contacts d'urgence, payeurs, fusion réversible des personnes, 21 routes `/dossier/*`, fiche élève 360° Leptos `/web/eleves/{id}` avec chronologie. **Implémenté + testé en local** (branche `ent-socle2-dossier`, inclut S2-0), non validé pilote, non fusionné. Détail, écarts et reste à faire : `docs/SOCLE2_DOMAINES.md` §6.2.
 

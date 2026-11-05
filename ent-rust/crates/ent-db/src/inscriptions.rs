@@ -24,6 +24,9 @@
 //! Toute requête est bornée à l'établissement ; une référence d'un autre
 //! établissement répond « introuvable ».
 
+// Lignes SQL lues en tuples (requêtes ponctuelles) : types longs assumés.
+#![allow(clippy::type_complexity)]
+
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use domain_eleve::{normalize_iban, plan_creer_mandat_sepa, CreerMandatSepa, DomainError};
 use ent_auth::{generate_reset_token, hash_token, Action, Role};
