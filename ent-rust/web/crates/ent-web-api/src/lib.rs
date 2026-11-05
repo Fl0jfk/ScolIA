@@ -29,11 +29,11 @@ pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
-pub use securite::EtatSession;
 pub use roles::{
     ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
     PorteeCatalogue, RoleApi, SaisieRole,
 };
+pub use securite::EtatSession;
 pub use securite::{
     AppareilSession, ChallengeEnrolement, MoiSecurite, PasskeyCompte, PolitiqueSecurite,
     ENROLEMENT_REQUIS,
