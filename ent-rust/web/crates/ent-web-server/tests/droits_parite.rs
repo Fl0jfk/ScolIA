@@ -405,3 +405,33 @@ fn droit_gerer_securite_reserve_a_admin_et_direction() {
         );
     }
 }
+
+/// Cahier de textes (S2-6) : l'interface ne propose « Cahier de textes » qu'aux rôles dont le
+/// modèle par défaut contient `cahier.ecrire`, et « Travail à faire » qu'aux familles et élèves
+/// (qui n'ont jamais de rôle paramétrable : leurs droits viennent de l'identité et du lien).
+#[test]
+fn droits_cahier_conformes_au_modele_par_defaut() {
+    use ent_auth::{modele_par_defaut, Action};
+    for r in tous_auth() {
+        let ecrit = modele_par_defaut(r)
+            .iter()
+            .any(|(a, _)| *a == Action::CahierEcrire);
+        let d = droits_du_role(r.as_str());
+        assert_eq!(
+            d.cahier_ecrire, ecrit,
+            "`cahier_ecrire` diverge de cahier.ecrire (modèle par défaut) pour {r:?}"
+        );
+        assert_eq!(
+            d.agenda,
+            matches!(r, Auth::Parent | Auth::Eleve),
+            "`agenda` diverge pour {r:?}"
+        );
+        assert!(
+            !(d.agenda
+                && modele_par_defaut(r)
+                    .iter()
+                    .any(|(a, _)| *a == Action::CahierLire)),
+            "famille et élève n'ont aucun rôle paramétrable : pas de cahier.lire de personnel"
+        );
+    }
+}

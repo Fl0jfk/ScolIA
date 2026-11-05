@@ -18,12 +18,14 @@ mod transport;
 // Services par domaine (méthodes de `ApiClient`).
 mod appel;
 mod auth;
+mod cahier;
 mod communication;
 mod edt;
 mod referentiel;
 mod securite;
 mod vie_scolaire;
 
+pub use cahier::depot_fichier;
 pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
@@ -45,6 +47,7 @@ pub use ent_types::appel::{AppelDto as AppelApi, AppelLigneDto as LigneAppelApi}
 pub use ent_types::auth::{
     AuthSessionDto as Session, LoginResponseDto, MeDto as Moi, PasskeyChallengeDto,
 };
+pub use ent_types::cahier as cahier_types;
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 pub use ent_types::referentiel::{
     ClasseDetailDto as ClasseDetailApi, ClasseDto as ClasseApi, EleveClasseDto as EleveClasseApi,

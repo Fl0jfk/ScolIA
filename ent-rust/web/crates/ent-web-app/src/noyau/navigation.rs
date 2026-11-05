@@ -12,6 +12,8 @@ pub const CLASSES: &str = "/web/classes";
 pub const MES_CLASSES: &str = "/web/mes-classes";
 pub const VIE_SCOLAIRE: &str = "/web/vie-scolaire";
 pub const ABSENCES: &str = "/web/absences";
+pub const CAHIER: &str = "/web/cahier";
+pub const AGENDA: &str = "/web/agenda";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
 pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
@@ -33,6 +35,12 @@ pub fn entrees(droits: Droits) -> Vec<EntreeNav> {
     }
     if droits.faire_appel {
         v.push(entree("Appel", APPEL, NomIcone::Appel));
+    }
+    if droits.cahier_ecrire {
+        v.push(entree("Cahier de textes", CAHIER, NomIcone::Annonce));
+    }
+    if droits.agenda {
+        v.push(entree("Travail à faire", AGENDA, NomIcone::Agenda));
     }
     if droits.mes_classes {
         v.push(entree("Mes classes", MES_CLASSES, NomIcone::Ecole));
@@ -92,7 +100,14 @@ mod tests {
             .collect();
         assert_eq!(
             prof,
-            [ACCUEIL, EMPLOI_DU_TEMPS, APPEL, MES_CLASSES, MESSAGES]
+            [
+                ACCUEIL,
+                EMPLOI_DU_TEMPS,
+                APPEL,
+                CAHIER,
+                MES_CLASSES,
+                MESSAGES
+            ]
         );
         let secretariat: Vec<String> = entrees(droits_du_role("administratif"))
             .into_iter()
@@ -124,7 +139,7 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, ABSENCES, MESSAGES],
+            [ACCUEIL, AGENDA, ABSENCES, MESSAGES],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
@@ -148,7 +163,10 @@ mod tests {
             .into_iter()
             .map(|e| e.href)
             .collect();
-        assert_eq!(eleve, [ACCUEIL, EMPLOI_DU_TEMPS, ABSENCES, MESSAGES]);
+        assert_eq!(
+            eleve,
+            [ACCUEIL, EMPLOI_DU_TEMPS, AGENDA, ABSENCES, MESSAGES]
+        );
     }
 
     #[test]

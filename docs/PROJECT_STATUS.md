@@ -6,6 +6,9 @@ Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS
 ## Socle 2 — S2-0 outbox transactionnelle (2026-11-05)
 Outbox (`migrations/102_outbox.sql`, `ent-db/src/outbox.rs` : `tx.publier`, distributeur tokio, consommateurs idempotents, reprises, file des échecs, rejeu) et 3 réactions D5 → D0 (absence constatée, décision de justificatif, retard → notification des responsables `peut_voir_vs`) ; `clore_appel` et les décisions de justificatif publient dans la transaction du fait. **Implémenté + testé en local** (branche `ent-socle2-outbox`), non validé pilote, non fusionné. Détail, écarts et plan de migration des autres publications : `docs/SOCLE2_DOMAINES.md` §6.1.
 
+## Socle 2 — S2-6 cahier de textes, travail et copies (2026-11-05)
+Cahier par séance, travail à faire / à rendre / contrôle (classe ou groupe), pièces privées (magasin d'objets + liens signés, D2), rendu en ligne avec retard marqué, retour du professeur, agenda élève / famille, charge de travail et alerte de surcharge, visa ; droits `cahier.*` par le moteur, événements et notifications idempotentes via l'outbox, 3 écrans Leptos (`/web/cahier`, `/web/cahier/travaux/:id`, `/web/agenda`). **Implémenté + testé en local** (branche `ent-socle2-cahier`) ; écrans non testés dans un navigateur, non validé pilote ; limites dans `docs/SOCLE2_DOMAINES.md` §6.3.
+
 ## Socle 2 — S2-2 référentiel complet (2026-11-05)
 Sites, niveaux/MEF (nomenclature nationale, import SIECLE/BCN), périodes, calendrier, grille M1…S4, séances datées générées, `classe_id` dans 9 tables (double écriture par triggers, rattachement idempotent), bascule d'année (préparer, reconduire, monter, ouvrir, clôturer), droits par le moteur (`referentiel.lire/gerer`), ~30 routes `/referentiel/*`, événements via l'outbox. **Implémenté + testé en local** (`ent-socle2-referentiel`, migrations 110-112), non validé pilote ; écrans Leptos non faits. Détail : `docs/SOCLE2_DOMAINES.md` §6.2.
 

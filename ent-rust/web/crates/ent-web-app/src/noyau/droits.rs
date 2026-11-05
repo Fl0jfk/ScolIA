@@ -98,6 +98,11 @@ pub struct Droits {
     /// Politique de sécurité de l'établissement (passkey obligatoire par rôle) :
     /// `GET`/`PUT /etablissement/securite`, réservé à Admin et Direction.
     pub gerer_securite: bool,
+    /// Tenir le cahier de textes (action `cahier.ecrire` du modèle par défaut : Admin,
+    /// Direction, Enseignant). Le serveur vérifie la portée (« mes classes »).
+    pub cahier_ecrire: bool,
+    /// Agenda « à faire » : élève (sur lui-même) et responsable (selon le lien).
+    pub agenda: bool,
 }
 
 pub fn droits_du_role(role: &str) -> Droits {
@@ -128,6 +133,8 @@ pub fn droits_du_role(role: &str) -> Droits {
         messagerie: messagerie_personnel || matches!(r, Role::Parent | Role::Eleve),
         messagerie_personnel,
         gerer_securite: matches!(r, Role::Admin | Role::Direction),
+        cahier_ecrire: matches!(r, Role::Admin | Role::Direction | Role::Prof),
+        agenda: matches!(r, Role::Parent | Role::Eleve),
     }
 }
 
