@@ -28,9 +28,18 @@ type RegistryUserRow = {
   pending?: boolean;
   mfaEnabled?: boolean;
   invitationSentAt?: string | null;
+  dateNaissance?: string | null;
   createdAt: string;
   updatedAt: string;
 };
+
+const isInternalAccount = (roles: string[]) => roles.some((r) => r !== "parent" && r !== "eleve");
+
+/** « 1985-03-12 » → « 12/03/1985 » (sans passer par Date, pour éviter tout décalage de fuseau). */
+function formatDateNaissance(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
 
 type SortKey = "name" | "email" | "role";
 
@@ -96,6 +105,7 @@ export default function MembresPanel() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [users, setUsers] = useState<RegistryUserRow[]>([]);
+  const missingBirthCount = users.filter((u) => isInternalAccount(u.roles) && !u.dateNaissance).length;
   const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -214,7 +224,7 @@ export default function MembresPanel() {
     setEditingKey(u.externalUserId || u.email);
     setEditRoles([...u.roles]);
     setEditEmail(u.email);
-    setEditDateNaissance("");
+    setEditDateNaissance(u.dateNaissance ?? "");
   };
 
   const saveEdit = async (u: RegistryUserRow) => {
@@ -432,6 +442,11 @@ export default function MembresPanel() {
         >
           Importer les dates de naissance
         </button>
+        {missingBirthCount > 0 && (
+          <span className="mt-3 mr-3 inline-block text-xs font-semibold text-amber-700">
+            {missingBirthCount} compte{missingBirthCount > 1 ? "s" : ""} du personnel sans date de naissance
+          </span>
+        )}
         <button
           type="button"
           disabled={!canManageRoles || bulkSending || pendingInviteTargets.length === 0}
@@ -604,6 +619,12 @@ export default function MembresPanel() {
                     {editingKey !== key && (
                       <p className={`mt-1 text-xs font-medium ${dash.textPrimary}`}>{roleLabels(u.roles)}</p>
                     )}
+                    {editingKey !== key && u.dateNaissance && (
+                      <p className="mt-0.5 text-xs text-slate-600">Né(e) le {formatDateNaissance(u.dateNaissance)}</p>
+                    )}
+                    {editingKey !== key && !u.dateNaissance && isInternalAccount(u.roles) && (
+                      <p className="mt-0.5 text-xs font-semibold text-amber-600">Date de naissance non renseignée</p>
+                    )}
                     {u.pending && !u.mfaEnabled && !recentInvite && (
                       <span className="text-xs text-amber-600 font-bold">Invitation / activation en attente</span>
                     )}
@@ -700,7 +721,7 @@ export default function MembresPanel() {
                     </label>
                     <label className="block space-y-1">
                       <span className="text-xs font-bold text-slate-500">
-                        Date de naissance (laisser vide pour ne pas la modifier)
+                        Date de naissance
                       </span>
                       <input
                         type="date"

@@ -39,9 +39,24 @@ export async function GET(req: Request) {
       ? await ensureEtablissementFromTenant(tenant)
       : null;
 
-    const users = etablissementId
+    const baseUsers = etablissementId
       ? await listMembersFromDb(etablissementId)
       : await listDirectoryMembers();
+
+    // Date de naissance : ajoutée ici seulement (écran réservé admin/direction), pas dans
+    // listMembersFromDb, qui alimente aussi des annuaires ouverts à tout le personnel.
+    const birthByUserId = new Map<string, string>();
+    if (etablissementId) {
+      const rows = await getDb()
+        .select({ id: user.id, dateNaissance: user.dateNaissance })
+        .from(user)
+        .where(eq(user.etablissementId, etablissementId));
+      for (const r of rows) if (r.dateNaissance) birthByUserId.set(r.id, r.dateNaissance);
+    }
+    const users = baseUsers.map((u) => ({
+      ...u,
+      dateNaissance: (u.userId && birthByUserId.get(u.userId)) || null,
+    }));
 
     if (etablissementId) {
       await writeDataAccessAudit({
