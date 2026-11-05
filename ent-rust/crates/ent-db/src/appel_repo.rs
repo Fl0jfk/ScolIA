@@ -223,16 +223,17 @@ impl PgAppelRepo {
         Ok(true)
     }
 
-    /// Clôture atomique : verrou exclusif (`FOR UPDATE`) sur l'appel, statut
-    /// contrôlé, lignes lues **sous verrou**, passage à « clos », commit. Aucune
-    /// modification de ligne ne peut s'intercaler : les lignes retournées sont
-    /// exactement celles figées par la clôture. `Ok(None)` si absent ou déjà clos.
-    pub async fn clore_avec_lignes(
+    /// Clôture atomique, dans la transaction de l'appelant : verrou exclusif
+    /// (`FOR UPDATE`) sur l'appel, statut contrôlé, lignes lues **sous verrou**,
+    /// passage à « clos ». L'appelant y écrit aussi absences, retards et
+    /// événements (outbox) puis valide le tout en une fois. `Ok(None)` si absent
+    /// ou déjà clos.
+    pub async fn clore_avec_lignes_tx(
         &self,
+        tx: &mut sqlx::PgConnection,
         etablissement_id: Uuid,
         appel_id: Uuid,
     ) -> Result<Option<Vec<AppelLigne>>, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
         let statut: Option<(String,)> = sqlx::query_as(
             r#"
             SELECT statut FROM ent_appel
@@ -273,7 +274,6 @@ impl PgAppelRepo {
         if result.rows_affected() == 0 {
             return Ok(None);
         }
-        tx.commit().await?;
         Ok(Some(rows.into_iter().map(LigneRow::into_ligne).collect()))
     }
 
