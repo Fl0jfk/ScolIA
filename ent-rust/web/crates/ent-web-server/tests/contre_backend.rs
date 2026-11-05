@@ -850,18 +850,25 @@ async fn tranche1_deconnexion_annonces_messages_passkey() {
         ApiError::NonConnecte
     );
 
-    // Passkey : compte de labo sans passkey enregistrée -> 401 (pas de défi, pas de fuite
-    // d'existence du compte : même réponse qu'un compte inconnu).
+    // Passkey (socle 1, anti-énumération) : compte sans passkey et compte inconnu
+    // reçoivent tous deux un défi de même forme (factice pour le second) ;
+    // rien ne révèle l'existence du compte ni la présence d'une passkey.
     let p = l.personnel.iter().find(|p| p.role == "prof").unwrap();
-    let r = anonyme
+    let connu = anonyme
         .connexion_passkey_debut(&p.email, l.etablissement_id)
-        .await;
-    println!("passkey/login/start sans passkey enregistrée : {r:?}");
-    assert_eq!(r.unwrap_err(), ApiError::NonConnecte);
-    let r = anonyme
+        .await
+        .expect("défi (réel ou factice) pour un compte connu");
+    let inconnu = anonyme
         .connexion_passkey_debut("inconnu@example.invalid", l.etablissement_id)
-        .await;
-    assert_eq!(r.unwrap_err(), ApiError::NonConnecte);
+        .await
+        .expect("défi factice pour un compte inconnu");
+    let cles = |o: &serde_json::Value| {
+        o["publicKey"]
+            .as_object()
+            .map(|m| m.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    assert_eq!(cles(&connu.options), cles(&inconnu.options), "même forme de défi");
 
     // Déconnexion : la session est révoquée, `moi()` répond 401.
     let s = labo::connecter(&base, &l, &p.email).await.unwrap();
