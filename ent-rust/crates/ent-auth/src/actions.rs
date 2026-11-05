@@ -34,6 +34,10 @@ pub enum Action {
     RolesGerer,
     /// Politique de sécurité (passkey obligatoire…).
     SecuritePolitique,
+    /// Consulter le référentiel scolaire (années, classes, périodes, calendrier, séances).
+    ReferentielLire,
+    /// Gérer le référentiel scolaire (S2-2, REF-01→14) : structures, bascule d'année.
+    ReferentielGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -50,7 +54,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 11] = [
+    pub const TOUTES: [Action; 13] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -62,6 +66,8 @@ impl Action {
         Action::SuiviEleve,
         Action::RolesGerer,
         Action::SecuritePolitique,
+        Action::ReferentielLire,
+        Action::ReferentielGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -77,6 +83,8 @@ impl Action {
             Self::SuiviEleve => "suivi.eleve",
             Self::RolesGerer => "roles.gerer",
             Self::SecuritePolitique => "securite.politique",
+            Self::ReferentielLire => "referentiel.lire",
+            Self::ReferentielGerer => "referentiel.gerer",
         }
     }
 
@@ -93,6 +101,8 @@ impl Action {
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::RolesGerer => "Gérer les rôles et leurs attributions",
             Self::SecuritePolitique => "Gérer la politique de sécurité",
+            Self::ReferentielLire => "Consulter le référentiel scolaire",
+            Self::ReferentielGerer => "Gérer le référentiel scolaire (années, classes, périodes…)",
         }
     }
 
@@ -104,7 +114,10 @@ impl Action {
     /// n'acceptent que l'établissement entier (garde-fou 4).
     pub fn portees_admises(self) -> &'static [Portee] {
         match self {
-            Self::RolesGerer | Self::SecuritePolitique => &[Portee::Etablissement],
+            Self::RolesGerer
+            | Self::SecuritePolitique
+            | Self::ReferentielLire
+            | Self::ReferentielGerer => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -162,6 +175,12 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     let mut d: Vec<(Action, Portee)> = Vec::new();
     if !role.is_staff() {
         return d;
+    }
+    // Référentiel scolaire : lecture pour tout le personnel, gestion Admin / Direction /
+    // Administratif (équivalent exact de `role_peut_*_referentiel`, S2-2).
+    d.push(etab(ReferentielLire));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(ReferentielGerer));
     }
     if role == Role::Prof {
         for a in [
