@@ -61,6 +61,7 @@ mod referentiel_structure;
 mod referentiel_annee;
 mod referentiel_seances;
 mod referentiel_classe_id;
+mod referentiel_groupes;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
@@ -148,6 +149,7 @@ pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
 pub use ref_commun::Acteur;
 pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
 pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};
+pub use referentiel_groupes::{GroupeAdmin, ResponsableGroupe};
 pub use referentiel_seances::{
     planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance as SeanceRef, SeancePlan,
 };
