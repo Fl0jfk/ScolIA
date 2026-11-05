@@ -334,7 +334,7 @@ async fn seances_generees_vacances_exclues_et_idempotence() {
     let c4b: Uuid = sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 AND annee_id = $2 AND code = '4B'")
         .bind(e).bind(annee.id).fetch_one(ent.pool()).await.unwrap();
     let liste = ent.ref_seances(&a, du, au, Some(c4b), None).await.unwrap();
-    assert_eq!(liste.iter().filter(|s| s.creneau_id == creneau).count(), 4);
+    assert_eq!(liste.iter().filter(|s| s.creneau_id == creneau).count(), 3); // 4 lundis moins la semaine de vacances
     assert!(nb_evenements(&ent, e, "edt.seances_generees").await >= 5);
     assert!(nb_evenements(&ent, e, "referentiel.vacances_creees").await >= 1);
 
