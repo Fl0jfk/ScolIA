@@ -382,3 +382,47 @@
 .securite__formulaire { display: grid; gap: var(--esp-3); }
 .securite__roles { border: 0; padding: 0; margin: 0; display: grid; gap: var(--esp-1); min-width: 0; }
 .enrolement__points { display: grid; gap: var(--esp-2); padding-left: var(--esp-5); color: var(--c-attenue); font-size: var(--taille-s); }
+
+/* --- Rôles et droits (D-017) et récupération de passkey (D-018) ----------- */
+.roles__aide { color: var(--c-attenue); font-size: var(--taille-s); max-width: 70ch; margin-bottom: var(--esp-4); }
+.roles__liste { display: grid; gap: var(--esp-3); margin: 0; padding: 0; list-style: none; max-width: 760px; }
+.roles__carte { display: flex; align-items: center; justify-content: space-between; gap: var(--esp-3); flex-wrap: wrap; background: var(--c-surface); border-radius: var(--rayon-tuile); box-shadow: var(--ombre); padding: var(--esp-4) var(--esp-5); }
+.roles__texte { display: grid; gap: var(--esp-1); min-width: 0; flex: 1 1 240px; overflow-wrap: anywhere; }
+.roles__nom { font-size: var(--taille-l); }
+.roles__description { color: var(--c-attenue); font-size: var(--taille-s); }
+.roles__meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--esp-2); font-size: var(--taille-s); color: var(--c-attenue); }
+.roles__formulaire { display: grid; gap: var(--esp-4); max-width: 980px; min-width: 0; }
+.roles__modele { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--esp-3); }
+.roles__modele .ui-champ { flex: 1 1 220px; }
+.roles__actions { display: flex; flex-wrap: wrap; gap: var(--esp-3); }
+.roles__legende { display: grid; gap: var(--esp-1); margin: 0; padding: 0; list-style: none; font-size: var(--taille-s); color: var(--c-attenue); }
+.roles__defilement { overflow-x: auto; min-width: 0; border: 1px solid var(--c-ligne); border-radius: var(--rayon-petit); }
+.roles__tableau { width: 100%; border-collapse: collapse; }
+.roles__tableau th, .roles__tableau td { padding: var(--esp-2) var(--esp-3); text-align: left; border-bottom: 1px solid var(--c-ligne); vertical-align: middle; }
+.roles__tableau thead th { font-size: var(--taille-s); color: var(--c-attenue); background: var(--c-fond); position: sticky; top: 0; }
+.roles__tableau tbody tr:last-child th, .roles__tableau tbody tr:last-child td { border-bottom: 0; }
+.roles__action { font-weight: 600; min-width: 14rem; }
+.roles__cellule { text-align: center; }
+.roles__cellule--vide { color: var(--c-attenue); }
+.roles__case { display: inline-flex; align-items: center; justify-content: center; gap: var(--esp-2); min-width: var(--cible); min-height: var(--cible); cursor: pointer; }
+.roles__case input { width: 20px; height: 20px; margin: 0; accent-color: var(--c-acc); }
+.roles__cibles-champ { border: 1px solid var(--c-ligne); border-radius: var(--rayon-petit); padding: var(--esp-3); margin: 0; min-width: 0; display: grid; gap: var(--esp-2); }
+.roles__cibles-champ legend { font-size: var(--taille-s); font-weight: 600; padding: 0 var(--esp-1); }
+.roles__cibles-liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: var(--esp-1) var(--esp-3); }
+.roles__cibles td { background: var(--c-fond); text-align: left; }
+@media (min-width: 640px) {
+  .roles__case-nom { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+/* Téléphone : chaque action devient une carte, les cases gardent leur libellé visible. */
+@media (max-width: 639px) {
+  .roles__defilement { border: 0; overflow: visible; }
+  .roles__tableau, .roles__tableau tbody, .roles__tableau tr, .roles__tableau th, .roles__tableau td { display: block; }
+  .roles__tableau thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .roles__tableau tr { border: 1px solid var(--c-ligne); border-radius: var(--rayon-petit); margin-bottom: var(--esp-2); padding: var(--esp-1) 0; }
+  .roles__tableau th, .roles__tableau td { border-bottom: 0; padding: var(--esp-1) var(--esp-3); }
+  .roles__action { min-width: 0; }
+  .roles__cellule { text-align: left; }
+  .roles__case { justify-content: flex-start; }
+  .roles__cellule--vide { display: none; }
+  .roles__cibles { border-style: dashed; }
+}

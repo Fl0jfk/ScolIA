@@ -405,3 +405,21 @@ fn droit_gerer_securite_reserve_a_admin_et_direction() {
         );
     }
 }
+
+/// Administration des rôles (D-017) : l'action `roles.gerer` fait partie des modèles par défaut
+/// d'Admin et de Direction seulement (`ent_auth::modele_par_defaut`). L'interface propose
+/// l'entrée « Rôles et droits » à ces profils ; la page revérifie `/roles/mes-droits`.
+#[test]
+fn droit_gerer_roles_suit_le_modele_par_defaut() {
+    use ent_auth::{modele_par_defaut, Action, Portee, Role};
+    for r in tous_auth() {
+        let role = Role::parse(r.as_str()).expect("rôle connu d'ent-auth");
+        let a_le_droit =
+            modele_par_defaut(role).contains(&(Action::RolesGerer, Portee::Etablissement));
+        assert_eq!(
+            droits_du_role(r.as_str()).gerer_roles,
+            a_le_droit,
+            "`gerer_roles` diverge du modèle par défaut pour {r:?}"
+        );
+    }
+}

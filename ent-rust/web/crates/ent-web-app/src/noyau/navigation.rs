@@ -15,6 +15,9 @@ pub const ABSENCES: &str = "/web/absences";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
 pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
+pub const ROLES: &str = "/web/direction/roles";
+pub const ROLES_NOUVEAU: &str = "/web/direction/roles/nouveau";
+pub const ROLES_GROUPES: &str = "/web/direction/roles/groupes";
 
 fn entree(libelle: &str, href: &str, icone: NomIcone) -> EntreeNav {
     EntreeNav {
@@ -48,6 +51,9 @@ pub fn entrees(droits: Droits) -> Vec<EntreeNav> {
     }
     if droits.messagerie {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
+    }
+    if droits.gerer_roles {
+        v.push(entree("Rôles et droits", ROLES, NomIcone::Passkey));
     }
     v
 }
@@ -149,6 +155,32 @@ mod tests {
             .map(|e| e.href)
             .collect();
         assert_eq!(eleve, [ACCUEIL, EMPLOI_DU_TEMPS, ABSENCES, MESSAGES]);
+    }
+
+    #[test]
+    fn roles_et_droits_pour_l_administration_seulement() {
+        for role in ["admin", "direction"] {
+            let v: Vec<String> = entrees(droits_du_role(role))
+                .into_iter()
+                .map(|e| e.href)
+                .collect();
+            assert_eq!(v.last().map(String::as_str), Some(ROLES), "{role}");
+        }
+        for role in ["prof", "cpe", "administratif", "compta", "parent", "eleve"] {
+            assert!(
+                entrees(droits_du_role(role))
+                    .iter()
+                    .all(|e| e.href != ROLES),
+                "{role}"
+            );
+        }
+        // « Rôles et droits » est actif sur ses sous-pages (édition, responsables des groupes).
+        assert!(ent_web_ui::lien_actif(ROLES, ROLES_GROUPES));
+        assert!(ent_web_ui::lien_actif(
+            ROLES,
+            "/web/direction/roles/6f1c3c80"
+        ));
+        assert!(!ent_web_ui::lien_actif(ROLES, POLITIQUE_SECURITE));
     }
 
     #[test]

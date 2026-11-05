@@ -137,3 +137,30 @@ Tests : `ent-web-app` (modèle, redirection), `ent-web-api` (contrats JSON, 403 
 Vérifications : tests contre le vrai backend (`ent-web-server/tests/securite_backend.rs`, base locale jetable) ; parcours complet essayé dans Chrome (Playwright) avec authentificateur WebAuthn virtuel : enrôlement obligatoire à 375 px sans défilement horizontal, contournements refusés, ajout / suppression de passkey, appareils, politique, accès refusé à un professeur ; aucun avertissement d'hydratation.
 
 Limites : axe-core et lecteur d'écran non faits ; Firefox / Safari non essayés ; `contre_backend::contrat_json_ent_types_lot1` échoue (MeDto d'`ent-types` en retard sur `/auth/me`, voir `SOCLE1_SECURITE.md`) ; la barre d'onglets du téléphone compte une entrée de plus (« Compte ») ; supprimer une passkey est refusé ou provoque un retour à l'enrôlement selon le backend ; aucune route pour renommer une passkey ni lister les sessions d'autres établissements (voulu, D-013).
+
+## 9. Rôles et droits, récupération de passkey (socle 1, 2026-11-05)
+
+Statut : **implémenté + testé en local** sur la branche `ent-socle1-ecrans-roles` ; pas validé pilote. Décisions : D-017 (rôles paramétrables), D-018 (récupération). Plan et suivi : `docs/SOCLE1_SECURITE.md`, `docs/ROLES_ET_DROITS.md`.
+
+| Écran | Route | Accès |
+|---|---|---|
+| Rôles et droits (liste) | `/web/direction/roles` (entrée « Rôles et droits » de la navigation pour Admin et Direction ; lien depuis « Compte ») | toute personne dont `GET /roles/mes-droits` contient `roles.gerer` ; sinon « accès refusé » |
+| Nouveau rôle | `/web/direction/roles/nouveau` | idem |
+| Modifier un rôle, membres, suppression | `/web/direction/roles/{id}` | idem |
+| Responsables des groupes et ateliers | `/web/direction/roles/groupes` | idem |
+| Passkey perdue (demande) | `/web/recuperation-passkey` (lien « J'ai perdu ma passkey » sous la connexion, établissement repris) | public, hors coquille |
+| Liens des e-mails de récupération | `/recuperation-passkey/confirmer`, `/annuler`, `/finaliser` (`?token=`, adresses telles qu'envoyées par `ent-api`) | public, hors coquille |
+
+**Éditeur de rôle** : nom, description, tableau « action × portée » construit depuis `GET /roles/catalogue` (une case par droit, case absente si la portée n'est pas admise pour l'action ; `<table>` natif avec `<th scope>` ; sur téléphone chaque action devient une carte avec libellés visibles), choix des classes et groupes pour la portée « désignés » (chargés seulement quand la portée est cochée), modèles de départ (Professeur, CPE, Secrétariat, Comptabilité, Accueil, Direction sans administration) appliqués côté écran et filtrés par le catalogue, confirmation avec résumé des droits ajoutés / retirés avant toute modification, suppression confirmée, membres (liste filtrable du personnel, date de fin facultative, retrait confirmé). Un refus 403 d'écriture est expliqué (« vous ne pouvez pas accorder un droit que vous n'avez pas… ») ; 400 : portée non admise ou cible invalide.
+
+**Architecture** :
+- `ent-web-api/src/roles.rs` : types (`CatalogueRoles`, `RoleApi`, `DroitApi`, `SaisieRole`, `PersonnelApi`) et méthodes du client (rôles, membres, responsables, personnel, 4 routes de récupération) ;
+- `modules/roles/modele.rs` : logique d'écran pure et testée (`EditionRole`, modèles, validation, messages d'erreur, date de fin, candidats) ; `mod.rs` (garde, liste), `editeur.rs`, `groupes.rs` ;
+- `modules/recuperation/` : `modele.rs` (textes des trois étapes, validation, messages) et `mod.rs` (pages) ;
+- `noyau/droits.rs` : `gerer_roles` (Admin, Direction : parité testée avec `ent_auth::modele_par_defaut`) ; la page revérifie `/roles/mes-droits`, le serveur reste l'autorité.
+
+**Récupération de passkey** : la demande répond toujours par le même message (aucune indication sur l'existence du compte). Les pages d'atterrissage **n'agissent pas à l'ouverture** : un bouton déclenche l'appel (un aperçu de messagerie ne consomme pas le jeton) ; le jeton est lu une fois puis retiré de la barre d'adresse, jamais affiché ni écrit dans le HTML. Le délai de sécurité (24 heures en général, réglé côté serveur) est expliqué avant la confirmation et la date de fin renvoyée par le serveur est affichée dans le fuseau du navigateur ; erreurs : lien invalide ou expiré, délai non écoulé (409), messagerie indisponible (503), trop de tentatives (429).
+
+**Tests** : modèles et client (unitaires, `ent-web-app`, `ent-web-api`), rendu serveur (`ent-web-server/tests/roles.rs` : CSP à nonce, aucun style en ligne, étiquettes, jeton non réécrit), parité des droits, contre le vrai backend (`roles_backend.rs` : cycle de vie d'un rôle, refus, anti-escalade, personnel, récupération publique).
+
+**Limites** : voir `SOCLE1_SECURITE.md` (responsables non lisibles, groupes sans classe non désignables, 100 personnes de personnel au plus, parcours e-mail réel non essayé). Navigateur (clavier, 375 px, axe-core, lecteur d'écran, Firefox / Safari) **non vérifié**. La navigation n'est pas encore adaptée à tous les droits de `/roles/mes-droits` : seules les entrées de rôles dépendent du profil.
