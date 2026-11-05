@@ -1699,7 +1699,8 @@ impl From<&domain_eleve::MandatSepa> for MandatSepaDto {
             id: m.id,
             foyer_id: m.foyer_id,
             rum: m.rum.clone(),
-            iban: m.iban.clone(),
+            // D3 : l'IBAN complet ne quitte jamais le serveur (export bancaire excepté).
+            iban: domain_eleve::masquer_iban(&m.iban),
             bic: m.bic.clone(),
             titulaire: m.titulaire.clone(),
             statut: m.statut.as_str().to_string(),
@@ -3259,7 +3260,7 @@ impl From<&IbanHisto> for IbanHistoDto {
         Self {
             id: h.id,
             foyer_id: h.foyer_id,
-            iban: h.iban.clone(),
+            iban: domain_eleve::masquer_iban(&h.iban),
             bic: h.bic.clone(),
             titulaire: h.titulaire.clone(),
             mandat_id: h.mandat_id,

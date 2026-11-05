@@ -2,16 +2,52 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{
     DomainError, FicheSante, Pai, PaiPiece, PassageInfirmerie, PassageInfirmerieMotif,
 };
+use crate::champs_chiffres::ChampsSensibles;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 pub struct PgInfirmerieRepo {
     pool: PgPool,
+    champs: ChampsSensibles,
+}
+
+const T_FICHE: &str = "ent_fiche_sante";
+
+/// Valeurs chiffrées d'une fiche santé (AAD = table + colonne + id de la ligne).
+struct FicheScellee {
+    allergies: String,
+    traitements: String,
+    contre_indications: String,
+    medecin_nom: Option<String>,
+    urgence_tel: Option<String>,
+    note_confidentielle: String,
 }
 
 impl PgInfirmerieRepo {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            champs: ChampsSensibles::depuis_env(),
+        }
+    }
+
+    /// Remplace le coffre des champs sensibles (tests).
+    #[cfg(test)]
+    pub fn avec_champs(mut self, champs: ChampsSensibles) -> Self {
+        self.champs = champs;
+        self
+    }
+
+    fn sceller_fiche(&self, id: Uuid, f: &FicheSante) -> Result<FicheScellee, DomainError> {
+        let c = &self.champs;
+        Ok(FicheScellee {
+            allergies: c.sceller(T_FICHE, "allergies", id, &f.allergies)?,
+            traitements: c.sceller(T_FICHE, "traitements", id, &f.traitements)?,
+            contre_indications: c.sceller(T_FICHE, "contre_indications", id, &f.contre_indications)?,
+            medecin_nom: c.sceller_opt(T_FICHE, "medecin_nom", id, f.medecin_nom.as_deref())?,
+            urgence_tel: c.sceller_opt(T_FICHE, "urgence_tel", id, f.urgence_tel.as_deref())?,
+            note_confidentielle: c.sceller(T_FICHE, "note_confidentielle", id, &f.note_confidentielle)?,
+        })
     }
 
     pub async fn insert(&self, p: &PassageInfirmerie) -> Result<(), DomainError> {
@@ -89,6 +125,18 @@ impl PgInfirmerieRepo {
     }
 
     pub async fn upsert_fiche(&self, f: &FicheSante) -> Result<FicheSante, DomainError> {
+        // L'id de la ligne est conservé en cas de mise à jour : le chiffrement (AAD)
+        // doit utiliser l'id réellement stocké.
+        let existant: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_fiche_sante WHERE etablissement_id = $1 AND eleve_id = $2",
+        )
+        .bind(f.etablissement_id)
+        .bind(f.eleve_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        let id_ligne = existant.map(|(i,)| i).unwrap_or(f.id);
+        let sc = self.sceller_fiche(id_ligne, f)?;
         let row = sqlx::query_as::<_, FicheRow>(
             r#"
             INSERT INTO ent_fiche_sante (
@@ -112,22 +160,47 @@ impl PgInfirmerieRepo {
                       updated_by_user_id, updated_at
             "#,
         )
-        .bind(f.id)
+        .bind(id_ligne)
         .bind(f.etablissement_id)
         .bind(f.eleve_id)
-        .bind(&f.allergies)
-        .bind(&f.traitements)
-        .bind(&f.contre_indications)
+        .bind(&sc.allergies)
+        .bind(&sc.traitements)
+        .bind(&sc.contre_indications)
         .bind(f.pai_actif)
-        .bind(f.medecin_nom.as_deref())
-        .bind(f.urgence_tel.as_deref())
-        .bind(&f.note_confidentielle)
+        .bind(sc.medecin_nom.as_deref())
+        .bind(sc.urgence_tel.as_deref())
+        .bind(&sc.note_confidentielle)
         .bind(f.updated_by_user_id)
         .bind(f.updated_at)
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(row.into_fiche())
+        if row.id != id_ligne {
+            // Course : une autre écriture a créé la ligne entre-temps (id différent) ;
+            // on rechiffre avec l'id stocké pour que la ligne reste lisible.
+            let sc = self.sceller_fiche(row.id, f)?;
+            sqlx::query(
+                r#"UPDATE ent_fiche_sante SET allergies = $2, traitements = $3,
+                       contre_indications = $4, medecin_nom = $5, urgence_tel = $6,
+                       note_confidentielle = $7
+                   WHERE id = $1"#,
+            )
+            .bind(row.id)
+            .bind(&sc.allergies)
+            .bind(&sc.traitements)
+            .bind(&sc.contre_indications)
+            .bind(sc.medecin_nom.as_deref())
+            .bind(sc.urgence_tel.as_deref())
+            .bind(&sc.note_confidentielle)
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx)?;
+            return Ok(FicheSante {
+                id: row.id,
+                ..f.clone()
+            });
+        }
+        row.into_fiche(&self.champs)
     }
 
     pub async fn get_fiche(
@@ -149,7 +222,7 @@ impl PgInfirmerieRepo {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        Ok(row.map(FicheRow::into_fiche))
+        row.map(|r| r.into_fiche(&self.champs)).transpose()
     }
 
     pub async fn upsert_pai(&self, p: &Pai) -> Result<Pai, DomainError> {
@@ -410,21 +483,21 @@ struct FicheRow {
 }
 
 impl FicheRow {
-    fn into_fiche(self) -> FicheSante {
-        FicheSante {
+    fn into_fiche(self, c: &ChampsSensibles) -> Result<FicheSante, DomainError> {
+        Ok(FicheSante {
             id: self.id,
             etablissement_id: self.etablissement_id,
             eleve_id: self.eleve_id,
-            allergies: self.allergies,
-            traitements: self.traitements,
-            contre_indications: self.contre_indications,
+            allergies: c.ouvrir(T_FICHE, "allergies", self.id, &self.allergies)?,
+            traitements: c.ouvrir(T_FICHE, "traitements", self.id, &self.traitements)?,
+            contre_indications: c.ouvrir(T_FICHE, "contre_indications", self.id, &self.contre_indications)?,
             pai_actif: self.pai_actif,
-            medecin_nom: self.medecin_nom,
-            urgence_tel: self.urgence_tel,
-            note_confidentielle: self.note_confidentielle,
+            medecin_nom: c.ouvrir_opt(T_FICHE, "medecin_nom", self.id, self.medecin_nom)?,
+            urgence_tel: c.ouvrir_opt(T_FICHE, "urgence_tel", self.id, self.urgence_tel)?,
+            note_confidentielle: c.ouvrir(T_FICHE, "note_confidentielle", self.id, &self.note_confidentielle)?,
             updated_by_user_id: self.updated_by_user_id,
             updated_at: self.updated_at,
-        }
+        })
     }
 }
 

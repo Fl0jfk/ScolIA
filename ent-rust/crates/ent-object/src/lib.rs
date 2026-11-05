@@ -11,6 +11,7 @@
 //!   + `ENT_OBJECT_S3_HTTP=1` — PUT path-style `{endpoint}/{bucket}/{key}`.
 
 pub mod presign;
+pub mod upload;
 
 use std::collections::HashMap;
 use std::fs;

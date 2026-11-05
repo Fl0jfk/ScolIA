@@ -70,7 +70,7 @@ use crate::client_ip::ClientIp;
 use crate::ui;
 use crate::AppState;
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::routing::{delete, get, patch, post, put};
@@ -118,6 +118,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
+    // D2 : plafonds de corps par usage (base64 inclus) alignés sur les tailles maximales
+    // configurables (`ENT_UPLOAD_MAX_*`) ; la taille réelle est recontrôlée par le service.
+    let up = ent_db::upload::PolitiqueFichiers::depuis_env();
+    let lim = |u| DefaultBodyLimit::max(up.limite_corps_base64(u));
     let r = Router::new()
         .route("/", get(ui_page))
         .route("/login", get(ui_page))
@@ -199,7 +203,9 @@ pub fn router() -> Router<AppState> {
         .route("/eleves/{id}/dossier", get(get_dossier))
         .route(
             "/eleves/{id}/documents",
-            get(list_documents_meta_eleve).post(deposer_document_eleve),
+            get(list_documents_meta_eleve)
+                .post(deposer_document_eleve)
+                .layer(lim(ent_db::upload::UsageFichier::Document)),
         )
         .route("/documents/{id}/fichier", get(telecharger_document_fichier))
         .route("/documents/{id}/lien", post(lien_document_fichier))
@@ -464,7 +470,9 @@ pub fn router() -> Router<AppState> {
         .route("/classes/{classe}/trombi", get(list_trombi_classe))
         .route(
             "/eleves/{id}/photo",
-            get(get_photo_eleve).post(poser_photo_eleve),
+            get(get_photo_eleve)
+                .post(poser_photo_eleve)
+                .layer(lim(ent_db::upload::UsageFichier::Photo)),
         )
         .route("/eleves/{id}/photo/lien", post(lien_photo_eleve))
         .route(
@@ -583,7 +591,9 @@ pub fn router() -> Router<AppState> {
         .route("/eleves/{id}/pai/signer", post(signer_pai_famille))
         .route(
             "/eleves/{id}/pai/pieces",
-            get(list_pai_pieces).post(attacher_ordonnance_pai),
+            get(list_pai_pieces)
+                .post(attacher_ordonnance_pai)
+                .layer(lim(ent_db::upload::UsageFichier::PiecePai)),
         )
         .route("/pai/pieces/{id}", get(telecharger_pai_piece))
         .route("/pai/pieces/{id}/lien", post(lien_pai_piece))
@@ -612,7 +622,10 @@ pub fn router() -> Router<AppState> {
         .route("/messages/fils/{id}/archiver", post(archiver_fil))
         .route("/messages/fils/{id}/classer", post(classer_fil))
         .route("/messages/modeles", get(list_msg_modeles).post(creer_msg_modele))
-        .route("/messages/{id}/pieces", post(attacher_piece))
+        .route(
+            "/messages/{id}/pieces",
+            post(attacher_piece).layer(lim(ent_db::upload::UsageFichier::PieceMessage)),
+        )
         .route("/messages/pieces/{id}", get(telecharger_piece))
         .route("/messages/pieces/{id}/lien", post(lien_piece_message))
         .route(
@@ -637,7 +650,8 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/reinscription/famille/{id}/documents",
-            post(famille_deposer_doc_reinscription),
+            post(famille_deposer_doc_reinscription)
+                .layer(lim(ent_db::upload::UsageFichier::Document)),
         )
         .route(
             "/reinscription/famille/{id}/confirmer",
@@ -10918,6 +10932,17 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         }
         ent_db::EntDbError::Domain(domain_eleve::DomainError::TenantMismatch) => {
             return (StatusCode::FORBIDDEN, err.to_string());
+        }
+        // D2 : fichier déposé refusé (message sans donnée sensible).
+        ent_db::EntDbError::Fichier(e) if e.est_taille() => {
+            return (StatusCode::PAYLOAD_TOO_LARGE, err.to_string());
+        }
+        ent_db::EntDbError::Fichier(e) if e.est_indisponibilite() => {
+            tracing::error!("analyse antivirus indisponible : dépôt refusé (fail-closed)");
+            return (StatusCode::SERVICE_UNAVAILABLE, err.to_string());
+        }
+        ent_db::EntDbError::Fichier(_) => {
+            return (StatusCode::UNPROCESSABLE_ENTITY, err.to_string());
         }
         _ => {}
     }
