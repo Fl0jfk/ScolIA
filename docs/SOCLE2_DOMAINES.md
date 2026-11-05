@@ -762,6 +762,56 @@ Destinataires relus **au traitement** : lien `ent_eleve_lien` de l'établissemen
 5. Migration des ~160 autres `self.events.publish(…)` hors transaction, domaine par domaine, en commençant par ceux qui ont un consommateur : publication du bulletin (`note.bulletin_publie`, dépend de `deposer_document` en transaction), sanctions, inscriptions (`inscription.validee` à créer en S2-3). Règle : un événement n'entre dans la toile (outbox) que publié en transaction ; l'ancien `publish` n'alimente que le journal.
 6. Les charges utiles existantes contenant du texte libre (`decision_note`, `motif`) sont conservées pour compatibilité : à minimiser lors du typage (règle §4.1-3).
 
+### 6.2 S2-1 — réalisé (2026-11-05, branche `ent-socle2-dossier`, fusionne `ent-socle2-outbox`)
+
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. Couvre le cœur du lot (personne distincte du compte, liens d'autorité, contacts, payeurs, fusion réversible, fiche 360° Leptos, chronologie) ; le reste est listé plus bas.
+
+**Données (migrations additives `120`→`123`, `MIGRATION_TAG = "123_personne_fusion"`) [F]**
+
+| Migration | Contenu |
+|---|---|
+| `120_personne.sql` | `ent_personne` (D-020) : responsable, contact ou élève majeur, **propre à l'établissement** (D-013/D-014), compte `user_id` facultatif (unique par établissement), `eleve_id` (fiche de l'élève lui-même), `fusionnee_dans`, `source` (`saisie`, `reprise`, `compte`). `ent_eleve_lien.personne_id` **obligatoire** ; `user_id` devient facultatif et la clé étrangère passe en `ON DELETE SET NULL` (supprimer un compte ne supprime plus l'autorité). **Reprise idempotente** : une personne par (établissement, compte) déjà lié, nom affiché du compte repris tel quel (aucun découpage prénom/nom deviné). Déclencheurs : un lien créé par compte (code existant, `link_parent`, seed) reçoit sa personne ; un lien créé par personne reçoit le compte de la personne ; personne d'un autre établissement refusée ; le compte de la personne est recopié sur ses liens. |
+| `121_lien_autorite.sql` | Lien : `autorite_parentale` (présumée `true` pour les liens repris, posée une fois), `garde` (`exclusive`/`alternee`/`aucune`), `date_debut`/`date_fin`, suspension (`suspendu_le`, `suspendu_par`, `suspension_motif` obligatoire, `suspension_reference`). **Vue `ent_eleve_lien_actif`** : non suspendu, dans ses dates (UTC), personne non fusionnée. Droits fins existants conservés. |
+| `122_contact_urgence.sql` | `ent_eleve_contact_urgence` (DOS-08) : personne, relation, ordre, `peut_recuperer`, statut `valide`/`propose`. |
+| `123_personne_fusion.sql` | `ent_personne_fusion` : instantané JSON de la personne absorbée (liens et contacts déplacés ou retirés, compte transféré), motif, annulation. |
+
+**Point unique des contrôles famille** : `PgFoyerRepo::lien_parent_eleve` et `liens_for_parent` (donc `PgEnt::lien_parent_eleve`, `eleves_lies`, `mes_enfants_for_parent`, `get_eleve_for_actor` et les ~60 contrôles famille de `service.rs`) lisent `ent_eleve_lien_actif` ; idem e-mails / téléphones des responsables, appareils push (`list_liens_eleve_actifs`) et le consommateur `d0.notifications`. Aucune lecture directe restante pour un accès famille ; les lectures brutes restantes (`list_liens_eleve`, `get_lien`, `list_liens_dossier`, `list_liens_foyer`, `first_eleve_id_foyer`) servent à l'administration et à la facturation et ne retournent que les liens avec compte (structures existantes à `user_id` non nul). Invariant des parts payeurs : calculé sur **tous** les liens (avec ou sans compte).
+
+**Service (`ent-db/src/dossier_personnes.rs`) et API (`ent-api/src/dossier.rs`, 21 routes `/dossier/*`, types `ent-types::dossier`)**
+
+| Action | Route | Droit (catalogue D-017) |
+|---|---|---|
+| DOS-03 créer / modifier une personne (sans e-mail possible), rechercher (homonymes) | `POST/GET /dossier/personnes`, `GET/PUT /dossier/personnes/{id}` | `personnes.gerer` (nouveau ; modèles : admin, direction, administratif) |
+| Rattacher un compte responsable de l'établissement | `PUT /dossier/personnes/{id}/compte` | `personnes.gerer` |
+| DOS-05 lier / modifier un lien (autorité, garde, dates, droits fins, foyer) | `POST /dossier/eleves/{id}/responsables`, `PUT /dossier/liens/{id}` | `personnes.gerer` |
+| DOS-06 ★ suspendre / rétablir | `POST /dossier/liens/{id}/suspendre|retablir` | `liens.suspendre` (nouveau ; admin, direction) |
+| DOS-07 payeurs (parts = 100 %, payeur rattaché à un foyer) | `PUT /dossier/eleves/{id}/payeurs` | `payeurs.definir` (nouveau ; + comptabilité) |
+| DOS-08 contacts : ajout (personnel → validé ; responsable actif → proposé), validation, retrait | `POST /dossier/eleves/{id}/contacts`, `POST /dossier/contacts/{id}/valider`, `DELETE /dossier/contacts/{id}` | `personnes.gerer` / lien actif |
+| DOS-14 (partiel) fiche « personne » de l'élève majeur (payeur, lien `eleve_majeur` sans autorité ni droits famille) | `POST /dossier/eleves/{id}/personne-eleve` | `personnes.gerer` |
+| DOS-15 ★ (personnes) fusion / défusion ≤ 30 jours | `GET/POST /dossier/fusions`, `POST /dossier/fusions/{id}/annuler` | `personnes.fusionner` (nouveau ; admin, direction) |
+| DOS-13 fiche 360° | `GET /dossier/eleves/{id}/fiche` | droits existants du dossier (sections), lien actif |
+| PLT-07 chronologie | `GET /dossier/eleves/{id}/chronologie` | idem |
+
+Règles : les quatre nouvelles actions n'acceptent que la portée « établissement » ; familles minimisées (autres responsables sans coordonnées ni parts, liens inactifs et motifs de suspension masqués) ; un responsable ne parcourt jamais les personnes de l'établissement ; une référence d'un autre établissement répond 404 ; deux personnes avec des comptes différents ne sont jamais fusionnées (D-013). Chronologie : liste blanche de types d'événements → titre **neutre** fixe (aucun texte de charge utile recopié) + entrées du journal (mêmes règles que la route journal) ; familles : scolarité, vie scolaire, notes selon leurs droits ; santé et psy visibles des seuls rôles infirmerie / psy, titre neutre. Alertes de fiche (personnel) : parents séparés sans e-mail (D-014), payeur sans foyer ou suspendu, aucune autorité parentale active.
+
+**Événements (outbox S2-0, en transaction avec le fait et le journal)** : `personne.creee`, `personne.coordonnees_modifiees` (noms des champs seulement), `personne.compte_rattache`, `personne.fusionnee`, `personne.defusionnee` (agrégat `personne`, ajouté à `AggregateKind`) ; `eleve.lien_updated` (existant, désormais émis), `lien.suspendu`, `lien.retabli`, `eleve.contacts_urgence_changes`, `foyer.payeur_defini` (agrégat élève). Le motif de suspension n'est ni dans l'événement ni dans le journal. Aucun consommateur nouveau : l'effet « accès coupé » est obtenu par la relecture des liens actifs à chaque requête et par le consommateur de notifications existant.
+
+**Frontend Leptos** : `/web/eleves/{id}` (`ent-web-app/src/modules/dossier/`) : en-tête identité/scolarité (minimisée par le serveur), alertes, responsables (état, autorité, garde, droits, payeur, coordonnées), contacts d'urgence, sections existantes accessibles avec leur contenu résumé et lien vers l'écran Leptos existant, actions proposées par le serveur, chronologie filtrable par domaine. Actions : ajouter un responsable (avec ou sans e-mail), définir les payeurs, ajouter / proposer / valider / retirer un contact, suspendre (motif obligatoire) / rétablir un lien. Accès depuis la liste d'élèves d'une classe. Logique d'écran pure testée (`modele.rs`).
+
+**Tests** : `ent-db/src/tests_dossier_personnes.rs` (8 scénarios Postgres : reprise idempotente rejouée et code existant, parent sans compte + parents séparés + contacts + payeurs, élève majeur, suspension → accès coupé partout (12 points d'accès, notifications, motif absent des événements) puis rétabli, lien hors dates, matrice 8 profils × 5 actions + rôle paramétré, isolation entre établissements (y compris SQL direct), fusion / défusion à l'identique + délai de 30 jours + compte transféré, chronologie filtrée) ; 5 tests unitaires (chronologie, alertes, saisie) ; `ent-api/src/tests_dossier.rs` (HTTP : codes 201/400/403/404/409, minimisation, suspension sur routes existantes et nouvelles, payeurs, fusion, isolation) ; `ent-types` (aller-retour JSON) ; `ent-web-app` (5 tests du modèle) ; `ent-web-server/tests/dossier.rs` (rendu serveur, parcours complet contre le vrai backend).
+
+**Écarts par rapport à la conception [signalés]**
+- Pas de table `ent_lien_responsabilite` séparée : `ent_eleve_lien` **est** le lien de responsabilité (une seule source de vérité, code existant inchangé) ; `ent_personne_contact` et `ent_foyer_membre` non créés (coordonnées sur la personne ; foyer porté par le lien comme avant).
+- DOS-15 livré pour les **personnes** ; la fusion de deux **dossiers élèves** (plus de 100 tables portant `eleve_id`) reste à faire.
+- DOS-06 ★ / DOS-15 ★ : la ré-authentification des actions sensibles n'est pas branchée (droit réservé à la direction + confirmation dans l'écran seulement).
+- Révocation des sessions du responsable (§4.3 `lien.suspendu` → D15) non faite : inutile pour l'accès (relu à chaque requête), à reconsidérer si des données sont mises en cache côté client.
+
+**Reste à faire dans S2-1**
+1. DOS-10 (le parent met à jour ses coordonnées, proposition « aussi chez B »), DOS-16 (séparer les fiches d'un foyer en un geste), DOS-09 invitation à partir d'une personne sans compte (D-014 second parent), DOS-14 passage automatique à la majorité et règle d'accès des parents (**Q10 non tranchée** : accès maintenu par défaut).
+2. Écrans Leptos : recherche de personnes et fusion/défusion (API prête), modification d'un lien (dates, droits) et des coordonnées, recherche d'élève (accès à la fiche hors liste de classe), fiche côté portail famille (lien depuis « Absences »).
+3. `ent-types::evenements` pour les nouveaux événements ; consommateurs éventuels (notification à l'établissement de `personne.coordonnees_modifiees`).
+4. Migrer les écrans de l'ancienne interface qui affichent les liens (`list_liens_dossier`, comptes seulement) vers les personnes.
+
 ---
 
 ## 7. Décisions à soumettre à Florian (questions fermées)

@@ -15,6 +15,8 @@ pub const ABSENCES: &str = "/web/absences";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
 pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
+/// Fiche élève 360° : `/web/eleves/{id}` (S2-1).
+pub const ELEVES: &str = "/web/eleves";
 
 fn entree(libelle: &str, href: &str, icone: NomIcone) -> EntreeNav {
     EntreeNav {

@@ -203,8 +203,12 @@ fn dossier_fiche_et_chronologie() {
     aller_retour::<EntreeChronologieDto>(
         r#"{"quand":"2026-11-05T10:00:00Z","source":"evenement","domaine":"vie_scolaire","titre":"Retard"}"#,
     );
-    let c: ContactBody = serde_json::from_str(r#"{"nouvelle_personne":{"nom":"Dursley"},"relation":"tante"}"#).unwrap();
+    let c: ContactBody =
+        serde_json::from_str(r#"{"nouvelle_personne":{"nom":"Dursley"},"relation":"tante"}"#)
+            .unwrap();
     assert_eq!(c.ordre, 1);
     assert!(c.personne_id.is_none() && !c.peut_recuperer);
-    aller_retour::<PayeursBody>(r#"{"payeurs":[{"lien_id":"6f1c3c80-0000-4000-8000-000000000011","part":100}]}"#);
+    aller_retour::<PayeursBody>(
+        r#"{"payeurs":[{"lien_id":"6f1c3c80-0000-4000-8000-000000000011","part":100}]}"#,
+    );
 }
