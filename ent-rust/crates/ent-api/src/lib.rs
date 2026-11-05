@@ -6,6 +6,7 @@ mod masque;
 pub mod anti_abus;
 mod auth;
 pub mod client_ip;
+mod dossier;
 mod dto;
 pub mod http_garde;
 mod ical;
@@ -252,6 +253,8 @@ mod tests_abus;
 mod tests_sso;
 #[cfg(all(test, feature = "labo"))]
 mod tests_recuperation;
+#[cfg(all(test, feature = "labo"))]
+mod tests_dossier;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;

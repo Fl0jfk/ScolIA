@@ -735,6 +735,8 @@ pub fn router() -> Router<AppState> {
     // Référentiel scolaire (module séparé : `referentiel.rs`).
     let r = r.merge(crate::referentiel::routes());
     let r = r.merge(crate::roles::routes());
+    // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
+    let r = r.merge(crate::dossier::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -11086,6 +11088,9 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         ent_db::EntDbError::Domain(domain_eleve::DomainError::TenantMismatch) => {
             return (StatusCode::FORBIDDEN, err.to_string());
         }
+        // Dossier élève (S2-1) : classement par variante, messages sans donnée personnelle.
+        ent_db::EntDbError::SaisieInvalide(_) => return (StatusCode::BAD_REQUEST, err.to_string()),
+        ent_db::EntDbError::ConflitDossier(_) => return (StatusCode::CONFLICT, err.to_string()),
         // D2 : fichier déposé refusé (message sans donnée sensible).
         ent_db::EntDbError::Fichier(e) if e.est_taille() => {
             return (StatusCode::PAYLOAD_TOO_LARGE, err.to_string());
