@@ -764,6 +764,43 @@ Destinataires relus **au traitement** : lien `ent_eleve_lien` de l'établissemen
 
 ---
 
+### 6.2 S2-2 — réalisé (2026-11-05, branche `ent-socle2-referentiel`)
+
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. La branche contient la fusion de `ent-socle2-outbox` (S2-0) ; les faits du référentiel publient via `tx.publier` (même transaction que l'écriture). Écrans Leptos : **non faits** (voir plan ci-dessous).
+
+**Livré [F]**
+
+| Élément | Où | Détail |
+|---|---|---|
+| Structure | `migrations/110_referentiel_structure.sql` | `ent_site`, `ent_niveau` (mnémoniques 6EME…TERM, cycle), `ent_mef` (code MEF 11 car., MEFSTAT11, formation/diplôme BCN, source SIECLE/BCN), `ent_periode`, `ent_jour_calendrier`, `ent_grille_horaire` (M1…M4 / S1…S4), `ent_edt_seance`, `ent_classe.{site_id,niveau_id,mef_id,archivee_le}`, `ent_edt_creneau.service_id` (EDT-03), cycle de vie de l'année (`statut` préparation/courante/clôturée, dérivé par trigger) |
+| `classe_id` | `111_classe_id.sql` | colonne + trigger (double écriture par la base) dans les **9 tables** : `ent_eleve`, `ent_eleve_periode` (kind classe), `ent_eleve_scolarite_annee`, `ent_appel`, `ent_edt_creneau`, `ent_devoir`, `ent_cahier_texte`, `ent_conseil_classe`, `ent_annonce` (`cible_classe`). Texte seul → id résolu (classe/année créées au besoin) ; id seul → texte aligné ; classe d'un autre établissement refusée |
+| Rattachement | `112_classe_id_rattachement.sql` | `ent_rattacher_classes()` idempotente (n'agit que si `classe_id` est nul, ne modifie aucun texte, année déduite de la date de la ligne) ; rapatriement de `ent_note_periode` → `ent_periode` (`periode_id`, trigger sur insertion) |
+| Droits | `ent-auth/src/actions.rs` | actions `referentiel.lire` / `referentiel.gerer` (portée établissement), modèles par défaut équivalents à l'existant ; toutes les routes passent par le moteur (`droits_repo`) |
+| Domaine | `ent-db/src/referentiel_{structure,annee,seances,classe_id}.rs`, `ref_commun.rs` | sites, niveaux (nomenclature nationale), import MEF idempotent avec rejets, périodes (couverture sans trou ni chevauchement, REF-04), calendrier unifié (jours fermés + `ent_periode_vacances` de `vacances_repo`), grille, désignation du PP (REF-13), archivage de classe, EDT-03, séances (EDT-06) |
+| Année / bascule | `referentiel_annee.rs` | créer (non chevauchante, REF-01), préparer l'année suivante + reconduction idempotente des structures (classes, groupes, périodes — continuité conservée en année bissextile —, services sans PP), affectation en lot avec aperçu et montée (REF-11), ouvrir (REF-02 : l'ancienne courante est clôturée, la classe courante des élèves bascule), clôturer (REF-03 : bloquée si une période de notes est ouverte, sauf `forcer` tracé). Année clôturée = lecture seule |
+| Séances | `referentiel_seances.rs` | générées depuis créneaux × grille × A/B × exceptions × calendrier ; vacances/fermetures exclues ; régénération idempotente ; séances saisies à la main jamais écrasées ; créneaux A/B sans calendrier ignorés et comptés |
+| API | `ent-api/src/referentiel_s2.rs` | ~30 routes sous `/referentiel/*` |
+| Événements | `referentiel.*` (agrégat `Referentiel`), `edt.seances_generees`, `edt.creneau_modifie` | publiés en transaction |
+
+**Tests** (`ent-db/src/tests_referentiel_s2.rs` + unitaires, feature `labo`) : rattachement idempotent avec comparaison avant/après sur données de labo (9 tables) ; cohérence texte ↔ `classe_id` ; séances (vacances, jour fermé, exception, séance manuelle, idempotence) ; bascule d'année complète ; périodes de notes rapatriées ; isolation entre établissements, droits (profil de base et rôle paramétré D-017), import MEF.
+
+**Écarts / limites [signalés]**
+- `docs` annonçait « 9 tables texte » : confirmé (liste ci-dessus, `ent_eleve_periode` incluse).
+- Les anciennes fonctions `referentiel_*` gardent leur garde par rôle ; l'API passe un marqueur après autorisation par le moteur (passerelle R2, `ROLE_AUTORISE_MOTEUR_*`).
+- Les anciens chemins d'écriture (affectation unitaire, création de classe/groupe/service, amorçage) ne publient pas encore d'événement : à migrer vers `tx.publier`.
+- Réponses des nouvelles routes = types d'`ent-db` sérialisés ; à promouvoir en DTO `ent-types` avec les écrans.
+- Suppression d'une séance générée : à transformer en annulation dès que l'appel s'y rattachera (S2-4).
+- La reconduction recopie les codes de classe tels quels (pas de changement de niveau automatique) : la montée se fait par correspondances explicites.
+- Le trigger `classe_id` résout l'année d'une ligne sans date (`ent_eleve`, `ent_edt_creneau`) sur la date du jour.
+
+**Plan de coupure de la lecture du texte `classe` (Q14)**
+1. Mesurer : `GET /referentiel/classe-id/comparaison` doit rester à zéro (sans `classe_id`, incohérence) en pilote.
+2. Basculer les lectures par module (appel, EDT, devoirs, cahier, conseil, annonces, droits `enseigne_a`) vers `classe_id`, un lot à la fois, avec test de non-régression.
+3. Un lot de sécurité vérifie qu'aucune lecture métier ne dépend plus du texte (grep des requêtes).
+4. Rendre `classe_id` obligatoire (NOT NULL) puis retirer les colonnes texte et les triggers dans une migration dédiée.
+
+**Plan d'écrans Leptos (5, non faits)** : années et bascule (assistant préparer → reconduire → monter → ouvrir) ; classes (site/niveau/MEF, PP, archivage) ; périodes et calendrier ; grille horaire ; séances (plage, filtre classe/prof, régénération). Chacun s'appuie sur les routes `/referentiel/*` existantes.
+
 ## 7. Décisions à soumettre à Florian (questions fermées)
 
 | # | Question | Options | Recommandation |
