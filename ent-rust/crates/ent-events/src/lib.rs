@@ -234,6 +234,8 @@ pub enum AggregateKind {
     Annonce,
     Retard,
     Competence,
+    /// Référentiel scolaire (S2-2) : années, classes, périodes, calendrier, séances.
+    Referentiel,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
