@@ -81,6 +81,16 @@ pub mod types {
     pub const EDT_EXCEPTION: &str = "edt.exception";
     pub const EDT_CALENDRIER_AB: &str = "edt.calendrier_ab";
     pub const CAHIER_TEXTE: &str = "cahier.texte";
+    // Cahier de textes et travail (S2-6, D7).
+    pub const CAHIER_SEANCE_RENSEIGNEE: &str = "cahier.seance_renseignee";
+    pub const CAHIER_TRAVAIL_DONNE: &str = "cahier.travail_donne";
+    pub const CAHIER_TRAVAIL_MODIFIE: &str = "cahier.travail_modifie";
+    pub const CAHIER_TRAVAIL_SUPPRIME: &str = "cahier.travail_supprime";
+    pub const CAHIER_PIECE_JOINTE: &str = "cahier.piece_jointe";
+    pub const CAHIER_TRAVAIL_A_RENDRE: &str = "cahier.travail_a_rendre";
+    pub const CAHIER_TRAVAIL_RENDU: &str = "cahier.travail_rendu";
+    pub const CAHIER_COPIE_RENDUE: &str = "cahier.copie_rendue";
+    pub const CAHIER_VISE: &str = "cahier.vise";
     pub const NOTE_PERIODE_CREATED: &str = "note.periode_created";
     pub const NOTE_PERIODE_STATUT: &str = "note.periode_statut";
     pub const NOTE_BULLETIN_PUBLIE: &str = "note.bulletin_publie";

@@ -166,6 +166,10 @@ pub enum UsageFichier {
     PiecePai,
     /// Photo d'identité de l'élève (trombinoscope).
     Photo,
+    /// Ressource jointe au cahier de textes par un professeur (S2-6).
+    PieceCahier,
+    /// Copie rendue par un élève, ou copie annotée renvoyée par le professeur (S2-6).
+    Copie,
 }
 
 const TOUS_DOCUMENTS: &[TypeFichier] = &[
@@ -186,7 +190,7 @@ const TOUS_DOCUMENTS: &[TypeFichier] = &[
 impl UsageFichier {
     pub fn autorises(self) -> &'static [TypeFichier] {
         match self {
-            Self::Document | Self::PieceMessage => TOUS_DOCUMENTS,
+            Self::Document | Self::PieceMessage | Self::PieceCahier | Self::Copie => TOUS_DOCUMENTS,
             Self::PiecePai => &[TypeFichier::Pdf, TypeFichier::Png, TypeFichier::Jpeg],
             Self::Photo => &[TypeFichier::Png, TypeFichier::Jpeg, TypeFichier::Webp],
         }
@@ -198,6 +202,8 @@ impl UsageFichier {
             Self::PieceMessage => "pièce jointe de message",
             Self::PiecePai => "pièce de PAI",
             Self::Photo => "photo",
+            Self::PieceCahier => "ressource du cahier de textes",
+            Self::Copie => "copie d'élève",
         }
     }
 
@@ -207,6 +213,8 @@ impl UsageFichier {
             Self::PieceMessage => "ENT_UPLOAD_MAX_MESSAGE",
             Self::PiecePai => "ENT_UPLOAD_MAX_PAI",
             Self::Photo => "ENT_UPLOAD_MAX_PHOTO",
+            Self::PieceCahier => "ENT_UPLOAD_MAX_CAHIER",
+            Self::Copie => "ENT_UPLOAD_MAX_COPIE",
         }
     }
 
@@ -216,6 +224,8 @@ impl UsageFichier {
             // Contenu stocké en base (P0) : plafond historique conservé.
             Self::PieceMessage | Self::PiecePai => 256 * KIB,
             Self::Photo => 5 * MIB,
+            // Stockés dans le magasin d'objets (pas en base) : même plafond que les documents.
+            Self::PieceCahier | Self::Copie => 10 * MIB,
         }
     }
 }
@@ -348,6 +358,8 @@ pub struct TaillesMax {
     pub piece_message: usize,
     pub piece_pai: usize,
     pub photo: usize,
+    pub piece_cahier: usize,
+    pub copie: usize,
 }
 
 impl Default for TaillesMax {
@@ -357,6 +369,8 @@ impl Default for TaillesMax {
             piece_message: UsageFichier::PieceMessage.defaut_octets(),
             piece_pai: UsageFichier::PiecePai.defaut_octets(),
             photo: UsageFichier::Photo.defaut_octets(),
+            piece_cahier: UsageFichier::PieceCahier.defaut_octets(),
+            copie: UsageFichier::Copie.defaut_octets(),
         }
     }
 }
@@ -380,6 +394,8 @@ impl TaillesMax {
             piece_message: lire(UsageFichier::PieceMessage),
             piece_pai: lire(UsageFichier::PiecePai),
             photo: lire(UsageFichier::Photo),
+            piece_cahier: lire(UsageFichier::PieceCahier),
+            copie: lire(UsageFichier::Copie),
         }
     }
 
@@ -389,6 +405,8 @@ impl TaillesMax {
             UsageFichier::PieceMessage => self.piece_message,
             UsageFichier::PiecePai => self.piece_pai,
             UsageFichier::Photo => self.photo,
+            UsageFichier::PieceCahier => self.piece_cahier,
+            UsageFichier::Copie => self.copie,
         }
     }
 }

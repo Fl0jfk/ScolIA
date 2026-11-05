@@ -589,6 +589,7 @@ dependencies = [
  "ent-oidc",
  "ent-push",
  "ent-sms",
+ "ent-types",
  "serde",
  "serde_json",
  "sha2",

@@ -38,7 +38,10 @@ const TYPES_NOTIFICATIONS: &[&str] = &[
 
 /// Consommateurs installés par défaut dans le distributeur de l'ENT.
 pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
-    vec![Arc::new(ConsommateurNotifications)]
+    vec![
+        Arc::new(ConsommateurNotifications),
+        Arc::new(crate::cahier_reactions::ConsommateurCahier),
+    ]
 }
 
 struct Message {

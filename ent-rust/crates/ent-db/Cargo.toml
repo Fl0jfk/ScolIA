@@ -19,6 +19,7 @@ ent-brain = { path = "../ent-brain" }
 ent-events = { path = "../ent-events" }
 ent-mail = { path = "../ent-mail" }
 ent-sms = { path = "../ent-sms" }
+ent-types = { path = "../ent-types" }
 ent-push = { path = "../ent-push" }
 ent-bank = { path = "../ent-bank" }
 ent-object = { path = "../ent-object" }
