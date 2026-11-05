@@ -34,6 +34,29 @@ pub enum Action {
     RolesGerer,
     /// Politique de sécurité (passkey obligatoire…).
     SecuritePolitique,
+    // ── R2 : domaines sensibles (D-017) ─────────────────────────────────────
+    /// Lire la fiche santé, le PAI et les passages à l'infirmerie d'un élève.
+    SanteLire,
+    /// Saisir la fiche santé, le PAI et les passages à l'infirmerie.
+    SanteSaisir,
+    /// Lire le dossier et les entretiens du psychologue scolaire (confidentiel).
+    PsyLire,
+    /// Saisir le dossier, les entretiens et les rendez-vous du psychologue.
+    PsySaisir,
+    /// Déposer un document dans le dossier d'un élève (tous tiroirs).
+    DocumentsDeposer,
+    /// Lire tous les documents d'un élève, sans grant (hors tiroir santé).
+    DocumentsLire,
+    /// Lire les documents du tiroir santé d'un élève sans grant.
+    DocumentsLireSante,
+    /// Traiter les demandes d'accès (grants) aux documents d'un élève.
+    DocumentsGererDroits,
+    /// Prononcer ou annuler une sanction, tenir les commissions de vie scolaire.
+    SanctionsPrononcer,
+    /// Déclarer un incident de vie scolaire concernant un élève.
+    IncidentsDeclarer,
+    /// Consulter le journal d'audit de l'établissement (dont les consultations sensibles).
+    AuditLire,
 }
 
 /// Sur quoi une action s'applique.
@@ -50,7 +73,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 11] = [
+    pub const TOUTES: [Action; 22] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -62,6 +85,18 @@ impl Action {
         Action::SuiviEleve,
         Action::RolesGerer,
         Action::SecuritePolitique,
+        // R2 : domaines sensibles
+        Action::SanteLire,
+        Action::SanteSaisir,
+        Action::PsyLire,
+        Action::PsySaisir,
+        Action::DocumentsDeposer,
+        Action::DocumentsLire,
+        Action::DocumentsLireSante,
+        Action::DocumentsGererDroits,
+        Action::SanctionsPrononcer,
+        Action::IncidentsDeclarer,
+        Action::AuditLire,
     ];
 
     pub fn code(self) -> &'static str {
@@ -77,6 +112,18 @@ impl Action {
             Self::SuiviEleve => "suivi.eleve",
             Self::RolesGerer => "roles.gerer",
             Self::SecuritePolitique => "securite.politique",
+            // R2 : domaines sensibles
+            Self::SanteLire => "sante.lire",
+            Self::SanteSaisir => "sante.saisir",
+            Self::PsyLire => "psy.lire",
+            Self::PsySaisir => "psy.saisir",
+            Self::DocumentsDeposer => "documents.deposer",
+            Self::DocumentsLire => "documents.lire",
+            Self::DocumentsLireSante => "documents.lire_sante",
+            Self::DocumentsGererDroits => "documents.gerer_droits",
+            Self::SanctionsPrononcer => "sanctions.prononcer",
+            Self::IncidentsDeclarer => "incidents.declarer",
+            Self::AuditLire => "audit.lire",
         }
     }
 
@@ -93,6 +140,18 @@ impl Action {
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::RolesGerer => "Gérer les rôles et leurs attributions",
             Self::SecuritePolitique => "Gérer la politique de sécurité",
+            // R2 : domaines sensibles
+            Self::SanteLire => "Lire la fiche santé, le PAI et les passages à l'infirmerie",
+            Self::SanteSaisir => "Saisir la fiche santé, le PAI et les passages à l'infirmerie",
+            Self::PsyLire => "Lire le dossier et les entretiens du psychologue",
+            Self::PsySaisir => "Saisir le dossier, les entretiens et les rendez-vous du psychologue",
+            Self::DocumentsDeposer => "Déposer des documents dans le dossier de l'élève",
+            Self::DocumentsLire => "Lire les documents de l'élève (hors tiroir santé)",
+            Self::DocumentsLireSante => "Lire les documents du tiroir santé de l'élève",
+            Self::DocumentsGererDroits => "Traiter les demandes d'accès aux documents",
+            Self::SanctionsPrononcer => "Prononcer et annuler des sanctions, tenir les commissions",
+            Self::IncidentsDeclarer => "Déclarer des incidents de vie scolaire",
+            Self::AuditLire => "Consulter le journal d'audit et des consultations sensibles",
         }
     }
 
@@ -104,7 +163,7 @@ impl Action {
     /// n'acceptent que l'établissement entier (garde-fou 4).
     pub fn portees_admises(self) -> &'static [Portee] {
         match self {
-            Self::RolesGerer | Self::SecuritePolitique => &[Portee::Etablissement],
+            Self::RolesGerer | Self::SecuritePolitique | Self::AuditLire => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -176,6 +235,11 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         ] {
             d.push((a, Portee::MesClasses));
         }
+        // R2 : un professeur déclare un incident sur n'importe quel élève
+        // (comportement historique ; à resserrer vers « mes classes » plus tard).
+        if role.can_declarer_incident() {
+            d.push(etab(IncidentsDeclarer));
+        }
         return d;
     }
     if role.can_read_notes_staff() {
@@ -207,6 +271,32 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(RolesGerer));
         d.push(etab(SecuritePolitique));
+    }
+    // ── R2 : domaines sensibles (miroir exact des `can_*` historiques) ──
+    if role.can_saisir_infirmerie() {
+        d.push(etab(SanteLire));
+        d.push(etab(SanteSaisir));
+    }
+    if role.can_saisir_psy() {
+        d.push(etab(PsyLire));
+        d.push(etab(PsySaisir));
+    }
+    if role.can_manage_documents() {
+        d.push(etab(DocumentsDeposer));
+        d.push(etab(DocumentsLire));
+        d.push(etab(DocumentsGererDroits));
+    }
+    if role.can_read_sante_docs() {
+        d.push(etab(DocumentsLireSante));
+    }
+    if role.can_saisir_sanctions() {
+        d.push(etab(SanctionsPrononcer));
+    }
+    if role.can_declarer_incident() {
+        d.push(etab(IncidentsDeclarer));
+    }
+    if role.can_manage_eleves() {
+        d.push(etab(AuditLire));
     }
     d
 }
@@ -263,6 +353,55 @@ mod tests {
                 assert!(x.portees_admises().contains(&p), "{r:?} {x:?} {p:?}");
             }
         }
+    }
+
+    /// Non-régression R2 : pour chaque profil historique et chaque action
+    /// sensible, le modèle par défaut donne la même décision que l'ancienne
+    /// capacité figée `Role::can_*` (et la portée attendue : établissement).
+    #[test]
+    fn r2_modele_identique_aux_capacites_historiques() {
+        use Action::*;
+        type Cap = fn(Role) -> bool;
+        let table: [(Action, Cap); 11] = [
+            (SanteLire, |r| r.can_saisir_infirmerie()),
+            (SanteSaisir, |r| r.can_saisir_infirmerie()),
+            (PsyLire, |r| r.can_saisir_psy()),
+            (PsySaisir, |r| r.can_saisir_psy()),
+            (DocumentsDeposer, |r| r.can_manage_documents()),
+            (DocumentsLire, |r| r.can_manage_documents()),
+            (DocumentsLireSante, |r| r.can_read_sante_docs()),
+            (DocumentsGererDroits, |r| r.can_manage_documents()),
+            (SanctionsPrononcer, |r| r.can_saisir_sanctions()),
+            (IncidentsDeclarer, |r| r.can_declarer_incident()),
+            (AuditLire, |r| r.can_manage_eleves()),
+        ];
+        for r in [
+            Role::Admin,
+            Role::Direction,
+            Role::Administratif,
+            Role::Cpe,
+            Role::Compta,
+            Role::Prof,
+            Role::Infirmerie,
+            Role::Psy,
+            Role::Parent,
+            Role::Eleve,
+        ] {
+            let modele = modele_par_defaut(r);
+            for (action, ancienne) in table {
+                let droits: Vec<_> = modele.iter().filter(|(a, _)| *a == action).collect();
+                // Les familles et élèves n'ont jamais de droit paramétrable.
+                let attendu = r.is_staff() && ancienne(r);
+                assert_eq!(!droits.is_empty(), attendu, "{r:?} {action:?}");
+                assert!(
+                    droits.iter().all(|(_, p)| *p == Portee::Etablissement),
+                    "{r:?} {action:?} : portée inattendue"
+                );
+            }
+        }
+        assert_eq!(Action::parse("sante.lire"), Some(SanteLire));
+        assert_eq!(Action::parse("audit.lire"), Some(AuditLire));
+        assert_eq!(AuditLire.portees_admises(), &[Portee::Etablissement]);
     }
 
     #[test]
