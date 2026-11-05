@@ -42,6 +42,9 @@ pub struct ContexteReconnexion {
     pub echeances: RwSignal<Option<Echeances>>,
     /// Horloge (secondes Unix), mise à jour par le contrôle périodique.
     pub maintenant: RwSignal<i64>,
+    /// L'identité de la personne est connue (la page a déjà chargé `/auth/me`) : sans elle,
+    /// pas de fenêtre de reconnexion (premier chargement sans session → page de connexion).
+    pub connue: RwSignal<bool>,
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     activite_diffusee: RwSignal<i64>,
 }
@@ -55,6 +58,13 @@ fn maintenant() -> i64 {
 }
 
 impl ContexteReconnexion {
+    /// Ouvre la fenêtre de reconnexion si la page a une identité à reconnecter.
+    pub fn ouvrir(&self) {
+        if self.connue.get_untracked() {
+            self.ouverte.set(true);
+        }
+    }
+
     /// Phase de la session selon les échéances connues (suit les signaux).
     pub fn phase(&self) -> Option<Phase> {
         let now = self.maintenant.get();
@@ -75,7 +85,7 @@ impl ContexteReconnexion {
                     )));
                     self.maintenant.set(now);
                 }
-                Err(ApiError::NonConnecte) => self.ouverte.set(true),
+                Err(ApiError::NonConnecte) => self.ouvrir(),
                 // 403 (session d'enrôlement) ou réseau : pas d'échéance connue, rien à afficher.
                 Err(_) => {}
             }
@@ -99,7 +109,7 @@ impl ContexteReconnexion {
             Some(Phase::Expiree)
         ) && !self.ouverte.get_untracked()
         {
-            self.ouverte.set(true);
+            self.ouvrir();
         }
     }
 }
@@ -111,6 +121,7 @@ pub fn fournir() -> ContexteReconnexion {
         version: RwSignal::new(0),
         echeances: RwSignal::new(None),
         maintenant: RwSignal::new(0),
+        connue: RwSignal::new(false),
         activite_diffusee: RwSignal::new(0),
     };
     COURANT.with(|c| c.set(Some(ctx)));
@@ -136,7 +147,7 @@ pub fn use_reconnexion() -> Option<ContexteReconnexion> {
 pub fn signaler_session_perdue() {
     COURANT.with(|c| {
         if let Some(ctx) = c.get() {
-            ctx.ouverte.set(true);
+            ctx.ouvrir();
         }
     });
 }

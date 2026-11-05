@@ -18,7 +18,7 @@ pub fn ErreurChargement(erreur: ApiError, on_reessayer: Callback<()>) -> impl In
                 Some(reco) => {
                     // Dans la coquille : fenêtre de reconnexion, puis nouveau chargement.
                     let version_initiale = reco.version.get_untracked();
-                    Effect::new(move |_| reco.ouverte.set(true));
+                    Effect::new(move |_| reco.ouvrir());
                     Effect::new(move |_| {
                         if reco.version.get() != version_initiale {
                             on_reessayer.run(());

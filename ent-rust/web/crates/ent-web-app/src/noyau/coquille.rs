@@ -87,7 +87,7 @@ pub fn AppCoquille() -> impl IntoView {
         Effect::new(move |_| {
             if let Some(Err(ApiError::NonConnecte)) = moi.get() {
                 if securite.get_untracked().is_some() {
-                    reco.ouverte.set(true);
+                    reco.ouvrir();
                 } else {
                     navigate(
                         &session::adresse_connexion(&chemin_complet()),
@@ -102,6 +102,7 @@ pub fn AppCoquille() -> impl IntoView {
     // les autres onglets qu'une session est ouverte pour cette personne.
     Effect::new(move |deja: Option<bool>| {
         let connue = securite.with(Option::is_some);
+        reco.connue.set(connue);
         if connue && deja != Some(true) {
             reco.rafraichir();
         }
