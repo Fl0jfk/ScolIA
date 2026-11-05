@@ -377,6 +377,8 @@ pub fn classer_evenement(type_name: &str) -> Option<(DomaineChrono, &'static str
         types::ELEVE_SCOLARITE_ANNEE_ENREGISTREE => (Scolarite, "Année de scolarité enregistrée"),
         types::ELEVE_MONTEE_RAPIDE | types::ELEVE_MONTEE_LOT => (Scolarite, "Passage dans l'année suivante"),
         types::ELEVE_REINSCRIPTION_CONFIRMEE => (Scolarite, "Réinscription confirmée"),
+        types::INSCRIPTION_VALIDEE => (Scolarite, "Inscription validée"),
+        types::SCOLARITE_DEPART_ANNONCE => (Scolarite, "Départ annoncé par la famille"),
         types::ELEVE_OPTION_N1_CHOISIE => (Scolarite, "Option choisie pour l'année suivante"),
         types::ELEVE_ABSENCE_DECLARED => (VieScolaire, "Absence enregistrée"),
         types::ELEVE_ABSENCE_JUSTIF_SOUMIS => (VieScolaire, "Justificatif d'absence déposé"),

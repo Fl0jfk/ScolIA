@@ -17,6 +17,7 @@ pub mod appel;
 pub mod auth;
 pub mod dossier;
 pub mod edt;
+pub mod inscriptions;
 pub mod referentiel;
 pub mod vie_scolaire;
 

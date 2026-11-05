@@ -183,6 +183,22 @@ pub mod types {
     pub const FOYER_PAYEUR_DEFINI: &str = "foyer.payeur_defini";
     pub const RETARD_DECLARE: &str = "vs.retard";
     pub const COMPETENCE_EVALUEE: &str = "note.competence";
+    /// S2-3 (D3) : campagnes, préinscriptions, instruction, décision, validation.
+    pub const ADMISSION_CAMPAGNE_OUVERTE: &str = "admission.campagne_ouverte";
+    pub const ADMISSION_CAMPAGNE_FERMEE: &str = "admission.campagne_fermee";
+    pub const ADMISSION_DEPOSEE: &str = "admission.deposee";
+    pub const ADMISSION_ETAPE_CHANGEE: &str = "admission.etape_changee";
+    pub const ADMISSION_DECIDEE: &str = "admission.decidee";
+    pub const ADMISSION_RELANCE_ENVOYEE: &str = "admission.relance_envoyee";
+    /// Fait central de la toile (§4.3) : affectation, invitations, accueil…
+    pub const INSCRIPTION_VALIDEE: &str = "inscription.validee";
+    pub const SCOLARITE_DEPART_ANNONCE: &str = "scolarite.depart_annonce";
+    pub const RESPONSABLE_INVITE: &str = "inscription.responsable_invite";
+    pub const INVITATION_ACCEPTEE: &str = "inscription.invitation_acceptee";
+    pub const MANDAT_SEPA_A_SIGNER: &str = "fac.sepa_mandat_a_signer";
+    /// S2-3 (D23) : import en lot, rejets traités.
+    pub const IMPORT_LOT_APPLIQUE: &str = "import.lot_applique";
+    pub const IMPORT_REJET_TRAITE: &str = "import.rejet_traite";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +264,10 @@ pub enum AggregateKind {
     /// Référentiel scolaire (S2-2) : années, classes, périodes, calendrier, séances.
     Referentiel,
     Personne,
+    /// Dossier d'admission / de réinscription et campagnes (S2-3).
+    Admission,
+    /// Lot d'import (S2-3, D23).
+    Import,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

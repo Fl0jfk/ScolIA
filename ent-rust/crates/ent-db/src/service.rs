@@ -984,6 +984,13 @@ impl PgEnt {
         for c in consommateurs_standard() {
             d.enregistrer(c).expect("consommateurs standard aux noms uniques");
         }
+        // S2-3 : réactions à `inscription.validee` (envois par la messagerie de l'ENT).
+        for c in crate::inscriptions_reactions::consommateurs_inscriptions(
+            self.mailer.clone(),
+            self.mail_dry_run_accepte,
+        ) {
+            d.enregistrer(c).expect("consommateurs d'inscription aux noms uniques");
+        }
         d
     }
 
@@ -3288,7 +3295,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// n'est accepté qu'en build `labo` ou après `install_mail_dry_run` (tests),
     /// jamais en production : sinon un échec / une config absente produirait un
     /// faux « lien envoyé ».
-    fn envoi_reussi(&self, receipt: &MailReceipt) -> bool {
+    pub(crate) fn envoi_reussi(&self, receipt: &MailReceipt) -> bool {
         match receipt.status {
             MailSendStatus::Sent => true,
             MailSendStatus::DryRun => self.mail_dry_run_accepte,
@@ -3300,7 +3307,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// Strict : URL publique absente (`public_base_url` vide), messagerie non
     /// prête ou envoi non confirmé → `EnvoiImpossible`. Dans le dernier cas le
     /// jeton créé est invalidé (aucun lien orphelin actif).
-    async fn envoyer_lien_reinitialisation(
+    pub(crate) async fn envoyer_lien_reinitialisation(
         &self,
         user_id: Uuid,
         public_base_url: &str,
