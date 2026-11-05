@@ -24,6 +24,8 @@ pub struct ChallengeRow {
     pub user_id: Uuid,
     pub state: serde_json::Value,
     pub expires_at: DateTime<Utc>,
+    /// Type de client de la connexion en cours (`web` / `mobile`).
+    pub client: String,
 }
 
 /// Issue d'une insertion de passkey sous plafond.
@@ -229,12 +231,14 @@ impl PgPasskeyRepo {
         state: &serde_json::Value,
         token_hash: &str,
         expires_at: DateTime<Utc>,
+        client: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             INSERT INTO ent_passkey_challenge (
-                id, token_hash, etablissement_id, user_id, kind, state, created_at, expires_at
-            ) VALUES ($1,$2,$3,$4,$5,$6, now(), $7)
+                id, token_hash, etablissement_id, user_id, kind, state, created_at, expires_at,
+                client
+            ) VALUES ($1,$2,$3,$4,$5,$6, now(), $7, $8)
             "#,
         )
         .bind(Uuid::new_v4())
@@ -244,6 +248,7 @@ impl PgPasskeyRepo {
         .bind(kind)
         .bind(state)
         .bind(expires_at)
+        .bind(client)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -257,22 +262,24 @@ impl PgPasskeyRepo {
         token_hash: &str,
         kind: &str,
     ) -> Result<Option<ChallengeRow>, sqlx::Error> {
-        let row: Option<(Uuid, Uuid, Uuid, serde_json::Value, DateTime<Utc>)> = sqlx::query_as(
+        let row: Option<(Uuid, Uuid, Uuid, serde_json::Value, DateTime<Utc>, String)> =
+            sqlx::query_as(
             r#"DELETE FROM ent_passkey_challenge
                WHERE token_hash = $1 AND kind = $2 AND expires_at > now()
-               RETURNING id, etablissement_id, user_id, state, expires_at"#,
+               RETURNING id, etablissement_id, user_id, state, expires_at, client"#,
         )
         .bind(token_hash)
         .bind(kind)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(
-            |(id, etablissement_id, user_id, state, expires_at)| ChallengeRow {
+            |(id, etablissement_id, user_id, state, expires_at, client)| ChallengeRow {
                 id,
                 etablissement_id,
                 user_id,
                 state,
                 expires_at,
+                client,
             },
         ))
     }

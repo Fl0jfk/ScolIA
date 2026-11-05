@@ -226,6 +226,10 @@ fn jouer(domaine: &str, specs: &[Spec]) {
 
 /// Personnel de gestion pédagogique et vie scolaire.
 const GESTION: &[Acteur] = &[Admin, Direction, Administratif, Cpe, Prof];
+/// Socle 1 (B1, B2) : hors de ses élèves, un professeur est refusé (notes, vie
+/// scolaire, carnet, journal, fils). Les autres personnels gardent l'établissement.
+const GESTION_HORS_PROF: &[Acteur] = &[Admin, Direction, Administratif, Cpe];
+const STAFF_HORS_PROF: &[Acteur] = &[Admin, Direction, Administratif, Cpe, Compta, Infirmiere, Psy];
 const STAFF: &[Acteur] = &Acteur::STAFF;
 const TOUS: &[Acteur] = &Acteur::TOUS;
 const FAMILLE: &[Acteur] = &Acteur::FAMILLE;
@@ -246,7 +250,7 @@ fn domaine_eleve_dossier() {
             lire("eleve", "/eleves/{eleve}", TOUS, STAFF),
             lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF),
             lire("carnet", "/eleves/{eleve}/carnet",
-                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION),
+                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
             Spec { non_liee_vide: FAMILLE, ..lire("incidents", "/eleves/{eleve}/incidents", TOUS, STAFF) },
             Spec { non_liee_vide: FAMILLE, ..lire("sanctions", "/eleves/{eleve}/sanctions", TOUS, STAFF) },
         ],
@@ -258,10 +262,9 @@ fn domaine_notes() {
     jouer(
         "notes",
         &[
-            // Politique actuelle : tout le personnel de gestion lit les notes de tout
-            // l'établissement (resserrement par classe : décision ultérieure).
+            // Socle 1 (B1) : le professeur ne lit que les notes de ses élèves.
             lire("notes", "/eleves/{eleve}/notes",
-                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer], GESTION),
+                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer], GESTION_HORS_PROF),
             ecrire_sur_b("note-sur-B", "POST", "/eleves/{eleve}/notes",
                 Some(r#"{"matiere_id":"{matiere}","valeur":12,"date_note":"{jour}"}"#)),
         ],
@@ -275,7 +278,7 @@ fn domaine_absences() {
         &[
             // Parent sans drapeau vie scolaire (Narcissa → Draco, Molly → Ginny) : refusé.
             lire("absences", "/eleves/{eleve}/absences",
-                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION),
+                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
             ecrire_sur_b("absence-sur-B", "POST", "/eleves/{eleve}/absences",
                 Some(r#"{"debut":"{jour}","fin":"{jour}","motif":"separation"}"#)),
             ecrire_sur_b("justifier-B", "POST", "/absences/{absence}/justifier", Some("{}")),
@@ -333,7 +336,7 @@ fn domaine_fils_de_messages() {
         "fils de messages",
         &[
             lire("fil", "/messages/fils/{fil}",
-                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer], GESTION),
+                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer], GESTION_HORS_PROF),
             ecrire_sur_b("repondre-B", "POST", "/messages/fils/{fil}/repondre", Some(r#"{"corps":"separation"}"#)),
             ecrire_sur_b("archiver-B", "POST", "/messages/fils/{fil}/archiver", Some("{}")),
             ecrire_sur_b("ouvrir-fil-B", "POST", "/messages/fils",
@@ -914,7 +917,7 @@ fn domaine_annuaire_et_vie_scolaire_famille() {
                 &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux],
                 STAFF) },
             // Un parent doit avoir le drapeau « vie scolaire » (Narcissa, Molly : non).
-            lire("journal", "/eleves/{eleve}/journal", &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve], STAFF),
+            lire("journal", "/eleves/{eleve}/journal", &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve], STAFF_HORS_PROF),
             Spec { b: Attendu::RefuseOuIndistinct, ..lire("points-vs", "/eleves/{eleve}/points-vs",
                 &[Admin, Direction, Administratif, Cpe, Parent],
                 &[Admin, Direction, Administratif, Cpe]) },

@@ -157,6 +157,12 @@ pub fn router() -> Router<AppState> {
         .route("/auth/forgot-password", post(forgot_password))
         .route("/auth/reset-password", post(reset_password))
         .route("/auth/me", get(me))
+        .route("/auth/sessions", get(list_sessions_appareils))
+        .route("/auth/sessions/{id}", delete(revoquer_session_appareil))
+        .route(
+            "/etablissement/securite",
+            get(get_politique_securite).put(put_politique_securite),
+        )
         .route("/audit/journal", get(list_audit_journal))
         .route("/copilote/ask", post(copilote_ask))
         .route("/copilote/capacites", get(copilote_capacites))
@@ -1705,6 +1711,16 @@ pub struct LoginBody {
     pub email: String,
     pub password: String,
     pub etablissement_id: Uuid,
+    /// `web` (défaut) ou `mobile` : durée de session (D-011).
+    #[serde(default)]
+    pub client: Option<String>,
+}
+
+/// Libellé d'appareil lisible (écran « appareils connectés »), tiré du User-Agent.
+fn libelle_appareil(headers: &HeaderMap) -> Option<String> {
+    let ua = headers.get(axum::http::header::USER_AGENT)?.to_str().ok()?;
+    let ua = ua.trim();
+    (!ua.is_empty()).then(|| ua.chars().take(120).collect())
 }
 
 #[derive(Serialize)]
@@ -1728,6 +1744,14 @@ pub struct MeDto {
     pub eleve_id: Option<Uuid>,
     /// Nombre de passkeys enrôlées : > 0 ⇒ le 2ᵉ facteur est actif.
     pub passkey_count: i64,
+    /// `complete` ou `enrolement` (passkey obligatoire à enrôler avant tout).
+    pub portee: &'static str,
+    /// `mot_de_passe`, `passkey` ou `sso`.
+    pub assurance: &'static str,
+    /// `web` ou `mobile`.
+    pub client: &'static str,
+    /// La politique de l'établissement impose la passkey à ce rôle.
+    pub passkey_obligatoire: bool,
 }
 
 /// Réponse de connexion : soit une session (champs à plat), soit l'exigence
@@ -1778,6 +1802,8 @@ pub struct PasskeyDeleteBody {
 pub struct PasskeyLoginStartBody {
     pub email: String,
     pub etablissement_id: Uuid,
+    #[serde(default)]
+    pub client: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1949,11 +1975,13 @@ async fn login(
     let ip = client_ip(&headers);
     let outcome = state
         .ent
-        .login_start_with_ip(
+        .login_start_client(
             &body.email,
             &body.password,
             body.etablissement_id,
             ip.as_deref(),
+            ent_db::ClientSession::parse_client(body.client.as_deref()),
+            libelle_appareil(&headers),
         )
         .await
         .map_err(map_auth)?;
@@ -2016,10 +2044,11 @@ async fn passkey_register_finish(
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("credential invalide: {e}")))?;
     let row = state
         .ent
-        .passkey_register_finish_verified(
+        .passkey_register_finish_session(
             session.etablissement_id,
             session.user_id,
             session.session_id,
+            session.portee,
             &body.current_password,
             &body.token,
             &credential,
@@ -2077,7 +2106,11 @@ async fn passkey_login_start(
 ) -> Result<Json<PasskeyChallengeDto>, (StatusCode, String)> {
     match state
         .ent
-        .passkey_login_start(body.etablissement_id, &body.email)
+        .passkey_login_start_client(
+            body.etablissement_id,
+            &body.email,
+            ent_db::ClientSession::parse_client(body.client.as_deref()),
+        )
         .await
         .map_err(map_passkey)?
     {
@@ -2380,6 +2413,11 @@ async fn me(
         .count_passkeys_for_user(session.user_id)
         .await
         .map_err(map_db)?;
+    let passkey_obligatoire = state
+        .ent
+        .passkey_obligatoire(session.etablissement_id, &session.role)
+        .await
+        .map_err(map_db)?;
     Ok(Json(MeDto {
         user_id: session.user_id,
         email: session.email,
@@ -2387,6 +2425,10 @@ async fn me(
         role: session.role,
         eleve_id,
         passkey_count,
+        portee: session.portee.as_str(),
+        assurance: session.assurance.as_str(),
+        client: session.client.as_str(),
+        passkey_obligatoire,
     }))
 }
 
@@ -11235,4 +11277,108 @@ async fn tracer_acces(
             libelle,
         )
         .await;
+}
+
+// ───────────── Socle 1 : appareils connectés et politique de sécurité ─────────────
+
+#[derive(Serialize)]
+pub struct SessionAppareilDto {
+    pub id: Uuid,
+    pub client: String,
+    pub assurance: String,
+    pub appareil: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_seen_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    /// La session qui fait la requête.
+    pub courante: bool,
+}
+
+/// Appareils connectés de la personne, **dans cet établissement** seulement
+/// (D-013 : aucune visibilité entre établissements).
+async fn list_sessions_appareils(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<Vec<SessionAppareilDto>>, (StatusCode, String)> {
+    let rows = state
+        .ent
+        .sessions_actives_for_actor(session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        rows.into_iter()
+            .filter(|r| r.etablissement_id == session.etablissement_id)
+            .map(|r| SessionAppareilDto {
+                id: r.session_id,
+                courante: r.session_id == session.session_id,
+                client: r.client,
+                assurance: r.assurance,
+                appareil: r.appareil,
+                created_at: r.created_at,
+                last_seen_at: r.last_seen_at,
+                expires_at: r.expires_at,
+            })
+            .collect(),
+    ))
+}
+
+/// « Déconnecter cet appareil » (une de ses propres sessions).
+async fn revoquer_session_appareil(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let ok = state
+        .ent
+        .revoquer_session_for_actor(session.etablissement_id, session.user_id, id)
+        .await
+        .map_err(map_db)?;
+    if ok {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "session introuvable".into()))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PolitiqueSecuriteDto {
+    /// Rôles pour lesquels la passkey est obligatoire (ex. `["prof", "cpe"]`).
+    pub passkey_obligatoire_roles: Vec<String>,
+}
+
+async fn get_politique_securite(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<PolitiqueSecuriteDto>, (StatusCode, String)> {
+    if !matches!(session.role_parsed(), Some(ent_auth::Role::Admin | ent_auth::Role::Direction)) {
+        return Err((StatusCode::FORBIDDEN, "réservé à la direction".into()));
+    }
+    let p = state
+        .ent
+        .politique_securite(session.etablissement_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(PolitiqueSecuriteDto {
+        passkey_obligatoire_roles: p.passkey_obligatoire_roles,
+    }))
+}
+
+async fn put_politique_securite(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<PolitiqueSecuriteDto>,
+) -> Result<Json<PolitiqueSecuriteDto>, (StatusCode, String)> {
+    let p = state
+        .ent
+        .definir_politique_securite_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &body.passkey_obligatoire_roles,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(PolitiqueSecuriteDto {
+        passkey_obligatoire_roles: p.passkey_obligatoire_roles,
+    }))
 }

@@ -6,13 +6,135 @@ use ent_auth::{
 use sqlx::PgPool;
 use uuid::Uuid;
 
-/// Durée de vie d'une session (jours). Configurable par déploiement.
-fn session_ttl_days() -> i64 {
-    std::env::var("ENT_SESSION_TTL_DAYS")
+fn env_i64(nom: &str, defaut: i64) -> i64 {
+    std::env::var(nom)
         .ok()
         .and_then(|v| v.trim().parse::<i64>().ok())
         .filter(|d| *d > 0)
-        .unwrap_or(14)
+        .unwrap_or(defaut)
+}
+
+/// Web (D-011) : inactivité maximale, en minutes (défaut 120).
+fn session_web_inactivite_minutes() -> i64 {
+    env_i64("ENT_SESSION_WEB_INACTIVITE_MINUTES", 120)
+}
+
+/// Web (D-011) : durée maximale depuis la connexion, en heures (défaut 12).
+fn session_web_max_heures() -> i64 {
+    env_i64("ENT_SESSION_WEB_MAX_HEURES", 12)
+}
+
+/// Mobile (D-011) : durée glissante, en jours (défaut 90), prolongée à l'usage.
+fn session_mobile_jours() -> i64 {
+    env_i64("ENT_SESSION_MOBILE_JOURS", 90)
+}
+
+/// Mobile : plafond absolu depuis la connexion, en jours (défaut 365).
+fn session_mobile_max_jours() -> i64 {
+    env_i64("ENT_SESSION_MOBILE_MAX_JOURS", 365)
+}
+
+/// Session « enrôlement seulement » : courte (défaut 15 minutes).
+fn session_enrolement_minutes() -> i64 {
+    env_i64("ENT_SESSION_ENROLEMENT_MINUTES", 15)
+}
+
+/// Type de client (D-011) : durées différentes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClientSession {
+    #[default]
+    Web,
+    Mobile,
+}
+
+impl ClientSession {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Web => "web",
+            Self::Mobile => "mobile",
+        }
+    }
+    /// Valeur fournie par le client à la connexion ; tout inconnu → web (le plus court).
+    pub fn parse_client(v: Option<&str>) -> Self {
+        match v.map(|s| s.trim().to_ascii_lowercase()) {
+            Some(s) if s == "mobile" => Self::Mobile,
+            _ => Self::Web,
+        }
+    }
+}
+
+/// Niveau d'assurance de l'authentification qui a ouvert la session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AssuranceSession {
+    #[default]
+    MotDePasse,
+    Passkey,
+    Sso,
+}
+
+impl AssuranceSession {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MotDePasse => "mot_de_passe",
+            Self::Passkey => "passkey",
+            Self::Sso => "sso",
+        }
+    }
+    fn from_db(v: &str) -> Self {
+        match v {
+            "passkey" => Self::Passkey,
+            "sso" => Self::Sso,
+            _ => Self::MotDePasse,
+        }
+    }
+}
+
+/// Portée de la session : complète, ou limitée à l'enrôlement d'une passkey
+/// (compte soumis à l'obligation sans passkey, D-009).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PorteeSession {
+    #[default]
+    Complete,
+    Enrolement,
+}
+
+impl PorteeSession {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Enrolement => "enrolement",
+        }
+    }
+    fn from_db(v: &str) -> Self {
+        if v == "enrolement" {
+            Self::Enrolement
+        } else {
+            Self::Complete
+        }
+    }
+}
+
+/// Paramètres d'émission d'une session.
+#[derive(Debug, Clone, Default)]
+pub struct OptionsSession {
+    pub client: ClientSession,
+    pub assurance: AssuranceSession,
+    pub portee: PorteeSession,
+    pub appareil: Option<String>,
+    pub ip: Option<String>,
+}
+
+/// Session listée pour l'écran « appareils connectés » (jamais le jeton).
+#[derive(Debug, Clone)]
+pub struct SessionAppareil {
+    pub session_id: Uuid,
+    pub etablissement_id: Uuid,
+    pub client: String,
+    pub assurance: String,
+    pub appareil: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
 }
 
 /// Nombre d'échecs de connexion avant verrouillage temporaire.
@@ -96,6 +218,9 @@ pub struct SessionInfo {
     pub role: String,
     pub token: String,
     pub expires_at: chrono::DateTime<Utc>,
+    pub client: ClientSession,
+    pub assurance: AssuranceSession,
+    pub portee: PorteeSession,
 }
 
 /// Identité vérifiée après contrôle du mot de passe et de l'appartenance à
@@ -273,22 +398,45 @@ impl PgAuthRepo {
 
     /// Émet une session pour une identité **déjà vérifiée** (mot de passe ou
     /// passkey). Centralise la création du token et sa persistance.
+    ///
+    /// Durées (D-011) : web = `ENT_SESSION_WEB_INACTIVITE_MINUTES` d'inactivité et
+    /// `ENT_SESSION_WEB_MAX_HEURES` au plus ; mobile = `ENT_SESSION_MOBILE_JOURS`
+    /// glissants (plafond `ENT_SESSION_MOBILE_MAX_JOURS`) ; enrôlement = courte.
     pub async fn issue_session(
         &self,
         user_id: Uuid,
         etablissement_id: Uuid,
         email: &str,
         role: &str,
+        opts: &OptionsSession,
     ) -> Result<SessionInfo, AuthError> {
         let (raw_token, token_hash) = generate_session_token();
         let session_id = Uuid::new_v4();
-        let expires_at = Utc::now() + Duration::days(session_ttl_days());
+        let now = Utc::now();
+        let (expires_at, inactivite_max_secs): (DateTime<Utc>, Option<i32>) =
+            match (opts.portee, opts.client) {
+                (PorteeSession::Enrolement, _) => (
+                    now + Duration::minutes(session_enrolement_minutes()),
+                    None,
+                ),
+                (_, ClientSession::Web) => (
+                    now + Duration::hours(session_web_max_heures()),
+                    Some((session_web_inactivite_minutes() * 60).min(i32::MAX as i64) as i32),
+                ),
+                (_, ClientSession::Mobile) => (now + Duration::days(session_mobile_jours()), None),
+            };
+        let appareil = opts
+            .appareil
+            .as_deref()
+            .map(|a| a.chars().filter(|c| !c.is_control()).take(120).collect::<String>());
+        let ip = opts.ip.as_deref().map(|a| a.chars().take(64).collect::<String>());
 
         sqlx::query(
             r#"
             INSERT INTO ent_session (
-                id, user_id, etablissement_id, token_hash, expires_at, created_at
-            ) VALUES ($1,$2,$3,$4,$5, now())
+                id, user_id, etablissement_id, token_hash, expires_at, created_at,
+                client, last_seen_at, inactivite_max_secs, assurance, portee, appareil, ip_creation
+            ) VALUES ($1,$2,$3,$4,$5, now(), $6, now(), $7, $8, $9, $10, $11)
             "#,
         )
         .bind(session_id)
@@ -296,6 +444,12 @@ impl PgAuthRepo {
         .bind(etablissement_id)
         .bind(&token_hash)
         .bind(expires_at)
+        .bind(opts.client.as_str())
+        .bind(inactivite_max_secs)
+        .bind(opts.assurance.as_str())
+        .bind(opts.portee.as_str())
+        .bind(appareil)
+        .bind(ip)
         .execute(&self.pool)
         .await
         .map_err(|_| AuthError::InvalidCredentials)?;
@@ -308,7 +462,105 @@ impl PgAuthRepo {
             role: role.to_string(),
             token: raw_token,
             expires_at,
+            client: opts.client,
+            assurance: opts.assurance,
+            portee: opts.portee,
         })
+    }
+
+    /// Élève une session « enrôlement » en session complète (après l'enrôlement
+    /// d'une passkey). Sans effet sur une session déjà complète.
+    pub async fn completer_session_apres_enrolement(
+        &self,
+        session_id: Uuid,
+    ) -> Result<(), AuthError> {
+        let inactivite = (session_web_inactivite_minutes() * 60).min(i32::MAX as i64) as i32;
+        sqlx::query(
+            r#"
+            UPDATE ent_session
+               SET portee = 'complete',
+                   expires_at = CASE client
+                       WHEN 'mobile' THEN now() + make_interval(days => $2)
+                       ELSE now() + make_interval(hours => $3) END,
+                   inactivite_max_secs = CASE client WHEN 'mobile' THEN NULL ELSE $4 END,
+                   last_seen_at = now()
+             WHERE id = $1 AND portee = 'enrolement' AND revoked_at IS NULL
+            "#,
+        )
+        .bind(session_id)
+        .bind(session_mobile_jours() as i32)
+        .bind(session_web_max_heures() as i32)
+        .bind(inactivite)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| AuthError::InvalidSession)?;
+        Ok(())
+    }
+
+    /// Sessions actives d'une personne (écran « appareils connectés »).
+    pub async fn list_sessions_actives(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<SessionAppareil>, AuthError> {
+        let rows: Vec<(
+            Uuid,
+            Uuid,
+            String,
+            String,
+            Option<String>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        )> = sqlx::query_as(
+            r#"
+            SELECT id, etablissement_id, client, assurance, appareil,
+                   created_at, last_seen_at, expires_at
+              FROM ent_session
+             WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+               AND (inactivite_max_secs IS NULL
+                    OR last_seen_at > now() - make_interval(secs => inactivite_max_secs))
+             ORDER BY last_seen_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| AuthError::InvalidSession)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(session_id, etablissement_id, client, assurance, appareil, created_at, last_seen_at, expires_at)| {
+                    SessionAppareil {
+                        session_id,
+                        etablissement_id,
+                        client,
+                        assurance,
+                        appareil,
+                        created_at,
+                        last_seen_at,
+                        expires_at,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    /// Révoque une session précise de la personne (« déconnecter cet appareil »).
+    pub async fn revoke_session_of_user(
+        &self,
+        user_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<bool, AuthError> {
+        let res = sqlx::query(
+            r#"UPDATE ent_session SET revoked_at = now()
+                WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL"#,
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| AuthError::InvalidSession)?;
+        Ok(res.rows_affected() > 0)
     }
 
     /// Verrou encore actif pour cet e-mail (garde anti-force brute).
@@ -505,10 +757,25 @@ impl PgAuthRepo {
         let token_hash = hash_token(raw);
         let now = Utc::now();
 
-        let row: Option<(Uuid, Uuid, Uuid, String, String, chrono::DateTime<Utc>)> =
-            sqlx::query_as(
-                r#"
-                SELECT s.id, s.user_id, s.etablissement_id, u.email, m.role, s.expires_at
+        type Ligne = (
+            Uuid,
+            Uuid,
+            Uuid,
+            String,
+            String,
+            chrono::DateTime<Utc>,
+            String,
+            String,
+            String,
+            chrono::DateTime<Utc>,
+            chrono::DateTime<Utc>,
+        );
+        // Inactivité (web) contrôlée en base : un jeton inutilisé depuis plus
+        // longtemps que `inactivite_max_secs` est refusé, quel que soit le porteur.
+        let row: Option<Ligne> = sqlx::query_as(
+            r#"
+                SELECT s.id, s.user_id, s.etablissement_id, u.email, m.role, s.expires_at,
+                       s.client, s.assurance, s.portee, s.last_seen_at, s.created_at
                 FROM ent_session s
                 JOIN ent_user u ON u.id = s.user_id
                 JOIN ent_membership m
@@ -516,17 +783,55 @@ impl PgAuthRepo {
                 WHERE s.token_hash = $1
                   AND s.revoked_at IS NULL
                   AND s.expires_at > $2
+                  AND (s.inactivite_max_secs IS NULL
+                       OR s.last_seen_at > $2 - make_interval(secs => s.inactivite_max_secs))
                 "#,
-            )
-            .bind(&token_hash)
-            .bind(now)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|_| AuthError::InvalidSession)?;
+        )
+        .bind(&token_hash)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthError::InvalidSession)?;
 
-        let Some((session_id, user_id, etablissement_id, email, role, expires_at)) = row else {
+        let Some((
+            session_id,
+            user_id,
+            etablissement_id,
+            email,
+            role,
+            mut expires_at,
+            client,
+            assurance,
+            portee,
+            last_seen_at,
+            created_at,
+        )) = row
+        else {
             return Err(AuthError::InvalidSession);
         };
+        let client = ClientSession::parse_client(Some(&client));
+        let portee = PorteeSession::from_db(&portee);
+
+        // Activité : écriture amortie (au plus une fois par minute). Mobile :
+        // prolongation glissante, plafonnée depuis la connexion.
+        if now - last_seen_at > Duration::seconds(60) {
+            if client == ClientSession::Mobile && portee == PorteeSession::Complete {
+                let plafond = created_at + Duration::days(session_mobile_max_jours());
+                let nouvelle = (now + Duration::days(session_mobile_jours())).min(plafond);
+                if nouvelle > expires_at {
+                    expires_at = nouvelle;
+                }
+            }
+            let _ = sqlx::query(
+                r#"UPDATE ent_session SET last_seen_at = $2, expires_at = $3
+                    WHERE id = $1 AND revoked_at IS NULL"#,
+            )
+            .bind(session_id)
+            .bind(now)
+            .bind(expires_at)
+            .execute(&self.pool)
+            .await;
+        }
 
         Ok(SessionInfo {
             session_id,
@@ -536,6 +841,9 @@ impl PgAuthRepo {
             role,
             token: String::new(),
             expires_at,
+            client,
+            assurance: AssuranceSession::from_db(&assurance),
+            portee,
         })
     }
 

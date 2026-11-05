@@ -52,6 +52,7 @@ mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
 mod perimetre;
+mod securite_repo;
 mod oidc_repo;
 mod pra;
 mod tva_repo;
@@ -74,7 +75,10 @@ pub mod url_guard;
 pub use ent_events::EventBusError;
 pub use ent_object::ObjectStoreError;
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
-pub use auth_repo::{AuthUser, LoginIdentity, SessionInfo, StaffMember};
+pub use auth_repo::{
+    AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
+    SessionAppareil, SessionInfo, StaffMember,
+};
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
 pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce};
@@ -101,6 +105,7 @@ pub use sms_repo::SmsOutboxRow;
 pub use push_repo::PushDevice;
 pub use service::EnfantFamille;
 pub use matiere_repo::{CreateMatiere, Matiere};
+pub use securite_repo::PolitiqueSecurite;
 pub use referentiel_repo::{
     niveau_de_code, role_peut_gerer_referentiel, role_peut_lire_referentiel, AnneeScolaire,
     Affectation, Classe, ClasseResume, CreerService, Groupe, RapportAmorcage,

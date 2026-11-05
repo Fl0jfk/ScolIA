@@ -17,7 +17,26 @@ pub struct EntSession {
     pub actor_user_id: String,
     pub email: String,
     pub role: String,
+    /// Web ou mobile (D-011).
+    pub client: ent_db::ClientSession,
+    /// Authentification qui a ouvert la session (mot de passe, passkey, SSO).
+    pub assurance: ent_db::AssuranceSession,
+    /// Complète, ou limitée à l'enrôlement d'une passkey (D-009).
+    pub portee: ent_db::PorteeSession,
 }
+
+/// Routes ouvertes à une session « enrôlement seulement » (passkey obligatoire,
+/// pas encore enrôlée) : de quoi savoir qui l'on est, enrôler, se déconnecter.
+pub const ROUTES_ENROLEMENT: &[&str] = &[
+    "/auth/me",
+    "/auth/logout",
+    "/auth/passkeys",
+    "/auth/passkey/register/start",
+    "/auth/passkey/register/finish",
+];
+
+/// Message stable (le client l'utilise pour afficher l'écran d'enrôlement).
+pub const ENROLEMENT_REQUIS: &str = "passkey_enrolement_requis";
 
 impl EntSession {
     pub fn role_parsed(&self) -> Option<Role> {
@@ -204,6 +223,13 @@ impl FromRequestParts<AppState> for EntSession {
                 )),
             })?;
 
+        // Socle 1 (A2) : une session d'enrôlement n'ouvre aucune donnée.
+        if info.portee == ent_db::PorteeSession::Enrolement
+            && !ROUTES_ENROLEMENT.contains(&parts.uri.path())
+        {
+            return Err((StatusCode::FORBIDDEN, ENROLEMENT_REQUIS.into()));
+        }
+
         Ok(Self {
             session_id: info.session_id,
             user_id: info.user_id,
@@ -211,6 +237,9 @@ impl FromRequestParts<AppState> for EntSession {
             actor_user_id: info.user_id.to_string(),
             email: info.email,
             role: info.role,
+            client: info.client,
+            assurance: info.assurance,
+            portee: info.portee,
         })
     }
 }

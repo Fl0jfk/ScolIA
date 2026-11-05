@@ -3,7 +3,10 @@ use crate::appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat, PgAppelRepo};
 use crate::annonce_repo::PgAnnonceRepo;
 use crate::retard_repo::PgRetardRepo;
 use crate::competence_repo::{EvaluationLue, PgCompetenceRepo};
-use crate::auth_repo::{AuthUser, PgAuthRepo, SessionInfo, StaffMember};
+use crate::auth_repo::{
+    AssuranceSession, AuthUser, ClientSession, OptionsSession, PgAuthRepo, PorteeSession,
+    SessionInfo, StaffMember,
+};
 use crate::passkey_repo::{InsertPasskey, PasskeyRow, PgPasskeyRepo};
 use crate::oidc_repo::{
     OidcProviderPublic, OidcProviderRow, OidcProviderUpsert, OidcStateInsert, PgOidcRepo,
@@ -761,6 +764,10 @@ impl PgEnt {
     }
 
     /// Pool sous-jacent (usage interne au crate : PRA, sondes, migrateurs).
+    pub(crate) fn auth_repo(&self) -> &PgAuthRepo {
+        &self.auth
+    }
+
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
     }
@@ -1528,6 +1535,29 @@ impl PgEnt {
         etablissement_id: Uuid,
         client_ip: Option<&str>,
     ) -> Result<LoginOutcome, EntDbError> {
+        self.login_start_client(
+            email,
+            password,
+            etablissement_id,
+            client_ip,
+            ClientSession::Web,
+            None,
+        )
+        .await
+    }
+
+    /// Connexion par mot de passe pour un type de client (D-011 : web / mobile).
+    /// Sans passkey : session complète, ou « enrôlement seulement » si la
+    /// politique de l'établissement impose la passkey à ce rôle (D-009).
+    pub async fn login_start_client(
+        &self,
+        email: &str,
+        password: &str,
+        etablissement_id: Uuid,
+        client_ip: Option<&str>,
+        client: ClientSession,
+        appareil: Option<String>,
+    ) -> Result<LoginOutcome, EntDbError> {
         let identity = match self
             .auth
             .verify_credentials(email, password, etablissement_id, client_ip)
@@ -1545,6 +1575,14 @@ impl PgEnt {
             .list_passkeys(identity.user_id)
             .await?;
         if passkeys.is_empty() {
+            let portee = if self
+                .passkey_obligatoire(etablissement_id, &identity.role)
+                .await?
+            {
+                PorteeSession::Enrolement
+            } else {
+                PorteeSession::Complete
+            };
             let session = self
                 .auth
                 .issue_session(
@@ -1552,6 +1590,13 @@ impl PgEnt {
                     etablissement_id,
                     &identity.email,
                     &identity.role,
+                    &OptionsSession {
+                        client,
+                        assurance: AssuranceSession::MotDePasse,
+                        portee,
+                        appareil,
+                        ip: client_ip.map(str::to_string),
+                    },
                 )
                 .await?;
             self.audit_acces(
@@ -1569,7 +1614,7 @@ impl PgEnt {
         // 2ᵉ facteur : on n'ouvre pas de session tant que la passkey n'a pas été
         // vérifiée. Le challenge est à usage unique et expire vite.
         let (token, options, expires_at) = self
-            .open_authentication_challenge(etablissement_id, identity.user_id, &passkeys)
+            .open_authentication_challenge(etablissement_id, identity.user_id, &passkeys, client)
             .await?;
         self.audit_acces(
             etablissement_id,
@@ -1609,6 +1654,7 @@ impl PgEnt {
         etablissement_id: Uuid,
         user_id: Uuid,
         passkeys: &[Passkey],
+        client: ClientSession,
     ) -> Result<(String, serde_json::Value, DateTime<Utc>), EntDbError> {
         let engine = self.passkey_engine()?;
         let (rcr, state) = engine.start_authentication(passkeys)?;
@@ -1627,6 +1673,7 @@ impl PgEnt {
                 &state_json,
                 &token_hash,
                 expires_at,
+                client.as_str(),
             )
             .await?;
         Ok((raw_token, options, expires_at))
@@ -1672,6 +1719,7 @@ impl PgEnt {
                 &state_json,
                 &token_hash,
                 expires_at,
+                ClientSession::Web.as_str(),
             )
             .await?;
         Ok((raw_token, options))
@@ -1798,6 +1846,47 @@ impl PgEnt {
     /// puis révoque les **autres** sessions du compte (la session courante est
     /// conservée).
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// Session « enrôlement » (obligation D-009) : elle vient d'être ouverte par
+    /// une authentification complète (mot de passe ou SSO) et ne sert qu'à cela ;
+    /// le mot de passe actuel n'est alors pas redemandé (compte SSO sans mot de
+    /// passe). La session est ensuite élevée en session complète.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn passkey_register_finish_session(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        keep_session_id: Uuid,
+        portee: PorteeSession,
+        current_password: &str,
+        token: &str,
+        credential: &RegisterPublicKeyCredential,
+        name: Option<String>,
+    ) -> Result<PasskeyRow, EntDbError> {
+        if portee == PorteeSession::Enrolement && current_password.is_empty() {
+            if !self.auth.is_member(etablissement_id, user_id).await? {
+                return Err(EntDbError::Forbidden);
+            }
+        } else {
+            self.verifier_mot_de_passe_actuel(etablissement_id, user_id, current_password)
+                .await?;
+        }
+        let row = self
+            .passkey_register_finish_for_actor(etablissement_id, user_id, token, credential, name)
+            .await?;
+        if portee == PorteeSession::Enrolement {
+            self.auth
+                .completer_session_apres_enrolement(keep_session_id)
+                .await?;
+        }
+        let _ = self
+            .auth
+            .revoke_other_sessions_for_user(user_id, Some(keep_session_id))
+            .await?;
+        Ok(row)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub async fn passkey_register_finish_verified(
         &self,
         etablissement_id: Uuid,
@@ -1868,6 +1957,17 @@ impl PgEnt {
         etablissement_id: Uuid,
         email: &str,
     ) -> Result<Option<(String, serde_json::Value, DateTime<Utc>)>, EntDbError> {
+        self.passkey_login_start_client(etablissement_id, email, ClientSession::Web)
+            .await
+    }
+
+    /// Variante avec type de client (web / mobile, D-011).
+    pub async fn passkey_login_start_client(
+        &self,
+        etablissement_id: Uuid,
+        email: &str,
+        client: ClientSession,
+    ) -> Result<Option<(String, serde_json::Value, DateTime<Utc>)>, EntDbError> {
         let Some(user_id) = self.auth.find_user_id_by_email(email).await? else {
             return Ok(None);
         };
@@ -1879,7 +1979,7 @@ impl PgEnt {
             return Ok(None);
         }
         let (token, options, expires_at) = self
-            .open_authentication_challenge(etablissement_id, user_id, &passkeys)
+            .open_authentication_challenge(etablissement_id, user_id, &passkeys, client)
             .await?;
         Ok(Some((token, options, expires_at)))
     }
@@ -1931,6 +2031,13 @@ impl PgEnt {
                 challenge.etablissement_id,
                 &identity.0,
                 &role,
+                &OptionsSession {
+                    client: ClientSession::parse_client(Some(&challenge.client)),
+                    assurance: AssuranceSession::Passkey,
+                    portee: PorteeSession::Complete,
+                    appareil: None,
+                    ip: None,
+                },
             )
             .await?;
         self.audit_acces(
@@ -2063,7 +2170,7 @@ impl PgEnt {
     /// Journal d'une action de gestion de compte : **acteur réel**, jamais
     /// d'adresse en clair (le payload ne contient que des identifiants et des
     /// empreintes). Best-effort comme `audit_acces`.
-    async fn audit_compte(
+    pub(crate) async fn audit_compte(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -2395,7 +2502,12 @@ impl PgEnt {
             .await?;
         if !passkeys.is_empty() {
             let (token, options, expires_at) = self
-                .open_authentication_challenge(state.etablissement_id, user_id, &passkeys)
+                .open_authentication_challenge(
+                    state.etablissement_id,
+                    user_id,
+                    &passkeys,
+                    ClientSession::Web,
+                )
                 .await?;
             self.audit_acces(
                 state.etablissement_id,
@@ -2413,9 +2525,29 @@ impl PgEnt {
             });
         }
 
+        let portee = if self
+            .passkey_obligatoire(state.etablissement_id, &role)
+            .await?
+        {
+            PorteeSession::Enrolement
+        } else {
+            PorteeSession::Complete
+        };
         let session = self
             .auth
-            .issue_session(user_id, state.etablissement_id, &email, &role)
+            .issue_session(
+                user_id,
+                state.etablissement_id,
+                &email,
+                &role,
+                &OptionsSession {
+                    client: ClientSession::Web,
+                    assurance: AssuranceSession::Sso,
+                    portee,
+                    appareil: None,
+                    ip: None,
+                },
+            )
             .await?;
         self.audit_acces(
             state.etablissement_id,

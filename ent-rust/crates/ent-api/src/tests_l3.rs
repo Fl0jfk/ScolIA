@@ -650,3 +650,112 @@ async fn socle1_passkey_exigee_dans_tous_les_etablissements_de_la_personne() {
     // La liste des passkeys est la même vue de A et de B.
     assert_eq!(ent.list_passkeys_for_actor(etab_b, prof.id).await.unwrap().len(), 1);
 }
+
+/// Socle 1 (A2) — passkey obligatoire : session « enrôlement seulement », aucune
+/// donnée accessible avant l'enrôlement, mot de passe non redemandé pendant
+/// l'enrôlement, session élevée ensuite ; la connexion suivante exige la passkey.
+#[tokio::test]
+async fn socle1_passkey_obligatoire_session_d_enrolement_puis_complete() {
+    let Some((state, _ent)) = etat().await else {
+        eprintln!("skip socle1: ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let dir = inscrire(&app, etab, "direction").await;
+    let prof = inscrire(&app, etab, "prof").await;
+    let parent = inscrire(&app, etab, "parent").await;
+
+    // Seule la direction fixe la politique ; rôle inconnu refusé.
+    let (st, _) = appel(&app, "PUT", "/etablissement/securite", Some(&prof.jeton),
+        Some(json!({"passkey_obligatoire_roles": ["prof"]}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "PUT", "/etablissement/securite", Some(&dir.jeton),
+        Some(json!({"passkey_obligatoire_roles": ["inconnu"]}))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let (st, p) = appel(&app, "PUT", "/etablissement/securite", Some(&dir.jeton),
+        Some(json!({"passkey_obligatoire_roles": ["prof", "cpe"]}))).await;
+    assert_eq!(st, StatusCode::OK, "{p}");
+    assert_eq!(p["passkey_obligatoire_roles"], json!(["cpe", "prof"]));
+
+    // Le professeur, sans passkey : session d'enrôlement.
+    let (jeton, _) = connecter(&app, etab, &prof.email).await;
+    let (st, me) = appel(&app, "GET", "/auth/me", Some(&jeton), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(me["portee"], "enrolement");
+    assert_eq!(me["passkey_obligatoire"], true);
+    for uri in ["/eleves/search?q=a", "/messages/fils", "/auth/sessions"] {
+        let (st, _) = appel(&app, "GET", uri, Some(&jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{uri} fermé avant l'enrôlement");
+    }
+    // Enrôlement sans redemander le mot de passe, puis session complète.
+    let (st, b) = enroler(&app, &jeton, None, "Clé obligatoire").await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    let (_, me) = appel(&app, "GET", "/auth/me", Some(&jeton), None).await;
+    assert_eq!(me["portee"], "complete");
+    let (st, _) = appel(&app, "GET", "/auth/sessions", Some(&jeton), None).await;
+    assert_eq!(st, StatusCode::OK);
+    // Prochaine connexion par mot de passe : 2ᵉ facteur exigé.
+    let (_, corps) = appel(&app, "POST", "/auth/login", None,
+        Some(json!({"email": prof.email, "password": MDP, "etablissement_id": etab}))).await;
+    assert_eq!(corps["mfa_required"], json!(true));
+
+    // Rôle non soumis : session complète.
+    let (jeton_p, _) = connecter(&app, etab, &parent.email).await;
+    let (_, me) = appel(&app, "GET", "/auth/me", Some(&jeton_p), None).await;
+    assert_eq!(me["portee"], "complete");
+    assert_eq!(me["passkey_obligatoire"], false);
+}
+
+/// Socle 1 (A3) — web : 2 h d'inactivité ; mobile : pas de délai d'inactivité,
+/// prolongation à l'usage. Appareils connectés : liste et déconnexion ciblée.
+#[tokio::test]
+async fn socle1_sessions_web_inactivite_mobile_longue_et_appareils() {
+    let Some((state, _ent)) = etat().await else {
+        eprintln!("skip socle1: ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let c = inscrire(&app, etab, "prof").await;
+    let autre = inscrire(&app, etab, "prof").await;
+    let (st, b) = appel(&app, "POST", "/auth/login", None, Some(json!({
+        "email": c.email, "password": MDP, "etablissement_id": etab, "client": "mobile"}))).await;
+    assert_eq!(st, StatusCode::OK);
+    let mobile = b["token"].as_str().unwrap().to_string();
+    let (_, me) = appel(&app, "GET", "/auth/me", Some(&mobile), None).await;
+    assert_eq!((me["client"].as_str(), me["assurance"].as_str()), (Some("mobile"), Some("mot_de_passe")));
+
+    // Liste : 2 sessions (web d'inscription + mobile), la courante marquée.
+    let (st, liste) = appel(&app, "GET", "/auth/sessions", Some(&c.jeton), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let liste = liste.as_array().unwrap().clone();
+    assert_eq!(liste.len(), 2, "{liste:?}");
+    assert_eq!(liste.iter().filter(|s| s["courante"] == true).count(), 1);
+
+    // 3 h sans activité : la session web expire, pas la mobile.
+    sqlx::query("UPDATE ent_session SET last_seen_at = now() - interval '3 hours' WHERE user_id = $1")
+        .bind(c.id)
+        .execute(&pool().await)
+        .await
+        .unwrap();
+    assert!(!vivante(&app, &c.jeton).await, "web : inactivité > 2 h");
+    assert!(vivante(&app, &mobile).await, "mobile : pas de délai d'inactivité");
+    let (exp,): (chrono::DateTime<chrono::Utc>,) = sqlx::query_as(
+        "SELECT expires_at FROM ent_session WHERE user_id = $1 AND client = 'mobile'")
+        .bind(c.id)
+        .fetch_one(&pool().await)
+        .await
+        .unwrap();
+    assert!(exp > chrono::Utc::now() + chrono::Duration::days(80), "mobile prolongée à l'usage");
+
+    // Déconnexion ciblée : on ne touche pas aux sessions d'autrui.
+    let (_, liste) = appel(&app, "GET", "/auth/sessions", Some(&mobile), None).await;
+    let id_mobile = liste[0]["id"].as_str().unwrap().to_string();
+    let (st, _) = appel(&app, "DELETE", &format!("/auth/sessions/{id_mobile}"), Some(&autre.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND, "session d'un autre compte");
+    assert!(vivante(&app, &mobile).await);
+    let (st, _) = appel(&app, "DELETE", &format!("/auth/sessions/{id_mobile}"), Some(&mobile), None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert!(!vivante(&app, &mobile).await);
+}

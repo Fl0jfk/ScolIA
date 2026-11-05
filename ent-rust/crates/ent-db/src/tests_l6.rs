@@ -226,6 +226,9 @@ fn debug_session_info_masque_le_jeton() {
         role: "admin".into(),
         token: "jeton-opaque-tres-secret".into(),
         expires_at: chrono::Utc::now(),
+        client: Default::default(),
+        assurance: Default::default(),
+        portee: Default::default(),
     };
     let d = format!("{s:?}");
     assert!(!d.contains("jeton-opaque-tres-secret"));

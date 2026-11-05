@@ -7,6 +7,7 @@
 use super::*;
 use domain_eleve::{today_utc, OuvrirFil};
 use ent_auth::Role;
+use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = std::env::var("ENT_DATABASE_URL").ok()?;
