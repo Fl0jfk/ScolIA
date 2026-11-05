@@ -92,7 +92,7 @@ pub struct EngagerProcedureBody {
     pub faits: String,
 }
 
-/// Signalement d'assiduité (`proposee` → `validee` → `emis`, ou `refusee`).
+/// Signalement d'assiduité (`propose` → `valide` → `emis`, ou `refuse`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SignalementDto {
     pub id: Uuid,
@@ -136,4 +136,18 @@ pub struct EffacementRapportDto {
     pub examinees: usize,
     #[serde(default)]
     pub effacees: Vec<Uuid>,
+}
+
+/// Demi-journée d'absence d'un élève, dérivée par le serveur des absences à la séance
+/// (`GET /eleves/{id}/demi-journees`). Le client n'en recalcule jamais les règles.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DemiJourneeDto {
+    pub jour: NaiveDate,
+    /// `matin` | `apres_midi`.
+    pub periode: String,
+    pub minutes: i64,
+    pub minutes_non_justifiees: i64,
+    /// La demi-journée compte (seuil de minutes atteint).
+    pub comptee: bool,
+    pub non_justifiee: bool,
 }

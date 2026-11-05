@@ -33,6 +33,25 @@ pub fn compteurs(t: &TableauJour) -> Compteurs {
     }
 }
 
+/// « Matin », « Après-midi » (périodes dérivées par le serveur).
+pub fn libelle_periode(periode: &str) -> &'static str {
+    match periode {
+        "matin" => "Matin",
+        "apres_midi" => "Après-midi",
+        _ => "Période",
+    }
+}
+
+/// « Matin : 45 min, comptée, non justifiée » (le serveur décide ; ici on présente).
+pub fn libelle_demi_journee(d: &ent_types::discipline::DemiJourneeDto) -> String {
+    let mut v = vec![format!("{} min", d.minutes)];
+    v.push(if d.comptee { "comptée" } else { "non comptée" }.to_string());
+    if d.comptee {
+        v.push(if d.non_justifiee { "non justifiée" } else { "justifiée" }.to_string());
+    }
+    format!("{} : {}", libelle_periode(&d.periode), v.join(", "))
+}
+
 /// Absents non prévenus d'abord (ce sont ceux qu'il faut appeler), puis par nom.
 pub fn trier_absents(mut liste: Vec<AbsentDuJour>) -> Vec<AbsentDuJour> {
     liste.sort_by(|a, b| {
@@ -109,6 +128,31 @@ pub fn libelle_absent(a: &AbsentDuJour) -> String {
 
 pub fn libelle_incoherence_eleve(i: &IncoherenceAppel) -> String {
     nom_complet(&i.prenom, &i.nom)
+}
+
+#[cfg(test)]
+mod tests_demi_journees {
+    use super::*;
+    use ent_types::discipline::DemiJourneeDto;
+
+    fn dj(periode: &str, minutes: i64, comptee: bool, non_justifiee: bool) -> DemiJourneeDto {
+        DemiJourneeDto {
+            jour: chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap(),
+            periode: periode.into(),
+            minutes,
+            minutes_non_justifiees: if non_justifiee { minutes } else { 0 },
+            comptee,
+            non_justifiee,
+        }
+    }
+
+    #[test]
+    fn libelles_de_demi_journees() {
+        assert_eq!(libelle_demi_journee(&dj("matin", 45, true, true)), "Matin : 45 min, comptée, non justifiée");
+        assert_eq!(libelle_demi_journee(&dj("apres_midi", 60, true, false)), "Après-midi : 60 min, comptée, justifiée");
+        assert_eq!(libelle_demi_journee(&dj("matin", 10, false, false)), "Matin : 10 min, non comptée");
+        assert_eq!(libelle_periode("?"), "Période");
+    }
 }
 
 #[cfg(test)]

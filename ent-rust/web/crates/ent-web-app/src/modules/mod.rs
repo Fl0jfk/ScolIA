@@ -6,6 +6,7 @@ pub mod accueil;
 pub mod appel;
 pub mod classes;
 pub mod connexion;
+pub mod discipline_vs;
 pub mod edt;
 pub mod journee_vs;
 pub mod messagerie;

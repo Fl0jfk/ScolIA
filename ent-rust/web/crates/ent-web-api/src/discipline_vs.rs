@@ -97,6 +97,36 @@ impl ApiClient {
         .await
     }
 
+    /// `POST /vs/procedures/{id}/convoquer` : convocation du conseil de discipline.
+    pub async fn convoquer_conseil(
+        &self,
+        id: Uuid,
+        convocation_envoyee_le: NaiveDate,
+        conseil_le: NaiveDate,
+    ) -> Result<ProcedureDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/vs/procedures/{id}/convoquer"),
+            Some(json!({ "convocation_envoyee_le": convocation_envoyee_le, "conseil_le": conseil_le })),
+        )
+        .await
+    }
+
+    /// `POST /vs/procedures/{id}/decider` : décision (texte libre, daté).
+    pub async fn decider_procedure(
+        &self,
+        id: Uuid,
+        decision: &str,
+        decision_le: NaiveDate,
+    ) -> Result<ProcedureDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/vs/procedures/{id}/decider"),
+            Some(json!({ "decision": decision, "decision_le": decision_le })),
+        )
+        .await
+    }
+
     /// `POST /vs/procedures/{id}/classer` : classement sans suite.
     pub async fn classer_procedure(&self, id: Uuid) -> Result<ProcedureDto, ApiError> {
         self.appel(
