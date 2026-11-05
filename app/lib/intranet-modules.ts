@@ -1021,7 +1021,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "scolia-ai",
-    pathPrefixes: ["/scolia-ai", "/api/chatbot/conversations", "/api/chatbot/upload"],
+    // `/api/chatbot` = la route des questions elle-même : sans elle, le proxy (fail-closed)
+    // refusait tous les messages, admin compris (« Accès refusé à ce module »).
+    // L'alimentation de la base de connaissances reste réservée à chatbot-knowledge.
+    pathPrefixes: ["/scolia-ai", "/api/chatbot"],
+    excludePrefixes: ["/api/chatbot/ingest"],
     allowedRoles: [...ROLES_EXCEPT_PARENT],
   },
   {
