@@ -13,10 +13,20 @@ import {
   withPendingFileUpload,
 } from "@/app/lib/brain-ai/conversation-state";
 import { executeBrainTool } from "@/app/lib/brain-ai/tools/execute";
-import { getBrainTool, mistralToolsForUser } from "@/app/lib/brain-ai/tools/registry";
+import {
+  deniedBrainToolsForUser,
+  getBrainTool,
+  mistralToolsForUser,
+} from "@/app/lib/brain-ai/tools/registry";
 import { isBrainPermissionDenied } from "@/app/lib/brain-ai/permissions";
+import {
+  MISTRAL_LARGE_MODEL,
+  MISTRAL_SMALL_MODEL,
+  mistralMessageText,
+  mistralModelOptions,
+} from "@/app/lib/mistral-models";
 import { loadScoliaPersonalSignalsBrief } from "@/app/lib/brain-ai/personal-signals";
-import { detectWizardStartTool } from "@/app/lib/brain-ai/wizard-intent";
+import { detectWizardStartTool, isWritingHelpRequest } from "@/app/lib/brain-ai/wizard-intent";
 import {
   TRAVELS_CLASSES_AUTRES_LABEL,
   TRAVELS_CLASSES_AUTRES_VALUE,
@@ -794,9 +804,18 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     };
   }
 
+  const writingHelp = isWritingHelpRequest(input.message);
+
   let knowledge;
   try {
-    knowledge = await buildKnowledgeContext(input.message, input.audience, input.apiKey);
+    knowledge = writingHelp
+      ? {
+          domain: { id: "none", label: "Aucun", file: "", isYearlyReset: false, keywords: [] },
+          selectedByKeywords: { id: "none", label: "Aucun", file: "", isYearlyReset: false, keywords: [] },
+          finalDomains: [] as Array<{ id: string; file: string; label: string }>,
+          context: "(non utilisé — demande d'aide à la rédaction)",
+        }
+      : await buildKnowledgeContext(input.message, input.audience, input.apiKey);
   } catch (err) {
     console.warn("[brain-ai] knowledge unavailable", err);
     knowledge = {
@@ -808,6 +827,16 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   }
 
   const tools = mistralToolsForUser(signedIn, input.toolCtx);
+  const deniedTools = signedIn ? deniedBrainToolsForUser(input.toolCtx) : [];
+  const rightsBlock = !signedIn
+    ? `- Utilisateur non connecté : seules les actions listées sont possibles ; pour le reste, invite-le à se connecter.\n`
+    : input.toolCtx.isOrgAdmin
+      ? `- Profil : administrateur de l'établissement — il a accès à tous les modules. Ne lui réponds JAMAIS qu'il n'a pas les droits (seul un outil renvoyant FORBIDDEN peut le dire).\n`
+      : deniedTools.length
+        ? `- Actions que SES DROITS INTERDISENT (et uniquement celles-ci) :\n` +
+          deniedTools.map((t) => `  · ${t.name} — ${t.summary}`).join("\n") +
+          `\n  Pour ces actions seulement : « Vous n'êtes pas autorisé à effectuer cette action. Elle est restreinte selon votre profil — ScolIA ne peut pas contourner vos droits. »\n`
+        : `- Aucune action ScolIA n'est interdite par ses droits.\n`;
 
   const personalSignals = signedIn
     ? await loadScoliaPersonalSignalsBrief(input.toolCtx)
@@ -832,10 +861,16 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +
     `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat, file personnelle…) — toujours préférer un outil pour l'actualité.\n` +
+    `Aide générale et rédaction (toujours permise, sans outil) :\n` +
+    `- Tu es aussi l'assistant de travail du personnel : réécrire, corriger l'orthographe, reformuler, adapter le ton (familles, collègues, direction), rédiger un mail ou un courrier, résumer, traduire, expliquer, faire une liste ou un plan.\n` +
+    `- Fais-le directement et complètement, sans appeler d'outil et sans demander d'autorisation. Rends le texte final prêt à copier, puis au plus une ligne de remarque si utile.\n` +
+    `- Les textes peuvent contenir des noms d'élèves, de parents ou des informations scolaires : c'est normal, ils restent dans l'ENT et passent par le service IA de l'établissement. Ne refuse pas pour cette raison, ne fais pas de leçon RGPD, n'ajoute aucune information inventée sur ces personnes.\n` +
+    `- Garde le sens, les faits, les dates et les noms d'origine ; ne promets rien au nom de l'établissement que le texte ne dit pas.\n` +
     `Droits d'accès (OBLIGATOIRE) :\n` +
-    `- Tu n'as accès QU'AUX OUTILS listés dans cet appel. Ce filtre = les droits intranet de l'utilisateur.\n` +
-    `- Si l'utilisateur demande une action absente de ta liste d'outils : refuse clairement. Formulation type : « Vous n'êtes pas autorisé à effectuer cette action. Elle est restreinte selon votre profil — ScolIA ne peut pas contourner vos droits. »\n` +
-    `- INTERDIT d'inventer un contournement, de simuler le résultat, de « faire comme si », ou de donner des étapes pour passer outre.\n` +
+    `- Les outils listés dans cet appel = les actions intranet que tu peux faire pour cet utilisateur.\n` +
+    rightsBlock +
+    `- Si on te demande une action intranet qui n'est ni dans tes outils ni dans la liste interdite : ce n'est PAS un problème de droits. Dis simplement que ScolIA ne sait pas encore faire cette action, et propose d'ouvrir le module concerné (resolve_and_open) pour la faire soi-même.\n` +
+    `- INTERDIT d'inventer un contournement, de simuler le résultat d'une action, de « faire comme si », ou de donner des étapes pour passer outre un refus.\n` +
     `- Si un outil renvoie FORBIDDEN / MODULE_FORBIDDEN : reprends le message d'erreur tel quel, sans l'adoucir ni proposer de bypass.\n` +
     `Règles STRICTES (actions) :\n` +
     `- INTERDIT de demander en texte libre la salle, la date, les créneaux, le motif, etc.\n` +
@@ -900,17 +935,28 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   ];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const body: Record<string, unknown> = {
-      model: "mistral-small-2603",
-      temperature: 0.2,
-      messages,
+    // Chat principal : Large 4 (raisonnement), Small 4 en secours si Large 4 est indisponible.
+    const buildBody = (model: string): Record<string, unknown> => {
+      const body: Record<string, unknown> = {
+        model,
+        temperature: 0.2,
+        messages,
+        ...mistralModelOptions(model),
+      };
+      // Aide à la rédaction : réponse texte directe, pas d'outil (évite qu'un mot
+      // comme « absence » dans le texte collé déclenche une action).
+      if (tools.length > 0 && !writingHelp) {
+        body.tools = tools;
+        body.tool_choice = "auto";
+      }
+      return body;
     };
-    if (tools.length > 0) {
-      body.tools = tools;
-      body.tool_choice = "auto";
-    }
 
-    const llm = await fetchMistralWithRetry(body, input.apiKey);
+    let llm = await fetchMistralWithRetry(buildBody(MISTRAL_LARGE_MODEL), input.apiKey, 2);
+    if (!llm || (!llm.ok && [429, 500, 502, 503, 504].includes(llm.status))) {
+      console.warn("[brain-ai] Large 4 indisponible — secours Small 4", { status: llm?.status });
+      llm = await fetchMistralWithRetry(buildBody(MISTRAL_SMALL_MODEL), input.apiKey, 2);
+    }
     if (!llm) {
       return {
         answer: "Le service IA est temporairement indisponible. Réessaie dans quelques secondes.",
@@ -939,7 +985,9 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     const toolCalls = msg?.tool_calls;
 
     if (!toolCalls?.length) {
-      const answer = stripEleveDocumentLinks(normalizeLinks(msg?.content?.trim() || ""));
+      const answer = stripEleveDocumentLinks(
+        normalizeLinks(mistralMessageText(msg?.content).trim()),
+      );
       conversationState = withPendingConfirmation(conversationState, pendingConfirmation);
       conversationState = withPendingChoices(conversationState, pendingChoices);
       return {
@@ -965,7 +1013,8 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
     messages.push({
       role: "assistant",
-      content: msg?.content ?? null,
+      // Large 4 renvoie une liste (réflexion + texte) : on ne renvoie que le texte.
+      content: mistralMessageText(msg?.content) || null,
       tool_calls: toolCalls,
     });
 

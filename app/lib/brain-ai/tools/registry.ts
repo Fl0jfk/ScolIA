@@ -926,8 +926,30 @@ export function getBrainTool(name: string): BrainToolDefinition | undefined {
 }
 
 /**
+ * Actions que les droits de l’utilisateur interdisent. Le prompt les liste pour que
+ * le modèle ne confonde pas « refus de droits » et « action que ScolIA ne sait pas faire ».
+ */
+export function deniedBrainToolsForUser(
+  ctx: Pick<BrainToolCtx, "userId" | "roles" | "isOrgAdmin" | "audience" | "etablissementId">,
+): Array<{ name: string; summary: string }> {
+  const gateCtx: BrainToolCtx = {
+    userId: ctx.userId,
+    roles: ctx.roles,
+    isOrgAdmin: ctx.isOrgAdmin,
+    audience: ctx.audience,
+    etablissementId: ctx.etablissementId ?? null,
+    confirmed: false,
+  };
+  return BRAIN_TOOLS.filter((t) => !assertToolPermissions(gateCtx, t).ok).map((t) => ({
+    name: t.name,
+    summary: t.description.split(/[.\n]/)[0]?.trim() || t.name,
+  }));
+}
+
+/**
  * Outils exposés au modèle : filtrés par auth + droits module intranet.
- * Un outil absent de la liste = l’utilisateur n’y a pas accès (le prompt l’indique).
+ * Un outil absent de la liste = soit l’utilisateur n’y a pas droit
+ * (voir deniedBrainToolsForUser), soit l’action n’existe pas encore dans ScolIA.
  */
 export function mistralToolsForUser(
   signedIn: boolean,

@@ -877,10 +877,10 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                 <ScoliaAiMark size="lg" inverted fill />
               </div>
               <p className="mt-5 max-w-sm text-[15px] font-medium leading-relaxed text-[var(--dash-ink)]">
-                Posez une question, dictez au micro, ou glissez un PDF.
+                Posez une question, faites réécrire ou corriger un message, dictez au micro, ou glissez un PDF.
               </p>
               <p className="mt-2 max-w-sm text-xs leading-relaxed text-neutral-500">
-                L’historique reste ici. Les actions importantes vous seront toujours confirmées.
+                Messages aux familles, infos d’élèves : utilisez ScolIA plutôt qu’une IA externe, vos textes restent dans l’ENT. Les actions importantes vous seront toujours confirmées.
               </p>
             </div>
           ) : null}
