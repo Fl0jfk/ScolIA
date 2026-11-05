@@ -80,4 +80,20 @@ pub struct MeDto {
     pub eleve_id: Option<Uuid>,
     /// Nombre de passkeys enrôlées.
     pub passkey_count: i64,
+    /// `complete` ou `enrolement` (passkey obligatoire à enrôler avant tout, D-009).
+    #[serde(default = "portee_complete")]
+    pub portee: String,
+    /// `mot_de_passe`, `passkey` ou `sso`.
+    #[serde(default)]
+    pub assurance: String,
+    /// `web` ou `mobile` (D-011).
+    #[serde(default)]
+    pub client: String,
+    /// La politique de l'établissement impose la passkey à ce rôle.
+    #[serde(default)]
+    pub passkey_obligatoire: bool,
+}
+
+fn portee_complete() -> String {
+    "complete".into()
 }
