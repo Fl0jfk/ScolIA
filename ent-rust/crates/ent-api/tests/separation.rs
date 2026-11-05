@@ -225,7 +225,6 @@ fn jouer(domaine: &str, specs: &[Spec]) {
 // ───────────────────────── Groupes d'acteurs ─────────────────────────
 
 /// Personnel de gestion pédagogique et vie scolaire.
-const GESTION: &[Acteur] = &[Admin, Direction, Administratif, Cpe, Prof];
 /// Socle 1 (B1, B2) : hors de ses élèves, un professeur est refusé (notes, vie
 /// scolaire, carnet, journal, fils). Les autres personnels gardent l'établissement.
 const GESTION_HORS_PROF: &[Acteur] = &[Admin, Direction, Administratif, Cpe];
@@ -1054,4 +1053,29 @@ fn recherche_par_badge_reservee_au_niveau_complet() {
             assert!(!rep.texte.contains(&badge), "{a:?} : numéro de badge dans la réponse");
         }
     });
+}
+
+/// Socle 1 (B1, revue E1) : hors de ses élèves, un professeur n'obtient rien
+/// sur les routes par élève (refus ou réponse vide), quel que soit le domaine.
+#[test]
+fn socle1_prof_refuse_hors_de_ses_eleves_sur_les_routes_par_eleve() {
+    let Some(_) = monde() else { return };
+    let mut echecs = Vec::new();
+    for gabarit in [
+        "/eleves/{eleve}/retards",
+        "/eleves/{eleve}/sorties",
+        "/eleves/{eleve}/dispenses-vs",
+        "/eleves/{eleve}/alertes-cpe",
+        "/eleves/{eleve}/conseils",
+        "/eleves/{eleve}/info-comp",
+        "/eleves/{eleve}/voeux",
+        "/eleves/{eleve}/absent?jour={jour}",
+        "/eleves/{eleve}/notes",
+        "/eleves/{eleve}/absences",
+        "/eleves/{eleve}/journal",
+        "/eleves/{eleve}/carnet",
+    ] {
+        echecs.extend(essai_famille_refusee(gabarit, Cible::NonLiee, &[Prof]));
+    }
+    assert!(echecs.is_empty(), "{}", echecs.join("\n"));
 }

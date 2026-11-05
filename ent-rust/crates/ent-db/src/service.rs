@@ -1681,7 +1681,7 @@ impl PgEnt {
     /// Moteur WebAuthn du déploiement (RP ID / origine). Absent seulement si la
     /// configuration est invalide : l'inscription comme la connexion par
     /// passkey échouent alors explicitement (fail closed).
-    fn passkey_engine(&self) -> Result<&PasskeyEngine, EntDbError> {
+    pub(crate) fn passkey_engine(&self) -> Result<&PasskeyEngine, EntDbError> {
         self.passkey_engine
             .as_ref()
             .ok_or(EntDbError::Passkey(PasskeyError::Config))
@@ -1832,6 +1832,19 @@ impl PgEnt {
             "Enrôlement d'une passkey",
         )
         .await;
+        // Prévenir la personne (best-effort) : une passkey inconnue d'elle est
+        // un signe de compromission.
+        if self.mailer.is_ready() && !email.is_empty() {
+            let _ = self
+                .mailer
+                .send(OutgoingMail {
+                    to: email.clone(),
+                    subject: "Une passkey a été ajoutée à votre compte ENT".into(),
+                    body_text: "Bonjour,\n\nUne nouvelle passkey vient d'être ajoutée à votre compte ENT. Si vous n'êtes pas à l'origine de cet ajout, contactez immédiatement l'établissement : elle permet de se connecter à votre place.\n".into(),
+                    attachments: vec![],
+                })
+                .await;
+        }
         let rows = self
             .passkeys
             .list_rows(user_id)
@@ -1904,12 +1917,20 @@ impl PgEnt {
         user_id: Uuid,
         keep_session_id: Uuid,
         portee: PorteeSession,
+        assurance: AssuranceSession,
         current_password: &str,
         token: &str,
         credential: &RegisterPublicKeyCredential,
         name: Option<String>,
     ) -> Result<PasskeyRow, EntDbError> {
-        if portee == PorteeSession::Enrolement && current_password.is_empty() {
+        // Revue socle 1 (E2) : seul un compte entré par SSO (souvent sans mot de
+        // passe) enrôle sans le redemander. Après une connexion par mot de passe,
+        // on le redemande : un jeton d'enrôlement volé ne suffit pas à poser une
+        // passkey de l'attaquant.
+        if portee == PorteeSession::Enrolement
+            && assurance == AssuranceSession::Sso
+            && current_password.is_empty()
+        {
             if !self.auth.is_member(etablissement_id, user_id).await? {
                 return Err(EntDbError::Forbidden);
             }
@@ -4344,6 +4365,26 @@ impl PgEnt {
         Ok(false)
     }
 
+    /// Socle 1 (B1) : garde unique du périmètre professeur. Pour un professeur,
+    /// l'élève doit être l'un des siens ([`Self::prof_suit_eleve`]) ; sans effet
+    /// pour les autres rôles (leur propre contrôle s'applique ensuite).
+    pub async fn exiger_perimetre_prof(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        if Role::parse(role) == Some(Role::Prof)
+            && !self
+                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        Ok(())
+    }
+
     /// Peut savoir si l'élève est absent un jour donné : personnel, parent lié
     /// (statut seul, sans motif), élève lui-même.
     pub async fn actor_can_know_absent(
@@ -4356,6 +4397,11 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
+        if parsed == Role::Prof {
+            return self
+                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await;
+        }
         if parsed.is_staff() {
             return Ok(true);
         }
@@ -6913,6 +6959,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Eleve, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = parsed.can_read_all_eleves() || Self::role_can_publier_annonces(role);
         let parent = matches!(parsed, Role::Parent);
@@ -10598,6 +10645,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<RecapSortieEleve, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, actor_user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         match parsed {
             Role::Parent => {
@@ -11115,6 +11163,7 @@ impl PgEnt {
         eleve_id: Uuid,
         jour: NaiveDate,
     ) -> Result<RecapInternatEleve, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = Self::role_can_gerer_internat(role) || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
@@ -11522,6 +11571,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Vec<AlerteCpe>, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = Self::role_can_gerer_alertes_cpe(role) || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
@@ -11836,6 +11886,7 @@ impl PgEnt {
         eleve_id: Uuid,
         a_signer_seulement: bool,
     ) -> Result<Vec<DocASigner>, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = Self::role_can_publier_docs_a_signer(role) || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
@@ -12080,6 +12131,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Vec<ConseilClasseDossier>, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = Self::role_can_gerer_conseil_classe(role) || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
@@ -12214,6 +12266,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<(Vec<InfoCompChamp>, Vec<InfoCompValeur>), EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = parsed.can_manage_eleves() || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
@@ -12884,6 +12937,7 @@ impl PgEnt {
         eleve_id: Uuid,
         annee_scolaire: &str,
     ) -> Result<Vec<VoeuInscription>, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = parsed.can_manage_eleves() || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
@@ -13001,6 +13055,7 @@ impl PgEnt {
         eleve_id: Uuid,
         annee_scolaire: &str,
     ) -> Result<Option<InscriptionSuivi>, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = parsed.can_manage_eleves() || parsed.can_read_all_eleves();
         let parent = matches!(parsed, Role::Parent);
@@ -13743,6 +13798,7 @@ impl PgEnt {
         actor_user_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Vec<ConventionStage>, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, actor_user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if parsed.is_staff() {
             return Ok(self
@@ -13856,6 +13912,7 @@ impl PgEnt {
         eleve_id: Uuid,
         actives_seulement: bool,
     ) -> Result<Vec<DispenseVs>, EntDbError> {
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = Self::role_can_gerer_dispenses_vs(role)
             || parsed.can_read_all_eleves()
@@ -15199,8 +15256,9 @@ impl PgEnt {
         Ok(false)
     }
 
-    /// Accès à un fil existant (socle 1, B2) : pour un professeur, participation
-    /// au fil **ou** élève suivi ; pour les autres rôles, règle de l'élève du fil.
+    /// Accès à un fil existant (socle 1, B2) : règle de l'élève du fil. Pour un
+    /// professeur, l'élève doit être **encore** l'un des siens : avoir participé
+    /// au fil ne suffit pas (revue E6 : changement de classe, fin de remplacement).
     pub async fn actor_can_access_fil(
         &self,
         etablissement_id: Uuid,
@@ -15208,14 +15266,6 @@ impl PgEnt {
         role: &str,
         fil: &MsgFil,
     ) -> Result<bool, EntDbError> {
-        if Role::parse(role) == Some(Role::Prof)
-            && self
-                .messages
-                .participe_au_fil(etablissement_id, fil.id, actor_user_id)
-                .await?
-        {
-            return Ok(true);
-        }
         self.actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
             .await
     }
@@ -15336,13 +15386,9 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Err(EntDbError::Forbidden);
         };
-        // Socle 1 (B2) : un professeur voit les fils où il participe et ceux de
-        // ses élèves, jamais toute la boîte de l'établissement.
+        // Socle 1 (B2) : un professeur ne voit que les fils de ses élèves (revue E6),
+        // jamais toute la boîte de l'établissement.
         if parsed == Role::Prof {
-            let participe = self
-                .messages
-                .list_fils_participant(etablissement_id, actor_user_id)
-                .await?;
             let mut fils = if let Some(eid) = eleve_id {
                 if self
                     .prof_suit_eleve(etablissement_id, actor_user_id, eid)
@@ -15360,13 +15406,6 @@ impl PgEnt {
                     .list_fils_eleves(etablissement_id, &suivis)
                     .await?
             };
-            for f in participe {
-                if eleve_id.is_none_or(|eid| eid == f.eleve_id)
-                    && !fils.iter().any(|g| g.id == f.id)
-                {
-                    fils.push(f);
-                }
-            }
             let dossier = dossier.map(str::trim).filter(|d| !d.is_empty());
             fils.retain(|f| {
                 (include_archives || eleve_id.is_some() || !f.archive)

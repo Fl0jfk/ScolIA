@@ -2178,6 +2178,7 @@ async fn passkey_register_finish(
             session.user_id,
             session.session_id,
             session.portee,
+            session.assurance,
             &body.current_password,
             &body.token,
             &credential,
@@ -2949,11 +2950,14 @@ async fn list_absences_a_traiter(
         return Err((StatusCode::FORBIDDEN, "suivi VS réservé au staff".into()));
     }
     let jour = q.jour.unwrap_or_else(today_utc);
-    let list = state
+    let mut list = state
         .ent
         .list_absences_a_traiter(session.etablissement_id, jour)
         .await
         .map_err(map_db)?;
+    if let Some(suivis) = eleves_suivis_si_prof(&state, &session).await? {
+        list.retain(|a| suivis.contains(&a.eleve_id));
+    }
     Ok(Json(
         enrich_absences_eleve(
             &state,
@@ -2962,6 +2966,23 @@ async fn list_absences_a_traiter(
         )
         .await?,
     ))
+}
+
+/// Socle 1 (B1) : pour un professeur, l'ensemble de ses élèves (filtre des
+/// listes d'établissement) ; `None` pour les autres rôles.
+async fn eleves_suivis_si_prof(
+    state: &AppState,
+    session: &EntSession,
+) -> Result<Option<std::collections::HashSet<Uuid>>, (StatusCode, String)> {
+    if session.role_parsed() != Some(ent_auth::Role::Prof) {
+        return Ok(None);
+    }
+    let ids = state
+        .ent
+        .eleves_suivis_par_prof(session.etablissement_id, session.user_id, today_utc())
+        .await
+        .map_err(map_db)?;
+    Ok(Some(ids.into_iter().collect()))
 }
 
 async fn list_signaux_vs(
@@ -2975,11 +2996,14 @@ async fn list_signaux_vs(
     {
         return Err((StatusCode::FORBIDDEN, "signaux VS réservés au staff".into()));
     }
-    let list = state
+    let mut list = state
         .ent
         .list_signaux_absences_ouverts(session.etablissement_id)
         .await
         .map_err(map_db)?;
+    if let Some(suivis) = eleves_suivis_si_prof(&state, &session).await? {
+        list.retain(|a| suivis.contains(&a.eleve_id));
+    }
     Ok(Json(
         enrich_signaux_eleve(
             &state,

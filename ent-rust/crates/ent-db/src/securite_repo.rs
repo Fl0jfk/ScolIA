@@ -78,6 +78,11 @@ impl PgEnt {
             }
         }
         canon.sort();
+        // Revue E5 : imposer la passkey sans moteur WebAuthn configuré
+        // verrouillerait tous les comptes concernés (direction comprise).
+        if !canon.is_empty() {
+            self.passkey_engine()?;
+        }
         sqlx::query(
             "INSERT INTO ent_politique_securite
                  (etablissement_id, passkey_obligatoire_roles, modifie_par_user_id, modifie_at)
@@ -86,6 +91,27 @@ impl PgEnt {
                 SET passkey_obligatoire_roles = EXCLUDED.passkey_obligatoire_roles,
                     modifie_par_user_id = EXCLUDED.modifie_par_user_id,
                     modifie_at = now()",
+        )
+        .bind(etablissement_id)
+        .bind(&canon)
+        .bind(actor_user_id)
+        .execute(self.pool())
+        .await
+        .map_err(db)?;
+        // Revue E5 : les sessions complètes déjà ouvertes par des comptes
+        // désormais soumis et sans passkey sont fermées (la prochaine connexion
+        // passe par l'enrôlement). La session de l'acteur est conservée.
+        sqlx::query(
+            "UPDATE ent_session s SET revoked_at = now()
+               FROM ent_membership m
+              WHERE s.etablissement_id = $1
+                AND s.revoked_at IS NULL
+                AND s.portee = 'complete'
+                AND s.user_id <> $3
+                AND m.user_id = s.user_id AND m.etablissement_id = s.etablissement_id
+                AND m.role = ANY($2)
+                AND NOT EXISTS (SELECT 1 FROM ent_passkey_credential p
+                                 WHERE p.user_id = s.user_id)",
         )
         .bind(etablissement_id)
         .bind(&canon)

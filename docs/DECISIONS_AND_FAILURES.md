@@ -70,3 +70,13 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Décision :** pas de décision structurante. Créer les copies de travail depuis `ENT`, normaliser les fins de ligne avant fusion, limiter à environ quatre compilations simultanées.
 - **Correction :** copies ramenées sur `ENT` (détachées au commit `f1e46f9b`) ; fusion refaite après normalisation ; bloc mal placé détecté puis contrôlé par la matrice L8, dont la suite passe le 2026-11-04.
 - **Apprentissage :** une vraie fusion à trois voies vaut mieux qu'une application de patch par correspondance approximative ; normaliser les fins de ligne avant toute fusion ; garder une matrice de tests de séparation comme filet d'intégration ; borner le nombre de compilations simultanées.
+
+## F-007 — Sous-agents « remote » exécutés dans le dossier principal
+
+- **Date / contexte :** 2026-11-05, socle 1, parallélisation demandée par Florian (7-8 agents).
+- **Approche :** trois sous-agents lancés avec l'isolation `remote` du tool Agent, consignes « crée ta branche, pousse-la ».
+- **Résultat observé (faits) :** les trois agents ont tourné **dans le dossier principal** (`/home/user/ScolIA`), ont changé la branche courante (`git checkout -b`) et créé un fichier de migration pendant qu'une suite de tests y tournait. Détecté par le hook « changements non commités » ; agents arrêtés, branches parasites supprimées (aucun commit, aucun push), dossier remis sur `ent-mc0hoe`, suite de tests relancée.
+- **Cause probable (hypothèse) :** l'isolation `remote` n'est pas disponible dans cet environnement et retombe sur une exécution locale sans copie isolée.
+- **Correction :** travaux parallèles qui compilent confiés à de **vraies sessions cloud** (`create_session`, une machine et un clone par session, branche de sortie dédiée) ; sous-agents locaux seulement en `worktree` ou en lecture seule.
+- **Apprentissage :** vérifier l'isolation effective d'un agent (`git worktree list`, branche courante) dans les minutes qui suivent son lancement.
+

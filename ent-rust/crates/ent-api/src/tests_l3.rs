@@ -684,12 +684,21 @@ async fn socle1_passkey_obligatoire_session_d_enrolement_puis_complete() {
     assert_eq!(st, StatusCode::OK);
     assert_eq!(me["portee"], "enrolement");
     assert_eq!(me["passkey_obligatoire"], true);
-    for uri in ["/eleves/search?q=a", "/messages/fils", "/auth/sessions"] {
+    for uri in ["/eleves/search?q=a", "/messages/fils", "/auth/sessions", "/vs/absences"] {
         let (st, _) = appel(&app, "GET", uri, Some(&jeton), None).await;
         assert_eq!(st, StatusCode::FORBIDDEN, "{uri} fermé avant l'enrôlement");
     }
-    // Enrôlement sans redemander le mot de passe, puis session complète.
-    let (st, b) = enroler(&app, &jeton, None, "Clé obligatoire").await;
+    // Variantes de chemin : jamais de succès (slash final, sous-ressource).
+    for (m, uri) in [("GET", "/auth/passkeys/"), ("DELETE", &*format!("/auth/passkeys/{}", Uuid::new_v4())),
+                     ("GET", "/auth/me/")] {
+        let (st, _) = appel(&app, m, uri, Some(&jeton), None).await;
+        assert!(!st.is_success(), "{m} {uri} : {st}");
+    }
+    // Session ouverte par mot de passe : le mot de passe est redemandé à
+    // l'enrôlement (un jeton d'enrôlement volé ne suffit pas, revue E2).
+    let (st, _) = enroler(&app, &jeton, None, "Sans mot de passe").await;
+    assert_ne!(st, StatusCode::CREATED, "enrôlement sans mot de passe refusé");
+    let (st, b) = enroler(&app, &jeton, Some(MDP), "Clé obligatoire").await;
     assert_eq!(st, StatusCode::CREATED, "{b}");
     let (_, me) = appel(&app, "GET", "/auth/me", Some(&jeton), None).await;
     assert_eq!(me["portee"], "complete");
@@ -734,6 +743,12 @@ async fn socle1_sessions_web_inactivite_mobile_longue_et_appareils() {
     assert_eq!(liste.iter().filter(|s| s["courante"] == true).count(), 1);
 
     // 3 h sans activité : la session web expire, pas la mobile.
+    // (L'échéance mobile est ramenée à J+1 : la prolongation à l'usage doit la repousser.)
+    sqlx::query("UPDATE ent_session SET expires_at = now() + interval '1 day' WHERE user_id = $1 AND client = 'mobile'")
+        .bind(c.id)
+        .execute(&pool().await)
+        .await
+        .unwrap();
     sqlx::query("UPDATE ent_session SET last_seen_at = now() - interval '3 hours' WHERE user_id = $1")
         .bind(c.id)
         .execute(&pool().await)

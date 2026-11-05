@@ -202,3 +202,66 @@ async fn socle1_messagerie_prof_limitee_a_ses_eleves_et_a_ses_fils() {
         .await
         .is_ok());
 }
+
+/// Revue E9 : un remplaçant suit les élèves de la classe remplacée pendant la
+/// fenêtre (±14 j), pas au-delà ; un remplaçant hors établissement est refusé.
+#[tokio::test]
+async fn socle1_remplacant_suit_la_classe_pendant_la_fenetre() {
+    use domain_eleve::{EdtExceptionKind, PoserEdtException};
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let draco = cast.eleve_tom_id;
+    let email = format!("remplacant-{}@ent.local", Uuid::new_v4().simple());
+    let remplacant = ent
+        .register_user(&email, "RemplacantLabo1!", None, etab, "prof")
+        .await
+        .unwrap()
+        .id;
+    assert!(!ent.prof_suit_eleve(etab, remplacant, draco).await.unwrap());
+
+    // Prochain jour du créneau de McGonagall en 5A, entre J+7 et J+13 (jamais
+    // aujourd'hui : ne pas perturber les autres scénarios d'appel).
+    let pool = sqlx::PgPool::connect(&std::env::var("ENT_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let (js,): (i16,) = sqlx::query_as("SELECT jour_semaine FROM ent_edt_creneau WHERE id = $1")
+        .bind(cast.creneau_mcg_5a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let aujourd_hui = today_utc();
+    let jour = (7..14)
+        .map(|d| aujourd_hui + chrono::Duration::days(d))
+        .find(|j| crate::jour_semaine_iso(*j) == js)
+        .unwrap();
+    let cmd = |rid: Uuid| PoserEdtException {
+        etablissement_id: etab,
+        creneau_id: cast.creneau_mcg_5a,
+        jour,
+        kind: EdtExceptionKind::Remplacement,
+        remplacant_user_id: Some(rid),
+        nouvelle_salle: None,
+        motif: "Socle 1 — remplacement".into(),
+        actor_user_id: cast.direction.user_id,
+    };
+    // Remplaçant inconnu de l'établissement : refusé (C1).
+    assert!(ent
+        .poser_edt_exception_for_actor(Role::Direction.as_str(), cmd(Uuid::new_v4()))
+        .await
+        .is_err());
+    ent.poser_edt_exception_for_actor(Role::Direction.as_str(), cmd(remplacant))
+        .await
+        .unwrap();
+    assert!(ent.prof_suit_eleve(etab, remplacant, draco).await.unwrap(), "pendant la fenêtre");
+    assert!(!ent
+        .prof_suit_eleve_le(etab, remplacant, draco, jour + chrono::Duration::days(30))
+        .await
+        .unwrap(), "hors fenêtre");
+    assert!(!ent
+        .prof_suit_eleve(etab, remplacant, cast.eleve_lea_id)
+        .await
+        .unwrap(), "seulement la classe remplacée");
+}
