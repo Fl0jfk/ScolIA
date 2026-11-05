@@ -66,6 +66,20 @@ impl PgEventStore {
         Ok(event)
     }
 
+    /// Après le commit d'une transaction qui a publié via l'outbox : informe les
+    /// observateurs en mémoire (journal du Brain). Aucun effet métier ici : les
+    /// réactions entre domaines passent par le distributeur de l'outbox.
+    pub fn diffuser_locaux(&self, events: &[MetierEvent]) {
+        let handlers = self.handlers.lock().expect("handlers lock").clone();
+        for event in events {
+            for handler in &handlers {
+                if let Err(e) = handler.on_event(event) {
+                    tracing::warn!(handler = handler.name(), error = %e, "observateur local en échec");
+                }
+            }
+        }
+    }
+
     pub async fn events_for_eleve(
         &self,
         etablissement_id: Uuid,
@@ -93,7 +107,7 @@ impl PgEventStore {
     }
 }
 
-fn aggregate_str(a: AggregateKind) -> &'static str {
+pub(crate) fn aggregate_str(a: AggregateKind) -> &'static str {
     match a {
         AggregateKind::Eleve => "eleve",
         AggregateKind::Scolarite => "scolarite",
@@ -155,7 +169,7 @@ fn aggregate_str(a: AggregateKind) -> &'static str {
     }
 }
 
-fn parse_aggregate(s: &str) -> AggregateKind {
+pub(crate) fn parse_aggregate(s: &str) -> AggregateKind {
     match s {
         "scolarite" => AggregateKind::Scolarite,
         "foyer" => AggregateKind::Foyer,

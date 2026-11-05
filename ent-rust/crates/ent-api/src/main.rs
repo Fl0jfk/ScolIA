@@ -58,6 +58,18 @@ async fn run_api() {
         });
     tracing::info!("ent-api listening on http://{bind} (local only)");
 
+    // Socle 2 (S2-0) : distribution de l'outbox (réactions entre domaines) en
+    // tâche de fond. Désactivable (`ENT_OUTBOX_DISTRIBUTEUR=0`) pour un
+    // déploiement où un processus dédié s'en charge.
+    let distributeur = distributeur_actif().then(|| {
+        let d = std::sync::Arc::new(
+            state
+                .ent
+                .distributeur(ent_db::outbox::ConfigDistribution::default()),
+        );
+        (d.clone(), d.lancer())
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -67,7 +79,22 @@ async fn run_api() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("serve");
+    if let Some((d, tache)) = distributeur {
+        d.arreter();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), tache).await;
+    }
     tracing::info!("ent-api arrêté proprement");
+}
+
+fn distributeur_actif() -> bool {
+    !matches!(
+        std::env::var("ENT_OUTBOX_DISTRIBUTEUR")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "non" | "off"
+    )
 }
 
 /// Attend Ctrl-C ou SIGTERM (arrêt gracieux demandé par l'orchestrateur).

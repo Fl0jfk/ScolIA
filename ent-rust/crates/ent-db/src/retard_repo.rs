@@ -16,6 +16,22 @@ impl PgRetardRepo {
     /// Insère un retard. Idempotent pour un couple (appel, élève) : rejouer la
     /// clôture d'un appel ne crée pas de doublon.
     pub async fn insert(&self, r: &Retard) -> Result<(), DomainError> {
+        Self::insert_sur(&self.pool, r).await
+    }
+
+    /// Même écriture, dans la transaction de l'appelant (fait + événement).
+    pub async fn insert_tx(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        r: &Retard,
+    ) -> Result<(), DomainError> {
+        Self::insert_sur(tx, r).await
+    }
+
+    async fn insert_sur<'e, E: sqlx::PgExecutor<'e>>(
+        executor: E,
+        r: &Retard,
+    ) -> Result<(), DomainError> {
         sqlx::query(
             r#"
             INSERT INTO ent_retard (
@@ -35,7 +51,7 @@ impl PgRetardRepo {
         .bind(r.source_appel_id)
         .bind(r.auteur_user_id)
         .bind(r.created_at)
-        .execute(&self.pool)
+        .execute(executor)
         .await
         .map_err(map_sqlx)?;
         Ok(())
