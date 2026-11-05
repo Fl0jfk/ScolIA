@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { rankEleveSearch } from "@/app/components/shell/rankEleveSearch";
 
 export type EleveSearchHit = {
   id: string;
@@ -56,38 +57,11 @@ export default function GlobalEleveSearch({
     if (q.trim().length >= 2) void loadSearchPool();
   }, [q, loadSearchPool]);
 
-  const searchResults = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (needle.length < 2) return [];
-    const pool = searchPool ?? [];
-    // Priorité au nom de l'élève : une classe peut porter le nom d'un enseignant
-    // (ex. « CE1 Martin »), ces élèves passent après ceux qui s'appellent Martin.
-    // 0 = nom/prénom commence par la saisie, 1 = le contient, 2 = classe seulement.
-    const rankOf = (e: EleveSearchHit): number => {
-      const nom = e.nom.toLowerCase();
-      const prenom = e.prenom.toLowerCase();
-      const prenomNom = `${prenom} ${nom}`;
-      const nomPrenom = `${nom} ${prenom}`;
-      if (
-        nom.startsWith(needle) ||
-        prenom.startsWith(needle) ||
-        prenomNom.startsWith(needle) ||
-        nomPrenom.startsWith(needle)
-      ) {
-        return 0;
-      }
-      if (prenomNom.includes(needle) || nomPrenom.includes(needle)) return 1;
-      if (`${prenomNom} ${(e.classe || "").toLowerCase()}`.includes(needle)) return 2;
-      return -1;
-    };
-    return pool
-      .filter((e) => !(excludeId && e.id === excludeId))
-      .map((e) => ({ e, rank: rankOf(e) }))
-      .filter((x) => x.rank >= 0)
-      .sort((a, b) => a.rank - b.rank)
-      .map((x) => x.e)
-      .slice(0, 12);
-  }, [q, searchPool, excludeId]);
+  // Priorité au nom de l'élève sur le nom de classe (voir rankEleveSearch).
+  const searchResults = useMemo(
+    () => rankEleveSearch((searchPool ?? []).filter((e) => !(excludeId && e.id === excludeId)), q, 12),
+    [q, searchPool, excludeId],
+  );
 
   function select(id: string) {
     onSelect(id);

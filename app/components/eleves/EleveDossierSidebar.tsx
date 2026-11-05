@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { rankEleveSearch } from "@/app/components/shell/rankEleveSearch";
 
 type Classmate = { id: string; nom: string; prenom: string };
 
@@ -56,15 +57,11 @@ export default function EleveDossierSidebar({
     if (needle.length >= 2) void loadSearchPool();
   }, [q, loadSearchPool]);
 
-  const searchResults = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (needle.length < 2) return [];
-    const pool = searchPool ?? [];
-    return pool.filter((e) => {
-      if (e.id === currentEleveId) return false;
-      return `${e.prenom} ${e.nom} ${e.classe || ""}`.toLowerCase().includes(needle);
-    });
-  }, [q, searchPool, currentEleveId]);
+  // Priorité au nom de l'élève sur le nom de classe (voir rankEleveSearch).
+  const searchResults = useMemo(
+    () => rankEleveSearch((searchPool ?? []).filter((e) => e.id !== currentEleveId), q),
+    [q, searchPool, currentEleveId],
+  );
 
   const sortedClassmates = useMemo(
     () =>
