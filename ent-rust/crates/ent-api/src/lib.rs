@@ -11,6 +11,7 @@ pub mod http_garde;
 mod ical;
 pub mod obs;
 mod referentiel;
+mod roles;
 mod routes;
 mod ui;
 

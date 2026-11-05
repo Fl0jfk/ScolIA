@@ -701,6 +701,7 @@ pub fn router() -> Router<AppState> {
         );
     // Référentiel scolaire (module séparé : `referentiel.rs`).
     let r = r.merge(crate::referentiel::routes());
+    let r = r.merge(crate::roles::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -2954,21 +2955,22 @@ async fn list_absences_a_traiter(
     ))
 }
 
-/// Socle 1 (B1) : pour un professeur, l'ensemble de ses élèves (filtre des
-/// listes d'établissement) ; `None` pour les autres rôles.
+/// D-017 : élèves dont l'acteur peut lire la vie scolaire (filtre des listes
+/// d'établissement) ; `None` = tout l'établissement.
 async fn eleves_suivis_si_prof(
     state: &AppState,
     session: &EntSession,
 ) -> Result<Option<std::collections::HashSet<Uuid>>, (StatusCode, String)> {
-    if session.role_parsed() != Some(ent_auth::Role::Prof) {
-        return Ok(None);
-    }
-    let ids = state
+    state
         .ent
-        .eleves_suivis_par_prof(session.etablissement_id, session.user_id, today_utc())
+        .eleves_autorises(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            ent_auth::Action::AbsencesLire,
+        )
         .await
-        .map_err(map_db)?;
-    Ok(Some(ids.into_iter().collect()))
+        .map_err(map_db)
 }
 
 async fn list_signaux_vs(

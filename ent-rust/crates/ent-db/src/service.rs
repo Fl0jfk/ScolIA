@@ -192,7 +192,7 @@ use domain_eleve::{
     LigneLivretCompetence, LivretCompetences, NiveauMaitrise,
 };
 use ent_auth::{
-    generate_challenge_token, generate_reset_token, generate_temp_password, hash_token, AuthError,
+    generate_challenge_token, Action, generate_reset_token, generate_temp_password, hash_token, AuthError,
     Passkey, PasskeyAuthentication, PasskeyEngine, PasskeyError, PasskeyRegistration,
     PublicKeyCredential, RegisterPublicKeyCredential, Role,
 };
@@ -3808,9 +3808,10 @@ impl PgEnt {
         }
         // Socle 1 (B1) : hors de ses élèves, un professeur ne voit que l'identité
         // réduite et la scolarité (pas de notes, vie scolaire, famille, dispositifs).
-        if parsed == Role::Prof
+        // D-017 : le droit « dossier.lire » (et sa portée) décide pour tout personnel.
+        if parsed.is_staff()
             && !self
-                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::DossierLire, eleve_id)
                 .await?
         {
             return Ok(DossierSections {
@@ -3828,8 +3829,12 @@ impl PgEnt {
             });
         }
         if parsed.can_read_all_eleves() {
-            let notes = parsed.can_read_notes_staff();
-            let vs = parsed.can_lire_vs_absences();
+            let notes = self
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::NotesLire, eleve_id)
+                .await?;
+            let vs = self
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::AbsencesLire, eleve_id)
+                .await?;
             // Prof / CPE / infirmière : docs filtrés (grants) ; bourses = finance → non.
             return Ok(DossierSections {
                 identite: true,
@@ -4388,14 +4393,11 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
-        // Socle 1 (B1) : un professeur ne lit que la vie scolaire de ses élèves.
-        if parsed == Role::Prof {
+        // D-017 : « absences.lire » et sa portée (professeur : ses classes par défaut).
+        if parsed.is_staff() {
             return self
-                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::AbsencesLire, eleve_id)
                 .await;
-        }
-        if parsed.can_lire_vs_absences() {
-            return Ok(true);
         }
         if parsed == Role::Parent {
             let lien = self
@@ -4423,9 +4425,9 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<(), EntDbError> {
-        if Role::parse(role) == Some(Role::Prof)
+        if Role::parse(role).is_some_and(|r| r.is_staff())
             && !self
-                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::SuiviEleve, eleve_id)
                 .await?
         {
             return Err(EntDbError::Forbidden);
@@ -4447,7 +4449,7 @@ impl PgEnt {
         };
         if parsed == Role::Prof {
             return self
-                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::AbsencesLire, eleve_id)
                 .await;
         }
         if parsed.is_staff() {
@@ -5097,14 +5099,11 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
-        // Socle 1 (B1) : un professeur ne lit que les notes de ses élèves.
-        if parsed == Role::Prof {
+        // D-017 : « notes.lire » et sa portée (professeur : ses classes par défaut).
+        if parsed.is_staff() {
             return self
-                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::NotesLire, eleve_id)
                 .await;
-        }
-        if parsed.can_read_notes_staff() {
-            return Ok(true);
         }
         if parsed == Role::Parent {
             let lien = self
@@ -5545,13 +5544,16 @@ impl PgEnt {
         role: &str,
         cmd: EvaluerCompetence,
     ) -> Result<EvaluationCompetence, EntDbError> {
-        if !Self::role_can_saisir_notes(role) {
-            return Err(EntDbError::Forbidden);
-        }
-        // Socle 1 (B1) : un professeur n'évalue que ses élèves.
-        if Role::parse(role) == Some(Role::Prof)
-            && !self
-                .prof_suit_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
+        // D-017 : « competences.evaluer » et sa portée.
+        if !Role::parse(role).is_some_and(|r| r.is_staff())
+            || !self
+                .autoriser_eleve(
+                    cmd.etablissement_id,
+                    cmd.actor_user_id,
+                    role,
+                    Action::CompetencesEvaluer,
+                    cmd.eleve_id,
+                )
                 .await?
         {
             return Err(EntDbError::Forbidden);
@@ -5633,13 +5635,18 @@ impl PgEnt {
         actor_user_id: Uuid,
     ) -> Result<EleveDocument, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !(parsed.can_manage_eleves() || parsed.can_saisir_notes() || parsed == Role::Cpe) {
-            return Err(EntDbError::Forbidden);
-        }
-        if parsed == Role::Prof
-            && !self
-                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
-                .await?
+        let gestion = parsed.can_manage_eleves() || parsed == Role::Cpe;
+        if !gestion
+            && !(parsed.is_staff()
+                && self
+                    .autoriser_eleve(
+                        etablissement_id,
+                        actor_user_id,
+                        role,
+                        Action::CompetencesEvaluer,
+                        eleve_id,
+                    )
+                    .await?)
         {
             return Err(EntDbError::Forbidden);
         }
@@ -5925,12 +5932,16 @@ impl PgEnt {
         cmd: SaisirNote,
     ) -> Result<Note, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.can_saisir_notes() {
-            return Err(EntDbError::Forbidden);
-        }
-        if parsed == Role::Prof
-            && !self
-                .prof_suit_eleve(cmd.etablissement_id, cmd.auteur_user_id, cmd.eleve_id)
+        // D-017 : « notes.saisir » et sa portée (professeur : ses classes par défaut).
+        if !parsed.is_staff()
+            || !self
+                .autoriser_eleve(
+                    cmd.etablissement_id,
+                    cmd.auteur_user_id,
+                    role,
+                    Action::NotesSaisir,
+                    cmd.eleve_id,
+                )
                 .await?
         {
             return Err(EntDbError::Forbidden);
@@ -11425,8 +11436,10 @@ impl PgEnt {
         if !staff && !parent && !eleve {
             return Err(EntDbError::Forbidden);
         }
-        if parsed == Role::Prof
-            && !self.prof_suit_eleve(etablissement_id, user_id, eleve_id).await?
+        if parsed.is_staff()
+            && !self
+                .autoriser_eleve(etablissement_id, user_id, role, Action::JournalLire, eleve_id)
+                .await?
         {
             return Err(EntDbError::Forbidden);
         }
@@ -15279,14 +15292,11 @@ impl PgEnt {
         let Some(parsed) = Role::parse(role) else {
             return Ok(false);
         };
-        // Socle 1 (B2) : un professeur n'écrit qu'à propos de ses élèves.
-        if parsed == Role::Prof {
+        // D-017 : « messagerie.eleve » et sa portée (professeur : ses classes).
+        if parsed.is_staff() {
             return self
-                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::MessagerieEleve, eleve_id)
                 .await;
-        }
-        if Self::role_can_messagerie_staff(role) {
-            return Ok(true);
         }
         if parsed == Role::Parent {
             let lien = self
@@ -15436,22 +15446,23 @@ impl PgEnt {
         };
         // Socle 1 (B2) : un professeur ne voit que les fils de ses élèves (revue E6),
         // jamais toute la boîte de l'établissement.
-        if parsed == Role::Prof {
+        let perimetre = if parsed.is_staff() {
+            self.eleves_autorises(etablissement_id, actor_user_id, role, Action::MessagerieEleve)
+                .await?
+        } else {
+            None
+        };
+        if let Some(suivis) = perimetre.filter(|s| !s.is_empty() || Self::role_can_messagerie_staff(role)) {
             let mut fils = if let Some(eid) = eleve_id {
-                if self
-                    .prof_suit_eleve(etablissement_id, actor_user_id, eid)
-                    .await?
-                {
+                if suivis.contains(&eid) {
                     self.messages.list_fils_eleve(etablissement_id, eid).await?
                 } else {
                     Vec::new()
                 }
             } else {
-                let suivis = self
-                    .eleves_suivis_par_prof(etablissement_id, actor_user_id, today_utc())
-                    .await?;
+                let ids: Vec<Uuid> = suivis.into_iter().collect();
                 self.messages
-                    .list_fils_eleves(etablissement_id, &suivis)
+                    .list_fils_eleves(etablissement_id, &ids)
                     .await?
             };
             let dossier = dossier.map(str::trim).filter(|d| !d.is_empty());

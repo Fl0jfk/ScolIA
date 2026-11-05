@@ -3,6 +3,7 @@
 //! Mot de passe : Argon2id. Session : token opaque (Bearer) ; seul le hash SHA-256
 //! est stocké en Postgres (`ent_session`). Pas de Better-Auth, pas de JWT magique.
 
+mod actions;
 mod password;
 mod passkey;
 mod roles;
@@ -14,6 +15,7 @@ pub use passkey::{
     RegisterPublicKeyCredential, RequestChallengeResponse, DEFAULT_RP_NAME,
 };
 pub use password::{hash_password, verify_password, PasswordError};
+pub use actions::{modele_par_defaut, Action, Portee};
 pub use roles::Role;
 pub use token::{
     generate_challenge_token, generate_reset_token, generate_session_token, generate_temp_password,

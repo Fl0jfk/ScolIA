@@ -52,6 +52,7 @@ mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
 mod perimetre;
+mod droits_repo;
 mod securite_repo;
 mod oidc_repo;
 mod pra;
@@ -109,6 +110,7 @@ pub use push_repo::PushDevice;
 pub use service::EnfantFamille;
 pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
+pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
 pub use referentiel_repo::{
     niveau_de_code, role_peut_gerer_referentiel, role_peut_lire_referentiel, AnneeScolaire,
     Affectation, Classe, ClasseResume, CreerService, Groupe, RapportAmorcage,
@@ -141,6 +143,9 @@ mod tests_referentiel;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
+
+#[cfg(all(test, feature = "labo"))]
+mod tests_roles;
 
 #[cfg(test)]
 mod integration_tests {
