@@ -285,6 +285,9 @@ pub enum EventBusError {
     /// Panne du magasin d'événements (base) : jamais confondue avec une erreur de saisie.
     #[error("erreur d'infrastructure du bus d'événements")]
     Infrastructure,
+    /// Chaîne de réactions trop profonde (garde-fou contre les boucles de la toile).
+    #[error("profondeur de causalité dépassée")]
+    ProfondeurDepassee,
 }
 
 /// Handler Brain : réagit à un événement (répercussions métier).

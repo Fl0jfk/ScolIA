@@ -720,6 +720,48 @@ Principes : on part de l'existant (back large, Leptos étroit) ; chaque lot livr
 
 Total indicatif [H] : 60–75 semaines-agent hors mobile ; parallélisable à partir de S2-2 (D6/D7/D8/D11/D13 n'ont pas de tables communes, cf. cartographie §3.4). À rapprocher de l'objectif de sortie fin 2027 (D-007) : **la parallélisation est nécessaire**.
 
+### 6.1 S2-0 — réalisé (2026-11-05, branche `ent-socle2-outbox`)
+
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. Première tranche de S2-0 : la fondation (outbox, distribution, idempotence) et trois réactions ; le reste du lot est listé en « reste à faire ».
+
+**Conception livrée [F]**
+
+| Élément | Où | Détail |
+|---|---|---|
+| Migration additive | `ent-rust/migrations/102_outbox.sql` (`MIGRATION_TAG = "102_outbox"`) | `ent_outbox` (état de distribution, une ligne par événement : `seq` global, `seq_agregat` par agrégat, `etablissement_id` obligatoire et non nul, `correlation_id`, `causation_id`, `profondeur` ≤ 5, `schema_version`, statut `a_distribuer` / `distribue` / `echec`, tentatives, prochaine tentative, dernière erreur) ; `ent_outbox_agregat` (compteur d'ordre par agrégat) ; `ent_event_traitement` (marque d'idempotence par consommateur, clé `(consommateur, event_id)`) ; `ent_notification` (notifications internes D0, clé unique `(source_event_id, destinataire, kind)`). Aucune table existante modifiée. |
+| Publication en transaction | `ent-db/src/outbox.rs`, trait `Publier` | `tx.publier(draft)` / `tx.publier_avec(draft, causalite)` sur toute `Transaction<Postgres>` (et sur la transaction d'un consommateur) : écrit le journal `ent_metier_event` **et** l'outbox dans la transaction du fait. Le compteur d'agrégat reste verrouillé jusqu'au commit : l'ordre `seq_agregat` est l'ordre de validation. |
+| Distribution | `Distributeur` (même fichier), lancé par `ent-api/src/main.rs` (désactivable : `ENT_OUTBOX_DISTRIBUTEUR=0`) | Tâche tokio ; lots `FOR NO KEY UPDATE SKIP LOCKED` (plusieurs distributeurs possibles) ; un événement n'est pris que si tous ses prédécesseurs du même agrégat sont distribués ; reprise avec délai doublé (2 s → 15 min, réglable), plafond de tentatives (8 par défaut) puis file des échecs (`file_des_echecs`, `rejouer_echec`) qui bloque seulement son agrégat ; rejeu d'un consommateur (`rejouer_consommateur`, refusé pour un consommateur non rejouable) ; métriques en mémoire (`metriques()`) et volumes par statut (`etat()`). |
+| Consommateurs | trait `Consommateur` ; registre par type d'événement ; `PgEnt::distributeur()` installe les consommateurs standard | Chaque traitement : une transaction = marque `ent_event_traitement` + effet ; une seconde livraison est un doublon ignoré. Transaction bornée à l'établissement de l'événement (`set_config('ent.etablissement_id', …, true)`, prête pour une RLS) ; le consommateur ne reçoit que cet établissement. |
+| Lecture | `PgEnt::mes_notifications`, route `GET /notifications` (session obligatoire) | Notifications de l'utilisateur dans l'établissement de sa session. |
+
+**Fonctions migrées vers l'outbox (fait + événement dans une seule transaction)** : `clore_appel` (clôture + absences + retards + `appel.closed` + un `eleve.absence_declared` `source = appel` par absent + `vs.retard` ; absences et retards ont `causation_id` = `appel.closed`) ; `accepter_justificatif` et `refuser_justificatif` (`eleve.absence_justified` / `_refused`). L'application de `BrainAction::EnsureAbsence` après `appel.closed` est supprimée du service : l'absence est écrite en transaction dans D5 (règle §4.1-1, point 9 du §4.4). Le journal en mémoire du Brain reste alimenté après commit (`diffuser_locaux`).
+
+**Réactions livrées (consommateur `d0.notifications`, `ent-db/src/reactions.rs`)**
+
+| Déclencheur | Réaction | Règles |
+|---|---|---|
+| `eleve.absence_declared`, source appel | notification « Absence de … » aux responsables | absence déclarée par la famille ou l'accueil : rien (§4.3) |
+| `eleve.absence_justified` / `eleve.absence_refused` | notification de la décision | la note de décision (texte libre) n'est jamais recopiée |
+| `vs.retard` | notification « Retard de … » | — |
+
+Destinataires relus **au traitement** : lien `ent_eleve_lien` de l'établissement avec `peut_voir_vs`, compte membre de rôle `parent` ; élève relu dans l'établissement de l'événement (sinon rien). Rejouable (aucun envoi externe).
+
+**Tests (`ent-db/src/tests_outbox.rs`, feature `labo`)** : transaction annulée → aucun événement ; panne simulée de l'outbox au milieu de `clore_appel` (déclencheur SQL) → appel encore ouvert, aucune absence, aucun événement, puis clôture réussie après réparation ; double distribution et deux distributeurs concurrents → un seul effet ; ordre par agrégat avec un échec intercalé ; échec → reprise planifiée avec délai → file des échecs → correction → rejeu dans l'ordre, consommateur déjà passé non rejoué ; rejeu d'une projection sans rejouer l'envoi externe ; isolation (événement forgé dans un établissement citant l'élève d'un autre → aucune notification, transaction bornée, distributeur restreint) ; réactions de bout en bout (absence constatée, droits `peut_voir_vs` respectés, chaîne de causalité, justificatif accepté et refusé, droit retiré avant distribution → rien, retard à l'appel, absence famille non notifiée) ; boucle tokio.
+
+**Écarts par rapport au §4.4 [signalés]**
+- Table `ent_outbox` séparée plutôt que colonnes ajoutées à `ent_metier_event` : le journal reste inchangé (aucune réécriture d'une table volumineuse), l'outbox porte l'état de distribution et pointe le journal (`ON DELETE CASCADE` : la purge PLT-09 du journal emporte l'outbox).
+- Marque de traitement **par événement** (`ent_event_traitement`) au lieu d'un curseur `derniere_seq` par consommateur : un curseur sur `seq` saute les transactions validées dans le désordre ; l'état par événement permet `SKIP LOCKED`, reprise et file des échecs. La table `ent_event_consommateur` (actif, rejouable) n'est pas créée : le registre est dans le code (`Consommateur::rejouable`).
+- `pg_notify` non branché : sondage toutes les 500 ms (réveil à brancher si la latence l'exige).
+- Notifications : canal interne seulement ; le canal mail du §6 S2-0 (« mail d'abord ») n'est pas fait.
+
+**Reste à faire dans S2-0 (plan de migration progressive)**
+1. `ent-types::evenements` (événements typés D2, D3, D5, exemples JSON figés) ; les consommateurs lisent encore du JSON.
+2. Seuil d'absences (`apres_absence_ecrite` : signal, fil d'alerte, mail) encore exécuté **après** le commit de `clore_appel` : à transformer en consommateur D5 (signal) + consommateur notifications (mail, non rejouable).
+3. Consommateur d'envoi (mail via `ent_mail_outbox`, puis SMS OVH D-004 et push), préférences, regroupement, heures calmes.
+4. Écran d'administration de la file des échecs (API `file_des_echecs` / `rejouer_echec` prête) et exposition des métriques dans `/metrics`.
+5. Migration des ~160 autres `self.events.publish(…)` hors transaction, domaine par domaine, en commençant par ceux qui ont un consommateur : publication du bulletin (`note.bulletin_publie`, dépend de `deposer_document` en transaction), sanctions, inscriptions (`inscription.validee` à créer en S2-3). Règle : un événement n'entre dans la toile (outbox) que publié en transaction ; l'ancien `publish` n'alimente que le journal.
+6. Les charges utiles existantes contenant du texte libre (`decision_note`, `motif`) sont conservées pour compatibilité : à minimiser lors du typage (règle §4.1-3).
+
 ---
 
 ## 7. Décisions à soumettre à Florian (questions fermées)

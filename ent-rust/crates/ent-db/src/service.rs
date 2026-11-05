@@ -196,7 +196,9 @@ use ent_auth::{
     Passkey, PasskeyAuthentication, PasskeyEngine, PasskeyError, PasskeyRegistration,
     PublicKeyCredential, RegisterPublicKeyCredential, Role, SecretBox, SecretBoxError,
 };
-use ent_brain::{react, BrainAction, BrainP0};
+use ent_brain::BrainP0;
+use crate::outbox::{Causalite, ConfigDistribution, Distributeur, Publier};
+use crate::reactions::{consommateurs_standard, NotificationInterne};
 use ent_events::{types, AggregateKind, EventBusError, EventHandler, MetierEvent, MetierEventDraft};
 use ent_mail::{MailAttachment, MailReceipt, MailSendStatus, MailService, OutgoingMail};
 use ent_sms::{OutgoingSms, SmsService};
@@ -940,6 +942,27 @@ impl PgEnt {
 
     pub fn brain(&self) -> Option<&BrainP0> {
         self.brain.as_ref()
+    }
+
+    /// Distributeur de l'outbox (socle 2, S2-0) avec les consommateurs standard
+    /// (réactions entre domaines). Le lancer avec `Arc::new(d).lancer()`.
+    pub fn distributeur(&self, config: ConfigDistribution) -> Distributeur {
+        let mut d = Distributeur::new(self.pool.clone(), config);
+        for c in consommateurs_standard() {
+            d.enregistrer(c).expect("consommateurs standard aux noms uniques");
+        }
+        d
+    }
+
+    /// Notifications internes de l'utilisateur connecté (plus récentes d'abord),
+    /// strictement dans son établissement.
+    pub async fn mes_notifications(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        limite: i64,
+    ) -> Result<Vec<NotificationInterne>, EntDbError> {
+        Ok(crate::reactions::notifications_de(&self.pool, etablissement_id, user_id, limite).await?)
     }
 
     pub fn register_handler(&self, handler: Arc<dyn EventHandler>) {
@@ -7071,11 +7094,16 @@ impl PgEnt {
         if appel.statut != AppelStatut::Ouvert {
             return Err(EntDbError::AppelInvalide);
         }
-        // Lignes lues sous verrou, dans la transaction qui passe l'appel à « clos » :
-        // aucune modification concurrente ne peut s'intercaler.
+        // Socle 2 (S2-0) : une seule transaction pour le fait et ses événements.
+        // Clôture (lignes lues sous verrou), absences, retards, `appel.closed` et
+        // `eleve.absence_declared` / `vs.retard` dans l'outbox : tout est validé
+        // ensemble, ou rien (aucun événement pour un fait annulé, aucun fait sans
+        // son événement). Les réactions des autres domaines (notification des
+        // responsables…) passent par le distributeur de l'outbox.
+        let mut tx = self.pool.begin().await?;
         let lignes = self
             .appels
-            .clore_avec_lignes(etablissement_id, appel_id)
+            .clore_avec_lignes_tx(&mut tx, etablissement_id, appel_id)
             .await?
             .ok_or(EntDbError::AppelInvalide)?;
         let absents: Vec<Uuid> = lignes
@@ -7089,9 +7117,8 @@ impl PgEnt {
             .map(|l| l.eleve_id)
             .collect();
 
-        let event = self
-            .events
-            .publish(MetierEventDraft {
+        let evt_appel = tx
+            .publier(MetierEventDraft {
                 etablissement_id,
                 type_name: types::APPEL_CLOSED.to_string(),
                 aggregate: AggregateKind::Appel,
@@ -7106,15 +7133,54 @@ impl PgEnt {
                 actor_user_id: actor_user_id.clone(),
             })
             .await?;
+        let suite = Causalite::suite_de(&evt_appel, Causalite::default());
+        let mut publies = vec![evt_appel];
 
-        for action in react(&event) {
-            self.apply_brain_action(action).await?;
+        // Intra-domaine (D5) : les absents deviennent des absences canoniques
+        // (`ent_absence`, une vérité pour VS / cantine / famille).
+        for &eleve_id in &absents {
+            let absence = Absence {
+                id: Uuid::new_v4(),
+                etablissement_id,
+                eleve_id,
+                debut: appel.jour,
+                fin: appel.jour,
+                motif: "appel".into(),
+                statut: AbsenceStatut::ATraiter,
+                motif_justif: None,
+                justifie_par_user_id: None,
+                decision_note: None,
+                decision_par_user_id: None,
+            };
+            self.absences.upsert_tx(&mut tx, &absence).await?;
+            publies.push(
+                tx.publier_avec(
+                    MetierEventDraft {
+                        etablissement_id,
+                        type_name: types::ELEVE_ABSENCE_DECLARED.to_string(),
+                        aggregate: AggregateKind::Absence,
+                        aggregate_id: absence.id,
+                        eleve_id: Some(eleve_id),
+                        payload: json!({
+                            "debut": absence.debut.to_string(),
+                            "fin": absence.fin.to_string(),
+                            "statut": absence.statut.as_str(),
+                            "source": "appel",
+                            "appel_id": appel_id,
+                            "prevenue": false,
+                        }),
+                        actor_user_id: actor_user_id.clone(),
+                    },
+                    suite,
+                )
+                .await?,
+            );
         }
 
         // Les retards pointés à l'appel deviennent un fait VS **canonique**
         // (persistant, distinct de l'absence) — sinon l'info disparaît avec l'appel.
         for eleve_id in retards {
-            let planned = plan_declarer_retard(DeclarerRetard {
+            let r = plan_declarer_retard(DeclarerRetard {
                 etablissement_id,
                 eleve_id,
                 jour: appel.jour,
@@ -7123,7 +7189,36 @@ impl PgEnt {
                 source_appel_id: Some(appel_id),
                 actor_user_id: actor_user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok()),
             })?;
-            self.enregistrer_retard(&planned).await?;
+            self.retards.insert_tx(&mut tx, &r).await?;
+            publies.push(
+                tx.publier_avec(
+                    MetierEventDraft {
+                        etablissement_id: r.etablissement_id,
+                        type_name: types::RETARD_DECLARE.to_string(),
+                        aggregate: AggregateKind::Retard,
+                        aggregate_id: r.id,
+                        eleve_id: Some(r.eleve_id),
+                        payload: json!({
+                            "jour": r.jour.to_string(),
+                            "minutes": r.minutes,
+                            "motif": r.motif,
+                            "source_appel_id": r.source_appel_id,
+                        }),
+                        actor_user_id: r.auteur_user_id.map(|u| u.to_string()),
+                    },
+                    suite,
+                )
+                .await?,
+            );
+        }
+        tx.commit().await?;
+        self.events.diffuser_locaux(&publies);
+
+        // Encore hors transaction (migration progressive, cf. SOCLE2_DOMAINES §6 S2-0) :
+        // compteur annuel → signal de seuil → fil d'alerte et mail famille.
+        for &eleve_id in &absents {
+            self.apres_absence_ecrite(etablissement_id, eleve_id, appel.jour)
+                .await?;
         }
 
         Ok(Appel {
@@ -7146,41 +7241,6 @@ impl PgEnt {
             .await?;
         let lignes = self.appels.list_lignes(etablissement_id, appel_id).await?;
         Ok(Some((appel, lignes)))
-    }
-
-    async fn apply_brain_action(&self, action: BrainAction) -> Result<(), EntDbError> {
-        match action {
-            BrainAction::EnsureAbsence {
-                etablissement_id,
-                eleve_id,
-                motif,
-                debut,
-                fin,
-            } => {
-                let debut = NaiveDate::parse_from_str(&debut, "%Y-%m-%d")
-                    .map_err(|_| EntDbError::AppelInvalide)?;
-                let fin = NaiveDate::parse_from_str(&fin, "%Y-%m-%d")
-                    .map_err(|_| EntDbError::AppelInvalide)?;
-                // Idempotent : si déjà absent ce jour (même motif), on réécrit une ligne.
-                let absence = Absence {
-                    id: Uuid::new_v4(),
-                    etablissement_id,
-                    eleve_id,
-                    debut,
-                    fin,
-                    motif,
-                    statut: AbsenceStatut::ATraiter,
-                    motif_justif: None,
-                    justifie_par_user_id: None,
-                    decision_note: None,
-                    decision_par_user_id: None,
-                };
-                self.absences.upsert(&absence).await?;
-                self.apres_absence_ecrite(etablissement_id, eleve_id, debut)
-                    .await?;
-            }
-        }
-        Ok(())
     }
 
     /// Charge un élève **si** l'acteur est autorisé à lire son dossier : staff,
@@ -7456,10 +7516,15 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::NotFound)?;
         let planned = plan_accepter_justificatif(&current, cmd)?;
-        self.absences.upsert(&planned.absence).await?;
+        // Socle 2 (S2-0) : décision et événement dans la même transaction (outbox).
+        let mut tx = self.pool.begin().await?;
+        self.absences.upsert_tx(&mut tx, &planned.absence).await?;
+        let mut publies = Vec::new();
         if let Some(event) = planned.event {
-            self.events.publish(event).await?;
+            publies.push(tx.publier(event).await?);
         }
+        tx.commit().await?;
+        self.events.diffuser_locaux(&publies);
         Ok(planned.absence)
     }
 
@@ -7473,10 +7538,15 @@ impl PgEnt {
             .await?
             .ok_or(DomainError::NotFound)?;
         let planned = plan_refuser_justificatif(&current, cmd)?;
-        self.absences.upsert(&planned.absence).await?;
+        // Socle 2 (S2-0) : décision et événement dans la même transaction (outbox).
+        let mut tx = self.pool.begin().await?;
+        self.absences.upsert_tx(&mut tx, &planned.absence).await?;
+        let mut publies = Vec::new();
         if let Some(event) = planned.event {
-            self.events.publish(event).await?;
+            publies.push(tx.publier(event).await?);
         }
+        tx.commit().await?;
+        self.events.diffuser_locaux(&publies);
         Ok(planned.absence)
     }
 
