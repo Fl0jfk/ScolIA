@@ -21,12 +21,17 @@ mod auth;
 mod communication;
 mod edt;
 mod referentiel;
+mod roles;
 mod securite;
 mod vie_scolaire;
 
 pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
+};
+pub use roles::{
+    ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
+    PorteeCatalogue, RoleApi, SaisieRole,
 };
 pub use securite::{
     AppareilSession, ChallengeEnrolement, MoiSecurite, PasskeyCompte, PolitiqueSecurite,

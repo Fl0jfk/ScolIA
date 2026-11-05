@@ -515,6 +515,11 @@ pub fn PageConnexion() -> impl IntoView {
                 </form>
             </div>
             <p class="connexion__pied">
+                <a href=move || super::recuperation::modele::adresse_demande(&etablissement.get())>
+                    "J'ai perdu ma passkey"
+                </a>
+            </p>
+            <p class="connexion__pied">
                 "Pas encore de compte ? Votre établissement vous envoie une invitation par e-mail."
             </p>
         </main>

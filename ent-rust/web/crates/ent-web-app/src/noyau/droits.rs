@@ -98,6 +98,10 @@ pub struct Droits {
     /// Politique de sécurité de l'établissement (passkey obligatoire par rôle) :
     /// `GET`/`PUT /etablissement/securite`, réservé à Admin et Direction.
     pub gerer_securite: bool,
+    /// Administration des rôles paramétrables (D-017) : action `roles.gerer`, accordée au
+    /// profil Admin et Direction (`modele_par_defaut`). Un rôle paramétré peut aussi la
+    /// donner : l'écran revérifie `GET /roles/mes-droits` et le serveur décide.
+    pub gerer_roles: bool,
 }
 
 pub fn droits_du_role(role: &str) -> Droits {
@@ -128,6 +132,7 @@ pub fn droits_du_role(role: &str) -> Droits {
         messagerie: messagerie_personnel || matches!(r, Role::Parent | Role::Eleve),
         messagerie_personnel,
         gerer_securite: matches!(r, Role::Admin | Role::Direction),
+        gerer_roles: matches!(r, Role::Admin | Role::Direction),
     }
 }
 

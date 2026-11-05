@@ -34,7 +34,7 @@ chrono = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true, optional = true }
 console_error_panic_hook = { workspace = true, optional = true }
-web-sys = { workspace = true, features = ["Window", "Storage", "StorageEvent", "KeyboardEvent", "Event", "EventTarget", "HtmlElement", "HtmlInputElement", "Navigator", "CredentialsContainer", "CredentialRequestOptions", "CredentialCreationOptions", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Document", "Element", "Node"] }
+web-sys = { workspace = true, features = ["Window", "Storage", "StorageEvent", "KeyboardEvent", "Event", "EventTarget", "HtmlElement", "HtmlInputElement", "Navigator", "CredentialsContainer", "CredentialRequestOptions", "CredentialCreationOptions", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Document", "Element", "Node", "History"] }
 
 # Navigateur uniquement : passkey (WebAuthn) via les API du navigateur.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

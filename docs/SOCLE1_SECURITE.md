@@ -39,8 +39,8 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 | B2 | Messagerie : un professeur ne lit que les fils où il participe ou qui concernent ses élèves | Élevée | implémenté + testé en local (fils des élèves suivis uniquement) |
 | B3 | Justification d'absence réservée à la vie scolaire (et aux responsables autorisés) | Moyenne | implémenté + testé en local (vie scolaire, responsable autorisé, élève majeur) |
 | B4 | Rattachement d'un responsable : la cible doit avoir le rôle Parent | Moyenne | à faire |
-| B5 | Cycle de vie des rôles : changer, retirer, désactiver, historique, révocation des sessions, contrainte sur la colonne `role` | Élevée | R1 : attribution et retrait datés de rôles paramétrables, journalisés (D-017) ; désactivation de compte et contrainte sur `role` : à faire |
-| B6 | Modèle de capacités (`Capacite`) et fonction unique `autoriser(acteur, action, ressource)` en façade des `can_*` existants | Structurant | R1 implémenté + testé en local : catalogue `ent_auth::Action`/`Portee`, rôles par établissement, cumul, anti-escalade, moteur `autoriser_eleve` / `eleves_autorises` branché sur notes, saisie, compétences, absences, dossier, journal, messagerie, suivi, listes VS (D-017, `docs/ROLES_ET_DROITS.md`) ; R2 (autres domaines, écrans) : à faire |
+| B5 | Cycle de vie des rôles : changer, retirer, désactiver, historique, révocation des sessions, contrainte sur la colonne `role` | Élevée | R1 : attribution et retrait datés de rôles paramétrables, journalisés (D-017) ; désactivation de compte et contrainte sur `role` : à faire ; **écrans Leptos d'administration** (rôles, tableau action × portée, membres, responsables des groupes) : implémentés + testés en local (2026-11-05, `FRONTEND_CIBLE.md` § 9), non validés pilote |
+| B6 | Modèle de capacités (`Capacite`) et fonction unique `autoriser(acteur, action, ressource)` en façade des `can_*` existants | Structurant | R1 implémenté + testé en local : catalogue `ent_auth::Action`/`Portee`, rôles par établissement, cumul, anti-escalade, moteur `autoriser_eleve` / `eleves_autorises` branché sur notes, saisie, compétences, absences, dossier, journal, messagerie, suivi, listes VS (D-017, `docs/ROLES_ET_DROITS.md`) ; R2 (autres domaines, écrans) : à faire ; **écrans Leptos d'administration** (rôles, tableau action × portée, membres, responsables des groupes) : implémentés + testés en local (2026-11-05, `FRONTEND_CIBLE.md` § 9), non validés pilote |
 | B7 | Lien responsable–élève : autorité parentale, dates, suspension (décision de justice), vérifiés en un point | Moyenne | à faire |
 | B8 | Accès Admin/Direction aux données psy et santé : à décider avec Florian | Décision | à soumettre |
 
@@ -121,7 +121,7 @@ Restent (décisions ou suites) :
 
 ## Lot A8 (partie D-018) — récupération de passkey en libre-service
 
-Niveau : **implémenté + testé en local** (`ent-api` `tests_recuperation`, `ent-db`) ; non validé pilote ; non prêt production. Pages web (liens des e-mails) : à écrire en Leptos, l'API est prête.
+Niveau : **implémenté + testé en local** (`ent-api` `tests_recuperation`, `ent-db`) ; non validé pilote ; non prêt production. **Pages web Leptos écrites** (2026-11-05, branche `ent-socle1-ecrans-roles`, voir `FRONTEND_CIBLE.md` § 9) : demande (`/web/recuperation-passkey`, lien « J'ai perdu ma passkey » sur la connexion) et pages d'atterrissage des trois liens des e-mails ; testées en rendu serveur et contre le vrai backend, **non essayées dans un navigateur avec un vrai e-mail** (messagerie non configurée en labo).
 
 **Parcours** (une demande active par personne ; table volatile `ent_recuperation_passkey`, migration 097) :
 1. `POST /auth/passkey/recuperation` `{email, etablissement_id}` — public, **202 toujours** (compte inconnu, sans passkey, hors établissement ou valide : indiscernable ; traitement et envoi différés). Si éligible : demande `demandee` + e-mail avec lien de **confirmation** (jeton 256 bits, haché, usage unique, 60 min). Une demande non confirmée est remplacée par la suivante ; une demande déjà « en attente » n'est jamais écrasée.
@@ -136,3 +136,22 @@ Niveau : **implémenté + testé en local** (`ent-api` `tests_recuperation`, `en
 - Qui contrôle la boîte e-mail de la personne obtient les deux liens : le délai et l'alerte ne protègent que si la personne lit ses e-mails pendant le délai (compromis choisi par D-018). Un changement d'adresse e-mail pendant le délai n'annule pas la demande (à décider : annuler les demandes actives au changement d'e-mail).
 - La récupération par la direction (un seul établissement) reste inchangée et sans délai (suite du lot A8).
 - Une demande exige que le message de confirmation parte : messagerie non prête ou URL publique absente → rien n'est créé, neutralité conservée (journal serveur uniquement).
+
+
+## Écrans Leptos — rôles et droits, récupération de passkey (2026-11-05)
+
+Branche `ent-socle1-ecrans-roles` (fusionnée avec `ent-socle1-recuperation`). Niveau : **implémenté + testé en local** ; non validé pilote ; non prêt production. Détail des écrans, routes et limites : `docs/FRONTEND_CIBLE.md` § 9.
+
+| Élément | Statut | Vérifié par |
+|---|---|---|
+| Administration des rôles (`/web/direction/roles`) : liste, création depuis un modèle, modification, suppression confirmée, membres (date de fin, retrait), responsables des groupes | implémenté + testé en local | tests unitaires (modèle d'écran, client), rendu serveur, tests contre le vrai backend (cycle de vie, refus 403/400/404, anti-escalade expliquée) |
+| Récupération de passkey : demande publique neutre, pages de confirmation / annulation / finalisation avec explication du délai | implémenté + testé en local | rendu serveur, tests contre le vrai backend (réponse neutre, jetons invalides) ; parcours complet avec e-mail réel **non essayé** |
+| Navigation : entrée « Rôles et droits » pour Admin / Direction ; garde par `/roles/mes-droits` | implémenté + testé en local | test de parité `gerer_roles` avec `modele_par_defaut` |
+| Accessibilité : clavier, libellés, mobile 375 px, CSP stricte | partiel | structure vérifiée par les tests de rendu (étiquettes, aucun style en ligne, CSP à nonce) ; **navigateur, axe-core, lecteur d'écran non faits** |
+
+**Limites**
+- Les responsables actuels d'un groupe ne sont pas lisibles par l'API : l'écran **remplace** la liste (avertissement + confirmation).
+- Les groupes désignables sont ceux rattachés à une classe (détail de classe) ; un atelier sans classe n'apparaît pas.
+- `/personnel/search` renvoie 100 personnes au plus : au-delà, un membre non listé s'affiche par un identifiant abrégé et l'ajout se fait par la recherche.
+- Les liens des e-mails de récupération pointent vers `/recuperation-passkey/<étape>` (sans `/web`) : les pages Leptos sont servies à ces adresses exactes ; le jeton est retiré de la barre d'adresse et l'action part d'un bouton (un aperçu de messagerie ne consomme pas le jeton).
+- Le nom du « 403 » d'escalade est interprété par l'écran (le serveur ne distingue pas l'escalade des autres refus) : le message évoque aussi la perte du droit de gérer les rôles.

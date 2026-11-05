@@ -59,6 +59,11 @@ pub fn App() -> impl IntoView {
             <Routes fallback=PageIntrouvable>
                 <Route path=path!("/web/connexion") view=modules::connexion::PageConnexion/>
                 <Route path=path!("/web/securite/enrolement") view=modules::securite::PageEnrolement/>
+                <Route path=path!("/web/recuperation-passkey") view=modules::recuperation::PageDemandeRecuperation/>
+                // Liens des e-mails de récupération (D-018) : adresses telles que les envoie `ent-api`.
+                <Route path=path!("/recuperation-passkey/confirmer") view=modules::recuperation::PageConfirmerRecuperation/>
+                <Route path=path!("/recuperation-passkey/annuler") view=modules::recuperation::PageAnnulerRecuperation/>
+                <Route path=path!("/recuperation-passkey/finaliser") view=modules::recuperation::PageFinaliserRecuperation/>
                 <Route path=path!("/web/_composants") view=composants::PageComposants/>
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
@@ -74,6 +79,10 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>
                     <Route path=path!("securite") view=modules::securite::PageSecurite/>
                     <Route path=path!("direction/securite") view=modules::securite::PagePolitiqueSecurite/>
+                    <Route path=path!("direction/roles") view=modules::roles::PageRoles/>
+                    <Route path=path!("direction/roles/nouveau") view=modules::roles::PageNouveauRole/>
+                    <Route path=path!("direction/roles/groupes") view=modules::roles::PageResponsables/>
+                    <Route path=path!("direction/roles/:id") view=modules::roles::PageRole/>
                 </ParentRoute>
             </Routes>
             <ent_web_ui::ZoneNotifications/>

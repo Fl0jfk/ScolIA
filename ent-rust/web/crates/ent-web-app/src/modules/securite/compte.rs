@@ -54,6 +54,24 @@ pub fn PageSecurite() -> impl IntoView {
                         }
                     })
             }}
+            {move || {
+                droits
+                    .get()
+                    .gerer_roles
+                    .then(|| {
+                        view! {
+                            <section class="securite__bloc" aria-labelledby="securite-roles-titre">
+                                <h2 id="securite-roles-titre" class="securite__titre">"Rôles et droits"</h2>
+                                <p>"Composez les rôles de l'établissement et attribuez-les au personnel."</p>
+                                <p>
+                                    <LienBouton href=navigation::ROLES variante=Variante::Secondaire>
+                                        "Administrer les rôles"
+                                    </LienBouton>
+                                </p>
+                            </section>
+                        }
+                    })
+            }}
             <Annonce message=Signal::derive(move || annonce.get())/>
         </div>
     }
