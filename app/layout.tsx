@@ -11,6 +11,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   void (await headers()).get("x-nonce");
   return (
     <html lang="fr">
+      <head>
+        <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+      </head>
       <body>
         <AppUserProvider>
           <LaboEnvBanner />

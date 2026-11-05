@@ -1,9 +1,8 @@
 "use client";
 
-import "./brouillon.css";
 import { useCallback, useMemo, useState } from "react";
 
-const FONT_FAMILY = '"Parkinsans", sans-serif';
+const FONT_FAMILY = '"Inter", sans-serif';
 
 const DEFAULT_TEXT = "Votre texte ici";
 const DEFAULT_SIZE = 48;
@@ -15,8 +14,8 @@ type Segment = WordSegment | SpaceSegment;
 
 type ParsedLine = { segments: Segment[]; nextWordIndex: number };
 
-async function waitForParkinsans(weight: number, sizePx: number) {
-  const spec = `${weight} ${sizePx}px Parkinsans`;
+async function waitForFont(weight: number, sizePx: number) {
+  const spec = `${weight} ${sizePx}px Inter`;
   await document.fonts.load(spec);
   await document.fonts.ready;
 }
@@ -111,7 +110,7 @@ export default function BrouillonClient() {
 
     setExporting(true);
     try {
-      await waitForParkinsans(fontWeight, fontSize);
+      await waitForFont(fontWeight, fontSize);
 
       const parsedLines = parseText(
         text,
@@ -163,10 +162,10 @@ export default function BrouillonClient() {
   }, [text, fontSize, fontWeight, defaultColor, perWordColor, wordColors]);
 
   return (
-    <main className="brouillon-parkinsans flex min-h-screen flex-col items-center justify-center gap-8 bg-stone-100 px-6 py-12">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-stone-100 px-6 py-12">
       <div className="w-full max-w-xl space-y-5 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h1 className="text-lg font-semibold text-stone-800">Texte → image PNG</h1>
-        <p className="text-xs text-stone-500">Police : Parkinsans</p>
+        <p className="text-xs text-stone-500">Police : Inter</p>
 
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-stone-600">Texte</span>

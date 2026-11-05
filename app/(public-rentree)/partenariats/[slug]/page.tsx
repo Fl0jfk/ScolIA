@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { partenariatsBody as body, partenariatsDisplay as display } from "@/app/fonts/partenariats";
 import PartenariatPublicDetailClient from "@/app/components/partenariats/PartenariatPublicDetailClient";
 import { getPublicPartenariatDetail } from "@/app/lib/partenariats-db";
 
@@ -26,7 +25,7 @@ export default async function PartenariatPublicDetailPage({ params }: Props) {
   if (!offre) notFound();
 
   return (
-    <div className={`${display.variable} ${body.variable} font-[family-name:var(--font-partenariats-body)]`}>
+    <div>
       <PartenariatPublicDetailClient offre={offre} />
     </div>
   );

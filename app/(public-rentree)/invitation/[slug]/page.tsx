@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import InvitationPublicClient from "@/app/components/invitation/InvitationPublicClient";
-import "./invitation-fonts.css";
 import { loadAppConfig } from "@/app/lib/app-config";
 import {
   getInvitationPageBySlug,

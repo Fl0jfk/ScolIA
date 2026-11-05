@@ -103,7 +103,7 @@ export default function PartenariatPublicDetailClient({ offre }: Props) {
               {offre.schoolName}
               {offre.categoryLabel ? ` · ${offre.categoryLabel}` : ""}
             </p>
-            <h1 className="font-[family-name:var(--font-partenariats-display)] text-3xl font-semibold text-slate-900 sm:text-4xl">
+            <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
               {offre.title}
             </h1>
             {offre.shortDescription ? (

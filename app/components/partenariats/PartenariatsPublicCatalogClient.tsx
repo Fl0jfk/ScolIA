@@ -52,7 +52,7 @@ export default function PartenariatsPublicCatalogClient({ schoolName, offres }: 
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-800/80">
             {schoolName || "Établissement"}
           </p>
-          <h1 className="font-[family-name:var(--font-partenariats-display)] text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
+          <h1 className="text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
             Partenariats &amp; offres
           </h1>
           <p className="max-w-2xl text-base text-slate-600 sm:text-lg">

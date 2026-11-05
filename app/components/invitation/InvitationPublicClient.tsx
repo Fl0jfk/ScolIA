@@ -402,13 +402,6 @@ export default function InvitationPublicClient({ page }: Props) {
   return (
     <div className={shellClass}>
       <style jsx global>{`
-        .invitation-theme-diplome,
-        .invitation-theme-neutre {
-          font-family: Figtree, "Segoe UI", sans-serif;
-        }
-        .invitation-theme-diplome .inv-display {
-          font-family: "Cormorant Garamond", "Palatino Linotype", Palatino, serif;
-        }
         .invitation-theme-diplome {
           --inv-ink: #f4f7fb;
           --inv-muted: #b7c3d6;
