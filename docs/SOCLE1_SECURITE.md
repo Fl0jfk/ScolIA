@@ -26,14 +26,10 @@ Aucune fuite inter-établissements trouvée dans l'échantillon audité — mais
 | A2 | Obligation de passkey : politique par rôle et date, session « enrôlement seulement » tant qu'aucune passkey, lien d'enrôlement initial sans mot de passe (D-009) | Critique | à faire (écrans web : implémentés + testés en local, voir « Écrans frontend ») |
 | A3 | Session serveur : inactivité 2 h et maximum 12 h pour le web, longue révocable pour le mobile (D-011), niveau d'assurance (mot de passe / passkey), liste et révocation des appareils | Élevée | à faire (écran « mes appareils » : implémenté + testé en local) |
 | A4 | Anti-abus : limitation de débit (oubli de mot de passe, passkey, OIDC, réinitialisation), IP fiable derrière proxy, verrou sans déni de service, réponses indiscernables (énumération), bornes de taille | Élevée | en cours (sous-agent) |
-| A5 | WebAuthn fail-closed : `rp_id` `scolia.fr` validé au démarrage, liste d'origines (sous-domaines, applis natives) | Élevée | en cours (session cloud) |
-| A6 | Cookie `HttpOnly` en production pour le web (fin du jeton en `localStorage`), sur la base du prototype `ent-web-session` et de A3 | Élevée | à faire |
-| A7 | OIDC : `email_verified` obligatoire, state lié au navigateur, URL de découverte contrôlée (SSRF), secret client chiffré | Moyenne | en cours (session cloud) |
-| A8 | Récupération : codes de secours, délai et notification sur reset passkey par la direction, alerte si compteur de signature régresse, changement forcé du mot de passe temporaire, liste de mots de passe compromis, `needs_rehash` | Moyenne | à faire |
 | A5 | WebAuthn fail-closed : `rp_id` `scolia.fr` validé au démarrage, liste d'origines (sous-domaines, applis natives) | Élevée | implémenté + testé en local (natives iOS : voir détail) |
 | A6 | Cookie `HttpOnly` en production pour le web (fin du jeton en `localStorage`), sur la base du prototype `ent-web-session` et de A3 | Élevée | à faire |
 | A7 | OIDC : `email_verified` obligatoire, state lié au navigateur, URL de découverte contrôlée (SSRF), secret client chiffré | Moyenne | implémenté + testé en local |
-| A8 | Récupération : codes de secours, délai et notification sur reset passkey par la direction, alerte si compteur de signature régresse, changement forcé du mot de passe temporaire, liste de mots de passe compromis, `needs_rehash` | Moyenne | partiel : compteur régressé refusé + journalisé, mise à jour atomique ; reste : codes de secours, délai/notification sur reset, mot de passe temporaire, mots de passe compromis, `needs_rehash` |
+| A8 | Récupération : codes de secours, délai et notification sur reset passkey par la direction, alerte si compteur de signature régresse, changement forcé du mot de passe temporaire, liste de mots de passe compromis, `needs_rehash` | Moyenne | **partiel** : récupération de passkey en libre-service par e-mail (D-018) implémentée + testée en local (migration 097, voir ci-dessous) ; reste : codes de secours, délai/notification sur le reset par la direction, compteur de signature, mot de passe temporaire, mots de passe compromis, `needs_rehash` |
 | A9 | Alerte de nouvelle connexion (nouvel appareil), ré-authentification passkey pour les actions sensibles | Moyenne | à faire |
 
 ### B. Rôles et droits
@@ -117,8 +113,26 @@ Vérifié non exploitable : contournement de la session d'enrôlement par varian
 Corrigé : E1 périmètre professeur incomplet (≈ 12 routes) ; E2 enrôlement sans mot de passe abusable avec un jeton d'enrôlement volé (mot de passe redemandé sauf SSO, e-mail d'alerte à chaque nouvelle passkey) ; E5 politique imposée sans moteur WebAuthn et sessions existantes non fermées ; E6 accès aux fils acquis par participation ; E10 tests (fenêtre de remplacement, variantes de chemin, prolongation mobile).
 Restent (décisions ou suites) :
 - **E3** le cookie du prototype `ent-web-session` garde la durée de la session d'enrôlement (15 min) : à traiter lors du passage du cookie en production (A6).
-- **E4** récupération d'une personne membre de deux établissements qui perd sa passkey : aucune direction ne peut agir (isolation) → **décision à prendre** avant d'activer l'obligation (support plateforme journalisé, ou récupération en libre-service avec délai et notification).
+- **E4** récupération d'une personne membre de deux établissements qui perd sa passkey : aucune direction ne peut agir (isolation) → **traité** par D-018 (récupération en libre-service avec délai et alertes, lot A8, voir « Lot A8 — récupération de passkey »). Implémenté + testé en local ; non validé pilote.
 - **E7** le type de client `mobile` est déclaré par le client (90 j) : à lier à l'appli (attestation d'appareil) avec le chantier mobile.
 - **E8** appareil et IP non conservés pour une connexion par passkey ; libellé d'appareil (User-Agent) à échapper à l'affichage.
 - **E9** créneaux EDT historiques sans date de fin (accès conservé tant que le créneau existe) ; comparaison de classe sensible à la casse ; jour UTC.
 - Sessions antérieures à la migration 095 sans délai d'inactivité : à purger au déploiement.
+
+## Lot A8 (partie D-018) — récupération de passkey en libre-service
+
+Niveau : **implémenté + testé en local** (`ent-api` `tests_recuperation`, `ent-db`) ; non validé pilote ; non prêt production. Pages web (liens des e-mails) : à écrire en Leptos, l'API est prête.
+
+**Parcours** (une demande active par personne ; table volatile `ent_recuperation_passkey`, migration 097) :
+1. `POST /auth/passkey/recuperation` `{email, etablissement_id}` — public, **202 toujours** (compte inconnu, sans passkey, hors établissement ou valide : indiscernable ; traitement et envoi différés). Si éligible : demande `demandee` + e-mail avec lien de **confirmation** (jeton 256 bits, haché, usage unique, 60 min). Une demande non confirmée est remplacée par la suivante ; une demande déjà « en attente » n'est jamais écrasée.
+2. `POST /auth/passkey/recuperation/confirmer` `{token}` — la demande passe `en_attente`, **délai de sécurité** `ENT_RECUPERATION_PASSKEY_DELAI_HEURES` (défaut 24, borné 1–168). E-mail d'alerte à la personne avec un lien d'**annulation** et un lien de **finalisation** (deux jetons distincts, hachés). Événement `passkey_recuperation_en_attente` journalisé **dans chaque établissement** de la personne, sans mention des autres (D-013) ni e-mail en clair (empreinte).
+3. Annulation : `POST …/annuler` `{token}` (lien d'annulation) **ou** connexion réussie par passkey pendant le délai (`passkey_login_finish`) → `annulee`, événement `passkey_recuperation_annulee` dans chaque établissement.
+4. `POST …/finaliser` `{token}` — vérification **paresseuse** (pas de tâche planifiée) : avant la fin du délai → **409** (jeton non consommé) ; après, et dans les 72 h : en une transaction, suppression de **toutes** les passkeys, des challenges, révocation de **toutes** les sessions, invalidation des liens de mot de passe actifs, `terminee`, événement `passkey_recuperation_finalisee`. Au-delà de 72 h : `expiree`.
+5. Ensuite la personne se reconnecte **par mot de passe** (l'obligation de passkey de son rôle la place en session d'enrôlement existante : elle réenrôle une passkey). Sans mot de passe connu : « mot de passe oublié » (`/auth/forgot-password`), puis réenrôlement.
+
+**Sécurité** : jetons 256 bits (hex, 64 caractères), seuls les SHA-256 en base, usage unique atomique (`UPDATE … WHERE statut = … RETURNING`), expirations ; jeton > 256 caractères ou vide → 400 avant tout traitement ; erreurs de jeton uniformes (400). Limitation de débit dédiée (routes ajoutées à `anti_abus.rs`) : demande `5/900` par IP et `2/3600` par e-mail ; confirmer, annuler, finaliser `20/900` par IP et `10/900` par jeton. Journal sans e-mail en clair.
+
+**Limites connues / hypothèses**
+- Qui contrôle la boîte e-mail de la personne obtient les deux liens : le délai et l'alerte ne protègent que si la personne lit ses e-mails pendant le délai (compromis choisi par D-018). Un changement d'adresse e-mail pendant le délai n'annule pas la demande (à décider : annuler les demandes actives au changement d'e-mail).
+- La récupération par la direction (un seul établissement) reste inchangée et sans délai (suite du lot A8).
+- Une demande exige que le message de confirmation parte : messagerie non prête ou URL publique absente → rien n'est créé, neutralité conservée (journal serveur uniquement).

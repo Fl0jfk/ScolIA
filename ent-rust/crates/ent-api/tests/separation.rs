@@ -407,6 +407,11 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/auth/logout"),
     ("POST", "/auth/forgot-password"),
     ("POST", "/auth/reset-password"),
+    // Récupération de passkey en libre-service (D-018) : les jetons font foi.
+    ("POST", "/auth/passkey/recuperation"),
+    ("POST", "/auth/passkey/recuperation/confirmer"),
+    ("POST", "/auth/passkey/recuperation/annuler"),
+    ("POST", "/auth/passkey/recuperation/finaliser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
     ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
 ];

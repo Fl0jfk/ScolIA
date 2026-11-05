@@ -134,3 +134,11 @@ Niveau : **implémenté + testé en local** ; non validé pilote ; non prêt pro
 - `ENT_RP_ALLOW_SUBDOMAINS=1` : un sous-domaine détourné pourrait solliciter des passkeys du `rp_id`.
 - Régression de compteur : pas de désactivation automatique de la clé ni d'alerte à l'utilisateur ; les passkeys synchronisées (compteur 0) ne sont pas concernées.
 - Fichier `apple-app-site-association` (iOS) non fourni.
+
+## Récupération de passkey en libre-service (D-018, Socle 1, lot A8)
+
+Niveau : **implémenté + testé en local** ; non validé pilote ; non prêt production. Détail du parcours : `SOCLE1_SECURITE.md` (lot A8).
+
+- Menace traitée : perte de passkey d'une personne de plusieurs établissements (aucune direction ne peut agir, E4). Menace introduite : prise de contrôle par qui contrôle la boîte e-mail → contre-mesures : confirmation par lien, **délai de sécurité** configurable (`ENT_RECUPERATION_PASSKEY_DELAI_HEURES`, 24 h par défaut), alerte à la personne avec annulation, événement journalisé dans **chaque** établissement, annulation automatique par connexion passkey.
+- Réponse publique **202 neutre** (anti-énumération), envoi différé ; limitation de débit dédiée ; trois jetons distincts 256 bits hachés, usage unique ; une seule demande active ; finalisation atomique (passkeys supprimées, toutes sessions révoquées).
+- Aucune adresse e-mail en clair dans le journal ni en base de la demande (empreintes). Le dry-run de la messagerie ne conserve les corps de message qu'en `dry_run_only()` (labo/tests), jamais en production.
