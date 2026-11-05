@@ -8,7 +8,6 @@ use ent_web_ui::{
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
-use leptos_router::hooks::{use_location, use_navigate};
 
 use super::modele::{
     assurance_faible, avertissement_suppression, explication_assurance, horodatage_local,
@@ -20,6 +19,7 @@ use crate::noyau::coquille::use_droits;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
 use crate::noyau::portee::Portee;
+use crate::noyau::reconnexion;
 use crate::noyau::session::{self, use_session};
 
 #[component]
@@ -90,7 +90,6 @@ fn SectionSession() -> impl IntoView {
 fn SectionPasskeys(annonce: RwSignal<String>) -> impl IntoView {
     let ctx = use_session();
     let notifications = ent_web_ui::use_notifications();
-    let navigate = use_navigate();
     let version = RwSignal::new(0u32);
     let liste = LocalResource::new(move || {
         version.track();
@@ -110,7 +109,6 @@ fn SectionPasskeys(annonce: RwSignal<String>) -> impl IntoView {
             .unwrap_or(Portee::Complete)
     });
     let ajouter = {
-        let navigate = navigate.clone();
         Callback::new(move |_: ()| {
             if en_ajout.get_untracked() {
                 return;
@@ -128,7 +126,6 @@ fn SectionPasskeys(annonce: RwSignal<String>) -> impl IntoView {
             }
             en_ajout.set(true);
             annonce.set("Validation sur votre appareil en cours…".into());
-            let navigate = navigate.clone();
             spawn_local(async move {
                 let resultat = enroler_passkey(&nom.get_untracked(), &mdp.get_untracked()).await;
                 en_ajout.set(false);
@@ -143,11 +140,8 @@ fn SectionPasskeys(annonce: RwSignal<String>) -> impl IntoView {
                     }
                     Err(e) => {
                         if e.session_perdue() {
-                            session::effacer();
-                            navigate(
-                                &session::adresse_connexion("/web/securite"),
-                                Default::default(),
-                            );
+                            reconnexion::signaler_session_perdue();
+                            erreur_ajout.set(Some(reconnexion::MESSAGE_SESSION_EXPIREE.into()));
                             return;
                         }
                         let message = e.message();
@@ -187,7 +181,6 @@ fn SectionPasskeys(annonce: RwSignal<String>) -> impl IntoView {
         dialogue_ouvert.set(true);
     });
     let confirmer_suppression = {
-        let navigate = navigate.clone();
         Callback::new(move |_: ()| {
             if en_suppression.get_untracked() {
                 return;
@@ -201,7 +194,6 @@ fn SectionPasskeys(annonce: RwSignal<String>) -> impl IntoView {
             }
             erreur_suppression.set(None);
             en_suppression.set(true);
-            let navigate = navigate.clone();
             spawn_local(async move {
                 let resultat = session::client()
                     .supprimer_passkey(p.id, &mdp_suppression.get_untracked())
@@ -219,11 +211,8 @@ fn SectionPasskeys(annonce: RwSignal<String>) -> impl IntoView {
                         ctx.moi.refetch();
                     }
                     Err(ApiError::NonConnecte) => {
-                        session::effacer();
-                        navigate(
-                            &session::adresse_connexion("/web/securite"),
-                            Default::default(),
-                        );
+                        reconnexion::signaler_session_perdue();
+                        erreur_suppression.set(Some(reconnexion::MESSAGE_SESSION_EXPIREE.into()));
                     }
                     Err(ApiError::Introuvable(_)) => {
                         dialogue_ouvert.set(false);
@@ -375,8 +364,6 @@ fn SectionPasskeys(annonce: RwSignal<String>) -> impl IntoView {
 #[component]
 fn SectionAppareils(annonce: RwSignal<String>) -> impl IntoView {
     let notifications = ent_web_ui::use_notifications();
-    let navigate = use_navigate();
-    let location = use_location();
     let version = RwSignal::new(0u32);
     let liste = LocalResource::new(move || {
         version.track();
@@ -396,7 +383,6 @@ fn SectionAppareils(annonce: RwSignal<String>) -> impl IntoView {
         };
         en_cours.set(true);
         erreur.set(None);
-        let navigate = navigate.clone();
         spawn_local(async move {
             let resultat = session::client().deconnecter_appareil(a.id).await;
             en_cours.set(false);
@@ -408,12 +394,8 @@ fn SectionAppareils(annonce: RwSignal<String>) -> impl IntoView {
                     version.update(|v| *v += 1);
                 }
                 Err(ApiError::NonConnecte) => {
-                    session::effacer();
-                    let chemin = session::chemin_complet(
-                        &location.pathname.get_untracked(),
-                        &location.search.get_untracked(),
-                    );
-                    navigate(&session::adresse_connexion(&chemin), Default::default());
+                    reconnexion::signaler_session_perdue();
+                    erreur.set(Some(reconnexion::MESSAGE_SESSION_EXPIREE.into()));
                 }
                 Err(e) => erreur.set(Some(e.message_utilisateur())),
             }

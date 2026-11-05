@@ -22,6 +22,7 @@ labo = ["ent-api/labo"]
 
 [dependencies]
 ent-api = { workspace = true }
+ent-web-session = { workspace = true }
 ent-web-app = { workspace = true, features = ["ssr"] }
 ent-web-api = { workspace = true, features = ["natif"] }
 leptos = { workspace = true, features = ["ssr"] }

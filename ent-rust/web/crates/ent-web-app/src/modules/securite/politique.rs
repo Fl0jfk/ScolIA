@@ -9,11 +9,11 @@ use ent_web_ui::{
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_meta::Title;
-use leptos_router::hooks::{use_location, use_navigate};
 
 use super::modele::{EditionPolitique, ROLES_POLITIQUE};
 use crate::noyau::coquille::use_droits;
 use crate::noyau::erreurs::ErreurChargement;
+use crate::noyau::reconnexion;
 use crate::noyau::session::{self, use_session};
 
 #[component]
@@ -47,8 +47,6 @@ pub fn PagePolitiqueSecurite() -> impl IntoView {
 fn FormulairePolitique() -> impl IntoView {
     let ctx = use_session();
     let notifications = ent_web_ui::use_notifications();
-    let navigate = use_navigate();
-    let location = use_location();
     let charge = LocalResource::new(|| async { session::client().politique_securite().await });
 
     // Un signal par rôle (une case ne redessine que sa ligne) + l'état d'édition.
@@ -109,7 +107,6 @@ fn FormulairePolitique() -> impl IntoView {
         en_cours.set(true);
         erreur.set(None);
         let roles = edition.with_untracked(EditionPolitique::a_envoyer);
-        let navigate = navigate.clone();
         spawn_local(async move {
             let resultat = session::client().definir_politique_securite(&roles).await;
             en_cours.set(false);
@@ -122,12 +119,8 @@ fn FormulairePolitique() -> impl IntoView {
                     ctx.moi.refetch();
                 }
                 Err(ApiError::NonConnecte) => {
-                    session::effacer();
-                    let chemin = session::chemin_complet(
-                        &location.pathname.get_untracked(),
-                        &location.search.get_untracked(),
-                    );
-                    navigate(&session::adresse_connexion(&chemin), Default::default());
+                    reconnexion::signaler_session_perdue();
+                    erreur.set(Some(reconnexion::MESSAGE_SESSION_EXPIREE.into()));
                 }
                 Err(e) => {
                     let message = e.message_utilisateur();

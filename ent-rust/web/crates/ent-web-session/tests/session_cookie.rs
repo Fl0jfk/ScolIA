@@ -24,7 +24,30 @@ const COOKIE: &str = "__Host-ent_session";
 
 struct Banc {
     base: String,
+    /// Seconde instance du relais, sur la **même** base : un redémarrage ou un second
+    /// serveur ne doit changer aucun résultat (le relais ne garde aucun état).
+    base2: String,
     http: Client,
+    /// Base de test locale : sert à simuler le passage du temps (`last_seen_at`, `expires_at`).
+    pool: sqlx::PgPool,
+}
+
+impl Banc {
+    /// Recule l'horloge de la session d'une personne : `inactif_depuis_s` secondes sans
+    /// activité et/ou expiration absolue déjà passée.
+    async fn vieillir(&self, email: &str, inactif_depuis_s: i64, expiree: bool) {
+        sqlx::query(
+            "UPDATE ent_session SET last_seen_at = now() - make_interval(secs => $2::int),
+                    expires_at = CASE WHEN $3 THEN now() - interval '1 second' ELSE expires_at END
+              WHERE user_id = (SELECT id FROM ent_user WHERE email = $1)",
+        )
+        .bind(email)
+        .bind(inactif_depuis_s as i32)
+        .bind(expiree)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+    }
 }
 
 async fn demarrer(duree_max: Duration, inactivite: Duration) -> Option<Banc> {
@@ -49,21 +72,31 @@ async fn demarrer(duree_max: Duration, inactivite: Duration) -> Option<Banc> {
         duree_max,
         inactivite,
     };
-    let app = ent_web_session::passerelle(api.clone(), config)
-        .merge(ent_web_session::page_demo())
-        .merge(api);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
-        .unwrap();
-    });
+    let pool = sqlx::PgPool::connect(&url).await.expect("base de test");
+    let servir = |app: axum::Router| async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        format!("http://{addr}")
+    };
+    let base = servir(
+        ent_web_session::passerelle(api.clone(), config.clone())
+            .merge(ent_web_session::page_demo())
+            .merge(api.clone()),
+    )
+    .await;
+    let base2 = servir(ent_web_session::passerelle(api.clone(), config).merge(api)).await;
     Some(Banc {
-        base: format!("http://{addr}"),
+        base,
+        base2,
+        pool,
         http: Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -81,7 +114,10 @@ async fn banc() -> Option<Banc> {
 
 /// Compte fictif (inscription ouverte en environnement de labo uniquement).
 async fn compte(b: &Banc, role: &str) -> (Uuid, String) {
-    let etab = Uuid::new_v4();
+    compte_dans(b, Uuid::new_v4(), role).await
+}
+
+async fn compte_dans(b: &Banc, etab: Uuid, role: &str) -> (Uuid, String) {
     let email = format!("proto-cookie-{}@ent.lab", Uuid::new_v4());
     let r = b
         .http
@@ -379,15 +415,48 @@ async fn changement_de_mot_de_passe_revoque_les_autres_sessions() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn expiration_par_inactivite_puis_par_duree_maximale() {
-    // Durées raccourcies pour le test : inactivité 1 s, maximum 3 s.
-    let Some(b) = demarrer(Duration::from_secs(3), Duration::from_secs(1)).await else {
-        return;
-    };
+async fn expiration_par_inactivite_et_duree_maximale_appliquee_par_la_base() {
+    let Some(b) = banc().await else { return };
     let (etab, email) = compte(&b, "prof").await;
 
+    // Inactivité : 3 h sans activité (> 2 h). Le relais n'a aucun suivi propre : le refus
+    // vient de la base, quelle que soit l'instance du relais interrogée.
     let jeton = connexion_cookie(&b, etab, &email).await;
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(moi_cookie(&b, &jeton).await, StatusCode::OK);
+    b.vieillir(&email, 3 * 3600, false).await;
+    let r = b
+        .http
+        .get(format!("{}/web/api/auth/me", b.base2))
+        .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "inactivité dépassée");
+    assert!(
+        set_cookie(&r).unwrap().contains("Max-Age=0"),
+        "cookie effacé"
+    );
+    assert_eq!(
+        moi_bearer(&b, &jeton).await,
+        StatusCode::UNAUTHORIZED,
+        "refus aussi en Bearer : la base fait foi"
+    );
+
+    // Inactivité de 1 h seulement (< 2 h) : la session reste valable, sur les deux instances.
+    let jeton = connexion_cookie(&b, etab, &email).await;
+    b.vieillir(&email, 3600, false).await;
+    assert_eq!(moi_cookie(&b, &jeton).await, StatusCode::OK);
+    let r = b
+        .http
+        .get(format!("{}/web/api/auth/me", b.base2))
+        .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK, "autre instance : même résultat");
+
+    // Durée maximale : expiration absolue dépassée malgré une activité récente.
+    b.vieillir(&email, 0, true).await;
     let r = b
         .http
         .get(format!("{}/web/api/auth/me", b.base))
@@ -395,30 +464,212 @@ async fn expiration_par_inactivite_puis_par_duree_maximale() {
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "inactivité dépassée");
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "durée maximale");
     assert!(set_cookie(&r).unwrap().contains("Max-Age=0"));
-    assert_eq!(
-        moi_bearer(&b, &jeton).await,
-        StatusCode::UNAUTHORIZED,
-        "session expirée aussi révoquée en base"
-    );
+    // L'état de session suit la même règle et efface aussi le cookie.
+    let r = b
+        .http
+        .get(format!("{}/web/session/etat", b.base))
+        .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    assert!(set_cookie(&r).unwrap().contains("Max-Age=0"));
+}
 
-    // Activité régulière (toutes les 0,6 s) : valide jusqu'à la durée maximale (3 s).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn etat_de_session_lu_en_base_sans_jeton_dans_la_reponse() {
+    let Some(b) = banc().await else { return };
+    let (etab, email) = compte(&b, "prof").await;
+
+    // Sans cookie : 401.
+    let r = b
+        .http
+        .get(format!("{}/web/session/etat", b.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+
     let jeton = connexion_cookie(&b, etab, &email).await;
-    let debut = std::time::Instant::now();
-    let mut refus_apres = None;
-    while debut.elapsed() < Duration::from_secs(5) {
-        tokio::time::sleep(Duration::from_millis(600)).await;
-        if moi_cookie(&b, &jeton).await == StatusCode::UNAUTHORIZED {
-            refus_apres = Some(debut.elapsed());
-            break;
-        }
-    }
-    let t = refus_apres.expect("refus après la durée maximale");
+    let r = b
+        .http
+        .get(format!("{}/web/session/etat", b.base2))
+        .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(r.headers()[header::CACHE_CONTROL], "no-store");
+    let texte = r.text().await.unwrap();
     assert!(
-        t >= Duration::from_secs(3),
-        "pas de refus avant 3 s : {t:?}"
+        !texte.contains(&jeton),
+        "le jeton ne sort jamais du serveur"
     );
+    let e: Value = serde_json::from_str(&texte).unwrap();
+    let reste = e["expire_dans"].as_u64().unwrap();
+    assert!(reste > 11 * 3600 && reste <= 12 * 3600, "≈ 12 h : {reste}");
+    assert_eq!(e["inactivite_max"], 7200);
+    assert_eq!(e["client"], "web");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn le_relais_impose_le_client_web() {
+    let Some(b) = banc().await else { return };
+    let (etab, email) = compte(&b, "prof").await;
+    // Le navigateur réclame une session « mobile » (90 jours, sans inactivité) : ignoré.
+    let r = nav(&b, reqwest::Method::POST, "/web/session/connexion")
+        .json(&json!({
+            "email": email, "password": MDP, "etablissement_id": etab, "client": "mobile"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let c = set_cookie(&r).unwrap();
+    let max_age: u64 = c
+        .split("Max-Age=")
+        .nth(1)
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(max_age <= 12 * 3600, "session web, pas mobile : {max_age}");
+    let jeton = valeur(&c);
+    let me: Value = b
+        .http
+        .get(format!("{}/auth/me", b.base))
+        .bearer_auth(&jeton)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(me["client"], "web");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cookie_reemis_avec_la_bonne_duree_apres_l_enrolement_obligatoire() {
+    let Some(b) = banc().await else { return };
+    let etab = Uuid::new_v4();
+    let (_, dir) = compte_dans(&b, etab, "direction").await;
+    let (_, prof) = compte_dans(&b, etab, "prof").await;
+    // La direction (Bearer, comme une appli) impose la passkey aux professeurs.
+    let r = b
+        .http
+        .post(format!("{}/auth/login", b.base))
+        .json(&json!({ "email": dir, "password": MDP, "etablissement_id": etab }))
+        .send()
+        .await
+        .unwrap();
+    let jeton_dir = r.json::<Value>().await.unwrap()["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r = b
+        .http
+        .put(format!("{}/etablissement/securite", b.base))
+        .bearer_auth(&jeton_dir)
+        .json(&json!({ "passkey_obligatoire_roles": ["prof"] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+
+    // Le professeur se connecte : session d'enrôlement, courte (15 min).
+    let r = nav(&b, reqwest::Method::POST, "/web/session/connexion")
+        .json(&json!({ "email": prof, "password": MDP, "etablissement_id": etab }))
+        .send()
+        .await
+        .unwrap();
+    let c = set_cookie(&r).expect("cookie d'enrôlement");
+    let age = |c: &str| -> u64 {
+        c.split("Max-Age=")
+            .nth(1)
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    assert!(
+        age(&c) <= 15 * 60,
+        "cookie d'enrôlement court : {}",
+        age(&c)
+    );
+    let jeton = valeur(&c);
+    let me: Value = b
+        .http
+        .get(format!("{}/web/api/auth/me", b.base))
+        .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(me["portee"], "enrolement");
+
+    // Enrôlement par le relais : la session passe en « complète » (12 h) et le cookie suit.
+    let origine = Url::parse(ORIGINE).unwrap();
+    let mut appareil = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let debut: Value = nav(
+        &b,
+        reqwest::Method::POST,
+        "/web/api/auth/passkey/register/start",
+    )
+    .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+    .json(&json!({}))
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let ccr: webauthn_rs_proto::CreationChallengeResponse =
+        serde_json::from_value(debut["options"].clone()).unwrap();
+    let enr = appareil.do_registration(origine, ccr).unwrap();
+    let r = nav(
+        &b,
+        reqwest::Method::POST,
+        "/web/api/auth/passkey/register/finish",
+    )
+    .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+    .json(&json!({
+        "token": debut["token"], "credential": enr, "name": "Clé", "current_password": MDP
+    }))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(r.status(), StatusCode::CREATED);
+    let c2 = set_cookie(&r).expect("cookie ré-émis après l'élévation");
+    for attendu in ["HttpOnly", "Secure", "SameSite=Lax", "Path=/"] {
+        assert!(c2.contains(attendu), "{attendu} : {c2}");
+    }
+    assert_eq!(valeur(&c2), jeton, "même jeton, nouvelle durée");
+    let a2 = age(&c2);
+    assert!(
+        a2 > 11 * 3600 && a2 <= 12 * 3600,
+        "≈ 12 h, pas 15 min : {a2}"
+    );
+    // Un enrôlement qui échoue ne ré-émet rien.
+    let r = nav(
+        &b,
+        reqwest::Method::POST,
+        "/web/api/auth/passkey/register/finish",
+    )
+    .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+    .json(&json!({ "token": "x", "credential": {}, "name": "Clé" }))
+    .send()
+    .await
+    .unwrap();
+    assert!(!r.status().is_success());
+    assert!(set_cookie(&r).is_none(), "pas de cookie sur un échec");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

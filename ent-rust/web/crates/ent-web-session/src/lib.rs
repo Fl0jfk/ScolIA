@@ -1,28 +1,34 @@
-//! **PROTOTYPE ISOLÉ** (D-016) — session web par cookie `HttpOnly`, **sans modifier**
-//! `ent-auth` ni `ent-api`.
+//! Session web par cookie `HttpOnly` (A6, D-011) — relais devant le routeur `ent_api::app`
+//! existant, **sans modifier** `ent-auth` ni `ent-api`. Intégré au serveur de production
+//! `ent-web-server` ; sert aussi de prototype autonome (`proto-session-cookie`).
 //!
-//! Principe : une **passerelle** placée devant le routeur `ent_api::app` existant.
+//! Principe :
 //! - `POST /web/session/connexion` (mot de passe), `/web/session/passkey/debut` et
 //!   `/web/session/passkey/fin` appellent les routes de connexion existantes, puis
 //!   **posent le jeton dans un cookie** `HttpOnly; Secure; SameSite=Lax` et le
-//!   **retirent du corps** : le JavaScript de la page ne le voit jamais.
+//!   **retirent du corps** : le JavaScript de la page ne le voit jamais. Le relais impose
+//!   `client = web` (un navigateur ne peut pas réclamer une session mobile de 90 jours).
 //! - `/web/api/…` relaie vers l'API existante en transformant le cookie en
 //!   `Authorization: Bearer` (ent-api ne lit que cet en-tête, inchangé).
 //! - `POST /web/session/deconnexion` révoque la session en base (`/auth/logout`) et
 //!   efface le cookie.
+//! - `GET /web/session/etat` : temps restant de la session (lu en base), pour l'alerte
+//!   avant expiration.
 //! - Protection CSRF sur toutes les requêtes qui modifient : origine autorisée **et**
 //!   en-tête `X-ENT-CSRF: 1`. Elle s'applique aussi à la connexion (« login CSRF »).
-//! - Durées web (D-011) : inactivité et durée maximale, contrôlées par la passerelle.
-//!   **Limite du prototype** : ce suivi est en mémoire (perdu au redémarrage, donc
-//!   déconnexion de tous). Une version réelle le stockerait en base (`last_seen_at`).
+//! - **Inactivité et durée maximale : la base fait foi** (`ent_session.last_seen_at`,
+//!   `inactivite_max_secs`, `expires_at`, appliqués par `resolve_bearer`). Le relais ne
+//!   garde **aucun état** : redémarrage et multi-instance sans effet. Un 401 d'ent-api
+//!   efface le cookie.
+//! - Après toute **élévation de session** (enrôlement d'une passkey obligatoire : la session
+//!   passe de 15 min à 12 h), le cookie est ré-émis avec la durée lue en base (E3).
 //!
 //! Le cookie n'est accepté **que** sous `/web/…` : les routes existantes (`/auth`,
 //! `/eleves`, l'ancienne interface `/app`, les applis mobiles en Bearer) l'ignorent.
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::{to_bytes, Body};
 use axum::extract::{ConnectInfo, Request, State};
@@ -30,7 +36,6 @@ use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::Router;
-use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
 /// En-tête anti-CSRF exigé sur les requêtes qui modifient.
@@ -52,9 +57,11 @@ pub struct Config {
     pub origines: Vec<String>,
     /// `Secure` + préfixe `__Host-`. `false` uniquement pour un essai sans HTTPS ni localhost.
     pub secure: bool,
-    /// Durée maximale d'une session web (D-011 : 12 h).
+    /// Plafond de `Max-Age` du cookie (D-011 : 12 h). La durée réelle est celle de la base
+    /// (`ENT_SESSION_WEB_MAX_HEURES`) ; le cookie ne dépasse jamais ce plafond.
     pub duree_max: Duration,
-    /// Inactivité maximale (D-011 : 2 h).
+    /// Inactivité annoncée au navigateur par `/web/session/etat` (D-011 : 2 h). Information
+    /// seulement : c'est la base (`ENT_SESSION_WEB_INACTIVITE_MINUTES`) qui l'applique.
     pub inactivite: Duration,
 }
 
@@ -68,56 +75,10 @@ impl Config {
     }
 }
 
-struct Suivi {
-    cree: Instant,
-    vu: Instant,
-}
-
-enum EtatSuivi {
-    Valide,
-    Expiree,
-    Inconnue,
-}
-
 #[derive(Clone)]
 struct Etat {
     api: Router,
     config: Arc<Config>,
-    /// Clé : SHA-256 du jeton (le jeton lui-même n'est pas conservé).
-    suivis: Arc<Mutex<HashMap<String, Suivi>>>,
-}
-
-impl Etat {
-    fn verifier(&self, jeton: &str) -> EtatSuivi {
-        let maintenant = Instant::now();
-        let mut suivis = self.suivis.lock().unwrap();
-        let cle = empreinte(jeton);
-        match suivis.get_mut(&cle) {
-            None => EtatSuivi::Inconnue,
-            Some(s)
-                if maintenant.duration_since(s.cree) > self.config.duree_max
-                    || maintenant.duration_since(s.vu) > self.config.inactivite =>
-            {
-                suivis.remove(&cle);
-                EtatSuivi::Expiree
-            }
-            Some(s) => {
-                s.vu = maintenant;
-                EtatSuivi::Valide
-            }
-        }
-    }
-
-    fn oublier(&self, jeton: &str) {
-        self.suivis.lock().unwrap().remove(&empreinte(jeton));
-    }
-}
-
-fn empreinte(jeton: &str) -> String {
-    Sha256::digest(jeton.as_bytes())
-        .iter()
-        .map(|o| format!("{o:02x}"))
-        .collect()
 }
 
 /// Passerelle de session web, à fusionner **avant** le routeur `api` :
@@ -126,13 +87,13 @@ pub fn passerelle(api: Router, config: Config) -> Router {
     let etat = Etat {
         api,
         config: Arc::new(config),
-        suivis: Arc::new(Mutex::new(HashMap::new())),
     };
     Router::new()
         .route("/web/session/connexion", post(connexion))
         .route("/web/session/passkey/debut", post(passkey_debut))
         .route("/web/session/passkey/fin", post(passkey_fin))
         .route("/web/session/deconnexion", post(deconnexion))
+        .route("/web/session/etat", get(etat_session))
         .route("/web/api/{*chemin}", any(relayer))
         .with_state(etat)
 }
@@ -271,6 +232,13 @@ async fn transmettre(etat: &Etat, req: Request, chemin: &str, jeton: Option<&str
     rep
 }
 
+/// Secondes restantes avant `expires_at` (0 si dépassée ou illisible).
+fn reste_avant(expires_at: &str) -> u64 {
+    chrono::DateTime::parse_from_rfc3339(expires_at)
+        .map(|d| (d.timestamp() - chrono::Utc::now().timestamp()).max(0) as u64)
+        .unwrap_or(0)
+}
+
 /// Réponse de connexion réussie d'ent-api → cookie posé, jeton retiré du corps.
 async fn poser_session(etat: &Etat, rep: Response) -> Response {
     if rep.status() != StatusCode::OK {
@@ -292,22 +260,12 @@ async fn poser_session(etat: &Etat, rep: Response) -> Response {
         // Second facteur demandé : pas de session, le défi passkey est renvoyé tel quel.
         return Response::from_parts(parties, Body::from(octets));
     };
-    // Max-Age ≤ durée maximale web et ≤ expiration réelle de la session en base.
-    let reste_serveur = json
+    // Max-Age ≤ plafond web et ≤ expiration réelle de la session en base.
+    let max_age = json
         .get("expires_at")
         .and_then(|v| v.as_str())
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| (d.timestamp() - chrono::Utc::now().timestamp()).max(0) as u64)
-        .unwrap_or(0);
-    let max_age = reste_serveur.min(etat.config.duree_max.as_secs());
-    let maintenant = Instant::now();
-    etat.suivis.lock().unwrap().insert(
-        empreinte(&jeton),
-        Suivi {
-            cree: maintenant,
-            vu: maintenant,
-        },
-    );
+        .map_or(0, reste_avant)
+        .min(etat.config.duree_max.as_secs());
     let corps = serde_json::to_vec(&json).expect("JSON");
     parties.headers.remove(header::CONTENT_LENGTH);
     parties
@@ -316,13 +274,80 @@ async fn poser_session(etat: &Etat, rep: Response) -> Response {
     Response::from_parts(parties, Body::from(corps))
 }
 
+/// Ligne « session courante » de `GET /auth/sessions` (lue en base par ent-api).
+struct SessionCourante {
+    /// Secondes avant l'expiration absolue (`expires_at`), 0 si déjà dépassée.
+    expire_dans: u64,
+    client: String,
+}
+
+/// Interroge la base (via `GET /auth/sessions`, route existante) sur la session du jeton.
+/// `Err(statut)` : refus d'ent-api (401 session invalide, 403 session d'enrôlement…).
+async fn session_courante(etat: &Etat, jeton: &str) -> Result<SessionCourante, StatusCode> {
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/auth/sessions")
+        .body(Body::empty())
+        .expect("requête interne");
+    let rep = transmettre(etat, req, "/auth/sessions", Some(jeton)).await;
+    if rep.status() != StatusCode::OK {
+        return Err(rep.status());
+    }
+    let octets = to_bytes(rep.into_body(), LIMITE_CORPS)
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let liste: Vec<serde_json::Value> =
+        serde_json::from_slice(&octets).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let courante = liste
+        .iter()
+        .find(|s| s.get("courante").and_then(|v| v.as_bool()) == Some(true))
+        .ok_or(StatusCode::BAD_GATEWAY)?;
+    let expires_at = courante
+        .get("expires_at")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_GATEWAY)?;
+    Ok(SessionCourante {
+        expire_dans: reste_avant(expires_at),
+        client: courante
+            .get("client")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+    })
+}
+
+/// Routes d'ent-api qui **changent la durée ou la portée** de la session courante : après un
+/// succès, le cookie est ré-émis avec la durée lue en base (sinon il garderait celle de la
+/// connexion : 15 min après l'enrôlement d'une passkey obligatoire, alors que la session
+/// passe à 12 h).
+const ROUTES_ELEVATION: &[&str] = &["/auth/passkey/register/finish"];
+
 // ---------------------------------------------------------------------------
 // Routes
+
+/// Force `client = web` dans le corps JSON d'une demande de connexion : la durée de session
+/// (12 h / 2 h d'inactivité) ne doit pas dépendre de ce que le navigateur écrit.
+async fn imposer_client_web(req: Request) -> Request {
+    let (mut parties, corps) = req.into_parts();
+    let Ok(octets) = to_bytes(corps, LIMITE_CORPS).await else {
+        return Request::from_parts(parties, Body::empty());
+    };
+    let nouveau = match serde_json::from_slice::<serde_json::Value>(&octets) {
+        Ok(serde_json::Value::Object(mut o)) => {
+            o.insert("client".into(), "web".into());
+            serde_json::to_vec(&o).unwrap_or_else(|_| octets.to_vec())
+        }
+        _ => octets.to_vec(),
+    };
+    parties.headers.remove(header::CONTENT_LENGTH);
+    Request::from_parts(parties, Body::from(nouveau))
+}
 
 async fn connexion(State(etat): State<Etat>, req: Request) -> Response {
     if let Err(m) = garde_csrf(&etat.config, req.headers()) {
         return texte(StatusCode::FORBIDDEN, m);
     }
+    let req = imposer_client_web(req).await;
     let rep = transmettre(&etat, req, "/auth/login", None).await;
     poser_session(&etat, rep).await
 }
@@ -331,6 +356,7 @@ async fn passkey_debut(State(etat): State<Etat>, req: Request) -> Response {
     if let Err(m) = garde_csrf(&etat.config, req.headers()) {
         return texte(StatusCode::FORBIDDEN, m);
     }
+    let req = imposer_client_web(req).await;
     transmettre(&etat, req, "/auth/passkey/login/start", None).await
 }
 
@@ -347,12 +373,43 @@ async fn deconnexion(State(etat): State<Etat>, req: Request) -> Response {
         return texte(StatusCode::FORBIDDEN, m);
     }
     if let Some(jeton) = lire_cookie(req.headers(), etat.config.nom_cookie()) {
-        etat.oublier(&jeton);
         // Révocation en base (route existante) ; un jeton déjà invalide est sans importance.
         let _ = transmettre(&etat, req, "/auth/logout", Some(&jeton)).await;
     }
     let mut r = StatusCode::NO_CONTENT.into_response();
     sans_cache(r.headers_mut());
+    effacer_cookie(&etat.config, r.headers_mut());
+    r
+}
+
+/// `GET /web/session/etat` : `{ "expire_dans": s, "inactivite_max": s, "client": "web" }`.
+/// `expire_dans` = temps restant avant l'**expiration absolue** (base). L'appel compte
+/// comme une activité (comme toute requête authentifiée) : le navigateur ne l'utilise
+/// qu'au chargement et à la demande, jamais en boucle.
+async fn etat_session(State(etat): State<Etat>, req: Request) -> Response {
+    let Some(jeton) = lire_cookie(req.headers(), etat.config.nom_cookie()) else {
+        return texte(StatusCode::UNAUTHORIZED, "non connecté");
+    };
+    match session_courante(&etat, &jeton).await {
+        Ok(s) => {
+            let mut r = axum::Json(serde_json::json!({
+                "expire_dans": s.expire_dans,
+                "inactivite_max": etat.config.inactivite.as_secs(),
+                "client": s.client,
+            }))
+            .into_response();
+            sans_cache(r.headers_mut());
+            r
+        }
+        Err(StatusCode::UNAUTHORIZED) => session_refusee(&etat),
+        Err(StatusCode::FORBIDDEN) => texte(StatusCode::FORBIDDEN, "état indisponible"),
+        Err(_) => texte(StatusCode::BAD_GATEWAY, "état illisible"),
+    }
+}
+
+/// 401 « session expirée » + effacement du cookie (la base a refusé le jeton).
+fn session_refusee(etat: &Etat) -> Response {
+    let mut r = texte(StatusCode::UNAUTHORIZED, "session expirée");
     effacer_cookie(&etat.config, r.headers_mut());
     r
 }
@@ -374,37 +431,29 @@ async fn relayer(State(etat): State<Etat>, req: Request) -> Response {
     let Some(jeton) = lire_cookie(req.headers(), nom) else {
         return texte(StatusCode::UNAUTHORIZED, "non connecté");
     };
-    match etat.verifier(&jeton) {
-        EtatSuivi::Valide => {}
-        etat_suivi => {
-            if matches!(etat_suivi, EtatSuivi::Expiree) {
-                // Durée web dépassée : la session est aussi révoquée en base.
-                let logout = Request::builder()
-                    .method(Method::POST)
-                    .uri("/auth/logout")
-                    .body(Body::empty())
-                    .unwrap();
-                let _ = transmettre(&etat, logout, "/auth/logout", Some(&jeton)).await;
-            }
-            let mut r = texte(StatusCode::UNAUTHORIZED, "session expirée");
-            effacer_cookie(&etat.config, r.headers_mut());
-            return r;
-        }
-    }
-    if !methode_sure(req.method()) {
+    let sure = methode_sure(req.method());
+    if !sure {
         if let Err(m) = garde_csrf(&etat.config, req.headers()) {
             return texte(StatusCode::FORBIDDEN, m);
         }
     }
+    let elevation = !sure && ROUTES_ELEVATION.iter().any(|r| chemin == *r);
     let cible = match req.uri().query() {
         Some(q) => format!("{chemin}?{q}"),
         None => chemin,
     };
+    // Inactivité, durée maximale, révocation : c'est ent-api (donc la base) qui tranche.
     let mut rep = transmettre(&etat, req, &cible, Some(&jeton)).await;
     if rep.status() == StatusCode::UNAUTHORIZED {
-        // Session révoquée ou expirée côté serveur : on efface aussi le cookie.
-        etat.oublier(&jeton);
+        // Session expirée, inactive ou révoquée : on efface aussi le cookie.
         effacer_cookie(&etat.config, rep.headers_mut());
+    } else if elevation && rep.status().is_success() {
+        // Session élevée : cookie ré-émis avec la nouvelle expiration (lue en base).
+        if let Ok(s) = session_courante(&etat, &jeton).await {
+            let max_age = s.expire_dans.min(etat.config.duree_max.as_secs());
+            rep.headers_mut()
+                .append(header::SET_COOKIE, cookie(&etat.config, &jeton, max_age));
+        }
     }
     rep
 }

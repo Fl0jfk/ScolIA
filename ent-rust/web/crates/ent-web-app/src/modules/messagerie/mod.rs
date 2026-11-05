@@ -15,23 +15,18 @@ pub use fil::PageConversation;
 pub use nouveau::PageNouveauMessage;
 
 use ent_web_api::ApiError;
-use leptos_router::NavigateOptions;
 
-use crate::noyau::session;
+use crate::noyau::reconnexion;
 
 /// Adresse du formulaire de nouveau message.
 pub const NOUVEAU: &str = "/web/messages/nouveau";
 
-/// Suite commune à un échec d'écriture : renvoie le message à afficher ; sur 401 la session
-/// locale est effacée et la personne est renvoyée à la connexion (retour sur `chemin`).
-pub(crate) fn traiter_echec<N: Fn(&str, NavigateOptions)>(
-    erreur: &ApiError,
-    navigate: &N,
-    chemin: &str,
-) -> String {
+/// Suite commune à un échec d'écriture : renvoie le message à afficher ; sur 401 la fenêtre
+/// de reconnexion s'ouvre par-dessus la page (le message et la saisie restent).
+pub(crate) fn traiter_echec(erreur: &ApiError) -> String {
     if matches!(erreur, ApiError::NonConnecte) {
-        session::effacer();
-        navigate(&session::adresse_connexion(chemin), Default::default());
+        reconnexion::signaler_session_perdue();
+        return reconnexion::MESSAGE_SESSION_EXPIREE.into();
     }
     erreur.message_utilisateur()
 }
