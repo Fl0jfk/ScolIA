@@ -34,6 +34,15 @@ pub enum Action {
     RolesGerer,
     /// Politique de sécurité (passkey obligatoire…).
     SecuritePolitique,
+    /// Créer et modifier les personnes (responsables, contacts), leurs liens
+    /// à l'élève et les contacts d'urgence (DOS-03, DOS-05, DOS-08).
+    PersonnesGerer,
+    /// Désigner les payeurs et leurs parts (DOS-07).
+    PayeursDefinir,
+    /// Suspendre ou rétablir le lien d'un responsable (décision de justice, DOS-06).
+    LiensSuspendre,
+    /// Fusionner ou défusionner des personnes en doublon (DOS-15).
+    PersonnesFusionner,
 }
 
 /// Sur quoi une action s'applique.
@@ -50,7 +59,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 11] = [
+    pub const TOUTES: [Action; 15] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -62,6 +71,10 @@ impl Action {
         Action::SuiviEleve,
         Action::RolesGerer,
         Action::SecuritePolitique,
+        Action::PersonnesGerer,
+        Action::PayeursDefinir,
+        Action::LiensSuspendre,
+        Action::PersonnesFusionner,
     ];
 
     pub fn code(self) -> &'static str {
@@ -77,6 +90,10 @@ impl Action {
             Self::SuiviEleve => "suivi.eleve",
             Self::RolesGerer => "roles.gerer",
             Self::SecuritePolitique => "securite.politique",
+            Self::PersonnesGerer => "personnes.gerer",
+            Self::PayeursDefinir => "payeurs.definir",
+            Self::LiensSuspendre => "liens.suspendre",
+            Self::PersonnesFusionner => "personnes.fusionner",
         }
     }
 
@@ -93,6 +110,10 @@ impl Action {
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::RolesGerer => "Gérer les rôles et leurs attributions",
             Self::SecuritePolitique => "Gérer la politique de sécurité",
+            Self::PersonnesGerer => "Gérer les responsables, contacts et liens d'un élève",
+            Self::PayeursDefinir => "Désigner les payeurs et leurs parts",
+            Self::LiensSuspendre => "Suspendre ou rétablir le lien d'un responsable",
+            Self::PersonnesFusionner => "Fusionner ou défusionner des personnes en doublon",
         }
     }
 
@@ -104,7 +125,14 @@ impl Action {
     /// n'acceptent que l'établissement entier (garde-fou 4).
     pub fn portees_admises(self) -> &'static [Portee] {
         match self {
-            Self::RolesGerer | Self::SecuritePolitique => &[Portee::Etablissement],
+            // Actions d'administration et actions sur les personnes (qui ne sont
+            // pas rattachées à une classe) : établissement entier seulement.
+            Self::RolesGerer
+            | Self::SecuritePolitique
+            | Self::PersonnesGerer
+            | Self::PayeursDefinir
+            | Self::LiensSuspendre
+            | Self::PersonnesFusionner => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -208,6 +236,19 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         d.push(etab(RolesGerer));
         d.push(etab(SecuritePolitique));
     }
+    // S2-1 : personnes et liens (mêmes profils que la gestion des élèves) ;
+    // payeurs aussi pour la comptabilité ; suspension et fusion : direction.
+    if role.can_manage_eleves() {
+        d.push(etab(PersonnesGerer));
+        d.push(etab(PayeursDefinir));
+    }
+    if role == Role::Compta {
+        d.push(etab(PayeursDefinir));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(LiensSuspendre));
+        d.push(etab(PersonnesFusionner));
+    }
     d
 }
 
@@ -246,6 +287,13 @@ mod tests {
         assert_eq!(a(Role::Compta, DossierLire), Some(Portee::Etablissement));
         assert_eq!(a(Role::Direction, RolesGerer), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, RolesGerer), None);
+        assert_eq!(a(Role::Administratif, PersonnesGerer), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Compta, PayeursDefinir), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Compta, PersonnesGerer), None);
+        assert_eq!(a(Role::Administratif, LiensSuspendre), None);
+        assert_eq!(a(Role::Direction, LiensSuspendre), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Cpe, PersonnesFusionner), None);
+        assert_eq!(a(Role::Prof, PersonnesGerer), None);
         assert!(modele_par_defaut(Role::Parent).is_empty());
         assert!(modele_par_defaut(Role::Eleve).is_empty());
         // Chaque droit d'un modèle respecte les portées admises.

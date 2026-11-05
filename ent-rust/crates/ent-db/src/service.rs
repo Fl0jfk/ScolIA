@@ -395,6 +395,12 @@ pub enum EntDbError {
     PasskeyRequis,
     #[error("accès refusé pour ce rôle")]
     Forbidden,
+    /// Saisie refusée par une règle du dossier élève (message sans donnée personnelle).
+    #[error("valeur invalide : {0}")]
+    SaisieInvalide(&'static str),
+    /// Opération du dossier élève incompatible avec l'état actuel.
+    #[error("opération en conflit : {0}")]
+    ConflitDossier(&'static str),
     /// Mot de passe actuel absent ou incorrect (re-vérification d'une action sensible).
     #[error("mot de passe actuel requis ou incorrect")]
     MotDePasseActuelInvalide,
@@ -1406,9 +1412,10 @@ impl PgEnt {
         source_id: Uuid,
         actor_user_id: Option<Uuid>,
     ) -> Result<usize, EntDbError> {
+        // Liens ACTIFS seulement (S2-1) : un responsable suspendu n'est plus notifié.
         let liens = self
             .foyers
-            .list_liens_eleve(etablissement_id, eleve_id)
+            .list_liens_eleve_actifs(etablissement_id, eleve_id)
             .await?;
         let user_ids: Vec<Uuid> = liens.iter().map(|l| l.user_id).collect();
         let devices = self
@@ -4205,7 +4212,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         }))
     }
 
-    async fn dossier_sections_for_actor(
+    pub(crate) async fn dossier_sections_for_actor(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,

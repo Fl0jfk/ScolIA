@@ -119,12 +119,13 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
     let Some(m) = message_pour(evt, &prenom) else {
         return Ok(());
     };
-    // Droits relus maintenant : lien actif dans cet établissement, droit de voir
+    // Droits relus maintenant : lien ACTIF (vue unique, S2-1 : ni suspendu ni
+    // hors de ses dates) dans cet établissement, droit de voir
     // la vie scolaire, compte « parent » membre de l'établissement.
     let destinataires: Vec<(Uuid,)> = sqlx::query_as(
         r#"
         SELECT DISTINCT l.user_id
-        FROM ent_eleve_lien l
+        FROM ent_eleve_lien_actif l
         JOIN ent_membership m
           ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
         WHERE l.etablissement_id = $1 AND l.eleve_id = $2

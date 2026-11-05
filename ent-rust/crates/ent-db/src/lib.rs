@@ -59,6 +59,7 @@ mod passkey_repo;
 mod recuperation_repo;
 mod perimetre;
 mod droits_repo;
+pub mod dossier_personnes;
 mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
@@ -123,6 +124,10 @@ pub use service::EnfantFamille;
 pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
 pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
+pub use dossier_personnes::{
+    ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
+    LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
+};
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
     niveau_de_code, role_peut_gerer_referentiel, role_peut_lire_referentiel, AnneeScolaire,
@@ -163,6 +168,8 @@ mod tests_roles;
 mod tests_sso_securite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_outbox;
+#[cfg(all(test, feature = "labo"))]
+mod tests_dossier_personnes;
 
 #[cfg(test)]
 mod integration_tests {
