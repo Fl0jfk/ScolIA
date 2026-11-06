@@ -825,6 +825,18 @@ impl PgEnt {
         self.mail_dry_run_accepte = accepter_dry_run;
     }
 
+    /// Expédie les messages d'inscription en file (après validation des transactions
+    /// métier). Appelée par la tâche de fond de l'API ; les tests l'appellent à la main.
+    pub async fn expedier_envois_inscriptions(&self, limite: i64) -> Result<usize, EntDbError> {
+        Ok(crate::inscriptions_reactions::expedier_envois(
+            &self.pool,
+            &self.mailer,
+            self.mail_dry_run_accepte,
+            limite,
+        )
+        .await?)
+    }
+
     pub fn mailer(&self) -> &MailService {
         &self.mailer
     }

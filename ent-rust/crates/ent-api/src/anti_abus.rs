@@ -115,6 +115,33 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
             Some(Quota::new(10, 900)),
             Some("demande_id"),
         ),
+        // Espace famille à jeton (I0, §2.2 pt 12) : mêmes plafonds par IP pour toutes
+        // les routes à jeton (un seul seau) ; la délivrance d'un jeton par session est
+        // plus stricte. Le jeton porte 256 bits : pas de seau par identifiant.
+        "/preinscription/session" => r(
+            "PREINSCRIPTION_SESSION",
+            Some(Quota::new(20, 900)),
+            None,
+            None,
+        ),
+        "/preinscription/moi"
+        | "/preinscription/dossiers"
+        | "/preinscription/dossiers/{id}"
+        | "/preinscription/dossiers/{id}/pieces/{code}"
+        | "/preinscription/dossiers/{id}/banque"
+        | "/preinscription/dossiers/{id}/mandat"
+        | "/preinscription/dossiers/{id}/mandat/signer" => r(
+            "PREINSCRIPTION_FAMILLE",
+            Some(Quota::new(120, 900)),
+            None,
+            None,
+        ),
+        "/inscriptions/invitations/refuser" => r(
+            "INVITATION_REFUSER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("jeton"),
+        ),
         "/inscriptions/invitations/accepter" => r(
             "INVITATION_ACCEPTER",
             Some(Quota::new(20, 900)),

@@ -387,7 +387,7 @@ fn DetailDossier(dossier: DossierDto, recharger: Callback<()>) -> impl IntoView 
             <form class="pile" on:submit=move |ev| {
                 ev.prevent_default();
                 let c = classe.get_untracked().trim().parse::<Uuid>().ok();
-                let b = ValidationBody { classe_id: c, regime: None };
+                let b = ValidationBody { classe_id: c, regime: None, ..Default::default() };
                 executer(Box::pin(async move { session::client().valider_dossier(id, &b).await.map(|_| "Inscription validée : affectation, invitations et accueil suivent.".to_string()) }));
             }>
                 <ChampTexte id="ins-classe" libelle="Classe cible (identifiant, facultatif)" valeur=classe

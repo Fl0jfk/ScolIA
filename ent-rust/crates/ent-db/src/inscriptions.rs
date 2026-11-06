@@ -149,8 +149,23 @@ fn code_six_chiffres() -> String {
     format!("{n:06}")
 }
 
-fn empreinte_code(demande_id: Uuid, code: &str) -> String {
-    hash_token(&format!("preinscription:{demande_id}:{}", code.trim()))
+/// Empreinte d'un code de vérification : HMAC-SHA-256 sous un secret serveur
+/// (`ENT_SECRETS_KEY`, usage dédié). Un code à 6 chiffres n'a que 10⁶ valeurs : sans
+/// secret, une base volée permettrait de le retrouver par force brute (I0, §2.2 pt 20).
+fn empreinte_code_avec(secret: &ent_auth::SecretBox, demande_id: Uuid, code: &str) -> String {
+    secret.hmac_hex(
+        "preinscription-code-v1",
+        format!("{demande_id}:{}", code.trim()).as_bytes(),
+    )
+}
+
+/// Fail-closed hors labo/test si le secret serveur manque.
+fn empreinte_code(demande_id: Uuid, code: &str) -> Result<String, EntDbError> {
+    Ok(empreinte_code_avec(
+        &ent_auth::SecretBox::from_env()?,
+        demande_id,
+        code,
+    ))
 }
 
 /// `"2027-2028"` (années consécutives).
@@ -368,6 +383,33 @@ struct ResponsableRow {
     meme_foyer: bool,
     autorite_parentale: bool,
     personne_id: Option<Uuid>,
+}
+
+#[derive(Default, Clone)]
+struct PlanResponsable {
+    personne: Option<Uuid>,
+    foyer: Option<Uuid>,
+}
+
+#[derive(Default)]
+struct PlanRapprochement {
+    eleve_existant: Option<Uuid>,
+    responsables: Vec<(Uuid, PlanResponsable)>,
+}
+
+struct DroitsLien {
+    notes: bool,
+    vs: bool,
+    justifier: bool,
+    sorties: bool,
+}
+
+/// `j***@exemple.fr` : l'écran de rapprochement n'affiche jamais l'adresse complète.
+fn masquer_email(e: &str) -> String {
+    match e.split_once('@') {
+        Some((l, d)) => format!("{}***@{d}", l.chars().next().unwrap_or('*')),
+        None => "***".into(),
+    }
 }
 
 /// Contexte d'un jeton de préinscription valide.
@@ -1474,7 +1516,7 @@ impl PgEnt {
         commit(tx).await?;
         // Envoi après validation : la relance reste tracée même si le mail échoue.
         if let Some(to) = d.deposant_email.clone() {
-            let _ = self
+            let res = self
                 .mailer()
                 .send(OutgoingMail {
                     to,
@@ -1487,6 +1529,24 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                     attachments: vec![],
                 })
                 .await;
+            // I0 pt 17 : un échec d'envoi est tracé dans l'historique du dossier (jamais avalé).
+            let parti = matches!(&res, Ok(r) if matches!(r.status, ent_mail::MailSendStatus::Sent | ent_mail::MailSendStatus::DryRun));
+            if !parti {
+                tracing::warn!(dossier = %id, "relance : message non envoyé");
+                let mut tx = self.pool().begin().await.map_err(db)?;
+                suivi_tx(
+                    &mut tx,
+                    etab,
+                    id,
+                    "relance",
+                    None,
+                    Some("Relance enregistrée mais e-mail non envoyé"),
+                    false,
+                    Some(actor),
+                )
+                .await?;
+                commit(tx).await?;
+            }
         }
         Ok(i64::try_from(manquantes.len()).unwrap_or(i64::MAX))
     }
@@ -1660,36 +1720,45 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             }
         };
         let regime = regime.or(d.regime_demande.clone());
-        let responsables: Vec<ResponsableRow> = sqlx::query_as(
-            "SELECT id, rang, nom, prenom, civilite, email, telephone, adresse, lien, meme_foyer,
-                    autorite_parentale, personne_id
-               FROM ent_inscription_responsable WHERE etablissement_id = $1 AND dossier_id = $2
-              ORDER BY rang",
-        )
-        .bind(etab)
-        .bind(id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
+        let responsables = Self::responsables_tx(&mut tx, etab, id).await?;
 
         let mut payeurs = Vec::new();
+        let mut resolutions = Value::Null;
         let eleve_id = match (d.nature.as_str(), d.eleve_id) {
             ("reinscription", Some(e)) => {
                 payeurs.extend(responsables.iter().filter_map(|r| r.personne_id));
                 e
             }
             _ => {
-                let eleve_id =
-                    Self::creer_eleve_tx(&mut tx, etab, &d, regime.as_deref(), actor).await?;
-                payeurs =
-                    Self::rattacher_responsables_tx(&mut tx, etab, eleve_id, &responsables, actor)
-                        .await?;
+                // Rien n'est rapproché ni créé sans décision humaine explicite.
+                let plan = Self::planifier_tx(&mut tx, etab, &d, &responsables, b).await?;
+                resolutions = json!({
+                    "eleve": b.eleve,
+                    "responsables": b.responsables,
+                });
+                let eleve_id = match plan.eleve_existant {
+                    Some(e) => e,
+                    None => {
+                        Self::creer_eleve_tx(&mut tx, etab, &d, regime.as_deref(), actor).await?
+                    }
+                };
+                payeurs = Self::rattacher_responsables_tx(
+                    &mut tx,
+                    etab,
+                    id,
+                    eleve_id,
+                    &responsables,
+                    &plan,
+                    actor,
+                )
+                .await?;
                 eleve_id
             }
         };
         sqlx::query(
             "UPDATE ent_inscription_dossier SET statut = 'validee', eleve_id = $3, classe_cible_id = $4,
-                    regime_demande = $5, valide_par = $6, valide_le = now(), updated_at = now()
+                    regime_demande = $5, valide_par = $6, valide_le = now(), updated_at = now(),
+                    resolutions = $7
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
@@ -1698,6 +1767,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .bind(classe)
         .bind(&regime)
         .bind(actor)
+        .bind(resolutions)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -1748,6 +1818,291 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         })
     }
 
+    // -- Rapprochement humain (I0, §2.2 pts 1-3) ------------------------------
+
+    /// Fiches élève qui pourraient être la même personne (homonyme exact ou INE).
+    async fn candidats_eleve_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        d: &DossierRow,
+    ) -> Result<Vec<EleveCandidatDto>, EntDbError> {
+        let rows: Vec<(Uuid, String, String, Option<NaiveDate>, String, bool)> = sqlx::query_as(
+            "SELECT id, nom, prenom, date_naissance, status,
+                    ($5::text IS NOT NULL AND ine = $5) AS ine_identique
+               FROM ent_eleve
+              WHERE etablissement_id = $1
+                AND ((lower(nom) = lower($2) AND lower(prenom) = lower($3)
+                      AND date_naissance IS NOT DISTINCT FROM $4)
+                     OR ($5::text IS NOT NULL AND ine = $5))
+              ORDER BY created_at LIMIT 10",
+        )
+        .bind(etab)
+        .bind(&d.eleve_nom)
+        .bind(&d.eleve_prenom)
+        .bind(d.eleve_date_naissance)
+        .bind(&d.eleve_ine)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        Ok(rows
+            .into_iter()
+            .map(|(eleve_id, nom, prenom, date_naissance, statut, ine_identique)| {
+                EleveCandidatDto {
+                    eleve_id,
+                    nom,
+                    prenom,
+                    date_naissance,
+                    statut,
+                    ine_identique,
+                }
+            })
+            .collect())
+    }
+
+    /// Personnes de l'établissement qui pourraient être ce responsable (même e-mail,
+    /// ou même nom et prénom), avec leurs foyers. Lecture seule : jamais de lien implicite.
+    async fn candidats_personne_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        r: &ResponsableRow,
+    ) -> Result<Vec<PersonneCandidateDto>, EntDbError> {
+        let rows: Vec<(Uuid, String, Option<String>, Option<String>, bool, bool)> = sqlx::query_as(
+            "SELECT p.id, p.nom, p.prenom, p.email, (p.user_id IS NOT NULL),
+                    ($2::text IS NOT NULL AND lower(p.email) = lower($2)) AS par_email
+               FROM ent_personne p
+              WHERE p.etablissement_id = $1 AND p.fusionnee_dans IS NULL AND p.eleve_id IS NULL
+                AND (($2::text IS NOT NULL AND lower(p.email) = lower($2))
+                     OR ($4::text IS NOT NULL AND lower(p.nom) = lower($3)
+                         AND lower(p.prenom) = lower($4)))
+              ORDER BY par_email DESC, p.created_at LIMIT 10",
+        )
+        .bind(etab)
+        .bind(&r.email)
+        .bind(&r.nom)
+        .bind(&r.prenom)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        let mut out = Vec::new();
+        for (personne_id, nom, prenom, email, a_un_compte, par_email) in rows {
+            let foyers: Vec<(Uuid, String)> = sqlx::query_as(
+                "SELECT DISTINCT f.id, f.libelle FROM ent_eleve_lien l
+                   JOIN ent_foyer f ON f.id = l.foyer_id AND f.etablissement_id = l.etablissement_id
+                  WHERE l.etablissement_id = $1 AND l.personne_id = $2",
+            )
+            .bind(etab)
+            .bind(personne_id)
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(db)?;
+            out.push(PersonneCandidateDto {
+                personne_id,
+                nom,
+                prenom,
+                email_masque: email.as_deref().map(masquer_email),
+                raison: if par_email { "email" } else { "nom" }.into(),
+                a_un_compte,
+                foyers: foyers
+                    .into_iter()
+                    .map(|(foyer_id, libelle)| FoyerCandidatDto { foyer_id, libelle })
+                    .collect(),
+            });
+        }
+        Ok(out)
+    }
+
+    /// Correspondances possibles d'un dossier (écran de validation) — droit `decider`.
+    pub async fn correspondances_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+    ) -> Result<CorrespondancesDto, EntDbError> {
+        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
+            .await?;
+        let mut tx = self.pool().begin().await.map_err(db)?;
+        let d = dossier_tx(&mut tx, etab, id).await?;
+        let responsables = Self::responsables_tx(&mut tx, etab, id).await?;
+        let mut out = CorrespondancesDto {
+            eleves: vec![],
+            responsables: vec![],
+        };
+        if d.nature == "admission" && d.eleve_id.is_none() {
+            out.eleves = Self::candidats_eleve_tx(&mut tx, etab, &d).await?;
+            for r in &responsables {
+                out.responsables.push(ResponsableCorrespondancesDto {
+                    responsable_id: r.id,
+                    rang: r.rang,
+                    candidats: Self::candidats_personne_tx(&mut tx, etab, r).await?,
+                });
+            }
+        }
+        tx.rollback().await.map_err(db)?;
+        Ok(out)
+    }
+
+    async fn responsables_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        dossier_id: Uuid,
+    ) -> Result<Vec<ResponsableRow>, EntDbError> {
+        sqlx::query_as(
+            "SELECT id, rang, nom, prenom, civilite, email, telephone, adresse, lien, meme_foyer,
+                    autorite_parentale, personne_id
+               FROM ent_inscription_responsable WHERE etablissement_id = $1 AND dossier_id = $2
+              ORDER BY rang",
+        )
+        .bind(etab)
+        .bind(dossier_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)
+    }
+
+    /// Contrôle les choix humains contre les correspondances : un responsable ou un
+    /// élève qui a des correspondances possibles ne passe pas sans décision explicite.
+    async fn planifier_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        d: &DossierRow,
+        responsables: &[ResponsableRow],
+        b: &ValidationBody,
+    ) -> Result<PlanRapprochement, EntDbError> {
+        let mut plan = PlanRapprochement::default();
+        // Élève : rattachement à la fiche existante (ancien élève) ou création confirmée.
+        let cands = Self::candidats_eleve_tx(conn, etab, d).await?;
+        match &b.eleve {
+            None if !cands.is_empty() => {
+                return Err(conflit(
+                    "une fiche élève correspond déjà : choisissez le rattachement ou la création",
+                ))
+            }
+            None | Some(ChoixEleve::Nouveau) => {
+                if cands.iter().any(|c| c.ine_identique) {
+                    return Err(conflit(
+                        "INE identique à une fiche existante : le rattachement est obligatoire",
+                    ));
+                }
+            }
+            Some(ChoixEleve::Existant { eleve_id }) => {
+                let ok: Option<(Uuid,)> = sqlx::query_as(
+                    "SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(eleve_id)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(db)?;
+                ok.ok_or(EntDbError::Domain(DomainError::ReferenceInconnue))?;
+                plan.eleve_existant = Some(*eleve_id);
+            }
+        }
+        for res in &b.responsables {
+            if !responsables.iter().any(|r| r.id == res.responsable_id) {
+                return Err(invalide("responsable inconnu dans ce dossier"));
+            }
+        }
+        let mut deja: Vec<Uuid> = vec![];
+        for r in responsables {
+            let res = b.responsables.iter().find(|x| x.responsable_id == r.id);
+            let cands = Self::candidats_personne_tx(conn, etab, r).await?;
+            let mut p = PlanResponsable::default();
+            match res {
+                None if !cands.is_empty() => {
+                    return Err(conflit(
+                        "rapprochement à confirmer : une personne correspond à un responsable du dossier",
+                    ))
+                }
+                None => {}
+                Some(x) => {
+                    if let ChoixPersonne::Existante { personne_id } = &x.personne {
+                        let ok: Option<(Uuid,)> = sqlx::query_as(
+                            "SELECT id FROM ent_personne
+                              WHERE etablissement_id = $1 AND id = $2
+                                AND fusionnee_dans IS NULL AND eleve_id IS NULL",
+                        )
+                        .bind(etab)
+                        .bind(personne_id)
+                        .fetch_optional(&mut *conn)
+                        .await
+                        .map_err(db)?;
+                        ok.ok_or(EntDbError::Domain(DomainError::ReferenceInconnue))?;
+                        if deja.contains(personne_id) {
+                            return Err(conflit(
+                                "une même personne ne peut pas être choisie pour deux responsables",
+                            ));
+                        }
+                        deja.push(*personne_id);
+                        p.personne = Some(*personne_id);
+                        let (foyers,): (i64,) = sqlx::query_as(
+                            "SELECT count(DISTINCT foyer_id) FROM ent_eleve_lien
+                              WHERE etablissement_id = $1 AND personne_id = $2 AND foyer_id IS NOT NULL",
+                        )
+                        .bind(etab)
+                        .bind(personne_id)
+                        .fetch_one(&mut *conn)
+                        .await
+                        .map_err(db)?;
+                        if foyers > 0 && x.foyer.is_none() {
+                            return Err(conflit(
+                                "foyer à confirmer : cette personne appartient déjà à un foyer",
+                            ));
+                        }
+                    }
+                    if let Some(ChoixFoyer::Existant { foyer_id }) = &x.foyer {
+                        let ok: Option<(Uuid,)> = sqlx::query_as(
+                            "SELECT id FROM ent_foyer WHERE etablissement_id = $1 AND id = $2",
+                        )
+                        .bind(etab)
+                        .bind(foyer_id)
+                        .fetch_optional(&mut *conn)
+                        .await
+                        .map_err(db)?;
+                        ok.ok_or(EntDbError::Domain(DomainError::ReferenceInconnue))?;
+                        p.foyer = Some(*foyer_id);
+                    }
+                }
+            }
+            plan.responsables.push((r.id, p));
+        }
+        Ok(plan)
+    }
+
+    /// Droits d'un lien selon le paramétrage de l'établissement ; à défaut, seul un
+    /// titulaire de l'autorité parentale voit notes et vie scolaire (jamais codé en dur à « tout »).
+    async fn droits_lien_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        lien: &str,
+        autorite: bool,
+    ) -> Result<DroitsLien, EntDbError> {
+        let p: Option<(bool, bool, bool, bool)> = sqlx::query_as(
+            "SELECT peut_voir_notes, peut_voir_vs, peut_justifier_absence, peut_autoriser_sorties
+               FROM ent_inscription_parametre_lien WHERE etablissement_id = $1 AND lien = $2",
+        )
+        .bind(etab)
+        .bind(lien)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
+        Ok(match p {
+            Some((n, v, j, s)) => DroitsLien {
+                notes: n,
+                vs: v,
+                justifier: j,
+                sorties: s,
+            },
+            None => DroitsLien {
+                notes: autorite,
+                vs: autorite,
+                justifier: autorite,
+                sorties: false,
+            },
+        })
+    }
+
+    /// Fiche élève : rattachement à l'existante (choix humain) ou création.
     async fn creer_eleve_tx(
         conn: &mut PgConnection,
         etab: Uuid,
@@ -1755,27 +2110,6 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         regime: Option<&str>,
         actor: Uuid,
     ) -> Result<Uuid, EntDbError> {
-        // DOS-01 : homonyme exact (nom, prénom, date de naissance) ou INE déjà présent → refus.
-        let (homonymes,): (i64,) = sqlx::query_as(
-            "SELECT count(*) FROM ent_eleve
-              WHERE etablissement_id = $1
-                AND ((lower(nom) = lower($2) AND lower(prenom) = lower($3)
-                      AND date_naissance IS NOT DISTINCT FROM $4)
-                     OR ($5::text IS NOT NULL AND ine = $5))",
-        )
-        .bind(etab)
-        .bind(&d.eleve_nom)
-        .bind(&d.eleve_prenom)
-        .bind(d.eleve_date_naissance)
-        .bind(&d.eleve_ine)
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)?;
-        if homonymes > 0 {
-            return Err(conflit(
-                "un élève de même identité (ou de même INE) existe déjà dans l'établissement",
-            ));
-        }
         let eleve_id = Uuid::new_v4();
         // Élève « préinscrit » tant qu'aucune classe de l'année courante ne lui est
         // affectée : la réaction d'affectation (`d1.affectation_inscription`) le rend actif.
@@ -1811,34 +2145,39 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         Ok(eleve_id)
     }
 
-    /// Personnes (retrouvées par e-mail dans l'établissement, sinon créées),
-    /// foyers (un par parent séparé) et liens. Renvoie les personnes payeuses.
+    /// Personnes (nouvelles, ou rapprochées sur choix humain), foyers (existant confirmé
+    /// ou nouveau) et liens. Un lien vers une personne qui a déjà un compte reste
+    /// **en attente** jusqu'à sa confirmation. Renvoie les personnes payeuses.
     async fn rattacher_responsables_tx(
         conn: &mut PgConnection,
         etab: Uuid,
+        dossier_id: Uuid,
         eleve_id: Uuid,
         responsables: &[ResponsableRow],
+        plan: &PlanRapprochement,
         actor: Uuid,
     ) -> Result<Vec<Uuid>, EntDbError> {
         let mut foyer_principal: Option<Uuid> = None;
         let mut payeurs = Vec::new();
         for r in responsables {
-            let existante: Option<(Uuid,)> = match &r.email {
-                Some(e) => sqlx::query_as(
-                    "SELECT id FROM ent_personne
-                      WHERE etablissement_id = $1 AND lower(email) = lower($2)
-                        AND fusionnee_dans IS NULL AND eleve_id IS NULL
-                      ORDER BY (user_id IS NOT NULL) DESC, created_at LIMIT 1",
-                )
-                .bind(etab)
-                .bind(e)
-                .fetch_optional(&mut *conn)
-                .await
-                .map_err(db)?,
-                None => None,
-            };
-            let personne_id = match existante {
-                Some((p,)) => p,
+            let choix = plan
+                .responsables
+                .iter()
+                .find(|(id, _)| *id == r.id)
+                .map(|(_, p)| p.clone())
+                .unwrap_or_default();
+            let (personne_id, a_un_compte) = match choix.personne {
+                Some(p) => {
+                    let (compte,): (bool,) = sqlx::query_as(
+                        "SELECT user_id IS NOT NULL FROM ent_personne WHERE etablissement_id = $1 AND id = $2",
+                    )
+                    .bind(etab)
+                    .bind(p)
+                    .fetch_one(&mut *conn)
+                    .await
+                    .map_err(db)?;
+                    (p, compte)
+                }
                 None => {
                     let p = Uuid::new_v4();
                     sqlx::query(
@@ -1868,10 +2207,16 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                         Some(actor),
                     )
                     .await?;
-                    p
+                    (p, false)
                 }
             };
-            let foyer = if r.rang == 1 || !r.meme_foyer || foyer_principal.is_none() {
+            // Foyer : celui confirmé par l'humain (fratrie), sinon le foyer du déposant
+            // pour un second parent « même foyer », sinon un nouveau foyer.
+            let foyer = if let Some(f) = choix.foyer {
+                f
+            } else if r.rang != 1 && r.meme_foyer && foyer_principal.is_some() {
+                foyer_principal.unwrap_or_default()
+            } else {
                 let f = Uuid::new_v4();
                 sqlx::query(
                     "INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1,$2,$3)",
@@ -1882,33 +2227,11 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 .execute(&mut *conn)
                 .await
                 .map_err(db)?;
-                if foyer_principal.is_none() {
-                    foyer_principal = Some(f);
-                }
                 f
-            } else {
-                foyer_principal.unwrap_or_default()
             };
-            let payeur = r.rang == 1;
-            sqlx::query(
-                "INSERT INTO ent_eleve_lien (
-                     id, etablissement_id, eleve_id, personne_id, foyer_id, lien, autorite_parentale,
-                     peut_voir_notes, peut_voir_vs, peut_justifier_absence, peut_autoriser_sorties,
-                     est_payeur, part_paiement, created_at, updated_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,true,true,true,false,$8,$9,now(),now())",
-            )
-            .bind(Uuid::new_v4())
-            .bind(etab)
-            .bind(eleve_id)
-            .bind(personne_id)
-            .bind(foyer)
-            .bind(&r.lien)
-            .bind(r.autorite_parentale)
-            .bind(payeur)
-            .bind(if payeur { Some(100_i16) } else { None })
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
+            if foyer_principal.is_none() {
+                foyer_principal = Some(foyer);
+            }
             sqlx::query(
                 "UPDATE ent_inscription_responsable SET personne_id = $3 WHERE etablissement_id = $1 AND id = $2",
             )
@@ -1918,22 +2241,126 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             .execute(&mut *conn)
             .await
             .map_err(db)?;
-            publier(
-                conn,
-                etab,
-                types::ELEVE_LIEN_UPDATED,
-                AggregateKind::Eleve,
-                eleve_id,
-                Some(eleve_id),
-                json!({ "personne_id": personne_id, "autorite_parentale": r.autorite_parentale, "source": "inscription" }),
-                Some(actor),
+            // Fiche élève existante déjà liée à cette personne : rien à créer.
+            let (existe,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien
+                                 WHERE etablissement_id = $1 AND eleve_id = $2 AND personne_id = $3)",
             )
-            .await?;
+            .bind(etab)
+            .bind(eleve_id)
+            .bind(personne_id)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?;
+            if existe {
+                continue;
+            }
+            let payeur = r.rang == 1;
+            let part = if payeur { Some(100_i16) } else { None };
+            let droits = Self::droits_lien_tx(conn, etab, &r.lien, r.autorite_parentale).await?;
+            if a_un_compte {
+                // Jamais d'accès sans confirmation de la personne titulaire du compte.
+                sqlx::query(
+                    "INSERT INTO ent_inscription_lien_attente
+                        (id, etablissement_id, dossier_id, responsable_id, eleve_id, personne_id, foyer_id,
+                         lien, autorite_parentale, peut_voir_notes, peut_voir_vs, peut_justifier_absence,
+                         peut_autoriser_sorties, est_payeur, part_paiement)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                     ON CONFLICT (dossier_id, responsable_id) DO NOTHING",
+                )
+                .bind(Uuid::new_v4())
+                .bind(etab)
+                .bind(dossier_id)
+                .bind(r.id)
+                .bind(eleve_id)
+                .bind(personne_id)
+                .bind(foyer)
+                .bind(&r.lien)
+                .bind(r.autorite_parentale)
+                .bind(droits.notes)
+                .bind(droits.vs)
+                .bind(droits.justifier)
+                .bind(droits.sorties)
+                .bind(payeur)
+                .bind(part)
+                .execute(&mut *conn)
+                .await
+                .map_err(db)?;
+            } else {
+                Self::creer_lien_tx(
+                    conn,
+                    etab,
+                    eleve_id,
+                    personne_id,
+                    foyer,
+                    &r.lien,
+                    r.autorite_parentale,
+                    &droits,
+                    payeur,
+                    part,
+                    actor,
+                    "inscription",
+                )
+                .await?;
+            }
             if payeur {
                 payeurs.push(personne_id);
             }
         }
         Ok(payeurs)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn creer_lien_tx(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        eleve_id: Uuid,
+        personne_id: Uuid,
+        foyer: Uuid,
+        lien: &str,
+        autorite: bool,
+        droits: &DroitsLien,
+        payeur: bool,
+        part: Option<i16>,
+        actor: Uuid,
+        source: &str,
+    ) -> Result<(), EntDbError> {
+        sqlx::query(
+            "INSERT INTO ent_eleve_lien (
+                 id, etablissement_id, eleve_id, personne_id, foyer_id, lien, autorite_parentale,
+                 peut_voir_notes, peut_voir_vs, peut_justifier_absence, peut_autoriser_sorties,
+                 est_payeur, part_paiement, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
+             ON CONFLICT (etablissement_id, eleve_id, personne_id) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(eleve_id)
+        .bind(personne_id)
+        .bind(foyer)
+        .bind(lien)
+        .bind(autorite)
+        .bind(droits.notes)
+        .bind(droits.vs)
+        .bind(droits.justifier)
+        .bind(droits.sorties)
+        .bind(payeur)
+        .bind(part)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+        publier(
+            conn,
+            etab,
+            types::ELEVE_LIEN_UPDATED,
+            AggregateKind::Eleve,
+            eleve_id,
+            Some(eleve_id),
+            json!({ "personne_id": personne_id, "autorite_parentale": autorite, "source": source }),
+            Some(actor),
+        )
+        .await?;
+        Ok(())
     }
 
     // -- Préinscription : vérification (anti-énumération) --------------------
@@ -1955,7 +2382,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .bind(id)
         .bind(etab)
         .bind(&email)
-        .bind(empreinte_code(id, &code))
+        .bind(empreinte_code(id, &code)?)
         .bind(i32::try_from(CODE_TTL_MINUTES).unwrap_or(15))
         .execute(self.pool())
         .await
@@ -2020,7 +2447,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if verifie.is_some() || expire < Utc::now() || tentatives >= CODE_ESSAIS_MAX {
             return Err(generique());
         }
-        if h != empreinte_code(demande_id, code) {
+        if !ent_auth::ct_eq(&h, &empreinte_code(demande_id, code)?) {
             sqlx::query("UPDATE ent_preinscription_verification SET tentatives = tentatives + 1 WHERE id = $1 AND etablissement_id = $2")
                 .bind(demande_id)
                 .bind(etab)
@@ -2055,7 +2482,32 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         &self,
         etab: Uuid,
         user_id: Uuid,
+        role: &str,
     ) -> Result<JetonPreinscriptionDto, EntDbError> {
+        // I0 pt 12 : seuls les responsables (profil parent) et les élèves majeurs reçoivent
+        // un jeton famille — pas un professeur, un agent ni un élève mineur.
+        match Role::parse(role) {
+            Some(Role::Parent) => {}
+            Some(Role::Eleve) => {
+                let (majeur,): (bool,) = sqlx::query_as(
+                    "SELECT EXISTS (
+                        SELECT 1 FROM ent_eleve_compte c
+                          JOIN ent_eleve e ON e.etablissement_id = c.etablissement_id AND e.id = c.eleve_id
+                         WHERE c.etablissement_id = $1 AND c.user_id = $2
+                           AND e.date_naissance IS NOT NULL
+                           AND e.date_naissance <= (now() AT TIME ZONE 'UTC')::date - interval '18 years')",
+                )
+                .bind(etab)
+                .bind(user_id)
+                .fetch_one(self.pool())
+                .await
+                .map_err(db)?;
+                if !majeur {
+                    return Err(EntDbError::Forbidden);
+                }
+            }
+            _ => return Err(EntDbError::Forbidden),
+        }
         let (email,): (String,) = sqlx::query_as("SELECT lower(email) FROM ent_user WHERE id = $1")
             .bind(user_id)
             .fetch_optional(self.pool())
@@ -2866,9 +3318,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
 
     // -- Invitations (INS-13, D-014 second parent) ---------------------------
 
-    /// Accepter une invitation (lien reçu par e-mail = adresse confirmée) :
-    /// rattache l'identité existante (D-013) ou crée le compte, puis relie la
-    /// personne de l'établissement à ce compte.
+    /// Accepter une invitation (lien reçu par e-mail = adresse confirmée), **en une seule
+    /// transaction** : compte (créé ou existant), appartenance, rattachement de la fiche
+    /// et activation des liens en attente. Une fiche déjà rattachée à un compte n'est
+    /// jamais réassignée : seul son titulaire peut confirmer.
     pub async fn accepter_invitation(
         &self,
         etab: Uuid,
@@ -2877,85 +3330,181 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if jeton.trim().is_empty() || jeton.len() > 256 {
             return Err(invalide("invitation invalide ou expirée"));
         }
-        let inv: Option<(Uuid, Uuid, String, Uuid)> = sqlx::query_as(
-            "SELECT i.id, i.personne_id, i.email, i.dossier_id FROM ent_inscription_invitation i
-              WHERE i.jeton_hash = $1 AND i.etablissement_id = $2 AND i.statut IN ('envoyee', 'non_envoyee')
-                AND i.expire_le > now()",
+        let mut tx = self.pool().begin().await.map_err(db)?;
+        let inv: Option<(Uuid, Uuid, Uuid, String)> = sqlx::query_as(
+            "SELECT i.id, i.personne_id, i.responsable_id, i.email FROM ent_inscription_invitation i
+              WHERE i.jeton_hash = $1 AND i.etablissement_id = $2
+                AND i.statut IN ('a_envoyer', 'envoyee', 'non_envoyee')
+                AND i.expire_le > now()
+              FOR UPDATE",
         )
         .bind(hash_token(jeton.trim()))
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let (inv_id, personne_id, email, _dossier) =
+        let (inv_id, personne_id, responsable_id, email) =
             inv.ok_or(invalide("invitation invalide ou expirée"))?;
-        let nom: (String, Option<String>) = sqlx::query_as(
-            "SELECT nom, prenom FROM ent_personne WHERE etablissement_id = $1 AND id = $2",
+        let (nom, prenom, user_fiche): (String, Option<String>, Option<Uuid>) = sqlx::query_as(
+            "SELECT nom, prenom, user_id FROM ent_personne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(etab)
         .bind(personne_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
         let existant: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_user WHERE lower(email) = lower($1)")
                 .bind(&email)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
-        let (user_id, cree) = match existant {
-            Some((u,)) => (u, false),
-            None => {
-                let mdp = format!("{}Aa9!", ent_auth::generate_temp_password());
-                let libelle = match &nom.1 {
-                    Some(p) => format!("{p} {}", nom.0),
-                    None => nom.0.clone(),
-                };
-                let u = self
-                    .register_user(&email, &mdp, Some(&libelle), etab, Role::Parent.as_str())
-                    .await?;
-                (u.id, true)
+        let (user_id, cree) = match (user_fiche, existant) {
+            // Confirmation par le titulaire du compte déjà rattaché à la fiche.
+            (Some(pu), Some((u,))) if pu == u => (u, false),
+            (Some(_), _) => {
+                return Err(conflit(
+                    "cette fiche est déjà rattachée à un autre compte : contactez l'établissement",
+                ))
             }
-        };
-        let mut tx = self.pool().begin().await.map_err(db)?;
-        // Rattachement à l'établissement (confirmé par la personne).
-        let role_actuel: Option<(String,)> = sqlx::query_as(
-            "SELECT role FROM ent_membership WHERE user_id = $1 AND etablissement_id = $2",
-        )
-        .bind(user_id)
-        .bind(etab)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        if role_actuel.is_none() {
-            sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1,$2,'parent',now())")
-                .bind(user_id)
-                .bind(etab)
+            (None, Some((u,))) => (u, false),
+            (None, None) => {
+                let mdp = format!("{}Aa9!", ent_auth::generate_temp_password());
+                let libelle = match &prenom {
+                    Some(p) => format!("{p} {nom}"),
+                    None => nom.clone(),
+                };
+                let hash = ent_auth::hash_password(&mdp).map_err(ent_auth::AuthError::from)?;
+                let u = Uuid::new_v4();
+                sqlx::query(
+                    "INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at)
+                     VALUES ($1,$2,$3,$4,now(),now())",
+                )
+                .bind(u)
+                .bind(&email)
+                .bind(hash)
+                .bind(libelle)
                 .execute(&mut *tx)
                 .await
                 .map_err(db)?;
-        }
-        let deja: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2 AND id <> $3",
+                (u, true)
+            }
+        };
+        // Rattachement à l'établissement (confirmé par la personne).
+        sqlx::query(
+            "INSERT INTO ent_membership (user_id, etablissement_id, role, created_at)
+             VALUES ($1,$2,'parent',now()) ON CONFLICT DO NOTHING",
         )
-        .bind(etab)
         .bind(user_id)
-        .bind(personne_id)
-        .fetch_optional(&mut *tx)
+        .bind(etab)
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
-        if deja.is_some() {
-            return Err(conflit(
-                "cette identité est déjà rattachée à une autre fiche : contactez l'établissement",
-            ));
-        }
-        sqlx::query("UPDATE ent_personne SET user_id = $3, updated_at = now() WHERE etablissement_id = $1 AND id = $2")
+        if user_fiche.is_none() {
+            let deja: Option<(Uuid,)> = sqlx::query_as(
+                "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2 AND id <> $3",
+            )
+            .bind(etab)
+            .bind(user_id)
+            .bind(personne_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            if deja.is_some() {
+                return Err(conflit(
+                    "cette identité est déjà rattachée à une autre fiche : contactez l'établissement",
+                ));
+            }
+            // Garde « personne sans compte » : jamais de réassignation.
+            let r = sqlx::query(
+                "UPDATE ent_personne SET user_id = $3, updated_at = now()
+                  WHERE etablissement_id = $1 AND id = $2 AND user_id IS NULL",
+            )
             .bind(etab)
             .bind(personne_id)
             .bind(user_id)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+            if r.rows_affected() != 1 {
+                return Err(conflit("cette fiche vient d'être rattachée à un compte"));
+            }
+        }
+        // Liens en attente de CETTE invitation : actifs seulement maintenant.
+        let attente: Vec<(
+            Uuid,
+            Uuid,
+            Option<Uuid>,
+            String,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+            Option<i16>,
+        )> = sqlx::query_as(
+            "SELECT id, eleve_id, foyer_id, lien, autorite_parentale, peut_voir_notes, peut_voir_vs,
+                    peut_justifier_absence, peut_autoriser_sorties, est_payeur, part_paiement
+               FROM ent_inscription_lien_attente
+              WHERE etablissement_id = $1 AND personne_id = $2 AND responsable_id = $3
+                AND statut = 'en_attente' FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(personne_id)
+        .bind(responsable_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        for (id, eleve_id, foyer, lien, autorite, notes, vs, justifier, sorties, payeur, part) in
+            attente
+        {
+            let foyer = match foyer {
+                Some(f) => f,
+                None => {
+                    let f = Uuid::new_v4();
+                    sqlx::query(
+                        "INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1,$2,$3)",
+                    )
+                    .bind(f)
+                    .bind(etab)
+                    .bind(format!("Foyer {}", nom.to_uppercase()))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                    f
+                }
+            };
+            Self::creer_lien_tx(
+                &mut tx,
+                etab,
+                eleve_id,
+                personne_id,
+                foyer,
+                &lien,
+                autorite,
+                &DroitsLien {
+                    notes,
+                    vs,
+                    justifier,
+                    sorties,
+                },
+                payeur,
+                part,
+                user_id,
+                "confirmation_responsable",
+            )
+            .await?;
+            sqlx::query(
+                "UPDATE ent_inscription_lien_attente SET statut = 'confirme', decide_le = now()
+                  WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         sqlx::query(
             "UPDATE ent_inscription_invitation SET statut = 'acceptee', accepte_le = now(), user_id = $2 WHERE id = $1 AND etablissement_id = $3",
         )
@@ -3028,6 +3577,106 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                 "Votre compte existant est désormais rattaché à cet établissement.".into()
             },
         })
+    }
+
+    /// Droits par type de lien (paramétrage de l'établissement ; valeurs par défaut sinon).
+    pub async fn parametres_liens_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+    ) -> Result<Vec<ParametreLienDto>, EntDbError> {
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
+        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut out = Vec::new();
+        for lien in ["mere", "pere", "tuteur", "autre"] {
+            let d = Self::droits_lien_tx(&mut conn, etab, lien, lien != "autre").await?;
+            out.push(ParametreLienDto {
+                lien: lien.into(),
+                peut_voir_notes: d.notes,
+                peut_voir_vs: d.vs,
+                peut_justifier_absence: d.justifier,
+                peut_autoriser_sorties: d.sorties,
+            });
+        }
+        Ok(out)
+    }
+
+    pub async fn definir_parametre_lien_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        p: &ParametreLienDto,
+    ) -> Result<(), EntDbError> {
+        self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
+            .await?;
+        if !matches!(p.lien.as_str(), "mere" | "pere" | "tuteur" | "autre") {
+            return Err(invalide("type de lien inconnu"));
+        }
+        sqlx::query(
+            "INSERT INTO ent_inscription_parametre_lien
+                (etablissement_id, lien, peut_voir_notes, peut_voir_vs, peut_justifier_absence,
+                 peut_autoriser_sorties, modifie_par)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (etablissement_id, lien) DO UPDATE SET
+                peut_voir_notes = $3, peut_voir_vs = $4, peut_justifier_absence = $5,
+                peut_autoriser_sorties = $6, modifie_par = $7, updated_at = now()",
+        )
+        .bind(etab)
+        .bind(&p.lien)
+        .bind(p.peut_voir_notes)
+        .bind(p.peut_voir_vs)
+        .bind(p.peut_justifier_absence)
+        .bind(p.peut_autoriser_sorties)
+        .bind(actor)
+        .execute(self.pool())
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
+    /// Refuser une invitation : le lien en attente est annulé, aucun accès n'est ouvert.
+    pub async fn refuser_invitation(&self, etab: Uuid, jeton: &str) -> Result<(), EntDbError> {
+        if jeton.trim().is_empty() || jeton.len() > 256 {
+            return Err(invalide("invitation invalide ou expirée"));
+        }
+        let mut tx = self.pool().begin().await.map_err(db)?;
+        let inv: Option<(Uuid, Uuid, Uuid)> = sqlx::query_as(
+            "SELECT id, personne_id, responsable_id FROM ent_inscription_invitation
+              WHERE jeton_hash = $1 AND etablissement_id = $2
+                AND statut IN ('a_envoyer', 'envoyee', 'non_envoyee') AND expire_le > now()
+              FOR UPDATE",
+        )
+        .bind(hash_token(jeton.trim()))
+        .bind(etab)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let (inv_id, personne_id, responsable_id) =
+            inv.ok_or(invalide("invitation invalide ou expirée"))?;
+        sqlx::query(
+            "UPDATE ent_inscription_lien_attente SET statut = 'refuse', decide_le = now()
+              WHERE etablissement_id = $1 AND personne_id = $2 AND responsable_id = $3
+                AND statut = 'en_attente'",
+        )
+        .bind(etab)
+        .bind(personne_id)
+        .bind(responsable_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_inscription_invitation SET statut = 'refusee' WHERE id = $1 AND etablissement_id = $2",
+        )
+        .bind(inv_id)
+        .bind(etab)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        commit(tx).await?;
+        Ok(())
     }
 
     // -- Réinscription par la famille (INS-07, INS-08) -------------------------
@@ -3285,10 +3934,14 @@ mod tests_unitaires {
             assert!(c.chars().all(|c| c.is_ascii_digit()));
         }
         let id = Uuid::new_v4();
-        assert_eq!(empreinte_code(id, "123456"), empreinte_code(id, " 123456 "));
+        let sb = ent_auth::SecretBox::dev();
+        let e = |i, c| empreinte_code_avec(&sb, i, c);
+        assert_eq!(e(id, "123456"), e(id, " 123456 "));
+        assert_ne!(e(id, "123456"), e(Uuid::new_v4(), "123456"));
+        // L'empreinte n'est plus un simple SHA-256 rejouable sans secret.
         assert_ne!(
-            empreinte_code(id, "123456"),
-            empreinte_code(Uuid::new_v4(), "123456")
+            e(id, "123456"),
+            hash_token(&format!("preinscription:{id}:123456"))
         );
     }
 
