@@ -482,3 +482,27 @@
 .jvs-liste--discrete { font-size: var(--taille-s); color: var(--c-attenue); }
 .jvs-demi { margin-top: var(--esp-1); }
 .disc-eleve { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); margin-block: var(--esp-3); }
+
+/* Évaluations (S2-7) : grille, vues de classe, conseil, bulletins. */
+.eva-periode { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); margin-bottom: var(--esp-3); }
+.eva-actions { display: flex; flex-wrap: wrap; gap: var(--esp-2); margin-block: var(--esp-3); }
+.eva-liens { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); }
+.eva-cadre { overflow-x: auto; border-radius: var(--rayon); background: var(--c-surface); box-shadow: var(--ombre-1); margin-block: var(--esp-3); }
+.eva-grille th, .eva-grille td { white-space: nowrap; }
+.eva-grille tbody th { position: sticky; left: 0; background: var(--c-surface); z-index: 1; }
+.eva-col { vertical-align: top; }
+.eva-col__titre { display: block; font-weight: var(--graisse-forte); }
+.eva-col__info { display: block; font-size: var(--taille-s); color: var(--c-attenue); font-weight: normal; }
+.eva-cellule { width: 4.5rem; min-height: var(--cible); text-align: center; border: 1px solid var(--c-ligne-forte); border-radius: var(--rayon-petit); font: inherit; background: var(--c-surface); }
+.eva-cellule:focus-visible, .eva-appreciation:focus-visible { outline: none; box-shadow: var(--focus); }
+.eva-appreciation { width: 16rem; min-height: var(--cible); border: 1px solid var(--c-ligne-forte); border-radius: var(--rayon-petit); font: inherit; padding: 0 var(--esp-2); }
+.eva-moyenne { font-weight: var(--graisse-forte); }
+.eva-stats { font-size: var(--taille-s); color: var(--c-attenue); }
+.eva-details { margin-block: var(--esp-3); }
+.eva-details > summary { cursor: pointer; min-height: var(--cible); display: flex; align-items: center; font-weight: var(--graisse-forte); }
+.eva-formulaire { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: var(--esp-2); align-items: end; margin-block: var(--esp-2); }
+.eva-eleve__tete { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); }
+.eva-citation { margin: var(--esp-1) 0; font-style: italic; color: var(--c-attenue); }
+.eva-notes { list-style: none; margin: 0; padding: 0; white-space: normal; }
+.eva-export { margin-block: var(--esp-3); }
+@media (max-width: 40rem) { .eva-appreciation { width: 12rem; } }

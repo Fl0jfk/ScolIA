@@ -17,6 +17,8 @@ pub const REFERENTIEL: &str = "/web/referentiel";
 pub const DISCIPLINE: &str = "/web/discipline";
 pub const SIGNALEMENTS: &str = "/web/signalements";
 pub const ABSENCES: &str = "/web/absences";
+/// Évaluations, conseils, bulletins (S2-7).
+pub const EVALUATIONS: &str = "/web/evaluations";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
 pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
@@ -75,6 +77,13 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if moteur.peut_signaler_assiduite() {
         v.push(entree("Signalements", SIGNALEMENTS, NomIcone::Annonce));
+    }
+    // Évaluations : personnel qui lit ou saisit des notes (moteur), familles, élèves.
+    if (droits.personnel && (moteur.a("notes.saisir") || moteur.a("notes.lire")))
+        || droits.portail_famille
+        || droits.mes_absences
+    {
+        v.push(entree("Évaluations", EVALUATIONS, NomIcone::Ecole));
     }
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("Absences", ABSENCES, NomIcone::Personne));
@@ -161,7 +170,7 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, ABSENCES, MESSAGES],
+            [ACCUEIL, EVALUATIONS, ABSENCES, MESSAGES],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
@@ -186,7 +195,10 @@ mod tests {
             .into_iter()
             .map(|e| e.href)
             .collect();
-        assert_eq!(eleve, [ACCUEIL, EMPLOI_DU_TEMPS, ABSENCES, MESSAGES]);
+        assert_eq!(
+            eleve,
+            [ACCUEIL, EMPLOI_DU_TEMPS, EVALUATIONS, ABSENCES, MESSAGES]
+        );
     }
 
     fn droit(action: &str, portee: &str) -> ent_web_api::DroitEffectif {
@@ -246,7 +258,18 @@ mod tests {
     #[test]
     fn famille_et_eleve_ne_voient_aucun_ecran_d_administration() {
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
-        assert_eq!(v, [ACCUEIL, ABSENCES, MESSAGES]);
+        assert_eq!(v, [ACCUEIL, EVALUATIONS, ABSENCES, MESSAGES]);
+    }
+
+    #[test]
+    fn evaluations_selon_les_droits_sur_les_notes() {
+        // Personnel : seulement avec « notes.lire » ou « notes.saisir » (quelle que soit la portée).
+        let sans = adresses(droits_du_role("compta"), &DroitsMoteur::default());
+        assert!(!sans.contains(&EVALUATIONS.to_string()));
+        let prof = DroitsMoteur::new(vec![droit("notes.saisir", "mes_classes")]);
+        assert!(adresses(droits_du_role("prof"), &prof).contains(&EVALUATIONS.to_string()));
+        let eleve = adresses(droits_du_role("eleve"), &DroitsMoteur::default());
+        assert!(eleve.contains(&EVALUATIONS.to_string()));
     }
 
     #[test]

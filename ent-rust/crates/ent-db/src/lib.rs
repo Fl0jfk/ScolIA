@@ -142,6 +142,8 @@ pub use copilote::{
     analyser, format_eur, Intention, ReponseCopilote, CAPACITES, COPILOTE_JOURS_DEFAUT,
 };
 pub use foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, UpdateLien};
+// S2-7 : commandes utiles aux tests contre le backend (frontend).
+pub use domain_eleve::{CreateEleve, CreerNotePeriode};
 pub use mail_repo::MailOutboxRow;
 pub use iban_histo_repo::IbanHisto;
 /// D2 : contrôle des fichiers déposés (réexport d'`ent-object`).
