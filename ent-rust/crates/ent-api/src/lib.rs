@@ -116,6 +116,12 @@ fn request_timeout_secs() -> u64 {
         .unwrap_or(120)
 }
 
+/// `*` n'est admis que si `ENT_ENV` désigne explicitement un environnement non productif.
+pub(crate) fn cors_ouvert_autorise(env: Option<&str>) -> bool {
+    env.map(|e| e.trim().to_ascii_lowercase())
+        .is_some_and(|v| ["lab", "labo", "dev", "local", "test"].contains(&v.as_str()))
+}
+
 /// CORS optionnel via `ENT_CORS_ORIGINS` (liste séparée par des virgules,
 /// ou `*`). Sans variable → pas de CORS (same-origin uniquement).
 fn cors_layer_from_env() -> Option<CorsLayer> {
@@ -125,7 +131,13 @@ fn cors_layer_from_env() -> Option<CorsLayer> {
         return None;
     }
     if raw == "*" {
-        return Some(CorsLayer::permissive());
+        // RF-30 : CORS ouvert à tout site seulement hors production (ENT_ENV explicitement
+        // non productif) ; en production, `*` est ignoré (same-origin) et signalé.
+        if cors_ouvert_autorise(std::env::var("ENT_ENV").ok().as_deref()) {
+            return Some(CorsLayer::permissive());
+        }
+        tracing::error!("ENT_CORS_ORIGINS=* refusé hors environnement non productif : CORS désactivé");
+        return None;
     }
     let origins: Vec<axum::http::HeaderValue> =
         raw.split(',').filter_map(|s| s.trim().parse().ok()).collect();
@@ -3532,5 +3544,20 @@ mod sans_labo {
         assert!(!html.contains(&["DevLocal", "Pass1!"].concat()));
         assert!(!html.contains("/labo/bootstrap"));
         assert!(html.contains("loginForm"));
+    }
+}
+
+#[cfg(test)]
+mod tests_cors {
+    use super::cors_ouvert_autorise;
+
+    #[test]
+    fn cors_etoile_refuse_en_production() {
+        assert!(!cors_ouvert_autorise(None));
+        assert!(!cors_ouvert_autorise(Some("")));
+        assert!(!cors_ouvert_autorise(Some("production")));
+        assert!(!cors_ouvert_autorise(Some("prod")));
+        assert!(cors_ouvert_autorise(Some(" Lab ")));
+        assert!(cors_ouvert_autorise(Some("test")));
     }
 }

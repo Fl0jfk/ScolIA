@@ -917,3 +917,74 @@ async fn rf11_verrou_ip_epargne_les_comptes_connus_du_reseau() {
     let r = ent.login_with_ip(&connu, MDP, etab, Some(&ip)).await;
     assert!(r.is_ok(), "compte connu depuis ce réseau : épargné : {:?}", r.err());
 }
+
+/// RF-26 : `%` et `_` saisis dans une recherche du personnel sont littéraux (plus de joker).
+#[tokio::test]
+async fn faible_rf26_recherche_personnel_sans_jokers() {
+    let Some(ent) = ent().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = Uuid::new_v4();
+    for n in 0..2 {
+        let email = format!("rf26-{n}-{}@ent.local", Uuid::new_v4().simple());
+        ent.register_user(&email, MDP, None, etab, "prof").await.unwrap();
+    }
+    assert!(ent.search_staff(etab, "rf26", 100).await.unwrap().len() >= 2);
+    for joker in ["%", "_", "r_26", "%26-%", "\\"] {
+        let r = ent.search_staff(etab, joker, 100).await.unwrap();
+        assert!(r.is_empty(), "« {joker} » ne doit rien ramener : {} résultats", r.len());
+    }
+}
+
+/// RF-33 : l'e-mail n'est plus écrit en clair dans le journal `auth` (empreinte seulement).
+#[tokio::test]
+async fn faible_rf33_journal_auth_sans_email_en_clair() {
+    let Some((ent, cast, pool)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let email = cast.administratif.email.clone();
+    // Une connexion réussie écrit une trace d'accès `auth`.
+    let _ = ent.login_with_ip(&email, crate::seed::LABO_PASSWORD, cast.etablissement_id, None).await;
+    let en_clair: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_journal_modif WHERE domaine = 'auth' AND payload::text ILIKE '%' || $1 || '%'",
+    )
+    .bind(&email)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(en_clair, 0, "e-mail en clair dans le journal auth");
+    let avec_empreinte: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_journal_modif WHERE domaine = 'auth' AND payload ? 'email_empreinte' AND etablissement_id = $1",
+    )
+    .bind(cast.etablissement_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(avec_empreinte > 0, "la trace d'accès doit porter l'empreinte");
+}
+
+/// RF-35 : une contrainte d'emploi du temps ne vise qu'un professeur de l'établissement.
+#[tokio::test]
+async fn faible_rf35_contrainte_edt_prof_non_membre_refusee() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let cmd = |prof: Uuid| domain_eleve::CreerEdtContrainte {
+        etablissement_id: c.etab,
+        kind: domain_eleve::EdtContrainteKind::ProfIndispo,
+        prof_user_id: Some(prof),
+        salle_code: None,
+        jour_semaine: Some(1),
+        heure_debut: None,
+        heure_fin: None,
+        detail: "RF-35".into(),
+        actor_user_id: c.direction,
+    };
+    let r = c.ent.creer_edt_contrainte_for_actor("direction", cmd(Uuid::new_v4())).await;
+    assert!(r.is_err(), "professeur inconnu de l'établissement : {r:?}");
+    let r = c.ent.creer_edt_contrainte_for_actor("direction", cmd(c.prof)).await;
+    assert!(r.is_ok(), "professeur de l'établissement : {r:?}");
+}

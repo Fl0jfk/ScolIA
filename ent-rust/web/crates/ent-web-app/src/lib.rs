@@ -64,6 +64,9 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/recuperation-passkey/confirmer") view=modules::recuperation::PageConfirmerRecuperation/>
                 <Route path=path!("/recuperation-passkey/annuler") view=modules::recuperation::PageAnnulerRecuperation/>
                 <Route path=path!("/recuperation-passkey/finaliser") view=modules::recuperation::PageFinaliserRecuperation/>
+                // Liens des e-mails de changement d'adresse (RF-01) : adresses telles que les envoie `ent-api`.
+                <Route path=path!("/email/confirmer") view=modules::changement_email::PageConfirmerEmail/>
+                <Route path=path!("/email/annuler") view=modules::changement_email::PageAnnulerEmail/>
                 <Route path=path!("/web/_composants") view=composants::PageComposants/>
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>

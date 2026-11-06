@@ -18,6 +18,7 @@ mod transport;
 // Services par domaine (méthodes de `ApiClient`).
 mod appel;
 mod auth;
+mod changement_email;
 mod communication;
 mod discipline_vs;
 mod dossier;

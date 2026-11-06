@@ -4,6 +4,7 @@
 pub mod absences;
 pub mod accueil;
 pub mod appel;
+pub mod changement_email;
 pub mod classes;
 pub mod connexion;
 pub mod discipline_vs;

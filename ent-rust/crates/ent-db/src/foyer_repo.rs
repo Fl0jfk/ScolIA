@@ -171,7 +171,7 @@ impl PgFoyerRepo {
         let pattern = q
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
-            .map(|s| format!("%{s}%"));
+            .map(|s| format!("%{}%", like_litteral(s)));
         let rows: Vec<(Uuid, Option<String>, i64)> = if let Some(p) = pattern {
             sqlx::query_as(
                 r#"
@@ -182,9 +182,9 @@ impl PgFoyerRepo {
                 LEFT JOIN ent_user u ON u.id = l.user_id
                 WHERE f.etablissement_id = $1
                   AND (
-                    f.libelle ILIKE $2
-                    OR u.display_name ILIKE $2
-                    OR u.email ILIKE $2
+                    f.libelle ILIKE $2 ESCAPE '\'
+                    OR u.display_name ILIKE $2 ESCAPE '\'
+                    OR u.email ILIKE $2 ESCAPE '\'
                   )
                 GROUP BY f.id, f.libelle
                 ORDER BY f.libelle NULLS LAST, f.id
@@ -786,4 +786,24 @@ struct LienFoyerRow {
 
 fn map_sqlx(err: sqlx::Error) -> DomainError {
     crate::pg_err::map_sqlx("foyer_repo", err)
+}
+
+/// RF-26 : texte saisi rendu LITTÉRAL pour un `LIKE`/`ILIKE … ESCAPE '\'` (`%`, `_` et `\`
+/// n'y sont plus des jokers : une recherche `%` ne ramène plus tout l'établissement).
+pub(crate) fn like_litteral(saisie: &str) -> String {
+    saisie
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+#[cfg(test)]
+mod tests_like {
+    use super::like_litteral;
+
+    #[test]
+    fn jokers_neutralises() {
+        assert_eq!(like_litteral("a%b_c\\d"), "a\\%b\\_c\\\\d");
+        assert_eq!(like_litteral("simple"), "simple");
+    }
 }

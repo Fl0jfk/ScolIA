@@ -1433,7 +1433,7 @@ impl PgAuthRepo {
         let pattern = if needle.is_empty() {
             "%".to_string()
         } else {
-            format!("%{}%", needle)
+            format!("%{}%", crate::foyer_repo::like_litteral(needle))
         };
         let limit = limit.clamp(1, 100);
         let rows: Vec<(Uuid, String, Option<String>, Option<String>, String)> = sqlx::query_as(
@@ -1444,9 +1444,9 @@ impl PgAuthRepo {
               ON m.user_id = u.id AND m.etablissement_id = $1
             WHERE m.role NOT IN ('parent', 'eleve')
               AND (
-                u.email ILIKE $2
-                OR COALESCE(u.display_name, '') ILIKE $2
-                OR m.role ILIKE $2
+                u.email ILIKE $2 ESCAPE '\'
+                OR COALESCE(u.display_name, '') ILIKE $2 ESCAPE '\'
+                OR m.role ILIKE $2 ESCAPE '\'
               )
             ORDER BY m.role, COALESCE(u.display_name, u.email)
             LIMIT $3

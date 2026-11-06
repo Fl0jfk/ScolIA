@@ -3650,7 +3650,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 domaine: "auth".into(),
                 action: action.into(),
                 libelle: libelle.into(),
-                payload: json!({ "email": email, "role": role }),
+                payload: json!({ "email_empreinte": empreinte_email(email), "role": role }),
                 visible_famille: false,
                 actor_user_id: user_id,
             })
@@ -14940,6 +14940,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_creer_edt_contrainte(cmd)?;
+        // RF-35 : le professeur visé doit appartenir à l'établissement (intégrité).
+        if let Some(prof) = planned.prof_user_id {
+            if !self.auth.is_member(planned.etablissement_id, prof).await.unwrap_or(false) {
+                return Err(DomainError::NotFound.into());
+            }
+        }
         self.edt_contraintes.insert(&planned).await?;
         self.events
             .publish(MetierEventDraft {
