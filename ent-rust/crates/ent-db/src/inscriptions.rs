@@ -3345,14 +3345,26 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .map_err(db)?;
         let (inv_id, personne_id, responsable_id, email) =
             inv.ok_or(invalide("invitation invalide ou expirée"))?;
-        let (nom, prenom, user_fiche): (String, Option<String>, Option<Uuid>) = sqlx::query_as(
-            "SELECT nom, prenom, user_id FROM ent_personne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        let (nom, prenom, user_fiche, email_fiche): (String, Option<String>, Option<Uuid>, Option<String>) = sqlx::query_as(
+            "SELECT nom, prenom, user_id, email FROM ent_personne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
         .bind(etab)
         .bind(personne_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        // Une fiche déjà connue de l'établissement (rapprochée sur choix humain) ne peut être
+        // rattachée qu'à un compte de SON adresse : une adresse saisie par un tiers dans un
+        // dossier ne suffit jamais à s'approprier une fiche existante.
+        if user_fiche.is_none()
+            && !email_fiche
+                .as_deref()
+                .is_some_and(|e| e.trim().eq_ignore_ascii_case(email.trim()))
+        {
+            return Err(conflit(
+                "l'adresse de l'invitation ne correspond pas à la fiche : contactez l'établissement",
+            ));
+        }
         let existant: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_user WHERE lower(email) = lower($1)")
                 .bind(&email)
