@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Carte des socles (2026-11-06, branche `ent-carte-socles`)
+Documentation seulement, aucun code : `docs/SOCLES.md` (51 socles, périmètres, dépendances, existant, ordre et jalons) ; `docs/ROADMAP.md` réécrite pour suivre la carte ; D-021. Socles 1–4 fixés par Florian, 5–51 proposés (à valider). Branches non fusionnées relevées : `ent-socle2-inscriptions`, `ent-socle2-cahier`, `ent-socle2-finances`, `ent-mobile`.
+
 ## Intégration du lot 4 (2026-11-05 → 06, branche `ent-integration-lot4`, base `ent-integration-lot3` 3daefa7)
 Fusions git réelles, dans l'ordre : `ent-socle1-rls-integre`, `ent-socle2-dossier`, `ent-socle2-vie-scolaire`, `ent-socle2-ecrans-ref-vs`. Écartées : `ent-socle2-inscriptions` et `ent-socle2-cahier` (absentes d'origin au moment de l'intégration).
 - Catalogue d'actions réuni : 47 actions (38 du lot 3 + 4 de S2-1 + 5 de S2-4) ; tests de non-régression des modèles par défaut de toutes les branches verts ensemble.
