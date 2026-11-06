@@ -13,7 +13,8 @@
 //! * `ajouter_responsable_for_actor` : commande unique (personne + lien) qui remplace les deux
 //!   appels de l'écran.
 //!
-//! Les dates métier sont celles d'Europe/Paris (`ent_aujourdhui()`, migration 260).
+//! Les dates métier sont celles du fuseau de l'établissement (`ent_aujourdhui_etab()`, migration
+//! 265 ; Europe/Paris par défaut).
 
 use super::*;
 
@@ -69,6 +70,8 @@ pub struct DeclarationResponsable {
     pub droits: DroitsDeclares,
     pub payeur: bool,
     pub part_paiement: Option<i16>,
+    /// Champs réservés du contrat v1 (`CONTRAT_DECLARATION_VERSION`) ; vides par défaut.
+    pub reserve: ReserveDeclaree,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +125,10 @@ pub struct ResponsableIntegre {
     /// Lien en attente de confirmation (personne avec compte).
     pub attente_id: Option<Uuid>,
     pub payeur: bool,
+    /// La personne est marquée « ne pas solliciter » : l'appelant ne lui envoie rien.
+    pub ne_pas_solliciter: bool,
+    /// Alerte de l'adresse à protéger mise de côté (jamais écrite dans la fiche).
+    pub adresse_parquee: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -213,9 +220,11 @@ pub fn masquer_email(e: &str) -> String {
     }
 }
 
-/// Jour métier courant (Europe/Paris), calculé par la base.
-pub async fn aujourdhui_tx(conn: &mut PgConnection) -> Result<NaiveDate, EntDbError> {
-    let (d,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui()")
+/// Jour métier courant dans le fuseau de l'établissement (Europe/Paris par défaut), calculé par
+/// la base.
+pub async fn aujourdhui_tx(conn: &mut PgConnection, etab: Uuid) -> Result<NaiveDate, EntDbError> {
+    let (d,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1)")
+        .bind(etab)
         .fetch_one(conn)
         .await
         .map_err(db)?;
@@ -605,10 +614,15 @@ pub async fn integrer_declaration_tx(
             return Err(invalide("responsable inconnu dans cette déclaration"));
         }
     }
+    // Contrat v1 : les champs réservés sont validés AVANT toute écriture.
+    let mut reserves = Vec::with_capacity(declarations.len());
+    for d in declarations {
+        reserves.push(d.reserve.normaliser()?);
+    }
     let mut deja: Vec<Uuid> = vec![];
     let mut foyer_principal: Option<Uuid> = None;
     let mut out = ResultatIntegration::default();
-    for d in declarations {
+    for (d, reserve) in declarations.iter().zip(&reserves) {
         let res = resolutions.iter().find(|r| r.cle == d.cle);
         let choix_personne = res.and_then(|r| r.personne.clone());
         let choix_foyer = res.and_then(|r| r.foyer.clone());
@@ -649,7 +663,7 @@ pub async fn integrer_declaration_tx(
                 (p, compte, false)
             }
             Some(ResolutionPersonne::NouvellePersonne) => (
-                creer_personne_declaree_tx(conn, etab, d, source, actor).await?,
+                creer_personne_declaree_tx(conn, etab, d, reserve, source, actor).await?,
                 false,
                 true,
             ),
@@ -660,12 +674,31 @@ pub async fn integrer_declaration_tx(
                     ));
                 }
                 (
-                    creer_personne_declaree_tx(conn, etab, d, source, actor).await?,
+                    creer_personne_declaree_tx(conn, etab, d, reserve, source, actor).await?,
                     false,
                     true,
                 )
             }
         };
+        // Personne existante : l'adresse à protéger est parquée aussi, les champs réservés sont
+        // fusionnés (pour une personne créée, c'est déjà fait par `creer_personne_declaree_tx`).
+        let mut adresse_parquee = None;
+        if !creee {
+            if reserve.adresse_a_proteger {
+                if let Some(a) = opt(&d.adresse) {
+                    adresse_parquee = Some(
+                        parquer_adresse_tx(conn, etab, personne_id, &a, "declaration", Some(d.cle), actor)
+                            .await?,
+                    );
+                }
+            }
+            if !reserve.est_vide() {
+                appliquer_reserve_tx(conn, etab, personne_id, reserve, actor).await?;
+            }
+        } else if reserve.adresse_a_proteger {
+            adresse_parquee = adresse_parquee_de(conn, etab, personne_id, d.cle).await?;
+        }
+        let ne_pas_solliciter = personne_ne_pas_solliciter_tx(conn, etab, personne_id).await?;
         // Foyer : celui que l'humain a confirmé (fratrie), sinon le foyer du premier responsable
         // pour un conjoint « même foyer », sinon un nouveau foyer.
         let foyer = match choix_foyer {
@@ -717,6 +750,8 @@ pub async fn integrer_declaration_tx(
                 lien_id: Some(lien_id),
                 attente_id: None,
                 payeur: false,
+                ne_pas_solliciter,
+                adresse_parquee,
             });
             continue;
         }
@@ -751,6 +786,8 @@ pub async fn integrer_declaration_tx(
             lien_id,
             attente_id,
             payeur: d.payeur && lien_id.is_some(),
+            ne_pas_solliciter,
+            adresse_parquee,
         });
     }
     Ok(out)
@@ -760,9 +797,12 @@ async fn creer_personne_declaree_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     d: &DeclarationResponsable,
+    reserve: &ReserveDeclaree,
     source: SourceLien,
     actor: Uuid,
 ) -> Result<Uuid, EntDbError> {
+    let adresse = opt(&d.adresse);
+    // Adresse à protéger : JAMAIS écrite dans la fiche, parquée scellée juste après.
     let saisie = PersonneSaisie {
         nom: d.nom.trim().to_string(),
         prenom: opt(&d.prenom),
@@ -770,9 +810,39 @@ async fn creer_personne_declaree_tx(
         email: opt(&d.email).map(|e| e.to_lowercase()),
         telephone: opt(&d.telephone),
         telephone_2: None,
-        adresse: opt(&d.adresse),
+        adresse: if reserve.adresse_a_proteger { None } else { adresse.clone() },
     };
-    creer_personne_tx(conn, etab, &saisie, source, actor).await
+    let id = creer_personne_tx(conn, etab, &saisie, source, actor).await?;
+    if !reserve.est_vide() {
+        appliquer_reserve_tx(conn, etab, id, reserve, actor).await?;
+    }
+    if reserve.adresse_a_proteger {
+        if let Some(a) = adresse {
+            parquer_adresse_tx(conn, etab, id, &a, "declaration", Some(d.cle), actor).await?;
+        }
+    }
+    Ok(id)
+}
+
+/// Alerte d'adresse parquée pour cette déclaration (retrouvée après création de la personne).
+async fn adresse_parquee_de(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    personne_id: Uuid,
+    cle: Uuid,
+) -> Result<Option<Uuid>, EntDbError> {
+    let r: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT id FROM ent_adresse_protegee
+          WHERE etablissement_id = $1 AND personne_id = $2 AND source_ref = $3
+          ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(etab)
+    .bind(personne_id)
+    .bind(cle)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)?;
+    Ok(r.map(|(id,)| id))
 }
 
 /// Confirmation par la personne : les liens en attente deviennent des liens réels (jamais avant).
@@ -784,6 +854,27 @@ pub async fn confirmer_liens_attente_tx(
     personne_id: Uuid,
     filtre: &FiltreAttente,
     decideur: Uuid,
+) -> Result<(Vec<Uuid>, usize), EntDbError> {
+    confirmer_liens_attente_voie_tx(
+        conn,
+        etab,
+        personne_id,
+        filtre,
+        decideur,
+        VoieConfirmation::Invitation,
+    )
+    .await
+}
+
+/// Comme [`confirmer_liens_attente_tx`], en traçant la voie de confirmation (invitation,
+/// personne connectée, guichet). Au guichet : type de pièce et auteur, jamais la copie.
+pub async fn confirmer_liens_attente_voie_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    personne_id: Uuid,
+    filtre: &FiltreAttente,
+    decideur: Uuid,
+    voie: VoieConfirmation,
 ) -> Result<(Vec<Uuid>, usize), EntDbError> {
     let lignes = attentes_tx(conn, etab, personne_id, filtre).await?;
     let decidees = lignes.len();
@@ -837,21 +928,38 @@ pub async fn confirmer_liens_attente_tx(
                 a.eleve_id,
                 personne_id,
                 &spec,
-                "confirmation_personne",
+                voie.source_lien(),
             )
             .await?;
             liens.push(l);
         }
         sqlx::query(
-            "UPDATE ent_lien_attente SET statut = 'confirme', decide_le = now(), decide_par = $3
+            "UPDATE ent_lien_attente SET statut = 'confirme', decide_le = now(), decide_par = $3,
+                    confirmation_voie = $4, piece_identite_type = $5
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(a.id)
         .bind(decideur)
+        .bind(voie.code())
+        .bind(voie.piece())
         .execute(&mut *conn)
         .await
         .map_err(db)?;
+        if matches!(voie, VoieConfirmation::Guichet(_)) {
+            journal_tx(
+                conn,
+                etab,
+                Some(a.eleve_id),
+                "lien_confirme_guichet",
+                "Lien confirmé au guichet (identité vérifiée)",
+                json!({ "attente_id": a.id, "personne_id": personne_id,
+                        "piece_identite_type": voie.piece() }),
+                false,
+                decideur,
+            )
+            .await?;
+        }
     }
     Ok((liens, decidees))
 }
@@ -1130,7 +1238,8 @@ impl PgEnt {
         }
     }
 
-    /// Liens en attente de confirmation, vus par la personne connectée (saisie directe). Minimisé :
+    /// Liens en attente de confirmation, vus par la personne connectée (saisie directe ou
+    /// inscription : « Vous êtes déclaré responsable de X : confirmer »). Minimisé :
     /// prénom et initiale du nom de l'élève, nature du lien.
     pub async fn mes_liens_en_attente(
         &self,
@@ -1143,7 +1252,12 @@ impl PgEnt {
                JOIN ent_personne p ON p.id = a.personne_id AND p.etablissement_id = a.etablissement_id
                JOIN ent_eleve e ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
               WHERE a.etablissement_id = $1 AND p.user_id = $2 AND p.fusionnee_dans IS NULL
-                AND a.statut = 'en_attente' AND a.source = 'saisie'
+                AND a.statut = 'en_attente'
+                -- A0-c : une personne « ne pas solliciter » ne voit jamais cette liste (elle
+                -- révélerait l'élève et l'établissement) ; sa confirmation passe par le guichet.
+                AND NOT EXISTS (SELECT 1 FROM ent_personne_reserve r
+                                 WHERE r.etablissement_id = a.etablissement_id
+                                   AND r.personne_id = a.personne_id AND r.ne_pas_solliciter)
               ORDER BY a.created_at",
         )
         .bind(etab)
@@ -1184,15 +1298,27 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (personne_id,) = p.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        // A0-c : « ne pas solliciter » → aucune réponse en ligne (même réponse qu'une demande inconnue).
+        if personne_ne_pas_solliciter_tx(&mut tx, etab, personne_id).await? {
+            return Err(EntDbError::Domain(DomainError::NotFound));
+        }
+        // A0-d : toute demande en attente de la personne (saisie directe ou inscription) se
+        // confirme en un geste depuis son compte ; seule elle peut le faire.
         let filtre = FiltreAttente {
-            source: Some(SourceLien::Saisie),
             attente_id: Some(attente_id),
             ..Default::default()
         };
         let n = if accepter {
-            confirmer_liens_attente_tx(&mut tx, etab, personne_id, &filtre, user_id)
-                .await?
-                .1
+            confirmer_liens_attente_voie_tx(
+                &mut tx,
+                etab,
+                personne_id,
+                &filtre,
+                user_id,
+                VoieConfirmation::PersonneConnectee,
+            )
+            .await?
+            .1
         } else {
             refuser_liens_attente_tx(&mut tx, etab, personne_id, &filtre, Some(user_id)).await?
         };

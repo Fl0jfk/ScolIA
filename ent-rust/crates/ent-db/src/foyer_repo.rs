@@ -567,6 +567,7 @@ impl PgFoyerRepo {
     /// Lit les coordonnées de la **personne** (D-020), qu'elle ait un compte ou non ; l'e-mail
     /// du compte n'est qu'un repli quand la fiche n'en a pas. Respecte ses préférences
     /// (`ent_personne_preference.canal_email`). Un parent sans compte reçoit donc ses messages.
+    /// Une personne marquée « ne pas solliciter » (A0-c) ne reçoit aucun envoi automatique.
     pub async fn emails_parents_eleve(
         &self,
         etablissement_id: Uuid,
@@ -581,6 +582,9 @@ impl PgFoyerRepo {
             LEFT JOIN ent_personne_preference pr ON pr.personne_id = p.id
             WHERE l.etablissement_id = $1 AND l.eleve_id = $2
               AND COALESCE(pr.canal_email, true)
+              AND NOT EXISTS (SELECT 1 FROM ent_personne_reserve nps
+                               WHERE nps.etablissement_id = p.etablissement_id
+                                 AND nps.personne_id = p.id AND nps.ne_pas_solliciter)
               AND COALESCE(NULLIF(btrim(p.email), ''), NULLIF(btrim(u.email), '')) IS NOT NULL
             ORDER BY adresse
             "#,
@@ -609,6 +613,9 @@ impl PgFoyerRepo {
             LEFT JOIN ent_personne_preference pr ON pr.personne_id = p.id
             WHERE l.etablissement_id = $1 AND l.eleve_id = $2
               AND COALESCE(pr.canal_sms, true)
+              AND NOT EXISTS (SELECT 1 FROM ent_personne_reserve nps
+                               WHERE nps.etablissement_id = p.etablissement_id
+                                 AND nps.personne_id = p.id AND nps.ne_pas_solliciter)
               AND COALESCE(NULLIF(btrim(p.telephone), ''), NULLIF(btrim(u.telephone), '')) IS NOT NULL
             ORDER BY numero
             "#,

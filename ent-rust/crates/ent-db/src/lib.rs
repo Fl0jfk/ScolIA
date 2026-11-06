@@ -172,6 +172,7 @@ pub use dossier_personnes::{
     AjoutResponsable, LienEnAttente, LienResultat,
     ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
+    AdresseParquee, AlertesProtection, PieceIdentite, ProtectionADeclarer, ReserveDeclaree,
 };
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{

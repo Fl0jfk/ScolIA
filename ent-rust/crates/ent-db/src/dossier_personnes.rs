@@ -651,6 +651,11 @@ async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
 mod ports;
 pub use ports::*;
 
+// Lot A0 bis : champs réservés, « ne pas solliciter », adresse protégée, voies de confirmation
+#[path = "dossier_protection.rs"]
+mod protection;
+pub use protection::*;
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------

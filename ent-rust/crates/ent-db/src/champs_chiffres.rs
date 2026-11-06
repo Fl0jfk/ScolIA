@@ -45,6 +45,13 @@ pub const CHAMPS_CHIFFRES: &[(&str, &[&str])] = &[
     ),
     ("ent_psy_entretien", &["note_confidentielle"]),
     ("ent_psy_rdv", &["motif", "note_interne"]),
+    // Socle 4, lot A0 bis : adresse à protéger parquée, référence de la pièce de protection.
+    ("ent_adresse_protegee", &["adresse"]),
+    ("ent_personne_reserve", &["ne_pas_solliciter_ref"]),
+    (
+        "ent_inscription_responsable",
+        &["adresse_protegee", "ne_pas_solliciter_ref"],
+    ),
 ];
 
 /// Coffre des champs sensibles (clone bon marché).

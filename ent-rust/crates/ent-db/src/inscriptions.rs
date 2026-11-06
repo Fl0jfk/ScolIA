@@ -269,7 +269,34 @@ pub fn normaliser_responsable(
         lien: Some(lien_valide(&r.lien)?),
         meme_foyer: r.meme_foyer,
         autorite_parentale: r.autorite_parentale,
+        reserve: match &r.reserve {
+            None => None,
+            Some(d) => {
+                let n = reserve_depuis_dto(d).normaliser()?;
+                Some(ReserveResponsableDto {
+                    adresse_a_proteger: n.adresse_a_proteger,
+                    ne_pas_solliciter: n.ne_pas_solliciter,
+                    ne_pas_solliciter_ref: n.ne_pas_solliciter_ref,
+                    langue: n.langue,
+                    besoin_interprete: n.besoin_interprete,
+                    organisme: n.organisme,
+                    nature_code: n.nature_code,
+                })
+            }
+        },
     })
+}
+
+fn reserve_depuis_dto(d: &ReserveResponsableDto) -> dossier_personnes::ReserveDeclaree {
+    dossier_personnes::ReserveDeclaree {
+        adresse_a_proteger: d.adresse_a_proteger,
+        ne_pas_solliciter: d.ne_pas_solliciter,
+        ne_pas_solliciter_ref: d.ne_pas_solliciter_ref.clone(),
+        langue: d.langue.clone(),
+        besoin_interprete: d.besoin_interprete,
+        organisme: d.organisme.clone(),
+        nature_code: d.nature_code.clone(),
+    }
 }
 
 /// Transitions d'instruction admises (personnel, `inscriptions.gerer`).
@@ -383,12 +410,45 @@ struct ResponsableRow {
     meme_foyer: bool,
     autorite_parentale: bool,
     personne_id: Option<Uuid>,
+    ne_pas_solliciter: bool,
+    ne_pas_solliciter_ref: Option<String>,
+    adresse_a_proteger: bool,
+    adresse_protegee: Option<String>,
+    langue: Option<String>,
+    besoin_interprete: bool,
+    organisme: Option<String>,
+    nature_code: Option<String>,
 }
+
+const COLS_RESPONSABLE: &str = "id, rang, nom, prenom, civilite, email, telephone, adresse, lien,
+    meme_foyer, autorite_parentale, personne_id, ne_pas_solliciter, ne_pas_solliciter_ref,
+    adresse_a_proteger, adresse_protegee, langue, besoin_interprete, organisme, nature_code";
 
 impl ResponsableRow {
     /// Déclaration remise au socle 4 (le premier responsable est payeur à 100 %, comme avant).
-    fn declaration(&self) -> dossier_personnes::DeclarationResponsable {
-        dossier_personnes::DeclarationResponsable {
+    /// Une adresse à protéger est descellée ici pour le seul port, qui la reparque scellée.
+    fn declaration(&self) -> Result<dossier_personnes::DeclarationResponsable, EntDbError> {
+        let adresse = if self.adresse_a_proteger {
+            ChampsSensibles::depuis_env()
+                .ouvrir_opt(
+                    "ent_inscription_responsable",
+                    "adresse_protegee",
+                    self.id,
+                    self.adresse_protegee.clone(),
+                )
+                .map_err(EntDbError::Domain)?
+        } else {
+            self.adresse.clone()
+        };
+        let reference = ChampsSensibles::depuis_env()
+            .ouvrir_opt(
+                "ent_inscription_responsable",
+                "ne_pas_solliciter_ref",
+                self.id,
+                self.ne_pas_solliciter_ref.clone(),
+            )
+            .map_err(EntDbError::Domain)?;
+        Ok(dossier_personnes::DeclarationResponsable {
             cle: self.id,
             rang: self.rang,
             nom: self.nom.clone(),
@@ -396,7 +456,7 @@ impl ResponsableRow {
             civilite: self.civilite.clone(),
             email: self.email.clone(),
             telephone: self.telephone.clone(),
-            adresse: self.adresse.clone(),
+            adresse,
             lien: self.lien.clone(),
             meme_foyer: self.meme_foyer,
             autorite_parentale: self.autorite_parentale,
@@ -408,7 +468,16 @@ impl ResponsableRow {
             },
             payeur: self.rang == 1,
             part_paiement: if self.rang == 1 { Some(100) } else { None },
-        }
+            reserve: dossier_personnes::ReserveDeclaree {
+                adresse_a_proteger: self.adresse_a_proteger,
+                ne_pas_solliciter: self.ne_pas_solliciter,
+                ne_pas_solliciter_ref: reference,
+                langue: self.langue.clone(),
+                besoin_interprete: self.besoin_interprete,
+                organisme: self.organisme.clone(),
+                nature_code: self.nature_code.clone(),
+            },
+        })
     }
 }
 
@@ -1114,10 +1183,9 @@ impl PgEnt {
         id: Uuid,
     ) -> Result<Vec<ResponsableRow>, EntDbError> {
         sqlx::query_as::<_, ResponsableRow>(
-            "SELECT id, rang, nom, prenom, civilite, email, telephone, adresse, lien, meme_foyer,
-                    autorite_parentale, personne_id
+            &format!("SELECT {COLS_RESPONSABLE}
                FROM ent_inscription_responsable
-              WHERE etablissement_id = $1 AND dossier_id = $2 ORDER BY rang",
+              WHERE etablissement_id = $1 AND dossier_id = $2 ORDER BY rang"),
         )
         .bind(etab)
         .bind(id)
@@ -1164,6 +1232,17 @@ impl PgEnt {
                     lien: Some(r.lien),
                     meme_foyer: r.meme_foyer,
                     autorite_parentale: r.autorite_parentale,
+                    // Jamais rendu à la famille (le second parent pourrait lire le dossier) ;
+                    // au personnel : les indicateurs, jamais l'adresse ni la référence.
+                    reserve: (!famille).then(|| ReserveResponsableDto {
+                        adresse_a_proteger: r.adresse_a_proteger,
+                        ne_pas_solliciter: r.ne_pas_solliciter,
+                        ne_pas_solliciter_ref: None,
+                        langue: r.langue,
+                        besoin_interprete: r.besoin_interprete,
+                        organisme: r.organisme,
+                        nature_code: r.nature_code,
+                    }),
                 },
             })
             .collect();
@@ -1498,6 +1577,31 @@ impl PgEnt {
         .map_err(db)?;
         if manquantes.is_empty() {
             return Err(conflit("aucune pièce obligatoire manquante"));
+        }
+        // A0-c : aucune relance vers une personne « ne pas solliciter » (le destinataire d'une
+        // relance est l'adresse du déposant) : rien n'est tracé ni envoyé, le personnel agit à la main.
+        if let Some(to) = d.deposant_email.as_deref() {
+            let (protege,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM ent_personne_reserve nps
+                                  JOIN ent_personne p ON p.id = nps.personne_id
+                                   AND p.etablissement_id = nps.etablissement_id
+                                 WHERE nps.etablissement_id = $1 AND nps.ne_pas_solliciter
+                                   AND lower(p.email) = lower($2))
+                    OR EXISTS (SELECT 1 FROM ent_inscription_responsable r
+                                WHERE r.etablissement_id = $1 AND r.dossier_id = $3
+                                  AND r.ne_pas_solliciter AND lower(r.email) = lower($2))",
+            )
+            .bind(etab)
+            .bind(to)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if protege {
+                return Err(conflit(
+                    "relance impossible : le destinataire est marqué « ne pas solliciter »",
+                ));
+            }
         }
         sqlx::query(
             "UPDATE ent_inscription_dossier SET derniere_relance_le = now(), updated_at = now()
@@ -1892,7 +1996,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         etab: Uuid,
         r: &ResponsableRow,
     ) -> Result<Vec<PersonneCandidateDto>, EntDbError> {
-        let cands = dossier_personnes::correspondances_tx(conn, etab, &r.declaration()).await?;
+        let cands = dossier_personnes::correspondances_tx(conn, etab, &r.declaration()?).await?;
         Ok(cands
             .into_iter()
             .map(|c| PersonneCandidateDto {
@@ -1950,12 +2054,11 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         etab: Uuid,
         dossier_id: Uuid,
     ) -> Result<Vec<ResponsableRow>, EntDbError> {
-        sqlx::query_as(
-            "SELECT id, rang, nom, prenom, civilite, email, telephone, adresse, lien, meme_foyer,
-                    autorite_parentale, personne_id
+        sqlx::query_as(&format!(
+            "SELECT {COLS_RESPONSABLE}
                FROM ent_inscription_responsable WHERE etablissement_id = $1 AND dossier_id = $2
-              ORDER BY rang",
-        )
+              ORDER BY rang"
+        ))
         .bind(etab)
         .bind(dossier_id)
         .fetch_all(&mut *conn)
@@ -2135,7 +2238,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
     ) -> Result<Vec<Uuid>, EntDbError> {
         let mut declarations = Vec::new();
         for r in responsables {
-            let mut d = r.declaration();
+            let mut d = r.declaration()?;
             let droits = Self::droits_lien_tx(conn, etab, &r.lien, r.autorite_parentale).await?;
             d.droits = dossier_personnes::DroitsDeclares {
                 notes: droits.notes,
@@ -2613,13 +2716,42 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .map_err(db)?;
         for (rang, r) in [(1_i16, Some(&r1)), (2, r2.as_ref())] {
             let Some(r) = r else { continue };
+            let resp_id = Uuid::new_v4();
+            let reserve = r.reserve.as_ref().map(reserve_depuis_dto).unwrap_or_default();
+            let coffre = ChampsSensibles::depuis_env();
+            // Adresse à protéger : jamais en clair dans le dossier (colonne `adresse` vide).
+            let (adresse, adresse_protegee) = if reserve.adresse_a_proteger {
+                (
+                    None,
+                    coffre
+                        .sceller_opt(
+                            "ent_inscription_responsable",
+                            "adresse_protegee",
+                            resp_id,
+                            r.adresse.as_deref(),
+                        )
+                        .map_err(EntDbError::Domain)?,
+                )
+            } else {
+                (r.adresse.clone(), None)
+            };
+            let reference = coffre
+                .sceller_opt(
+                    "ent_inscription_responsable",
+                    "ne_pas_solliciter_ref",
+                    resp_id,
+                    reserve.ne_pas_solliciter_ref.as_deref(),
+                )
+                .map_err(EntDbError::Domain)?;
             sqlx::query(
                 "INSERT INTO ent_inscription_responsable
                     (id, etablissement_id, dossier_id, rang, nom, prenom, civilite, email, telephone,
-                     adresse, lien, meme_foyer, autorite_parentale)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+                     adresse, lien, meme_foyer, autorite_parentale, ne_pas_solliciter,
+                     ne_pas_solliciter_ref, adresse_a_proteger, adresse_protegee, langue,
+                     besoin_interprete, organisme, nature_code)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)",
             )
-            .bind(Uuid::new_v4())
+            .bind(resp_id)
             .bind(etab)
             .bind(id)
             .bind(rang)
@@ -2628,10 +2760,18 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             .bind(&r.civilite)
             .bind(&r.email)
             .bind(&r.telephone)
-            .bind(&r.adresse)
+            .bind(adresse)
             .bind(r.lien.as_deref().unwrap_or("autre"))
             .bind(r.meme_foyer)
             .bind(r.autorite_parentale)
+            .bind(reserve.ne_pas_solliciter)
+            .bind(reference)
+            .bind(reserve.adresse_a_proteger)
+            .bind(adresse_protegee)
+            .bind(&reserve.langue)
+            .bind(reserve.besoin_interprete)
+            .bind(&reserve.organisme)
+            .bind(&reserve.nature_code)
             .execute(&mut *tx)
             .await
             .map_err(db)?;

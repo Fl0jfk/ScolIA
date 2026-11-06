@@ -109,6 +109,7 @@ fn declaration(nom: &str, prenom: &str, email: Option<&str>, rang: i16) -> Decla
         },
         payeur: rang == 1,
         part_paiement: if rang == 1 { Some(100) } else { None },
+        reserve: ReserveDeclaree::default(),
     }
 }
 
