@@ -112,7 +112,14 @@ async fn cycle_de_vie_d_un_role_contre_vrai_backend() {
     assert!(e.erreurs().is_empty());
     let cree = direction.creer_role(&e.saisie()).await.expect("création");
     assert_eq!(cree.nom, e.nom);
-    assert_eq!(cree.droits, [droit("absences.lire", "etablissement")]);
+    assert_eq!(
+        cree.droits,
+        [
+            droit("absences.lire", "etablissement"),
+            droit("eleves.annuaire", "etablissement"),
+            droit("eleves.lire", "etablissement"),
+        ]
+    );
     assert!(direction
         .roles()
         .await
@@ -127,7 +134,7 @@ async fn cycle_de_vie_d_un_role_contre_vrai_backend() {
         .modifier_role(cree.id, &e2.saisie())
         .await
         .expect("modification");
-    assert_eq!(modifie.droits.len(), 2);
+    assert_eq!(modifie.droits.len(), 4);
 
     // Portée non admise (roles.gerer + mes_classes) : refusé, message compréhensible.
     let mauvais = ent_web_api::SaisieRole {
