@@ -109,8 +109,9 @@ Nombre de constats : **4 élevés** (2 corrigés, 1 partiellement, 1 ouvert), **
 - Nouveaux tests d'attaque `ent-db/src/tests_revue_finale.rs` : `rf03`, `rf05`, `rf10`, `rf11`, `rf12`, `rf13`, `rf15` — **7 verts**. Leur échec sur le code d'origine n'a pas été rejoué : il est déduit de la lecture (HYPOTHÈSE forte pour `rf03`, `rf05`, `rf10`, `rf12`, `rf15` ; `rf13` ne prouve rien si aucune dispense n'existe ce jour-là dans le cast).
 - `ent-db` `tests_outbox` (11) et `copilote` (6) : verts après correctifs.
 - `ent-api` `ui::tests::csp_ancienne_ui_autorise_seulement_le_script_de_la_page` (unitaire, sans base).
-- Suite complète `cargo test --locked -p ent-api -p ent-db -p ent-lab --features ent-api/labo,ent-lab/labo -- --test-threads=1` : voir § 7 (résultat reporté à la fin de la session).
-- **Non fait** : `cargo deny` / `cargo audit` (outils absents de l'environnement ; ils tournent en CI), suites frontend `web/`, essai navigateur réel de la CSP de `/app` (voir § 7).
+- Suite complète `cargo test --locked -p ent-api -p ent-db -p ent-lab --features ent-api/labo,ent-lab/labo -- --test-threads=1` (après correctifs) : **354 réussis, 0 échec**, 1 ignoré préexistant (dont matrice de séparation 40, tenant par hôte 8, dépôts et liens de fichiers, 193 tests `ent-db`).
+- CSP de `/app` dans Chromium (Playwright, API labo locale) : page de connexion rendue, `<img onerror>` injecté **bloqué** ; écrans admin, professeur, famille et élève chargés **sans aucune violation CSP**.
+- **Non fait** : `cargo deny` / `cargo audit` (outils absents de l'environnement ; ils tournent en CI), suites frontend `web/` (non modifiées), clippy, parcours complets de l'ancienne UI au-delà de l'accueil de chaque profil.
 
 ## 5. Risques résiduels acceptés et décisions à prendre
 1. **RF-01** — qui peut changer l'e-mail de qui, et avec quelle confirmation (recommandation : hiérarchie des identifiants + confirmation par la nouvelle adresse + annulation par l'ancienne + gel 72 h des parcours de récupération).
@@ -132,5 +133,5 @@ Nombre de constats : **4 élevés** (2 corrigés, 1 partiellement, 1 ouvert), **
 8. RF-20 (RLS strict au rôle applicatif sur les tables pilotes) ; RF-18 (champs santé) ; RF-19 (rotation) avant la production.
 9. RF-17, RF-24, RF-25, puis les faibles.
 
-## 7. Résultats de la suite complète
-(complété en fin de session)
+## 7. Remarques hors sécurité relevées en passant
+- Ancienne UI : erreur JavaScript `settle is not defined` sur l'accueil professeur (`ui.rs`, `settle` utilisé hors de la fonction qui le définit) — préexistante, sans lien avec la CSP ; enregistrement du service worker refusé (portée `/` pour un script sous `/static/`).
