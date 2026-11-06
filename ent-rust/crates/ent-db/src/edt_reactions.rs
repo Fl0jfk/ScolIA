@@ -116,6 +116,7 @@ async fn destinataires(
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn inserer(
     tx: &mut PgConnection,
     etab: Uuid,
@@ -175,6 +176,7 @@ async fn lire_cours(
     }))
 }
 
+#[allow(clippy::type_complexity)]
 async fn traiter_edt(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), String> {
     let etab = evt.etablissement_id();
     let type_name = evt.event().type_name.clone();

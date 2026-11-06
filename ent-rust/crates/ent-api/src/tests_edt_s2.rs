@@ -20,7 +20,7 @@ async fn etat() -> Option<AppState> {
     let url = std::env::var("ENT_DATABASE_URL")
         .ok()
         .filter(|u| !u.trim().is_empty())?;
-    let mut ent = PgEnt::connect(&url).await.ok()?;
+    let ent = PgEnt::connect(&url).await.ok()?;
     ent.migrate().await.ok()?;
     Some(AppState::nouveau(ent))
 }

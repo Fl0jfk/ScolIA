@@ -374,6 +374,7 @@ impl Ctx {
             .unwrap();
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn saisie(
         &self,
         classe: &str,
@@ -435,30 +436,6 @@ impl Ctx {
         .fetch_one(self.ent.pool())
         .await
         .unwrap()
-    }
-
-    async fn absence_validee(&self, user: Uuid, debut: NaiveDate, fin: NaiveDate) -> Uuid {
-        let d = dir(&self.cast);
-        let a = self
-            .ent
-            .declarer_absence_rh_for_actor(
-                d.role,
-                domain_eleve::DeclarerAbsenceRh {
-                    etablissement_id: self.e(),
-                    user_id: user,
-                    debut,
-                    fin,
-                    motif: "Maladie (confidentiel)".into(),
-                    actor_user_id: d.user_id,
-                },
-            )
-            .await
-            .unwrap();
-        self.ent
-            .valider_absence_rh_for_actor(self.e(), d.role, a.id, d.user_id)
-            .await
-            .unwrap();
-        a.id
     }
 }
 

@@ -1199,6 +1199,7 @@ impl PgEnt {
     /// EDT-04 : déplace un cours à une autre date / heure. Le cours d'origine est annulé, un
     /// cours est ajouté à la nouvelle date (séance de source `deplacement`) si le professeur,
     /// la classe et la salle y sont libres et le jour ouvré.
+    #[allow(clippy::type_complexity)]
     pub async fn edt_deplacer_seance(
         &self,
         a: &Acteur<'_>,

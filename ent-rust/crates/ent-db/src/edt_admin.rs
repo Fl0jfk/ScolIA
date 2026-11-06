@@ -265,7 +265,7 @@ fn tous() -> String {
 #[serde(tag = "resultat", rename_all = "snake_case")]
 pub enum ResultatCreneau {
     /// Enregistré (ou, en aperçu, enregistrable : `creneau` absent).
-    Enregistre { creneau: Option<CreneauAdmin> },
+    Enregistre { creneau: Option<Box<CreneauAdmin>> },
     /// Refusé : au moins un conflit, rien n'est écrit.
     Conflits { conflits: Vec<ConflitEdt> },
 }
@@ -329,6 +329,7 @@ impl PgEnt {
         self.ref_peut(a, action).await
     }
 
+    #[allow(clippy::type_complexity)]
     async fn indispos(&self, etab: Uuid) -> Result<Vec<Indisponibilite>, EntDbError> {
         let rows: Vec<(
             Option<Uuid>,
@@ -570,7 +571,7 @@ impl PgEnt {
         .await?;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
-        let creneau = self.creneau_admin(etab, id).await?;
+        let creneau = self.creneau_admin(etab, id).await?.map(Box::new);
         Ok(ResultatCreneau::Enregistre { creneau })
     }
 
@@ -659,7 +660,7 @@ impl PgEnt {
         .await?;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
-        let creneau = self.creneau_admin(etab, id).await?;
+        let creneau = self.creneau_admin(etab, id).await?.map(Box::new);
         Ok(ResultatCreneau::Enregistre { creneau })
     }
 

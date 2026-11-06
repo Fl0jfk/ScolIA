@@ -411,8 +411,6 @@ fn specs_domaine_edt() -> Vec<Spec> {
             // Administration : gestion de l'EDT seulement (edt.gerer), jamais les familles ni le prof.
             lire("edt-conflits", "/edt/admin/conflits", GESTION_HORS_PROF, &[]),
             lire("edt-delegations", "/delegations", &[Admin, Direction], &[]),
-            ecrire_sur_b("edt-annulation-masse-B", "POST", "/edt/annulation-masse",
-                Some(r#"{"du":"{jour}","au":"{jour}","portee":"etablissement","cibles":[],"heure_debut":null,"heure_fin":null,"motif_public":"x","cle":null,"apercu":true}"#)),
             ecrire_sur_b("edt-remplacement-B", "POST", "/edt/remplacements",
                 Some(r#"{"creneau_id":"{appel}","jour":"{jour}","remplacant_user_id":"{eleve}","absence_rh_id":null,"nouvelle_salle":null}"#)),
     ]
