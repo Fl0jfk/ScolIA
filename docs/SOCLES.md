@@ -148,6 +148,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant [F]** : `ent_membership`, rôles paramétrables (098), `ent_service_enseignement` (092), responsables de groupes (S2-2), absences des personnels (080). Pas de fiche personnel.
 - **Place** : avant l'emploi du temps (un créneau se rattache à un service) et avant l'appel et les notes (les droits du professeur en découlent).
 - **Faire mieux** : délégations qui expirent seules ; équipes calculées, jamais saisies deux fois ; import STS-Web (9).
+- **Conception** (2026-11-06, non décidée) : `docs/socles/06_PERSONNELS.md`. Défauts relevés à corriger en premier (lot P0) : aucun départ possible (accès sans état ni date de fin), dernier administrateur non protégé, mot de passe temporaire renvoyé en clair, un seul profil par compte et par établissement (professeur-parent impossible).
 
 #### 7. Documents, pièces et signatures
 - **Contient** : stockage objet privé (S3 compatible, Scaleway prioritaire) ; URL pré-signées courtes ; contrôle du type réel, limites, analyse antivirale [R] ; GED de l'élève et des personnes (catégories, versions, durée de conservation) ; pièces demandées / fournies / validées ; documents à signer avec preuve (niveau de signature à décider [H]) ; gabarits et publipostage ; moteur de conversion maison (D-005) ; **coffre-fort famille** (factures, bulletins, attestations) ; certificat de scolarité en libre-service.
