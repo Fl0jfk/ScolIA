@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 2 « l'élève » — conception (2026-11-06, branche `ent-socle-eleve-conception`)
+Conception seulement, **non décidée**, aucun code : `docs/socles/02_ELEVE.md` (évaluation de l'existant, identité versionnée correction / changement, identifiants externes dont l'INE avec statut et provenance, scolarisations et statut dérivé, propositions et source qui fait foi par champ, paramétrage, confidentialité renforcée, 16 actions de droits, écrans, plan de migration M0–M11, lots E0–E11, 17 questions). Défauts relevés à corriger en premier (lot E0) : date de naissance exposée par la recherche d'homonymes aux profils « Réduit », création et modification d'identité hors transaction avec journal ignoré en cas d'erreur, état civil en clair dans les événements, 12 tables sans clé étrangère vers l'élève. Contradiction : `ROADMAP.md` numérote encore les socles autrement (question Q-E1).
+
 ## Intégration du lot 4 (2026-11-05 → 06, branche `ent-integration-lot4`, base `ent-integration-lot3` 3daefa7)
 Fusions git réelles, dans l'ordre : `ent-socle1-rls-integre`, `ent-socle2-dossier`, `ent-socle2-vie-scolaire`, `ent-socle2-ecrans-ref-vs`. Écartées : `ent-socle2-inscriptions` et `ent-socle2-cahier` (absentes d'origin au moment de l'intégration).
 - Catalogue d'actions réuni : 47 actions (38 du lot 3 + 4 de S2-1 + 5 de S2-4) ; tests de non-régression des modèles par défaut de toutes les branches verts ensemble.
