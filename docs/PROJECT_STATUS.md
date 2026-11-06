@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 2 — S2-9 finances reliées (2026-11-06)
+Tarifs et grilles (niveau, régime, quotient), réductions fratrie/personnel, bourses au barème, génération annuelle depuis les inscriptions validées et facturation par événements (inscription, régime, sortie, absence prolongée) idempotentes par source, multi-payeurs au centime, avoirs, prélèvements SEPA pré-notifiés (pain.008 validé contre le schéma XSD ISO), rejets (frais, re-présentation, paiement manuel), règlements et lettrage, relances confirmées par une personne, export comptable, paiement en ligne en interface seule (Q5), 2 écrans Leptos. **Implémenté + testé en local** (branche `ent-socle2-finances`, migrations 200-206, base lot 4 + S2-3), non validé pilote, non fusionné. Détail, écarts et résultats : `docs/SOCLE2_DOMAINES.md` §6.5.
+
 ## Intégration du lot 4 (2026-11-05 → 06, branche `ent-integration-lot4`, base `ent-integration-lot3` 3daefa7)
 Fusions git réelles, dans l'ordre : `ent-socle1-rls-integre`, `ent-socle2-dossier`, `ent-socle2-vie-scolaire`, `ent-socle2-ecrans-ref-vs`. Écartées : `ent-socle2-inscriptions` et `ent-socle2-cahier` (absentes d'origin au moment de l'intégration).
 - Catalogue d'actions réuni : 47 actions (38 du lot 3 + 4 de S2-1 + 5 de S2-4) ; tests de non-régression des modèles par défaut de toutes les branches verts ensemble.
