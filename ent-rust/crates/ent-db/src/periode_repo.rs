@@ -134,26 +134,36 @@ impl PgPeriodeRepo {
                 Ok(())
             }
             CutoverOp::OpenFirst { period } => {
-                sqlx::query(
-                    r#"
-                    INSERT INTO ent_eleve_periode (
-                        id, etablissement_id, eleve_id, kind, valeur, date_debut, date_fin
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7)
-                    "#,
-                )
-                .bind(period.id)
-                .bind(period.etablissement_id)
-                .bind(period.eleve_id)
-                .bind(period.kind.as_str())
-                .bind(&period.valeur)
-                .bind(period.date_debut)
-                .bind(period.date_fin)
-                .execute(&self.pool)
-                .await
-                .map_err(map_sqlx)?;
-                Ok(())
+                let mut conn = self.pool.acquire().await.map_err(map_sqlx)?;
+                Self::ouvrir_premiere_sur(&mut conn, period).await
             }
         }
+    }
+
+    /// Ouvre la première période d'un attribut sur la connexion de l'appelant
+    /// (création d'élève en une seule transaction, E0).
+    pub async fn ouvrir_premiere_sur(
+        conn: &mut sqlx::PgConnection,
+        period: &ElevePeriode,
+    ) -> Result<(), DomainError> {
+        sqlx::query(
+            r#"
+            INSERT INTO ent_eleve_periode (
+                id, etablissement_id, eleve_id, kind, valeur, date_debut, date_fin
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+            "#,
+        )
+        .bind(period.id)
+        .bind(period.etablissement_id)
+        .bind(period.eleve_id)
+        .bind(period.kind.as_str())
+        .bind(&period.valeur)
+        .bind(period.date_debut)
+        .bind(period.date_fin)
+        .execute(&mut *conn)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
     }
 
     pub async fn close_open_periodes(

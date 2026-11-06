@@ -216,6 +216,8 @@ mod tests_outbox;
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_socle;
 
 #[cfg(test)]
 mod integration_tests {

@@ -16,6 +16,7 @@ use crate::cahier_texte_repo::PgCahierTexteRepo;
 use crate::edt_repo::{jour_semaine_iso, EdtCreneau, PgEdtRepo};
 use crate::eleve_compte_repo::{EleveCompte, PgEleveCompteRepo};
 use crate::eleve_repo::PgEleveRepo;
+use crate::tenant_tx::TenantTx;
 use crate::event_store::PgEventStore;
 use crate::foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, PgFoyerRepo, UpdateLien};
 use crate::mail_repo::{InsertMailOutbox, MailOutboxRow, PgMailRepo};
@@ -3893,17 +3894,34 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Ok(r)
     }
 
+    /// Crée un élève : fait + périodes initiales + journal + événement dans UNE
+    /// transaction (E0). Une erreur à n'importe quelle étape défait tout ; aucun
+    /// `let _ =` sur le journal. Aucun état civil dans l'événement ni le journal.
     pub async fn create_eleve(&self, cmd: CreateEleve) -> Result<Eleve, EntDbError> {
+        let actor = cmd.actor_user_id.clone();
         let planned = plan_create(cmd)?;
-        self.eleves.upsert(&planned.eleve).await?;
+        let etab = planned.eleve.etablissement_id;
+        let mut tx = TenantTx::begin(&self.pool, etab).await?;
+        PgEleveRepo::upsert_sur(&mut tx, &planned.eleve).await?;
         for p in &planned.periodes_initiales {
-            self.periodes
-                .apply_cutover(p.etablissement_id, &CutoverOp::OpenFirst { period: p.clone() })
-                .await?;
+            PgPeriodeRepo::ouvrir_premiere_sur(&mut tx, p).await?;
         }
+        journal_eleve_tx(
+            &mut tx,
+            etab,
+            planned.eleve.id,
+            "eleve_cree",
+            "Dossier élève créé",
+            json!({ "eleve_id": planned.eleve.id }),
+            &actor,
+        )
+        .await?;
         if let Some(event) = planned.event {
-            self.events.publish(event).await?;
+            tx.publier(event).await?;
         }
+        tx.commit()
+            .await
+            ?;
         Ok(planned.eleve)
     }
 
@@ -3969,49 +3987,45 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         .await
     }
 
+    /// Modifie l'identité : lecture verrouillée + écriture + journal + événement
+    /// dans UNE transaction (E0). L'événement et le journal ne portent que les
+    /// NOMS des champs modifiés, jamais leurs valeurs (minimisation).
     pub async fn update_identite(&self, cmd: UpdateIdentite) -> Result<Eleve, EntDbError> {
-        let current = self
-            .eleves
-            .get(cmd.etablissement_id, cmd.eleve_id)
+        let etab = cmd.etablissement_id;
+        let actor = cmd.actor_user_id.clone();
+        let mut tx = TenantTx::begin(&self.pool, etab).await?;
+        let current = PgEleveRepo::get_pour_maj(&mut tx, etab, cmd.eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let actor = cmd.actor_user_id.clone();
         let (eleve, changed) = plan_update_identite(&current, cmd)?;
         if !changed {
             return Ok(eleve);
         }
-        self.eleves.upsert(&eleve).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: eleve.etablissement_id,
-                type_name: types::ELEVE_IDENTITY_CHANGED.to_string(),
-                aggregate: AggregateKind::Eleve,
-                aggregate_id: eleve.id,
-                eleve_id: Some(eleve.id),
-                payload: json!({
-                    "nom": eleve.nom,
-                    "prenom": eleve.prenom,
-                    "sexe": eleve.sexe,
-                    "date_naissance": eleve.date_naissance.map(|d| d.to_string()),
-                    "numero_badge": eleve.numero_badge,
-                    "redoublant": eleve.redoublant,
-                    "date_entree": eleve.date_entree.map(|d| d.to_string()),
-                }),
-                actor_user_id: actor.clone(),
-            })
-            .await?;
-        let _ = self
-            .enregistrer_journal_interne(EnregistrerJournal {
-                etablissement_id: eleve.etablissement_id,
-                eleve_id: Some(eleve.id),
-                domaine: "administratif".into(),
-                action: "identite_modifiee".into(),
-                libelle: format!("Identité modifiée : {} {}", eleve.prenom, eleve.nom),
-                payload: json!({ "nom": eleve.nom, "prenom": eleve.prenom }),
-                visible_famille: true,
-                actor_user_id: actor.and_then(|s| Uuid::parse_str(&s).ok()),
-            })
-            .await;
+        let champs = champs_identite_modifies(&current, &eleve);
+        PgEleveRepo::upsert_sur(&mut tx, &eleve).await?;
+        tx.publier(MetierEventDraft {
+            etablissement_id: eleve.etablissement_id,
+            type_name: types::ELEVE_IDENTITY_CHANGED.to_string(),
+            aggregate: AggregateKind::Eleve,
+            aggregate_id: eleve.id,
+            eleve_id: Some(eleve.id),
+            payload: json!({ "champs": champs }),
+            actor_user_id: actor.clone(),
+        })
+        .await?;
+        journal_eleve_tx(
+            &mut tx,
+            eleve.etablissement_id,
+            eleve.id,
+            "identite_modifiee",
+            "Identité de l'élève modifiée",
+            json!({ "champs": champs }),
+            &actor,
+        )
+        .await?;
+        tx.commit()
+            .await
+            ?;
         Ok(eleve)
     }
 
@@ -13295,14 +13309,23 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !Self::role_can_manage_eleves(role) && !parsed.can_read_all_eleves() {
             return Err(EntDbError::Forbidden);
         }
-        let date_naissance = cmd.date_naissance;
+        // E0 : minimisation. Un profil qui ne voit pas la date de naissance ne la
+        // reçoit pas, et la date qu'il fournirait n'entre pas dans le score (sinon
+        // le score serait un oracle de la date de naissance des élèves).
+        let niveau = Self::niveau_identite(role);
+        let voit_naissance = niveau != NiveauIdentite::Reduit;
+        let date_naissance = if voit_naissance { cmd.date_naissance } else { None };
         let (nom, prenom) = plan_rechercher_homonymes(RechercherHomonymes {
             etablissement_id,
             nom: cmd.nom,
             prenom: cmd.prenom,
             date_naissance,
         })?;
-        let candidats = self.eleves.search(etablissement_id, &nom, 50, true).await?;
+        // Le badge n'est interrogeable que s'il est visible (pas d'oracle).
+        let candidats = self
+            .eleves
+            .search(etablissement_id, &nom, 50, niveau.voit_badge())
+            .await?;
         let mut out: Vec<HomonymeCandidat> = candidats
             .into_iter()
             .filter_map(|e| {
@@ -13321,7 +13344,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     eleve_id: e.id,
                     nom: e.nom,
                     prenom: e.prenom,
-                    date_naissance: e.date_naissance,
+                    date_naissance: if voit_naissance { e.date_naissance } else { None },
                     classe: e.classe,
                     score,
                 })
@@ -18602,4 +18625,67 @@ mod tests_cles_objet_photo_pai {
         assert!(!pai_storage_key_is_owned(&piece, &format!("{etab}/documents/{id}.pdf")));
         assert!(!pai_storage_key_is_owned(&piece, "lab/abcd1234/x.pdf"));
     }
+}
+
+
+/// Noms (jamais les valeurs) des champs d'identité qui diffèrent.
+fn champs_identite_modifies(avant: &Eleve, apres: &Eleve) -> Vec<&'static str> {
+    let mut c = Vec::new();
+    if avant.nom != apres.nom {
+        c.push("nom");
+    }
+    if avant.prenom != apres.prenom {
+        c.push("prenom");
+    }
+    if avant.ine != apres.ine {
+        c.push("ine");
+    }
+    if avant.sexe != apres.sexe {
+        c.push("sexe");
+    }
+    if avant.date_naissance != apres.date_naissance {
+        c.push("date_naissance");
+    }
+    if avant.numero_badge != apres.numero_badge {
+        c.push("numero_badge");
+    }
+    if avant.redoublant != apres.redoublant {
+        c.push("redoublant");
+    }
+    if avant.photo_key != apres.photo_key {
+        c.push("photo");
+    }
+    if avant.date_entree != apres.date_entree {
+        c.push("date_entree");
+    }
+    c
+}
+
+/// Entrée de journal (domaine « administratif ») écrite dans la transaction du
+/// fait métier : une erreur remonte et défait la transaction.
+async fn journal_eleve_tx(
+    conn: &mut sqlx::PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    action: &str,
+    libelle: &str,
+    payload: serde_json::Value,
+    actor: &Option<String>,
+) -> Result<(), EntDbError> {
+    let acteur = actor.as_deref().and_then(|s| Uuid::parse_str(s).ok());
+    sqlx::query(
+        "INSERT INTO ent_journal_modif (id, etablissement_id, eleve_id, domaine, action, libelle,
+                                         payload, visible_famille, actor_user_id, created_at)
+         VALUES ($1,$2,$3,'administratif',$4,$5,$6,true,$7, now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(action)
+    .bind(libelle)
+    .bind(payload)
+    .bind(acteur)
+    .execute(conn)
+    .await?;
+    Ok(())
 }

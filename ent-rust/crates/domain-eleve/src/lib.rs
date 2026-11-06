@@ -844,9 +844,8 @@ pub fn plan_create(cmd: CreateEleve) -> Result<PlannedMutation, DomainError> {
         aggregate: AggregateKind::Eleve,
         aggregate_id: eleve.id,
         eleve_id: Some(eleve.id),
+        // E0 : jamais d'état civil dans un événement (minimisation).
         payload: json!({
-            "nom": eleve.nom,
-            "prenom": eleve.prenom,
             "classe": eleve.classe,
             "mef": eleve.mef,
             "status": eleve.status.as_str(),

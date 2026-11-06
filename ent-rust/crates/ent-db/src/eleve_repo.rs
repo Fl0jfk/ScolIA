@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 use domain_eleve::{DomainError, Eleve, EleveStatus};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 pub struct PgEleveRepo {
@@ -252,6 +252,37 @@ impl PgEleveRepo {
     }
 
     pub async fn upsert(&self, eleve: &Eleve) -> Result<(), DomainError> {
+        let mut conn = self.pool.acquire().await.map_err(map_sqlx)?;
+        Self::upsert_sur(&mut conn, eleve).await
+    }
+
+    /// Lecture avec verrou de ligne dans la transaction du fait métier (E0) :
+    /// évite qu'une modification concurrente soit écrasée en silence.
+    pub async fn get_pour_maj(
+        conn: &mut PgConnection,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Option<Eleve>, DomainError> {
+        let row = sqlx::query_as::<_, EleveRow>(
+            r#"
+            SELECT id, etablissement_id, nom, prenom, ine, sexe, date_naissance, numero_badge,
+                   redoublant, photo_key, status, classe, regime, mef, site,
+                   date_entree, date_sortie, motif_sortie
+            FROM ent_eleve
+            WHERE etablissement_id = $1 AND id = $2
+            FOR UPDATE
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(EleveRow::into_eleve))
+    }
+
+    /// Écriture sur une connexion fournie (transaction de l'appelant).
+    pub async fn upsert_sur(conn: &mut PgConnection, eleve: &Eleve) -> Result<(), DomainError> {
         let result = sqlx::query(
             r#"
             INSERT INTO ent_eleve (
@@ -300,7 +331,7 @@ impl PgEleveRepo {
         .bind(eleve.date_entree)
         .bind(eleve.date_sortie)
         .bind(&eleve.motif_sortie)
-        .execute(&self.pool)
+        .execute(&mut *conn)
         .await
         .map_err(map_sqlx)?;
 
