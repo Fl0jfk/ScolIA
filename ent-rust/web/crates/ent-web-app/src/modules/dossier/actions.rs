@@ -3,7 +3,7 @@
 //! ou rétablir un lien. Chaque écriture : erreurs affichées dans le dialogue, arrêt sur
 //! 401 (reconnexion par-dessus la page), rechargement de la fiche après succès.
 
-use ent_web_api::{ApiError, ContactUrgenceDto, ResponsableDto};
+use ent_web_api::{ApiError, ContactUrgenceDto, ResponsableDto, ResultatLien};
 use ent_web_ui::{
     use_notifications, Alerte, Badge, Bouton, Case, ChampTexte, Confirmation, Dialogue, Niveau,
     Selection, Taille, TonEtat, Variante, ZoneTexte,
@@ -60,25 +60,27 @@ pub fn DialogueResponsable(
             voir_vs: voir_vs.get_untracked(),
             justifier: justifier.get_untracked(),
         };
-        let personne = match saisie.personne() {
-            Ok(p) => p,
+        let ajout = match saisie.ajout() {
+            Ok(a) => a,
             Err(m) => return erreur.set(Some(m)),
         };
         erreur.set(None);
         en_cours.set(true);
         spawn_local(async move {
             let client = session::client();
-            let r = match client.creer_personne(&personne).await {
-                Ok(p) => client.lier_responsable(eleve_id, &saisie.lien(p.id)).await,
-                Err(e) => Err(e),
-            };
+            // Une seule commande : la personne et son lien partent (ou échouent) ensemble.
+            let r = client.ajouter_responsable(eleve_id, &ajout).await;
             en_cours.set(false);
             match r {
                 Ok(r) => {
-                    notifications.succes(format!(
-                        "{} est lié(e) à l'élève.",
-                        nom_personne(&r.personne)
-                    ));
+                    notifications.succes(match r {
+                        ResultatLien::Actif(r) => {
+                            format!("{} est lié(e) à l'élève.", nom_personne(&r.personne))
+                        }
+                        ResultatLien::EnAttente(_) => "Invitation enregistrée : le lien sera actif \
+                            quand la personne l'aura confirmé."
+                            .to_string(),
+                    });
                     for s in [nom, prenom, email, telephone, lien, garde] {
                         s.set(String::new());
                     }

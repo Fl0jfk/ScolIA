@@ -267,6 +267,17 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
             Spec { non_liee_vide: FAMILLE, ..lire("incidents", "/eleves/{eleve}/incidents", TOUS, STAFF) },
             Spec { non_liee_vide: FAMILLE, ..lire("sanctions", "/eleves/{eleve}/sanctions", TOUS, STAFF) },
+            // Socle 4 (lot A0) : ajout d'un responsable (commande unique), lien vers une personne
+            // existante, liens en attente de confirmation. Jamais d'écriture sur l'élève d'un autre
+            // établissement ; la liste « mes liens en attente » ne contient que ceux de l'appelant.
+            ecrire_sur_b("ajout-responsable-B", "POST", "/dossier/eleves/{eleve}/responsables/ajout",
+                Some(r#"{"nouvelle_personne":{"nom":"Separation"},"lien":{"lien":"pere"}}"#)),
+            ecrire_sur_b("lier-responsable-B", "POST", "/dossier/eleves/{eleve}/responsables",
+                Some(r#"{"personne_id":"00000000-0000-0000-0000-000000000001","lien":"pere"}"#)),
+            ecrire_sur_b("repondre-lien-attente-B", "POST",
+                "/dossier/mes-liens-en-attente/00000000-0000-0000-0000-000000000001/reponse",
+                Some(r#"{"accepter":true}"#)),
+            lire("mes-liens-en-attente", "/dossier/mes-liens-en-attente", TOUS, TOUS),
     ]
 }
 

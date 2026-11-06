@@ -1702,7 +1702,7 @@ async fn attaque_email_parent_existant_aucun_acces() {
     assert_eq!(
         compter(
             &ent,
-            "SELECT count(*) FROM ent_inscription_lien_attente WHERE dossier_id = $1 AND statut = 'en_attente'",
+            "SELECT count(*) FROM ent_lien_attente WHERE source = 'inscription' AND source_ref IN (SELECT id FROM ent_inscription_responsable WHERE dossier_id = $1) AND statut = 'en_attente'",
             dossier
         )
         .await,
@@ -1782,7 +1782,7 @@ async fn refus_du_parent_existant_aucun_lien() {
     assert_eq!(
         compter(
             &ent,
-            "SELECT count(*) FROM ent_inscription_lien_attente WHERE dossier_id = $1 AND statut = 'refuse'",
+            "SELECT count(*) FROM ent_lien_attente WHERE source = 'inscription' AND source_ref IN (SELECT id FROM ent_inscription_responsable WHERE dossier_id = $1) AND statut = 'refuse'",
             dossier
         )
         .await,
@@ -1855,7 +1855,7 @@ async fn fratrie_foyer_existant_confirme() {
     );
     // Le lien (en attente de confirmation de Léa) pointera vers le foyer existant.
     let (foyer,): (Option<Uuid>,) = sqlx::query_as(
-        "SELECT foyer_id FROM ent_inscription_lien_attente WHERE dossier_id = $1",
+        "SELECT foyer_id FROM ent_lien_attente WHERE source = 'inscription' AND source_ref IN (SELECT id FROM ent_inscription_responsable WHERE dossier_id = $1)",
     )
     .bind(dossier)
     .fetch_one(ent.pool())

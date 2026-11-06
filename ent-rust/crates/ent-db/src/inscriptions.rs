@@ -3422,7 +3422,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                 source_ref: Some(responsable_id),
                 ..Default::default()
             },
-            personne_id,
+            None,
         )
         .await?;
         // Lien déjà actif (personne sans compte au moment de la validation) : suspendu, pour
@@ -3444,7 +3444,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                 personne_id,
                 eleve_id,
                 "Refus du responsable désigné (invitation)",
-                personne_id,
+                None,
             )
             .await?;
         }

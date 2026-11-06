@@ -6,7 +6,7 @@
 
 use chrono::NaiveDate;
 use ent_web_api::{
-    ActionFicheDto, ContactBody, EntreeChronologieDto, FicheEleveDto, LienBody, PersonneBody,
+    ActionFicheDto, AjoutResponsableBody, ContactBody, EntreeChronologieDto, FicheEleveDto, LienBody, PersonneBody,
     PersonneDto, ResponsableDto,
 };
 use uuid::Uuid;
@@ -264,6 +264,16 @@ impl SaisieResponsable {
             email: texte(&self.email),
             telephone: texte(&self.telephone),
             ..Default::default()
+        })
+    }
+
+    /// Commande unique : nouvelle personne + lien dans une seule requête.
+    pub fn ajout(&self) -> Result<AjoutResponsableBody, String> {
+        let mut lien = self.lien(Uuid::nil());
+        lien.personne_id = None;
+        Ok(AjoutResponsableBody {
+            nouvelle_personne: Some(self.personne()?),
+            lien,
         })
     }
 

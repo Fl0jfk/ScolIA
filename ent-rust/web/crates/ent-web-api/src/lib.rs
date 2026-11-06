@@ -38,6 +38,7 @@ pub use communication::{
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
 pub use droits_moteur::DroitEffectif;
+pub use dossier::ResultatLien;
 pub use roles::{
     ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
     PorteeCatalogue, RoleApi, SaisieRole,
@@ -63,6 +64,7 @@ pub use ent_types::cahier as cahier_types;
 pub use ent_types::dossier::{
     ActionFicheDto, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto, LienBody,
     PersonneBody, PersonneDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
+    AjoutResponsableBody, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 /// Types des inscriptions (S2-3), partagés avec `ent-api`.

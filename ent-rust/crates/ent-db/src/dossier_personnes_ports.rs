@@ -805,7 +805,7 @@ pub async fn refuser_liens_attente_tx(
     etab: Uuid,
     personne_id: Uuid,
     filtre: &FiltreAttente,
-    decideur: Uuid,
+    decideur: Option<Uuid>,
 ) -> Result<usize, EntDbError> {
     let lignes = attentes_tx(conn, etab, personne_id, filtre).await?;
     for a in &lignes {
@@ -819,17 +819,20 @@ pub async fn refuser_liens_attente_tx(
         .execute(&mut *conn)
         .await
         .map_err(db)?;
-        journal_tx(
-            conn,
-            etab,
-            Some(a.eleve_id),
-            "lien_refuse",
-            "Lien refusé par la personne désignée",
-            json!({ "attente_id": a.id, "personne_id": personne_id }),
-            false,
-            decideur,
-        )
-        .await?;
+        // Refus par jeton d'invitation : l'auteur n'est pas forcément un compte (journal alors omis).
+        if let Some(u) = decideur {
+            journal_tx(
+                conn,
+                etab,
+                Some(a.eleve_id),
+                "lien_refuse",
+                "Lien refusé par la personne désignée",
+                json!({ "attente_id": a.id, "personne_id": personne_id }),
+                false,
+                u,
+            )
+            .await?;
+        }
     }
     Ok(lignes.len())
 }
@@ -842,7 +845,7 @@ pub async fn suspendre_lien_personne_tx(
     personne_id: Uuid,
     eleve_id: Uuid,
     motif: &str,
-    decideur: Uuid,
+    decideur: Option<Uuid>,
 ) -> Result<bool, EntDbError> {
     let r = sqlx::query(
         "UPDATE ent_eleve_lien SET suspendu_le = now(), suspendu_par = $4, updated_at = now(),
@@ -858,17 +861,19 @@ pub async fn suspendre_lien_personne_tx(
     .await
     .map_err(db)?;
     if r.rows_affected() > 0 {
-        journal_tx(
-            conn,
-            etab,
-            Some(eleve_id),
-            "lien_suspendu",
-            "Lien suspendu",
-            json!({ "personne_id": personne_id }),
-            false,
-            decideur,
-        )
-        .await?;
+        if let Some(u) = decideur {
+            journal_tx(
+                conn,
+                etab,
+                Some(eleve_id),
+                "lien_suspendu",
+                "Lien suspendu",
+                json!({ "personne_id": personne_id }),
+                false,
+                u,
+            )
+            .await?;
+        }
     }
     Ok(r.rows_affected() > 0)
 }
@@ -1130,7 +1135,7 @@ impl PgEnt {
                 .await?
                 .1
         } else {
-            refuser_liens_attente_tx(&mut tx, etab, personne_id, &filtre, user_id).await?
+            refuser_liens_attente_tx(&mut tx, etab, personne_id, &filtre, Some(user_id)).await?
         };
         if n == 0 {
             return Err(EntDbError::Domain(DomainError::NotFound));
