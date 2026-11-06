@@ -6,6 +6,8 @@
 
 **Conventions.** **[F]** fait vérifié dans le dépôt (chemin cité) ; **[S]** fait sourcé repris de `INTEROPERABILITE_NATIONALE.md` ; **[H]** hypothèse (mémoire ou déduction, à vérifier) ; **[NV]** non vérifié, à vérifier en priorité sur un texte officiel avant de coder ; **[R]** recommandation (non décidée). Les identifiants d'actions métier `ELV-xx` sont stables.
 
+**[personas] Passe « personas » du 2026-11-06.** Ajouts marqués **[personas]** : actions ELV-29 à ELV-48 (§11), règles R-E1 à R-E24 et cas limites (§16 bis), questions Q-E18 à Q-E23 (§17). Origine de chaque ajout (persona, manque, gravité) : `docs/socles/PERSONAS_02-04.md`. **Trois ajouts changent le lot E2 en cours** : date de naissance incomplète ou présumée (R-E1), motif codé (R-E4), sensibilité forcée (R-E3) ; un quatrième est recommandé (écriture d'origine, R-E2). Voir `PERSONAS_02-04.md` §0.
+
 **Numérotation des socles — contradiction à lever.** `docs/ROADMAP.md` dit encore « socle 2 = domaines et actions métier, socle 3 = fonctions différenciantes », et `docs/SOCLE2_DOMAINES.md` nomme ses lots `S2-0` à `S2-15`. La demande de ce document fixe une autre numérotation : **socle 2 = l'élève, socle 3 = inscriptions et réinscriptions, socle 4 = dossier administratif** (foyers, responsables, coordonnées). Ce document suit la nouvelle numérotation ; `ROADMAP.md` est à mettre à jour après validation (question Q-E1). Les lots S2-1 (dossier, personnes) et S2-2 (référentiel) déjà réalisés restent la base de départ.
 
 Sommaire : §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs et besoins · §4 Frontières · §5 Concepts · §6 Historique · §7 Modèle de données cible · §8 Données venues de l'extérieur · §9 Logiciel ou paramétrage · §10 Cloisonnement, sécurité, données sensibles · §11 Actions métier · §12 Droits · §13 Événements · §14 Écrans · §15 Plan de migration · §16 Lots de code · §17 Questions à trancher · §18 Récapitulatif faits / hypothèses.
@@ -320,7 +322,7 @@ ent_eleve_scolarisation                    -- un séjour continu dans l'établis
   origine_libelle    TEXT NULL            -- établissement d'origine, ou « instruction en famille », « étranger »…
   origine_type       TEXT NULL CHECK (origine_type IN ('public','prive_sous_contrat','prive_hors_contrat','instruction_famille','etranger','inconnu'))
   date_sortie        DATE NULL
-  motif_sortie       TEXT NULL            -- code du logiciel (fin_de_cycle, changement_etablissement, demenagement, exclusion_definitive, abandon, fin_obligation, autre) + motif local paramétrable
+  motif_sortie       TEXT NULL            -- code du logiciel (fin_de_cycle, changement_etablissement, demenagement, exclusion_definitive, abandon, fin_obligation, instruction_famille, etranger, deces, autre) + motif local paramétrable  -- [personas] instruction_famille, etranger, deces ajoutés (R-E12)
   motif_sortie_local UUID NULL REFERENCES ent_param_motif_sortie
   destination_uai, destination_libelle, destination_type
   exeat_document_id  UUID NULL            -- certificat de radiation / exeat [H : terminologie et obligations à vérifier]
@@ -362,7 +364,7 @@ ent_eleve_capacite
   piece_document_id UUID NOT NULL, motif TEXT NULL
   saisi_par, saisi_le, levee_par, levee_le
 ```
-- **Majorité** : calculée depuis la date de naissance courante (fuseau Europe/Paris), jamais saisie. Le passage à 18 ans est détecté chaque nuit et publie `eleve.majeur` (DOS-14). Les effets sur les droits des parents dépendent de Q10 (non tranchée) ; le socle 2 ne fait que fournir le fait.
+- **Majorité** : calculée depuis la date de naissance courante (fuseau ~~Europe/Paris~~ **de l'établissement**, Europe/Paris par défaut — [personas] R-E15), jamais saisie ; jamais calculée sur une date de naissance `contestee` (R-E1). Le passage à 18 ans est détecté chaque nuit et publie `eleve.majeur` (DOS-14). Les effets sur les droits des parents dépendent de Q10 (non tranchée) ; le socle 2 ne fait que fournir le fait.
 - **Mineur émancipé** : capable comme un majeur [H, code civil à vérifier]. **Majeur protégé** : le tuteur ou curateur est un responsable (socle 4) avec des droits propres ; le socle 2 porte la mesure et sa pièce.
 
 ### 7.6 Confidentialité renforcée
@@ -407,7 +409,7 @@ ent_eleve_proposition
   eleve_id        UUID NULL             -- NULL = « élève inconnu » proposé par un import
   cible           TEXT NOT NULL CHECK (cible IN ('identite','identifiant','scolarisation','inscription','coordonnee','photo','nouvel_eleve'))
   champs          JSONB NOT NULL        -- {champ: {actuel, propose}} ; valeurs sensibles scellées
-  source          TEXT NOT NULL CHECK (source IN ('import','famille','eleve','ancien_etablissement','educonnect','admission','systeme'))
+  source          TEXT NOT NULL CHECK (source IN ('import','famille','eleve','ancien_etablissement','educonnect','admission','systeme','personnel','verification_campagne'))  -- [personas] 'personnel' (ELV-40), 'verification_campagne' (ELV-32)
   source_ref      UUID NULL             -- lot d'import (IOP-L1), demande famille, dossier d'admission
   piece_document_id UUID NULL
   statut          TEXT NOT NULL CHECK (statut IN ('en_attente','acceptee','acceptee_partiellement','refusee','expiree','appliquee_auto','obsolete'))
@@ -635,6 +637,26 @@ Notation des acteurs comme `SOCLE2_DOMAINES.md` §3 : ADF administratif, DIR dir
 | ELV-26 | Paramétrer les champs, la numérotation, régimes, motifs | ADM · `eleves.parametrer` | dans les bornes du logiciel | paramétrage | `parametrage.eleve_modifie` | — |
 | ELV-27 | Consulter la qualité des données | ADF, DIR · `eleves.lire` + `eleves.identifiants.lire` | indicateurs calculés | lecture | — | — |
 | ELV-28 | Ouvrir ou fermer le compte de l'élève | ADF · `eleves.gerer` (existant) | règles d'âge paramétrées ; invitation (existant [F]) | compte | `eleve.compte_*` [F] | DOS-09 (partie) |
+| ELV-29 [personas] | Enregistrer une date de naissance **incomplète ou présumée** (précision : jour, mois, année, inconnue ; statut : déclarée, justifiée, présumée, contestée) | ADF · `eleves.identite.modifier` | jamais de « 1ᵉʳ janvier » inventé sans marque ; affichage « né(e) en 2012 (date présumée) » ; âge et majorité calculés sur la date retenue avec avertissement, **suspendus** si `contestee` (mineur non accompagné dont la minorité est en cours d'évaluation) ; les exports appliquent la règle de leur connecteur et signalent la précision [NV] (R-E1) | version | `eleve.identity_changed` (champs) | — |
+| ELV-30 [personas] | Enregistrer l'écriture d'origine du nom et ses autres graphies (translittérations) | ADF · `eleves.identite.modifier` | l'écriture d'origine est dans la version (facultative) ; les autres graphies servent **seulement** à la recherche et au rapprochement des imports, jamais aux documents officiels ; lues avec G2 (R-E2) | version ; alias | `eleve.identity_changed` (champs) | — |
+| ELV-31 [personas] | Corriger **en lot** la typographie (majuscules, accents, espaces, apostrophes) après un import ou une reprise | ADF · `eleves.identite.modifier` ★ | aperçu avant / après élève par élève, décochable ; nature `correction`, motif codé `harmonisation_typographique`, sans pièce ; jamais sur un champ dont une source externe fait foi (proposition « à corriger dans la source ») | versions | `eleve.identity_changed` (une par élève, regroupées pour les consommateurs) | — |
+| ELV-32 [personas] | Lancer une **campagne de vérification de l'état civil** par les familles (avant les inscriptions aux examens, avant la remontée BEE, à l'entrée en 3ᵉ ou en terminale) | ADF · `eleves.identite.modifier` + `eleves.propositions.traiter` | chaque titulaire, et l'élève majeur, voit l'état civil **exactement tel qu'il sera imprimé** (accents, ordre des prénoms, lieu de naissance) ; « c'est exact » ou proposition avec pièce ; relances plafonnées ; tableau de complétude par classe ; aucune modification directe | propositions (source `verification_campagne`) | `eleve.verification_identite_ouverte` / `_close` | — |
+| ELV-33 [personas] | Déclarer deux fiches comme **distinctes** (jumeaux, homonymes) | ADF · `eleves.identite.modifier` | décision mémorisée ; la paire n'est plus proposée par la détection, sauf si l'identité de l'une change (R-E20) | marque | `eleve.non_doublon_declare` | — |
+| ELV-34 [personas] | **Enregistrer le décès d'un élève** ★ | DIR · `eleves.sortie` | scolarisation close, motif `deces` ; **arrêt immédiat de tous les envois automatiques** le concernant (relances, réinscription, fiche de rentrée, factures et relances de paiement, alertes d'absence, notifications de notes) ; retrait des appels et trombinoscopes à la date ; aucun courrier ni certificat automatique ; fratrie signalée à la direction ; information des équipes rédigée par la direction (R-E12) | scolarisation close | `eleve.decede` (sans détail) | — |
+| ELV-35 [personas] | Ouvrir ou fermer une **période de mobilité** (année ou trimestre à l'étranger, soins longs, CNED temporaire) avec retour prévu | ADF · `eleves.scolarite.gerer` | la scolarisation **n'est pas close** ; pas de certificat de radiation ; place réservée pour N+1 (socle 3, INS-71) ; appel neutralisé sur la période (socle 12) ; retour constaté ou transformé en sortie (R-E13) | période | `scolarite.mobilite_ouverte` / `_fermee` | — |
+| ELV-36 [personas] | Enregistrer une **modalité de scolarisation** datée (temps partiel, double inscription CNED, scolarisation partagée avec un établissement médico-social, UPE2A, ULIS [NV]) | ADF · `eleves.scolarite.gerer` | codes du logiciel, libellés paramétrables ; lue par les socles 10, 12, 23, 35 ; le contenu pédagogique reste au socle 35 (R-E14) | modalité | `scolarite.modalite_changee` | — |
+| ELV-37 [personas] | Éditer le **registre des élèves** (entrées et sorties, ordre chronologique) à une date | ADF, DIR · `eleves.exporter` | reproductible à toute date passée ; colonnes minimales (R-E18) ; filigrane ; journalisé ; utile en inspection et contrôle [NV] | fichier (URL courte) | `export.realise` | — |
+| ELV-38 [personas] | Délivrer une **attestation de scolarité pour une période passée** (ancien élève) | ADF · `eleves.lire` ; ancien élève (demande) | lit les scolarisations et inscriptions conservées ; identité du demandeur vérifiée ; modèle bilingue possible (R-E17) ; impossible si les données ont été anonymisées (le dire) | document (socle 7) | `document.emis` | — |
+| ELV-39 [personas] | **Préparer la majorité** (J-30) | SYS | un mois avant : l'élève est informé de ce qui change et des choix à faire (ce que ses parents continuent de recevoir, ses coordonnées propres, ses justifications) ; les titulaires reçoivent un message neutre ; tâche au secrétariat si l'élève n'a ni e-mail ni mobile vérifié ; rien ne bascule avant la date (socle 4, R-A25) | tâche, messages | `eleve.majorite_proche` | — |
+| ELV-40 [personas] | **Signaler une erreur d'identité vue sur le terrain** (« il s'appelle Yanis, pas Yannis ») | personnel · `eleves.annuaire` | crée une proposition `source = personnel` vers le secrétariat ; aucune modification directe ; l'auteur est informé de la décision | proposition | `eleve.proposition_deposee` | — |
+| ELV-41 [personas] | Déclarer un **badge perdu** et attribuer un nouveau badge | ADF, VS · `eleves.badge.gerer` (nouvelle action, système `BADGE` seulement) | l'ancien est révoqué immédiatement (cantine, portail) ; le nouveau actif tout de suite ; refacturation éventuelle (socle 24) | identifiant | `eleve.identifiant_change` | — |
+| ELV-42 [personas] | Enregistrer le **refus de la photo administrative** | ADF · `eleves.photo.gerer` | silhouette dans les listes ; l'élève sort de « photos manquantes » ; aucune relance ; révocable par la famille | marque | `eleve.photo` | — |
+| ELV-43 [personas] | Indiquer la **prononciation** du prénom et du nom | ELV (soi), PAR (proposition), ADF | texte phonétique simple ou court enregistrement audio, facultatif ; visible de qui voit G0 dans l'établissement ; jamais exporté | donnée facultative | — | — |
+| ELV-44 [personas] | Ouvrir un **accès exceptionnel motivé** (« bris de glace ») à la scolarité et à l'état civil d'un élève hors de sa portée | personnel désigné · `eleves.acces_urgence` (nouvelle action) | motif choisi dans une liste (disparition, danger, urgence médicale) ; durée courte (défaut 2 h, bornes 30 min – 24 h) ; jamais G6 ni santé ; alerte immédiate à la direction ; revue a posteriori obligatoire (R-E11) | accès temporaire | `acces.urgence_ouvert` | — |
+| ELV-45 [personas] | Voir les **arrivées, départs et changements** récents de mes classes et groupes | PRF, PP, CPE · portée | depuis une date choisie (défaut : 30 jours) ; sans motif de sortie ; lien vers la fiche | lecture | — | — |
+| ELV-46 [personas] | **Déclarer un lien personnel** avec un élève (son enfant, un proche) — conflit d'intérêts | personnel (soi) ; DIR ; SYS (détection à partir des socles 4 et 6) | accès à la fiche de cet élève par la casquette professionnelle tracé spécialement ; aucune décision sensible sur lui (fusion, confidentialité, sortie, correction d'identité) ; données des autres responsables fermées (socle 4, R-A18) (R-E10) | marque | `personnel.lien_declare` (sans détail) | — |
+| ELV-47 [personas] | Faire suivre les **identifiants de connexion et l'adresse de messagerie** interne après un changement de prénom d'usage ou de nom | ELV (demande), ADF | le socle 1 renomme ; l'ancien identifiant reste un alias caché un temps borné, jamais affiché aux autres ; aucune perte d'historique (R-E16) | (socle 1) | `compte.identifiant_renomme` | — |
+| ELV-48 [personas] | Choisir l'établissement d'origine ou de destination dans l'**annuaire national des établissements** (UAI) | ADF · `eleves.scolarite.gerer` ; SYS (socles 3, 9) | recherche par nom, commune, UAI ; texte libre de secours (étranger, instruction en famille) ; référentiel du logiciel mis à jour par le socle 9 (R-E23) — couverture Charlemagne (D-024) | scolarisation | — | — |
 
 ---
 
@@ -794,6 +816,58 @@ Ordre recommandé : E0 → E1 → E2 → (E3, E4 en parallèle) → (E5, E6, E7 
 
 Reste (non fait) : `eleves.photo.gerer` n'est pas encore branché sur les routes photo ; les nouvelles actions d'écriture ne remplacent pas encore `eleves.gerer` sur les routes ; lots E3 à E11.
 
+## 16 bis. Ajouts de la passe « personas » [personas]
+
+Origine, personas et gravité de chaque point : `docs/socles/PERSONAS_02-04.md`. Le lot indiqué entre crochets est celui qui porte l'ajout ; **E2** signale un changement du lot en cours.
+
+### 16 bis.1 Règles et paramétrages
+
+| # | Règle [personas] | Lot |
+|---|---|---|
+| R-E1 | **Date de naissance incomplète ou présumée.** `ent_eleve_identite` (et la projection `ent_eleve`) reçoit `date_naissance_precision TEXT NOT NULL DEFAULT 'jour' CHECK (… IN ('jour','mois','annee','inconnue'))` et `date_naissance_statut TEXT NOT NULL DEFAULT 'declaree' CHECK (… IN ('declaree','justifiee','presumee','contestee'))`. La date stockée est la date **retenue** (convention choisie et affichée) ; l'écran montre toujours la précision et le statut. `contestee` suspend le calcul de la majorité et lève une alerte à la direction. Reprise : `jour` / `declaree` pour tous les élèves existants | **E2** |
+| R-E2 | **Écriture d'origine et autres graphies.** Colonnes facultatives `nom_ecriture_origine`, `prenoms_ecriture_origine` dans la version (recommandé dans E2, sinon E6) ; table `ent_eleve_alias (eleve_id, valeur, nature ('translitteration','ancienne_graphie','usage_familial'), source)` lue **seulement** par la recherche et le rapprochement des imports, visible avec G2 | E2 (colonnes), E6 (alias) |
+| R-E3 | **Sensibilité forcée.** Les motifs codés `adoption`, `changement_prenom`, `changement_mention_sexe`, `protection` posent `sensible = true` sans possibilité de le retirer à la saisie ; la pièce est rangée en catégorie sensible (socle 7). Une **demande** de prénom d'usage non aboutie est scellée et n'apparaît dans aucune vue famille ni aucun historique G5 | **E2** |
+| R-E4 | **Motif codé.** `motif_code` (liste du logiciel : `faute_saisie`, `harmonisation_typographique`, `erreur_import`, `decision_etat_civil`, `adoption`, `changement_prenom`, `changement_mention_sexe`, `protection`, `autre`) ; la contrainte devient « `motif_code` obligatoire pour `correction` et `changement_etat_civil` », le texte libre n'étant obligatoire que pour `autre` | **E2** |
+| R-E5 | **Changement de régime à des dates autorisées.** `ent_param_regime.dates_changement` : libre, fin de période, fin de trimestre, ou liste de dates. ELV-10 propose la prochaine date autorisée ; une **dérogation motivée** (motif codé : déménagement, raison médicale sans détail, situation familiale, décision de l'établissement) reste possible et tracée. Préréglage public : fin de trimestre [H, NV] | E4 |
+| R-E6 | **Modalités de régime.** Un régime local peut porter des modalités (forfait 4 ou 5 jours, jours de repas) déclarées par le socle 40 ; le socle 2 ne stocke que le code et la référence | E4 |
+| R-E7 | **Filigrane nominatif.** Toute liste nominative exportée ou imprimée (ELV-25, ELV-37, trombinoscope) porte l'auteur, la date, la mention « document confidentiel » et l'identifiant de l'export (journal) ; non désactivable | E11, E9 |
+| R-E8 | **Désambiguïsation.** Quand deux élèves d'une même classe ou d'un même groupe ont la même désignation (prénom + initiale), les listes ajoutent la deuxième lettre du nom, puis le second prénom, puis le numéro ; jamais la date de naissance | E9 |
+| R-E9 | **Pastilles ajoutées** au catalogue : `nouvel_arrivant` (première année dans l'établissement, ou entrée depuis moins de 30 jours), `arrive_en_cours_annee`, `redoublant`, `majorite_proche` (J-30, secrétariat et PP), `en_mobilite`, `modalite_particuliere` (sans détail) | E8 |
+| R-E10 | **Conflit d'intérêts.** Une personne du personnel qui est aussi responsable, contact, payeur ou ancien membre de foyer d'un élève (détection par les socles 4 et 6, ou déclaration ELV-46) : accès à la fiche de cet élève par la casquette professionnelle **tracé comme accès sensible** et signalé à la direction ; aucune décision sensible sur cet élève ; groupes F2–F4 des **autres** responsables fermés (socle 4, R-A18). Sa casquette de parent est inchangée | E1, E7 |
+| R-E11 | **Bris de glace.** Action `eleves.acces_urgence`, accordée par rôle (modèles : Direction, CPE, Infirmerie) ; motif obligatoire dans une liste ; durée par défaut 2 h (bornes 30 min – 24 h) ; ouvre G1 à G3 d'un élève hors portée, jamais G6 ni les données de santé ; alerte immédiate à la direction ; revue a posteriori sous 72 h (« justifié / non justifié ») ; journal d'accès sensible | E1, E7 |
+| R-E12 | **Décès d'un élève.** Motif de sortie `deces`. L'événement `eleve.decede` est consommé par : 8 (annule tous les envois programmés et futurs le concernant), 3 (clôt les dossiers de réinscription sans message), 4 (ferme la fiche de rentrée), 12 (retire des appels), 24 et 25 (suspendent relances et prélèvements, sans message), 29 (retire les tâches). La fiche reste consultable. Les frères et sœurs scolarisés sont signalés à la direction, qui décide seule de toute information des équipes | E4 |
+| R-E13 | **Mobilité.** `ent_eleve_mobilite (eleve_id, du, au, type ('etranger','soins','cned','autre'), retour_prevu DATE NULL)` ; le statut dérivé reste `scolarise` ; pastille `en_mobilite` ; au retour prévu dépassé sans nouvelle : tâche « confirmer le retour ou enregistrer une sortie » | E4 |
+| R-E14 | **Modalités de scolarisation.** `ent_eleve_modalite (eleve_id, code, du, au, source, piece_document_id NULL)` ; codes du logiciel (`temps_partiel`, `double_inscription_cned`, `scolarisation_partagee`, `upe2a`, `ulis`, `autre`) [NV pour les intitulés officiels] ; libellés paramétrables | E4 |
+| R-E15 | **Fuseau.** Toutes les dates métier du socle (majorité, statut dérivé, versions datées dans le futur) sont calculées dans le **fuseau de l'établissement** (paramètre du socle 5, STR-03), Europe/Paris par défaut ; test avec un établissement à UTC+4 | E4 |
+| R-E16 | **Identifiants dérivés du nom.** Identifiant de connexion, adresse de messagerie interne et pseudonymes générés à partir du nom affiché suivent le prénom d'usage quand il est actif ; le socle 1 consomme `eleve.identity_changed` et **propose** le renommage (ELV-47) | socle 1 |
+| R-E17 | **Attestations bilingues.** Les gabarits de certificats et d'attestations existent en français et en une seconde langue (anglais par défaut) ; seules les données sont insérées, aucun texte libre n'est traduit automatiquement ; la version française fait foi | E11 (+7) |
+| R-E18 | **Registre des élèves** (ELV-37) : numéro, nom de naissance, prénoms, date de naissance (avec précision), date et motif d'entrée, origine, date et motif de sortie, destination ; à une date ; rien d'autre [NV : contenu exigé selon le statut de l'établissement] | E11 |
+| R-E19 | **Extrait de l'élève demandé par un parent** (droit d'accès) : exclut les coordonnées, adresses, motifs et pièces des **autres** responsables, les versions sensibles et tout ce qui concerne d'autres personnes ; l'extrait demandé par l'élève majeur suit d'autres règles (socle 27) | E11 |
+| R-E20 | **Non-doublon.** `ent_eleve_non_doublon (eleve_a, eleve_b, motif_code, decide_par, decide_le)` ; la détection ignore la paire tant qu'aucune des deux identités ne change | E6 |
+| R-E21 | **Propositions venues du terrain et des campagnes.** Sources `personnel` (ELV-40) et `verification_campagne` (ELV-32) ajoutées à `ent_eleve_proposition.source` | E5 |
+| R-E22 | **Ancien élève anonymisé.** Après anonymisation (durées DPO), la réintégration sur la même fiche est impossible : une nouvelle fiche est créée et l'écran le dit ; l'attestation historique (ELV-38) ne s'appuie que sur ce qui est légalement conservé | E4, E11 |
+| R-E23 | **Annuaire des établissements.** Référentiel du logiciel (UAI, nom, commune, type, secteur), commun à tous les établissements, importé par le socle 9 depuis la source officielle [NV : source et licence] ; `origine_uai` et `destination_uai` (§7.4) le référencent ; un UAI inconnu reste saisissable avec alerte — repris de Next.js et de Charlemagne (D-024) | E4 (+9) |
+| R-E24 | **Documents en trames prêtes (D-023).** Certificat de scolarité, attestation de scolarité passée, registre des élèves, listes et trombinoscopes imprimés, extrait des données : 3 ou 4 trames par type ; l'établissement choisit et n'ajuste que son identité (logo, couleurs, coordonnées, signature, texte libre encadré) ; contenu rempli seul depuis les données ; pas d'éditeur de mise en page. Réglages lourds du socle signalés pour décision commune : `PERSONAS_02-04.md` §5 bis.2 (S-01 à S-06, S-23) | E11 (+7) |
+
+**Droits ajoutés** : `eleves.badge.gerer` (Admin, Direction, Administratif, CPE ; portée établissement), `eleves.acces_urgence` (aucun modèle par défaut hors Direction ; à accorder explicitement). **Événements ajoutés** : `eleve.decede`, `eleve.non_doublon_declare`, `eleve.verification_identite_ouverte` / `_close`, `eleve.majorite_proche`, `scolarite.mobilite_ouverte` / `_fermee`, `scolarite.modalite_changee`, `acces.urgence_ouvert`, `personnel.lien_declare` ; charges utiles sans aucune valeur d'identité.
+
+### 16 bis.2 Cas limites ajoutés
+
+| Cas [personas] | Ce que fait le socle |
+|---|---|
+| Enfant arrivé de l'étranger, date de naissance connue à l'année seulement | ELV-29 : précision `annee`, statut `presumee` ; âge affiché « environ » |
+| Mineur non accompagné dont la minorité est en cours d'évaluation | Statut `contestee` ; aucune majorité calculée ; alerte direction ; la scolarisation n'est pas bloquée |
+| Nom écrit de trois façons selon les papiers | ELV-30 : une graphie retenue, les autres en alias de recherche |
+| Élève adopté pendant sa scolarité (adoption plénière) | Changement d'état civil avec motif `adoption` : versions antérieures scellées d'office (R-E3) |
+| Demande de prénom d'usage refusée par les parents | Rien ne change ; la demande est scellée, invisible des vues famille (R-E3) ; l'accompagnement reste humain |
+| Jumeaux, ou deux homonymes nés le même jour | ELV-33 une fois ; plus jamais proposés comme doublons |
+| Élève parti un an à l'étranger avec retour prévu | ELV-35 : pas de sortie, place gardée (socle 3) |
+| Élève à mi-temps au CNED ou en établissement médico-social | ELV-36 |
+| Décès d'un élève | ELV-34 : arrêt de tous les automatismes (R-E12) |
+| Secrétaire dont l'enfant est élève de l'établissement | R-E10 : accès tracé, décisions sensibles interdites, données de l'autre parent fermées |
+
+---
+
 ## 17. Questions à trancher par le porteur du projet
 
 | # | Question | Options | Recommandation |
@@ -815,6 +889,12 @@ Reste (non fait) : `eleves.photo.gerer` n'est pas encore branché sur les routes
 | Q-E15 | Durées de conservation (élève sorti, anciennes photos, versions, propositions refusées) | — | **à demander au DPO** ; aucune durée ne sera codée avant |
 | Q-E16 | Délai d'annulation d'une fusion d'élèves | 30 jours / autre | **30 jours**, comme les personnes |
 | Q-E17 | Démarches externes pour le format exact de l'INE, l'attribution et le retour BEE, le COG : qui les porte, et autoriser les domaines officiels dans l'environnement de travail ? | — | rejoindre les démarches déjà listées (`INTEROPERABILITE_NATIONALE.md` §12, §15 décisions 2 et 3) |
+| **Q-E18** [personas] | Intégrer dans le lot **E2 en cours** la date de naissance incomplète ou présumée (R-E1), le motif codé (R-E4) et la sensibilité forcée (R-E3) ? | maintenant / plus tard | **maintenant** : les ajouter après la reprise obligerait à repasser sur toutes les versions |
+| Q-E19 [personas] | Écriture d'origine du nom (R-E2) dans E2 ou plus tard ? | E2 / E6 | **E2** (deux colonnes facultatives, coût nul) |
+| Q-E20 [personas] | Bris de glace (ELV-44) : quels rôles, quelle durée, qui fait la revue ? | — | Direction, CPE, Infirmerie ; 2 h ; revue par la direction sous 72 h ; à valider par le DPO |
+| Q-E21 [personas] | Décès d'un élève : la liste des automatismes à couper (R-E12) est-elle complète, et qui peut enregistrer le décès ? | — | direction seulement ; liste à compléter par chaque socle (test de garde : tout envoi programmé vérifie `eleve.decede`) |
+| Q-E22 [personas] | Nom transmis au GAR et aux ressources numériques : état civil ou prénom d'usage ? | état civil / usage | **usage** quand il est actif, si la réglementation du GAR le permet [NV, à vérifier] ; les examens et exports officiels restent à l'état civil |
+| Q-E23 [personas] | Changement de régime limité à des dates autorisées (R-E5) : préréglage pour le public et le privé ? | libre / fin de trimestre | **fin de trimestre** pour le public [H], **libre** pour le privé, dérogation motivée toujours possible |
 
 ---
 
