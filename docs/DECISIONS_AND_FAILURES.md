@@ -88,3 +88,10 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Résultat observé (faits) :** repéré à la relecture, avant tout test : `migrate.rs` rejoue **toutes** les migrations à chaque démarrage ; la `110` rejouée recréerait la contrainte étroite et échouerait dès qu'une ligne porte une nouvelle source.
 - **Correction :** aucune nouvelle valeur ; les réactions S2-3 utilisent les sources existantes (`saisie` pour une inscription validée, `lot` pour un import).
 - **Apprentissage :** tant que les migrations sont rejouées, une contrainte `CHECK` ne doit être redéfinie qu'à un seul endroit ; pour l'élargir, modifier cette migration-là (et seulement en élargissant) ou introduire un suivi des migrations appliquées.
+## F-008 — Sessions cloud lancées sur Opus par défaut
+
+- **Date / contexte :** 2026-11-06, socle 2, sessions cloud parallèles.
+- **Résultat observé (faits) :** `create_session` hérite du modèle de la session appelante (Opus). Sur 9 sessions actives, 6 tournaient sur Opus, dont une intégration de lot (fusion + tests, environ 6 $), contrairement à la règle « Sonnet par défaut » de `CLAUDE.md`. Relevé par Florian.
+- **Cause :** paramètre `model` non renseigné au lancement ; pas de choix explicite par session.
+- **Correction / règle :** à chaque `create_session`, renseigner `model` explicitement. **Sonnet par défaut** (lots métier, écrans, intégrations, mobile). **Opus seulement** pour une revue de sécurité adverse, un domaine à risque (finances/SEPA) ou une décision d'architecture structurante, en le justifiant dans le titre ou la consigne. **Haiku** pour recherches ciblées et doc légère (sous-agents). Les sessions déjà lancées ne sont pas interrompues.
+- **Apprentissage :** un défaut hérité n'est pas un choix ; le modèle fait partie de la conception de chaque tâche déléguée.

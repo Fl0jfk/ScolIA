@@ -31,6 +31,7 @@
 | Récupération de passkey | Par la personne elle-même, par e-mail, avec délai de sécurité et alertes | **Validé** | D-018 |
 | Cible commerciale du socle 2 | **Public et privé ensemble** (ÉduConnect, GAR, interfaces nationales prévues dès le socle 2) | **Validé** | D-019 |
 | Modèle personne / compte, absences | Personne distincte du compte pour les responsables ; absences à la séance avec dérivation en demi-journées | **Validé** | D-020 |
+| Construction par socles | Socles profonds conçus avant d'être codés ; 1 sécurité (fait), 2 l'élève, 3 inscriptions et réinscriptions, 4 dossier administratif ; carte 5–51 proposée (`docs/SOCLES.md`) | **Validé** (ordre 1–4) ; carte 5–51 à valider | D-021 |
 | Next.js production | Intouchable | Règle absolue | — |
 | DB production | Aucun accès même lecture | Règle absolue | — |
 
@@ -268,3 +269,13 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
 - **Décision :** (1) une **personne** (responsable, contact) existe indépendamment d'un **compte** de connexion : parent sans e-mail, parents séparés (D-014), élève majeur ; (2) les absences sont enregistrées **à la séance**, les demi-journées sont dérivées automatiquement (décompte réglementaire).
 - **Impacts :** lots S2-1 (dossier élève et personnes) et S2-4 (vie scolaire complète) ; migrations additives avec reprise de l'existant.
 
+## D-021 — Construction de l'ENT socle par socle ; ordre des quatre premiers socles
+
+- **Date :** 2026-11-06 — **Validateur :** Florian (ordre des socles 1 à 4) ; reste de la carte : proposition.
+- **Contexte :** la feuille de route du 2026-11-05 regroupait tous les domaines dans un « socle 2 » (`docs/SOCLE2_DOMAINES.md`, 26 domaines, lots S2-0 à S2-15) et les fonctions différenciantes dans un « socle 3 ».
+- **Décision :** l'ENT se construit **socle par socle**, chaque socle étant un domaine entier, conçu en profondeur avant d'être codé, relié aux autres par la toile des événements. Ordre fixé : **1 sécurité** (fait), **2 l'élève**, **3 inscriptions et réinscriptions**, **4 dossier administratif** (foyers, responsables, parents séparés, coordonnées, identifiants officiels). Florian estime le total à 40–50 socles et en confie l'identification à Claude.
+- **Proposition (non validée) :** carte de 51 socles en 12 étages, avec jalons (dont « pilote » après le socle 29) : `docs/SOCLES.md`. L'ancien « socle 3 » devient l'étage H (socles 30 à 33). Questions ouvertes : `SOCLES.md` §8 (ordre 5–51, paie, comptabilité, position de l'IA, premier degré, post-bac).
+- **Impacts :** `docs/ROADMAP.md` suit la carte ; « socle 2 » désigne désormais l'élève (D-019 s'applique à tous les socles) ; `SOCLE2_DOMAINES.md` reste la référence des actions et événements ; chaque socle commence par un document `docs/socles/NN_<NOM>.md` (premier : `docs/socles/02_ELEVE.md`).
+- **Risque signalé :** le socle 3 crée des responsables avant que le socle 4 n'approfondisse leur modèle ; règle : le socle 3 n'écrit les personnes que par les commandes du domaine « personnes » existant.
+- **Méthode :** pour chaque socle, une réflexion de fond sur Opus, en autonomie (Florian ne liste pas les actions), écrite dans `docs/socles/` ; puis le code par une équipe Sonnet ; puis la relecture de Florian. On ne découpe pas en largeur sur plusieurs domaines à la fois.
+- **Lots en cours et arrêts du 2026-11-06 :** les lots S2-x en cours (EDT, évaluations, communication, finances, santé) sont terminés sans élargissement et serviront de base aux socles correspondants. Six sessions de conception lancées en largeur le même jour ont été arrêtées après quelques minutes (environ 18 $ consommés, rien de livré).

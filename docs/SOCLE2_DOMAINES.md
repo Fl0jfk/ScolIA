@@ -1,5 +1,7 @@
 # Socle 2 — Domaines, actions métier et toile des événements
 
+> **Avertissement (2026-11-06)** : le mot « socle 2 » de ce document désigne l'ancien découpage « tous les domaines ». La feuille de route suit désormais la carte de `docs/SOCLES.md` (51 socles ; socle 2 = l'élève). Ce document reste la référence des actions métier (identifiants stables) et de la toile des événements ; correspondance domaines et lots → socles : `SOCLES.md` §6.
+
 Date : 2026-11-05. Statut : **conception, non décidée** (à valider par Florian). Aucun code modifié, rien compilé ni testé pour ce document.
 Reprend et étend `docs/CARTOGRAPHIE_ENT.md` (16 domaines D0–D15) ; s'inscrit dans le socle 2 de `docs/ROADMAP.md`. Ne remplace aucune décision de `docs/DECISIONS.md`.
 
