@@ -1420,7 +1420,8 @@ async fn isolation_etablissements() {
             dossier.id,
             &ValidationBody {
                 classe_id: Some(classe_b),
-                regime: None
+                regime: None,
+                ..Default::default()
             }
         )
         .await
@@ -1553,6 +1554,18 @@ async fn dossier_admis(
     (dossier.id, jeton)
 }
 
+async fn resp_id(ent: &PgEnt, dossier: Uuid, rang: i16) -> Uuid {
+    let (id,): (Uuid,) = sqlx::query_as(
+        "SELECT id FROM ent_inscription_responsable WHERE dossier_id = $1 AND rang = $2",
+    )
+    .bind(dossier)
+    .bind(rang)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    id
+}
+
 fn second_parent(email: &str) -> ResponsableFormulaireDto {
     ResponsableFormulaireDto {
         nom: "Ollivander".into(),
@@ -1628,7 +1641,7 @@ async fn attaque_email_parent_existant_aucun_acces() {
     let r = ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
         .await;
-    assert!(matches!(r, Err(EntDbError::Domain(_)) | Err(EntDbError::Conflit(_))), "{r:?}");
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
     assert_eq!(
         compter(
             &ent,
@@ -1650,15 +1663,7 @@ async fn attaque_email_parent_existant_aucun_acces() {
     );
 
     // Une personne de l'établissement confirme le rapprochement.
-    let resp2 = ent
-        .dossier_for_actor(etab, d, dr, dossier)
-        .await
-        .unwrap()
-        .responsables
-        .iter()
-        .find(|r| r.rang == 2)
-        .map(|r| r.id)
-        .unwrap();
+    let resp2 = resp_id(&ent, dossier, 2).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1747,15 +1752,7 @@ async fn refus_du_parent_existant_aucun_lien() {
         formulaire(camp, "Fleur", Some(second_parent(&c.parent_lea.email))),
     )
     .await;
-    let resp2 = ent
-        .dossier_for_actor(etab, d, dr, dossier)
-        .await
-        .unwrap()
-        .responsables
-        .iter()
-        .find(|r| r.rang == 2)
-        .map(|r| r.id)
-        .unwrap();
+    let resp2 = resp_id(&ent, dossier, 2).await;
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1807,12 +1804,7 @@ async fn fratrie_foyer_existant_confirme() {
     let mut f = formulaire(camp, "Ginny", None);
     f.responsable.nom = "Lea".into();
     let (dossier, _) = dossier_admis(&ent, &c, camp, &c.parent_lea.email, f).await;
-    let resp1 = ent
-        .dossier_for_actor(etab, d, dr, dossier)
-        .await
-        .unwrap()
-        .responsables[0]
-        .id;
+    let resp1 = resp_id(&ent, dossier, 1).await;
     let corr = ent
         .correspondances_for_actor(etab, d, dr, dossier)
         .await
