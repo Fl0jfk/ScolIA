@@ -107,6 +107,35 @@ impl DroitsMoteur {
     pub fn peut_gerer_facturation(&self) -> bool {
         self.a_etablissement("facturation.gerer")
     }
+
+    /// Infirmerie : lire les passages, le PAI et la fiche d'urgence complète (S2-11).
+    pub fn peut_lire_sante(&self) -> bool {
+        self.a("sante.lire")
+    }
+
+    /// Infirmerie : saisir passages, PAI, contraintes publiées, protocoles.
+    pub fn peut_saisir_sante(&self) -> bool {
+        self.a("sante.saisir")
+    }
+
+    /// Ouvrir et suivre les dispositifs d'accompagnement (PAP, PPS…), définir les aménagements.
+    pub fn peut_gerer_accompagnement(&self) -> bool {
+        self.a("accompagnement.gerer")
+    }
+
+    /// Lire les aménagements des élèves dont on a la charge (sans diagnostic).
+    pub fn peut_lire_amenagements(&self) -> bool {
+        self.a("amenagements.lire")
+    }
+
+    /// Lire les contraintes publiées destinées aux enseignants, à la restauration ou aux sorties.
+    pub fn peut_lire_contraintes(&self) -> bool {
+        self.a("contraintes.lire")
+            || self.a_etablissement("repas.gerer")
+            || self.a_etablissement("repas.scanner")
+            || self.a_etablissement("sorties.gerer")
+            || self.a_etablissement("sorties.controler")
+    }
 }
 
 #[cfg(test)]
@@ -129,6 +158,9 @@ mod tests {
         assert!(!d.peut_donner_punition() && !d.peut_gerer_discipline());
         assert!(!d.peut_signaler_assiduite());
         assert!(!d.peut_gerer_edt() && !d.peut_annuler_masse() && !d.peut_gerer_delegations());
+        assert!(!d.peut_lire_sante() && !d.peut_saisir_sante());
+        assert!(!d.peut_gerer_accompagnement() && !d.peut_lire_amenagements());
+        assert!(!d.peut_lire_contraintes());
     }
 
     #[test]
@@ -146,6 +178,29 @@ mod tests {
                 && direction.peut_annuler_masse()
                 && direction.peut_gerer_delegations()
         );
+    }
+
+    #[test]
+    fn sante_et_accompagnement_selon_les_actions() {
+        let infirmiere = DroitsMoteur::new(vec![
+            droit("sante.lire", "etablissement"),
+            droit("sante.saisir", "etablissement"),
+        ]);
+        assert!(infirmiere.peut_lire_sante() && infirmiere.peut_saisir_sante());
+        assert!(!infirmiere.peut_gerer_accompagnement());
+        // Un professeur : aménagements et contraintes de ses élèves seulement.
+        let prof = DroitsMoteur::new(vec![
+            droit("amenagements.lire", "mes_classes"),
+            droit("contraintes.lire", "mes_classes"),
+        ]);
+        assert!(prof.peut_lire_amenagements() && prof.peut_lire_contraintes());
+        assert!(!prof.peut_lire_sante());
+        // La restauration lit les contraintes sans voir la santé.
+        let cantine = DroitsMoteur::new(vec![droit("repas.gerer", "etablissement")]);
+        assert!(cantine.peut_lire_contraintes() && !cantine.peut_lire_sante());
+        // « repas.gerer » limité à des classes ne suffit pas (le catalogue n'admet que l'établissement).
+        let limite = DroitsMoteur::new(vec![droit("repas.gerer", "mes_classes")]);
+        assert!(!limite.peut_lire_contraintes());
     }
 
     #[test]

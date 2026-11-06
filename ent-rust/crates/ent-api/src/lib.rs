@@ -22,6 +22,7 @@ mod routes;
 mod vie_scolaire;
 mod evaluations;
 mod communication_s28;
+mod sante;
 pub mod tenant;
 mod ui;
 

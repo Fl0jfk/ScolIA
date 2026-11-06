@@ -110,3 +110,13 @@ Toutes ces actions n'admettent que la portée `etablissement` (les contrôles d'
 
 ## Usage des actions existantes par le socle 2, lot S2-9 (2026-11-06)
 Aucune action nouvelle. Finances : `facturation.lire` (consulter paramètres, tarifs, pièces, prélèvements, rejets, relances, exports), `facturation.gerer` (paramétrer, générer, émettre ★, avoir ★, prélever, traiter un rejet, encaisser, confirmer une relance ★, exporter ★ ; inclut la lecture), `bourses.gerer` (barème des bourses). Déclencheurs de facturation côté scolarité : `eleves.gerer` (changement de régime, sortie). Portée « établissement » seulement. Familles hors rôles : `GET /finances/famille` ne montre que les foyers dont la personne est **payeuse** par un lien actif (S2-1), pièces émises seulement, IBAN masqués. Détail : `docs/SOCLE2_DOMAINES.md` §6.5.
+
+## Actions ajoutées par le socle 2, lot S2-11 (2026-11-06)
+| Action | Ce qu'elle ouvre | Modèle par défaut |
+|---|---|---|
+| `accompagnement.gerer` | ouvrir, réviser et clore les dispositifs (PAP, PPS, PPRE, ULIS), définir les aménagements, affecter un AESH, tenir les réunions d'équipe | Admin, Direction (établissement) ; un établissement peut l'attribuer à un rôle « professeur principal » (portée « mes classes ») |
+| `amenagements.lire` | lire les **aménagements** d'un élève (catalogue fermé, sans diagnostic ni type de dispositif) | Prof : mes classes ; Admin, Direction, Administratif, CPE, Infirmerie, Psy : établissement |
+| `contraintes.lire` | lire les contraintes publiées destinées aux **enseignants** (sans donnée médicale) | Prof : mes classes ; Admin, Direction, Administratif, CPE, Infirmerie : établissement |
+| `sante.urgence_lire` | lire la fiche d'urgence **minimale** (contacts, contraintes, trousse) ; le niveau complet exige `sante.lire` | Prof : mes classes ; Admin, Direction, Administratif, CPE, Infirmerie : établissement |
+
+Règles : la restauration lit les contraintes de son audience avec `repas.gerer` / `repas.scanner`, les sorties avec `sorties.gerer` / `sorties.controler` (établissement entier seulement) ; le personnel de santé (`sante.lire`) voit toutes les audiences et la source. Un professeur n'a **jamais** `sante.lire` : il ne reçoit que des aménagements et des contraintes du catalogue. Familles et élèves restent hors rôles libres : PAI, passages visibles et aménagements de leur enfant par le lien actif.

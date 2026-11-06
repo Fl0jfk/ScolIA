@@ -45,6 +45,13 @@ pub const CHAMPS_CHIFFRES: &[(&str, &[&str])] = &[
     ),
     ("ent_psy_entretien", &["note_confidentielle"]),
     ("ent_psy_rdv", &["motif", "note_interne"]),
+    // S2-11 : PAI, passages à l'infirmerie, comptes rendus d'équipe éducative.
+    (
+        "ent_pai",
+        &["motif", "mesures_accueil", "protocole_urgence", "note_interne"],
+    ),
+    ("ent_infirmerie_passage", &["note_soins", "soins"]),
+    ("ent_equipe_reunion", &["compte_rendu"]),
 ];
 
 /// Coffre des champs sensibles (clone bon marché).

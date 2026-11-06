@@ -5,6 +5,8 @@
 
 mod absence_repo;
 mod assiduite;
+pub mod sante_acc;
+pub mod accompagnement;
 mod discipline_vs;
 mod vie_scolaire;
 /// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
@@ -270,6 +272,8 @@ mod tests_inscriptions;
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_finances;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sante;
 
 #[cfg(test)]
 mod integration_tests {

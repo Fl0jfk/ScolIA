@@ -35,6 +35,8 @@ const TYPES_NOTIFICATIONS: &[&str] = &[
     types::ELEVE_ABSENCE_JUSTIFIED,
     types::ELEVE_ABSENCE_REFUSED,
     types::RETARD_DECLARE,
+    // S2-11 : information de la famille après un passage à l'infirmerie.
+    "infirmerie.famille_informee",
 ];
 
 /// Consommateurs installés par défaut dans le distributeur de l'ENT.
@@ -114,6 +116,19 @@ fn message_pour(evt: &EvenementDistribue, prenom: &str) -> Option<Message> {
                 corps: format!("{prenom} a été noté(e) en retard le {jour}."),
             })
         }
+        // Aucun détail médical : ni motif, ni soins, ni issue (SAN-03).
+        "infirmerie.famille_informee" => {
+            let jour = jour_fr(p.get("jour").and_then(|v| v.as_str()));
+            Some(Message {
+                kind: "infirmerie_passage",
+                regroupable: false,
+                titre: format!("Passage de {prenom} à l'infirmerie"),
+                corps: format!(
+                    "{prenom} s'est présenté(e) à l'infirmerie le {jour}. \
+                     Pour en savoir plus, contactez l'infirmerie ou la vie scolaire."
+                ),
+            })
+        }
         _ => None,
     }
 }
@@ -148,11 +163,14 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
         JOIN ent_membership m
           ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
         WHERE l.etablissement_id = $1 AND l.eleve_id = $2
-          AND l.peut_voir_vs AND m.role = 'parent'
+          AND (l.peut_voir_vs OR $3) AND m.role = 'parent'
         "#,
     )
     .bind(etab)
     .bind(eleve_id)
+    // Information de santé : tous les responsables au lien actif, indépendamment
+    // du droit « vie scolaire » (la famille doit savoir, sans détail).
+    .bind(evt.event().type_name == "infirmerie.famille_informee")
     .fetch_all(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;

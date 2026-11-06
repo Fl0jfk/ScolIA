@@ -148,6 +148,18 @@ pub enum Action {
     ConsentementsLire,
     /// Régler les plafonds d'envoi et consulter la traçabilité des envois (PLT-05).
     NotificationsGerer,
+    /// Ouvrir, réviser et clore les dispositifs d'accompagnement (PAP, PPS, PPRE, ULIS),
+    /// définir les aménagements, affecter un AESH, réunir l'équipe (S2-11, ACC-01→05).
+    AccompagnementGerer,
+    /// Lire les aménagements pédagogiques d'un élève (sans diagnostic) : professeurs
+    /// de l'élève et personnel de suivi (S2-11, ACC-02).
+    AmenagementsLire,
+    /// Lire les contraintes publiées sans donnée médicale (« ne pas courir »…) destinées
+    /// aux enseignants (S2-11, SAN-06).
+    ContraintesLire,
+    /// Lire la fiche d'urgence minimale (contacts, contraintes publiées) d'un élève
+    /// pour une sortie ou un séjour (S2-11, SEJ-08).
+    SanteUrgenceLire,
 }
 
 /// Sur quoi une action s'applique.
@@ -164,7 +176,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 64] = [
+    pub const TOUTES: [Action; 68] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -232,6 +244,10 @@ impl Action {
         Action::FormulairesGerer,
         Action::ConsentementsLire,
         Action::NotificationsGerer,
+        Action::AccompagnementGerer,
+        Action::AmenagementsLire,
+        Action::ContraintesLire,
+        Action::SanteUrgenceLire,
     ];
 
     pub fn code(self) -> &'static str {
@@ -301,6 +317,10 @@ impl Action {
             Self::FormulairesGerer => "formulaires.gerer",
             Self::ConsentementsLire => "consentements.lire",
             Self::NotificationsGerer => "notifications.gerer",
+            Self::AccompagnementGerer => "accompagnement.gerer",
+            Self::AmenagementsLire => "amenagements.lire",
+            Self::ContraintesLire => "contraintes.lire",
+            Self::SanteUrgenceLire => "sante.urgence_lire",
         }
     }
 
@@ -371,6 +391,12 @@ impl Action {
             Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
             Self::ConsentementsLire => "Consulter les consentements (objet par objet)",
             Self::NotificationsGerer => "Régler les plafonds d'envoi et suivre les envois",
+            Self::AccompagnementGerer => {
+                "Gérer l'accompagnement : PAP, PPS, aménagements, AESH, équipe éducative"
+            }
+            Self::AmenagementsLire => "Lire les aménagements pédagogiques d'un élève (sans diagnostic)",
+            Self::ContraintesLire => "Lire les contraintes publiées pour les enseignants (sans donnée médicale)",
+            Self::SanteUrgenceLire => "Lire la fiche d'urgence minimale d'un élève (sortie, séjour)",
         }
     }
 
@@ -524,6 +550,11 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
             MessagerieEleve,
             SuiviEleve,
             PunitionsDonner,
+            // S2-11 : aménagements et contraintes publiées des élèves qu'il enseigne ;
+            // fiche d'urgence minimale pour une sortie de sa classe.
+            AmenagementsLire,
+            ContraintesLire,
+            SanteUrgenceLire,
         ] {
             d.push((a, Portee::MesClasses));
         }
@@ -582,6 +613,34 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(RolesGerer));
         d.push(etab(SecuritePolitique));
+    }
+    // S2-11 : accompagnement (direction), aménagements et contraintes publiées
+    // (personnel de suivi), fiche d'urgence minimale (encadrement des sorties).
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AccompagnementGerer));
+    }
+    if matches!(
+        role,
+        Role::Admin
+            | Role::Direction
+            | Role::Administratif
+            | Role::Cpe
+            | Role::Infirmerie
+            | Role::Psy
+    ) {
+        d.push(etab(AmenagementsLire));
+    }
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Infirmerie
+    ) {
+        d.push(etab(ContraintesLire));
+    }
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Infirmerie
+    ) {
+        d.push(etab(SanteUrgenceLire));
     }
     // ── R2 : domaines sensibles (miroir exact des `can_*` historiques) ──
     if role.can_saisir_infirmerie() {

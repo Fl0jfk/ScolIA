@@ -26,6 +26,7 @@ pub mod finances;
 pub mod inscriptions;
 pub mod referentiel;
 pub mod referentiel_admin;
+pub mod sante;
 pub mod vie_scolaire;
 
 #[cfg(test)]

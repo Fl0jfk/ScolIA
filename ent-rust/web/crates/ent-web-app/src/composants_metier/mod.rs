@@ -7,4 +7,5 @@ pub mod classes;
 pub mod confirmation_detaillee;
 pub mod declaration;
 pub mod recherche_eleve;
+pub mod sante;
 pub mod seances;

@@ -2,7 +2,9 @@
 //! `composants_metier`, jamais d'un autre module.
 
 pub mod absences;
+pub mod accompagnement;
 pub mod accueil;
+pub mod amenagements;
 pub mod appel;
 pub mod cahier;
 pub mod campagnes;
@@ -18,6 +20,7 @@ pub mod evaluations;
 pub mod finances;
 pub mod formulaires;
 pub mod inscriptions;
+pub mod infirmerie;
 pub mod journee_vs;
 pub mod messagerie;
 pub mod notifications;
@@ -26,5 +29,6 @@ pub mod referentiel_admin;
 pub mod remplacements;
 pub mod rendez_vous;
 pub mod roles;
+pub mod sante_famille;
 pub mod securite;
 pub mod vie_scolaire;

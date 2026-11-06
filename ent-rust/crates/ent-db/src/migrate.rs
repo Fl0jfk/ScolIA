@@ -145,6 +145,12 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/204_fin_relances.sql"),
     include_str!("../../../migrations/205_fin_export_comptable.sql"),
     include_str!("../../../migrations/206_fin_rls.sql"),
+    include_str!("../../../migrations/210_sante_pai_complet.sql"),
+    include_str!("../../../migrations/211_sante_contrainte.sql"),
+    include_str!("../../../migrations/212_accompagnement.sql"),
+    include_str!("../../../migrations/213_infirmerie_passage_suite.sql"),
+    include_str!("../../../migrations/214_sante_protocole.sql"),
+    include_str!("../../../migrations/215_sante_rls.sql"),
     include_str!("../../../migrations/250_inscriptions_i0.sql"),
     include_str!("../../../migrations/255_email_confirmation.sql"),
 ];
