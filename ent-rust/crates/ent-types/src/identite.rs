@@ -77,6 +77,25 @@ pub struct ChampsIdentiteBody {
         skip_serializing_if = "Option::is_none"
     )]
     pub naissance_lieu_etranger: Option<Option<String>>,
+    /// `jour`, `mois`, `annee` ou `inconnue` (« inconnue » efface la date).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_naissance_precision: Option<String>,
+    /// `declaree`, `justifiee`, `presumee` ou `contestee`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_naissance_statut: Option<String>,
+    /// Graphie d'origine (écriture non latine).
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub nom_ecriture_origine: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prenoms_ecriture_origine: Option<Option<String>>,
 }
 
 /// `POST /eleves/{id}/identite/corrections` (ELV-03) : la valeur précédente était
@@ -87,8 +106,12 @@ pub struct CorrigerIdentiteBody {
     #[serde(default)]
     pub version_id: Option<Uuid>,
     pub champs: ChampsIdentiteBody,
-    /// Obligatoire (500 caractères au plus).
-    pub motif: String,
+    /// Code du motif (obligatoire) : `faute_de_frappe`, `casse_accents`,
+    /// `erreur_de_transcription`, `d_apres_piece`, `erreur_d_import` ou `autre`.
+    pub motif_code: String,
+    /// Texte libre (500 caractères au plus), obligatoire seulement pour `autre`.
+    #[serde(default)]
+    pub motif: Option<String>,
     /// Document de l'élève (déposé par la route des documents), facultatif.
     #[serde(default)]
     pub piece_document_id: Option<Uuid>,
@@ -102,7 +125,12 @@ pub struct CorrigerIdentiteBody {
 pub struct ChangerEtatCivilBody {
     pub champs: ChampsIdentiteBody,
     pub effet_du: NaiveDate,
-    pub motif: String,
+    /// Code du motif (obligatoire) : `decision_etat_civil`, `adoption`, `changement_prenom`,
+    /// `changement_mention_sexe`, `reconnaissance`, `protection` ou `autre`. Adoption,
+    /// changement de prénom ou de mention de sexe et protection rendent la version sensible.
+    pub motif_code: String,
+    #[serde(default)]
+    pub motif: Option<String>,
     /// Obligatoire : acte, jugement, livret de famille… (document privé de l'élève).
     pub piece_document_id: Uuid,
     #[serde(default)]
@@ -126,6 +154,9 @@ pub struct DefinirUsageBody {
     pub prenom_usage: Option<Option<String>>,
     #[serde(default)]
     pub effet_du: Option<NaiveDate>,
+    /// `demande_famille`, `demande_eleve` ou `autre`.
+    #[serde(default)]
+    pub motif_code: Option<String>,
     #[serde(default)]
     pub motif: Option<String>,
     #[serde(default)]
@@ -149,12 +180,17 @@ pub struct IdentiteVersionDto {
     pub naissance_commune_cog: Option<String>,
     pub naissance_pays_cog: Option<String>,
     pub naissance_lieu_etranger: Option<String>,
+    pub date_naissance_precision: String,
+    pub date_naissance_statut: String,
+    pub nom_ecriture_origine: Option<String>,
+    pub prenoms_ecriture_origine: Option<String>,
     pub nature: String,
     pub effet_du: NaiveDate,
     /// Version corrigée par celle-ci.
     pub remplace_version_id: Option<Uuid>,
-    /// Version qui a corrigé celle-ci (identifiant nul si elle n'est pas visible du lecteur).
+    /// Version qui a corrigé celle-ci (absent si elle n'est pas visible du lecteur).
     pub remplacee_par: Option<Uuid>,
+    pub motif_code: Option<String>,
     pub motif: Option<String>,
     /// À ouvrir par `POST /documents/{id}/lien` (URL pré-signée courte).
     pub piece_document_id: Option<Uuid>,

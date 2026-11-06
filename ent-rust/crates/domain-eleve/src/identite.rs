@@ -65,6 +65,10 @@ pub enum ChampIdentite {
     NaissanceCommuneCog,
     NaissancePaysCog,
     NaissanceLieuEtranger,
+    DateNaissancePrecision,
+    DateNaissanceStatut,
+    NomEcritureOrigine,
+    PrenomsEcritureOrigine,
 }
 
 impl ChampIdentite {
@@ -81,6 +85,10 @@ impl ChampIdentite {
             Self::NaissanceCommuneCog => "naissance_commune_cog",
             Self::NaissancePaysCog => "naissance_pays_cog",
             Self::NaissanceLieuEtranger => "naissance_lieu_etranger",
+            Self::DateNaissancePrecision => "date_naissance_precision",
+            Self::DateNaissanceStatut => "date_naissance_statut",
+            Self::NomEcritureOrigine => "nom_ecriture_origine",
+            Self::PrenomsEcritureOrigine => "prenoms_ecriture_origine",
         }
     }
 }
@@ -99,14 +107,24 @@ pub struct IdentiteVersion {
     pub prenom_usage: Option<String>,
     pub sexe: Option<String>,
     pub date_naissance: Option<NaiveDate>,
+    /// `jour`, `mois`, `annee` ou `inconnue` (jamais de « 1er janvier » inventé).
+    pub date_naissance_precision: String,
+    /// `declaree`, `justifiee`, `presumee` ou `contestee`.
+    pub date_naissance_statut: String,
     pub naissance_commune_cog: Option<String>,
     pub naissance_commune: Option<String>,
     pub naissance_pays_cog: Option<String>,
     pub naissance_lieu_etranger: Option<String>,
+    /// Graphie d'origine (écriture non latine), facultative.
+    pub nom_ecriture_origine: Option<String>,
+    pub prenoms_ecriture_origine: Option<String>,
     pub nature: NatureVersion,
     pub effet_du: NaiveDate,
     pub remplace_version_id: Option<Uuid>,
     pub remplacee_par: Option<Uuid>,
+    /// Motif codé (liste du logiciel, voir [`MOTIFS_CORRECTION`], [`MOTIFS_CHANGEMENT`]).
+    pub motif_code: Option<String>,
+    /// Texte libre : obligatoire seulement pour le code `autre`.
     pub motif: Option<String>,
     pub piece_document_id: Option<Uuid>,
     pub source: String,
@@ -131,6 +149,10 @@ pub struct ModifIdentite {
     pub naissance_commune: Option<Option<String>>,
     pub naissance_pays_cog: Option<Option<String>>,
     pub naissance_lieu_etranger: Option<Option<String>>,
+    pub date_naissance_precision: Option<String>,
+    pub date_naissance_statut: Option<String>,
+    pub nom_ecriture_origine: Option<Option<String>>,
+    pub prenoms_ecriture_origine: Option<Option<String>>,
 }
 
 /// Erreur de planification. Les messages sont fixes et ne contiennent aucune donnée
@@ -150,6 +172,7 @@ pub struct DemandeVersion {
     pub modif: ModifIdentite,
     /// Date d'effet demandée (ignorée pour une correction : celle de la version corrigée).
     pub effet_du: Option<NaiveDate>,
+    pub motif_code: Option<String>,
     pub motif: Option<String>,
     pub piece_document_id: Option<Uuid>,
     pub source: String,
@@ -163,6 +186,37 @@ pub struct VersionPlanifiee {
     pub version: IdentiteVersion,
     pub champs: Vec<ChampIdentite>,
 }
+
+/// Motifs d'une **correction** (la valeur était fausse depuis le début).
+pub const MOTIFS_CORRECTION: &[&str] = &[
+    "faute_de_frappe",
+    "casse_accents",
+    "erreur_de_transcription",
+    "d_apres_piece",
+    "erreur_d_import",
+    "autre",
+];
+/// Motifs d'un **changement réel** d'état civil.
+pub const MOTIFS_CHANGEMENT: &[&str] = &[
+    "decision_etat_civil",
+    "adoption",
+    "changement_prenom",
+    "changement_mention_sexe",
+    "reconnaissance",
+    "protection",
+    "autre",
+];
+/// Motifs d'un nom ou prénom d'usage (facultatifs).
+pub const MOTIFS_USAGE: &[&str] = &["demande_famille", "demande_eleve", "autre"];
+/// Motifs qui **forcent** la sensibilité (non modifiable par l'opérateur).
+pub const MOTIFS_SENSIBLES: &[&str] = &[
+    "adoption",
+    "changement_prenom",
+    "changement_mention_sexe",
+    "protection",
+];
+const PRECISIONS: &[&str] = &["jour", "mois", "annee", "inconnue"];
+const STATUTS_NAISSANCE: &[&str] = &["declaree", "justifiee", "presumee", "contestee"];
 
 const SOURCES: &[&str] = &[
     "saisie",
@@ -371,6 +425,62 @@ fn appliquer(
         );
         v.naissance_lieu_etranger = x;
     }
+    if let Some(x) = &modif.date_naissance_precision {
+        if !PRECISIONS.contains(&x.as_str()) {
+            return Err(ErreurIdentite::Invalide(
+                "précision de la date de naissance inconnue",
+            ));
+        }
+        maj(
+            ChampIdentite::DateNaissancePrecision,
+            *x != v.date_naissance_precision,
+            &mut champs,
+        );
+        v.date_naissance_precision = x.clone();
+    }
+    if let Some(x) = &modif.date_naissance_statut {
+        if !STATUTS_NAISSANCE.contains(&x.as_str()) {
+            return Err(ErreurIdentite::Invalide(
+                "statut de la date de naissance inconnu",
+            ));
+        }
+        maj(
+            ChampIdentite::DateNaissanceStatut,
+            *x != v.date_naissance_statut,
+            &mut champs,
+        );
+        v.date_naissance_statut = x.clone();
+    }
+    // Une date inconnue n'a pas de valeur ; une date partielle reste ancrée au 1er du
+    // mois / de l'année (la précision dit qu'elle est incomplète).
+    if v.date_naissance_precision == "inconnue" && v.date_naissance.is_some() {
+        if modif.date_naissance_precision.is_some() && modif.date_naissance.is_none() {
+            v.date_naissance = None;
+            maj(ChampIdentite::DateNaissance, true, &mut champs);
+        } else {
+            return Err(ErreurIdentite::Invalide(
+                "une date de naissance inconnue n'a pas de valeur",
+            ));
+        }
+    }
+    if let Some(x) = &modif.nom_ecriture_origine {
+        let x = texte_libre(x.clone())?;
+        maj(
+            ChampIdentite::NomEcritureOrigine,
+            x != v.nom_ecriture_origine,
+            &mut champs,
+        );
+        v.nom_ecriture_origine = x;
+    }
+    if let Some(x) = &modif.prenoms_ecriture_origine {
+        let x = texte_libre(x.clone())?;
+        maj(
+            ChampIdentite::PrenomsEcritureOrigine,
+            x != v.prenoms_ecriture_origine,
+            &mut champs,
+        );
+        v.prenoms_ecriture_origine = x;
+    }
     champs.sort();
     Ok((v, champs))
 }
@@ -380,7 +490,15 @@ fn appliquer(
 /// une version construite sur une version sensible en recopie les valeurs et l'est donc
 /// aussi (sinon un lecteur sans G6 les déduirait de la version suivante). Les valeurs ne sont jamais copiées hors de la version
 /// (événements : noms de champs seulement).
-fn est_sensible(champs: &[ChampIdentite], nature: NatureVersion, heritee: bool) -> bool {
+fn est_sensible(
+    champs: &[ChampIdentite],
+    nature: NatureVersion,
+    heritee: bool,
+    motif_code: Option<&str>,
+) -> bool {
+    if motif_code.is_some_and(|m| MOTIFS_SENSIBLES.contains(&m)) {
+        return true;
+    }
     let intime = champs.iter().any(|c| {
         matches!(
             c,
@@ -442,12 +560,32 @@ pub fn planifier_version(
         NatureVersion::Correction | NatureVersion::ChangementEtatCivil | NatureVersion::Usage => {}
         _ => return Err(ErreurIdentite::Invalide("nature réservée au système")),
     }
+    let motif_code = d
+        .motif_code
+        .clone()
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty());
+    let liste: &[&str] = match d.nature {
+        NatureVersion::Correction => MOTIFS_CORRECTION,
+        NatureVersion::ChangementEtatCivil => MOTIFS_CHANGEMENT,
+        _ => MOTIFS_USAGE,
+    };
     if matches!(
         d.nature,
         NatureVersion::Correction | NatureVersion::ChangementEtatCivil
-    ) && motif.is_none()
+    ) && motif_code.is_none()
     {
-        return Err(ErreurIdentite::Invalide("le motif est obligatoire"));
+        return Err(ErreurIdentite::Invalide("le motif (code) est obligatoire"));
+    }
+    if motif_code.as_deref().is_some_and(|m| !liste.contains(&m)) {
+        return Err(ErreurIdentite::Invalide(
+            "motif inconnu pour cette nature de modification",
+        ));
+    }
+    if motif_code.as_deref() == Some("autre") && motif.is_none() {
+        return Err(ErreurIdentite::Invalide(
+            "le motif « autre » exige une précision en texte",
+        ));
     }
     if d.nature == NatureVersion::ChangementEtatCivil && d.piece_document_id.is_none() {
         return Err(ErreurIdentite::Invalide(
@@ -512,11 +650,12 @@ pub fn planifier_version(
         || (d.nature == NatureVersion::Usage && base.effet_du == effet_du);
     version.remplace_version_id = remplace.then_some(base.id);
     version.remplacee_par = None;
+    version.motif_code = motif_code.clone();
     version.motif = motif;
     version.piece_document_id = d.piece_document_id;
     version.source = d.source;
     version.source_ref = d.source_ref;
-    version.sensible = est_sensible(&champs, d.nature, base.sensible);
+    version.sensible = est_sensible(&champs, d.nature, base.sensible, motif_code.as_deref());
     version.enregistre_le = Utc::now();
     version.enregistre_par = d.acteur;
     Ok(VersionPlanifiee { version, champs })
@@ -572,6 +711,11 @@ mod tests {
             prenom_usage: None,
             sexe: Some("M".into()),
             date_naissance: Some(d(2010, 3, 14)),
+            date_naissance_precision: "jour".into(),
+            date_naissance_statut: "declaree".into(),
+            nom_ecriture_origine: None,
+            prenoms_ecriture_origine: None,
+            motif_code: None,
             naissance_commune_cog: None,
             naissance_commune: None,
             naissance_pays_cog: None,
@@ -595,6 +739,11 @@ mod tests {
             nature,
             modif,
             effet_du: None,
+            motif_code: match nature {
+                NatureVersion::Correction => Some("faute_de_frappe".into()),
+                NatureVersion::ChangementEtatCivil => Some("decision_etat_civil".into()),
+                _ => None,
+            },
             motif: Some("acte de naissance".into()),
             piece_document_id: Some(Uuid::new_v4()),
             source: "saisie".into(),
@@ -651,8 +800,12 @@ mod tests {
     fn correction_et_changement_exigent_un_motif_le_changement_une_piece() {
         let b = base();
         let mut dm = demande(NatureVersion::Correction, nom("Dupont"));
-        dm.motif = None;
+        dm.motif_code = None;
         assert!(planifier_version(&b, &[], dm, d(2026, 11, 6)).is_err());
+        // Le texte libre est facultatif quand le code suffit.
+        let mut dm = demande(NatureVersion::Correction, nom("Dupont"));
+        dm.motif = None;
+        assert!(planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6)).is_ok());
         let mut dm = demande(NatureVersion::ChangementEtatCivil, nom("Martin"));
         dm.piece_document_id = None;
         assert!(planifier_version(&b, &[], dm, d(2026, 11, 6)).is_err());
@@ -723,6 +876,129 @@ mod tests {
                 .version
                 .sensible
         );
+    }
+
+    #[test]
+    fn motifs_codes_et_sensibilite_forcee() {
+        let b = base();
+        // Code hors liste, ou d'une autre nature : refusé.
+        for mauvais in ["adoption", "inconnu"] {
+            let mut dm = demande(NatureVersion::Correction, nom("Dupont"));
+            dm.motif_code = Some(mauvais.into());
+            assert!(
+                planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6)).is_err(),
+                "{mauvais}"
+            );
+        }
+        // « autre » exige un texte.
+        let mut dm = demande(NatureVersion::Correction, nom("Dupont"));
+        dm.motif_code = Some("autre".into());
+        dm.motif = None;
+        assert!(planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6)).is_err());
+        // Adoption, changement de prénom, de mention de sexe, protection : sensible, même
+        // quand seul le nom change (l'opérateur ne choisit pas).
+        for code in [
+            "adoption",
+            "changement_prenom",
+            "changement_mention_sexe",
+            "protection",
+        ] {
+            let mut dm = demande(NatureVersion::ChangementEtatCivil, nom("Martin"));
+            dm.motif_code = Some(code.into());
+            dm.effet_du = Some(d(2026, 11, 7));
+            let p = planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6)).unwrap();
+            assert!(p.version.sensible, "{code}");
+            assert_eq!(p.version.motif_code.as_deref(), Some(code));
+        }
+        // Un changement ordinaire de nom ne l'est pas.
+        let mut dm = demande(NatureVersion::ChangementEtatCivil, nom("Martin"));
+        dm.effet_du = Some(d(2026, 11, 7));
+        assert!(
+            !planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6))
+                .unwrap()
+                .version
+                .sensible
+        );
+    }
+
+    #[test]
+    fn date_de_naissance_incomplete_ou_presumee() {
+        let b = base();
+        // Mois seul, présumée : ancrée, mais la précision et le statut le disent.
+        let m = ModifIdentite {
+            date_naissance: Some(Some(d(2010, 3, 1))),
+            date_naissance_precision: Some("mois".into()),
+            date_naissance_statut: Some("presumee".into()),
+            ..Default::default()
+        };
+        let p = planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, m),
+            d(2026, 11, 6),
+        )
+        .unwrap();
+        assert_eq!(p.version.date_naissance_precision, "mois");
+        assert_eq!(p.version.date_naissance_statut, "presumee");
+        assert!(p.champs.contains(&ChampIdentite::DateNaissancePrecision));
+        // Inconnue : la date est effacée.
+        let m = ModifIdentite {
+            date_naissance_precision: Some("inconnue".into()),
+            ..Default::default()
+        };
+        let p = planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, m),
+            d(2026, 11, 6),
+        )
+        .unwrap();
+        assert_eq!(p.version.date_naissance, None);
+        // Inconnue avec une valeur : refusé ; précision ou statut hors liste : refusé.
+        let m = ModifIdentite {
+            date_naissance: Some(Some(d(2010, 1, 1))),
+            date_naissance_precision: Some("inconnue".into()),
+            ..Default::default()
+        };
+        assert!(planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, m),
+            d(2026, 11, 6)
+        )
+        .is_err());
+        for (pr, st) in [(Some("heure"), None), (None, Some("certaine"))] {
+            let m = ModifIdentite {
+                date_naissance_precision: pr.map(Into::into),
+                date_naissance_statut: st.map(Into::into),
+                ..Default::default()
+            };
+            assert!(planifier_version(
+                &b,
+                &[b.effet_du],
+                demande(NatureVersion::Correction, m),
+                d(2026, 11, 6)
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn ecriture_d_origine_facultative() {
+        let b = base();
+        let m = ModifIdentite {
+            nom_ecriture_origine: Some(Some("دوبون".into())),
+            ..Default::default()
+        };
+        let p = planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, m),
+            d(2026, 11, 6),
+        )
+        .unwrap();
+        assert_eq!(p.version.nom_ecriture_origine.as_deref(), Some("دوبون"));
+        assert_eq!(p.champs, vec![ChampIdentite::NomEcritureOrigine]);
     }
 
     #[test]

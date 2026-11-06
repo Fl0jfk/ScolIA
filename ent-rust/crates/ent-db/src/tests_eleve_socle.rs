@@ -159,7 +159,7 @@ async fn creation_defaite_si_le_journal_echoue() {
     let nom = unique("Rollb");
     sqlx::query(
         "CREATE OR REPLACE FUNCTION ent_test_refuse_journal() RETURNS trigger LANGUAGE plpgsql AS $$
-         BEGIN IF NEW.action IN ('eleve_cree','identite_modifiee') THEN
+         BEGIN IF NEW.action IN ('eleve_cree','identite_modifiee','identite_correction') THEN
            RAISE EXCEPTION 'journal refusé (test)'; END IF; RETURN NEW; END $$",
     )
     .execute(ent.pool())

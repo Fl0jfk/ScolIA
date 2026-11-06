@@ -42,6 +42,17 @@ CREATE TABLE IF NOT EXISTS ent_eleve_identite (
         FOREIGN KEY (etablissement_id, eleve_id) REFERENCES ent_eleve (etablissement_id, id)
 );
 
+-- [personas E2-a] date de naissance incomplète ou présumée : jamais de « 1er janvier »
+-- inventé et indiscernable d'une vraie date. Précision : jour | mois | annee | inconnue
+-- (la date stockée reste un DATE ; mois → 1er du mois, annee → 1er janvier, inconnue → NULL).
+-- [personas E2-b] motif codé (liste du logiciel) ; texte libre seulement pour `autre`.
+-- [personas E2-d] écriture d'origine (graphie non latine), facultative.
+ALTER TABLE ent_eleve_identite ADD COLUMN IF NOT EXISTS date_naissance_precision TEXT NOT NULL DEFAULT 'jour';
+ALTER TABLE ent_eleve_identite ADD COLUMN IF NOT EXISTS date_naissance_statut TEXT NOT NULL DEFAULT 'declaree';
+ALTER TABLE ent_eleve_identite ADD COLUMN IF NOT EXISTS motif_code TEXT;
+ALTER TABLE ent_eleve_identite ADD COLUMN IF NOT EXISTS nom_ecriture_origine TEXT;
+ALTER TABLE ent_eleve_identite ADD COLUMN IF NOT EXISTS prenoms_ecriture_origine TEXT;
+
 -- Contraintes de valeur : posées NOT VALID (elles protègent toute écriture à venir sans
 -- jamais faire échouer la reprise d'une donnée ancienne imprévue).
 DO $$
@@ -63,14 +74,28 @@ BEGIN
             AND source IN ('saisie', 'admission', 'import', 'famille', 'eleve', 'ancien_etablissement', 'reprise', 'fusion')
         );
     END IF;
-    -- Une correction remplace une version et dit pourquoi ; un changement réel dit
-    -- pourquoi ET sur quelle pièce.
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ent_eleve_identite_regles_chk') THEN
-        ALTER TABLE ent_eleve_identite ADD CONSTRAINT ent_eleve_identite_regles_chk CHECK (
-            (nature NOT IN ('correction', 'changement_etat_civil') OR (motif IS NOT NULL AND btrim(motif) <> ''))
+    -- Remplace la règle « motif libre obligatoire » (E2-b) : le CODE est obligatoire, le
+    -- texte libre seulement pour `autre`.
+    ALTER TABLE ent_eleve_identite DROP CONSTRAINT IF EXISTS ent_eleve_identite_regles_chk;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ent_eleve_identite_regles2_chk') THEN
+        ALTER TABLE ent_eleve_identite ADD CONSTRAINT ent_eleve_identite_regles2_chk CHECK (
+            (nature NOT IN ('correction', 'changement_etat_civil') OR motif_code IS NOT NULL)
+            AND (motif_code IS DISTINCT FROM 'autre' OR (motif IS NOT NULL AND btrim(motif) <> ''))
             AND (nature <> 'correction' OR remplace_version_id IS NOT NULL)
             AND (nature <> 'changement_etat_civil' OR piece_document_id IS NOT NULL)
             AND (nature NOT IN ('creation', 'reprise') OR remplace_version_id IS NULL)
+            AND date_naissance_precision IN ('jour', 'mois', 'annee', 'inconnue')
+            AND date_naissance_statut IN ('declaree', 'justifiee', 'presumee', 'contestee')
+            AND (date_naissance_precision <> 'inconnue' OR date_naissance IS NULL)
+            AND (motif_code IS NULL OR motif_code IN (
+                'faute_de_frappe', 'casse_accents', 'erreur_de_transcription', 'd_apres_piece',
+                'erreur_d_import', 'decision_etat_civil', 'adoption', 'changement_prenom',
+                'changement_mention_sexe', 'reconnaissance', 'protection',
+                'demande_famille', 'demande_eleve', 'autre'))
+            -- E2-c : ces motifs posent la sensibilité, l'opérateur ne la choisit pas.
+            AND (motif_code IS NULL
+                 OR motif_code NOT IN ('adoption', 'changement_prenom', 'changement_mention_sexe', 'protection')
+                 OR sensible)
         ) NOT VALID;
     END IF;
 END $$;
@@ -85,6 +110,8 @@ CREATE INDEX IF NOT EXISTS ent_eleve_identite_eleve_idx
 ALTER TABLE ent_eleve ADD COLUMN IF NOT EXISTS nom_naissance TEXT;
 ALTER TABLE ent_eleve ADD COLUMN IF NOT EXISTS prenoms TEXT[];
 ALTER TABLE ent_eleve ADD COLUMN IF NOT EXISTS identite_version_id UUID;
+ALTER TABLE ent_eleve ADD COLUMN IF NOT EXISTS date_naissance_precision TEXT;
+ALTER TABLE ent_eleve ADD COLUMN IF NOT EXISTS date_naissance_statut TEXT;
 
 -- Version courante d'un élève à une date : la version non remplacée la plus récente
 -- dont la date d'effet est atteinte. Une version datée dans le futur (changement
@@ -112,6 +139,8 @@ BEGIN
         prenoms = v.prenoms,
         sexe = v.sexe,
         date_naissance = v.date_naissance,
+        date_naissance_precision = v.date_naissance_precision,
+        date_naissance_statut = v.date_naissance_statut,
         identite_version_id = v.id,
         updated_at = now()
     WHERE etablissement_id = v.etablissement_id AND id = v.eleve_id;
@@ -165,9 +194,11 @@ BEGIN
     IF coalesce(current_setting('ent.identite_projection', true), '') = 'on' THEN
         RETURN NEW;
     END IF;
-    IF (NEW.nom, NEW.prenom, NEW.sexe, NEW.date_naissance, NEW.nom_naissance, NEW.prenoms, NEW.identite_version_id)
+    IF (NEW.nom, NEW.prenom, NEW.sexe, NEW.date_naissance, NEW.nom_naissance, NEW.prenoms, NEW.identite_version_id,
+        NEW.date_naissance_precision, NEW.date_naissance_statut)
        IS NOT DISTINCT FROM
-       (OLD.nom, OLD.prenom, OLD.sexe, OLD.date_naissance, OLD.nom_naissance, OLD.prenoms, OLD.identite_version_id) THEN
+       (OLD.nom, OLD.prenom, OLD.sexe, OLD.date_naissance, OLD.nom_naissance, OLD.prenoms, OLD.identite_version_id,
+        OLD.date_naissance_precision, OLD.date_naissance_statut) THEN
         RETURN NEW;
     END IF;
     RAISE EXCEPTION 'identité de l''élève : écriture directe interdite (utiliser les commandes de correction ou de changement)'
@@ -295,7 +326,7 @@ BEGIN
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     BEGIN
-        ALTER TABLE ent_eleve_identite VALIDATE CONSTRAINT ent_eleve_identite_regles_chk;
+        ALTER TABLE ent_eleve_identite VALIDATE CONSTRAINT ent_eleve_identite_regles2_chk;
     EXCEPTION WHEN check_violation THEN NULL;
     END;
 END $$;

@@ -50,6 +50,11 @@ struct VersionRow {
     naissance_commune: Option<String>,
     naissance_pays_cog: Option<String>,
     naissance_lieu_etranger: Option<String>,
+    date_naissance_precision: String,
+    date_naissance_statut: String,
+    nom_ecriture_origine: Option<String>,
+    prenoms_ecriture_origine: Option<String>,
+    motif_code: Option<String>,
     nature: String,
     effet_du: NaiveDate,
     remplace_version_id: Option<Uuid>,
@@ -80,6 +85,11 @@ impl VersionRow {
             naissance_commune: self.naissance_commune,
             naissance_pays_cog: self.naissance_pays_cog,
             naissance_lieu_etranger: self.naissance_lieu_etranger,
+            date_naissance_precision: self.date_naissance_precision,
+            date_naissance_statut: self.date_naissance_statut,
+            nom_ecriture_origine: self.nom_ecriture_origine,
+            prenoms_ecriture_origine: self.prenoms_ecriture_origine,
+            motif_code: self.motif_code,
             nature: NatureVersion::parse(&self.nature).unwrap_or(NatureVersion::Reprise),
             effet_du: self.effet_du,
             remplace_version_id: self.remplace_version_id,
@@ -97,7 +107,8 @@ impl VersionRow {
 
 const COLONNES: &str = "id, etablissement_id, eleve_id, nom_naissance, nom_usage, prenoms,
     rang_prenom_usuel, prenom_usage, sexe, date_naissance, naissance_commune_cog,
-    naissance_commune, naissance_pays_cog, naissance_lieu_etranger, nature, effet_du,
+    naissance_commune, naissance_pays_cog, naissance_lieu_etranger, date_naissance_precision, date_naissance_statut,
+    nom_ecriture_origine, prenoms_ecriture_origine, motif_code, nature, effet_du,
     remplace_version_id, remplacee_par, motif, piece_document_id, source, source_ref,
     sensible, enregistre_le, enregistre_par";
 
@@ -225,10 +236,11 @@ impl PgIdentiteRepo {
             "INSERT INTO ent_eleve_identite (
                 id, etablissement_id, eleve_id, nom_naissance, nom_usage, prenoms,
                 rang_prenom_usuel, prenom_usage, sexe, date_naissance, naissance_commune_cog,
-                naissance_commune, naissance_pays_cog, naissance_lieu_etranger, nature, effet_du,
+                naissance_commune, naissance_pays_cog, naissance_lieu_etranger, date_naissance_precision, date_naissance_statut,
+                nom_ecriture_origine, prenoms_ecriture_origine, motif_code, nature, effet_du,
                 remplace_version_id, motif, piece_document_id, source, source_ref, sensible,
                 enregistre_le, enregistre_par
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)",
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)",
         )
         .bind(v.id)
         .bind(v.etablissement_id)
@@ -244,6 +256,11 @@ impl PgIdentiteRepo {
         .bind(&v.naissance_commune)
         .bind(&v.naissance_pays_cog)
         .bind(&v.naissance_lieu_etranger)
+        .bind(&v.date_naissance_precision)
+        .bind(&v.date_naissance_statut)
+        .bind(&v.nom_ecriture_origine)
+        .bind(&v.prenoms_ecriture_origine)
+        .bind(&v.motif_code)
         .bind(v.nature.as_str())
         .bind(v.effet_du)
         .bind(v.remplace_version_id)
@@ -310,7 +327,9 @@ pub struct CorrectionIdentite {
     /// Version corrigée ; à défaut, la version courante.
     pub version_id: Option<Uuid>,
     pub modif: ModifIdentite,
-    pub motif: String,
+    /// Code du motif (obligatoire) ; texte libre seulement pour `autre`.
+    pub motif_code: String,
+    pub motif: Option<String>,
     pub piece_document_id: Option<Uuid>,
     pub source: String,
     pub acteur: Uuid,
@@ -323,7 +342,8 @@ pub struct ChangementEtatCivil {
     pub eleve_id: Uuid,
     pub modif: ModifIdentite,
     pub effet_du: NaiveDate,
-    pub motif: String,
+    pub motif_code: String,
+    pub motif: Option<String>,
     pub piece_document_id: Uuid,
     pub source: String,
     pub acteur: Uuid,
@@ -337,6 +357,7 @@ pub struct UsageIdentite {
     pub nom_usage: Option<Option<String>>,
     pub prenom_usage: Option<Option<String>>,
     pub effet_du: Option<NaiveDate>,
+    pub motif_code: Option<String>,
     pub motif: Option<String>,
     pub piece_document_id: Option<Uuid>,
     pub source: String,
@@ -419,7 +440,8 @@ impl PgEnt {
                 nature: NatureVersion::Correction,
                 modif: cmd.modif,
                 effet_du: None,
-                motif: Some(cmd.motif),
+                motif_code: Some(cmd.motif_code),
+                motif: cmd.motif,
                 piece_document_id: cmd.piece_document_id,
                 source: cmd.source,
                 source_ref: None,
@@ -450,7 +472,8 @@ impl PgEnt {
                 nature: NatureVersion::ChangementEtatCivil,
                 modif: cmd.modif,
                 effet_du: Some(cmd.effet_du),
-                motif: Some(cmd.motif),
+                motif_code: Some(cmd.motif_code),
+                motif: cmd.motif,
                 piece_document_id: Some(cmd.piece_document_id),
                 source: cmd.source,
                 source_ref: None,
@@ -486,6 +509,7 @@ impl PgEnt {
                     ..Default::default()
                 },
                 effet_du: Some(effet),
+                motif_code: cmd.motif_code,
                 motif: cmd.motif,
                 piece_document_id: cmd.piece_document_id,
                 source: cmd.source,
@@ -693,6 +717,7 @@ impl PgEnt {
                 nature: NatureVersion::Correction,
                 modif,
                 effet_du: None,
+                motif_code: Some("autre".into()),
                 motif: Some("Correction depuis la saisie d'identité".into()),
                 piece_document_id: None,
                 source: "saisie".into(),

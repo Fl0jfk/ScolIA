@@ -81,7 +81,8 @@ fn correction(etab: Uuid, eleve: Uuid, acteur: Uuid, modif: ModifIdentite) -> Co
         eleve_id: eleve,
         version_id: None,
         modif,
-        motif: "faute de frappe à la saisie".into(),
+        motif_code: "faute_de_frappe".into(),
+        motif: None,
         piece_document_id: None,
         source: "saisie".into(),
         acteur,
@@ -294,7 +295,8 @@ async fn correction_remplace_changement_ajoute() {
         eleve_id: e.id,
         modif: champs_nom(nom),
         effet_du: jour,
-        motif: "jugement de changement de nom".into(),
+        motif_code: "decision_etat_civil".into(),
+        motif: Some("jugement de changement de nom".into()),
         piece_document_id: piece_id,
         source: "saisie".into(),
         acteur: admin,
@@ -460,7 +462,8 @@ async fn aucun_etat_civil_dans_les_evenements() {
                 nom_usage: None,
                 prenom_usage: Some(Some(prenom_usage.clone())),
                 effet_du: None,
-                motif: Some("demande de l'élève".into()),
+                motif_code: Some("demande_eleve".into()),
+                motif: None,
                 piece_document_id: None,
                 source: "saisie".into(),
                 acteur: admin,
@@ -529,6 +532,7 @@ async fn droits_ecriture_et_historique() {
             nom_usage: None,
             prenom_usage: Some(Some("Zel".into())),
             effet_du: None,
+            motif_code: None,
             motif: None,
             piece_document_id: None,
             source: "saisie".into(),
@@ -659,6 +663,7 @@ async fn ancienne_saisie_d_identite_passe_par_une_version() {
             nom_usage: None,
             prenom_usage: Some(Some("Zel".into())),
             effet_du: None,
+            motif_code: None,
             motif: None,
             piece_document_id: None,
             source: "saisie".into(),
@@ -679,4 +684,121 @@ async fn ancienne_saisie_d_identite_passe_par_une_version() {
         "{refus:?}"
     );
     assert_eq!(projection(&ent, e.id).await.prenom, "Zel");
+}
+
+/// Passe « personas » E2-a à E2-d : date de naissance incomplète ou présumée, motif codé,
+/// sensibilité forcée par le motif, écriture d'origine.
+#[tokio::test]
+async fn date_incomplete_motif_code_sensibilite_forcee() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (etab, admin) = (cast.etablissement_id, cast.administratif.user_id);
+    let role = Role::Administratif.as_str();
+    let e = nouvel_eleve(&ent, etab, &unique("Perso"), admin).await;
+    // Reprise / création : jour + déclarée.
+    let (prec, stat): (String, String) = sqlx::query_as(
+        "SELECT date_naissance_precision, date_naissance_statut FROM ent_eleve WHERE id = $1",
+    )
+    .bind(e.id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!((prec.as_str(), stat.as_str()), ("jour", "declaree"));
+
+    // E2-a + E2-d : mois seul, présumée, avec graphie d'origine.
+    let mut c = correction(
+        etab,
+        e.id,
+        admin,
+        ModifIdentite {
+            date_naissance: Some(NaiveDate::from_ymd_opt(2010, 3, 1)),
+            date_naissance_precision: Some("mois".into()),
+            date_naissance_statut: Some("presumee".into()),
+            nom_ecriture_origine: Some(Some("دوبون".into())),
+            ..Default::default()
+        },
+    );
+    c.motif_code = "d_apres_piece".into();
+    let r = ent.corriger_identite(role, c).await.unwrap();
+    assert!(r.champs.contains(&"date_naissance_precision"));
+    let (prec, stat): (String, String) = sqlx::query_as(
+        "SELECT date_naissance_precision, date_naissance_statut FROM ent_eleve WHERE id = $1",
+    )
+    .bind(e.id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!((prec.as_str(), stat.as_str()), ("mois", "presumee"));
+    // La précision se protège comme le reste de l'identité.
+    let direct =
+        sqlx::query("UPDATE ent_eleve SET date_naissance_precision = 'jour' WHERE id = $1")
+            .bind(e.id)
+            .execute(ent.pool())
+            .await;
+    assert!(direct.is_err());
+
+    // E2-b : code obligatoire, hors liste refusé, « autre » exige un texte.
+    for (code, texte) in [("", None), ("adoption", None), ("autre", None)] {
+        let mut c = correction(etab, e.id, admin, champs_nom(&unique("Zz")));
+        c.motif_code = code.into();
+        c.motif = texte;
+        assert!(ent.corriger_identite(role, c).await.is_err(), "{code:?}");
+    }
+    let mut c = correction(etab, e.id, admin, champs_nom(&unique("Autre")));
+    c.motif_code = "autre".into();
+    c.motif = Some("précision libre".into());
+    ent.corriger_identite(role, c).await.unwrap();
+
+    // E2-c : un changement d'adoption est sensible même si seul le nom change.
+    let ma_piece = piece(&ent, etab, e.id).await;
+    let c = ent
+        .enregistrer_changement_etat_civil(
+            role,
+            ChangementEtatCivil {
+                etablissement_id: etab,
+                eleve_id: e.id,
+                modif: champs_nom(&unique("Adopte")),
+                effet_du: aujourdhui() + Duration::days(2),
+                motif_code: "adoption".into(),
+                motif: None,
+                piece_document_id: ma_piece,
+                source: "saisie".into(),
+                acteur: admin,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(c.version.sensible);
+    assert_eq!(c.version.motif_code.as_deref(), Some("adoption"));
+    // Absente de l'historique d'un lecteur sans G6, présente pour la direction.
+    let h = ent
+        .historique_identite_pour_acteur(etab, admin, role, e.id)
+        .await
+        .unwrap();
+    assert!(h.iter().all(|v| v.id != c.version.id));
+    let h = ent
+        .historique_identite_pour_acteur(
+            etab,
+            cast.direction.user_id,
+            Role::Direction.as_str(),
+            e.id,
+        )
+        .await
+        .unwrap();
+    assert!(h.iter().any(|v| v.id == c.version.id));
+    // La base elle-même refuse une version « adoption » non sensible.
+    let refus = sqlx::query(
+        "INSERT INTO ent_eleve_identite (id, etablissement_id, eleve_id, nom_naissance, prenoms,
+            nature, effet_du, motif_code, motif, piece_document_id, sensible)
+         SELECT gen_random_uuid(), etablissement_id, eleve_id, 'Xx', ARRAY['Yy'],
+            'changement_etat_civil', current_date + 50, 'adoption', 'x', $2, false
+         FROM ent_eleve_identite WHERE id = $1",
+    )
+    .bind(c.version.id)
+    .bind(ma_piece)
+    .execute(ent.pool())
+    .await;
+    assert!(refus.is_err(), "adoption non sensible acceptée par la base");
 }

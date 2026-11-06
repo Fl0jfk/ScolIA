@@ -77,7 +77,8 @@ async fn fixer_naissance(
                 date_naissance: Some(Some(date)),
                 ..Default::default()
             },
-            motif: "mise en place du test".into(),
+            motif_code: "faute_de_frappe".into(),
+            motif: None,
             piece_document_id: None,
             source: "saisie".into(),
             acteur,
