@@ -3,8 +3,11 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Correctifs de la revue de sécurité — RF-01 et RF-04 d–g (2026-11-06, branche `ent-socle1-revue-correctifs`)
+**Implémenté + testé en local, non validé pilote.** RF-01 : changement d'e-mail en deux temps (migration 255 `ent_email_change` + `ent_user.recuperation_gel_jusqu`), hiérarchie stricte sans pairs, confirmation par la nouvelle adresse, annulation / rétablissement par l'ancienne (72 h), gel 72 h des réinitialisations et récupérations après un changement par un tiers ; routes publiques `POST /auth/email/confirmer|annuler`. RF-04 d–g : exports LSL/LSUN, bulletins, conseils de classe, devoirs et cahier de textes bornés aux classes enseignées. Tests : `ent-db/src/tests_revue_finale.rs` (`rf01*`, `rf04d`–`rf04g`), `tests_l3` adaptés. **À faire** : pages Leptos pour les liens d'e-mail ; valider le choix « l'Administratif ne change que les e-mails Parent / Élève ». Détail : `docs/REVUE_SECURITE_SOCLE1.md`.
+
 ## Revue de sécurité finale du socle 1 (2026-11-06, branche `ent-socle1-revue-finale`)
-Rapport : `docs/REVUE_SECURITE_SOCLE1.md`. Aucun critique ; 4 élevés, 21 moyens, 13 faibles. **Pas encore « carré »** : RF-01 (prise de compte par changement d'e-mail, décision) et RF-04 d–g (portée des professeurs sur exports, bulletins, conseils, devoirs) restent avant un pilote.
+Rapport : `docs/REVUE_SECURITE_SOCLE1.md`. Aucun critique ; 4 élevés, 21 moyens, 13 faibles. RF-01 et RF-04 d–g (qui restaient avant un pilote) sont corrigés sur `ent-socle1-revue-correctifs` (voir ci-dessus).
 - Corrigé + testé en local (`ent-db/src/tests_revue_finale.rs`, 7 tests) : droit « sorties » des responsables appliqué (RF-02) ; historique e-mails / SMS réservé (RF-03) ; appréciations, copilote et dispenses du jour bornés aux élèves suivis (RF-04 a–c) ; clé de verrou de connexion non empoisonnable (RF-05) ; compteur sur `POST /auth/password` (RF-06) ; défi passkey factice aligné (RF-07, partiel) ; CSP à empreinte sur l'ancienne UI `/app` (RF-08) ; outbox sous la variable RLS correcte (RF-09) ; téléphone d'un double membre protégé (RF-10).
 - Non fait : `cargo deny` / `cargo audit` (CI), suites frontend, essai navigateur réel.
 ## Carte des socles (2026-11-06, branche `ent-carte-socles`)
