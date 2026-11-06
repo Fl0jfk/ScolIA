@@ -261,8 +261,9 @@ const FOYERS: &[Acteur] = &[Admin, Direction, Administratif, Compta, Cpe];
 
 fn specs_domaine_eleve_dossier() -> Vec<Spec> {
     vec![
-            lire("eleve", "/eleves/{eleve}", TOUS, STAFF),
-            lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF),
+            // D-022 : un professeur ne lit que la fiche des élèves de ses classes et groupes.
+            lire("eleve", "/eleves/{eleve}", TOUS, STAFF_HORS_PROF),
+            lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF_HORS_PROF),
             lire("carnet", "/eleves/{eleve}/carnet",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
             Spec { non_liee_vide: FAMILLE, ..lire("incidents", "/eleves/{eleve}/incidents", TOUS, STAFF) },
