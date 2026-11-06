@@ -301,12 +301,15 @@ function ChatMessageActions({
   if (ctas.length === 0) return null;
 
   const previewCount = ctas.filter((c) => c.preview).length;
+  const downloadCount = ctas.filter((c) => /^Télécharger\b/.test(c.label)).length;
   const heading =
-    previewCount > 0 && previewCount === ctas.length
-      ? "Documents"
-      : previewCount > 0
-        ? "Documents & fiches"
-        : "Liens";
+    downloadCount > 0 && downloadCount === ctas.length
+      ? "Fichiers créés"
+      : previewCount > 0 && previewCount === ctas.length
+        ? "Documents"
+        : previewCount > 0
+          ? "Documents & fiches"
+          : "Liens";
 
   return (
     <div className="mt-2.5 overflow-hidden rounded-2xl border border-black/8 bg-[#f4f5f3]">
@@ -317,6 +320,33 @@ function ChatMessageActions({
         {ctas.map((c, idx) => {
           const dossierMatch = c.href.match(/^\/eleves\/dossier\/([^/?#]+)\/?$/);
           const isPreview = Boolean(c.preview) || isEleveDocumentHref(c.href);
+          // Fichier créé par ScolIA (lien pré-signé) : vrai téléchargement, la bulle reste ouverte.
+          const isDownload = /^https:\/\//.test(c.href) && /^Télécharger\b/.test(c.label);
+          if (isDownload) {
+            return (
+              <li key={`${c.href}_${c.label}_${idx}`}>
+                <a
+                  href={c.href}
+                  download
+                  rel="noopener noreferrer"
+                  className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white"
+                >
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[color:var(--dash-lime)]/70 text-[13px] font-bold text-[var(--dash-ink)]"
+                    aria-hidden
+                  >
+                    ↓
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--dash-ink)]">
+                    {c.label.replace(/^Télécharger\s+/, "")}
+                  </span>
+                  <span className="shrink-0 text-[11px] font-semibold text-neutral-400 transition group-hover:text-[var(--dash-ink)]">
+                    Télécharger
+                  </span>
+                </a>
+              </li>
+            );
+          }
           const onClick = () => {
             if (isPreview) {
               onPreview(c.href, c.label);

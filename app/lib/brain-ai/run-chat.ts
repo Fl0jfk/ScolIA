@@ -150,9 +150,8 @@ function shouldMaterializeStructuredList(toolName: string, result: BrainToolResu
   if (!result.ok) return false;
   // Catalogue PDF seulement quand l'utilisateur a demandé les documents ; sinon le modèle
   // reçoit la liste et répond dans la forme voulue (tableau, comptage…).
-  if (toolName === "list_eleves_filtered") {
-    return Boolean(result.data && typeof result.data === "object" && "docCatalog" in result.data);
-  }
+  // list_eleves_filtered = connaissance (le modèle met en forme) ; show_documents = rendu
+  // ajouté à la réponse sans couper le modèle (voir shownCatalog).
   if (toolName === "open_eleve_dossier") {
     const ctas = extractCtas(result.data);
     return ctas.some((c) => c.preview);
@@ -661,6 +660,8 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
   const ctas: BrainCta[] = [];
   const clientActions: BrainClientAction[] = [];
+  /** Panneau de documents demandé par le modèle (pouvoir show_documents). */
+  let shownCatalog: BrainDocCatalog | undefined;
   let pendingConfirmation: BrainPendingConfirmation | null = null;
   let pendingChoices: BrainPendingChoices | null = null;
 
@@ -923,6 +924,12 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   const systemPrompt =
     `Tu es ScolIA, l'assistant institutionnel de l'établissement (Brain AI).\n` +
     `Réponds en français, précis et utile.\n` +
+    `Tes pouvoirs (tu les combines librement pour répondre au mieux) :\n` +
+    `1) CONNAÎTRE l'ENT : outils de lecture (élèves, absences, planning, cahier de textes, séjours, salles…) — toujours avec les droits de l'utilisateur.\n` +
+    `2) AGIR dans l'ENT : créer, réserver, déclarer, envoyer… — récap + confirmation de l'utilisateur.\n` +
+    `3) SAVOIR : base de connaissances de l'établissement (contexte dictionnaire ci-dessous : règlement, procédures, circulaires, documents officiels déposés) + ta culture générale ; tu peux expliquer comment faire une démarche, pas à pas, dans l'ENT ou hors ENT.\n` +
+    `4) RENDRE : écrire du texte, des tableaux markdown (export Excel proposé par l'interface), afficher des documents (show_documents), créer un fichier Word / PDF / Excel téléchargeable (create_file), ouvrir une page de l'ENT (resolve_and_open).\n` +
+    `Exemples : « les PAP du collège en Word » = list_eleves_filtered puis create_file ; « montre-moi leurs PAP » = show_documents ; « comment je fais une sortie scolaire ? » = expliquer les étapes puis proposer d'ouvrir le module ou de la créer avec toi.\n` +
     `Comprendre avant d'agir (le plus important) :\n` +
     `- Demande-toi ce que l'utilisateur veut VRAIMENT obtenir : quelle information, quel filtre, quelle FORME de réponse (liste, tableau, nombre, colonnes précises, texte). Les outils sont des moyens, pas des réponses toutes faites.\n` +
     `- Combine plusieurs outils si besoin, puis filtre, trie, compte et reformate leurs résultats pour répondre exactement à la demande. Ne recrache pas la présentation par défaut d'un outil si on t'a demandé autre chose ; si l'utilisateur corrige (« je veux juste nom, prénom, classe »), adapte-toi immédiatement.\n` +
@@ -961,7 +968,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Classes : « 6ème A » / « sixième A » = 6A (pas 6E). Toujours garder la lettre de division.\n` +
     `- create_reservation = réservation salle | create_trip = NOUVELLE sortie uniquement | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
     `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe/pôle).\n` +
-    `- list_eleves_filtered : pour « les PAP du collège / d’une classe ». avecDocuments=true seulement si on veut les PDF ; sinon tu reçois la liste et tu la présentes comme demandé.\n` +
+    `- list_eleves_filtered : liste (connaissance) des élèves d'une classe / d'un pôle / avec PAP… ; show_documents : afficher leurs PDF.\n` +
     `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_eleve_preinscrit | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | decide_rh_absence | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room | resend_stage_signatures.\n` +
     `- Internat : get_internat_status | open_internat_appel | assign_internat_room.\n` +
     `- Messagerie interne : send_internal_message (personnel uniquement, récap + confirmation avant envoi). « Envoie-le à … » après une rédaction = envoyer le dernier texte rédigé, tel quel.\n` +
@@ -1156,6 +1163,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         pendingChoices,
         ctas: ctas.length ? ctas : undefined,
         clientActions: clientActions.length ? clientActions : undefined,
+        ...(shownCatalog ? { docCatalog: shownCatalog } : {}),
       };
     }
 
@@ -1265,7 +1273,14 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
           );
         }
 
-        ctas.push(...extractCtas(result.data));
+        // Pouvoir de rendu « afficher des documents » : le panneau s'ajoute à la réponse,
+        // et le modèle continue (il peut commenter, ajouter un tableau, un fichier…).
+        if (name === "show_documents") {
+          const cat = extractDocCatalog(result.data);
+          if (cat) shownCatalog = cat;
+        } else {
+          ctas.push(...extractCtas(result.data));
+        }
         clientActions.push(...extractClientActions(result.data));
         const follow =
           result.data && typeof result.data === "object" && "followUrl" in (result.data as object)

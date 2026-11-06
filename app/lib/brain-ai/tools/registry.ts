@@ -40,6 +40,7 @@ import {
   handleCreateAccueilAbsence,
 } from "@/app/lib/brain-ai/tools/handlers/accueil-absences";
 import { handleListElevesFiltered } from "@/app/lib/brain-ai/tools/handlers/eleves-filtered";
+import { handleShowDocuments } from "@/app/lib/brain-ai/tools/handlers/show-documents";
 import { handleUpdateEleveGrilleRepas } from "@/app/lib/brain-ai/tools/handlers/eleve-grille-repas";
 import { handleCreateElevePreinscrit } from "@/app/lib/brain-ai/tools/handlers/eleve-create";
 import { handleOpenTrip } from "@/app/lib/brain-ai/tools/handlers/open-trip";
@@ -59,6 +60,7 @@ import {
   handleSaveAppelLignes,
 } from "@/app/lib/brain-ai/tools/handlers/vs-appels";
 
+import { handleCreateFile } from "@/app/lib/brain-ai/tools/handlers/create-file";
 import { handleSendInternalMessage } from "@/app/lib/brain-ai/tools/handlers/messagerie";
 import {
   handleGetCahierTexte,
@@ -231,7 +233,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "list_eleves_filtered",
     description:
-      "Liste les élèves filtrés par classe/pôle et/ou accompagnement (PAP, PAI, PPS, GEVASCO) : renvoie nom, prénom, classe et accompagnements de chacun, que tu mets en forme selon la demande (tableau, comptage par classe…). Ex. « tous les PAP du collège », « PAP de 6ème B ». « 6ème A » / « sixième A » = classe 6A (pas 6E). avecDocuments=true UNIQUEMENT si l’utilisateur veut les documents eux-mêmes (PDF, pièces, ouvrir/voir le PAP) : l’UI affiche alors un catalogue de PDF.",
+      "CONNAISSANCE — liste les élèves filtrés par classe/pôle et/ou accompagnement (PAP, PAI, PPS, GEVASCO) : renvoie id, nom, prénom, classe et accompagnements. Tu en fais ce que la demande exige (tableau, comptage, fichier, documents…). Ex. « tous les PAP du collège », « PAP de 6ème B ». « 6ème A » / « sixième A » = classe 6A (pas 6E).",
     parameters: {
       type: "object",
       properties: {
@@ -244,10 +246,6 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
           type: "string",
           description: "pap | pai | pps | gevasco | any",
         },
-        avecDocuments: {
-          type: "boolean",
-          description: "true seulement si l’utilisateur demande les PDF / pièces. Sinon omettre.",
-        },
       },
       additionalProperties: false,
     },
@@ -256,6 +254,25 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: handleListElevesFiltered,
+  },
+  {
+    name: "show_documents",
+    description:
+      "RENDU — affiche un panneau des documents d’accompagnement (PDF PAP, PAI, PPS, GEVASCO) avec aperçu, groupés par classe. À utiliser quand l’utilisateur veut VOIR / ouvrir les documents. Filtrer par classe/pôle, accompagnement, ou eleveIds (ids obtenus avec list_eleves_filtered).",
+    parameters: {
+      type: "object",
+      properties: {
+        classe: { type: "string", description: "Classe (6A…) ou pôle (Collège, Lycée, École)." },
+        accompagnement: { type: "string", description: "pap | pai | pps | gevasco | any" },
+        eleveIds: { type: "array", items: { type: "string" }, description: "Élèves précis." },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleShowDocuments,
   },
   {
     name: "create_accueil_absence",
@@ -1039,6 +1056,44 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: handleListEvenements,
+  },
+  {
+    name: "create_file",
+    description:
+      "RENDU — crée un document téléchargeable (Word .docx, PDF ou Excel .xlsx) : courrier, liste mise en page, affiche simple, compte rendu, tableau Excel. À utiliser quand l’utilisateur demande un fichier, un export, un document à imprimer ou à envoyer. Le contenu doit venir de ce que les autres outils ont déjà renvoyé ou de ce que tu as rédigé à sa demande : n’invente JAMAIS de données d’élèves, de notes ou de noms. Excel : une feuille par bloc table (les autres blocs vont dans une feuille Notes s’il n’y a aucun tableau). Un bouton de téléchargement s’affiche ensuite sous ta réponse (lien valable 15 minutes) : dis simplement que le fichier est prêt, sans recopier de lien. Limites : 200 blocs, 2000 lignes de tableau.",
+    parameters: {
+      type: "object",
+      properties: {
+        format: { type: "string", enum: ["docx", "pdf", "xlsx"], description: "Type de fichier." },
+        fileName: { type: "string", description: "Nom du fichier sans extension (ex. liste-pap-6A)." },
+        title: { type: "string", description: "Titre affiché en haut du document." },
+        blocks: {
+          type: "array",
+          description: "Contenu dans l’ordre d’affichage.",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["heading", "paragraph", "bullets", "table"] },
+              text: { type: "string", description: "heading / paragraph : le texte." },
+              level: { type: "number", description: "heading : 1 ou 2." },
+              items: { type: "array", items: { type: "string" }, description: "bullets : les puces." },
+              headers: { type: "array", items: { type: "string" }, description: "table : en-têtes de colonnes." },
+              rows: {
+                type: "array",
+                items: { type: "array", items: { type: "string" } },
+                description: "table : lignes, mêmes colonnes que headers.",
+              },
+            },
+            required: ["type"],
+          },
+        },
+      },
+      required: ["format", "fileName", "title", "blocks"],
+      additionalProperties: false,
+    },
+    requiresAuth: true,
+    mutates: false,
+    handler: handleCreateFile,
   },
 ];
 

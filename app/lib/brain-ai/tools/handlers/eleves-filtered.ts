@@ -103,7 +103,7 @@ export async function handleListElevesFiltered(
     return {
       ok: false,
       needsChoices: true,
-      tool: "list_eleves_filtered",
+      tool: wantsDocuments ? "show_documents" : "list_eleves_filtered",
       field: "accompagnement",
       promptFr: "Quel type d’accompagnement ?",
       options: [
@@ -118,11 +118,19 @@ export async function handleListElevesFiltered(
     };
   }
 
-  if (!classe && kind === "any") {
+  /** Élèves précis (ids issus d'une liste précédente) : ex. « montre les PAP de ces 3 élèves ». */
+  const eleveIdsFilter = new Set(
+    (Array.isArray(args.eleveIds) ? args.eleveIds : [])
+      .map((v) => String(v || "").trim())
+      .filter((v) => /^[A-Za-z0-9_-]{1,80}$/.test(v))
+      .slice(0, 500),
+  );
+
+  if (!classe && kind === "any" && eleveIdsFilter.size === 0) {
     return {
       ok: false,
       needsChoices: true,
-      tool: "list_eleves_filtered",
+      tool: wantsDocuments ? "show_documents" : "list_eleves_filtered",
       field: "classe",
       promptFr: "Pour quelle classe ou quel pôle ? (ex. 6ème A, Collège)",
       options: [],
@@ -135,6 +143,9 @@ export async function handleListElevesFiltered(
   let eleves = await listElevesDossierFromDb(etabId, {
     status: "inscrit",
   });
+  if (eleveIdsFilter.size > 0) {
+    eleves = eleves.filter((e) => eleveIdsFilter.has(e.id));
+  }
 
   let resolvedClasse = classe;
   let resolvedPole = detectSchoolPoleQuery(classe);
@@ -335,6 +346,7 @@ export async function handleListElevesFiltered(
         filtre: filterScopeLabel || null,
         accompagnement: focusCode || null,
         eleves: rows.map((r) => ({
+          id: r.id,
           nom: r.nom,
           prenom: r.prenom,
           classe: r.classe,

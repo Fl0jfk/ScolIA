@@ -18,6 +18,15 @@ function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
       out[k] = typeof v === "string" ? `[${v.length} caractères]` : "[masqué]";
       continue;
     }
+    // Listes et objets (contenu d'un fichier créé, lignes de tableau…) : seulement leur taille.
+    if (Array.isArray(v)) {
+      out[k] = `[liste de ${v.length} élément(s)]`;
+      continue;
+    }
+    if (v && typeof v === "object") {
+      out[k] = "[objet masqué]";
+      continue;
+    }
     if (typeof v === "string" && v.length > 500) out[k] = `${v.slice(0, 500)}…`;
     else out[k] = v;
   }
