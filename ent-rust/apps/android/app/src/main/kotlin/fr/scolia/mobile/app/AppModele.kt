@@ -155,14 +155,19 @@ class AppModele(app: Application) : AndroidViewModel(app) {
     fun connexionPasskey(email: String) = action {
         prefs.dernierEmail = email.trim()
         etat = service!!.connexionPasskey(email)
+        verrouille = false // connexion à l'instant : pas de second déverrouillage
     }
 
     fun connexionMotDePasse(email: String, mdp: String) = action {
         prefs.dernierEmail = email.trim()
         etat = service!!.connexionMotDePasse(email, mdp)
+        verrouille = false
     }
 
-    fun secondFacteur(defi: PasskeyChallenge) = action { etat = service!!.terminerPasskey(defi) }
+    fun secondFacteur(defi: PasskeyChallenge) = action {
+        etat = service!!.terminerPasskey(defi)
+        verrouille = false
+    }
 
     fun enroler(mdp: String) = action {
         service!!.enrolerPasskey(mdp, "Téléphone Android")

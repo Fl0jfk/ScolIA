@@ -2,6 +2,8 @@ package fr.scolia.mobile.app.ecrans
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -134,7 +136,7 @@ fun EcranProfil(modele: AppModele, c: EtatConnexion.Connecte) {
     val client = modele.client!!
     var erreur by remember { mutableStateOf<String?>(null) }
     val portee = rememberCoroutineScope()
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Titre("Mon compte")
         Ligne(c.me.email, "${modele.actif?.nom ?: ""} · rôle : ${c.me.role}")
         Ligne(
