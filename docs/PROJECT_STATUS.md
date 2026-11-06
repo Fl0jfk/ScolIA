@@ -3,6 +3,14 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Intégration du lot 4 (2026-11-05 → 06, branche `ent-integration-lot4`, base `ent-integration-lot3` 3daefa7)
+Fusions git réelles, dans l'ordre : `ent-socle1-rls-integre`, `ent-socle2-dossier`, `ent-socle2-vie-scolaire`, `ent-socle2-ecrans-ref-vs`. Écartées : `ent-socle2-inscriptions` et `ent-socle2-cahier` (absentes d'origin au moment de l'intégration).
+- Catalogue d'actions réuni : 47 actions (38 du lot 3 + 4 de S2-1 + 5 de S2-4) ; tests de non-régression des modèles par défaut de toutes les branches verts ensemble.
+- Migrations : … 099, 100 (RLS), 102, 110–112, 120–123 (dossier), 130–134 (vie scolaire) ; aucune collision, aucun renumérotage ; `MIGRATION_TAG` = `134_vs_discipline`.
+- Santé/psy/facturation : `TenantTx` (RLS) **et** scellement des champs sensibles conservés ; le rechiffrement en cas de course garde aussi le filtre `etablissement_id` du lot 3.
+- Corrections d'intégration : homonymes `Seance`/`Periode` (référentiel et vie scolaire) : convention de `ent-socle2-ecrans-ref-vs` (`SeanceRef`, `PeriodeRef`) ; doublons d'`ApiClient` (`mes_droits`, `definir_responsables_groupe`) réduits à une définition, `DroitEffectif` = alias de `DroitApi` ; garde SQL statique : filtre `etablissement_id` ajouté aux 6 `UPDATE ent_personne` de la fusion de personnes (aucune exception nouvelle) ; inventaire des routes de la matrice étendu à `dossier.rs` et `vie_scolaire.rs`.
+- **Testé en local** dans les conditions de la CI (Rust 1.99.0, cargo-leptos 0.3.11, wasm-bindgen 0.2.130, binaryen 123, PostgreSQL 16 local au lieu de 18, base vierge par job) : formatage CI OK ; clippy backend (3 commandes) et frontend (4, dont wasm32 `hydrate`) OK ; build et contrôle L4 OK ; tests backend sans labo 122 réussis, suite complète avec labo **625 réussis, 0 échec** (1 exemple de doc `ignore` préexistant) ; frontend : unitaires 221, en-têtes/parité 23, contre le backend 9, `ent-web-server --features labo` 65, `ent-web-session` 12, build Leptos release OK. Non validé pilote ; CI GitHub non lancée (branche hors `ENT`).
+
 ## Intégration du lot 3 (2026-11-05, branche `ent-integration-lot3`, base `ent-mc0hoe` 2897d49)
 Fusions git réelles, dans l'ordre : `ent-socle2-outbox`, `ent-socle1-r2-sensibles`, `ent-socle1-r2-gestion`, `ent-socle1-ecrans-roles`, `ent-socle1-matrice`, `ent-socle2-referentiel`, `ent-socle2-interop-etude`. Non fusionnées (en cours ailleurs) : `ent-socle1-rls`, `ent-socle1-rls-integre`, `ent-socle2-dossier`, `ent-socle2-vie-scolaire`.
 - Catalogue d'actions réuni : 38 actions (R1 + 11 sensibles + 14 de gestion + `referentiel.lire/gerer`) ; les tests de non-régression des deux volets R2 passent ensemble.
