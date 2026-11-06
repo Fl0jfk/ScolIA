@@ -126,6 +126,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant [F]** : `ent_foyer`, `ent_eleve_lien` (007), `ent_personne` et reprise (120), liens d'autorité (121), contacts d'urgence (122), fusion de personnes (123), `domain-eleve/src/ine.rs`, 21 routes `/dossier/*`, écrans Leptos de la fiche (S2-1). Reste listé en `SOCLE2_DOMAINES.md` §6.2 (mise à jour des coordonnées par le parent, séparation d'un foyer en un geste, invitation depuis une personne sans compte, majorité).
 - **Place** : fixée par Florian ; clôt le cœur. Après 4, on sait qui est l'élève, comment il est entré et qui en répond.
 - **Faire mieux** : fiche de rentrée sans ressaisie ; proposition « mettre aussi à jour chez l'autre établissement » avec consentement (D-013) ; alertes de cohérence (aucune autorité active, parent séparé sans e-mail, payeur sans foyer).
+- **Conception** (2026-11-06, non décidée) : `docs/socles/04_ADMINISTRATIF.md`. Point à corriger ici après validation (Q-A2) : les identifiants de l'**élève** (INE, SIECLE, ONDE) relèvent du socle 2 (`02_ELEVE.md` §7.3) ; le socle 4 garde ceux des **personnes**.
 
 ### Étage B — Le cadre commun
 
