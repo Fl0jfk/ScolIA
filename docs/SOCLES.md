@@ -21,7 +21,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 4. **Chaque socle va au-delà du marché** (ligne « Faire mieux ») : c'est là que se joue « mieux que Pronote / École Directe / Charlemagne ».
 5. **Public et privé ensemble** (D-019) : chaque socle traite les deux, et ses imports/exports nationaux.
 
-**Cycle d'un socle** (méthode de la roadmap) : **1. réflexion de fond** → document `docs/SOCLE_NN_<nom>.md` (état des lieux, recherche réglementaire sur les textes officiels, acteurs, modèle de données, actions, droits, événements émis et consommés, écrans, mobile, RGPD, tests, au-delà du marché, questions fermées) ; **2. action** (code) ; **3. test** (automatisé, isolation, CI) ; puis mise à jour de `PROJECT_STATUS.md`.
+**Cycle d'un socle** (méthode de la roadmap) : **1. réflexion de fond** → document `docs/socles/NN_<NOM>.md` (état des lieux, recherche réglementaire sur les textes officiels, acteurs, modèle de données, actions, droits, événements émis et consommés, écrans, mobile, RGPD, tests, au-delà du marché, questions fermées) ; **2. action** (code) ; **3. test** (automatisé, isolation, CI) ; puis mise à jour de `PROJECT_STATUS.md`.
 
 **Un socle est terminé quand** : chaque action de son périmètre existe côté serveur avec son droit dans le catalogue (D-017) ; tous ses faits inter-domaines passent par l'outbox, en transaction ; ses écrans Leptos remplacent ceux de `ui.rs` pour son domaine ; ses tests d'isolation entre établissements sont dans la matrice ; ses données ont une catégorie de conservation ; ses indicateurs sont exposés au pilotage ; ses actions sont décrites pour l'assistant (identifiant, effets, confirmation).
 

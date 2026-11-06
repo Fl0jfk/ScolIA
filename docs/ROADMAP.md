@@ -21,7 +21,7 @@ Plan détaillé et suivi : `docs/SOCLE1_SECURITE.md`.
 ## Socles 2 à 51 — la carte
 
 Carte complète, périmètres, dépendances, existant et justification de l'ordre : **`docs/SOCLES.md`**. Socles 1 à 4 fixés par Florian (2026-11-06) ; socles 5 à 51 proposés, à valider (`SOCLES.md` §8).
-Chaque socle est un domaine entier conçu en profondeur avant d'être codé (document `docs/SOCLE_NN_<nom>.md`), puis livré complet (serveur, droits, événements, écrans web, mobile si usage quotidien, tests, documentation). Ce qui n'est pas encore refait reste servi par l'existant (ancienne interface figée, D-010). Public et privé ensemble à chaque socle (D-019).
+Chaque socle est un domaine entier conçu en profondeur avant d'être codé (document `docs/socles/NN_<NOM>.md`), puis livré complet (serveur, droits, événements, écrans web, mobile si usage quotidien, tests, documentation). Ce qui n'est pas encore refait reste servi par l'existant (ancienne interface figée, D-010). Public et privé ensemble à chaque socle (D-019).
 
 | Étage | Socles | Jalon atteint à la fin |
 |---|---|---|
