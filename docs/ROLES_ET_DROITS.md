@@ -90,3 +90,6 @@ Toutes ces actions n'admettent que la portée `etablissement` (les contrôles d'
 ### Limites connues de R2
 - Les contrôles restent à l'établissement entier ; `can_read_all_eleves` / `can_declare_absence_staff` (lectures par profil hors R1) et `can_manage_continuum` ne sont pas migrés.
 - Les tâches détachées (`tokio::spawn`) ne voient pas le contexte (repli profil, donc moins de droits, jamais plus).
+
+## Actions ajoutées par le socle 2, lot S2-1 (2026-11-05)
+`personnes.gerer` (responsables, contacts, liens ; modèles admin, direction, administratif), `payeurs.definir` (+ comptabilité), `liens.suspendre` et `personnes.fusionner` (admin, direction). Portée « établissement » seulement (une personne n'est pas rattachée à une classe). Familles : toujours hors rôles libres ; leurs accès passent par le **lien actif** (`ent_eleve_lien_actif` : ni suspendu, ni hors de ses dates), lu en un point unique (`PgFoyerRepo::lien_parent_eleve`). Détail : `docs/SOCLE2_DOMAINES.md` §6.2.

@@ -30,6 +30,17 @@ pub enum Action {
     /// Suivi de vie scolaire d'un élève : sorties, dispenses, alertes, conseils,
     /// vœux, informations complémentaires, conventions, internat.
     SuiviEleve,
+    /// Déclarer une absence à l'accueil (appel ou visite d'un responsable), VS-06.
+    AbsencesDeclarer,
+    /// Vérifier les appels (non faits, incohérences), relancer, tableau du jour, VS-04/25.
+    AppelVerifier,
+    /// Donner une punition scolaire (distincte d'une sanction), VS-15.
+    PunitionsDonner,
+    /// Procédure disciplinaire, effacement des sanctions, décision sur les
+    /// signalements d'assiduité, VS-17/18/21.
+    DisciplineGerer,
+    /// Décompte d'assiduité, règles et proposition de signalement, VS-20/21.
+    AssiduiteSignaler,
     /// Créer, modifier, attribuer les rôles de l'établissement.
     RolesGerer,
     /// Politique de sécurité (passkey obligatoire…).
@@ -90,6 +101,15 @@ pub enum Action {
     ReferentielLire,
     /// Gérer le référentiel scolaire (S2-2, REF-01→14) : structures, bascule d'année.
     ReferentielGerer,
+    /// Créer et modifier les personnes (responsables, contacts), leurs liens
+    /// à l'élève et les contacts d'urgence (DOS-03, DOS-05, DOS-08).
+    PersonnesGerer,
+    /// Désigner les payeurs et leurs parts (DOS-07).
+    PayeursDefinir,
+    /// Suspendre ou rétablir le lien d'un responsable (décision de justice, DOS-06).
+    LiensSuspendre,
+    /// Fusionner ou défusionner des personnes en doublon (DOS-15).
+    PersonnesFusionner,
 }
 
 /// Sur quoi une action s'applique.
@@ -106,7 +126,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 38] = [
+    pub const TOUTES: [Action; 47] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -116,6 +136,11 @@ impl Action {
         Action::JournalLire,
         Action::MessagerieEleve,
         Action::SuiviEleve,
+        Action::AbsencesDeclarer,
+        Action::AppelVerifier,
+        Action::PunitionsDonner,
+        Action::DisciplineGerer,
+        Action::AssiduiteSignaler,
         Action::RolesGerer,
         Action::SecuritePolitique,
         // R2 : domaines sensibles
@@ -147,6 +172,10 @@ impl Action {
         Action::DocsSignerPublier,
         Action::ReferentielLire,
         Action::ReferentielGerer,
+        Action::PersonnesGerer,
+        Action::PayeursDefinir,
+        Action::LiensSuspendre,
+        Action::PersonnesFusionner,
     ];
 
     pub fn code(self) -> &'static str {
@@ -160,6 +189,11 @@ impl Action {
             Self::JournalLire => "journal.lire",
             Self::MessagerieEleve => "messagerie.eleve",
             Self::SuiviEleve => "suivi.eleve",
+            Self::AbsencesDeclarer => "absences.declarer",
+            Self::AppelVerifier => "appel.verifier",
+            Self::PunitionsDonner => "punitions.donner",
+            Self::DisciplineGerer => "discipline.gerer",
+            Self::AssiduiteSignaler => "assiduite.signaler",
             Self::RolesGerer => "roles.gerer",
             Self::SecuritePolitique => "securite.politique",
             // R2 : domaines sensibles
@@ -190,6 +224,10 @@ impl Action {
             Self::DocsSignerPublier => "docs_a_signer.publier",
             Self::ReferentielLire => "referentiel.lire",
             Self::ReferentielGerer => "referentiel.gerer",
+            Self::PersonnesGerer => "personnes.gerer",
+            Self::PayeursDefinir => "payeurs.definir",
+            Self::LiensSuspendre => "liens.suspendre",
+            Self::PersonnesFusionner => "personnes.fusionner",
         }
     }
 
@@ -204,6 +242,11 @@ impl Action {
             Self::JournalLire => "Consulter le journal de l'élève",
             Self::MessagerieEleve => "Échanger avec les familles à propos de l'élève",
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
+            Self::AbsencesDeclarer => "Déclarer une absence à l'accueil",
+            Self::AppelVerifier => "Vérifier les appels et suivre la journée de vie scolaire",
+            Self::PunitionsDonner => "Donner des punitions scolaires",
+            Self::DisciplineGerer => "Conduire la discipline (procédures, effacements, signalements)",
+            Self::AssiduiteSignaler => "Suivre l'assiduité et préparer les signalements",
             Self::RolesGerer => "Gérer les rôles et leurs attributions",
             Self::SecuritePolitique => "Gérer la politique de sécurité",
             // R2 : domaines sensibles
@@ -234,6 +277,10 @@ impl Action {
             Self::DocsSignerPublier => "Publier et annuler les documents à signer",
             Self::ReferentielLire => "Consulter le référentiel scolaire",
             Self::ReferentielGerer => "Gérer le référentiel scolaire (années, classes, périodes…)",
+            Self::PersonnesGerer => "Gérer les responsables, contacts et liens d'un élève",
+            Self::PayeursDefinir => "Désigner les payeurs et leurs parts",
+            Self::LiensSuspendre => "Suspendre ou rétablir le lien d'un responsable",
+            Self::PersonnesFusionner => "Fusionner ou défusionner des personnes en doublon",
         }
     }
 
@@ -274,6 +321,12 @@ impl Action {
             | Self::MatieresGerer
             | Self::ConseilsGerer
             | Self::DocsSignerPublier => &[Portee::Etablissement],
+            // S2-1 : actions sur les personnes (non rattachées à une classe) :
+            // établissement entier seulement.
+            Self::PersonnesGerer
+            | Self::PayeursDefinir
+            | Self::LiensSuspendre
+            | Self::PersonnesFusionner => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -348,6 +401,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
             JournalLire,
             MessagerieEleve,
             SuiviEleve,
+            PunitionsDonner,
         ] {
             d.push((a, Portee::MesClasses));
         }
@@ -385,6 +439,23 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
     ) {
         d.push(etab(MessagerieEleve));
+    }
+    // Vie scolaire (lot S2-4) : modèles par défaut calés sur les profils déjà
+    // habilités à la vie scolaire (déclarer, vérifier, punir) ; la discipline
+    // et la décision sur les signalements restent à la direction.
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
+    ) {
+        d.push(etab(AbsencesDeclarer));
+        d.push(etab(AppelVerifier));
+        d.push(etab(PunitionsDonner));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
+        d.push(etab(AssiduiteSignaler));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(DisciplineGerer));
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(RolesGerer));
@@ -444,6 +515,19 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         d.push(etab(ElevesGerer));
         d.push(etab(MatieresGerer));
     }
+    // S2-1 : personnes et liens (mêmes profils que la gestion des élèves) ;
+    // payeurs aussi pour la comptabilité ; suspension et fusion : direction.
+    if role.can_manage_eleves() {
+        d.push(etab(PersonnesGerer));
+        d.push(etab(PayeursDefinir));
+    }
+    if role == Role::Compta {
+        d.push(etab(PayeursDefinir));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(LiensSuspendre));
+        d.push(etab(PersonnesFusionner));
+    }
     d
 }
 
@@ -482,6 +566,13 @@ mod tests {
         assert_eq!(a(Role::Compta, DossierLire), Some(Portee::Etablissement));
         assert_eq!(a(Role::Direction, RolesGerer), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, RolesGerer), None);
+        assert_eq!(a(Role::Administratif, PersonnesGerer), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Compta, PayeursDefinir), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Compta, PersonnesGerer), None);
+        assert_eq!(a(Role::Administratif, LiensSuspendre), None);
+        assert_eq!(a(Role::Direction, LiensSuspendre), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Cpe, PersonnesFusionner), None);
+        assert_eq!(a(Role::Prof, PersonnesGerer), None);
         assert!(modele_par_defaut(Role::Parent).is_empty());
         assert!(modele_par_defaut(Role::Eleve).is_empty());
         // Chaque droit d'un modèle respecte les portées admises.

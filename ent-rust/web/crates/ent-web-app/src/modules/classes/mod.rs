@@ -317,7 +317,9 @@ fn DetailClasse(detail: ClasseDetailApi) -> impl IntoView {
                                                 .unwrap_or_else(|| "—".into());
                                             view! {
                                                 <tr>
-                                                    <th scope="row">{identite_eleve(&e)}</th>
+                                                    <th scope="row">
+                                                        <a href=format!("{}/{}", navigation::ELEVES, e.id)>{identite_eleve(&e)}</a>
+                                                    </th>
                                                     {avec_naissance.then(|| view! { <td>{naissance}</td> })}
                                                 </tr>
                                             }

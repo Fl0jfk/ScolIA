@@ -19,8 +19,13 @@ mod transport;
 mod appel;
 mod auth;
 mod communication;
+mod discipline_vs;
+mod dossier;
+mod droits_moteur;
 mod edt;
+mod journee_vs;
 mod referentiel;
+mod referentiel_admin;
 mod roles;
 mod securite;
 mod vie_scolaire;
@@ -29,6 +34,7 @@ pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
+pub use droits_moteur::DroitEffectif;
 pub use roles::{
     ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
     PorteeCatalogue, RoleApi, SaisieRole,
@@ -50,6 +56,10 @@ pub use ent_types::appel::{AppelDto as AppelApi, AppelLigneDto as LigneAppelApi}
 pub use ent_types::auth::{
     AuthSessionDto as Session, LoginResponseDto, MeDto as Moi, PasskeyChallengeDto,
 };
+pub use ent_types::dossier::{
+    ActionFicheDto, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto, LienBody,
+    PersonneBody, PersonneDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
+};
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 pub use ent_types::referentiel::{
     ClasseDetailDto as ClasseDetailApi, ClasseDto as ClasseApi, EleveClasseDto as EleveClasseApi,
@@ -59,6 +69,13 @@ pub use ent_types::vie_scolaire::{
     AbsenceDto as Absence, AbsenceMotifDto as MotifAbsence, EleveFicheDto as FicheEleve,
     EnfantFamilleDto as Enfant, FamilleResumeDto as ResumeFamille, RetardDto as Retard,
     SignalAbsenceDto as SignalAbsence,
+};
+pub use ent_types::vie_scolaire::{
+    AbsentDuJourDto as AbsentDuJour, DeclarationAbsenceDto as DeclarationAbsence,
+    DeclarationDuJourDto as DeclarationDuJour, DeclarerAbsenceBody as DeclarerAbsence,
+    IncoherenceAppelDto as IncoherenceAppel, RetardDuJourDto as RetardDuJour,
+    SeanceSansAppelDto as SeanceSansAppel, TableauJourDto as TableauJour,
+    VerificationAppelsDto as VerificationAppels,
 };
 
 /// Issue d'une connexion par mot de passe.

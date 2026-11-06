@@ -42,3 +42,19 @@ impl ApiClient {
             .await
     }
 }
+
+impl ApiClient {
+    /// `GET /referentiel/classes?annee_id=&jour=` : classes d'une année donnée (bascule d'année).
+    pub async fn classes_annee(
+        &self,
+        annee_id: uuid::Uuid,
+        jour: NaiveDate,
+    ) -> Result<Vec<ClasseApi>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/referentiel/classes?annee_id={annee_id}&jour={jour}"),
+            None,
+        )
+        .await
+    }
+}

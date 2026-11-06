@@ -73,11 +73,21 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("classes/:id") view=modules::classes::PageClasse/>
                     <Route path=path!("mes-classes") view=modules::classes::PageMesClasses/>
                     <Route path=path!("vie-scolaire") view=modules::vie_scolaire::PageVieScolaire/>
+                    <Route path=path!("journee") view=modules::journee_vs::PageJourneeVs/>
                     <Route path=path!("absences") view=modules::absences::PageAbsences/>
+                    <Route path=path!("eleves/:id") view=modules::dossier::PageFicheEleve/>
                     <Route path=path!("messages") view=modules::messagerie::PageMessages/>
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>
                     <Route path=path!("securite") view=modules::securite::PageSecurite/>
+                    <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
+                    <Route path=path!("signalements") view=modules::discipline_vs::PageSignalements/>
+                    <Route path=path!("referentiel") view=modules::referentiel_admin::PageReferentiel/>
+                    <Route path=path!("referentiel/annees") view=modules::referentiel_admin::PageAnnees/>
+                    <Route path=path!("referentiel/structure") view=modules::referentiel_admin::PageStructure/>
+                    <Route path=path!("referentiel/classes") view=modules::referentiel_admin::PageClassesAdmin/>
+                    <Route path=path!("referentiel/calendrier") view=modules::referentiel_admin::PageCalendrier/>
+                    <Route path=path!("referentiel/grille") view=modules::referentiel_admin::PageGrille/>
                     <Route path=path!("direction/securite") view=modules::securite::PagePolitiqueSecurite/>
                     <Route path=path!("direction/roles") view=modules::roles::PageRoles/>
                     <Route path=path!("direction/roles/nouveau") view=modules::roles::PageNouveauRole/>

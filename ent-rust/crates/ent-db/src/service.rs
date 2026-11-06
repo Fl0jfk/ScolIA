@@ -395,6 +395,12 @@ pub enum EntDbError {
     PasskeyRequis,
     #[error("accès refusé pour ce rôle")]
     Forbidden,
+    /// Saisie refusée par une règle du dossier élève (message sans donnée personnelle).
+    #[error("valeur invalide : {0}")]
+    SaisieInvalide(&'static str),
+    /// Opération du dossier élève incompatible avec l'état actuel.
+    #[error("opération en conflit : {0}")]
+    ConflitDossier(&'static str),
     /// Mot de passe actuel absent ou incorrect (re-vérification d'une action sensible).
     #[error("mot de passe actuel requis ou incorrect")]
     MotDePasseActuelInvalide,
@@ -663,6 +669,14 @@ pub struct PgEnt {
     mail_dry_run_accepte: bool,
 }
 
+/// `ENT_DATABASE_MIGRATION_URL` (non vide) : URL du rôle propriétaire pour les migrations.
+fn migration_url_from_env() -> Option<String> {
+    std::env::var("ENT_DATABASE_MIGRATION_URL")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 impl PgEnt {
     /// Connexion **uniquement** si l'URL est localhost / 127.0.0.1.
     pub async fn connect(database_url: &str) -> Result<Self, EntDbError> {
@@ -853,8 +867,21 @@ impl PgEnt {
         Ok(self.auth.set_email(user_id, email).await?)
     }
 
+    /// Applique les migrations. Si `ENT_DATABASE_MIGRATION_URL` est définie (rôle
+    /// **propriétaire** des tables, C4), elles passent par une connexion dédiée,
+    /// fermée ensuite : le rôle applicatif (`ENT_DATABASE_URL`) n'a alors aucun
+    /// droit DDL. Sinon : comportement historique (migrations via le pool applicatif).
     pub async fn migrate(&self) -> Result<(), EntDbError> {
-        apply_socle_migrations(&self.pool).await?;
+        match migration_url_from_env() {
+            Some(url) => {
+                assert_local_postgres_url(&url)?;
+                let owner_pool = PgPoolOptions::new().max_connections(2).connect(&url).await?;
+                let r = apply_socle_migrations(&owner_pool).await;
+                owner_pool.close().await;
+                r?;
+            }
+            None => apply_socle_migrations(&self.pool).await?,
+        }
         Ok(())
     }
 
@@ -1411,9 +1438,10 @@ impl PgEnt {
         source_id: Uuid,
         actor_user_id: Option<Uuid>,
     ) -> Result<usize, EntDbError> {
+        // Liens ACTIFS seulement (S2-1) : un responsable suspendu n'est plus notifié.
         let liens = self
             .foyers
-            .list_liens_eleve(etablissement_id, eleve_id)
+            .list_liens_eleve_actifs(etablissement_id, eleve_id)
             .await?;
         let user_ids: Vec<Uuid> = liens.iter().map(|l| l.user_id).collect();
         let devices = self
@@ -4261,7 +4289,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         }))
     }
 
-    async fn dossier_sections_for_actor(
+    pub(crate) async fn dossier_sections_for_actor(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -7458,6 +7486,19 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 decision_par_user_id: None,
             };
             self.absences.upsert_tx(&mut tx, &absence).await?;
+            // S2-4 (D-020) : l'absence est aussi enregistrée à la séance et rapprochée
+            // des déclarations (accueil, famille) — même transaction.
+            let prevenue = self
+                .enregistrer_absence_seance_tx(
+                    &mut tx,
+                    etablissement_id,
+                    eleve_id,
+                    absence.id,
+                    appel_id,
+                    appel.creneau_id,
+                    appel.jour,
+                )
+                .await?;
             publies.push(
                 tx.publier_avec(
                     MetierEventDraft {
@@ -7472,7 +7513,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                             "statut": absence.statut.as_str(),
                             "source": "appel",
                             "appel_id": appel_id,
-                            "prevenue": false,
+                            "prevenue": prevenue,
                         }),
                         actor_user_id: actor_user_id.clone(),
                     },

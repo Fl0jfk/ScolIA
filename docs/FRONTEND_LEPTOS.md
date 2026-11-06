@@ -109,3 +109,14 @@ Dans chaque module métier :
 - **Écritures** : stopper l'envoi sur 401 / 403 / 429 au lieu d'enchaîner les requêtes.
 - **Accessibilité** : déplacer le focus et annoncer (zone `aria-live`) à chaque changement de page.
 - **Agents** : `explore-haiku` / `review-sonnet` sont restreints à `Read, Grep, Glob` ; les définitions sont lues au démarrage de la session, donc une modification n'agit qu'après redémarrage (à vérifier).
+
+## 12. Conventions issues des écrans du socle 2 (2026-11-05)
+
+- **Écritures** : passer par `noyau/ecriture.rs` (`Ecriture::lancer`, `RetourEcriture`) plutôt que de réécrire spawn_local / erreur / annonce dans chaque écran ; une écriture à la fois, 401 → reconnexion.
+- **Droits** : `use_droits_moteur()` (affichage des boutons d'écriture et des entrées de menu) en plus de `use_droits()` (profil). Ne jamais bloquer une page sur l'absence de droit côté client : laisser le serveur répondre 403 (`ErreurChargement` affiche « accès refusé »). Tant que `/roles/mes-droits` n'a pas répondu, les boutons d'écriture sont masqués.
+- **`Selection`** prend des options statiques : la construire dans une fermeture réactive une fois les données chargées ; une valeur vide (`""`) signifie « inchangé » ou « aucun ».
+- **Listes éditables** (périodes, créneaux) : un `RwSignal` par champ dans une structure `Copy`, `<For key=…>` avec une clé numérique croissante ; envoi après contrôle local par le modèle de vue.
+- **Dates du jour** : posées dans un `Effect` après l'hydratation (jamais dans le HTML du serveur) ; champs `date` / `month` / `time` natifs.
+- **Aperçu avant écriture** : quand le serveur offre un aperçu (montée), n'appliquer que ce qui a été prévisualisé (toute modification des choix invalide l'aperçu) ; sinon décrire les effets dans la confirmation.
+- **Tests contre le backend** : une base PostgreSQL locale de nom `*test*`, `ENT_DATABASE_URL`, `ENT_ENV=lab`, `ENT_ALLOW_LABO=1`, `LEPTOS_OUTPUT_NAME=ent-web`, `LEPTOS_SITE_PKG_DIR=pkg` ; les écritures du test ne doivent pas modifier l'année courante (utiliser une année de test lointaine, idempotente).
+

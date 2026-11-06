@@ -164,3 +164,33 @@ Statut : **implémenté + testé en local** sur la branche `ent-socle1-ecrans-ro
 **Tests** : modèles et client (unitaires, `ent-web-app`, `ent-web-api`), rendu serveur (`ent-web-server/tests/roles.rs` : CSP à nonce, aucun style en ligne, étiquettes, jeton non réécrit), parité des droits, contre le vrai backend (`roles_backend.rs` : cycle de vie d'un rôle, refus, anti-escalade, personnel, récupération publique).
 
 **Limites** : voir `SOCLE1_SECURITE.md` (responsables non lisibles, groupes sans classe non désignables, 100 personnes de personnel au plus, parcours e-mail réel non essayé). Navigateur (clavier, 375 px, axe-core, lecteur d'écran, Firefox / Safari) **non vérifié**. La navigation n'est pas encore adaptée à tous les droits de `/roles/mes-droits` : seules les entrées de rôles dépendent du profil.
+
+## 10. Administration du référentiel, discipline et signalements (socle 2, S2-2 et S2-4)
+
+Statut : **implémenté + testé en local** (branche `ent-socle2-ecrans-ref-vs`) ; pas validé pilote. Résultats exacts des vérifications : `PROJECT_STATUS.md`.
+
+| Écran | Route | Droits (moteur D-017) | Contenu |
+|---|---|---|---|
+| Référentiel — vue d'ensemble | `/web/referentiel` | lecture `referentiel.lire`, entrée de menu si `referentiel.gerer` | accès aux 5 sections |
+| Années et bascule | `/web/referentiel/annees` | `referentiel.gerer` pour écrire | statut (préparation / courante / clôturée), étapes de la bascule, préparer la suivante (reconduction, avec ou sans services), **montée des élèves avec aperçu serveur puis confirmation**, ouverture (aperçu en clair + confirmation), clôture (« forcer » proposé seulement après un refus, tracé), création d'une année |
+| Sites, niveaux et MEF | `/web/referentiel/structure` | idem | sites (création, désactivation), nomenclature nationale (idempotente), MEF (import collé, rejets signalés) |
+| Classes et groupes | `/web/referentiel/classes` | idem ; responsables : `roles.gerer` (serveur) | rattachement site / niveau / MEF et archivage, professeur principal (recherche du personnel), groupes et **ateliers transverses** avec responsables |
+| Périodes et calendrier | `/web/referentiel/calendrier` | idem | périodes (modèles 3 trimestres / 2 semestres, contrôle de couverture avant envoi), vacances, jours fermés / fériés / banalisés (regroupés en plages) |
+| Grille horaire et séances | `/web/referentiel/grille` | idem | créneaux M1…S4 (chargement de la grille type, contrôle des chevauchements), génération des séances datées (plage facultative, confirmation, rapport), liste des séances |
+| Punitions et sanctions | `/web/discipline` | `punitions.donner` (punitions), `discipline.gerer` (procédures, effacement) | **deux sections distinctes** : punitions (donner, effectuée, annulée) et sanctions (lecture) ; procédure disciplinaire (observations, convocation du conseil avec délai, décision, classement sans suite) ; effacement des sanctions échues (confirmation) |
+| Signalements d'assiduité | `/web/signalements` | `assiduite.signaler` | décompte du mois en demi-journées, proposer, valider / refuser / émettre (confirmation) |
+| Journée (existant, étendu) | `/web/journee` | profil habilité **ou** `appel.verifier` / `absences.declarer` du moteur | + demi-journées d'un absent chargées à la demande (dérivées par le serveur) ; la déclaration d'absence à l'accueil est ouverte aux rôles paramétrés qui reçoivent `absences.declarer` |
+| Absences (famille, existant) | `/web/absences` | responsable avec `peut_justifier_absence`, ou élève majeur | « Déclarer une absence » (déjà livré, inchangé) |
+
+Architecture :
+- **Navigation par les droits du moteur** : `noyau/droits_moteur.rs` charge `GET /roles/mes-droits` (une requête, après l'identité) ; `navigation::entrees_avec_moteur` ajoute les entrées selon les droits **effectifs**, rôles paramétrés compris. Sans réponse du moteur, la navigation reste celle du profil de base. Affichage seulement : le serveur revérifie chaque route, et un 403 est traité par `ErreurChargement` (accès refusé) ou affiché dans la page. « Référentiel » n'apparaît qu'avec `referentiel.gerer` ; la lecture reste accessible par « Classes ».
+- `noyau/ecriture.rs` (`Ecriture`, `RetourEcriture`) : une écriture à la fois, notification + zone `aria-live`, erreur visible, arrêt et reconnexion sur 401 ; réutilisé par tous les écrans d'écriture.
+- Modèles de vue purs et testés : `modules/referentiel_admin/modele.rs` (statuts, étapes de la bascule, correspondances de montée, couverture des périodes, grille, plages du calendrier, import MEF…) et `modules/discipline_vs/modele.rs` (punitions, procédures, convocation, signalements). Aucune règle métier : ils guident la saisie, le serveur reste l'autorité.
+- Types partagés : `ent-types/src/referentiel_admin.rs` et `discipline.rs` (JSON des structures d'`ent-db`, champs inconnus ignorés), vérifiés contre le vrai backend.
+- Composant partagé : `composants_metier/recherche_eleve.rs` (recherche d'élève du personnel).
+- Accessibilité : formulaires étiquetés avec erreurs reliées et résumé, tableaux natifs (`caption`, `th scope`), sections du référentiel en `<nav aria-label>` avec `aria-current`, boutons à libellé accessible nominatif, dialogues natifs (`<dialog>`) pour toutes les confirmations, cible tactile 44 px, mise en page 375 px (tableaux défilables dans leur conteneur). CSP stricte : aucun style ni script en ligne (vérifié par les tests de rendu serveur).
+
+Écart au backend (seule modification) : route `GET /referentiel/groupes-admin` (liste des groupes et ateliers avec responsables, droit `referentiel.lire`) — aucune route existante ne permettait de lister les groupes transverses.
+
+Limites : voir `docs/SOCLE2_DOMAINES.md` §6.3 et §6.4 (« Écrans : reste à faire »).
+

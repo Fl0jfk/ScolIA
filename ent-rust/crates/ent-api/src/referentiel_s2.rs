@@ -14,8 +14,8 @@ use axum::{Json, Router};
 use chrono::NaiveDate;
 use ent_db::{
     AnneeDetail, ComparaisonClasse, CreneauGrille, CreneauGrilleSaisie, JourCalendrier, Mef,
-    MefImport, Niveau, Periode, PeriodeSaisie, RapportImportMef, RapportLot, RapportOuverture,
-    RapportReconduction, RapportSeances, Seance, Site,
+    MefImport, Niveau, PeriodeRef as Periode, PeriodeSaisie, RapportImportMef, RapportLot, RapportOuverture,
+    RapportReconduction, RapportSeances, SeanceRef as Seance, Site,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -38,6 +38,7 @@ pub fn routes() -> Router<AppState> {
         .route("/referentiel/annees/{id}/monter", post(monter))
         .route("/referentiel/annees/{id}/periodes", get(periodes).put(definir_periodes))
         .route("/referentiel/annees/{id}/seances", post(generer_seances))
+        .route("/referentiel/groupes-admin", get(groupes_admin))
         .route("/referentiel/sites", get(sites).post(creer_site))
         .route("/referentiel/sites/{id}", put(maj_site))
         .route("/referentiel/niveaux", get(niveaux).post(creer_niveau))
@@ -255,6 +256,26 @@ async fn generer_seances(
     Ok(Json(
         s.ent
             .ref_generer_seances(&acteur(&session), id, b.du, b.au)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+// ───── Groupes et ateliers (liste pour l'administration) ─────
+
+#[derive(Debug, Deserialize)]
+struct AnneeQuery {
+    annee_id: Option<Uuid>,
+}
+
+async fn groupes_admin(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<AnneeQuery>,
+) -> Res<Json<Vec<ent_db::GroupeAdmin>>> {
+    Ok(Json(
+        s.ent
+            .ref_groupes(&acteur(&session), q.annee_id)
             .await
             .map_err(map_db)?,
     ))

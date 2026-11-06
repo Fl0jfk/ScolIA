@@ -764,11 +764,61 @@ Destinataires relus **au traitement** : lien `ent_eleve_lien` de l'établissemen
 5. Migration des ~160 autres `self.events.publish(…)` hors transaction, domaine par domaine, en commençant par ceux qui ont un consommateur : publication du bulletin (`note.bulletin_publie`, dépend de `deposer_document` en transaction), sanctions, inscriptions (`inscription.validee` à créer en S2-3). Règle : un événement n'entre dans la toile (outbox) que publié en transaction ; l'ancien `publish` n'alimente que le journal.
 6. Les charges utiles existantes contenant du texte libre (`decision_note`, `motif`) sont conservées pour compatibilité : à minimiser lors du typage (règle §4.1-3).
 
+### 6.2 S2-1 — réalisé (2026-11-05, branche `ent-socle2-dossier`, fusionne `ent-socle2-outbox`)
+
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. Couvre le cœur du lot (personne distincte du compte, liens d'autorité, contacts, payeurs, fusion réversible, fiche 360° Leptos, chronologie) ; le reste est listé plus bas.
+
+**Données (migrations additives `120`→`123`, `MIGRATION_TAG = "123_personne_fusion"`) [F]**
+
+| Migration | Contenu |
+|---|---|
+| `120_personne.sql` | `ent_personne` (D-020) : responsable, contact ou élève majeur, **propre à l'établissement** (D-013/D-014), compte `user_id` facultatif (unique par établissement), `eleve_id` (fiche de l'élève lui-même), `fusionnee_dans`, `source` (`saisie`, `reprise`, `compte`). `ent_eleve_lien.personne_id` **obligatoire** ; `user_id` devient facultatif et la clé étrangère passe en `ON DELETE SET NULL` (supprimer un compte ne supprime plus l'autorité). **Reprise idempotente** : une personne par (établissement, compte) déjà lié, nom affiché du compte repris tel quel (aucun découpage prénom/nom deviné). Déclencheurs : un lien créé par compte (code existant, `link_parent`, seed) reçoit sa personne ; un lien créé par personne reçoit le compte de la personne ; personne d'un autre établissement refusée ; le compte de la personne est recopié sur ses liens. |
+| `121_lien_autorite.sql` | Lien : `autorite_parentale` (présumée `true` pour les liens repris, posée une fois), `garde` (`exclusive`/`alternee`/`aucune`), `date_debut`/`date_fin`, suspension (`suspendu_le`, `suspendu_par`, `suspension_motif` obligatoire, `suspension_reference`). **Vue `ent_eleve_lien_actif`** : non suspendu, dans ses dates (UTC), personne non fusionnée. Droits fins existants conservés. |
+| `122_contact_urgence.sql` | `ent_eleve_contact_urgence` (DOS-08) : personne, relation, ordre, `peut_recuperer`, statut `valide`/`propose`. |
+| `123_personne_fusion.sql` | `ent_personne_fusion` : instantané JSON de la personne absorbée (liens et contacts déplacés ou retirés, compte transféré), motif, annulation. |
+
+**Point unique des contrôles famille** : `PgFoyerRepo::lien_parent_eleve` et `liens_for_parent` (donc `PgEnt::lien_parent_eleve`, `eleves_lies`, `mes_enfants_for_parent`, `get_eleve_for_actor` et les ~60 contrôles famille de `service.rs`) lisent `ent_eleve_lien_actif` ; idem e-mails / téléphones des responsables, appareils push (`list_liens_eleve_actifs`) et le consommateur `d0.notifications`. Aucune lecture directe restante pour un accès famille ; les lectures brutes restantes (`list_liens_eleve`, `get_lien`, `list_liens_dossier`, `list_liens_foyer`, `first_eleve_id_foyer`) servent à l'administration et à la facturation et ne retournent que les liens avec compte (structures existantes à `user_id` non nul). Invariant des parts payeurs : calculé sur **tous** les liens (avec ou sans compte).
+
+**Service (`ent-db/src/dossier_personnes.rs`) et API (`ent-api/src/dossier.rs`, 21 routes `/dossier/*`, types `ent-types::dossier`)**
+
+| Action | Route | Droit (catalogue D-017) |
+|---|---|---|
+| DOS-03 créer / modifier une personne (sans e-mail possible), rechercher (homonymes) | `POST/GET /dossier/personnes`, `GET/PUT /dossier/personnes/{id}` | `personnes.gerer` (nouveau ; modèles : admin, direction, administratif) |
+| Rattacher un compte responsable de l'établissement | `PUT /dossier/personnes/{id}/compte` | `personnes.gerer` |
+| DOS-05 lier / modifier un lien (autorité, garde, dates, droits fins, foyer) | `POST /dossier/eleves/{id}/responsables`, `PUT /dossier/liens/{id}` | `personnes.gerer` |
+| DOS-06 ★ suspendre / rétablir | `POST /dossier/liens/{id}/suspendre|retablir` | `liens.suspendre` (nouveau ; admin, direction) |
+| DOS-07 payeurs (parts = 100 %, payeur rattaché à un foyer) | `PUT /dossier/eleves/{id}/payeurs` | `payeurs.definir` (nouveau ; + comptabilité) |
+| DOS-08 contacts : ajout (personnel → validé ; responsable actif → proposé), validation, retrait | `POST /dossier/eleves/{id}/contacts`, `POST /dossier/contacts/{id}/valider`, `DELETE /dossier/contacts/{id}` | `personnes.gerer` / lien actif |
+| DOS-14 (partiel) fiche « personne » de l'élève majeur (payeur, lien `eleve_majeur` sans autorité ni droits famille) | `POST /dossier/eleves/{id}/personne-eleve` | `personnes.gerer` |
+| DOS-15 ★ (personnes) fusion / défusion ≤ 30 jours | `GET/POST /dossier/fusions`, `POST /dossier/fusions/{id}/annuler` | `personnes.fusionner` (nouveau ; admin, direction) |
+| DOS-13 fiche 360° | `GET /dossier/eleves/{id}/fiche` | droits existants du dossier (sections), lien actif |
+| PLT-07 chronologie | `GET /dossier/eleves/{id}/chronologie` | idem |
+
+Règles : les quatre nouvelles actions n'acceptent que la portée « établissement » ; familles minimisées (autres responsables sans coordonnées ni parts, liens inactifs et motifs de suspension masqués) ; un responsable ne parcourt jamais les personnes de l'établissement ; une référence d'un autre établissement répond 404 ; deux personnes avec des comptes différents ne sont jamais fusionnées (D-013). Chronologie : liste blanche de types d'événements → titre **neutre** fixe (aucun texte de charge utile recopié) + entrées du journal (mêmes règles que la route journal) ; familles : scolarité, vie scolaire, notes selon leurs droits ; santé et psy visibles des seuls rôles infirmerie / psy, titre neutre. Alertes de fiche (personnel) : parents séparés sans e-mail (D-014), payeur sans foyer ou suspendu, aucune autorité parentale active.
+
+**Événements (outbox S2-0, en transaction avec le fait et le journal)** : `personne.creee`, `personne.coordonnees_modifiees` (noms des champs seulement), `personne.compte_rattache`, `personne.fusionnee`, `personne.defusionnee` (agrégat `personne`, ajouté à `AggregateKind`) ; `eleve.lien_updated` (existant, désormais émis), `lien.suspendu`, `lien.retabli`, `eleve.contacts_urgence_changes`, `foyer.payeur_defini` (agrégat élève). Le motif de suspension n'est ni dans l'événement ni dans le journal. Aucun consommateur nouveau : l'effet « accès coupé » est obtenu par la relecture des liens actifs à chaque requête et par le consommateur de notifications existant.
+
+**Frontend Leptos** : `/web/eleves/{id}` (`ent-web-app/src/modules/dossier/`) : en-tête identité/scolarité (minimisée par le serveur), alertes, responsables (état, autorité, garde, droits, payeur, coordonnées), contacts d'urgence, sections existantes accessibles avec leur contenu résumé et lien vers l'écran Leptos existant, actions proposées par le serveur, chronologie filtrable par domaine. Actions : ajouter un responsable (avec ou sans e-mail), définir les payeurs, ajouter / proposer / valider / retirer un contact, suspendre (motif obligatoire) / rétablir un lien. Accès depuis la liste d'élèves d'une classe. Logique d'écran pure testée (`modele.rs`).
+
+**Tests** : `ent-db/src/tests_dossier_personnes.rs` (8 scénarios Postgres : reprise idempotente rejouée et code existant, parent sans compte + parents séparés + contacts + payeurs, élève majeur, suspension → accès coupé partout (12 points d'accès, notifications, motif absent des événements) puis rétabli, lien hors dates, matrice 8 profils × 5 actions + rôle paramétré, isolation entre établissements (y compris SQL direct), fusion / défusion à l'identique + délai de 30 jours + compte transféré, chronologie filtrée) ; 5 tests unitaires (chronologie, alertes, saisie) ; `ent-api/src/tests_dossier.rs` (HTTP : codes 201/400/403/404/409, minimisation, suspension sur routes existantes et nouvelles, payeurs, fusion, isolation) ; `ent-types` (aller-retour JSON) ; `ent-web-app` (5 tests du modèle) ; `ent-web-server/tests/dossier.rs` (rendu serveur, parcours complet contre le vrai backend).
+
+**Écarts par rapport à la conception [signalés]**
+- Pas de table `ent_lien_responsabilite` séparée : `ent_eleve_lien` **est** le lien de responsabilité (une seule source de vérité, code existant inchangé) ; `ent_personne_contact` et `ent_foyer_membre` non créés (coordonnées sur la personne ; foyer porté par le lien comme avant).
+- DOS-15 livré pour les **personnes** ; la fusion de deux **dossiers élèves** (plus de 100 tables portant `eleve_id`) reste à faire.
+- DOS-06 ★ / DOS-15 ★ : la ré-authentification des actions sensibles n'est pas branchée (droit réservé à la direction + confirmation dans l'écran seulement).
+- Révocation des sessions du responsable (§4.3 `lien.suspendu` → D15) non faite : inutile pour l'accès (relu à chaque requête), à reconsidérer si des données sont mises en cache côté client.
+
+**Reste à faire dans S2-1**
+1. DOS-10 (le parent met à jour ses coordonnées, proposition « aussi chez B »), DOS-16 (séparer les fiches d'un foyer en un geste), DOS-09 invitation à partir d'une personne sans compte (D-014 second parent), DOS-14 passage automatique à la majorité et règle d'accès des parents (**Q10 non tranchée** : accès maintenu par défaut).
+2. Écrans Leptos : recherche de personnes et fusion/défusion (API prête), modification d'un lien (dates, droits) et des coordonnées, recherche d'élève (accès à la fiche hors liste de classe), fiche côté portail famille (lien depuis « Absences »).
+3. `ent-types::evenements` pour les nouveaux événements ; consommateurs éventuels (notification à l'établissement de `personne.coordonnees_modifiees`).
+4. Migrer les écrans de l'ancienne interface qui affichent les liens (`list_liens_dossier`, comptes seulement) vers les personnes.
+
 ---
 
-### 6.2 S2-2 — réalisé (2026-11-05, branche `ent-socle2-referentiel`)
+### 6.3 S2-2 — réalisé (2026-11-05, branche `ent-socle2-referentiel`)
 
-**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. La branche contient la fusion de `ent-socle2-outbox` (S2-0) ; les faits du référentiel publient via `tx.publier` (même transaction que l'écriture). Écrans Leptos : **non faits** (voir plan ci-dessous).
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. La branche contient la fusion de `ent-socle2-outbox` (S2-0) ; les faits du référentiel publient via `tx.publier` (même transaction que l'écriture). Écrans Leptos : **faits** dans la branche `ent-socle2-ecrans-ref-vs` (voir « Écrans réalisés » ci-dessous).
 
 **Livré [F]**
 
@@ -801,7 +851,56 @@ Destinataires relus **au traitement** : lien `ent_eleve_lien` de l'établissemen
 3. Un lot de sécurité vérifie qu'aucune lecture métier ne dépend plus du texte (grep des requêtes).
 4. Rendre `classe_id` obligatoire (NOT NULL) puis retirer les colonnes texte et les triggers dans une migration dédiée.
 
-**Plan d'écrans Leptos (5, non faits)** : années et bascule (assistant préparer → reconduire → monter → ouvrir) ; classes (site/niveau/MEF, PP, archivage) ; périodes et calendrier ; grille horaire ; séances (plage, filtre classe/prof, régénération). Chacun s'appuie sur les routes `/referentiel/*` existantes.
+**Écrans réalisés (Leptos, `/web/referentiel/*`, 2026-11-05, branche `ent-socle2-ecrans-ref-vs`)** : années et bascule (étapes, préparation avec reconduction, montée avec aperçu serveur puis confirmation, ouverture et clôture confirmées, « forcer » tracé après refus), sites / niveaux / MEF (import collé), classes (rattachement, archivage, professeur principal) et groupes / ateliers (création, responsables), périodes (couverture contrôlée avant envoi) et calendrier (vacances, jours fermés), grille horaire (grille type, chevauchements), génération et liste des séances. Navigation selon les droits effectifs du moteur (`/roles/mes-droits`). Détail : `docs/FRONTEND_CIBLE.md` §10.
+
+**Écarts / reste à faire (écrans)** : route ajoutée `GET /referentiel/groupes-admin` (liste des groupes et ateliers avec responsables) ; la montée propose des classes d'arrivée par le code de classe (« 6A » → « 5A ») à vérifier, l'aperçu et l'application sont ceux du serveur ; pas d'aperçu serveur pour l'ouverture d'année (texte d'effets uniquement) ; pas d'affectation en lot hors montée ; pas de filtre par professeur sur les séances ; périodes par niveau (`niveau_id`) non éditées ; séances d'une classe archivée non traitées ; comparaison / rattachement `classe_id` non exposés à l'écran ; accessibilité vérifiée par tests de rendu seulement (axe-core, clavier, lecteur d'écran, 375 px au navigateur : non faits).
+
+---
+
+### 6.4 S2-4 — réalisé (2026-11-05, branche `ent-socle2-vie-scolaire`)
+
+**Niveau : implémenté + testé en local** (PostgreSQL jetable). Non validé pilote, non fusionné. Construit sur `ent-socle2-outbox` (fusionnée dans la branche). `origin/ent-socle2-referentiel` **n'existait pas** au moment du lot : la « séance » est donc provisoire (voir ci-dessous) et à rebrancher sur les séances datées de S2-2.
+
+**Règles réglementaires : non vérifiées.** Les textes officiels (Code de l'éducation L131-8, R511-12 et suivants, circulaire sur l'assiduité) n'ont pas pu être consultés depuis l'environnement du lot (domaines Légifrance et education.gouv.fr non résolus). Tous les seuils, délais et durées ci-dessous sont des **hypothèses de travail [H] paramétrables**, à vérifier avant pilote (D-019).
+
+**Conception livrée [F]**
+
+| Élément | Où | Détail |
+|---|---|---|
+| Absences à la séance (D-020) | migration `130_vs_absence_seance.sql`, `ent-db/src/assiduite.rs`, `vie_scolaire.rs` | `ent_absence` reste l'unité de justification ; `ent_absence_seance` détaille les séances manquées (horaires figés, source, « prévenue »). `clore_appel` écrit l'absence **et** sa ligne de séance dans la même transaction que l'événement. |
+| Demi-journées dérivées | `assiduite::deriver_demi_journees` (pure) | Jamais saisies. Journée coupée à `heure_coupure` (défaut 12:00) ; une séance à cheval est ventilée à la minute ; union des intervalles (pas de double compte) ; une demi-journée « compte » à `seuil_minutes` (défaut 30) ; « non justifiée » quand les minutes non justifiées atteignent le seuil ; absence annulée (remise présent) ignorée. Règles par établissement : `ent_vs_regle_assiduite`. |
+| Reprise de l'existant | fin de la migration 130 + repli de lecture | Chaque absence à la journée existante devient deux demi-journées par jour ouvré (lundi à vendredi, plafond 365 jours). Idempotente. Les absences créées plus tard par l'ancien chemin (sans ligne de séance) sont lues par un repli équivalent : pas de double compte. |
+| Séance provisoire | `PgEnt::seances_du_jour`, colonne `seance_source` | Créneau EDT + jour, filtré semaine A/B et annulations, remplaçant substitué. **Seul point à remplacer** par les séances datées de S2-2. |
+| Déclarations (VS-06, VS-07) | migration 131, `declarer_absence_accueil` / `_famille` | Accueil : action `absences.declarer`, identité de l'appelant obligatoire. Famille : responsable avec `peut_justifier_absence`, ou élève **majeur** ; identité tirée du compte. Période avec heures facultatives, avant ou après les faits ; motif contrôlé ; pièce = document de l'élève vérifié. Annulation par le déclarant ou le personnel habilité. |
+| Rapprochement (VS-08, A1) | `rapprocher_seance_tx`, `rapprocher_declaration_tx` | Dans les deux sens, dans la transaction : une déclaration active qui **couvre entièrement** la séance (bornes incluses) marque l'absence « prévenue ». `GET /appels/{id}/attendus-absents` pré-remplit la prévision à l'appel. La notification « absence constatée » n'est plus envoyée à la famille pour une absence prévenue. |
+| Vérification de l'appel (VS-04, A2) | migration 132, `verifier_appels_for_actor`, `relancer_appel` | Calculée à la demande : séance sans appel à H + délai (défaut 15 min, paramétrable), appel ouvert après la fin de séance, incohérences (absent puis présent ; présent malgré une absence annoncée). Relance tracée + événement `vs.appel_relance` + notification de l'enseignant (consommateur `d5.relance_appel`, destinataire relu). Heure locale : `heure_paris`. |
+| Punitions ≠ sanctions (VS-15) | migration 133, `discipline_vs.rs` | Tables et droits distincts (`punitions.donner` : professeur sur ses élèves, vie scolaire sur l'établissement). Aucune ligne dans `ent_sanction`. Types usuels amorcés [H]. |
+| Sanctions : catégories et effacement (VS-18) | migration 134 | Catégorie de l'échelle [H] sur le type de sanction ; règles d'effacement par catégorie (fin d'année scolaire, N mois, jamais) ; effacement idempotent qui vide le texte libre, date l'opération, conserve la trace d'existence ; la liste du dossier masque les sanctions effacées. Défauts [H] : avertissement/blâme/mesure de responsabilisation à la fin de l'année scolaire, exclusions temporaires 12 mois, exclusion définitive jamais. |
+| Procédure disciplinaire (VS-17) | migration 134 | Deux instances : chef d'établissement (observations de l'élève obligatoires avant décision) et conseil de discipline (convocation avec délai minimal, défaut 8 jours [H] ; décision à partir du jour du conseil). Sanction liée = même élève. Classement sans suite. |
+| Signalement d'assiduité (VS-21, A5) | migration 134, `proposer_signalements` | Le CPE propose (élèves au seuil du mois, défaut 4 demi-journées non justifiées [H]), la direction valide/refuse puis émet. Dossier JSON détaillé. |
+| Droits | `ent-auth/src/actions.rs` | Cinq actions : `absences.declarer`, `appel.verifier`, `punitions.donner`, `discipline.gerer`, `assiduite.signaler`. Modèles par défaut calés sur les profils déjà habilités ; test d'un rôle paramétré (prof + `absences.declarer`). |
+| Événements | `ent-db/src/vie_scolaire.rs` (`types_vs`) | `vs.absence_declaree`, `vs.declaration_annulee`, `vs.absence_rapprochee`, `vs.appel_relance`, `vs.punition_donnee`, `vs.procedure_engagee`, `vs.procedure_decidee`, `vs.conseil_discipline_decide`, `vs.sanction_effacee`, `vs.signalement_assiduite_emis` : tous publiés dans la transaction du fait (outbox S2-0). |
+| API | `ent-api/src/vie_scolaire.rs` | 27 chemins (29 méthodes HTTP). Les droits sont ceux d'`ent-db`. |
+| Écrans Leptos | `/web/journee`, dialogue de déclaration ; `/web/discipline` ; `/web/signalements` | Journée vie scolaire/accueil (absents prévenus ou non, **demi-journées dérivées par le serveur**, retards, absences annoncées, appels à vérifier + relance, incohérences, saisie d'une absence annoncée — ouverte aux rôles paramétrés `absences.declarer` / `appel.verifier`) ; famille : « Déclarer une absence » dans `/web/absences` ; **punitions ≠ sanctions** (deux sections), procédure disciplinaire (observations, convocation, décision, classement), effacement des sanctions ; signalements d'assiduité (décompte, proposer, valider / refuser / émettre). Branche `ent-socle2-ecrans-ref-vs`. |
+
+**Écarts par rapport au §3 / aux actions VS [signalés]**
+- Agrégats d'événements **réutilisés** (`Absence`, `Appel`, `Sanction`) au lieu de variantes dédiées, pour ne pas toucher à l'enum partagée entre lots en parallèle ; types d'événements déclarés dans `ent-db` et non dans `ent_events::types`.
+- VS-08 n'émet pas `eleve.absence_justif_soumis` (une absence prévenue n'est pas un justificatif soumis) mais `vs.absence_rapprochee`.
+- Le rapprochement n'accepte qu'une **couverture entière** de la séance ; une déclaration partielle (ex. « jusqu'à 9 h 30 » pour une séance 9 h–10 h) ne rend pas l'absence prévenue (visible comme incohérence potentielle côté vérification).
+- La prononciation d'une sanction (VS-16) garde son contrôle historique par profil (`can_saisir_sanctions`) : non migrée vers le moteur de droits (reste de R2).
+- Le menu « Journée » est affiché selon le profil (même ensemble que « trancher un justificatif ») et non selon les droits effectifs du moteur : un rôle paramétré qui reçoit `appel.verifier` sans ce profil doit saisir l'adresse (le serveur reste l'autorité).
+
+**Non livré / reste à faire**
+- **Écrans : reste à faire** — édition des règles d'assiduité et des règles / catégories d'effacement (routes prêtes) ; prononcer une sanction depuis l'écran discipline (route historique `POST /eleves/{id}/sanctions`, liste en lecture seule seulement) ; rattacher la sanction à la décision (`sanction_id`) ; affichage du pré-remplissage A1 dans la feuille d'appel (route prête ; feuille d'appel inchangée) ; liste et annulation des déclarations côté famille (route prête) ; dossier de signalement détaillé (JSON `dossier` non affiché). Livrés dans la branche d'écrans : punitions, sanctions (lecture), procédure disciplinaire, effacement, signalements, demi-journées de la journée.
+- VS-03 (consulter un appel sans l'ouvrir, GET), VS-05 (corriger un appel clos), `appel.non_fait_detecte` / tâche périodique de détection et relance push automatique : la vérification est calculée à la demande, la relance est manuelle.
+- Dossier de signalement en PDF (VS-21) ; lettre de convocation (D9).
+- Jours fériés et vacances non exclus du repli de reprise (lundi à vendredi seulement) ; samedi matin non géré.
+- Compteurs historiques en jours (`apres_absence_ecrite`, signal de seuil annuel) inchangés : ils comptent encore des absences, pas des demi-journées. Le seuil mensuel de signalement utilise, lui, les demi-journées dérivées.
+- Séance du référentiel (S2-2) : à brancher sur `seances_du_jour` ; migrer `seance_ref` vers l'identifiant de la séance datée.
+- Appli mobile : non commencée dans ce lot.
+- Vérification des textes officiels (voir ci-dessus).
+
+**Tests** : voir la ligne « Tests S2-4 » de `docs/PROJECT_STATUS.md` pour les résultats exacts.
 
 ## 7. Décisions à soumettre à Florian (questions fermées)
 

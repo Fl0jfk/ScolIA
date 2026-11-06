@@ -4,6 +4,8 @@
 
 pub mod coquille;
 pub mod droits;
+pub mod droits_moteur;
+pub mod ecriture;
 pub mod erreurs;
 pub mod expiration;
 pub mod navigation;

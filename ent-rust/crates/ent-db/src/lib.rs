@@ -4,6 +4,9 @@
 //! **Anti-doublon :** pas de table miroir de `ent_eleve` (effectif = query datée).
 
 mod absence_repo;
+mod assiduite;
+mod discipline_vs;
+mod vie_scolaire;
 mod champs_chiffres;
 mod annonce_repo;
 mod appel_repo;
@@ -41,6 +44,7 @@ mod tests_l6;
 mod tests_champs_chiffres;
 mod repas_repo;
 mod sanction_repo;
+mod tenant_tx;
 mod sortie_repo;
 mod internat_repo;
 mod dispense_vs_repo;
@@ -58,6 +62,7 @@ mod referentiel_structure;
 mod referentiel_annee;
 mod referentiel_seances;
 mod referentiel_classe_id;
+mod referentiel_groupes;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
@@ -65,6 +70,7 @@ mod recuperation_repo;
 mod perimetre;
 mod droits_repo;
 mod droits_ctx;
+pub mod dossier_personnes;
 mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
@@ -91,6 +97,20 @@ pub use rate_limit::{Decision, Quota, RateLimiter};
 pub use ent_events::EventBusError;
 pub use ent_object::presign;
 pub use ent_object::ObjectStoreError;
+pub use assiduite::{
+    bornes_mois, deriver_demi_journees, heure_paris, seance_couverte, Contribution, DemiJournee,
+    Periode, RegleAssiduite,
+};
+pub use discipline_vs::{
+    date_effacement, regle_effacement_defaut, DonnerPunition, EffacementRapport, EngagerProcedure,
+    ModeEffacement, ProcedureDisciplinaire, Punition, PunitionType, SignalementAssiduite,
+    CATEGORIES_SANCTION,
+};
+pub use vie_scolaire::{
+    types_vs, AbsentDuJour, DeclarationAbsence, DeclarationDuJour, DeclarerAbsence, DecompteEleve,
+    DecompteMois, DemiJourneeEleve, IncoherenceAppel, RelanceAppel, RetardDuJour, Seance,
+    SeanceSansAppel, TableauJour, VerificationAppels,
+};
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
     AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
@@ -133,13 +153,18 @@ pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
 pub use ref_commun::Acteur;
 pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
 pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};
+pub use referentiel_groupes::{GroupeAdmin, ResponsableGroupe};
 pub use referentiel_seances::{
-    planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance, SeancePlan,
+    planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance as SeanceRef, SeancePlan,
 };
 pub use referentiel_structure::{
     code_niveau_de_texte, grille_standard, verifier_couverture, CreneauGrille, CreneauGrilleSaisie,
-    JourCalendrier, Mef, MefImport, Niveau, Periode, PeriodeSaisie, RapportImportMef, Site,
+    JourCalendrier, Mef, MefImport, Niveau, Periode as PeriodeRef, PeriodeSaisie, RapportImportMef, Site,
     NIVEAUX_NATIONAUX,
+};
+pub use dossier_personnes::{
+    ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
+    LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
 };
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
@@ -149,6 +174,7 @@ pub use referentiel_repo::{
     ServiceEnseignement,
 };
 pub use migrate::{apply_socle_migrations, MigrateError, MIGRATION_TAG};
+pub use tenant_tx::{RlsMode, TenantTx};
 pub use pra::{
     EcartInventaire, Inventaire, InventaireTable, RapportIntegrite, INVENTAIRE_VERSION,
     TABLES_VOLATILES,
@@ -177,6 +203,8 @@ mod tests_referentiel_s2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_rls;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_roles;
@@ -184,6 +212,10 @@ mod tests_roles;
 mod tests_sso_securite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_outbox;
+#[cfg(all(test, feature = "labo"))]
+mod tests_dossier_personnes;
+#[cfg(all(test, feature = "labo"))]
+mod tests_vie_scolaire;
 
 #[cfg(test)]
 mod integration_tests {

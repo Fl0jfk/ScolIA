@@ -187,6 +187,22 @@ pub async fn rechiffrer_champs_sensibles(
     champs: &ChampsSensibles,
 ) -> Result<RapportRechiffrement, DomainError> {
     let mut rapport = RapportRechiffrement::default();
+    // RLS (C4, migration 100) : ce rattrapage n'ouvre pas de `TenantTx`. En mode
+    // permissif (défaut) il voit toutes les lignes ; si le rôle est en mode strict
+    // (`app.rls_strict`), les tables RLS lui paraissent vides : on le signale au lieu
+    // de conclure en silence qu'il n'y a rien à rechiffrer (docs/RLS_ISOLATION.md, 2.7).
+    let strict: Option<(bool,)> = sqlx::query_as(
+        "SELECT coalesce(current_setting('app.rls_strict', true), '') IN ('on', '1', 'true')",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| crate::pg_err::map_sqlx("champs_chiffres", e))?;
+    if matches!(strict, Some((true,))) {
+        tracing::warn!(
+            "rechiffrement des champs sensibles en mode RLS strict : tables RLS ignorées \
+             (lancer avec un rôle permissif ou établissement par établissement)"
+        );
+    }
     for (table, colonnes) in CHAMPS_CHIFFRES {
         for colonne in *colonnes {
             let mut n_col = 0u64;

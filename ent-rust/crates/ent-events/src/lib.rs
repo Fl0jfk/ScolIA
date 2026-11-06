@@ -170,6 +170,17 @@ pub mod types {
     pub const CONVENTION_STAGE: &str = "stage.convention";
     pub const EDT_CONTRAINTE: &str = "edt.contrainte";
     pub const ANNONCE_PUBLIEE: &str = "annonce.publiee";
+    /// S2-1 (D-020) : personne (responsable, contact) distincte du compte.
+    pub const PERSONNE_CREEE: &str = "personne.creee";
+    pub const PERSONNE_COORDONNEES_MODIFIEES: &str = "personne.coordonnees_modifiees";
+    pub const PERSONNE_COMPTE_RATTACHE: &str = "personne.compte_rattache";
+    pub const PERSONNE_FUSIONNEE: &str = "personne.fusionnee";
+    pub const PERSONNE_DEFUSIONNEE: &str = "personne.defusionnee";
+    /// S2-1 (B7) : lien de responsabilité suspendu / rétabli (décision de justice).
+    pub const LIEN_SUSPENDU: &str = "lien.suspendu";
+    pub const LIEN_RETABLI: &str = "lien.retabli";
+    pub const ELEVE_CONTACTS_URGENCE_CHANGES: &str = "eleve.contacts_urgence_changes";
+    pub const FOYER_PAYEUR_DEFINI: &str = "foyer.payeur_defini";
     pub const RETARD_DECLARE: &str = "vs.retard";
     pub const COMPETENCE_EVALUEE: &str = "note.competence";
 }
@@ -236,6 +247,7 @@ pub enum AggregateKind {
     Competence,
     /// Référentiel scolaire (S2-2) : années, classes, périodes, calendrier, séances.
     Referentiel,
+    Personne,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

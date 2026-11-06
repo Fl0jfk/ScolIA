@@ -3,6 +3,7 @@ use domain_eleve::{
     CommissionDossier, CommissionStatut, CommissionVs, DecisionCommission, DomainError, Incident,
     IncidentType, Sanction, SanctionMotif, SanctionStatut, SanctionType,
 };
+use crate::tenant_tx::TenantTx;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -16,6 +17,7 @@ impl PgSanctionRepo {
     }
 
     pub async fn upsert_incident_type(&self, t: &IncidentType) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, t.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_incident_type (
@@ -32,9 +34,10 @@ impl PgSanctionRepo {
         .bind(&t.code)
         .bind(&t.libelle)
         .bind(t.actif)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -43,6 +46,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         type_id: Uuid,
     ) -> Result<Option<IncidentType>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -52,9 +56,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(type_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(TypeRow::into_incident_type))
     }
 
@@ -63,6 +68,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         code: &str,
     ) -> Result<Option<IncidentType>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -72,9 +78,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(code)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(TypeRow::into_incident_type))
     }
 
@@ -82,6 +89,7 @@ impl PgSanctionRepo {
         &self,
         etablissement_id: Uuid,
     ) -> Result<Vec<IncidentType>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -91,13 +99,15 @@ impl PgSanctionRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(TypeRow::into_incident_type).collect())
     }
 
     pub async fn upsert_sanction_type(&self, t: &SanctionType) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, t.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sanction_type (
@@ -114,9 +124,10 @@ impl PgSanctionRepo {
         .bind(&t.code)
         .bind(&t.libelle)
         .bind(t.actif)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -125,6 +136,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         type_id: Uuid,
     ) -> Result<Option<SanctionType>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -134,9 +146,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(type_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(TypeRow::into_sanction_type))
     }
 
@@ -145,6 +158,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         code: &str,
     ) -> Result<Option<SanctionType>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -154,9 +168,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(code)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(TypeRow::into_sanction_type))
     }
 
@@ -164,6 +179,7 @@ impl PgSanctionRepo {
         &self,
         etablissement_id: Uuid,
     ) -> Result<Vec<SanctionType>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -173,13 +189,15 @@ impl PgSanctionRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(TypeRow::into_sanction_type).collect())
     }
 
     pub async fn upsert_sanction_motif(&self, m: &SanctionMotif) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, m.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sanction_motif (
@@ -196,9 +214,10 @@ impl PgSanctionRepo {
         .bind(&m.code)
         .bind(&m.libelle)
         .bind(m.actif)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -207,6 +226,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         motif_id: Uuid,
     ) -> Result<Option<SanctionMotif>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -216,9 +236,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(motif_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(TypeRow::into_sanction_motif))
     }
 
@@ -227,6 +248,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         code: &str,
     ) -> Result<Option<SanctionMotif>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -236,9 +258,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(code)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(TypeRow::into_sanction_motif))
     }
 
@@ -246,6 +269,7 @@ impl PgSanctionRepo {
         &self,
         etablissement_id: Uuid,
     ) -> Result<Vec<SanctionMotif>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, TypeRow>(
             r#"
             SELECT id, etablissement_id, code, libelle, actif
@@ -255,13 +279,15 @@ impl PgSanctionRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(TypeRow::into_sanction_motif).collect())
     }
 
     pub async fn upsert_incident(&self, i: &Incident) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, i.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_incident (
@@ -280,9 +306,10 @@ impl PgSanctionRepo {
         .bind(i.jour)
         .bind(&i.description)
         .bind(i.created_by_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -291,6 +318,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         incident_id: Uuid,
     ) -> Result<Option<Incident>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, IncidentRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, type_id, jour, description, created_by_user_id
@@ -300,9 +328,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(incident_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(IncidentRow::into_incident))
     }
 
@@ -311,6 +340,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Vec<Incident>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, IncidentRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, type_id, jour, description, created_by_user_id
@@ -321,13 +351,15 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(IncidentRow::into_incident).collect())
     }
 
     pub async fn upsert_sanction(&self, s: &Sanction) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, s.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sanction (
@@ -354,9 +386,10 @@ impl PgSanctionRepo {
         .bind(&s.note)
         .bind(s.statut.as_str())
         .bind(s.created_by_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -366,6 +399,7 @@ impl PgSanctionRepo {
         sanction_id: Uuid,
         actor_user_id: Uuid,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             UPDATE ent_sanction
@@ -378,12 +412,13 @@ impl PgSanctionRepo {
         .bind(etablissement_id)
         .bind(sanction_id)
         .bind(actor_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         if res.rows_affected() == 0 {
             return Err(DomainError::NotFound);
         }
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -392,6 +427,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         sanction_id: Uuid,
     ) -> Result<Option<Sanction>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, SanctionRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, type_id, motif_id, incident_id,
@@ -402,9 +438,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(sanction_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.and_then(SanctionRow::into_sanction))
     }
 
@@ -413,20 +450,23 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Vec<Sanction>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, SanctionRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, type_id, motif_id, incident_id,
                    jour, duree_minutes, note, statut, created_by_user_id
             FROM ent_sanction
             WHERE etablissement_id = $1 AND eleve_id = $2
+              AND effacee_at IS NULL -- S2-4 : effacée du dossier administratif
             ORDER BY jour DESC, created_at DESC
             "#,
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(SanctionRow::into_sanction).collect())
     }
 
@@ -434,6 +474,7 @@ impl PgSanctionRepo {
         &self,
         c: &CommissionVs,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_vs_commission (
@@ -451,9 +492,10 @@ impl PgSanctionRepo {
         .bind(c.statut.as_str())
         .bind(c.created_by_user_id)
         .bind(c.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -462,6 +504,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         commission_id: Uuid,
     ) -> Result<Option<CommissionVs>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, CommissionRow>(
             r#"
             SELECT id, etablissement_id, jour, heure, objet, lieu, statut,
@@ -472,9 +515,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(commission_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.and_then(CommissionRow::into_commission))
     }
 
@@ -482,6 +526,7 @@ impl PgSanctionRepo {
         &self,
         c: &CommissionVs,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_vs_commission SET statut = $3
@@ -491,9 +536,10 @@ impl PgSanctionRepo {
         .bind(c.etablissement_id)
         .bind(c.id)
         .bind(c.statut.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -503,6 +549,7 @@ impl PgSanctionRepo {
         jour: NaiveDate,
         limit: i64,
     ) -> Result<Vec<CommissionVs>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, CommissionRow>(
             r#"
             SELECT id, etablissement_id, jour, heure, objet, lieu, statut,
@@ -516,9 +563,10 @@ impl PgSanctionRepo {
         .bind(etablissement_id)
         .bind(jour)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(CommissionRow::into_commission).collect())
     }
 
@@ -526,6 +574,7 @@ impl PgSanctionRepo {
         &self,
         d: &CommissionDossier,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_vs_commission_dossier (
@@ -552,9 +601,10 @@ impl PgSanctionRepo {
         .bind(d.decided_by_user_id)
         .bind(d.created_by_user_id)
         .bind(d.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -563,6 +613,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         dossier_id: Uuid,
     ) -> Result<Option<CommissionDossier>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, DossierRow>(
             r#"
             SELECT id, etablissement_id, commission_id, eleve_id, motifs, note_interne,
@@ -575,9 +626,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(dossier_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.and_then(DossierRow::into_dossier))
     }
 
@@ -585,6 +637,7 @@ impl PgSanctionRepo {
         &self,
         d: &CommissionDossier,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_vs_commission_dossier SET
@@ -603,9 +656,10 @@ impl PgSanctionRepo {
         .bind(d.points_retires)
         .bind(d.decided_at)
         .bind(d.decided_by_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -614,6 +668,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         commission_id: Uuid,
     ) -> Result<Vec<CommissionDossier>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, DossierRow>(
             r#"
             SELECT id, etablissement_id, commission_id, eleve_id, motifs, note_interne,
@@ -627,9 +682,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(commission_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(DossierRow::into_dossier).collect())
     }
 
@@ -639,6 +695,7 @@ impl PgSanctionRepo {
         eleve_id: Uuid,
         limit: i64,
     ) -> Result<Vec<CommissionDossier>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, DossierRow>(
             r#"
             SELECT id, etablissement_id, commission_id, eleve_id, motifs, note_interne,
@@ -654,9 +711,10 @@ impl PgSanctionRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(DossierRow::into_dossier).collect())
     }
 
@@ -665,6 +723,7 @@ impl PgSanctionRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<i32, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: (Option<i64>,) = sqlx::query_as(
             r#"
             SELECT COALESCE(SUM(points_retires), 0)::bigint
@@ -674,9 +733,10 @@ impl PgSanctionRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.0.unwrap_or(0).clamp(0, i64::from(i32::MAX)) as i32)
     }
 }

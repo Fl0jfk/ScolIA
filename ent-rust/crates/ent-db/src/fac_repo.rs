@@ -6,6 +6,7 @@ use domain_eleve::{
     Quittance, RappelCanal, RappelFacture, RappelKind, SepaLigneExport,
 };
 use crate::champs_chiffres::ChampsSensibles;
+use crate::tenant_tx::TenantTx;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -29,6 +30,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         foyer_id: Uuid,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: Option<(Uuid,)> = sqlx::query_as(
             r#"
             SELECT id FROM ent_foyer
@@ -37,9 +39,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(foyer_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.is_some())
     }
 
@@ -48,7 +51,7 @@ impl PgFacRepo {
         facture: &Facture,
         lignes: &[FactureLigne],
     ) -> Result<(), DomainError> {
-        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        let mut tx = TenantTx::begin(&self.pool, facture.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_fac_facture (
@@ -100,6 +103,7 @@ impl PgFacRepo {
     }
 
     pub async fn update_facture_emise(&self, facture: &Facture) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, facture.etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             UPDATE ent_fac_facture
@@ -111,12 +115,13 @@ impl PgFacRepo {
         .bind(facture.id)
         .bind(facture.statut.as_str())
         .bind(facture.emise_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         if res.rows_affected() == 0 {
             return Err(DomainError::FactureDejaEmise);
         }
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -125,7 +130,7 @@ impl PgFacRepo {
         enc: &Encaissement,
         facture: &Facture,
     ) -> Result<(), DomainError> {
-        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        let mut tx = TenantTx::begin(&self.pool, enc.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_fac_encaissement (
@@ -175,6 +180,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<i64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: (i64,) = sqlx::query_as(
             r#"
             SELECT COALESCE(SUM(montant_centimes), 0)::bigint
@@ -184,9 +190,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.0)
     }
 
@@ -195,6 +202,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<i64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*)::bigint FROM ent_fac_echeance
@@ -203,17 +211,20 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.0)
     }
 
     pub async fn insert_echeances(&self, echeances: &[Echeance]) -> Result<(), DomainError> {
-        if echeances.is_empty() {
+        let Some(premiere) = echeances.first() else {
             return Ok(());
-        }
-        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        };
+        let mut tx = TenantTx::begin(&self.pool, premiere.etablissement_id)
+            .await
+            .map_err(map_sqlx)?;
         for e in echeances {
             sqlx::query(
                 r#"
@@ -245,6 +256,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<Vec<Echeance>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, EchRow>(
             r#"
             SELECT id, etablissement_id, facture_id, rang, libelle,
@@ -256,9 +268,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(EchRow::into_ech).collect())
     }
 
@@ -267,6 +280,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<i64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*)::bigint FROM ent_fac_quittance
@@ -275,13 +289,15 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.0)
     }
 
     pub async fn insert_quittance(&self, q: &Quittance) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, q.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_fac_quittance (
@@ -300,9 +316,10 @@ impl PgFacRepo {
         .bind(q.moyen.as_str())
         .bind(q.emise_at)
         .bind(q.created_by_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -311,6 +328,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<Vec<Quittance>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, QuitRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, facture_id, encaissement_id,
@@ -322,9 +340,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(QuitRow::into_quit).collect())
     }
 
@@ -333,6 +352,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         foyer_ids: &[Uuid],
     ) -> Result<Vec<Quittance>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         if foyer_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -348,9 +368,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(foyer_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(QuitRow::into_quit).collect())
     }
 
@@ -359,6 +380,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         quittance_id: Uuid,
     ) -> Result<Option<Quittance>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, QuitRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, facture_id, encaissement_id,
@@ -369,9 +391,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(quittance_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(QuitRow::into_quit))
     }
 
@@ -380,6 +403,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<Vec<Encaissement>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, EncRow>(
             r#"
             SELECT id, etablissement_id, facture_id, montant_centimes, moyen,
@@ -391,9 +415,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(EncRow::into_enc).collect())
     }
 
@@ -402,6 +427,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<Option<Facture>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, FactureRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, numero, libelle, statut,
@@ -413,9 +439,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(FactureRow::into_facture))
     }
 
@@ -424,6 +451,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<Vec<FactureLigne>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, LigneRow>(
             r#"
             SELECT id, etablissement_id, facture_id, eleve_id,
@@ -435,9 +463,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(LigneRow::into_ligne).collect())
     }
 
@@ -446,6 +475,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         limit: i64,
     ) -> Result<Vec<Facture>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, FactureRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, numero, libelle, statut,
@@ -459,9 +489,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(FactureRow::into_facture).collect())
     }
 
@@ -471,6 +502,7 @@ impl PgFacRepo {
         foyer_ids: &[Uuid],
         only_emises: bool,
     ) -> Result<Vec<Facture>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         if foyer_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -489,7 +521,7 @@ impl PgFacRepo {
             )
             .bind(etablissement_id)
             .bind(foyer_ids)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -505,10 +537,11 @@ impl PgFacRepo {
             )
             .bind(etablissement_id)
             .bind(foyer_ids)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(FactureRow::into_facture).collect())
     }
 
@@ -519,6 +552,7 @@ impl PgFacRepo {
         debut: chrono::NaiveDate,
         fin: chrono::NaiveDate,
     ) -> Result<Vec<OgecLigneExport>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let debut_ts = debut
             .and_hms_opt(0, 0, 0)
             .map(|d| d.and_utc())
@@ -552,9 +586,10 @@ impl PgFacRepo {
         .bind(etablissement_id)
         .bind(debut_ts)
         .bind(fin_ts)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(OgecRow::into_ligne).collect())
     }
 
@@ -565,6 +600,7 @@ impl PgFacRepo {
         foyer_id: Uuid,
         annee_scolaire: &str,
     ) -> Result<i64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: (i64,) = sqlx::query_as(
             r#"
             SELECT COALESCE(SUM(e.montant_centimes), 0)::bigint
@@ -582,9 +618,10 @@ impl PgFacRepo {
         .bind(etablissement_id)
         .bind(foyer_id)
         .bind(annee_scolaire)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.0)
     }
 
@@ -593,6 +630,7 @@ impl PgFacRepo {
         let iban = self.champs.sceller(T_MANDAT, "iban", m.id, &m.iban)?;
         let bic = self.champs.sceller_opt(T_MANDAT, "bic", m.id, m.bic.as_deref())?;
         let titulaire = self.champs.sceller(T_MANDAT, "titulaire", m.id, &m.titulaire)?;
+        let mut tx = TenantTx::begin(&self.pool, m.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_fac_sepa_mandat (
@@ -612,9 +650,10 @@ impl PgFacRepo {
         .bind(m.signe_at)
         .bind(m.created_by_user_id)
         .bind(m.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -623,6 +662,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         mandat_id: Uuid,
     ) -> Result<Option<MandatSepa>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, MandatRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, rum, iban, bic, titulaire,
@@ -633,9 +673,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(mandat_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         row.and_then(|r| r.into_mandat(&self.champs).transpose()).transpose()
     }
 
@@ -644,6 +685,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         foyer_id: Uuid,
     ) -> Result<Option<MandatSepa>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, MandatRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, rum, iban, bic, titulaire,
@@ -655,9 +697,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(foyer_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         row.and_then(|r| r.into_mandat(&self.champs).transpose()).transpose()
     }
 
@@ -666,6 +709,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         limit: i64,
     ) -> Result<Vec<MandatSepa>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, MandatRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, rum, iban, bic, titulaire,
@@ -678,15 +722,17 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         rows.into_iter()
             .filter_map(|r| r.into_mandat(&self.champs).transpose())
             .collect()
     }
 
     pub async fn update_sepa_mandat_statut(&self, m: &MandatSepa) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, m.etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_fac_sepa_mandat
@@ -697,17 +743,19 @@ impl PgFacRepo {
         .bind(m.etablissement_id)
         .bind(m.id)
         .bind(m.statut.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
         if n == 0 {
             return Err(DomainError::NotFound);
         }
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
     pub async fn insert_sepa_prelevement(&self, p: &PrelevementSepa) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_fac_sepa_prelevement (
@@ -729,9 +777,10 @@ impl PgFacRepo {
         .bind(p.encaissement_id)
         .bind(p.created_by_user_id)
         .bind(p.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -740,6 +789,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         prelevement_id: Uuid,
     ) -> Result<Option<PrelevementSepa>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, PrelevementRow>(
             r#"
             SELECT id, etablissement_id, mandat_id, facture_id, foyer_id,
@@ -752,9 +802,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(prelevement_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.and_then(PrelevementRow::into_prelevement))
     }
 
@@ -764,6 +815,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         end_to_end_id: &str,
     ) -> Result<Option<PrelevementSepa>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, PrelevementRow>(
             r#"
             SELECT id, etablissement_id, mandat_id, facture_id, foyer_id,
@@ -776,9 +828,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(end_to_end_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.and_then(PrelevementRow::into_prelevement))
     }
 
@@ -788,6 +841,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         mandat_id: Uuid,
     ) -> Result<i64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*)::bigint
@@ -799,9 +853,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(mandat_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.0)
     }
 
@@ -811,6 +866,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<i64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: (i64,) = sqlx::query_as(
             r#"
             SELECT COALESCE(SUM(montant_centimes), 0)::bigint
@@ -822,9 +878,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.0)
     }
 
@@ -833,6 +890,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         facture_id: Uuid,
     ) -> Result<Vec<PrelevementSepa>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, PrelevementRow>(
             r#"
             SELECT id, etablissement_id, mandat_id, facture_id, foyer_id,
@@ -846,9 +904,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(facture_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows
             .into_iter()
             .filter_map(PrelevementRow::into_prelevement)
@@ -862,6 +921,7 @@ impl PgFacRepo {
         debut: NaiveDate,
         fin: NaiveDate,
     ) -> Result<Vec<SepaLigneExport>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, SepaExportRow>(
             r#"
             SELECT p.id, p.etablissement_id, p.mandat_id, p.facture_id, p.foyer_id,
@@ -885,15 +945,17 @@ impl PgFacRepo {
         .bind(etablissement_id)
         .bind(debut)
         .bind(fin)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         rows.into_iter()
             .filter_map(|r| r.into_ligne(&self.champs).transpose())
             .collect()
     }
 
     pub async fn update_sepa_prelevement(&self, p: &PrelevementSepa) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_fac_sepa_prelevement
@@ -910,13 +972,14 @@ impl PgFacRepo {
         .bind(p.encaissement_id)
         .bind(&p.motif_rejet)
         .bind(p.rejete_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
         if n == 0 {
             return Err(DomainError::NotFound);
         }
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -925,6 +988,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         limit: i64,
     ) -> Result<Vec<Facture>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, FactureRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, numero, libelle, statut,
@@ -938,9 +1002,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(FactureRow::into_facture).collect())
     }
 
@@ -949,6 +1014,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         foyer_id: Uuid,
     ) -> Result<Option<Uuid>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: Option<(Uuid,)> = sqlx::query_as(
             r#"
             SELECT eleve_id FROM ent_eleve_lien
@@ -959,14 +1025,16 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(foyer_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(|r| r.0))
     }
 
     /// `true` si insert effectué, `false` si déjà rappelé (conflit unique).
     pub async fn insert_rappel(&self, r: &RappelFacture) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, r.etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             INSERT INTO ent_fac_rappel (
@@ -988,9 +1056,10 @@ impl PgFacRepo {
         .bind(r.envoye_at)
         .bind(r.created_by_user_id)
         .bind(r.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -1001,6 +1070,7 @@ impl PgFacRepo {
         fil_id: Uuid,
         canal: RappelCanal,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_fac_rappel
@@ -1012,13 +1082,14 @@ impl PgFacRepo {
         .bind(rappel_id)
         .bind(fil_id)
         .bind(canal.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
         if n == 0 {
             return Err(DomainError::NotFound);
         }
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -1027,6 +1098,7 @@ impl PgFacRepo {
         etablissement_id: Uuid,
         limit: i64,
     ) -> Result<Vec<RappelFacture>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = sqlx::query_as::<_, RappelRow>(
             r#"
             SELECT id, etablissement_id, foyer_id, facture_id, echeance_id,
@@ -1039,9 +1111,10 @@ impl PgFacRepo {
         )
         .bind(etablissement_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(RappelRow::into_rappel).collect())
     }
 }

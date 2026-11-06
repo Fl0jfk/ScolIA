@@ -426,3 +426,59 @@
   .roles__cellule--vide { display: none; }
   .roles__cibles { border-style: dashed; }
 }
+
+/* --- Fiche élève 360° (S2-1) ------------------------------------------------ */
+.fiche-section__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-3); }
+.fiche-section__tete h2 { margin: 0; }
+.fiche-chronologie { max-height: 32rem; overflow-y: auto; }
+.fiche-chronologie__date { width: 6.5rem; flex-shrink: 0; font-size: var(--taille-s); color: var(--c-attenue); font-variant-numeric: tabular-nums; }
+
+/* Journée vie scolaire / accueil et déclaration d'absence (socle 2, S2-4) */
+.jvs-barre { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-2); margin-bottom: var(--esp-3); }
+.jvs-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--esp-2); margin-bottom: var(--esp-3); }
+.jvs-section { margin-block: var(--esp-4); }
+.jvs-sous-titre { font-size: var(--taille-l); margin-top: var(--esp-3); }
+.jvs-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-1); }
+.jvs-ligne { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-2); padding: var(--esp-2); border: 1px solid var(--c-ligne); border-radius: var(--rayon); overflow-wrap: anywhere; }
+.jvs-recherche { margin-block: var(--esp-4); }
+.decl-form { display: grid; gap: var(--esp-2); }
+.decl-ligne { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--esp-2); }
+.decl-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--esp-2); }
+.decl-eleve { font-weight: var(--graisse-forte); overflow-wrap: anywhere; }
+.abs-declarer { margin-block: var(--esp-2); }
+
+/* Administration du référentiel (socle 2, S2-2) et discipline (S2-4) */
+.ra-sections { margin-bottom: var(--esp-4); overflow-x: auto; }
+.ra-sections ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.ra-sections__lien { display: inline-flex; align-items: center; min-height: var(--cible); padding: 0 var(--esp-3); border-radius: var(--rayon-petit); border: 1px solid var(--c-ligne-forte); color: var(--c-encre); text-decoration: none; background: var(--c-surface); }
+.ra-sections__lien:hover { background: var(--c-acc-doux); }
+.ra-sections__lien--actif { background: var(--c-acc-doux); border-color: var(--c-acc); color: var(--c-acc-fort); font-weight: var(--graisse-forte); }
+.ra-sections__lien:focus-visible { outline: none; box-shadow: var(--focus); }
+.ra-cartes { list-style: none; margin: var(--esp-4) 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--esp-3); }
+.ra-carte { display: flex; align-items: center; gap: var(--esp-3); padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); }
+.ra-carte a { min-height: var(--cible); display: inline-flex; align-items: center; }
+.ra-section { margin-block: var(--esp-6); }
+.ra-barre { margin-bottom: var(--esp-3); max-width: 24rem; }
+.ra-liste { list-style: none; margin: 0 0 var(--esp-3); padding: 0; display: grid; gap: var(--esp-2); }
+.ra-ligne { display: grid; grid-template-columns: 1fr; gap: var(--esp-2); align-items: end; padding: var(--esp-3); border: 1px solid var(--c-ligne); border-radius: var(--rayon); overflow-wrap: anywhere; }
+@media (min-width: 900px) {
+  .ra-ligne--periode { grid-template-columns: 6rem 1fr 10rem 10rem 10rem auto; }
+}
+.ra-carte-annee { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-2); padding: var(--esp-3); border: 1px solid var(--c-ligne); border-radius: var(--rayon); background: var(--c-surface); overflow-wrap: anywhere; }
+.ra-actions { display: flex; flex-wrap: wrap; gap: var(--esp-2); align-items: center; margin-block: var(--esp-2); }
+.ra-note { flex-basis: 100%; margin: 0; }
+.ra-option { margin-block: var(--esp-2); }
+.ra-etapes { list-style: decimal; padding-left: var(--esp-6); display: grid; gap: var(--esp-2); }
+.ra-etape { display: flex; flex-wrap: wrap; gap: var(--esp-2); align-items: center; justify-content: space-between; }
+.ra-formulaire { display: grid; gap: var(--esp-3); max-width: 36rem; margin-block: var(--esp-4); }
+.ra-apercu { margin-block: var(--esp-3); padding: var(--esp-3); border-radius: var(--rayon); background: var(--c-surface-2); border: 1px solid var(--c-ligne); }
+.ra-tableau-conteneur { overflow-x: auto; margin-block: var(--esp-2); border-radius: var(--rayon); border: 1px solid var(--c-ligne); background: var(--c-surface); }
+.ra-tableau { width: 100%; border-collapse: collapse; font-size: var(--taille-s); }
+.ra-tableau th, .ra-tableau td { text-align: left; padding: var(--esp-2) var(--esp-3); border-bottom: 1px solid var(--c-ligne); vertical-align: middle; }
+.ra-tableau thead th { color: var(--c-attenue); font-weight: var(--graisse-moyenne); background: var(--c-surface-2); }
+.ra-tableau tbody tr:last-child th, .ra-tableau tbody tr:last-child td { border-bottom: 0; }
+.ra-etapes-procedure { margin: var(--esp-1) 0 0; padding-left: var(--esp-5); font-size: var(--taille-s); color: var(--c-attenue); }
+.jvs-ligne--bloc { align-items: flex-start; }
+.jvs-liste--discrete { font-size: var(--taille-s); color: var(--c-attenue); }
+.jvs-demi { margin-top: var(--esp-1); }
+.disc-eleve { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); margin-block: var(--esp-3); }
