@@ -278,7 +278,13 @@ pub enum ChoixEleve {
     /// Homonyme différent : créer une nouvelle fiche (refusé si l'INE est identique).
     Nouveau,
     /// Ancien élève qui revient : rattacher le dossier à la fiche existante.
-    Existant { eleve_id: Uuid },
+    /// `confirme_responsables_existants` : obligatoire si la fiche a déjà des responsables
+    /// liés (le dossier ne doit pas donner accès à un élève déjà suivi par d'autres).
+    Existant {
+        eleve_id: Uuid,
+        #[serde(default)]
+        confirme_responsables_existants: bool,
+    },
 }
 
 /// `GET /inscriptions/dossiers/{id}/correspondances` : de quoi décider à la validation.
@@ -296,6 +302,8 @@ pub struct EleveCandidatDto {
     pub date_naissance: Option<NaiveDate>,
     pub statut: String,
     pub ine_identique: bool,
+    /// Responsables déjà liés à cette fiche (à vérifier avant tout rattachement).
+    pub responsables_lies: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

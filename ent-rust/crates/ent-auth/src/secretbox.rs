@@ -110,7 +110,7 @@ impl SecretBox {
     /// HMAC-SHA-256 (hex) de `data` sous la clé dérivée de `purpose` : empreinte d'une
     /// valeur à faible entropie (code à 6 chiffres) ou jeton dérivable côté serveur.
     /// Sans le secret serveur, une base volée ne permet pas de retrouver la valeur.
-    pub fn hmac_hex(&self, purpose: &str, data: &[u8]) -> String {
+    pub fn hmac_hex(&self, purpose: &str, data: &[u8]) -> Result<String, SecretBoxError> {
         use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
         let k = self.derive(purpose);
         let mac = PKey::hmac(&k.key)
@@ -119,8 +119,8 @@ impl SecretBox {
                 s.update(data)?;
                 s.sign_to_vec()
             })
-            .unwrap_or_default();
-        hex::encode(mac)
+            .map_err(|_| SecretBoxError::Decrypt)?;
+        Ok(hex::encode(mac))
     }
 
     /// Chiffre. `aad` lie le chiffré à son usage (un secret recopié ailleurs ne s'ouvre pas).
@@ -177,12 +177,12 @@ mod tests {
     fn hmac_depend_du_secret_et_de_l_usage() {
         let b = SecretBox::from_key_str(K1).unwrap();
         let autre = SecretBox::dev();
-        let h = b.hmac_hex("code", b"123456");
+        let h = b.hmac_hex("code", b"123456").unwrap();
         assert_eq!(h.len(), 64);
-        assert_eq!(h, b.hmac_hex("code", b"123456"));
-        assert_ne!(h, b.hmac_hex("autre-usage", b"123456"));
-        assert_ne!(h, autre.hmac_hex("code", b"123456"), "dépend du secret serveur");
-        assert_ne!(h, b.hmac_hex("code", b"123457"));
+        assert_eq!(h, b.hmac_hex("code", b"123456").unwrap());
+        assert_ne!(h, b.hmac_hex("autre-usage", b"123456").unwrap());
+        assert_ne!(h, autre.hmac_hex("code", b"123456").unwrap(), "dépend du secret serveur");
+        assert_ne!(h, b.hmac_hex("code", b"123457").unwrap());
     }
 
     #[test]

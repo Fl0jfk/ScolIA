@@ -96,7 +96,8 @@ impl Envoi {
 /// en clair (seule son empreinte SHA-256 est en base).
 pub(crate) fn jeton_invitation(invitation_id: Uuid) -> Result<String, String> {
     let sb = ent_auth::SecretBox::from_env().map_err(|e| e.to_string())?;
-    Ok(sb.hmac_hex("invitation-v1", invitation_id.as_bytes()))
+    sb.hmac_hex("invitation-v1", invitation_id.as_bytes())
+        .map_err(|e| e.to_string())
 }
 
 const ENVOI_ESSAIS_MAX: i32 = 5;
@@ -121,7 +122,13 @@ pub async fn expedier_envois(
             "SELECT id, etablissement_id, invitation_id, kind, destinataire, sujet, corps, tentatives
                FROM ent_inscription_envoi
               WHERE statut = 'a_envoyer' AND prochain_essai <= now()
-              ORDER BY created_at LIMIT $1
+                AND (invitation_id IS NULL OR EXISTS (
+                      SELECT 1 FROM ent_inscription_invitation i
+                       WHERE i.id = ent_inscription_envoi.invitation_id
+                         AND i.etablissement_id = ent_inscription_envoi.etablissement_id
+                         AND i.statut IN ('a_envoyer', 'non_envoyee', 'envoyee')
+                         AND i.expire_le > now()))
+              ORDER BY prochain_essai, created_at LIMIT $1
               FOR UPDATE SKIP LOCKED",
         )
         .bind(limite)
@@ -130,22 +137,23 @@ pub async fn expedier_envois(
     let mut traites = 0;
     for (id, etab, invitation_id, kind, to, sujet, corps, tentatives) in lot {
         let corps = match (kind.as_str(), invitation_id) {
-            ("invitation", Some(inv)) => match jeton_invitation(inv) {
-                Ok(j) => corps.replace(
+            ("invitation", Some(inv)) => jeton_invitation(inv).map(|j| {
+                corps.replace(
                     "{LIEN}",
                     &format!(
                         "{}/web/invitation?jeton={j}",
                         base_publique().trim_end_matches('/')
                     ),
-                ),
-                Err(e) => {
-                    tracing::error!("envoi inscription : jeton non dérivable ({e})");
-                    continue;
-                }
-            },
-            _ => corps,
+                )
+            }),
+            _ => Ok(corps),
         };
-        let res = envoi.envoyer(&to, sujet, corps).await;
+        // Un jeton non dérivable (secret absent) compte comme un échec : tentative et délai
+        // avancent, la ligne ne bloque pas la tête de file.
+        let res = match corps {
+            Ok(corps) => envoi.envoyer(&to, sujet, corps).await,
+            Err(e) => Err(format!("jeton d'invitation non dérivable : {e}")),
+        };
         match res {
             Ok(()) => {
                 sqlx::query(
@@ -318,7 +326,7 @@ async fn inviter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
     // attente vers une personne qui a déjà un compte (confirmation : le message va à
     // l'adresse du COMPTE, jamais à celle saisie dans le dossier).
     let cibles: Vec<(Uuid, Uuid, String, String, String, i16, bool)> = sqlx::query_as(
-        "SELECT r.id, r.personne_id, COALESCE(u.email, r.email), d.eleve_prenom, d.eleve_nom, r.rang,
+        "SELECT r.id, r.personne_id, COALESCE(u.email, p.email, r.email), d.eleve_prenom, d.eleve_nom, r.rang,
                 (la.id IS NOT NULL) AS confirmation
            FROM ent_inscription_responsable r
            JOIN ent_inscription_dossier d ON d.id = r.dossier_id AND d.etablissement_id = r.etablissement_id

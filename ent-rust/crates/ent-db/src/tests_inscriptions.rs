@@ -1904,6 +1904,24 @@ async fn ancien_eleve_rattache_a_la_fiche_existante() {
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
         .await
         .is_err());
+    // La fiche a déjà des responsables : sans confirmation explicite, refus (INE copié).
+    assert!(corr.eleves.iter().any(|e| e.responsables_lies > 0));
+    assert!(ent
+        .valider_inscription_for_actor(
+            etab,
+            d,
+            dr,
+            dossier,
+            &valider_corps(
+                vec![],
+                Some(ChoixEleve::Existant {
+                    eleve_id: c.eleve_lea_id,
+                    confirme_responsables_existants: false,
+                }),
+            ),
+        )
+        .await
+        .is_err());
     let v = ent
         .valider_inscription_for_actor(
             etab,
@@ -1914,6 +1932,7 @@ async fn ancien_eleve_rattache_a_la_fiche_existante() {
                 vec![],
                 Some(ChoixEleve::Existant {
                     eleve_id: c.eleve_lea_id,
+                    confirme_responsables_existants: true,
                 }),
             ),
         )

@@ -152,20 +152,20 @@ fn code_six_chiffres() -> String {
 /// Empreinte d'un code de vérification : HMAC-SHA-256 sous un secret serveur
 /// (`ENT_SECRETS_KEY`, usage dédié). Un code à 6 chiffres n'a que 10⁶ valeurs : sans
 /// secret, une base volée permettrait de le retrouver par force brute (I0, §2.2 pt 20).
-fn empreinte_code_avec(secret: &ent_auth::SecretBox, demande_id: Uuid, code: &str) -> String {
-    secret.hmac_hex(
+fn empreinte_code_avec(
+    secret: &ent_auth::SecretBox,
+    demande_id: Uuid,
+    code: &str,
+) -> Result<String, EntDbError> {
+    Ok(secret.hmac_hex(
         "preinscription-code-v1",
         format!("{demande_id}:{}", code.trim()).as_bytes(),
-    )
+    )?)
 }
 
 /// Fail-closed hors labo/test si le secret serveur manque.
 fn empreinte_code(demande_id: Uuid, code: &str) -> Result<String, EntDbError> {
-    Ok(empreinte_code_avec(
-        &ent_auth::SecretBox::from_env()?,
-        demande_id,
-        code,
-    ))
+    empreinte_code_avec(&ent_auth::SecretBox::from_env()?, demande_id, code)
 }
 
 /// `"2027-2028"` (années consécutives).
@@ -1826,9 +1826,11 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         etab: Uuid,
         d: &DossierRow,
     ) -> Result<Vec<EleveCandidatDto>, EntDbError> {
-        let rows: Vec<(Uuid, String, String, Option<NaiveDate>, String, bool)> = sqlx::query_as(
+        let rows: Vec<(Uuid, String, String, Option<NaiveDate>, String, bool, i64)> = sqlx::query_as(
             "SELECT id, nom, prenom, date_naissance, status,
-                    ($5::text IS NOT NULL AND ine = $5) AS ine_identique
+                    ($5::text IS NOT NULL AND ine = $5) AS ine_identique,
+                    (SELECT count(*) FROM ent_eleve_lien_actif l
+                      WHERE l.etablissement_id = $1 AND l.eleve_id = ent_eleve.id) AS nb_liens
                FROM ent_eleve
               WHERE etablissement_id = $1
                 AND ((lower(nom) = lower($2) AND lower(prenom) = lower($3)
@@ -1846,16 +1848,19 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .map_err(db)?;
         Ok(rows
             .into_iter()
-            .map(|(eleve_id, nom, prenom, date_naissance, statut, ine_identique)| {
-                EleveCandidatDto {
-                    eleve_id,
-                    nom,
-                    prenom,
-                    date_naissance,
-                    statut,
-                    ine_identique,
-                }
-            })
+            .map(
+                |(eleve_id, nom, prenom, date_naissance, statut, ine_identique, responsables_lies)| {
+                    EleveCandidatDto {
+                        eleve_id,
+                        nom,
+                        prenom,
+                        date_naissance,
+                        statut,
+                        ine_identique,
+                        responsables_lies,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -1985,7 +1990,10 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                     ));
                 }
             }
-            Some(ChoixEleve::Existant { eleve_id }) => {
+            Some(ChoixEleve::Existant {
+                eleve_id,
+                confirme_responsables_existants,
+            }) => {
                 let ok: Option<(Uuid,)> = sqlx::query_as(
                     "SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2",
                 )
@@ -1995,6 +2003,19 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 .await
                 .map_err(db)?;
                 ok.ok_or(EntDbError::Domain(DomainError::ReferenceInconnue))?;
+                let (liens,): (i64,) = sqlx::query_as(
+                    "SELECT count(*) FROM ent_eleve_lien_actif WHERE etablissement_id = $1 AND eleve_id = $2",
+                )
+                .bind(etab)
+                .bind(eleve_id)
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(db)?;
+                if liens > 0 && !confirme_responsables_existants {
+                    return Err(conflit(
+                        "cet élève a déjà des responsables : confirmation explicite requise avant tout rattachement",
+                    ));
+                }
                 plan.eleve_existant = Some(*eleve_id);
             }
         }
@@ -2051,15 +2072,24 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                         }
                     }
                     if let Some(ChoixFoyer::Existant { foyer_id }) = &x.foyer {
+                        // Le foyer doit être un foyer de la personne rapprochée : jamais le foyer
+                        // d'une autre famille (mandat, payeurs).
+                        let ChoixPersonne::Existante { personne_id } = &x.personne else {
+                            return Err(conflit(
+                                "un foyer existant ne se choisit que pour une personne existante",
+                            ));
+                        };
                         let ok: Option<(Uuid,)> = sqlx::query_as(
-                            "SELECT id FROM ent_foyer WHERE etablissement_id = $1 AND id = $2",
+                            "SELECT foyer_id FROM ent_eleve_lien
+                              WHERE etablissement_id = $1 AND personne_id = $2 AND foyer_id = $3 LIMIT 1",
                         )
                         .bind(etab)
+                        .bind(personne_id)
                         .bind(foyer_id)
                         .fetch_optional(&mut *conn)
                         .await
                         .map_err(db)?;
-                        ok.ok_or(EntDbError::Domain(DomainError::ReferenceInconnue))?;
+                        ok.ok_or(conflit("ce foyer n'est pas celui de la personne choisie"))?;
                         p.foyer = Some(*foyer_id);
                     }
                 }
@@ -3679,6 +3709,23 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // Lien déjà actif (personne sans compte au moment de la validation) : suspendu, pour
+        // qu'il ne s'active jamais avec un compte ouvert plus tard sur cette fiche.
+        sqlx::query(
+            "UPDATE ent_eleve_lien l SET suspendu_le = now(), updated_at = now(),
+                    suspension_motif = 'Refus du responsable désigné (invitation)'
+              WHERE l.etablissement_id = $1 AND l.personne_id = $2 AND l.suspendu_le IS NULL
+                AND l.eleve_id = (SELECT eleve_id FROM ent_inscription_dossier d
+                                   WHERE d.etablissement_id = $1
+                                     AND d.id = (SELECT dossier_id FROM ent_inscription_invitation
+                                                  WHERE id = $3 AND etablissement_id = $1))",
+        )
+        .bind(etab)
+        .bind(personne_id)
+        .bind(inv_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         sqlx::query(
             "UPDATE ent_inscription_invitation SET statut = 'refusee' WHERE id = $1 AND etablissement_id = $2",
         )
@@ -3947,7 +3994,7 @@ mod tests_unitaires {
         }
         let id = Uuid::new_v4();
         let sb = ent_auth::SecretBox::dev();
-        let e = |i, c| empreinte_code_avec(&sb, i, c);
+        let e = |i, c| empreinte_code_avec(&sb, i, c).unwrap();
         assert_eq!(e(id, "123456"), e(id, " 123456 "));
         assert_ne!(e(id, "123456"), e(Uuid::new_v4(), "123456"));
         // L'empreinte n'est plus un simple SHA-256 rejouable sans secret.
