@@ -740,6 +740,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::dossier::routes());
     // Vie scolaire complète (S2-4, module séparé : `vie_scolaire.rs`).
     let r = r.merge(crate::vie_scolaire::routes());
+    // Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
+    let r = r.merge(crate::evaluations::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -9529,7 +9531,7 @@ async fn get_facture(
     }))
 }
 
-fn attachment_response(
+pub(crate) fn attachment_response(
     bytes: Vec<u8>,
     filename: &str,
     content_type: &'static str,

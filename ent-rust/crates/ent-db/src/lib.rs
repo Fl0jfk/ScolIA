@@ -7,6 +7,12 @@ mod absence_repo;
 mod assiduite;
 mod discipline_vs;
 mod vie_scolaire;
+/// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
+pub mod evaluations;
+mod evaluations_bulletin;
+mod evaluations_conseil;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations;
 mod champs_chiffres;
 mod annonce_repo;
 mod appel_repo;

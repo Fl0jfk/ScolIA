@@ -110,6 +110,15 @@ pub enum Action {
     LiensSuspendre,
     /// Fusionner ou défusionner des personnes en doublon (DOS-15).
     PersonnesFusionner,
+    // ── S2-7 : évaluations, bulletins, livrets ──────────────────────────────
+    /// Changer le statut (verrou) d'une période de notes, EVA-07.
+    PeriodesVerrouiller,
+    /// Générer et publier les bulletins, appréciation générale de direction, EVA-10.
+    BulletinsPublier,
+    /// Corriger une note après fermeture de la période (motif obligatoire), EVA-14.
+    NotesCorriger,
+    /// Exporter les livrets (LSU, LSL), EVA-12.
+    LivretsExporter,
 }
 
 /// Sur quoi une action s'applique.
@@ -126,7 +135,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 47] = [
+    pub const TOUTES: [Action; 51] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -176,6 +185,11 @@ impl Action {
         Action::PayeursDefinir,
         Action::LiensSuspendre,
         Action::PersonnesFusionner,
+        // S2-7
+        Action::PeriodesVerrouiller,
+        Action::BulletinsPublier,
+        Action::NotesCorriger,
+        Action::LivretsExporter,
     ];
 
     pub fn code(self) -> &'static str {
@@ -228,6 +242,10 @@ impl Action {
             Self::PayeursDefinir => "payeurs.definir",
             Self::LiensSuspendre => "liens.suspendre",
             Self::PersonnesFusionner => "personnes.fusionner",
+            Self::PeriodesVerrouiller => "periodes.verrouiller",
+            Self::BulletinsPublier => "bulletins.publier",
+            Self::NotesCorriger => "notes.corriger",
+            Self::LivretsExporter => "livrets.exporter",
         }
     }
 
@@ -281,6 +299,10 @@ impl Action {
             Self::PayeursDefinir => "Désigner les payeurs et leurs parts",
             Self::LiensSuspendre => "Suspendre ou rétablir le lien d'un responsable",
             Self::PersonnesFusionner => "Fusionner ou défusionner des personnes en doublon",
+            Self::PeriodesVerrouiller => "Ouvrir, verrouiller ou fermer une période de notes",
+            Self::BulletinsPublier => "Générer et publier les bulletins",
+            Self::NotesCorriger => "Corriger une note après fermeture de la période",
+            Self::LivretsExporter => "Exporter les livrets (LSU, LSL)",
         }
     }
 
@@ -327,6 +349,11 @@ impl Action {
             | Self::PayeursDefinir
             | Self::LiensSuspendre
             | Self::PersonnesFusionner => &[Portee::Etablissement],
+            // S2-7 : actions de direction sur toute une période ou toute une classe.
+            Self::PeriodesVerrouiller
+            | Self::BulletinsPublier
+            | Self::NotesCorriger
+            | Self::LivretsExporter => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -527,6 +554,16 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(LiensSuspendre));
         d.push(etab(PersonnesFusionner));
+    }
+    // S2-7 : verrou des périodes, bulletins et corrections après fermeture à la
+    // direction ; exports de livrets aussi au secrétariat (administratif).
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(PeriodesVerrouiller));
+        d.push(etab(BulletinsPublier));
+        d.push(etab(NotesCorriger));
+    }
+    if direction_admin {
+        d.push(etab(LivretsExporter));
     }
     d
 }

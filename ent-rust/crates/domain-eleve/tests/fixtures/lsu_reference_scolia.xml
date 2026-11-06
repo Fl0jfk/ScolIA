@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- [NV] Format documenté par ScolIA d'après les spécifications publiques connues ; non validé contre le schéma XSD officiel (non disponible : réservé aux éditeurs validés par le ministère). Ne pas importer dans LSU/LSL sans qualification préalable. -->
+<lsun-bilans xmlns="urn:fr:edu:scolarite:lsun:bilans:import" schemaVersion="NV">
+  <entete>
+    <editeur>ScolIA</editeur>
+    <application>ScolIA ENT</application>
+    <etablissement>0750001A</etablissement>
+  </entete>
+  <donnees>
+    <eleves>
+      <eleve id="EL1" id-be="123456789AB" nom="Granger" prenom="Hermione" code-division="4B"/>
+    </eleves>
+    <periodes>
+      <periode id="P1" millesime="2026" indice="1" nb-periodes="3" code="T1"/>
+    </periodes>
+    <disciplines>
+      <discipline id="DI1" code="MATHS" libelle="Mathématiques"/>
+      <discipline id="DI2" code="EPS" libelle="Éducation physique"/>
+    </disciplines>
+    <bilans-periodiques>
+      <bilan-periodique eleve-ref="EL1" periode-ref="P1">
+        <liste-acquis>
+          <acquis discipline-ref="DI1" moyenne-eleve="18.50/20" moyenne-structure="12.25/20" eleve-non-note="false">
+            <appreciation>Excellent travail &amp; rigueur &lt;toujours&gt;.</appreciation>
+          </acquis>
+          <acquis discipline-ref="DI2" moyenne-eleve="" moyenne-structure="14.00/20" eleve-non-note="true">
+          </acquis>
+        </liste-acquis>
+        <acquis-conseils>Trimestre remarquable.</acquis-conseils>
+        <vie-scolaire nb-retards="1" nb-abs-justifiees="2" nb-abs-injustifiees="0"/>
+      </bilan-periodique>
+    </bilans-periodiques>
+    <bilans-cycle>
+      <bilan-cycle eleve-ref="EL1" cycle="4">
+        <socle>
+          <domaine code="CPD_FRA" positionnement="4"/>
+          <domaine code="MET_APP" positionnement="3"/>
+        </socle>
+        <synthese>Socle maîtrisé.</synthese>
+      </bilan-cycle>
+    </bilans-cycle>
+  </donnees>
+</lsun-bilans>
