@@ -4,8 +4,8 @@
 //! moyennes** sont faits par le serveur : le client n'affiche que ce qu'il reçoit.
 
 use ent_types::evaluations::{
-    AppreciationBody, AppreciationDto, AvisVoeuBody, BulletinDetailDto, BulletinDto,
-    ConseilDto, CreerConseilBody, CreerDevoirGrilleBody, DecisionConseilBody, DecisionConseilDto,
+    AppreciationBody, AppreciationDto, AvisVoeuBody, BulletinDetailDto, BulletinDto, ConseilDto,
+    CreerConseilBody, CreerDevoirGrilleBody, DecisionConseilBody, DecisionConseilDto,
     DevoirGrilleDto, ExportLivretDto, GenererBulletinsBody, GrilleDto, PeriodeNotesDto,
     PreparationConseilDto, PublierBulletinsBody, RapportBulletinsDto, RapportSaisieDto,
     ReleveEleveDto, SaisieGrilleBody, ServiceEvaluationDto, VoeuAvisDto, VueClasseDto,
@@ -22,12 +22,14 @@ fn corps<T: serde::Serialize>(valeur: &T) -> Result<serde_json::Value, ApiError>
 impl ApiClient {
     /// `GET /evaluations/services` : services que la personne peut évaluer ou consulter.
     pub async fn services_evaluables(&self) -> Result<Vec<ServiceEvaluationDto>, ApiError> {
-        self.appel(Methode::Get, "/evaluations/services", None).await
+        self.appel(Methode::Get, "/evaluations/services", None)
+            .await
     }
 
     /// `GET /evaluations/periodes`.
     pub async fn periodes_notes(&self) -> Result<Vec<PeriodeNotesDto>, ApiError> {
-        self.appel(Methode::Get, "/evaluations/periodes", None).await
+        self.appel(Methode::Get, "/evaluations/periodes", None)
+            .await
     }
 
     /// `PUT /evaluations/periodes/{id}/statut` (`ouverte`, `partielle_appreciations`, `fermee`).
@@ -45,7 +47,7 @@ impl ApiClient {
     }
 
     /// `GET /evaluations/grille?service_id=&periode_id=`.
-    pub async fn grille(&self, service: Uuid, periode: Uuid) -> Result<GrilleDto, ApiError> {
+    pub async fn grille_notes(&self, service: Uuid, periode: Uuid) -> Result<GrilleDto, ApiError> {
         self.appel(
             Methode::Get,
             &format!("/evaluations/grille?service_id={service}&periode_id={periode}"),
@@ -116,13 +118,18 @@ impl ApiClient {
         &self,
         body: &AppreciationBody,
     ) -> Result<AppreciationDto, ApiError> {
-        self.appel(Methode::Post, "/evaluations/appreciations", Some(corps(body)?))
-            .await
+        self.appel(
+            Methode::Post,
+            "/evaluations/appreciations",
+            Some(corps(body)?),
+        )
+        .await
     }
 
     /// `GET /evaluations/conseils`.
     pub async fn conseils_evaluation(&self) -> Result<Vec<ConseilDto>, ApiError> {
-        self.appel(Methode::Get, "/evaluations/conseils", None).await
+        self.appel(Methode::Get, "/evaluations/conseils", None)
+            .await
     }
 
     /// `POST /evaluations/conseils`.

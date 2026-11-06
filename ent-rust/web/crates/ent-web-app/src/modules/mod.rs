@@ -9,6 +9,7 @@ pub mod connexion;
 pub mod discipline_vs;
 pub mod dossier;
 pub mod edt;
+pub mod evaluations;
 pub mod journee_vs;
 pub mod messagerie;
 pub mod recuperation;
