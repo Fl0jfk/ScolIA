@@ -80,3 +80,11 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Correction :** travaux parallèles qui compilent confiés à de **vraies sessions cloud** (`create_session`, une machine et un clone par session, branche de sortie dédiée) ; sous-agents locaux seulement en `worktree` ou en lecture seule.
 - **Apprentissage :** vérifier l'isolation effective d'un agent (`git worktree list`, branche courante) dans les minutes qui suivent son lancement.
 
+
+## F-008 — Contrainte redéfinie par une migration et rejeu des migrations
+
+- **Date / contexte :** 2026-11-05, socle 2, lot S2-3 (branche `ent-socle2-inscriptions`).
+- **Approche :** élargir la contrainte `ent_affectation_source_chk` dans une nouvelle migration (`144`) pour ajouter les sources « inscription » et « import », alors que la migration `110` la redéfinit déjà (`DROP CONSTRAINT` puis `ADD CONSTRAINT`).
+- **Résultat observé (faits) :** repéré à la relecture, avant tout test : `migrate.rs` rejoue **toutes** les migrations à chaque démarrage ; la `110` rejouée recréerait la contrainte étroite et échouerait dès qu'une ligne porte une nouvelle source.
+- **Correction :** aucune nouvelle valeur ; les réactions S2-3 utilisent les sources existantes (`saisie` pour une inscription validée, `lot` pour un import).
+- **Apprentissage :** tant que les migrations sont rejouées, une contrainte `CHECK` ne doit être redéfinie qu'à un seul endroit ; pour l'élargir, modifier cette migration-là (et seulement en élargissant) ou introduire un suivi des migrations appliquées.

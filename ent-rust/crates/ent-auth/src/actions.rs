@@ -110,6 +110,13 @@ pub enum Action {
     LiensSuspendre,
     /// Fusionner ou défusionner des personnes en doublon (DOS-15).
     PersonnesFusionner,
+    /// Campagnes d'admission / de réinscription et instruction des dossiers
+    /// (pièces, étapes, commentaires, relances) — S2-3, INS-01/03/06/15.
+    InscriptionsGerer,
+    /// Décider d'une admission et valider une inscription ★ (S2-3, INS-04/05).
+    InscriptionsDecider,
+    /// Importer des élèves en lot et traiter les rejets (S2-3, IOP-01/04).
+    ImportsAppliquer,
 }
 
 /// Sur quoi une action s'applique.
@@ -126,7 +133,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 47] = [
+    pub const TOUTES: [Action; 50] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -176,6 +183,9 @@ impl Action {
         Action::PayeursDefinir,
         Action::LiensSuspendre,
         Action::PersonnesFusionner,
+        Action::InscriptionsGerer,
+        Action::InscriptionsDecider,
+        Action::ImportsAppliquer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -228,6 +238,9 @@ impl Action {
             Self::PayeursDefinir => "payeurs.definir",
             Self::LiensSuspendre => "liens.suspendre",
             Self::PersonnesFusionner => "personnes.fusionner",
+            Self::InscriptionsGerer => "inscriptions.gerer",
+            Self::InscriptionsDecider => "inscriptions.decider",
+            Self::ImportsAppliquer => "imports.appliquer",
         }
     }
 
@@ -281,6 +294,9 @@ impl Action {
             Self::PayeursDefinir => "Désigner les payeurs et leurs parts",
             Self::LiensSuspendre => "Suspendre ou rétablir le lien d'un responsable",
             Self::PersonnesFusionner => "Fusionner ou défusionner des personnes en doublon",
+            Self::InscriptionsGerer => "Gérer les campagnes et instruire les dossiers d'inscription",
+            Self::InscriptionsDecider => "Décider des admissions et valider les inscriptions",
+            Self::ImportsAppliquer => "Importer des élèves et traiter les rejets d'import",
         }
     }
 
@@ -327,6 +343,10 @@ impl Action {
             | Self::PayeursDefinir
             | Self::LiensSuspendre
             | Self::PersonnesFusionner => &[Portee::Etablissement],
+            // S2-3 : campagnes, décisions et imports : établissement entier seulement.
+            Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
+                &[Portee::Etablissement]
+            }
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -528,6 +548,15 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         d.push(etab(LiensSuspendre));
         d.push(etab(PersonnesFusionner));
     }
+    // S2-3 : inscriptions (gestion des élèves) ; décision et validation ★ :
+    // direction (un rôle paramétré peut l'accorder au secrétariat, D-017).
+    if role.can_manage_eleves() {
+        d.push(etab(InscriptionsGerer));
+        d.push(etab(ImportsAppliquer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(InscriptionsDecider));
+    }
     d
 }
 
@@ -573,6 +602,11 @@ mod tests {
         assert_eq!(a(Role::Direction, LiensSuspendre), Some(Portee::Etablissement));
         assert_eq!(a(Role::Cpe, PersonnesFusionner), None);
         assert_eq!(a(Role::Prof, PersonnesGerer), None);
+        assert_eq!(a(Role::Administratif, InscriptionsGerer), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Administratif, InscriptionsDecider), None);
+        assert_eq!(a(Role::Direction, InscriptionsDecider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Cpe, InscriptionsGerer), None);
+        assert_eq!(a(Role::Compta, ImportsAppliquer), None);
         assert!(modele_par_defaut(Role::Parent).is_empty());
         assert!(modele_par_defaut(Role::Eleve).is_empty());
         // Chaque droit d'un modèle respecte les portées admises.

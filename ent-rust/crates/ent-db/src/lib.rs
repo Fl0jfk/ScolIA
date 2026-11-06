@@ -71,6 +71,9 @@ mod perimetre;
 mod droits_repo;
 mod droits_ctx;
 pub mod dossier_personnes;
+pub mod inscriptions;
+pub mod inscriptions_reactions;
+pub mod imports;
 mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
@@ -216,6 +219,8 @@ mod tests_outbox;
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
+#[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions;
 
 #[cfg(test)]
 mod integration_tests {

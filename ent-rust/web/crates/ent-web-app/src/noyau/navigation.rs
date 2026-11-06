@@ -23,6 +23,10 @@ pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
 pub const ROLES: &str = "/web/direction/roles";
 pub const ROLES_NOUVEAU: &str = "/web/direction/roles/nouveau";
 pub const ROLES_GROUPES: &str = "/web/direction/roles/groupes";
+/// Inscriptions (S2-3) : personnel, réinscription famille, préinscription publique.
+pub const INSCRIPTIONS: &str = "/web/inscriptions";
+pub const REINSCRIPTION: &str = "/web/reinscription";
+pub const PREINSCRIPTION: &str = "/web/preinscription";
 /// Fiche élève 360° : `/web/eleves/{id}` (S2-1).
 pub const ELEVES: &str = "/web/eleves";
 
@@ -81,6 +85,14 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.messagerie {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
+    }
+    // S2-3 : mêmes profils que la gestion du référentiel (modèle par défaut
+    // d'`inscriptions.gerer`), ou rôle paramétré qui l'accorde ; le serveur reste juge.
+    if droits.gerer_classes || moteur.a_etablissement("inscriptions.gerer") {
+        v.push(entree("Inscriptions", INSCRIPTIONS, NomIcone::Ecole));
+    }
+    if droits.portail_famille {
+        v.push(entree("Réinscription", REINSCRIPTION, NomIcone::Ecole));
     }
     if droits.gerer_roles {
         v.push(entree("Rôles et droits", ROLES, NomIcone::Passkey));
@@ -143,7 +155,8 @@ mod tests {
                 CLASSES,
                 VIE_SCOLAIRE,
                 JOURNEE,
-                MESSAGES
+                MESSAGES,
+                INSCRIPTIONS
             ]
         );
         let compta: Vec<String> = entrees(droits_du_role("compta"))
@@ -161,7 +174,7 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, ABSENCES, MESSAGES],
+            [ACCUEIL, ABSENCES, MESSAGES, REINSCRIPTION],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
@@ -246,7 +259,7 @@ mod tests {
     #[test]
     fn famille_et_eleve_ne_voient_aucun_ecran_d_administration() {
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
-        assert_eq!(v, [ACCUEIL, ABSENCES, MESSAGES]);
+        assert_eq!(v, [ACCUEIL, ABSENCES, MESSAGES, REINSCRIPTION]);
     }
 
     #[test]
