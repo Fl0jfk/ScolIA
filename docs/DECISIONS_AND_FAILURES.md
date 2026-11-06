@@ -80,3 +80,11 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Correction :** travaux parallèles qui compilent confiés à de **vraies sessions cloud** (`create_session`, une machine et un clone par session, branche de sortie dédiée) ; sous-agents locaux seulement en `worktree` ou en lecture seule.
 - **Apprentissage :** vérifier l'isolation effective d'un agent (`git worktree list`, branche courante) dans les minutes qui suivent son lancement.
 
+
+## F-008 — Sessions cloud lancées sur Opus par défaut
+
+- **Date / contexte :** 2026-11-06, socle 2, sessions cloud parallèles.
+- **Résultat observé (faits) :** `create_session` hérite du modèle de la session appelante (Opus). Sur 9 sessions actives, 6 tournaient sur Opus, dont une intégration de lot (fusion + tests, environ 6 $), contrairement à la règle « Sonnet par défaut » de `CLAUDE.md`. Relevé par Florian.
+- **Cause :** paramètre `model` non renseigné au lancement ; pas de choix explicite par session.
+- **Correction / règle :** à chaque `create_session`, renseigner `model` explicitement. **Sonnet par défaut** (lots métier, écrans, intégrations, mobile). **Opus seulement** pour une revue de sécurité adverse, un domaine à risque (finances/SEPA) ou une décision d'architecture structurante, en le justifiant dans le titre ou la consigne. **Haiku** pour recherches ciblées et doc légère (sous-agents). Les sessions déjà lancées ne sont pas interrompues.
+- **Apprentissage :** un défaut hérité n'est pas un choix ; le modèle fait partie de la conception de chaque tâche déléguée.
