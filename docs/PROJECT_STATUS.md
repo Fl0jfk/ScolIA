@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 3 — lot I0 « correctifs S2-3 » (2026-11-06, branche `ent-socle-inscriptions-i0`)
+Détail et limites : `docs/socles/03_INSCRIPTIONS.md` §16 bis. Implémenté : fin du rapprochement implicite par e-mail (correspondances + choix humain + liens en attente confirmés par le titulaire du compte), fratrie = foyer confirmé, doublon d'élève = rattachement choisi, quotas sur les routes à jeton famille et jeton réservé aux parents / élèves majeurs, tests d'intégration en échec explicite sans base en CI, file d'envoi après commit avec échecs tracés, acceptation d'invitation en une transaction, HMAC. Migration 250 ; `MIGRATION_TAG` = `250_inscriptions_i0`. Résultats des suites : voir la fin de cette section. Non validé par Florian ; écran de rapprochement du frontend à faire.
+
 ## Intégration du lot 5 (2026-11-06, branche `ent-integration-lot5`, base `ent-integration-lot4` 43180f7)
 Fusions git réelles, dans l'ordre : `ent-mc0hoe` (délai du job backend à 120 min), `ent-socle2-inscriptions` (S2-3), `ent-socle2-cahier` (S2-6).
 - Catalogue d'actions réuni : 53 actions (47 du lot 4 + `inscriptions.gerer`, `inscriptions.decider`, `imports.appliquer` + `cahier.lire`, `cahier.ecrire`, `cahier.viser`) ; modèles par défaut = droits historiques ; tests de non-régression de toutes les branches verts ensemble.

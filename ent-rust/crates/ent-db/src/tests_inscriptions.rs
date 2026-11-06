@@ -1454,6 +1454,7 @@ async fn isolation_etablissements() {
         .distribuer_tout()
         .await
         .unwrap();
+    ent.expedier_envois_inscriptions(100).await.unwrap();
     let inv = jeton_invitation_recu(&ent, &email);
     assert!(ent
         .accepter_invitation(b.etablissement_id, &inv)
