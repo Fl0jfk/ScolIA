@@ -8,6 +8,7 @@ import {
   hydrateEmptySessionThemes,
   isTransversalNiveau,
   normalizeSessionConstraint,
+  normalizeSignupSessionDate,
 } from "@/app/lib/domain-planning-defaults";
 import type {
   DomainPlanningBooking,
@@ -169,11 +170,28 @@ function parseSignup(raw: unknown): DomainPlanningSignup | null {
     email,
     subject,
     sessionIdea: typeof o.sessionIdea === "string" ? o.sessionIdea.trim() : undefined,
+    sessionDate: normalizeSignupSessionDate(o.sessionDate),
     createdAt,
     validationStatus,
     validatedAt: typeof o.validatedAt === "string" ? o.validatedAt : undefined,
     validatedByUserId: typeof o.validatedByUserId === "string" ? o.validatedByUserId.trim() : undefined,
     validationComment: typeof o.validationComment === "string" ? o.validationComment.trim() : undefined,
+    createdByUserId: typeof o.createdByUserId === "string" ? o.createdByUserId.trim() : undefined,
+    submittedBy: parseSignupActor(o.submittedBy),
+    assignmentKind:
+      o.assignmentKind === "self" || o.assignmentKind === "coordinator" ? o.assignmentKind : undefined,
+  };
+}
+
+function parseSignupActor(raw: unknown): DomainPlanningSignup["submittedBy"] {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const userId = typeof o.userId === "string" ? o.userId.trim() : "";
+  if (!userId) return undefined;
+  return {
+    userId,
+    name: typeof o.name === "string" ? o.name.trim() : "",
+    email: typeof o.email === "string" ? o.email.trim() : "",
   };
 }
 

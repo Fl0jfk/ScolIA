@@ -14,6 +14,7 @@ import {
   canUserSignupOnSession,
   classesForTransversalNiveau,
   DEFAULT_DOMAIN_PLANNING_ACTIVITY_COLORS,
+  formatSignupSessionDate,
   lockedSubjectForSession,
   sanitizeDomainPlanningClassesByPole,
   signupNeedsCoordinatorReview,
@@ -27,6 +28,7 @@ import type {
   DomainPlanningSession,
   DomainPlanningSignup,
 } from "@/app/lib/domain-planning-types";
+import { exportTransversalSessionPdf } from "@/app/lib/domain-planning-session-pdf";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
@@ -113,6 +115,9 @@ export default function TransversalSessionsTab() {
   const [editIdeaText, setEditIdeaText] = useState("");
   const [subject, setSubject] = useState("");
   const [sessionIdea, setSessionIdea] = useState("");
+  const [sessionDate, setSessionDate] = useState("");
+  const [savingDateId, setSavingDateId] = useState<string | null>(null);
+  const [exportingSessionId, setExportingSessionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [forColleague, setForColleague] = useState(false);
   const [colleague, setColleague] = useState<DirectoryAssigneeOption | null>(null);
@@ -260,6 +265,7 @@ export default function TransversalSessionsTab() {
   function openSignup(session: DomainPlanningSession, className: string) {
     setSubject(lockedSubjectForSession(session) || "");
     setSessionIdea("");
+    setSessionDate("");
     setForColleague(false);
     setColleague(null);
     setColleagueScope("all");
@@ -302,6 +308,7 @@ export default function TransversalSessionsTab() {
           className: modal.className,
           subject,
           sessionIdea,
+          sessionDate,
           ...onBehalf,
         }),
       });
@@ -345,6 +352,42 @@ export default function TransversalSessionsTab() {
     setEditIdeaModal(null);
     setEditIdeaText("");
     await reload();
+  }
+
+  async function updateSignupDate(id: string, value: string) {
+    const previous = signups;
+    setSavingDateId(id);
+    setSignups((list) => list.map((s) => (s.id === id ? { ...s, sessionDate: value || undefined } : s)));
+    try {
+      const res = await fetch("/api/domain-planning/signups/update-date", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, sessionDate: value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur");
+    } catch (e: unknown) {
+      setSignups(previous);
+      alert(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingDateId(null);
+    }
+  }
+
+  async function exportSessionPdf(session: DomainPlanningSession, classes: string[]) {
+    setExportingSessionId(session.id);
+    try {
+      await exportTransversalSessionPdf({
+        domainName: selectedDomain?.name?.trim() || "Enseignements transversaux",
+        session,
+        classes,
+        signups: signupsForSession(session.id),
+      });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Export PDF impossible");
+    } finally {
+      setExportingSessionId(null);
+    }
   }
 
   async function reviewSignup(id: string, action: ReviewAction, comment?: string) {
@@ -477,6 +520,11 @@ export default function TransversalSessionsTab() {
                     <p className="text-xs text-slate-500">saisi par {signup.submittedBy.name}</p>
                   ) : null}
                   <p className="text-slate-600">{signup.subject}</p>
+                  {signup.sessionDate ? (
+                    <p className="text-slate-700 text-xs font-bold">
+                      Date : {formatSignupSessionDate(signup.sessionDate)}
+                    </p>
+                  ) : null}
                   {signup.sessionIdea ? (
                     <p className="text-slate-600 mt-2 italic">&laquo; {signup.sessionIdea} &raquo;</p>
                   ) : session && signupRequiresSessionIdea(session) ? (
@@ -542,6 +590,11 @@ export default function TransversalSessionsTab() {
                   </span>
                   <span className="block text-slate-700 font-bold">{displayName(s)}</span>
                   <span className="block text-slate-500">{s.subject}</span>
+                  {s.sessionDate ? (
+                    <span className="block text-slate-700 font-bold">
+                      {formatSignupSessionDate(s.sessionDate)}
+                    </span>
+                  ) : null}
                   <ValidationStatusBadge signup={s} session={session} />
                   {s.validationComment && (
                     <span className="block text-slate-500 mt-1">&laquo; {s.validationComment} &raquo;</span>
@@ -602,9 +655,20 @@ export default function TransversalSessionsTab() {
                         </p>
                         <p className="font-black text-lg leading-snug">{session.theme || "Thème à définir"}</p>
                       </div>
-                      <div className="text-right text-xs font-bold">
-                        <p>{session.intervenantLabel}</p>
-                        <p className="opacity-90">Mixte : {session.mixte ? "OUI" : "NON"}</p>
+                      <div className="flex items-start gap-3">
+                        <div className="text-right text-xs font-bold">
+                          <p>{session.intervenantLabel}</p>
+                          <p className="opacity-90">Mixte : {session.mixte ? "OUI" : "NON"}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void exportSessionPdf(session, classes)}
+                          disabled={exportingSessionId === session.id}
+                          className="rounded-lg bg-white/90 px-2.5 py-1.5 text-[10px] font-black uppercase text-slate-900 shadow-sm hover:bg-white disabled:opacity-60"
+                          title="Télécharger le tableau de cette séance en PDF"
+                        >
+                          {exportingSessionId === session.id ? "Export…" : "Export PDF"}
+                        </button>
                       </div>
                     </div>
                     <p className="text-xs mt-2 opacity-90">{constraintHint(session, coordinatorRoleLabel)}</p>
@@ -616,10 +680,11 @@ export default function TransversalSessionsTab() {
                   </div>
 
                   <div className="p-4 overflow-x-auto">
-                    <table className="w-full min-w-[32rem] text-sm">
+                    <table className="w-full min-w-[40rem] text-sm">
                       <thead>
                         <tr className="text-left text-[10px] font-black uppercase tracking-widest text-slate-400">
                           <th className="pb-2 pr-3">Classe</th>
+                          <th className="pb-2 pr-3">Date</th>
                           <th className="pb-2 pr-3">Intervenant</th>
                           <th className="pb-2 pr-3">Matière</th>
                           <th className="pb-2 pr-3">Idée de séance</th>
@@ -634,8 +699,26 @@ export default function TransversalSessionsTab() {
                           const canOpenSlot = canSignup || (isCoordinator && !signup);
 
                           return (
-                            <tr key={className} className="border-t border-slate-100">
+                            <tr key={className} className="border-t border-slate-100 align-top">
                               <td className="py-2 pr-3 font-black text-slate-800">{className}</td>
+                              <td className="py-2 pr-3 whitespace-nowrap">
+                                {signup && (isMine || isCoordinator) ? (
+                                  <input
+                                    type="date"
+                                    value={signup.sessionDate || ""}
+                                    disabled={savingDateId === signup.id}
+                                    onChange={(e) => void updateSignupDate(signup.id, e.target.value)}
+                                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-800 disabled:opacity-60"
+                                    aria-label={`Date de la séance pour ${className}`}
+                                  />
+                                ) : signup?.sessionDate ? (
+                                  <span className="text-xs font-bold text-slate-700">
+                                    {formatSignupSessionDate(signup.sessionDate, "short")}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </td>
                               {isAssociation && !signup && !isCoordinator ? (
                                 <>
                                   <td className="py-2 pr-3 text-slate-600 italic">{session.intervenantLabel}</td>
@@ -818,6 +901,17 @@ export default function TransversalSessionsTab() {
                 />
               </label>
             )}
+
+            <label className="block">
+              <span className="text-xs font-bold text-slate-500 uppercase">Date de la séance</span>
+              <input
+                type="date"
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold"
+                value={sessionDate}
+                onChange={(e) => setSessionDate(e.target.value)}
+              />
+              <p className="text-[10px] text-slate-500 mt-1">Facultatif — modifiable ensuite dans le tableau.</p>
+            </label>
 
             <label className="block">
               <span className="text-xs font-bold text-slate-500 uppercase">Idée de séance *</span>

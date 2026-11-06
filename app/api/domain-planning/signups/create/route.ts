@@ -3,7 +3,9 @@ import {
   canUserSignupOnSession,
   isSvtSubject,
   lockedSessionIdeaForSession,
+  formatSignupSessionDate,
   lockedSubjectForSession,
+  normalizeSignupSessionDate,
   signupRequiresSessionIdea,
   TRANSVERSAL_NIVEAU_LABELS,
 } from "@/app/lib/domain-planning-defaults";
@@ -35,6 +37,11 @@ export async function POST(req: Request) {
   let subject = String(body.subject || "").trim();
   let sessionIdea = String(body.sessionIdea || "").trim();
   const notifyEmail = Boolean(body.notifyEmail);
+  const rawSessionDate = typeof body.sessionDate === "string" ? body.sessionDate.trim() : "";
+  const sessionDate = normalizeSignupSessionDate(rawSessionDate);
+  if (rawSessionDate && !sessionDate) {
+    return NextResponse.json({ error: "Date de séance invalide." }, { status: 400 });
+  }
   const onBehalfRaw =
     body?.onBehalfOf && typeof body.onBehalfOf === "object" ? body.onBehalfOf : null;
   const onBehalfUserId = onBehalfRaw ? String(onBehalfRaw.userId || "").trim() : "";
@@ -162,6 +169,7 @@ export async function POST(req: Request) {
     email: targetEmail,
     subject,
     sessionIdea: sessionIdea || undefined,
+    sessionDate,
     createdAt: nowIso,
     validationStatus: isOnBehalf ? "validated" : "pending",
     validatedAt: isOnBehalf ? nowIso : undefined,
@@ -199,6 +207,7 @@ export async function POST(req: Request) {
                 <li>Niveau : <strong>${niveauLabel}</strong></li>
                 <li>Séance : <strong>${session.seanceNumber}</strong></li>
                 <li>Classe : <strong>${className}</strong></li>
+                ${sessionDate ? `<li>Date : <strong>${formatSignupSessionDate(sessionDate)}</strong></li>` : ""}
                 <li>Thème : <strong>${session.theme || "—"}</strong></li>
                 <li>Matière : <strong>${subject}</strong></li>
                 ${sessionIdea ? `<li>Idée de séance : <em>${sessionIdea}</em></li>` : ""}

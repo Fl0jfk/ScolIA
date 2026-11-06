@@ -466,3 +466,31 @@ export function normalizeDomainPlanningModule<
     classesByPole: sanitizeDomainPlanningClassesByPole(config.classesByPole),
   };
 }
+
+/** Date de séance au format AAAA-MM-JJ, ou `undefined` si vide ou invalide. */
+export function normalizeSignupSessionDate(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const v = raw.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return undefined;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
+    return undefined;
+  }
+  if (y < 2000 || y > 2100) return undefined;
+  return v;
+}
+
+/** « lundi 12 janvier 2027 » à partir de AAAA-MM-JJ (affichage, sans décalage de fuseau). */
+export function formatSignupSessionDate(value?: string, style: "long" | "short" = "long"): string {
+  const v = normalizeSignupSessionDate(value);
+  if (!v) return "";
+  const [y, m, d] = v.split("-").map(Number);
+  const dt = new Date(y, m - 1, d, 12);
+  return style === "short"
+    ? dt.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : dt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}

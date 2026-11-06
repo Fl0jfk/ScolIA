@@ -72,6 +72,8 @@ export type DomainPlanningSignup = {
   email: string;
   subject: string;
   sessionIdea?: string;
+  /** Date à laquelle la séance se déroule pour cette classe (AAAA-MM-JJ). */
+  sessionDate?: string;
   createdAt: string;
   validationStatus?: DomainPlanningSignupValidationStatus;
   validatedAt?: string;
