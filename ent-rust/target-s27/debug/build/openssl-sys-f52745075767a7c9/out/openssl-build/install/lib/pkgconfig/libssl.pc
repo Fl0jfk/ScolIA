@@ -1,0 +1,12 @@
+# 
+prefix=/home/user/ScolIA/ent-rust/target-s27/debug/build/openssl-sys-f52745075767a7c9/out/openssl-build/install
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include 
+
+Name: OpenSSL-libssl
+Description: Secure Sockets Layer and cryptography libraries
+Version: 3.6.3
+Requires.private: libcrypto
+Libs: -L${libdir} -lssl
+Cflags: -I${includedir}

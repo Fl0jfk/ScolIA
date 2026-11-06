@@ -33,7 +33,9 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::evaluations::{conflit, db, introuvable, refus, texte_borne, types_eva, CalculClasse};
+use crate::evaluations::{
+    conflit, db, introuvable, refus, statut_periode_tx, texte_borne, types_eva, CalculClasse,
+};
 use crate::outbox::Publier;
 use crate::service::{EntDbError, PgEnt};
 
@@ -423,6 +425,9 @@ impl PgEnt {
         }
         let mut crees = Vec::new();
         let mut tx = self.pool().begin().await.map_err(db)?;
+        if statut_periode_tx(&mut tx, etab, body.periode_id).await? != NotePeriodeStatut::Fermee {
+            return Err(conflit("période non fermée : bulletin impossible"));
+        }
         for (eleve, mut contenu, emp, version) in a_creer {
             contenu.version = version;
             contenu.motif = if version > 1 { motif.clone() } else { None };
@@ -500,6 +505,9 @@ impl PgEnt {
     ) -> Result<RapportBulletinsDto, EntDbError> {
         self.exiger_action_bulletins(etab, acteur, role).await?;
         let periode = self.eva_periode(etab, body.periode_id).await?;
+        if periode.statut != NotePeriodeStatut::Fermee {
+            return Err(conflit("période rouverte : régénérer après fermeture avant de publier"));
+        }
         let effectif = self
             .eva_effectif(etab, Some(body.classe_id), None, periode.date_debut, periode.date_fin)
             .await?;
@@ -518,11 +526,29 @@ impl PgEnt {
         let total = ids.len() as u32;
         let mut publies = Vec::new();
         let mut tx = self.pool().begin().await.map_err(db)?;
+        if statut_periode_tx(&mut tx, etab, body.periode_id).await? != NotePeriodeStatut::Fermee {
+            return Err(conflit("période rouverte : régénérer après fermeture avant de publier"));
+        }
         let mut vus = std::collections::HashSet::new();
         for (id, eleve, version, key) in a_publier {
             if !vus.insert(eleve) {
                 continue; // seule la plus récente version générée
             }
+            // L'ancienne version publiée reste archivée au dossier, mais n'est plus
+            // visible des familles (confidentialité « restreint »).
+            sqlx::query(
+                "UPDATE ent_eleve_document SET confidentialite = 'restreint'
+                  WHERE etablissement_id = $1 AND id IN (
+                        SELECT b.document_id FROM ent_bulletin b
+                         WHERE b.etablissement_id = $1 AND b.eleve_id = $2 AND b.periode_id = $3
+                           AND b.statut = 'publie' AND b.document_id IS NOT NULL)",
+            )
+            .bind(etab)
+            .bind(eleve)
+            .bind(body.periode_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
             sqlx::query(
                 "UPDATE ent_bulletin SET statut = 'remplace'
                   WHERE etablissement_id = $1 AND eleve_id = $2 AND periode_id = $3 AND statut = 'publie'",
@@ -783,10 +809,13 @@ impl PgEnt {
         let bilans: Vec<BilanTuple> = sqlx::query_as(
             "SELECT b.id, b.eleve_id, b.cycle, b.synthese FROM ent_bilan_cycle b
               WHERE b.etablissement_id = $1 AND b.eleve_id = ANY($2) AND b.statut = 'valide'
+                AND b.annee_id IN (SELECT y.id FROM ent_annee_scolaire y
+                                    WHERE y.etablissement_id = $1 AND y.date_debut <= $3 AND y.date_fin >= $3)
               ORDER BY b.valide_le DESC",
         )
         .bind(etab)
         .bind(&ids)
+        .bind(calc.periode.date_debut)
         .fetch_all(self.pool())
         .await
         .map_err(db)?;

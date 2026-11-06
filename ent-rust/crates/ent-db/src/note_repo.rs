@@ -444,6 +444,7 @@ impl PgNoteRepo {
               AND n.periode_id = $3
               AND n.matiere_id = $4
               AND n.statut = 'note'
+              AND NOT (d.id IS NOT NULL AND d.publication_explicite AND d.publie_le IS NULL)
             "#,
         )
         .bind(etablissement_id)

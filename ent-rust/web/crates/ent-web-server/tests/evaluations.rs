@@ -98,7 +98,7 @@ async fn periode_complete_avec_le_client_du_frontend() {
     let l = labo::bootstrap(&base).await.expect("labo");
     let etab = l.etablissement_id;
     let url = std::env::var("ENT_DATABASE_URL").unwrap();
-    let mut ent = ent_db::PgEnt::connect(&url).await.expect("connexion base");
+    let ent = ent_db::PgEnt::connect(&url).await.expect("connexion base");
     ent.migrate().await.expect("migrations");
 
     // Préparation du référentiel (hors périmètre de l'écran) : classe, matière, service du

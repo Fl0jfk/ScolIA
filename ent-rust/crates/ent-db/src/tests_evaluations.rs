@@ -299,6 +299,17 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     assert!(ent.notes_for_eleve(etab, a).await.unwrap().iter().all(|n| n.devoir_id != Some(d1.id)));
     ent.publier_devoir_for_actor(etab, prof, "prof", d1.id).await.unwrap();
     ent.publier_devoir_for_actor(etab, prof, "prof", d1.id).await.unwrap(); // idempotent
+    // Ancien chemin de saisie : refusé sur un devoir de grille (service, effectif, verrou).
+    assert!(matches!(
+        ent.saisir_note_for_actor("prof", crate::note_repo::SaisirNote {
+            etablissement_id: etab, eleve_id: a, matiere_id: m.maths, valeur: 3.0, sur: 20.0,
+            date_note: today_utc(), auteur_user_id: prof, libelle: None, devoir_id: Some(d1.id), periode_id: None,
+        }).await,
+        Err(EntDbError::ConflitDossier(_))
+    ));
+    // Moyenne historique : le devoir non publié (d2) n'y entre pas.
+    let hist = ent.moyennes_eleve_periode(etab, a, m.periode).await.unwrap();
+    assert_eq!(hist.iter().find(|x| x.matiere_id == m.maths).map(|x| x.moyenne_sur_20), Some(15.0));
     distribuer(&ent, etab).await;
     assert_eq!(notifs(&ent, etab, lea, "evaluation_publiee").await, 1);
     assert_eq!(notifs(&ent, etab, cast.parent_tom.user_id, "evaluation_publiee").await, 0);
@@ -450,6 +461,17 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     let o = ent.orientation_eleve_for_actor(etab, lea, "parent", a).await.unwrap();
     assert_eq!(o[0].avis.as_deref(), Some("favorable"));
     ent.repondre_avis_for_actor(etab, lea, "parent", avis_id, "accord").await.unwrap();
+    // Une seule réponse ; l'avis communiqué ne se modifie plus.
+    assert!(matches!(
+        ent.repondre_avis_for_actor(etab, lea, "parent", avis_id, "desaccord").await,
+        Err(EntDbError::ConflitDossier(_))
+    ));
+    assert!(matches!(
+        ent.avis_voeu_for_actor(etab, prof, "prof", conseil.id, &AvisVoeuBody {
+            voeu_id: voeu, avis: "defavorable".into(), motivation: String::new(),
+        }).await,
+        Err(EntDbError::ConflitDossier(_))
+    ));
 
     // Immuabilité : la base refuse de modifier ou supprimer une version.
     assert!(sqlx::query("UPDATE ent_bulletin SET contenu = '{}'::jsonb WHERE etablissement_id = $1 AND id = $2")
@@ -467,6 +489,12 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
         ent.corriger_note_for_actor(etab, dir, "direction", d1.id, &CorrigerNoteBody { motif: " ".into(), ..corr.clone() }).await,
         Err(EntDbError::SaisieInvalide(_))
     ));
+    // Un élève hors de l'effectif du devoir est refusé.
+    let autre_eleve = cast.eleve_lea_id;
+    assert!(matches!(
+        ent.corriger_note_for_actor(etab, dir, "direction", d1.id, &CorrigerNoteBody { eleve_id: autre_eleve, ..corr.clone() }).await,
+        Err(EntDbError::SaisieInvalide(_))
+    ));
     ent.corriger_note_for_actor(etab, dir, "direction", d1.id, &corr).await.unwrap();
     // Nouvelle version : motif obligatoire, seule la classe… seul l'élève changé est versionné.
     assert!(matches!(
@@ -482,6 +510,17 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     assert_eq!(d2c.contenu.motif.as_deref(), Some("Correction d'une note"));
     ent.publier_bulletins_for_actor(etab, dir, "direction", &PublierBulletinsBody { classe_id: m.classe, periode_id: m.periode }).await.unwrap();
     let versions = ent.bulletins_eleve_for_actor(etab, dir, "direction", c).await.unwrap();
+    // L'ancienne version publiée reste archivée mais sort du tiroir famille.
+    let (visibles,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_document WHERE etablissement_id = $1 AND eleve_id = $2 AND source = 'bulletin' AND confidentialite = 'standard'")
+        .bind(etab).bind(c).fetch_one(ent.pool()).await.unwrap();
+    assert_eq!(visibles, 1);
+    // Période rouverte : publication refusée tant qu'elle n'est pas refermée.
+    statut(&ent, &cast, &m, "partielle_appreciations").await;
+    assert!(matches!(
+        ent.publier_bulletins_for_actor(etab, dir, "direction", &PublierBulletinsBody { classe_id: m.classe, periode_id: m.periode }).await,
+        Err(EntDbError::ConflitDossier(_))
+    ));
+    statut(&ent, &cast, &m, "fermee").await;
     assert_eq!(versions.len(), 2);
     assert!(versions.iter().any(|v| v.version == 1 && v.statut == "remplace"));
     assert!(versions.iter().any(|v| v.version == 2 && v.statut == "publie"));

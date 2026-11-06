@@ -262,10 +262,12 @@ pub struct PreparationEleveDto {
     /// Matières avec moyenne mais sans appréciation du professeur.
     pub appreciations_manquantes: Vec<String>,
     pub appreciation_generale: Option<String>,
-    pub absences: i64,
-    pub absences_non_justifiees: i64,
-    pub retards: i64,
-    pub sanctions: i64,
+    /// `None` : non communiqué (l'acteur ne suit pas l'élève en vie scolaire).
+    pub absences: Option<i64>,
+    pub absences_non_justifiees: Option<i64>,
+    pub retards: Option<i64>,
+    /// `None` : non communiqué (sans `suivi.eleve` sur l'élève).
+    pub sanctions: Option<i64>,
     pub decision: Option<DecisionConseilDto>,
     pub voeux: Vec<VoeuAvisDto>,
 }
