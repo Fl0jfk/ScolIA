@@ -23,8 +23,9 @@ mod discipline_vs;
 mod dossier;
 mod droits_moteur;
 mod edt;
-mod journee_vs;
+mod finances;
 mod inscriptions;
+mod journee_vs;
 mod referentiel;
 mod referentiel_admin;
 mod roles;
@@ -62,6 +63,8 @@ pub use ent_types::dossier::{
     PersonneBody, PersonneDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
+/// Types des finances (S2-9), partagés avec `ent-api`.
+pub use ent_types::finances as types_finances;
 /// Types des inscriptions (S2-3), partagés avec `ent-api`.
 pub use ent_types::inscriptions as types_inscriptions;
 pub use ent_types::referentiel::{

@@ -67,6 +67,16 @@ impl DroitsMoteur {
     pub fn peut_signaler_assiduite(&self) -> bool {
         self.a("assiduite.signaler")
     }
+
+    /// Consulter la comptabilité (la gestion implique la lecture, comme côté serveur).
+    pub fn peut_lire_facturation(&self) -> bool {
+        self.a_etablissement("facturation.lire") || self.a_etablissement("facturation.gerer")
+    }
+
+    /// Générer, émettre, prélever, relancer, exporter (S2-9).
+    pub fn peut_gerer_facturation(&self) -> bool {
+        self.a_etablissement("facturation.gerer")
+    }
 }
 
 #[cfg(test)]

@@ -27,6 +27,9 @@ pub const ROLES_GROUPES: &str = "/web/direction/roles/groupes";
 pub const INSCRIPTIONS: &str = "/web/inscriptions";
 pub const REINSCRIPTION: &str = "/web/reinscription";
 pub const PREINSCRIPTION: &str = "/web/preinscription";
+/// Finances (S2-9) : comptabilité (personnel) et factures des payeurs (familles).
+pub const COMPTABILITE: &str = "/web/comptabilite";
+pub const MES_FACTURES: &str = "/web/mes-factures";
 /// Fiche élève 360° : `/web/eleves/{id}` (S2-1).
 pub const ELEVES: &str = "/web/eleves";
 
@@ -86,9 +89,6 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if droits.messagerie {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
     }
-    if droits.gerer_roles {
-        v.push(entree("Rôles et droits", ROLES, NomIcone::Passkey));
-    }
     // S2-3 : mêmes profils que la gestion du référentiel (modèle par défaut
     // d'`inscriptions.gerer`) ; le serveur reste juge (rôles paramétrés).
     if droits.gerer_classes {
@@ -96,6 +96,15 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.portail_famille {
         v.push(entree("Réinscription", REINSCRIPTION, NomIcone::Ecole));
+        v.push(entree("Factures", MES_FACTURES, NomIcone::Annonce));
+    }
+    // S2-9 : comptabilité selon le moteur de droits (rôles paramétrés compris).
+    if moteur.peut_lire_facturation() {
+        v.push(entree("Comptabilité", COMPTABILITE, NomIcone::Salle));
+    }
+    // Administration des rôles : toujours en dernier.
+    if droits.gerer_roles {
+        v.push(entree("Rôles et droits", ROLES, NomIcone::Passkey));
     }
     v
 }
@@ -174,7 +183,7 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, ABSENCES, MESSAGES, REINSCRIPTION],
+            [ACCUEIL, ABSENCES, MESSAGES, REINSCRIPTION, MES_FACTURES],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
@@ -259,7 +268,13 @@ mod tests {
     #[test]
     fn famille_et_eleve_ne_voient_aucun_ecran_d_administration() {
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
-        assert_eq!(v, [ACCUEIL, ABSENCES, MESSAGES]);
+        assert_eq!(
+            v,
+            [ACCUEIL, ABSENCES, MESSAGES, REINSCRIPTION, MES_FACTURES]
+        );
+        // Un parent ne voit jamais la comptabilité, même si le moteur répondait par erreur.
+        let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
+        assert!(!v.contains(&COMPTABILITE.to_string()));
     }
 
     #[test]
@@ -286,6 +301,18 @@ mod tests {
             "/web/direction/roles/6f1c3c80"
         ));
         assert!(!ent_web_ui::lien_actif(ROLES, POLITIQUE_SECURITE));
+    }
+
+    #[test]
+    fn comptabilite_selon_le_moteur_de_droits() {
+        let lire = DroitsMoteur::new(vec![droit("facturation.lire", "etablissement")]);
+        let v = adresses(droits_du_role("administratif"), &lire);
+        assert!(v.contains(&COMPTABILITE.to_string()));
+        assert!(lire.peut_lire_facturation() && !lire.peut_gerer_facturation());
+        let gerer = DroitsMoteur::new(vec![droit("facturation.gerer", "etablissement")]);
+        assert!(gerer.peut_lire_facturation() && gerer.peut_gerer_facturation());
+        let v = adresses(droits_du_role("prof"), &DroitsMoteur::default());
+        assert!(!v.contains(&COMPTABILITE.to_string()));
     }
 
     #[test]
