@@ -563,6 +563,10 @@ impl PgFoyerRepo {
     }
 
     /// E-mails des responsables liés à l'élève (portail famille).
+    ///
+    /// Lit les coordonnées de la **personne** (D-020), qu'elle ait un compte ou non ; l'e-mail
+    /// du compte n'est qu'un repli quand la fiche n'en a pas. Respecte ses préférences
+    /// (`ent_personne_preference.canal_email`). Un parent sans compte reçoit donc ses messages.
     pub async fn emails_parents_eleve(
         &self,
         etablissement_id: Uuid,
@@ -570,12 +574,15 @@ impl PgFoyerRepo {
     ) -> Result<Vec<String>, DomainError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
-            SELECT DISTINCT u.email
+            SELECT DISTINCT lower(btrim(COALESCE(NULLIF(btrim(p.email), ''), NULLIF(btrim(u.email), '')))) AS adresse
             FROM ent_eleve_lien_actif l
-            JOIN ent_user u ON u.id = l.user_id
+            JOIN ent_personne p ON p.id = l.personne_id AND p.etablissement_id = l.etablissement_id
+            LEFT JOIN ent_user u ON u.id = p.user_id
+            LEFT JOIN ent_personne_preference pr ON pr.personne_id = p.id
             WHERE l.etablissement_id = $1 AND l.eleve_id = $2
-              AND u.email IS NOT NULL AND trim(u.email) <> ''
-            ORDER BY u.email
+              AND COALESCE(pr.canal_email, true)
+              AND COALESCE(NULLIF(btrim(p.email), ''), NULLIF(btrim(u.email), '')) IS NOT NULL
+            ORDER BY adresse
             "#,
         )
         .bind(etablissement_id)
@@ -586,7 +593,8 @@ impl PgFoyerRepo {
         Ok(rows.into_iter().map(|(e,)| e).collect())
     }
 
-    /// Téléphones des responsables liés (SMS).
+    /// Téléphones des responsables liés (SMS) : fiche de la personne d'abord, compte en repli,
+    /// préférences respectées (`canal_sms`).
     pub async fn telephones_parents_eleve(
         &self,
         etablissement_id: Uuid,
@@ -594,12 +602,15 @@ impl PgFoyerRepo {
     ) -> Result<Vec<String>, DomainError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
-            SELECT DISTINCT u.telephone
+            SELECT DISTINCT COALESCE(NULLIF(btrim(p.telephone), ''), NULLIF(btrim(u.telephone), '')) AS numero
             FROM ent_eleve_lien_actif l
-            JOIN ent_user u ON u.id = l.user_id
+            JOIN ent_personne p ON p.id = l.personne_id AND p.etablissement_id = l.etablissement_id
+            LEFT JOIN ent_user u ON u.id = p.user_id
+            LEFT JOIN ent_personne_preference pr ON pr.personne_id = p.id
             WHERE l.etablissement_id = $1 AND l.eleve_id = $2
-              AND u.telephone IS NOT NULL AND trim(u.telephone) <> ''
-            ORDER BY u.telephone
+              AND COALESCE(pr.canal_sms, true)
+              AND COALESCE(NULLIF(btrim(p.telephone), ''), NULLIF(btrim(u.telephone), '')) IS NOT NULL
+            ORDER BY numero
             "#,
         )
         .bind(etablissement_id)

@@ -101,6 +101,40 @@ pub struct LienBody {
     pub peut_autoriser_sorties: bool,
 }
 
+/// Corps de `POST /dossier/eleves/{id}/responsables/ajout` : commande unique « ajouter un
+/// responsable » (socle 4, lot A0). Soit `nouvelle_personne` (la personne est créée avec son lien
+/// dans une seule transaction), soit `lien.personne_id` (personne existante) ; jamais les deux.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AjoutResponsableBody {
+    #[serde(default)]
+    pub nouvelle_personne: Option<PersonneBody>,
+    pub lien: LienBody,
+}
+
+/// Réponse `202 Accepted` quand la personne désignée **a un compte** : le lien est en attente de
+/// sa confirmation, il n'ouvre aucun accès.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LienEnAttenteDto {
+    pub en_attente: bool,
+    pub attente_id: Uuid,
+}
+
+/// Lien en attente vu par la personne concernée (minimisé : prénom et initiale de l'élève).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonLienEnAttenteDto {
+    pub id: Uuid,
+    pub eleve_prenom: String,
+    pub eleve_initiale: String,
+    pub lien: String,
+    pub demande_le: DateTime<Utc>,
+}
+
+/// Corps de `POST /dossier/mes-liens-en-attente/{id}/reponse`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReponseLienBody {
+    pub accepter: bool,
+}
+
 /// Corps de `POST /dossier/liens/{id}/suspendre`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SuspensionBody {

@@ -646,6 +646,11 @@ async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
     tx.commit().await.map_err(db)
 }
 
+// Ports du socle 4 (lot A0)
+#[path = "dossier_personnes_ports.rs"]
+mod ports;
+pub use ports::*;
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -1329,108 +1334,6 @@ impl PgEnt {
     }
 
     // -- Liens de responsabilité ------------------------------------------
-
-    /// DOS-05 : lier une personne à un élève (lien, autorité, garde, dates, droits).
-    pub async fn lier_personne_for_actor(
-        &self,
-        etab: Uuid,
-        actor: Uuid,
-        role: &str,
-        eleve_id: Uuid,
-        saisie: &LienSaisie,
-    ) -> Result<Responsable, EntDbError> {
-        self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
-            .await?;
-        self.dossier_exiger_eleve(etab, eleve_id).await?;
-        let (lien, garde) = saisie.valider()?;
-        let personne_id = saisie
-            .personne_id
-            .ok_or(invalide("personne à lier obligatoire"))?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
-        let p = personne_tx(&mut tx, etab, personne_id, true)
-            .await?
-            .ok_or(EntDbError::Domain(DomainError::NotFound))?;
-        if p.fusionnee_dans.is_some() {
-            return Err(EntDbError::ConflitDossier("personne fusionnée dans une autre fiche"));
-        }
-        // L'élève majeur lié à lui-même : sans autorité parentale, sans droit
-        // de famille (ses accès viennent de son compte élève).
-        let soi_meme = p.eleve_id.is_some();
-        if soi_meme && (p.eleve_id != Some(eleve_id) || lien != LIEN_ELEVE_MAJEUR) {
-            return Err(invalide("la fiche d'un élève ne se lie qu'à lui-même"));
-        }
-        if !soi_meme && lien == LIEN_ELEVE_MAJEUR {
-            return Err(invalide("lien réservé à l'élève majeur"));
-        }
-        if let Some(f) = saisie.foyer_id {
-            self.exiger_foyer_tx(&mut tx, etab, f).await?;
-        }
-        let id = Uuid::new_v4();
-        let r = sqlx::query(
-            "INSERT INTO ent_eleve_lien (
-                 id, etablissement_id, eleve_id, personne_id, foyer_id, lien,
-                 autorite_parentale, garde, date_debut, date_fin,
-                 peut_voir_notes, peut_voir_vs, peut_justifier_absence, peut_autoriser_sorties,
-                 est_payeur, part_paiement, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,false,NULL,now(),now())",
-        )
-        .bind(id)
-        .bind(etab)
-        .bind(eleve_id)
-        .bind(personne_id)
-        .bind(saisie.foyer_id)
-        .bind(&lien)
-        .bind(saisie.autorite_parentale && !soi_meme)
-        .bind(&garde)
-        .bind(saisie.date_debut)
-        .bind(saisie.date_fin)
-        .bind(saisie.peut_voir_notes && !soi_meme)
-        .bind(saisie.peut_voir_vs && !soi_meme)
-        .bind(saisie.peut_justifier_absence && !soi_meme)
-        .bind(saisie.peut_autoriser_sorties && !soi_meme)
-        .execute(&mut *tx)
-        .await;
-        if let Err(e) = r {
-            let d = map_sqlx("dossier_personnes", e);
-            return Err(if d == DomainError::Conflit {
-                EntDbError::ConflitDossier("cette personne est déjà liée à l'élève")
-            } else {
-                EntDbError::Domain(d)
-            });
-        }
-        let payload = json!({
-            "lien_id": id, "personne_id": personne_id, "autorite_parentale": saisie.autorite_parentale && !soi_meme,
-            "droits": {
-                "notes": saisie.peut_voir_notes && !soi_meme, "vs": saisie.peut_voir_vs && !soi_meme,
-                "justifier": saisie.peut_justifier_absence && !soi_meme,
-                "sorties": saisie.peut_autoriser_sorties && !soi_meme,
-            }
-        });
-        journal_tx(
-            &mut tx,
-            etab,
-            Some(eleve_id),
-            "lien_cree",
-            "Responsable lié à l'élève",
-            payload.clone(),
-            false,
-            actor,
-        )
-        .await?;
-        publier_tx(
-            &mut tx,
-            etab,
-            types::ELEVE_LIEN_UPDATED,
-            AggregateKind::Eleve,
-            eleve_id,
-            Some(eleve_id),
-            payload,
-            actor,
-        )
-        .await?;
-        commit(tx).await?;
-        self.responsable_par_lien(etab, id).await
-    }
 
     async fn exiger_foyer_tx(
         &self,

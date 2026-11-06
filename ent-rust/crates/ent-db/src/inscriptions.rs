@@ -38,7 +38,7 @@ use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::champs_chiffres::ChampsSensibles;
-use crate::dossier_personnes::PersonneSaisie;
+use crate::dossier_personnes::{self, PersonneSaisie};
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
@@ -385,16 +385,38 @@ struct ResponsableRow {
     personne_id: Option<Uuid>,
 }
 
-#[derive(Default, Clone)]
-struct PlanResponsable {
-    personne: Option<Uuid>,
-    foyer: Option<Uuid>,
+impl ResponsableRow {
+    /// Déclaration remise au socle 4 (le premier responsable est payeur à 100 %, comme avant).
+    fn declaration(&self) -> dossier_personnes::DeclarationResponsable {
+        dossier_personnes::DeclarationResponsable {
+            cle: self.id,
+            rang: self.rang,
+            nom: self.nom.clone(),
+            prenom: self.prenom.clone(),
+            civilite: self.civilite.clone(),
+            email: self.email.clone(),
+            telephone: self.telephone.clone(),
+            adresse: self.adresse.clone(),
+            lien: self.lien.clone(),
+            meme_foyer: self.meme_foyer,
+            autorite_parentale: self.autorite_parentale,
+            droits: dossier_personnes::DroitsDeclares {
+                notes: false,
+                vs: false,
+                justifier: false,
+                sorties: false,
+            },
+            payeur: self.rang == 1,
+            part_paiement: if self.rang == 1 { Some(100) } else { None },
+        }
+    }
 }
 
 #[derive(Default)]
 struct PlanRapprochement {
     eleve_existant: Option<Uuid>,
-    responsables: Vec<(Uuid, PlanResponsable)>,
+    /// Choix humains, transmis tels quels au port `integrer_declaration` du socle 4.
+    resolutions: Vec<dossier_personnes::Resolution>,
 }
 
 struct DroitsLien {
@@ -1745,7 +1767,6 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 payeurs = Self::rattacher_responsables_tx(
                     &mut tx,
                     etab,
-                    id,
                     eleve_id,
                     &responsables,
                     &plan,
@@ -1864,56 +1885,33 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             .collect())
     }
 
-    /// Personnes de l'établissement qui pourraient être ce responsable (même e-mail,
-    /// ou même nom et prénom), avec leurs foyers. Lecture seule : jamais de lien implicite.
+    /// Personnes de l'établissement qui pourraient être ce responsable : lecture du port
+    /// `correspondances` du socle 4 (jamais de lien implicite).
     async fn candidats_personne_tx(
         conn: &mut PgConnection,
         etab: Uuid,
         r: &ResponsableRow,
     ) -> Result<Vec<PersonneCandidateDto>, EntDbError> {
-        let rows: Vec<(Uuid, String, Option<String>, Option<String>, bool, bool)> = sqlx::query_as(
-            "SELECT p.id, p.nom, p.prenom, p.email, (p.user_id IS NOT NULL),
-                    ($2::text IS NOT NULL AND lower(p.email) = lower($2)) AS par_email
-               FROM ent_personne p
-              WHERE p.etablissement_id = $1 AND p.fusionnee_dans IS NULL AND p.eleve_id IS NULL
-                AND (($2::text IS NOT NULL AND lower(p.email) = lower($2))
-                     OR ($4::text IS NOT NULL AND lower(p.nom) = lower($3)
-                         AND lower(p.prenom) = lower($4)))
-              ORDER BY par_email DESC, p.created_at LIMIT 10",
-        )
-        .bind(etab)
-        .bind(&r.email)
-        .bind(&r.nom)
-        .bind(&r.prenom)
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(db)?;
-        let mut out = Vec::new();
-        for (personne_id, nom, prenom, email, a_un_compte, par_email) in rows {
-            let foyers: Vec<(Uuid, String)> = sqlx::query_as(
-                "SELECT DISTINCT f.id, f.libelle FROM ent_eleve_lien l
-                   JOIN ent_foyer f ON f.id = l.foyer_id AND f.etablissement_id = l.etablissement_id
-                  WHERE l.etablissement_id = $1 AND l.personne_id = $2",
-            )
-            .bind(etab)
-            .bind(personne_id)
-            .fetch_all(&mut *conn)
-            .await
-            .map_err(db)?;
-            out.push(PersonneCandidateDto {
-                personne_id,
-                nom,
-                prenom,
-                email_masque: email.as_deref().map(masquer_email),
-                raison: if par_email { "email" } else { "nom" }.into(),
-                a_un_compte,
-                foyers: foyers
+        let cands = dossier_personnes::correspondances_tx(conn, etab, &r.declaration()).await?;
+        Ok(cands
+            .into_iter()
+            .map(|c| PersonneCandidateDto {
+                personne_id: c.personne_id,
+                nom: c.nom,
+                prenom: c.prenom,
+                email_masque: c.email_masque,
+                raison: c.raison.into(),
+                a_un_compte: c.a_un_compte,
+                foyers: c
+                    .foyers
                     .into_iter()
-                    .map(|(foyer_id, libelle)| FoyerCandidatDto { foyer_id, libelle })
+                    .map(|f| FoyerCandidatDto {
+                        foyer_id: f.foyer_id,
+                        libelle: f.libelle,
+                    })
                     .collect(),
-            });
-        }
-        Ok(out)
+            })
+            .collect())
     }
 
     /// Correspondances possibles d'un dossier (écran de validation) — droit `decider`.
@@ -2024,77 +2022,25 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 return Err(invalide("responsable inconnu dans ce dossier"));
             }
         }
-        let mut deja: Vec<Uuid> = vec![];
-        for r in responsables {
-            let res = b.responsables.iter().find(|x| x.responsable_id == r.id);
-            let cands = Self::candidats_personne_tx(conn, etab, r).await?;
-            let mut p = PlanResponsable::default();
-            match res {
-                None if !cands.is_empty() => {
-                    return Err(conflit(
-                        "rapprochement à confirmer : une personne correspond à un responsable du dossier",
-                    ))
-                }
-                None => {}
-                Some(x) => {
-                    if let ChoixPersonne::Existante { personne_id } = &x.personne {
-                        let ok: Option<(Uuid,)> = sqlx::query_as(
-                            "SELECT id FROM ent_personne
-                              WHERE etablissement_id = $1 AND id = $2
-                                AND fusionnee_dans IS NULL AND eleve_id IS NULL",
-                        )
-                        .bind(etab)
-                        .bind(personne_id)
-                        .fetch_optional(&mut *conn)
-                        .await
-                        .map_err(db)?;
-                        ok.ok_or(EntDbError::Domain(DomainError::ReferenceInconnue))?;
-                        if deja.contains(personne_id) {
-                            return Err(conflit(
-                                "une même personne ne peut pas être choisie pour deux responsables",
-                            ));
-                        }
-                        deja.push(*personne_id);
-                        p.personne = Some(*personne_id);
-                        let (foyers,): (i64,) = sqlx::query_as(
-                            "SELECT count(DISTINCT foyer_id) FROM ent_eleve_lien
-                              WHERE etablissement_id = $1 AND personne_id = $2 AND foyer_id IS NOT NULL",
-                        )
-                        .bind(etab)
-                        .bind(personne_id)
-                        .fetch_one(&mut *conn)
-                        .await
-                        .map_err(db)?;
-                        if foyers > 0 && x.foyer.is_none() {
-                            return Err(conflit(
-                                "foyer à confirmer : cette personne appartient déjà à un foyer",
-                            ));
-                        }
+        // Les contrôles de rapprochement (correspondance sans choix, foyer à confirmer, personne
+        // choisie deux fois…) sont ceux du port `integrer_declaration` : ils tournent dans la même
+        // transaction que l'écriture, donc tout échoue ensemble.
+        for res in &b.responsables {
+            plan.resolutions.push(dossier_personnes::Resolution {
+                cle: res.responsable_id,
+                personne: Some(match &res.personne {
+                    ChoixPersonne::Nouvelle => dossier_personnes::ResolutionPersonne::NouvellePersonne,
+                    ChoixPersonne::Existante { personne_id } => {
+                        dossier_personnes::ResolutionPersonne::MemePersonne(*personne_id)
                     }
-                    if let Some(ChoixFoyer::Existant { foyer_id }) = &x.foyer {
-                        // Le foyer doit être un foyer de la personne rapprochée : jamais le foyer
-                        // d'une autre famille (mandat, payeurs).
-                        let ChoixPersonne::Existante { personne_id } = &x.personne else {
-                            return Err(conflit(
-                                "un foyer existant ne se choisit que pour une personne existante",
-                            ));
-                        };
-                        let ok: Option<(Uuid,)> = sqlx::query_as(
-                            "SELECT foyer_id FROM ent_eleve_lien
-                              WHERE etablissement_id = $1 AND personne_id = $2 AND foyer_id = $3 LIMIT 1",
-                        )
-                        .bind(etab)
-                        .bind(personne_id)
-                        .bind(foyer_id)
-                        .fetch_optional(&mut *conn)
-                        .await
-                        .map_err(db)?;
-                        ok.ok_or(conflit("ce foyer n'est pas celui de la personne choisie"))?;
-                        p.foyer = Some(*foyer_id);
+                }),
+                foyer: res.foyer.as_ref().map(|f| match f {
+                    ChoixFoyer::Nouveau => dossier_personnes::ResolutionFoyer::NouveauFoyer,
+                    ChoixFoyer::Existant { foyer_id } => {
+                        dossier_personnes::ResolutionFoyer::MemeFoyer(*foyer_id)
                     }
-                }
-            }
-            plan.responsables.push((r.id, p));
+                }),
+            });
         }
         Ok(plan)
     }
@@ -2175,222 +2121,52 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         Ok(eleve_id)
     }
 
-    /// Personnes (nouvelles, ou rapprochées sur choix humain), foyers (existant confirmé
-    /// ou nouveau) et liens. Un lien vers une personne qui a déjà un compte reste
-    /// **en attente** jusqu'à sa confirmation. Renvoie les personnes payeuses.
+    /// Personnes, foyers et liens : **une seule commande du socle 4**
+    /// (`integrer_declaration_tx`), dans la transaction de la validation. Un lien vers une
+    /// personne qui a déjà un compte reste en attente de sa confirmation. Renvoie les personnes
+    /// payeuses.
     async fn rattacher_responsables_tx(
         conn: &mut PgConnection,
         etab: Uuid,
-        dossier_id: Uuid,
         eleve_id: Uuid,
         responsables: &[ResponsableRow],
         plan: &PlanRapprochement,
         actor: Uuid,
     ) -> Result<Vec<Uuid>, EntDbError> {
-        let mut foyer_principal: Option<Uuid> = None;
-        let mut payeurs = Vec::new();
+        let mut declarations = Vec::new();
         for r in responsables {
-            let choix = plan
-                .responsables
-                .iter()
-                .find(|(id, _)| *id == r.id)
-                .map(|(_, p)| p.clone())
-                .unwrap_or_default();
-            let (personne_id, a_un_compte) = match choix.personne {
-                Some(p) => {
-                    let (compte,): (bool,) = sqlx::query_as(
-                        "SELECT user_id IS NOT NULL FROM ent_personne WHERE etablissement_id = $1 AND id = $2",
-                    )
-                    .bind(etab)
-                    .bind(p)
-                    .fetch_one(&mut *conn)
-                    .await
-                    .map_err(db)?;
-                    (p, compte)
-                }
-                None => {
-                    let p = Uuid::new_v4();
-                    sqlx::query(
-                        "INSERT INTO ent_personne (id, etablissement_id, nom, prenom, civilite, email,
-                                                   telephone, adresse, source)
-                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'preinscription')",
-                    )
-                    .bind(p)
-                    .bind(etab)
-                    .bind(&r.nom)
-                    .bind(&r.prenom)
-                    .bind(&r.civilite)
-                    .bind(&r.email)
-                    .bind(&r.telephone)
-                    .bind(&r.adresse)
-                    .execute(&mut *conn)
-                    .await
-                    .map_err(db)?;
-                    publier(
-                        conn,
-                        etab,
-                        types::PERSONNE_CREEE,
-                        AggregateKind::Personne,
-                        p,
-                        None,
-                        json!({ "personne_id": p, "source": "preinscription" }),
-                        Some(actor),
-                    )
-                    .await?;
-                    (p, false)
-                }
+            let mut d = r.declaration();
+            let droits = Self::droits_lien_tx(conn, etab, &r.lien, r.autorite_parentale).await?;
+            d.droits = dossier_personnes::DroitsDeclares {
+                notes: droits.notes,
+                vs: droits.vs,
+                justifier: droits.justifier,
+                sorties: droits.sorties,
             };
-            // Foyer : celui confirmé par l'humain (fratrie), sinon le foyer du déposant
-            // pour un second parent « même foyer », sinon un nouveau foyer.
-            let foyer = if let Some(f) = choix.foyer {
-                f
-            } else if r.rang != 1 && r.meme_foyer && foyer_principal.is_some() {
-                foyer_principal.unwrap_or_default()
-            } else {
-                let f = Uuid::new_v4();
-                sqlx::query(
-                    "INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1,$2,$3)",
-                )
-                .bind(f)
-                .bind(etab)
-                .bind(format!("Foyer {}", r.nom.to_uppercase()))
-                .execute(&mut *conn)
-                .await
-                .map_err(db)?;
-                f
-            };
-            if foyer_principal.is_none() {
-                foyer_principal = Some(foyer);
-            }
+            declarations.push(d);
+        }
+        let resultat = dossier_personnes::integrer_declaration_tx(
+            conn,
+            etab,
+            eleve_id,
+            &declarations,
+            &plan.resolutions,
+            dossier_personnes::SourceLien::Inscription,
+            actor,
+        )
+        .await?;
+        for r in &resultat.responsables {
             sqlx::query(
                 "UPDATE ent_inscription_responsable SET personne_id = $3 WHERE etablissement_id = $1 AND id = $2",
             )
             .bind(etab)
-            .bind(r.id)
-            .bind(personne_id)
+            .bind(r.cle)
+            .bind(r.personne_id)
             .execute(&mut *conn)
             .await
             .map_err(db)?;
-            // Fiche élève existante déjà liée à cette personne : rien à créer.
-            let (existe,): (bool,) = sqlx::query_as(
-                "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien
-                                 WHERE etablissement_id = $1 AND eleve_id = $2 AND personne_id = $3)",
-            )
-            .bind(etab)
-            .bind(eleve_id)
-            .bind(personne_id)
-            .fetch_one(&mut *conn)
-            .await
-            .map_err(db)?;
-            if existe {
-                continue;
-            }
-            let payeur = r.rang == 1;
-            let part = if payeur { Some(100_i16) } else { None };
-            let droits = Self::droits_lien_tx(conn, etab, &r.lien, r.autorite_parentale).await?;
-            if a_un_compte {
-                // Jamais d'accès sans confirmation de la personne titulaire du compte.
-                sqlx::query(
-                    "INSERT INTO ent_inscription_lien_attente
-                        (id, etablissement_id, dossier_id, responsable_id, eleve_id, personne_id, foyer_id,
-                         lien, autorite_parentale, peut_voir_notes, peut_voir_vs, peut_justifier_absence,
-                         peut_autoriser_sorties, est_payeur, part_paiement)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-                     ON CONFLICT (dossier_id, responsable_id) DO NOTHING",
-                )
-                .bind(Uuid::new_v4())
-                .bind(etab)
-                .bind(dossier_id)
-                .bind(r.id)
-                .bind(eleve_id)
-                .bind(personne_id)
-                .bind(foyer)
-                .bind(&r.lien)
-                .bind(r.autorite_parentale)
-                .bind(droits.notes)
-                .bind(droits.vs)
-                .bind(droits.justifier)
-                .bind(droits.sorties)
-                .bind(payeur)
-                .bind(part)
-                .execute(&mut *conn)
-                .await
-                .map_err(db)?;
-            } else {
-                Self::creer_lien_tx(
-                    conn,
-                    etab,
-                    eleve_id,
-                    personne_id,
-                    foyer,
-                    &r.lien,
-                    r.autorite_parentale,
-                    &droits,
-                    payeur,
-                    part,
-                    actor,
-                    "inscription",
-                )
-                .await?;
-            }
-            if payeur {
-                payeurs.push(personne_id);
-            }
         }
-        Ok(payeurs)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn creer_lien_tx(
-        conn: &mut PgConnection,
-        etab: Uuid,
-        eleve_id: Uuid,
-        personne_id: Uuid,
-        foyer: Uuid,
-        lien: &str,
-        autorite: bool,
-        droits: &DroitsLien,
-        payeur: bool,
-        part: Option<i16>,
-        actor: Uuid,
-        source: &str,
-    ) -> Result<(), EntDbError> {
-        sqlx::query(
-            "INSERT INTO ent_eleve_lien (
-                 id, etablissement_id, eleve_id, personne_id, foyer_id, lien, autorite_parentale,
-                 peut_voir_notes, peut_voir_vs, peut_justifier_absence, peut_autoriser_sorties,
-                 est_payeur, part_paiement, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
-             ON CONFLICT (etablissement_id, eleve_id, personne_id) DO NOTHING",
-        )
-        .bind(Uuid::new_v4())
-        .bind(etab)
-        .bind(eleve_id)
-        .bind(personne_id)
-        .bind(foyer)
-        .bind(lien)
-        .bind(autorite)
-        .bind(droits.notes)
-        .bind(droits.vs)
-        .bind(droits.justifier)
-        .bind(droits.sorties)
-        .bind(payeur)
-        .bind(part)
-        .execute(&mut *conn)
-        .await
-        .map_err(db)?;
-        publier(
-            conn,
-            etab,
-            types::ELEVE_LIEN_UPDATED,
-            AggregateKind::Eleve,
-            eleve_id,
-            Some(eleve_id),
-            json!({ "personne_id": personne_id, "autorite_parentale": autorite, "source": source }),
-            Some(actor),
-        )
-        .await?;
-        Ok(())
+        Ok(resultat.personnes_payeuses())
     }
 
     // -- Préinscription : vérification (anti-énumération) --------------------
@@ -3472,81 +3248,20 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                 return Err(conflit("cette fiche vient d'être rattachée à un compte"));
             }
         }
-        // Liens en attente de CETTE invitation : actifs seulement maintenant.
-        let attente: Vec<(
-            Uuid,
-            Uuid,
-            Option<Uuid>,
-            String,
-            bool,
-            bool,
-            bool,
-            bool,
-            bool,
-            bool,
-            Option<i16>,
-        )> = sqlx::query_as(
-            "SELECT id, eleve_id, foyer_id, lien, autorite_parentale, peut_voir_notes, peut_voir_vs,
-                    peut_justifier_absence, peut_autoriser_sorties, est_payeur, part_paiement
-               FROM ent_inscription_lien_attente
-              WHERE etablissement_id = $1 AND personne_id = $2 AND responsable_id = $3
-                AND statut = 'en_attente' FOR UPDATE",
+        // Liens en attente de CETTE invitation : actifs seulement maintenant, par la commande
+        // de confirmation du socle 4.
+        dossier_personnes::confirmer_liens_attente_tx(
+            &mut tx,
+            etab,
+            personne_id,
+            &dossier_personnes::FiltreAttente {
+                source: Some(dossier_personnes::SourceLien::Inscription),
+                source_ref: Some(responsable_id),
+                ..Default::default()
+            },
+            user_id,
         )
-        .bind(etab)
-        .bind(personne_id)
-        .bind(responsable_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        for (id, eleve_id, foyer, lien, autorite, notes, vs, justifier, sorties, payeur, part) in
-            attente
-        {
-            let foyer = match foyer {
-                Some(f) => f,
-                None => {
-                    let f = Uuid::new_v4();
-                    sqlx::query(
-                        "INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1,$2,$3)",
-                    )
-                    .bind(f)
-                    .bind(etab)
-                    .bind(format!("Foyer {}", nom.to_uppercase()))
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                    f
-                }
-            };
-            Self::creer_lien_tx(
-                &mut tx,
-                etab,
-                eleve_id,
-                personne_id,
-                foyer,
-                &lien,
-                autorite,
-                &DroitsLien {
-                    notes,
-                    vs,
-                    justifier,
-                    sorties,
-                },
-                payeur,
-                part,
-                user_id,
-                "confirmation_responsable",
-            )
-            .await?;
-            sqlx::query(
-                "UPDATE ent_inscription_lien_attente SET statut = 'confirme', decide_le = now()
-                  WHERE etablissement_id = $1 AND id = $2",
-            )
-            .bind(etab)
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-        }
+        .await?;
         sqlx::query(
             "UPDATE ent_inscription_invitation SET statut = 'acceptee', accepte_le = now(), user_id = $2 WHERE id = $1 AND etablissement_id = $3",
         )
@@ -3698,34 +3413,41 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .map_err(db)?;
         let (inv_id, personne_id, responsable_id) =
             inv.ok_or(invalide("invitation invalide ou expirée"))?;
-        sqlx::query(
-            "UPDATE ent_inscription_lien_attente SET statut = 'refuse', decide_le = now()
-              WHERE etablissement_id = $1 AND personne_id = $2 AND responsable_id = $3
-                AND statut = 'en_attente'",
+        dossier_personnes::refuser_liens_attente_tx(
+            &mut tx,
+            etab,
+            personne_id,
+            &dossier_personnes::FiltreAttente {
+                source: Some(dossier_personnes::SourceLien::Inscription),
+                source_ref: Some(responsable_id),
+                ..Default::default()
+            },
+            personne_id,
         )
-        .bind(etab)
-        .bind(personne_id)
-        .bind(responsable_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
+        .await?;
         // Lien déjà actif (personne sans compte au moment de la validation) : suspendu, pour
         // qu'il ne s'active jamais avec un compte ouvert plus tard sur cette fiche.
-        sqlx::query(
-            "UPDATE ent_eleve_lien l SET suspendu_le = now(), updated_at = now(),
-                    suspension_motif = 'Refus du responsable désigné (invitation)'
-              WHERE l.etablissement_id = $1 AND l.personne_id = $2 AND l.suspendu_le IS NULL
-                AND l.eleve_id = (SELECT eleve_id FROM ent_inscription_dossier d
-                                   WHERE d.etablissement_id = $1
-                                     AND d.id = (SELECT dossier_id FROM ent_inscription_invitation
-                                                  WHERE id = $3 AND etablissement_id = $1))",
+        let dossier: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT d.eleve_id FROM ent_inscription_invitation i
+               JOIN ent_inscription_dossier d ON d.id = i.dossier_id AND d.etablissement_id = i.etablissement_id
+              WHERE i.id = $1 AND i.etablissement_id = $2 AND d.eleve_id IS NOT NULL",
         )
-        .bind(etab)
-        .bind(personne_id)
         .bind(inv_id)
-        .execute(&mut *tx)
+        .bind(etab)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
+        if let Some((eleve_id,)) = dossier {
+            dossier_personnes::suspendre_lien_personne_tx(
+                &mut tx,
+                etab,
+                personne_id,
+                eleve_id,
+                "Refus du responsable désigné (invitation)",
+                personne_id,
+            )
+            .await?;
+        }
         sqlx::query(
             "UPDATE ent_inscription_invitation SET statut = 'refusee' WHERE id = $1 AND etablissement_id = $2",
         )

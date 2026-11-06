@@ -168,6 +168,7 @@ pub use referentiel_structure::{
     NIVEAUX_NATIONAUX,
 };
 pub use dossier_personnes::{
+    AjoutResponsable, LienEnAttente, LienResultat,
     ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
 };
@@ -219,6 +220,8 @@ mod tests_sso_securite;
 mod tests_outbox;
 #[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]

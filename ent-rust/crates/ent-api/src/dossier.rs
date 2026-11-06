@@ -7,14 +7,15 @@
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use ent_db::{
-    ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne, LienSaisie,
-    Personne, PersonneSaisie, PersonneTrouvee, Responsable,
+    ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne, LienResultat,
+    LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable,
 };
 use ent_types::dossier::{
-    ActionFicheDto, CompteBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto,
+    ActionFicheDto, AjoutResponsableBody, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody, CompteBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto,
     FicheEleveDto, FusionBody, FusionDto, LienBody, PayeursBody, PersonneBody, PersonneDto,
     PersonneTrouveeDto, ResponsableDto, ResumeSectionsDto, SectionsDto, SuspensionBody,
 };
@@ -34,6 +35,12 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/dossier/eleves/{id}/responsables",
             get(responsables).post(lier),
+        )
+        .route("/dossier/eleves/{id}/responsables/ajout", post(ajouter_responsable))
+        .route("/dossier/mes-liens-en-attente", get(mes_liens_en_attente))
+        .route(
+            "/dossier/mes-liens-en-attente/{id}/reponse",
+            post(repondre_lien_en_attente),
         )
         .route("/dossier/eleves/{id}/payeurs", put(payeurs))
         .route("/dossier/eleves/{id}/contacts", get(contacts).post(ajouter_contact))
@@ -409,7 +416,7 @@ async fn lier(
     session: EntSession,
     Path(id): Path<Uuid>,
     Json(b): Json<LienBody>,
-) -> Res<(StatusCode, Json<ResponsableDto>)> {
+) -> Res<Response> {
     let r = state
         .ent
         .lier_personne_for_actor(
@@ -421,7 +428,83 @@ async fn lier(
         )
         .await
         .map_err(map_db)?;
-    Ok((StatusCode::CREATED, Json(responsable_dto(r))))
+    Ok(reponse_lien(r))
+}
+
+/// Commande unique : personne (nouvelle ou existante) + lien, une seule transaction.
+async fn ajouter_responsable(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<AjoutResponsableBody>,
+) -> Res<Response> {
+    let r = state
+        .ent
+        .ajouter_responsable_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &ent_db::AjoutResponsable {
+                nouvelle_personne: b.nouvelle_personne.map(saisie_personne),
+                lien: saisie_lien(b.lien),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(reponse_lien(r))
+}
+
+/// 201 + responsable (lien actif) ; 202 + `LienEnAttenteDto` (personne avec compte : invitation).
+fn reponse_lien(r: LienResultat) -> Response {
+    match r {
+        LienResultat::Actif(r) => (StatusCode::CREATED, Json(responsable_dto(*r))).into_response(),
+        LienResultat::EnAttente { attente_id, .. } => (
+            StatusCode::ACCEPTED,
+            Json(LienEnAttenteDto {
+                en_attente: true,
+                attente_id,
+            }),
+        )
+            .into_response(),
+    }
+}
+
+/// Liens que le personnel a demandés à la personne connectée (elle seule peut les confirmer).
+async fn mes_liens_en_attente(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Res<Json<Vec<MonLienEnAttenteDto>>> {
+    let v = state
+        .ent
+        .mes_liens_en_attente(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        v.into_iter()
+            .map(|l| MonLienEnAttenteDto {
+                id: l.id,
+                eleve_prenom: l.eleve_prenom,
+                eleve_initiale: l.eleve_initiale,
+                lien: l.lien,
+                demande_le: l.demande_le,
+            })
+            .collect(),
+    ))
+}
+
+async fn repondre_lien_en_attente(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ReponseLienBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .repondre_lien_en_attente(session.etablissement_id, session.user_id, id, b.accepter)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn modifier_lien(

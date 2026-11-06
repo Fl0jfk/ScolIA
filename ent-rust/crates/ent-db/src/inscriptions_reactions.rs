@@ -332,8 +332,9 @@ async fn inviter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
            JOIN ent_inscription_dossier d ON d.id = r.dossier_id AND d.etablissement_id = r.etablissement_id
            JOIN ent_personne p ON p.id = r.personne_id AND p.etablissement_id = r.etablissement_id
            LEFT JOIN ent_user u ON u.id = p.user_id
-           LEFT JOIN ent_inscription_lien_attente la
-                  ON la.dossier_id = r.dossier_id AND la.responsable_id = r.id AND la.statut = 'en_attente'
+           LEFT JOIN ent_lien_attente la
+                  ON la.etablissement_id = r.etablissement_id AND la.source = 'inscription'
+                 AND la.source_ref = r.id AND la.statut = 'en_attente'
           WHERE r.etablissement_id = $1 AND r.dossier_id = $2 AND d.statut = 'validee'
             AND ((r.email IS NOT NULL AND p.user_id IS NULL) OR la.id IS NOT NULL)
           ORDER BY r.rang",
