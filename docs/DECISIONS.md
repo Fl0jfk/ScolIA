@@ -268,3 +268,10 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
 - **Décision :** (1) une **personne** (responsable, contact) existe indépendamment d'un **compte** de connexion : parent sans e-mail, parents séparés (D-014), élève majeur ; (2) les absences sont enregistrées **à la séance**, les demi-journées sont dérivées automatiquement (décompte réglementaire).
 - **Impacts :** lots S2-1 (dossier élève et personnes) et S2-4 (vie scolaire complète) ; migrations additives avec reprise de l'existant.
 
+
+## D-021 — Construction par socles séquentiels profonds, l'élève d'abord
+
+- **Date :** 2026-11-06 — **Validateur :** Florian
+- **Décision :** l'ENT se construit **socle par socle** (40 à 50 socles, carte établie par nous dans `docs/SOCLES.md`), chaque socle étant un domaine gros et profond : beaucoup de tables et d'actions métier, tout modifiable avec historique, tout relié aux autres, distinction paramétrage logiciel / paramétrage établissement. Ordre de départ : socle 1 sécurité (fait), **socle 2 l'élève** (base du modèle), **socle 3 inscriptions et réinscriptions**, **socle 4 dossier administratif** (foyers, responsables, parents séparés, coordonnées, identifiants officiels comme l'INE venu de SIECLE), puis les autres (notes, vie scolaire, facturation, comptabilité, paie, sorties, messagerie, cahier de textes, espaces de travail, visio…).
+- **Méthode :** pour chaque socle, une réflexion de fond sur Opus, en autonomie (Florian ne liste pas les actions), écrite dans `docs/socles/` ; puis le code par une équipe Sonnet ; puis la relecture de Florian. On ne découpe pas en largeur sur plusieurs domaines à la fois.
+- **Impacts :** remplace le découpage en lots parallèles S2-x de `docs/SOCLE2_DOMAINES.md` (qui reste une source d'idées). Les lots S2-x en cours (EDT, évaluations, communication, finances, santé) sont terminés sans élargissement et serviront de base aux socles correspondants. Six sessions de conception lancées en largeur le même jour ont été arrêtées après quelques minutes (environ 18 $ consommés, rien de livré).
