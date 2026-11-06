@@ -151,9 +151,10 @@ pub async fn expedier_envois(
                 sqlx::query(
                     "UPDATE ent_inscription_envoi SET statut = 'envoye', envoye_le = now(),
                             tentatives = tentatives + 1, derniere_erreur = NULL
-                      WHERE id = $1",
+                      WHERE id = $1 AND etablissement_id = $2",
                 )
                 .bind(id)
+                .bind(etab)
                 .execute(&mut *tx)
                 .await?;
                 if let Some(inv) = invitation_id {
@@ -176,13 +177,14 @@ pub async fn expedier_envois(
                         SET tentatives = $2, derniere_erreur = left($3, 500),
                             statut = CASE WHEN $4 THEN 'echec' ELSE statut END,
                             prochain_essai = now() + make_interval(mins => $5::int)
-                      WHERE id = $1",
+                      WHERE id = $1 AND etablissement_id = $6",
                 )
                 .bind(id)
                 .bind(n)
                 .bind(&e)
                 .bind(definitif)
                 .bind(1_i32 << n.min(8))
+                .bind(etab)
                 .execute(&mut *tx)
                 .await?;
                 if definitif {
