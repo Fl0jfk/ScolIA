@@ -302,8 +302,11 @@ function ChatMessageActions({
 
   const previewCount = ctas.filter((c) => c.preview).length;
   const downloadCount = ctas.filter((c) => /^Télécharger\b/.test(c.label)).length;
+  const sourceCount = ctas.filter((c) => c.group === "Sources").length;
   const heading =
-    downloadCount > 0 && downloadCount === ctas.length
+    sourceCount > 0 && sourceCount === ctas.length
+      ? "Sources"
+      : downloadCount > 0 && downloadCount === ctas.length
       ? "Fichiers créés"
       : previewCount > 0 && previewCount === ctas.length
         ? "Documents"
@@ -322,6 +325,36 @@ function ChatMessageActions({
           const isPreview = Boolean(c.preview) || isEleveDocumentHref(c.href);
           // Fichier créé par ScolIA (lien pré-signé) : vrai téléchargement, la bulle reste ouverte.
           const isDownload = /^https:\/\//.test(c.href) && /^Télécharger\b/.test(c.label);
+          // Lien externe (source web) : nouvel onglet, ScolIA reste ouvert.
+          if (!isDownload && /^https:\/\//.test(c.href)) {
+            let host = "";
+            try {
+              host = new URL(c.href).hostname.replace(/^www\./, "");
+            } catch {
+              host = "";
+            }
+            return (
+              <li key={`${c.href}_${c.label}_${idx}`}>
+                <a
+                  href={c.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white"
+                >
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--dash-ink)] text-[12px] font-bold text-white"
+                    aria-hidden
+                  >
+                    ↗
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium text-[var(--dash-ink)]">{c.label}</span>
+                    {host ? <span className="block truncate text-[11px] text-neutral-500">{host}</span> : null}
+                  </span>
+                </a>
+              </li>
+            );
+          }
           if (isDownload) {
             return (
               <li key={`${c.href}_${c.label}_${idx}`}>

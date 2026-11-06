@@ -41,6 +41,8 @@ import {
 } from "@/app/lib/brain-ai/tools/handlers/accueil-absences";
 import { handleListElevesFiltered } from "@/app/lib/brain-ai/tools/handlers/eleves-filtered";
 import { handleShowDocuments } from "@/app/lib/brain-ai/tools/handlers/show-documents";
+import { handleWebSearch } from "@/app/lib/brain-ai/tools/handlers/web-search";
+import { WEB_SEARCH_TOOL_SCHEMA } from "@/app/lib/brain-ai/web-search";
 import { handleUpdateEleveGrilleRepas } from "@/app/lib/brain-ai/tools/handlers/eleve-grille-repas";
 import { handleCreateElevePreinscrit } from "@/app/lib/brain-ai/tools/handlers/eleve-create";
 import { handleOpenTrip } from "@/app/lib/brain-ai/tools/handlers/open-trip";
@@ -1094,6 +1096,14 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: false,
     handler: handleCreateFile,
+  },
+  {
+    name: WEB_SEARCH_TOOL_SCHEMA.function.name,
+    description: WEB_SEARCH_TOOL_SCHEMA.function.description,
+    parameters: WEB_SEARCH_TOOL_SCHEMA.function.parameters,
+    requiresAuth: true,
+    mutates: false,
+    handler: handleWebSearch,
   },
 ];
 

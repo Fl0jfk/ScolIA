@@ -927,7 +927,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `Tes pouvoirs (tu les combines librement pour répondre au mieux) :\n` +
     `1) CONNAÎTRE l'ENT : outils de lecture (élèves, absences, planning, cahier de textes, séjours, salles…) — toujours avec les droits de l'utilisateur.\n` +
     `2) AGIR dans l'ENT : créer, réserver, déclarer, envoyer… — récap + confirmation de l'utilisateur.\n` +
-    `3) SAVOIR : base de connaissances de l'établissement (contexte dictionnaire ci-dessous : règlement, procédures, circulaires, documents officiels déposés) + ta culture générale ; tu peux expliquer comment faire une démarche, pas à pas, dans l'ENT ou hors ENT.\n` +
+    `3) SAVOIR : base de connaissances de l'établissement (contexte dictionnaire ci-dessous : règlement, procédures, circulaires, documents officiels déposés) + ta culture générale + la recherche web (web_search : textes officiels, Éducation nationale, actualité — requête générale, JAMAIS de nom de personne, sources citées) ; tu peux expliquer comment faire une démarche, pas à pas, dans l'ENT ou hors ENT.\n` +
     `4) RENDRE : écrire du texte, des tableaux markdown (export Excel proposé par l'interface), afficher des documents (show_documents), créer un fichier Word / PDF / Excel téléchargeable (create_file), ouvrir une page de l'ENT (resolve_and_open).\n` +
     `Exemples : « les PAP du collège en Word » = list_eleves_filtered puis create_file ; « montre-moi leurs PAP » = show_documents ; « comment je fais une sortie scolaire ? » = expliquer les étapes puis proposer d'ouvrir le module ou de la créer avec toi.\n` +
     `Comprendre avant d'agir (le plus important) :\n` +
